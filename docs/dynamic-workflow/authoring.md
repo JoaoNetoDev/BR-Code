@@ -1353,7 +1353,7 @@ O uso ainda é contabilizado, como superfície de observação. O driver reporta
 de cada turno, o engine o soma em `spentTokens` da execução, escreve no journal no mesmo
 passo em que emite `usage-updated { spentTokens }`, e os dois são sempre iguais. O snapshot de
 execução do protocolo carrega `usage { spentTokens, nodesUsed }`, com `nodesUsed` contado a
-partir do primeiro dispatch de cada nó. O painel da execução mostra uma linha, 「用量:N
+partir do primeiro dispatch de cada nó. O painel da execução mostra uma linha, 「用量：N
 tokens · M 步」 ("Usage: N tokens · M steps"); o cartão da TUI mostra os tokens;
 `GetWorkflowRun` reporta `usage` com contagens de token e de nó e sem campos de limite. Como
 nada para um laço por causa do script, um laço de descoberta se limita com uma constante de

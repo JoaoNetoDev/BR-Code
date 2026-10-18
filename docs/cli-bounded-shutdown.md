@@ -7,7 +7,7 @@ seu deadline começa no primeiro EOF/sinal/erro fatal, cobrindo a inicializaçã
 voo; não depende do retorno de `run()` para iniciar o watchdog. As regras já existentes para o
 comando único e o plugin-host permanecem inalteradas abaixo.
 
-## Feature/change summary
+## Resumo de feature/mudança
 
 | Campo               | Decisão                                                                                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -17,7 +17,7 @@ comando único e o plugin-host permanecem inalteradas abaixo.
 | Critério de sucesso | Limpeza normal tem prioridade; quando qualquer close externo nunca faz settle, o ZCode CLI ainda termina dentro de um teto fixo, sem esperar processos órfãos morrerem naturalmente |
 | Out of scope       | Garantia multiplataforma pura de Node para matar qualquer processo de terceiros que já tenha feito `setsid`/daemonize e se desvinculado do grupo de processos original; alterar a semântica de desktop continuous / mobile replayable |
 
-## Clarification log
+## Registro de esclarecimentos
 
 | Pergunta                                        | Entrada do usuário / evidência de campo                                                                                       | Fronteira fixada                                                                                                     |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -26,7 +26,7 @@ comando único e o plugin-host permanecem inalteradas abaixo.
 | O retorno de `run()` sempre significa que o processo deve sair? | Após o `server.connect()` do MCP de `__zcode-plugin-host`, `main()` retorna, mas o serviço stdio deve continuar rodando | O watchdog pertence apenas ao CLI de comando único; o plugin-host tem seu ciclo de vida mantido pelo MCP stdio/pai, não entra na política de saída única |
 | É necessário matar qualquer daemon               | Após nova sessão POSIX / reparent no Windows, o PID pai ou o PGID original não bastam mais para endereçar                  | Matar descendentes do mesmo grupo como melhor esforço; ao perder ownership, destruir o pipe local e garantir a saída do CLI; containment absoluto em nível de OS é outra capacidade |
 
-## Boundary decisions
+## Decisões de fronteira
 
 | Limite                       | Decisão                                                                                                          | Comportamento proibido                                                                 |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -39,9 +39,9 @@ comando único e o plugin-host permanecem inalteradas abaixo.
 | CLI entry                    | Após o retorno de `run()` do comando único, define um watchdog unref; se o event loop se esgotar naturalmente não dispara, caso contrário força a saída preservando o exit code existente | Não chamar `process.exit()` antes de a resposta do modelo/a saída stdio terminarem |
 | plugin-host entry            | Após iniciar com sucesso o MCP server, `__zcode-plugin-host` deixa o stdio/processo pai decidir a sobrevivência e o fechamento, sem registrar watchdog de CLI único; falha na inicialização ainda tem força de saída limitada | Não tratar handles stdio válidos do MCP server como vazamento nem deixar handles residuais de plugin com falha manterem o processo vivo para sempre |
 
-## Domain scope and high-risk cross-products
+## Escopo de domínio e cross-products de alto risco
 
-O domínio principal é architecture/process boundary, background Bash lifecycle, managed Browser lifecycle e CLI release.
+O domínio principal é fronteira de architecture/process, ciclo de vida do Bash em background, ciclo de vida do Browser gerenciado e release do CLI.
 
 | Cross-product                                           | Risco                                                                    | Tratamento                                                             |
 | ------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -52,7 +52,7 @@ O domínio principal é architecture/process boundary, background Bash lifecycle
 | plugin-host × handle ativo de MCP stdio                 | Após o retorno de `server.connect()` o handle stdio é condição de sobrevivência do serviço, não um vazamento de comando único | accepted: pular o watchdog de saída do CLI; sair naturalmente quando o pai fecha o stdin |
 | entrega desktop/mobile/remote × cleanup                  | Confundir o cleanup do host com uma regra de replay de conversa          | pruned: não alterar protocol, snapshot, queue, clientMode ou deliveryKind |
 
-## State sequence
+## Sequência de estados
 
 ```text
 model terminal
@@ -70,7 +70,7 @@ model terminal
        + plugin-host   -> MCP stdio owns lifetime -> parent closes stdin / signal exits
 ```
 
-## Candidate combinations and pruning
+## Combinações candidatas e podagem
 
 | Case       | Setup / ação                                                                    | Asserções                                                                                     | Classificação / evidência                                            |
 | ---------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -85,7 +85,7 @@ model terminal
 | CLI-SD-009 | O `main()` do plugin-host retorna após o connect do MCP, o pai mantém stdin aberto | Após passar o deadline do watchdog único o host continua vivo; o pai fecha stdin e ele sai normalmente | accepted; integração com subprocesso CLI real + smoke do SEA   |
 | CLI-SD-010 | A inicialização do plugin-hold ocupa stdin e então lança erro                 | Preserva o exit code de falha, e o watchdog força a saída de forma limitada                     | accepted; integração com subprocesso CLI real                    |
 
-## Coverage matrix / E2E handoff
+## Matriz de cobertura / handoff E2E
 
 - conversation background catalog: `BG40`, cobertura focada de adapter/runtime, sem novo GUI E2E.
 - Browser Use matrix: `BCP-212` / `HCDP-013`, cobrindo close pendente e o cleanup subsequente.

@@ -550,7 +550,7 @@ herança, e quando o campo realmente permite clear explícito é oferecida uma a
 explícita. Enums continuam usando a linguagem de Select existente: quando recolhido mostram o resultado
 efetivo; dentro do menu distinguem «herdar o valor existente», «manter não definido», «limpar
 explicitamente» (quando permitido) e os valores de enum propriamente ditos, sem empilhar textos longos
-como «默认（当前为 X）» no gatilho.
+como «默认(当前为 X)» no gatilho.
 
 O `enabled` geral do Model usa um Switch compacto. Input/Output Format e os Boolean de capacidade como
 tool call, structured output, native web search e MCS usam Toggle Chip / Selectable Tag coordenados com

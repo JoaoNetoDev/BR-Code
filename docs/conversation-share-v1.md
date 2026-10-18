@@ -200,7 +200,7 @@ troca de dados entre versões**. As disciplinas abaixo não são sugestões:
    pulada**, e antes de incrementar é preciso confirmar a proporção de versões dos clientes existentes e
    das imagens de landing page já implantadas — incrementar uma vez equivale a fazer todos eles não
    conseguirem ver os novos compartilhamentos. Quando a versão é superior ao conhecimento local, usa-se
-   `unsupported_schema_version`（「请升级 ZCode」), sem misturar em `invalid_contract`（「分享格式无效」).
+   `unsupported_schema_version`(「请升级 ZCode」), sem misturar em `invalid_contract`(「分享格式无效」).
 6. **O switch exaustivo de `projectRow` (`conversationSharePublicProjection.ts`) é uma barreira de
    compilação proposital; não adicione um `default` a ele.** Um novo row kind precisa fazer o build falhar,
    forçando o desenvolvedor a tomar a decisão do item 4 em vez de começar silenciosamente a emitir na projeção pública

@@ -25,7 +25,7 @@ A CUA oficial confiável tem ainda uma semântica restrita de grupo de capacidad
 
 O app legacy repassa a decisão conforme `option.response`; o V4 entrega ao interaction handler já registrado no Agent por meio do optionId estável e não deriva a resposta do índice de UI. O acesso total pertence à ação de submissão independente descrita abaixo e não pode ser tratado como um allow comum.
 
-## Deny with feedback (V4)
+## Recusa com feedback (V4)
 
 O snapshot de permissão do V4 pode declarar "feedback permitido ao recusar" por meio de `freeText: true`. Esse campo é uma capacidade de entrada, não uma quarta decisão de permission, e não altera o protocolo de `allow_once`, `allow_project` e `deny`.
 

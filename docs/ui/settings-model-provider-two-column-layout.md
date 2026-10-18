@@ -21,7 +21,7 @@ Registro de verificação (2026-09-11): testes unitários de layout 3/3, MP-UI-0
 
 - Contêiner externo: `Card` com borda semântica, usando internamente `lg:grid-cols-[224px_minmax(0,1fr)]`.
 - Esquerda: barra de navegação de fornecedores, exibida em dois níveis.
-  - Primeiro nível (não clicável): `预制模型供应商`、`自定义供应商`.
+  - Primeiro nível (não clicável): `预制模型供应商`, `自定义供应商`.
   - Segundo nível (clicável): nome do fornecedor concreto.
 - Direita: área de detalhes do fornecedor selecionado.
   - Pré-configurado/personalizado: exibe endpoint, API Key (mascarada), lista de modelos e mapeamento de slots Claude.
