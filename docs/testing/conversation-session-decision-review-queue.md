@@ -190,7 +190,7 @@ node scripts/audit-conversation-session-case-coverage.mjs --check --review-queue
 
 | Question | O que precisa confirmar | Resumo das respostas candidatas / palavras-chave de verificação | Alvo de reescrita |
 | --- | --- | --- | --- |
-| D02.1 | Tool block após falha da escrita de arquivo do workspace pelo tool, continuação do assistant, estado do turno atual e entrada de retry | workspace 父目录创建 / 非原子写 fault, tool block, file content | fault D02, fault coverage D02 |
+| D02.1 | Tool block após falha da escrita de arquivo do workspace pelo tool, continuação do assistant, estado do turno atual e entrada de retry | criação do diretório pai do workspace / escrita não atômica, tool block, file content | fault D02, fault coverage D02 |
 
 #### D03
 

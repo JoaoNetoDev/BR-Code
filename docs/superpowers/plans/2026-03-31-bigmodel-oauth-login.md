@@ -1585,7 +1585,7 @@ git commit -m "chore(desktop): remove login window, old login e2e tests, fix see
 
 - [ ] **Passo 1: modificar electron-builder.config.js — adicionar a configuração protocols**
 
-Em `packages/desktop/electron-builder.config.js`, adicione protocols antes da config de mac:
+Em `packages/desktop/electron-builder.config.js`, adicione a chave `protocols` antes da configuração de mac:
 ```js
   // OAuth deep link 协议注册（macOS 打包后需要 Info.plist 中声明 CFBundleURLTypes）
   protocols: [
