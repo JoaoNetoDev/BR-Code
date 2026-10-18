@@ -1,22 +1,22 @@
-# Todo 84：Model Selection 缺失 Reasoning 与辅助请求策略收口
+# Todo 84: Fechamento da seleção de Reasoning ausente e da política de requisições auxiliares no Model Selection
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização de atribuição da verificação (2026-09-09): as pendências residuais de teste sub-coberto/falhante/promoção manual deste documento são transferidas para [Todo102](todo-102-verification-debt-closeout.md), encerrando o cronograma de verificação independente aqui; as evidências históricas são preservadas e a transferência não significa que os testes passaram.
 
-> 状态：已由 Todo 88 R11 完成修正与阶段验收；2026-09-08 同步状态。主动选模型取最高档已实现，不再作为待开发项；全端全量未运行项仍按 Todo 88 记录，不冒称全部通过。
+> Status: as correções e a aceitação de etapa foram concluídas pelo Todo 88 R11; status sincronizado em 2026-09-08. A escolha ativa de modelo com o nível mais alto já foi implementada e não consta mais como item a desenvolver; itens de execução completa em todos os ambientes que não foram rodados continuam conforme o registro do Todo 88, sem alegar aprovação total.
 >
-> 日期：2026-09-05
+> Data: 2026-09-05
 >
-> 关系：收口 Todo 58、Todo 60、Todo 63、Todo 70、Todo 81 中关于 Reasoning 缺失、失效和辅助调用的分散约定。
+> Relação: fecha as convenções dispersas sobre Reasoning ausente/inválido e chamadas auxiliares dos Todo 58, Todo 60, Todo 63, Todo 70, Todo 81.
 
-## 背景
+## Contexto
 
-2026-09-07 用户明确修正：用户主动选择新模型时，使用该模型当前有序档位的最高档 `values.at(-1)`。历史恢复、持久化选择缺失或档位失效，仍保留模型身份并清空档位。
+Correção explícita do usuário em 2026-09-07: quando o usuário seleciona ativamente um novo modelo, deve-se usar o nível mais alto entre os níveis ordenados atuais desse modelo, `values.at(-1)`. Na recuperação de histórico, na seleção persistida ausente ou em nível inválido, a identidade do modelo continua preservada e o nível é esvaziado.
 
-两者属于不同的产品动作，不能为了统一实现而合并语义。主动选模入口显式构造完整 Selection，不等于在 Option Spec 新增 default，也不允许 ModelFactory 或请求层偷偷补值。辅助请求仍在自身调用点使用最低档位。
+São duas ações de produto distintas, que não devem ter suas semânticas unificadas apenas para facilitar a implementação. A entrada de escolha ativa de modelo constrói explicitamente uma Selection completa, o que não equivale a adicionar um default no Option Spec nem permite que ModelFactory ou a camada de request preencham valores por baixo. As requisições auxiliares continuam usando o nível mais baixo em seus próprios pontos de chamada.
 
-## 最终规则
+## Regra Final
 
-### 1. 区分主动选模与已有选择恢复
+### 1. Distinguir escolha ativa de modelo da recuperação de seleção existente
 
 ```text
 用户主动选择新模型
@@ -47,16 +47,16 @@ Provider/Model 无效       Provider/Model 有效
                                  reasoning 置空
 ```
 
-- 用户主动切换模型时取目标模型 `values.at(-1)`，不携带源模型档位；没有合法候选档位时不得伪造档位。
-- 读取持久化 Selection、读取历史 Selection、配置刷新后重新校验已有选择时，遵循上述留空规则，不补最高档。
-- 本次裁决不单独改变全新 Composer 的初始模型、Recent 或 Configured Default 优先级，也不改变账号切换的同模型/同档位衔接规则。
-- Reasoning 为空的 Selection 不得进入普通模型执行；Composer 等待用户重新选择档位。
-- Provider 或 Model 不存在时，不能猜测身份，整份 Selection 置空。
-- 普通 Composer 对失效 Reasoning 只显示为空，不弹泛化的迁移失败通知；可执行任务（如 Automation、仍可能运行的 Off-Peak）在其原有错误位置提示无法继续运行，沿用 Todo 81 的场景化提示范围。
+- Quando o usuário troca de modelo ativamente, usa-se `values.at(-1)` do modelo alvo, sem carregar o nível do modelo de origem; sem um nível candidato legítimo, nenhum nível pode ser fabricado.
+- Ao ler uma Selection persistida, ler uma Selection do histórico ou revalidar uma escolha existente após a atualização de configuração, segue-se a regra de esvaziamento acima, sem preencher o nível mais alto.
+- Esta decisão não muda, isoladamente, o modelo inicial de um Composer novo, nem a prioridade de Recent ou Configured Default, nem a regra de continuidade de mesmo modelo/mesmo nível na troca de conta.
+- Uma Selection com Reasoning vazio não pode entrar na execução normal de modelo; o Composer aguarda o usuário selecionar o nível novamente.
+- Quando Provider ou Model não existem, não se adivinha a identidade e a Selection inteira é esvaziada.
+- O Composer comum apenas exibe o Reasoning inválido como vazio, sem disparar uma notificação genérica de falha de migração; tarefas executáveis (como Automation e o Off-Peak, que ainda pode estar rodando) avisam em seu local de erro original que não conseguem continuar, mantendo o escopo de mensagens contextualizadas do Todo 81.
 
-### 2. 辅助请求独立、显式选择档位
+### 2. Requisições auxiliares: escolha de nível independente e explícita
 
-辅助请求不是在修复或补全 Model Selection，而是在一次调用中显式构造临时请求参数：
+Uma requisição auxiliar não está reparando nem completando um Model Selection; ela constrói explicitamente parâmetros de requisição temporários em uma única chamada:
 
 ```text
 辅助调用
@@ -71,48 +71,48 @@ Provider/Model 无效       Provider/Model 有效
       maxOutputTokens = 调用方明确限制的预算
 ```
 
-- 辅助调用不得回写 Composer、Session 或持久化 Selection。
-- 最低档位策略只在辅助调用构造参数时出现，不能下沉成 Model Selection 的默认值。
-- 普通 Goal 主执行和 Goal continuation 不属于低成本辅助请求，继续使用当前完整 Model Selection；只有 Goal Completion Verification 使用辅助策略。
-- 连接测试继续显式使用最低档位，不依赖当前 Composer 的 reasoning 状态。
+- Uma chamada auxiliar não pode escrever de volta no Composer, na Session ou em uma Selection persistida.
+- A política do nível mais baixo só aparece ao construir os parâmetros de uma chamada auxiliar e não pode descer para virar default do Model Selection.
+- A execução principal de um Goal comum e a continuação de Goal não são requisições auxiliares de baixo custo e continuam usando o Model Selection completo atual; apenas o Goal Completion Verification usa a política auxiliar.
+- O teste de conectividade continua usando explicitamente o nível mais baixo, sem depender do estado atual de reasoning do Composer.
 
-## 实施范围（已由 Todo 88 收口，保留验收要求）
+## Escopo de Implementação (fechado pelo Todo 88; requisitos de aceitação preservados)
 
-1. 恢复用户主动选模时取最高 Reasoning 的公共构造入口及调用，补充与历史恢复留空的区别测试；不将补值下沉至执行层。
-2. 保证所有普通 Selection 进入执行前都要求有效 Reasoning；禁止 ModelFactory 或其他下层静默补档位。
-3. 保留并统一“Provider/Model 无效整份置空、Reasoning 无效只清空 Reasoning”的恢复语义。
-4. 检查 Composer、Session 恢复、Model Selection View、Automation、Off-Peak、Subagent、Bot、Repo Wiki 等消费方，避免各自重新猜测或补齐 Reasoning。
-5. 明确辅助请求的调用点和测试边界，尤其确认 Goal 主执行不会误走 `auxiliaryModelOptions`，Goal Completion Verification 才使用最低档位。
-6. 清理与旧“最高档默认补齐”规则相关的命名、注释、文档和测试，避免保留桥接逻辑。
+1. Restaurar a entrada pública de construção que, na escolha ativa de modelo do usuário, usa o Reasoning mais alto, junto com suas chamadas, complementando testes que diferenciem isso do esvaziamento na recuperação de histórico; não fazer o preenchimento descer à camada de execução.
+2. Garantir que toda Selection normal exija Reasoning válido antes de entrar na execução; proibir que ModelFactory ou outras camadas inferiores preencham o nível silenciosamente.
+3. Preservar e unificar a semântica de recuperação de «Provider/Model inválido esvazia tudo, Reasoning inválido esvazia apenas o Reasoning».
+4. Verificar os consumidores como Composer, recuperação de Session, Model Selection View, Automation, Off-Peak, Subagent, Bot e Repo Wiki, evitando que cada um re-adivinhe ou complete o Reasoning por conta própria.
+5. Esclarecer os pontos de chamada e os limites de teste das requisições auxiliares, confirmando especialmente que a execução principal de um Goal não entra em `auxiliaryModelOptions` por engano e que apenas o Goal Completion Verification usa o nível mais baixo.
+6. Limpar nomenclatura, comentários, documentação e testes relacionados à antiga regra de «preencher com o nível mais alto por padrão», evitando deixar lógica de ponte.
 
-## 验收标准
+## Critérios de Aceitação
 
-- 用户主动选择新模型后，默认档位为该模型当前最高档；持久化/历史恢复及已有选择校验发现缺失或失效 Reasoning 时仍留空，不自动降档或升档。
-- Provider/Model 失效时整份 Selection 为空；Reasoning 单独失效时模型身份仍保留。
-- Composer 可以识别空 Reasoning 并要求用户重新选择，但不显示无法修复的泛化迁移通知。
-- Automation、可继续执行的 Off-Peak 等任务在空 Selection 时不会运行，并在原任务位置给出可理解的错误提示。
-- 普通 Goal 设置、Goal continuation 使用当前完整 Selection；Goal Completion Verification 使用最低 Reasoning 和自己的输出预算。
-- Title、Memory、Connectivity 等辅助请求仍显式传入最低档位，且不修改任何持久化 Selection。
-- 覆盖新建、持久化恢复、Registry 变更、Composer、Goal、Automation、连接测试的定向测试通过，并通过全量 typecheck、lint 和既有 E2E 回归。
+- Depois que o usuário seleciona ativamente um novo modelo, o nível padrão é o nível mais alto atual daquele modelo; na recuperação de persistência/histórico e na validação de escolhas existentes, um Reasoning ausente ou inválido continua vazio, sem rebaixar nem subir o nível automaticamente.
+- Quando Provider/Model ficam inválidos, a Selection inteira fica vazia; quando apenas o Reasoning fica inválido, a identidade do modelo é preservada.
+- O Composer consegue reconhecer o Reasoning vazio e pedir ao usuário que selecione novamente, sem exibir a notificação genérica de migração impossível de corrigir.
+- Tarefas como Automation e o Off-Peak que podem continuar executando não rodam com Selection vazia e dão um erro compreensível na posição original da tarefa.
+- A configuração comum de Goal e a continuação de Goal usam a Selection atual completa; o Goal Completion Verification usa o Reasoning mais baixo e seu próprio orçamento de saída.
+- Requisições auxiliares como Title, Memory e Connectivity continuam passando explicitamente o nível mais baixo e não modificam nenhuma Selection persistida.
+- Passam os testes direcionados cobrindo criação, recuperação de persistência, mudanças no Registry, Composer, Goal, Automation e teste de conectividade, além do typecheck completo, do lint e das regressões de E2E existentes.
 
-## 实施记录（2026-09-05）
+## Registro de Implementação (2026-09-05)
 
-以下为原实现的历史记录，不代表当前行为。`a43049c265d` 曾取消主动选模补最高档；此行为已由 Todo 88 R11 按 2026-09-07 新裁决修正，关闭依据是后续验收，而非下述旧测试结果。
+A seguir está o registro histórico da implementação original e não representa o comportamento atual. O commit `a43049c265d` chegou a cancelar o preenchimento do nível mais alto na escolha ativa de modelo; esse comportamento foi corrigido pelo Todo 88 R11 conforme a nova decisão de 2026-09-07, e o encerramento se apoia na aceitação posterior, não nos resultados de teste antigos abaixo.
 
-- 普通 Selection 规范化改为 `normalizeModelSelection`：Provider/Model 身份保留，Reasoning 缺失或失效时清空；删除 Registry 顺序 fallback 和自动取最高档。
-- Composer、Repo Wiki、Session Facade 和 Registry 选择入口不再自动物化最高 Reasoning；模型切换可以先保存模型身份，必须随后显式选择 Reasoning 才能执行。
-- `resolveRegistryThoughtLevel` 不再把缺失或非法值回退到最高档；`setModel` 仅允许在 UI 选择边界暂存缺失 Reasoning，不放宽正式 Runtime/ModelFactory 的执行校验。
-- 保留 `auxiliaryModelOptions` 的最低档策略；Goal 主执行与 continuation 不变，Goal Completion Verification 继续使用辅助策略。
-- 定向测试通过：Provider 7 tests、Bootstrap 35 tests、UI 36 tests、Core 84 tests；`pnpm typecheck` 和 `pnpm lint` 通过（lint 保留工作区原有 warnings，无 errors）。
+- A normalização da Selection comum passou a ser `normalizeModelSelection`: a identidade de Provider/Model é preservada e o Reasoning ausente ou inválido é esvaziado; foram removidos o fallback pela ordem do Registry e o preenchimento automático do nível mais alto.
+- Composer, Repo Wiki, Session Facade e as entradas de seleção do Registry não materializam mais automaticamente o Reasoning mais alto; a troca de modelo pode salvar primeiro a identidade do modelo, e o Reasoning precisa ser explicitamente selecionado antes de executar.
+- `resolveRegistryThoughtLevel` não volta mais ao nível mais alto para valores ausentes ou inválidos; `setModel` só permite manter temporariamente um Reasoning ausente no limite de seleção da UI, sem afrouxar a validação de execução do Runtime/ModelFactory.
+- A política do nível mais baixo de `auxiliaryModelOptions` foi mantida; a execução principal de Goal e a continuação seguem iguais, e o Goal Completion Verification continua usando a política auxiliar.
+- Testes direcionados aprovados: Provider 7 testes, Bootstrap 35 testes, UI 36 testes, Core 84 testes; `pnpm typecheck` e `pnpm lint` aprovados (o lint mantém os warnings já existentes do workspace, sem errors).
 
-## 后续修正与收口（2026-09-08 状态同步）
+## Correções Posteriores e Fechamento (sincronização de status de 2026-09-08)
 
-- [Todo 88 的 R11](todo-88-provider-audit-regression-repair.md) 已将 Composer、定时任务、闲时任务、Subagent、Wiki 的主动选模接入公共最高档构造，并补齐 Bot `/model` 两个入口。历史恢复缺档位仍留空，不在 ModelFactory 补值。
-- 既有证据：选择配置/Facade/Composer 33 条通过；Bot 服务 93/93；Pro `desktop-e2e-20260907-163541-147` 3/3，另有 I20 实际子请求验证。这里只同步已记录的结果，本次没有重跑测试。
-- 完整桌面/手机全量未运行等限制沿用 Todo 88。后续迁移去环境依赖、原意图保护和旧字段专项审计由 Todo 96/97 承接，不重新把最高档功能列为未实现。
+- [R11 do Todo 88](todo-88-provider-audit-regression-repair.md) já conectou a escolha ativa de modelo do Composer, das tarefas agendadas, das tarefas ociosas, do Subagent e do Wiki à construção pública do nível mais alto, e completou as duas entradas de `/model` no Bot. A recuperação de histórico sem nível continua vazia, sem preenchimento no ModelFactory.
+- Evidências existentes: 33 casos de configuração de seleção/Facade/Composer aprovados; serviço do Bot 93/93; Pro `desktop-e2e-20260907-163541-147` 3/3, além da verificação de subrequisição real do I20. Aqui só se sincronizam resultados já registrados; nesta rodada não houve reexecução de testes.
+- Limitações como execução completa de desktop/celular não realizada seguem conforme o Todo 88. A migração posterior de dependências de ambiente, proteção da intenção original e auditoria de campos antigos fica a cargo do Todo 96/97, sem voltar a listar o recurso de nível mais alto como não implementado.
 
-## 非目标
+## Não Objetivos
 
-- 不重新设计 Provider Config 分层或 Personal Provider Instance 结构；相关内容由 Todo 76 负责。
-- 不修改 Goal 的产品语义、队列语义或完成验证流程，只收口其模型档位归属。
-- 不把辅助调用的最低档位写入 Model Config 的 `default` 字段。
+- Não redesenhar a estratificação do Provider Config nem a estrutura de Personal Provider Instance; esse conteúdo cabe ao Todo 76.
+- Não modificar a semântica de produto, de fila ou o fluxo de verificação de conclusão do Goal, apenas fechar a atribuição do nível de modelo dele.
+- Não gravar o nível mais baixo das chamadas auxiliares no campo `default` do Model Config.

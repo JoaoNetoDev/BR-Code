@@ -1,78 +1,78 @@
 # macOS DMG Signing And Notarization
 
-## 背景
+## Contexto
 
-macOS release DMG 是用户从浏览器下载后直接交给 Gatekeeper 评估的最终分发物。3.1.2 曾出现 DMG 已经通过 `notarytool` 并执行 `stapler staple`，但 DMG 本体没有 Developer ID 签名的情况；带 Chrome quarantine 的下载文件会被 `spctl -t open/install` 判定为 `source=no usable signature`，导致部分用户安装失败。
+O DMG de release do macOS é o artefato final de distribuição que o usuário baixa pelo navegador e entrega diretamente ao Gatekeeper para avaliação. Na 3.1.2 chegou a ocorrer o caso em que o DMG já havia passado pelo `notarytool` e pela execução de `stapler staple`, mas o próprio DMG não tinha assinatura Developer ID; arquivos baixados com a quarantine do Chrome eram julgados por `spctl -t open/install` como `source=no usable signature`, fazendo com que alguns usuários tivessem falha na instalação.
 
-## 目标
+## Objetivos
 
-- `ZCode.app` 继续由 electron-builder 使用 Developer ID Application 签名。
-- 最终 DMG 在提交 Apple notarization 前必须单独执行 Developer ID `codesign`。
-- DMG 公证完成并去掉 `.unnotarized` 后，必须通过 `codesign`、`stapler validate` 和 `spctl -t open` 验收。
-- 最终 `ZCode.app` 及其包内 Helper、安装后的用户级 Helper 必须分别通过 `codesign --verify --deep --strict` 和 `spctl -a -vv -t exec` 验收；两个 Helper 还必须通过本地 `xcrun stapler validate`，确认签名未被重新覆盖后 staple 仍对应最终 bundle。
-- 正式 tag 发布禁止上传 `.unnotarized.dmg`；测试、sandbox 和 MR 链路可以保留未公证产物用于排查，但不得进入正式 release。
+- `ZCode.app` continua sendo assinado pelo electron-builder com Developer ID Application.
+- O DMG final precisa passar por um `codesign` de Developer ID separado, antes de ser submetido à notarização da Apple.
+- Depois que a notarização do DMG for concluída e o `.unnotarized` removido, é preciso passar por `codesign`, `stapler validate` e `spctl -t open`.
+- O `ZCode.app` final, os Helpers dentro do pacote e o Helper em nível de usuário após a instalação precisam passar individualmente por `codesign --verify --deep --strict` e `spctl -a -vv -t exec`; os dois Helpers também precisam passar pelo `xcrun stapler validate` local, confirmando que, depois que a assinatura não foi sobrescrita, o staple ainda corresponde ao bundle final.
+- A publicação oficial por tag proíbe o upload de `.unnotarized.dmg`; os fluxos de teste, sandbox e MR podem manter artefatos não notarizados para investigação, mas eles não podem entrar no release oficial.
 
-## CI 流程
+## Fluxo de CI
 
-1. `build:macos:*` 导入 Developer ID Application p12 到临时 keychain。
-2. `electron-builder` 打包并签 `ZCode.app`，产出 `ZCode-<version>-mac-<arch>.dmg`。
-3. `ci-collect-artifacts` 将 DMG 收集为 `*.unnotarized.dmg`。
-4. `scripts/notarize-macos.sh` 对 `*.unnotarized.dmg` 执行 DMG 签名、公证、staple、重命名和验收。
-5. `scripts/notarize-macos.sh` 在严格 release 中还会通过 `ZCODE_MACOS_RELEASE_APP_PATH` 或 `ZCODE_DESKTOP_DIST_DIR` 定位打包出的 `ZCode.app`，复用 `scripts/doctor-macos-release-app.sh` 验收主 app；找不到 app 路径时 fail-closed。CUA/Helper release gate 额外设置 `ZCODE_CUA_REQUIRE_HELPER=1`，并显式验收最终 app 内 `Contents/Resources/cua-helper/ZCode Computer Use.app`；缺失时 fail-closed。
-6. `scripts/upload-oss.sh` 正式发布时只接受已完成上述流程的 `*.dmg`。
+1. `build:macos:*` importa o p12 do Developer ID Application para um keychain temporário.
+2. O `electron-builder` empacota e assina o `ZCode.app`, produzindo `ZCode-<version>-mac-<arch>.dmg`.
+3. `ci-collect-artifacts` coleta o DMG como `*.unnotarized.dmg`.
+4. `scripts/notarize-macos.sh` executa, sobre `*.unnotarized.dmg`, a assinatura do DMG, a notarização, o staple, a renomeação e a aceitação.
+5. Em release estrito, `scripts/notarize-macos.sh` também localiza o `ZCode.app` empacotado por meio de `ZCODE_MACOS_RELEASE_APP_PATH` ou `ZCODE_DESKTOP_DIST_DIR` e reaproveita `scripts/doctor-macos-release-app.sh` para validar o app principal; quando o caminho do app não é encontrado, ocorre fail-closed. O release gate de CUA/Helper define adicionalmente `ZCODE_CUA_REQUIRE_HELPER=1` e valida explicitamente o `Contents/Resources/cua-helper/ZCode Computer Use.app` dentro do app final; quando ausente, ocorre fail-closed.
+6. `scripts/upload-oss.sh`, na publicação oficial, aceita apenas os `*.dmg` que passaram por todo o fluxo acima.
 
-## Computer Use Helper 的独立签名与架构约束
+## Assinatura Independente e Restrições de Arquitetura do Computer Use Helper
 
-`ZCode Computer Use.app` 虽随主 app 打包并在运行时复制到用户目录，仍是独立的 TCC 责任主体（bundle id
-`dev.zcode.cua-helper`），必须与主 app **分开**签名，才能在系统里拿到属于自己的 Accessibility /
-Screen Recording 授权条目。相关约束：
+Embora `ZCode Computer Use.app` seja empacotado junto do app principal e copiado para o diretório do usuário em tempo de execução, ele é um sujeito de responsabilidade TCC independente (bundle id
+`dev.zcode.cua-helper`) e precisa ser assinado **separadamente** do app principal para obter no sistema as entradas de autorização próprias de Accessibility /
+Screen Recording. As restrições relacionadas são:
 
-- **Helper 随 ZCode.app 交付，但作为独立 bundle 运行。** 发布包中的来源固定为
-  `ZCode.app/Contents/Resources/cua-helper/ZCode Computer Use.app`；产品安装器校验后把它复制到
-  `${ZCODE_HOME:-$HOME/.zcode}/computer-use/ZCode Computer Use.app`。不接受网络下载、`/Applications`、
-  `~/Applications` 或 `ZCode.app/Contents/Library/Helpers` 作为产品兜底；来源缺失必须 fail-closed。
-- **Helper 是独立 bundle，但复用 ZCode 的发布身份。** 独立 Helper 发布链路必须用
-  `build/entitlements.helper.plist` + hardened runtime 签成 `dev.zcode.cua-helper`；签名身份仍使用与
-  `ZCode.app` 相同的 Developer ID Application team/identity，不需要额外证书或额外 Apple 账号成本。同一
-  release payload 内的 `ZCode.app` 与 `ZCode Computer Use.app` 必须走同一次 notarization/staple 验收链路；
-  验收通过后，Helper 可以作为独立 `.app` 被安装器/脚本拷贝到
-  `${ZCODE_HOME:-$HOME/.zcode}/computer-use/`。ZCode.app 只负责发现、LaunchServices 启动、health check，
-  以及给 MCP 子进程注入随机 socket/token。
-- **helper 主可执行必须是 SEA Mach-O。** `scripts/build-cua-helper-app.mjs` 用 Node SEA 把 helper 入口
-  注入到一份拷贝的 Node 可执行里（替换旧的 shell wrapper），签名/公证前必须已是 Mach-O。
-- **plain-node ABI 的 `ax_native.node` 必须先编好。** SEA helper 运行时用内嵌 Node（非 Electron）加载
-  pinned `@zcode/zcode-cua/build/Release/ax_native.node`，因此需要 **plain-node ABI**（node-gyp rebuild，
-  而非 `@electron/rebuild` 的 Electron ABI）。`@zcode/zcode-cua` 已加入 `pnpm-workspace.yaml` 的
-  `allowBuilds`；独立 Helper 构建/验收必须显式检查该统一 addon 存在并可加载。
-- **跨架构（x64 在 Apple Silicon runner 上打包）。** 打包进程的 `process.execPath` 在 Apple Silicon runner
-  上是 arm64 Node，若 x64 job 不另行指定 Node，SEA helper 会被打成 arm64。`build-cua-helper-app.mjs` 的
-  `assertHelperSeaBaseNodeArch` 会在 SEA 组装前 fail-closed，并提示：为 x64 job 设置
-  `ZCODE_CUA_HELPER_NODE_PATH` 指向一份为目标架构编译的 SEA-capable Node，并为目标架构编译
-  pinned producer 的 `build/Release/ax_native.node`（目标 `--arch=x64`）。原生 arm64 job 无需额外设置。
+- **O Helper é entregue junto do ZCode.app, mas roda como bundle independente.** A origem no pacote publicado é fixada como
+  `ZCode.app/Contents/Resources/cua-helper/ZCode Computer Use.app`; o instalador do produto, após validar, a copia para
+  `${ZCODE_HOME:-$HOME/.zcode}/computer-use/ZCode Computer Use.app`. Não são aceitos download pela rede, `/Applications`,
+  `~/Applications` ou `ZCode.app/Contents/Library/Helpers` como fallback do produto; a ausência da origem precisa resultar em fail-closed.
+- **O Helper é um bundle independente, mas reaproveita a identidade de publicação do ZCode.** A cadeia de publicação do Helper independente precisa ser assinada com
+  `build/entitlements.helper.plist` + hardened runtime como `dev.zcode.cua-helper`; a identidade de assinatura continua sendo o mesmo
+  Developer ID Application team/identity de `ZCode.app`, sem necessidade de certificados adicionais nem de custo adicional de conta Apple. O `ZCode.app` e o `ZCode Computer Use.app` dentro do mesmo
+  release payload precisam passar pela mesma cadeia de aceitação de notarization/staple;
+  depois de aprovada, o Helper pode ser copiado pelo instalador/scriptos como um `.app` independente para
+  `${ZCODE_HOME:-$HOME/.zcode}/computer-use/`. ZCode.app é responsável apenas por descobrir, iniciar via LaunchServices, fazer health check
+  e injetar socket/token aleatórios nos subprocessos MCP.
+- **O executável principal do helper precisa ser um Mach-O SEA.** `scripts/build-cua-helper-app.mjs` usa Node SEA para injetar a entrada do helper
+  em uma cópia do executável do Node (substituindo o antigo shell wrapper); antes da assinatura/notarização, ela já precisa ser Mach-O.
+- **O `ax_native.node` de ABI plain-node precisa estar compilado antes.** O helper SEA em execução carrega, usando um Node embutido (não Electron),
+  o `@zcode/zcode-cua/build/Release/ax_native.node` fixado em versão, o que exige **ABI plain-node** (node-gyp rebuild,
+  e não o Electron ABI do `@electron/rebuild`). O `@zcode/zcode-cua` já foi adicionado ao `allowBuilds` do `pnpm-workspace.yaml`; o
+  build/aceitação do Helper independente precisa verificar explicitamente que esse addon unificado existe e pode ser carregado.
+- **Cross-arquitetura (x64 empacotado em runner Apple Silicon).** O `process.execPath` do processo de empacotamento em um runner Apple Silicon
+  é um Node arm64 e, se o job x64 não especificar outro Node, o helper SEA será gerado como arm64. O `assertHelperSeaBaseNodeArch` de `build-cua-helper-app.mjs`
+  causa fail-closed antes da montagem do SEA e orienta a: definir `ZCODE_CUA_HELPER_NODE_PATH` para o job x64 apontando para um Node
+  SEA-capable compilado para a arquitetura alvo, e compilar o `build/Release/ax_native.node` do producer fixado em versão para a arquitetura alvo
+  (`--arch=x64`). O job nativo arm64 não precisa de configuração adicional.
 
-## 本地无 Developer ID 的 Helper 调试
+## Depuração Local do Helper sem Developer ID
 
-开发机没有 Developer ID / notarization credentials 时，仍然可以用真实 ZCode App 跑
-Helper-owned CUA 链路，但必须显式标记为本地 dev，不得当作 release 证据：
+Quando a máquina de desenvolvimento não tem credenciais de Developer ID / notarization, ainda é possível rodar a cadeia CUA
+com Helper próprio usando o app ZCode real, mas é obrigatório marcar explicitamente como dev local e isso não vale como evidência de release:
 
-1. 本地构建 `ZCode Computer Use Dev.app`，并安装到
-   `${ZCODE_HOME:-$HOME/.zcode}/computer-use/dev/ZCode Computer Use Dev.app`。
-2. 从终端启动 ZCode App，并只在该进程环境里设置：
-   `ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1`。产品 Helper resolver 正式版与本地/dist 构建默认启用；
-   仅显式设置 `ZCODE_CUA_PRODUCT_HELPER=0|false|off` 才关闭。
-   desktop 会把该确定性的本地路径作为 bundled source 注入 utility host；缺失时直接失败，
-   不会回退网络下载。
-3. ZCode.app 仍然通过 LaunchServices `open -n -g <Helper.app> --args --socket <path> --token-file <path> --launcher-pid <pid>`
-   拉起外置 Helper，所以 macOS TCC 授权主体仍是 Helper 本身。产品路径**只接受 launcher 现签的一次性
-   `--token-file`**（`helperMain` 会拒绝无 token-file 的产品 broker），并要求 `--launcher-pid` 做对端进程树
-   校验；`--token` 仅用于显式本地 dev fallback，不应作为产品验收路径。
+1. Construir localmente `ZCode Computer Use Dev.app` e instalá-lo em
+   `${ZCODE_HOME:-$HOME/.zcode}/computer-use/dev/ZCode Computer Use Dev.app`.
+2. Iniciar o ZCode App pelo terminal definindo, apenas no ambiente desse processo:
+   `ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1`. O resolver de Helper do produto vem habilitado por padrão na versão oficial e nas builds local/dist;
+   ele só é desligado definindo explicitamente `ZCODE_CUA_PRODUCT_HELPER=0|false|off`.
+   O desktop injeta esse caminho local determinístico no utility host como bundled source; quando ausente, falha diretamente,
+   sem fazer fallback para download pela rede.
+3. O ZCode.app continua subindo o Helper externo via LaunchServices `open -n -g <Helper.app> --args --socket <path> --token-file <path> --launcher-pid <pid>`,
+   de modo que o sujeito de autorização TCC no macOS continua sendo o próprio Helper. O caminho de produto **aceita somente o `--token-file`
+   de uso único assinado pelo launcher** (o `helperMain` rejeita um broker de produto sem token-file) e exige o `--launcher-pid` para a
+   validação da árvore de processos do par; o `--token` é usado apenas como fallback explícito de dev local e não deve funcionar como caminho de aceitação de produto.
 
-该模式只放宽 Developer ID TeamIdentifier 和 Gatekeeper/notarization 检查；bundle id、
-版本、架构和 Mach-O 结构仍然必须匹配。缺失或结构不匹配时不会下载或替换正式 Helper，
-而是 fail-closed。ad-hoc/unsigned Helper 的 TCC 身份不稳定，重建后可能需要重新授权；
-正式验收仍必须使用签名、公证、staple 后的 Helper。
+Esse modo só flexibiliza as verificações de TeamIdentifier do Developer ID e de Gatekeeper/notarização; bundle id,
+versão, arquitetura e estrutura Mach-O ainda precisam corresponder. Na ausência ou em caso de estrutura incompatível, não há download nem substituição do Helper oficial,
+e sim fail-closed. A identidade TCC de um Helper ad-hoc/unsigned é instável e pode exigir nova autorização após um rebuild;
+a aceitação oficial ainda precisa usar o Helper assinado, notarizado e stapled.
 
-## 验收命令
+## Comandos de Aceitação
 
 ```bash
 codesign --verify ZCode-<version>-mac-<arch>.dmg
@@ -80,14 +80,14 @@ xcrun stapler validate ZCode-<version>-mac-<arch>.dmg
 spctl -a -t open --context context:primary-signature ZCode-<version>-mac-<arch>.dmg
 ```
 
-安装后最终验收主 app 与外置 Computer Use Helper：
+Após a instalação, a aceitação final do app principal e do Computer Use Helper externo:
 
 ```bash
 pnpm run doctor:macos-release -- "/Applications/ZCode.app"
 ZCODE_CUA_REQUIRE_HELPER=1 pnpm run doctor:macos-release -- "/Applications/ZCode.app"
 ```
 
-该命令会依次执行：
+Esse comando executa, na ordem:
 
 ```bash
 codesign --verify --deep --strict "/Applications/ZCode.app"
@@ -98,8 +98,8 @@ xcrun stapler validate "/Applications/ZCode.app/Contents/Resources/cua-helper/ZC
 xcrun stapler validate "$HOME/.zcode/computer-use/ZCode Computer Use.app"
 ```
 
-0.5.5 legacy：升级后旧 `ZCode CUA Helper.app` 目录可能仍然存在，但它不是当前安装的验收目标；
-不要对旧路径运行 `codesign` / `spctl` 并把结果当作本版本 Helper 的发布证据。
+0.5.5 legacy: após o upgrade, o diretório antigo `ZCode CUA Helper.app` ainda pode existir, mas ele não é o alvo de aceitação da instalação atual;
+não execute `codesign` / `spctl` no caminho antigo e não trate o resultado como evidência de publicação do Helper desta versão.
 
-脚本在成功路径捕获上述命令输出，只在失败时打印原始诊断，避免 `codesign` / `spctl`
-的 verbose 内部属性明细污染正式打包日志。
+O script captura a saída dos comandos acima no caminho de sucesso e só imprime o diagnóstico bruto em caso de falha, evitando que o detalhe verbose
+das propriedades internas de `codesign` / `spctl` contamine o log oficial de empacotamento.

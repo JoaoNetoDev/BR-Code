@@ -1,68 +1,68 @@
-# Todo141：模型编辑弹窗布局与高级配置体验对齐
+# Todo141: Alinhamento do layout do diálogo de edição de modelo e da experiência de configuração avançada
 
-状态：已完成（2026-09-12 用户重新授权后实施并复审）。在现有编辑器上重接下述裁决，没有直接合并产品分支代码。
+Status: concluído (implementado e revisado novamente após nova autorização do usuário em 2026-09-12). As decisões abaixo foram reconectadas sobre o editor existente, sem mesclar diretamente o código do branch de produto.
 
-## 来源与边界
+## Origem e Limites
 
-- 对照 `origin/feat/model-config-ux`（`20648a44f9`，产品实现 `7d581b31e6`）与本地 `ff9a8463e0`。
-- 在当前编辑器上重接获准的视觉与交互变化，不整文件覆盖。产品分支基于旧编辑器，仍包含内层卡片、输出类型、MFJS，以及不同的 checkbox 颜色／辅助功能语义；这些不采用。
-- 本 Todo 实施后取代 Todo134 的字段位置、智能开关位置和底部按钮布局；Todo134 的草稿、覆盖、手动校验和异步保护继续有效。
-- 只调整添加／编辑模型弹窗，不扩改 Provider 页面、模型选择菜单、底层配置类型、模型请求、账号同步和数据迁移。
+- Comparação entre `origin/feat/model-config-ux` (`20648a44f9`, implementação de produto `7d581b31e6`) e o local `ff9a8463e0`.
+- As mudanças visuais e de interação aprovadas foram reconectadas sobre o editor atual, sem sobrescrever o arquivo inteiro. O branch de produto se baseia no editor antigo e ainda contém cartão interno, tipo de saída, MFJS e cores de checkbox/semântica de acessibilidade diferentes; esses não são adotados.
+- Após a implementação deste Todo, prevalecem a posição dos campos, a posição do switch inteligente e o layout dos botões inferiores do Todo134; o rascunho, a sobrescrita, a validação manual e a proteção assíncrona do Todo134 continuam válidos.
+- Apenas o diálogo de adicionar/editar modelo é ajustado; não se estende nem altera a página de Provider, o menu de seleção de modelo, os tipos de configuração de baixo nível, a requisição de modelo, a sincronização de conta nem a migração de dados.
 
-## 最终布局
+## Layout Final
 
-| 区域 | 内容与顺序 |
-| --- | --- |
-| 标题下方独立一行 | 智能配置名称、问号、开关横向左对齐，采用产品分支的紧凑内部间距 |
-| 默认正文 | 模型 ID、上下文窗口、最大输出 Token |
-| 高级配置，默认折叠 | 输入类型、模型能力、推理配置组 |
-| 推理配置组 | **推理等级、推理参数映射上下相邻，放在同一组**；不分散摆放、不增加卡片边框 |
-| 底部左侧 | 重置表单 / Reset form：较小、带下划线的文字按钮 |
-| 底部右侧 | 取消、保存；保存为主按钮 |
+| Área                                   | Conteúdo e ordem                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| Linha independente abaixo do título   | Nome da configuração inteligente, ícone de interrogação e switch alinhados à esquerda horizontalmente, com o espaçamento interno compacto do branch de produto |
+| Corpo padrão                          | ID do modelo, janela de contexto, token máximo de saída                         |
+| Configuração avançada, recolhida por padrão | Tipo de entrada, capacidades do modelo, grupo de configuração de raciocínio |
+| Grupo de configuração de raciocínio    | **Nível de raciocínio e mapeamento de parâmetros de raciocínio adjacentes, no mesmo grupo**; sem distribuição espalhada e sem adicionar borda de cartão |
+| Inferior esquerdo                     | «重置表单 / Reset form»: botão de texto menor e sublinhado                       |
+| Inferior direito                      | Cancelar, Salvar; Salvar é o botão principal                                    |
 
-- 页面文案统一为“推理等级”，保留“从低到高”的说明；编辑的是模型支持的有序等级列表，不是会话当前等级。英文沿用 Reasoning levels。
-- 高级入口使用“高级配置 / Advanced settings”。
-- 保留当前无内层卡片布局；不恢复分组边框、背景及额外内边距。
-- 字段之间约 24px 的间距调整为 16px；标签与输入框约 4px；同一字段内选项间距保持现状。16px 是本轮明确要求，不视为产品代码已完整实现。
-- 保留外层弹窗、固定标题和底部，仅正文滚动；窄屏允许合理换行，不能挤掉操作或横向溢出。
+- O texto da página é unificado como «推理等级», preservando a descrição «从低到高»; o que se edita é a lista ordenada de níveis suportados pelo modelo, e não o nível atual da sessão. Em inglês, mantém-se Reasoning levels.
+- A entrada de avançado usa «高级配置 / Advanced settings».
+- Mantém-se o layout atual sem cartão interno; não se restauram bordas de grupo, fundo nem padding extra.
+- O espaçamento entre campos de cerca de 24px passa a 16px; entre rótulo e campo de entrada cerca de 4px; o espaçamento entre opções dentro do mesmo campo permanece como está. 16px é uma exigência explícita desta rodada e não significa que o código de produto já esteja completamente implementado.
+- Mantêm-se o diálogo externo, o título fixo e o rodapé fixo, com apenas o corpo rolável; em telas estreitas é permitido quebrar linha de forma razoável, sem espremer as ações nem gerar overflow horizontal.
 
-## 控件与展开交互
+## Controles e Interação de Expansão
 
-- 输入类型全部显示勾选框指示，包括文本；文本始终勾选且不可取消，保留锁定说明。图片、视频、PDF 沿用当前编辑能力。
-- 模型能力继续使用现有勾选框。复用现有指示样式，不随产品分支改颜色或外层辅助功能语义，不嵌套第二个可交互 checkbox。
-- 高级入口仅悬停时显示底色，移开透明，保留键盘可见焦点；箭头方向随展开状态变化。
-- 增加内容展开／收起与淡入淡出动画，优先复用现有组件能力；动画不能造成内容、覆盖边框或错误焦点不可见。
-- 展开／收起只改变展示，不丢草稿和推理等级的局部编辑状态，不触发保存、重新初始化或额外配置查询。正常失焦提交仍遵循现有行为。
-- 关闭弹窗再打开时默认收起高级配置。
+- Todos os tipos de entrada exibem indicador de checkbox, inclusive texto; o texto fica sempre marcado e não pode ser desmarcado, preservando a nota de bloqueio. Imagem, vídeo e PDF seguem a capacidade de edição atual.
+- As capacidades do modelo continuam usando os checkboxes existentes. Reaproveita-se o estilo de indicador atual, sem mudar cor ou semântica de acessibilidade externa conforme o branch de produto e sem aninhar um segundo checkbox interativo.
+- A entrada de avançado exibe cor de fundo apenas no hover, fica transparente ao afastar o ponteiro e preserva o foco de teclado visível; a direção da seta muda conforme o estado de expansão.
+- Adiciona-se animação de expansão/recolhimento e de fade do conteúdo, reaproveitando primeiro as capacidades dos componentes existentes; a animação não pode deixar invisível o conteúdo, a borda de sobrescrita ou o foco de erro.
+- Expandir/recolher apenas muda a apresentação, sem perder rascunho nem estado de edição local do nível de raciocínio, e sem disparar salvamento, reinicialização ou consultas extras de configuração. O commit normal por perda de foco continua seguindo o comportamento existente.
+- Ao fechar e reabrir o diálogo, a configuração avançada vem recolhida por padrão.
 
-## 保留的行为与必要接线
+## Comportamentos Preservados e Conexões Necessárias
 
-1. 添加和编辑共用同一视图；保留已有 ID 只读规则、初始聚焦、输入法处理、技术输入属性和拖拽排除。
-2. “重置表单”只是改名和样式，继续调用现有恢复草稿逻辑：恢复整份可编辑草稿，保留模型 ID 与独立 enabled，不立即保存，也不是恢复到刚打开时的值。
-3. 基础和高级属于同一份草稿、同次保存。高级折叠不跳过校验；输出类型和 MFJS 不回到页面、草稿及不可见必填校验中，沿用现有手动可编辑 schema 边界。
-4. 按新位置调整结构化错误定位：推理等级和推理参数映射错误自动展开并聚焦对应控件；最大输出错误定位基础字段，不再触发高级展开。手动收起后重复提交相同错误仍可定位。
-5. 产品的默认折叠组件没有接入本地错误自动展开机制，不能直接替换了事；展开动画与聚焦时机必须协调，不使用随意延时兜底。
-6. 保存期间继续锁定编辑，移到标题区域的智能开关也必须禁用；保留保存反馈和取消行为。
-7. 个人覆盖边框、继承 placeholder、帮助说明、推理等级编辑／排序、Map 编辑格式、恢复与过期请求保护保持不变。
+1. Adicionar e editar compartilham a mesma visão; mantêm-se as regras existentes de ID somente leitura, foco inicial, tratamento de IME, atributos de input técnico e exclusão de arraste.
+2. «重置表单» é apenas uma renomeação e um estilo, e continua chamando a lógica existente de restauração de rascunho: restaura todo o rascunho editável, preservando o ID do modelo e o `enabled` independente, sem salvar imediatamente e sem voltar aos valores do momento em que foi aberto.
+3. Básico e avançado pertencem ao mesmo rascunho e ao mesmo salvamento. O recolhimento do avançado não pula validação; tipo de saída e MFJS não voltam para a página, para o rascunho nem para a validação de obrigatório invisível, mantendo o limite atual de schema editável manualmente.
+4. O posicionamento dos erros estruturados é ajustado às novas posições: erros de nível de raciocínio e de mapeamento de parâmetros de raciocínio expandem automaticamente e focam o controle correspondente; o erro de saída máxima é localizado no campo básico e não dispara mais a expansão do avançado. Após um recolhimento manual, reenviar o mesmo erro ainda é localizado.
+5. O componente de recolhimento por padrão do produto não está integrado ao mecanismo local de expansão automática por erro, portanto não pode ser simplesmente substituído; a animação de expansão e o momento do foco precisam ser coordenados, sem usar atrasos arbitrários como fallback.
+6. Durante o salvamento a edição continua bloqueada, e o switch inteligente, que foi para a área do título, também precisa ser desabilitado; preserva-se o feedback de salvamento e o comportamento de cancelar.
+7. A borda de sobrescrita pessoal, o placeholder herdado, o texto de ajuda, a edição/ordenação dos níveis de raciocínio, o formato de edição do Map e as proteções de recuperação e de requisição expirada permanecem inalterados.
 
-## 实施与验收
+## Implementação e Aceitação
 
-- [x] 先更新对应布局／交互测试，再按当前抽象实施；不复制产品分支的旧测试预期覆盖本地边界。
-- [x] 添加／编辑两入口：默认三字段、高级分组、中文推理等级与英文文案、标题智能开关、底部顺序及重置样式符合上表。
-- [x] 推理等级与映射相邻；文本勾选且锁定，其他选项可编辑；覆盖高亮保持，没有内层卡片、输出类型或 MFJS。
-- [x] 动画展开／收起保留字段值与局部编辑状态，不写配置；取消无保存，重开默认收起。
-- [x] 推理等级／Map 隐藏错误可展开聚焦，重复错误仍有效；最大输出错误定位基础字段。
-- [x] 重置只改草稿，基础／高级联合保存，手动模式校验边界、保存中禁用、异步过期结果保护不回退。
-- [x] 合并验证桌面宽屏／手机窄屏、浅深主题、中英文、键盘操作和正文滚动；更新相关单测及交互 E2E，未实跑端明确记录。
-- [x] 完成后逐项 review，执行相关类型检查、lint 和架构检查；记录真实证据再标记完成，不把当前只读审查当作实施验收。
+- [x] Atualizar primeiro os testes correspondentes de layout/interação e só então implementar conforme as abstrações atuais; não copiar as expectativas dos testes antigos do branch de produto sobre os limites locais.
+- [x] Entradas de adicionar/editar: três campos por padrão, grupo avançado, nível de raciocínio em chinês e textos em inglês, switch inteligente no título, ordem inferior e estilo de reset conforme a tabela acima.
+- [x] Nível de raciocínio e mapeamento adjacentes; texto marcado e bloqueado, demais opções editáveis; destaque de sobrescrita mantido, sem cartão interno, tipo de saída ou MFJS.
+- [x] A animação de expandir/recolher preserva valores de campo e estado de edição local, sem escrever configuração; cancelar não salva e a reabertura vem recolhida por padrão.
+- [x] Erros ocultos de nível de raciocínio/Map expandem e focam, erros repetidos continuam válidos; o erro de saída máxima é localizado no campo básico.
+- [x] O reset só altera o rascunho, básico/avançado são salvos em conjunto, os limites de validação do modo manual, o bloqueio durante o salvamento e a proteção contra resultado assíncrono expirado não regridem.
+- [x] Verificação de mesclagem cobrindo desktop em tela larga/celular em tela estreita, tema claro e escuro, chinês e inglês, operação por teclado e rolagem do corpo; atualização dos testes unitários relacionados e do E2E de interação, registrando explicitamente o que não foi executado de verdade.
+- [x] Revisão item a item após a conclusão, com execução das verificações de tipo, lint e arquitetura relacionadas; registrar evidência real antes de marcar como concluído, e não tratar a revisão somente leitura atual como aceitação de implementação.
 
-## 实施、验证与复审记录
+## Registro de Implementação, Verificação e Revisão
 
-- 布局变更局限于共享模型编辑弹窗、字段展示和文案。`useProviderModelDraft`、提交校验、Overlay 序列化、请求配置与同步均未修改；新增、编辑共用现有数据边界。
-- 高级区使用保持挂载的 CSS grid 高度／透明度过渡，收起时 `inert` 和 `aria-hidden` 排除交互及读屏导航；保留等级编辑的局部状态。按结构化错误字段展开，用实际动画 `finished` 协调聚焦，重复校验和关闭弹窗会清理旧聚焦，不增加延时重试。
-- 浏览器先红后绿；完整 `provider-settings-batch.test.mjs` **26/26 通过**，其中 Todo141 四例覆盖新增／编辑、390px 中文浅色／1200px 英文深色、普通／减弱动画、重复校验、局部草稿、基础错误、联合保存、重开和取消。原批次的重置竞态、保存锁定、手动配置及帮助交互一并通过。
-- `providerModelMetadataDialog.test.ts`、`providerModelSmartDraft.test.ts`、`providerModelMaxOutputLookup.test.ts` 与 `modelConfigHelpCopy.test.ts` **51/51 通过**；根 `pnpm typecheck` 通过（包含 Desktop E2E 类型检查）；`pnpm lint` 0 errors，42 条既有 warnings；`pnpm architecture:check --changed` 0 violations；修改文件格式检查和 `git diff --check` 通过。
-- 推送门禁首轮扩大到 328 个测试文件，发现两份旧测试的四项预期未对齐：高级字段要先展开、最大输出不再属于高级区、“推理档位”改为“推理等级”。已修正定位／文案预期，保留迟到查询不覆盖用户输入、编辑和展开不触发额外查询的实质断言，并补充重置文案检查；上述四文件重新合跑通过。
-- 已查看真实浏览器截图，字段间距实测 16px、窄屏无横向溢出，展开后正文可滚动而标题／页脚保留；截图与 Playwright trace 位于 `/tmp/zcode-provider-settings-batch/todo141-*`。
-- 逐项复审确认：推理等级和映射位于同一无边框组，最大输出回到基础区；文本复用原 checkbox 指示及锁图标，不改选项辅助功能语义和覆盖颜色；重置仍只改草稿并保留 ID、enabled；隐藏系统字段不加入手动必填规则。
-- 边界：本轮实跑是 Linux Chromium 的真实共享 UI＋隔离服务夹具，不冒充 Mac Electron 或手机 shared-host 联合实机验证。原生 `provider-model-smart-config.test.ts` 已更新选择器／文案并通过类型检查，本轮未重跑原生用例；pending 用例未擅自晋级。Codegraph 不可用，沿共享弹窗、两入口、草稿 Hook、校验及控件定向复审。
+- A mudança de layout ficou restrita ao diálogo compartilhado de edição de modelo, à exibição dos campos e aos textos. `useProviderModelDraft`, a validação de envio, a serialização do Overlay, a configuração de requisição e a sincronização não foram modificados; adicionar e editar compartilham os limites de dados existentes.
+- A área avançada usa transição de altura/opacidade em CSS grid com montagem permanente; quando recolhida, `inert` e `aria-hidden` excluem interação e navegação por leitor de tela; o estado local da edição de níveis é preservado. A expansão segue o campo do erro estruturado, o foco é coordenado pelo evento `finished` real da animação, e revalidação e fechamento do diálogo limpam o foco antigo sem adicionar retentativas com atraso.
+- No navegador, primeiro vermelho e depois verde; o `provider-settings-batch.test.mjs` completo passou **26/26**, sendo que os quatro casos do Todo141 cobrem adicionar/editar, 390px chinês claro / 1200px inglês escuro, animação normal/reduzida, revalidação, rascunho local, erro básico, salvamento conjunto, reabertura e cancelamento. O reset com condição de corrida, o bloqueio durante o salvamento, a configuração manual e a interação de ajuda do lote original também passaram.
+- `providerModelMetadataDialog.test.ts`, `providerModelSmartDraft.test.ts`, `providerModelMaxOutputLookup.test.ts` e `modelConfigHelpCopy.test.ts` passaram **51/51**; o `pnpm typecheck` da raiz passou (incluindo a verificação de tipos do Desktop E2E); `pnpm lint` com 0 errors e 42 warnings já existentes; `pnpm architecture:check --changed` com 0 violations; a verificação de formatação dos arquivos modificados e o `git diff --check` passaram.
+- A primeira rodada do gate de push ampliou para 328 arquivos de teste e encontrou quatro expectativas antigas não alinhadas em dois arquivos antigos: os campos avançados precisam ser expandidos primeiro, a saída máxima não pertence mais à área avançada e «推理档位» passou a «推理等级». As expectativas de posicionamento/texto foram corrigidas, preservando as asserções substantivas de que consulta atrasada não sobrescreve a entrada do usuário e de que editar e expandir não disparam consultas extras; foi acrescentada uma verificação do texto de reset; os quatro arquivos foram reprocessados em conjunto e passaram.
+- Foram vistas capturas reais do navegador: espaçamento medido de 16px, sem overflow horizontal em tela estreita e, após expandir, o corpo rola enquanto título/rodapé permanecem; capturas e traces do Playwright estão em `/tmp/zcode-provider-settings-batch/todo141-*`.
+- A revisão item a item confirmou: nível de raciocínio e mapeamento no mesmo grupo sem borda, saída máxima de volta à área básica; o texto reaproveita o checkbox original e o ícone de cadeado, sem mudar a semântica de acessibilidade das opções nem a cor de sobrescrita; o reset ainda altera apenas o rascunho e preserva ID e enabled; campos de sistema ocultos não entram nas regras de obrigatório manual.
+- Limites: a execução real desta rodada foi a UI compartilhada em Chromium no Linux com fixtures de serviço isoladas, sem se passar por validação conjunta em Mac Electron ou em shared-host de celular. O `provider-model-smart-config.test.ts` nativo teve seletores/textos atualizados e passou na verificação de tipos, mas os casos nativos não foram reexecutados nesta rodada; casos pending não foram promovidos sem autorização. O Codegraph estava indisponível, e a revisão foi feita de forma direcionada pelo diálogo compartilhado, pelas duas entradas, pelo hook de rascunho, pela validação e pelos controles.

@@ -43,7 +43,7 @@ Relação entre `revision` e `seq`: `revision` é a contagem de "eventos estrutu
 
 ---
 
-## 2. 连接与握手
+## 2. Conexão e handshake
 
 ```ts
 // 连接建立后 host 主动下发第一条消息
@@ -77,19 +77,19 @@ interface ClientHello {
 }
 ```
 
-规则：
+Regras:
 
-- `connectionId/clientMode/deliveryProfile` 来自 host 的可信 attachment 上下文：桌面（含 SSH/WSL/Docker）=`desktop-continuous/continuous`；手机 remote/WebSocket=`web-remote-replayable/replayable`。UI 和 `clientHello` 均不能自选。
-- 能力协商是单连接事实：host 在 `hello` 宣告，客户端只在 host 宣告过时于 `clientHello` 声明，facade 再把结论按 `clientMode` 同一条注入路径写进该连接的 subscribe（§3.1）。它与 delivery profile 正交：`continuous` 与 `replayable` 都可以是声明方或未声明方。
-- 每个 attachment 必须独立握手、独立 subscription registry；同 session 的 desktop/mobile 订阅允许并存。
-- 连接健康度（connecting/reconnecting/degraded）是**客户端本地 UI 态**，禁止混入任何 topic 的会话语义（R-13）。
-- 断开原因分类由 rpc 层 close code 携带：`authFailed` / `kicked` / `serverShutdown` / `unknown`。前两者客户端**停止自动重连**并进入对应终态页（G-08）；其余按退避重连（0,1,2,5,10…封顶 30s，单一入口）。
+- `connectionId`/`clientMode`/`deliveryProfile` vêm do contexto confiável de attachment do host: desktop (incluindo SSH/WSL/Docker) = `desktop-continuous`/`continuous`; mobile remote/WebSocket = `web-remote-replayable`/`replayable`. Nem a UI nem o `clientHello` podem escolher.
+- A negociação de capacidades é um fato por conexão: o host anuncia em `hello`, o cliente só declara em `clientHello` o que o host anunciou, e a facade injeta a conclusão, pelo mesmo caminho de injeção conforme `clientMode`, no subscribe daquela conexão (§3.1). É ortogonal ao delivery profile: tanto `continuous` quanto `replayable` podem ser declarante ou não declarante.
+- Cada attachment precisa de handshake próprio e de registro de assinaturas próprio; assinaturas desktop/mobile da mesma sessão podem coexistir.
+- A saúde da conexão (connecting/reconnecting/degraded) é **estado local de UI do cliente**, proibido de se misturar a qualquer semântica de sessão de topic (R-13).
+- A classificação do motivo de desconexão é transportada pelo close code da camada rpc: `authFailed` / `kicked` / `serverShutdown` / `unknown`. Os dois primeiros fazem o cliente **parar de reconectar automaticamente** e entrar na página de estado terminal correspondente (G-08); os demais reconectam com backoff (0,1,2,5,10… com teto de 30s, por um único ponto de entrada).
 
 ---
 
-## 3. 订阅通用层（所有 topic 共用）
+## 3. Camada comum de assinatura (compartilhada por todos os topics)
 
-### 3.1 订阅生命周期
+### 3.1 Ciclo de vida da assinatura
 
 ```text
 client                    connection facade                    CLI/服务域
@@ -136,31 +136,18 @@ interface ConversationResyncResult {
 }
 ```
 
-服务端裁决（CLI）：`base.logEpoch === 当前 epoch` 且 `base.seq` 在保留窗内并且未要求
-`forceSnapshot` → `resume`；否则 → `snapshot`。resync 根据客户端 base 重新生成 recovery frame，
-不能从 publisher `sentSeq` 猜客户端状态；它保持 owned `subscriptionId/topic/profile`，并作废旧
-in-flight reservation，旧 delayed commit 返回 false。
+Decisão do servidor (CLI): `base.logEpoch === epoch atual` e `base.seq` dentro da janela de retenção e sem pedido de `forceSnapshot` → `resume`; caso contrário → `snapshot`. O resync regenera o quadro de recuperação com base no base do cliente e não pode adivinhar o estado do cliente pelo `sentSeq` do publisher; ele mantém o `subscriptionId`/`topic`/`profile` owned e descarta reservations in-flight antigas, e um delayed commit antigo retorna false.
 
-连接关闭必须 `unsubscribeAll(connectionId)`，并释放该连接的 buffer、fragment assembly 与流控 listener。CLI runtime restart/attachment 重建后，客户端完成新握手即自动重订阅活跃 topic；禁止 workspace 广播后由接收端丢弃不属于自己的 subId。
+O fechamento da conexão deve executar `unsubscribeAll(connectionId)` e liberar o buffer, o fragment assembly e o listener de flow control daquela conexão. Após o restart do runtime do CLI ou a reconstrução do attachment, o cliente reassina automaticamente os topics ativos assim que conclui o novo handshake; é proibido fazer broadcast no workspace e descartar no receptor os subId que não lhe pertencem.
 
-subscribe response 只允许携带小 `SubscribeAck`。initial snapshot/resume 不得内嵌为 logical `frame`，也不得以 `frames[]` 放入同一个 response；ACK 写出后再通过 owned-port notification 发送 physical wire frames。
+A resposta de subscribe só pode carregar um `SubscribeAck` pequeno. O snapshot/resume inicial não pode ser embutido como `frame` lógico nem colocado no mesmo response em `frames[]`; depois de escrever o ACK, os quadros de wire físicos são enviados por notificação no owned port.
 
-`SubscribeAck.logEpoch` 是 admission/route metadata，不会创建 seq=0 base。三类 topic 都维护
-`hasAppliedBase`：请求前真实存在的 projection 可在 ACK=`resume` 且同 epoch 时保留；ACK=`snapshot`
-使旧 base 失效，直到完整 owned snapshot 原子 apply。没有 valid base 时 delta 不得 apply，initial
-assembly fault/ACK staging overflow 必须发送 `base:null, forceSnapshot:true`（或换代 fresh snapshot），
-禁止从 ACK 构造伪 base；任意完整 owned snapshot（含 online overflow snapshot）都可重新建立 base。
-该约束对 sessions-index/config 同样成立；cold seed 可能不在增量 log 中，空 resume 不能替代 initial snapshot。
+`SubscribeAck.logEpoch` é metadado de admission/route e não cria uma base com seq=0. Os três tipos de topic mantêm `hasAppliedBase`: uma projection que realmente existia antes do pedido pode ser preservada quando o ACK=`resume` e a epoch é a mesma; um ACK=`snapshot` invalida o base antigo até que um snapshot owned completo seja aplicado atomicamente. Sem um base válido, nenhum delta pode ser aplicado; falha de montagem inicial/overflow no staging do ACK deve enviar `base:null, forceSnapshot:true` (ou trocar por um snapshot novo), e é proibido construir um base falso a partir do ACK; qualquer snapshot owned completo (inclusive um overflow snapshot online) pode reestabelecer o base.
+Essa restrição vale igualmente para sessions-index/config; um cold seed pode não estar no log incremental, e um resume vazio não substitui o snapshot inicial.
 
-实施门禁 04B 使用 request-scoped post-response outbox 保证字节顺序与水位：server dispatch
-内部携带 `{ack, physicalMessages[], commit}`，公共 result 仍严格只有 `{ack}`。connection
-先 take 该 request id 的 outbox，再写 response line，按顺序把全部 physical notification
-line 放入当前 connection-owned write queue，最后才 commit publisher reservation。编码或
-同步 enqueue 失败不推进水位；enqueue 后异步 EPIPE/close 则终结整个 connection epoch，
-旧 subscription/outbox 不跨 attachment 复用。禁止用 microtask/timer 或底层网络分包推测
-response/initial 的先后。
+O portão de implementação 04B usa uma outbox de pós-resposta com escopo de request para garantir ordem de bytes e marca d'água: internamente o dispatch do servidor transporta `{ack, physicalMessages[], commit}`, e o result público continua sendo estritamente apenas `{ack}`. A conexão primeiro retira a outbox daquele request id, depois escreve a linha de response, coloca em ordem todas as linhas de notificação física na fila de escrita owned da conexão atual e só então faz o commit da reservation do publisher. Falha de codificação ou de enqueue síncrono não avança a marca d'água; EPIPE/close assíncrono após o enqueue encerra toda a epoch da conexão, e subscriptions/outboxes antigas não são reutilizadas entre attachments. É proibido usar microtask/timer ou a fragmentação de rede subjacente para inferir a ordem entre response e initial.
 
-### 3.2 Logical 帧与 wire v3 物理信封
+### 3.2 Quadros lógicos e envelope físico do wire v3
 
 ```ts
 type TopicKey = string;
@@ -213,23 +200,19 @@ interface ReservedTopicFrame<F> {
 }
 ```
 
-约束：
+Restrições:
 
-- `TopicFrame` 是一个必须原子 apply 的 logical frame；fragment 不是独立 seq frame，不能改变 `(fromSeq,toSeq]`。
-- `deliveryKind` 是 publisher reservation 的权威事实：subscribe initial=`initial`，普通
-  online flush（含 publisher 自主溢出 snapshot）=`online`，显式 same-sub resync=`recovery`。
-  encoder 将同一 reservation 的值复制到每个 fragment，assembler 校验齐片一致并把它随
-  complete/fault event 交给 consumer。字段缺失、伪值或同组 fragment 不一致均拒绝；UI
-  不得用 RPC 时序、Promise continuation 或“resync 后第一帧”推断。
-- **每个 physical JSON/RPC frame 连同 envelope 严格 `<= maxFrameBytes = 1 MiB`**（R-12）。topic encoder 必须对 CLI NDJSON、Channel/Socket binary 和 mobile relay base64 outer JSON 三者取最大值，先扣除真实 envelope 与 base64 开销再切片；附件上行不得复用 full-data RPC，必须按 §6.5 的 begin/chunk/commit 事务切成独立小 request，并在 Channel 与 CLI NDJSON 两个入口分别用真实参数计量。
-- profile filter + coalesce 后的 subscriber buffer 必须同时 `<=500 ops` 且 `<=max(1 MiB, 当前 wire snapshot 保守上界)`（字节上限的修订原因见 05 §3）；任一超限就清空该 subscription buffer、标记 resync，下一次只发送最新 snapshot，而不是把超限 delta 拆成若干仍可能不一致的 logical frame。
-- 超大 snapshot/resume logical frame 用 `fragment` 信封；单 assembly 上限 16 MiB、最多 1,024 个 fragment；每消费者最多 32 个并发 assembly、32 MiB decoded staging，从首片起 30s 超时。service 只验证可路由 outer candidate，ownership 过滤后的 assembler 再校验 range/base64/checksum/logical schema 并产生 typed fault，禁止提前静默丢弃坏帧。
-- publisher 为每个 subscription 分配严格递增的 `logicalFrameOrdinal`；同 reservation 重试 ordinal/id 均不变。低于 tombstone 的迟到 wire 静默丢弃，同 ordinal 换 id 产生 `proto.frameAssemblyOrdinalConflict`；完成、fault、timeout 与 consumer abort 都保留 tombstone，直到 unsubscribe/换代。
-- publisher `reserve` 不清 buffer、不推 `sentSeq`；全部 physical wire 被当前 connection queue 接纳后才 commit。initial encode 失败必须回滚 subscription、in-flight reservation 与 flush state；failed re-subscribe 还必须恢复旧 subscription/mapping，让仍持旧 subId 的客户端继续收流。退订/重订成功后迟到 commit 返回 false。
-- 新输入/附件 admission 会使可传输 projection 超过 16 MiB 时必须明确 `rejected/failed`；运行中的大 tool output 转 artifact ref/head+tail，模型文本若仍突破上限则以明确 protocol fault 终止 turn。任何路径都不能静默截断 snapshot。
-- **优先级只存在于 topic 之间**（控制/ACK > sessions-index > conversation rows > terminal 回滚区）；**同一 topic 内帧严格按 seq 串行**，任何实现不得让 A 区帧超车 rows 帧（R-11）。
+- Um `TopicFrame` é um quadro lógico que deve ser aplicado atomicamente; um fragmento não é um quadro de seq independente e não pode alterar `(fromSeq,toSeq]`.
+- `deliveryKind` é o fato autoritativo da reservation do publisher: o initial do subscribe = `initial`, o flush online normal (inclusive o overflow snapshot iniciado pelo próprio publisher) = `online`, e o resync explícito na mesma assinatura = `recovery`. O encoder copia o valor da mesma reservation para cada fragmento, e o assembler verifica que todos os fragmentos concordam e o entrega ao consumer junto do evento de complete/fault. Campo ausente, valor falso ou divergência entre fragmentos do mesmo grupo são rejeitados; a UI não pode inferir isso pelo timing do RPC, por continuação de Promise ou pelo "primeiro quadro após o resync".
+- **Cada quadro JSON/RPC físico, junto com o envelope, é estritamente `<= maxFrameBytes = 1 MiB`** (R-12). O encoder de topic deve tomar o máximo entre CLI NDJSON, binário Channel/Socket e o JSON externo base64 do relay mobile, descontando primeiro o overhead real do envelope e do base64 e só então fatiando; o upload de anexo não pode reutilizar o RPC de dados completos, e deve ser fatiado em requisições pequenas e independentes pela transação begin/chunk/commit de §6.5, medindo com parâmetros reais tanto na entrada Channel quanto na entrada CLI NDJSON.
+- O buffer do subscriber após profile filter + coalesce deve ser simultaneamente `<=500 ops` e `<=max(1 MiB, limite superior conservador do snapshot de wire atual)` (o motivo da revisão do limite em bytes está em 05 §3); se qualquer um dos limites for excedido, o buffer daquela assinatura é esvaziado, a assinatura é marcada para resync e o próximo envio é apenas o snapshot mais recente — nunca dividindo o delta excedente em vários quadros lógicos que ainda poderiam ficar inconsistentes.
+- Quadro lógico snapshot/resume muito grande usa o envelope `fragment`; o limite por montagem é 16 MiB e no máximo 1.024 fragmentos; por consumidor há no máximo 32 montagens concorrentes, 32 MiB de staging decodificado e timeout de 30s contados do primeiro fragmento. O service só valida o candidato externo roteável; o assembler, depois do filtro de ownership, valida range/base64/checksum/schema lógico e produz uma fault tipada — é proibido descartar silenciosamente quadros ruins antes disso.
+- O publisher atribui um `logicalFrameOrdinal` estritamente crescente por assinatura; numa nova tentativa da mesma reservation, tanto o ordinal quanto o id permanecem. Um wire atrasado abaixo do tombstone é descartado silenciosamente, e o mesmo ordinal com id diferente gera `proto.frameAssemblyOrdinalConflict`; complete, fault, timeout e abort do consumer preservam o tombstone até o unsubscribe ou a troca de geração.
+- O `reserve` do publisher não limpa o buffer nem avança o `sentSeq`; o commit só ocorre depois que todo o wire físico foi aceito pela fila da conexão atual. Uma falha de codificação no initial deve reverter a assinatura, a reservation in-flight e o estado de flush; um re-subscribe que falhou também precisa restaurar a assinatura/mapeamento antigo para que o cliente que ainda tem o subId antigo continue recebendo fluxo. Depois de um cancelamento/resubscribe bem-sucedido, um commit atrasado retorna false.
+- Se a admission de nova entrada/anexo fizer a projection transmitível exceder 16 MiB, é obrigatório `rejected/failed` explicitamente; um tool output grande em execução vira uma referência de artifact ou head+tail, e se o texto do modelo ainda ultrapassar o limite o turno termina com uma protocol fault explícita. Nenhum caminho pode truncar snapshot silenciosamente.
+- **A prioridade existe apenas entre topics** (controle/ACK > sessions-index > conversation rows > área de rollback do terminal); **dentro do mesmo topic os quadros são estritamente seriais por seq**, e nenhuma implementação pode deixar um quadro da área A ultrapassar um frame de rows (R-11).
 
-### 3.3 客户端 apply 算法（规范性伪代码）
+### 3.3 Algoritmo de apply no cliente (pseudocódigo normativo)
 
 ```ts
 function onWireFrame(store, wireFrame) {
@@ -271,37 +254,21 @@ function onWireFrame(store, wireFrame) {
 }
 ```
 
-三分支（②整体替换 / ③丢弃 / ④重订阅）是封闭集合；客户端不存在任何「缓存补偿 / 乱序重排 / 缺口猜测」代码路径。attachment 重建或 CLI `logEpoch` 变化后自动重订阅；新 subId 生效前的旧帧全部静默丢弃。
+Os três ramos (②substituição completa / ③descarte / ④reassinatura) formam um conjunto fechado; não existe no cliente nenhum caminho de código de "compensação por cache / reordenação fora de ordem / adivinhação de lacuna". Após a reconstrução do attachment ou uma mudança de `logEpoch` do CLI há reassinatura automática; todos os quadros antigos anteriores ao novo subId efetivo são descartados silenciosamente.
 
-gap/fault recovery flight 以 `(topic,subscriptionId)` 隔离，并持续到
-`deliveryKind="recovery"` 的 logical frame 完整校验并被接受；RPC ACK 本身不能清 flight。若
-`mode="resume"` 的 recovery frame 再 gap，原 flight 升级为
-一次 `forceSnapshot=true` 请求。conversation、sessions-index 与 workspace-config 的水位/flight
-互不共享；一个 topic 的恢复不能替换 sibling subscription。
+Um flight de recuperação por gap/fault é isolado por `(topic,subscriptionId)` e dura até que um quadro lógico com `deliveryKind="recovery"` seja completamente verificado e aceito; o ACK do RPC em si não encerra o flight. Se um quadro de recuperação com `mode="resume"` tiver gap novamente, o flight original é promovido a um pedido de `forceSnapshot=true`. As marcas d'água/flights de conversation, sessions-index e workspace-config não são compartilhadas; a recuperação de um topic não pode substituir a assinatura irmã.
 
-`markRecoveryFrameSeen` 只记录完整、校验通过的 recovery logical frame 已到达；它与对应 ACK
-都满足后才收口 flight。其 frame 即使是 aligned `(N,N]`，或 `toSeq` 已被更新的权威 snapshot
-完全覆盖，也必须完成该标记而不重复修改 projection，避免零变化恢复永久悬空。
+`markRecoveryFrameSeen` apenas registra que um quadro lógico de recuperação completo e validado chegou; o flight só é encerrado quando ele e o ACK correspondente são satisfeitos. Mesmo que o quadro seja um `(N,N]` alinhado, ou que seu `toSeq` esteja totalmente coberto por um snapshot autoritativo mais novo, a marcação precisa ser feita sem modificar novamente a projection, para que uma recuperação de mudança zero não fique pendurada para sempre.
 
-original subscribe initial assembly fault 转入 same-sub resync 时，consumer 必须先清除该
-subscription 的 `awaitingInitial`。recovery frame/fault 的裁决优先于 initial subscribe 状态；
-否则 recovery gap 会被误判成 fresh subscribe。迟到 `online` duplicate 即使出现在 resync ACK
-之前，也只能按 duplicate 静默丢弃，不能清除或消费 recovery flight。
+Quando uma falha de montagem do initial do subscribe original vira um resync na mesma assinatura, o consumer deve antes limpar o `awaitingInitial` daquela assinatura. A decisão de um recovery frame/fault tem prioridade sobre o estado do subscribe initial; caso contrário um gap de recuperação seria interpretado erroneamente como um novo subscribe. Um `online` duplicado tardio, mesmo que apareça antes do ACK do resync, só pode ser descartado silenciosamente como duplicata e não pode limpar nem consumir o flight de recuperação.
 
-resync ACK 之后到首个完整 recovery logical frame 另有 30s deadline（不同于“已收到首片”才启动的
-assembly timeout）。零 notification/整批丢失到期时，resume 只允许升级一次 force snapshot；UI 的
-force 尝试再到期进入明确 ERROR，task-index 对该 topic fresh-subscribe。recovery frame 已 apply、但 ACK
-continuation 前又收到 residual non-duplicate online gap 时，ACK 只能收口旧 flight，随后必须从新 base
-立即启动普通 successor resync；不能把 gap 静默吞掉，也不能误升级成 recovery-kind force。
+Após o ACK do resync e até o primeiro quadro lógico de recuperação completo há outro prazo de 30s (diferente do timeout de montagem, que só começa ao "receber o primeiro fragmento"). Se a notificação for totalmente perdida quando o prazo expirar, o resume só pode ser promovido uma única vez a force snapshot; uma nova tentativa de force pela UI que também expirar entra em ERROR explícito, e o task-index faz fresh-subscribe daquele topic. Se o recovery frame já foi aplicado mas, antes da continuação do ACK, chegar um gap online residual não duplicado, o ACK só pode encerrar o flight antigo e logo em seguida deve-se iniciar um resync sucessor normal a partir do novo base; o gap não pode ser engolido em silêncio nem ser promovido indevidamente a um force do tipo recovery.
 
-runtime restart 是 full re-subscribe 边界：workspace 级 frame emitter 在 runtime invalidation 时保持
-存活，SessionDataLayer 的 active/keep-warm conversation stores、SessionsIndexStore 与 task-index
-收到 restart epoch 后各恰好重订阅一次。只有真正 workspace/service teardown 才销毁 emitter。
+Um restart do runtime é a fronteira de full re-subscribe: o emissor de quadros de nível workspace permanece vivo quando o runtime é invalidado, e os conversation stores active/keep-warm da SessionDataLayer, o SessionsIndexStore e o task-index reassinam exatamente uma vez ao receber a epoch de restart. Apenas um teardown real de workspace/service destrói o emissor.
 
-### 3.4 Mobile raw Channel transport 信封
+### 3.4 Envelope do transporte Channel raw no mobile
 
-mobile shared-host attachment 的一个 raw Channel message 使用独立的 transport 分片层，不能把
-topic fragment 当作 raw RPC 分片，也不能依靠 WebSocket compression 绕过 admission：
+Uma mensagem raw de Channel do attachment mobile shared-host usa uma camada de fragmentação de transporte própria: não se pode tratar um fragmento de topic como fragmento de raw RPC, nem contornar a admission com compressão de WebSocket:
 
 ```ts
 type RpcTransportPayload =
@@ -327,24 +294,13 @@ type RpcTransportPayload =
     };
 ```
 
-`seq` 是物理片序号，`messageSeq` 是原子 raw Channel message 序号；两者都是同 bridge identity
-内的安全整数。encoder 必须对最终未压缩 relay data JSON 精确计量，单片 `<=1 MiB`，logical
-message `<=16 MiB / 64 fragments`。RX 每方向只 staging 一个 message，从首片起 30s 超时；
-identity mismatch 不消耗 assembly budget；active/last-settled 重复同片不重复交付，冲突、gap、
-非法 base64、长度或 CRC 不符均 typed fault；更早 physical seq 按累计 delivery 水位 no-op。
-完整 raw message 只可原子交付 0 或 1 次。`seq/messageSeq` 命中
-`Number.MAX_SAFE_INTEGER` 后只允许当前边界收口，后继流量必须换新 bridge generation，不得回绕。
+`seq` é o número de sequência da peça física e `messageSeq` é o número de sequência da mensagem raw de Channel atômica; ambos são inteiros seguros dentro da mesma identidade de bridge. O encoder precisa medir com precisão o JSON de dados do relay final não comprimido, com peça única `<=1 MiB` e mensagem lógica `<=16 MiB / 64 fragmentos`. O RX faz staging de apenas uma mensagem por direção, com timeout de 30s a partir do primeiro fragmento; um mismatch de identidade não consome o orçamento de montagem; fragmentos repetidos active/last-settled não são entregues de novo, e conflito, gap, base64 inválido, comprimento ou CRC divergentes geram uma fault tipada; um seq físico anterior é um no-op conforme a marca d'água cumulativa de entrega. Uma mensagem raw completa só pode ser entregue atomicamente 0 ou 1 vez. Depois que `seq`/`messageSeq` atingirem `Number.MAX_SAFE_INTEGER`, só se permite fechar nesse limite, e o tráfego sucessor precisa usar uma nova bridge generation, sem wrap-around.
 
-raw cumulative ACK 只属于 transport replay accounting，不等同于 §6.2 command ACK 或 transcript
-事实；首条 message 尚未 complete 时 duplicate 不产生 wire ACK，只有已完成的 positive
-`ackMessageSeq` 可累计确认。raw gap 的执行结果未知，必须 hard rebuild attachment，不能在
-relay/main 解读 topic 后自行 resync。
+O ACK cumulativo raw pertence apenas à contabilidade de replay de transporte e não equivale ao ACK de command de §6.2 nem a um fato de transcript; enquanto a primeira mensagem não estiver completa, uma duplicata não gera ACK de wire, e somente um `ackMessageSeq` positivo já completado pode confirmar cumulativamente. O resultado de execução de um gap raw é desconhecido: é preciso um hard rebuild do attachment, e não é permitido fazer resync por conta própria depois de interpretar o topic em relay/main.
 
-04D-3 已将 desktop main/mobile web 原子切到 bridge-scoped、双向 acknowledged adapter；global app
-parser 正式接受新 strict fragment/ACK，并删除 legacy 单片 `rpc-frame` branch。raw transport payload
-只会交给当前 bridge adapter，不能由普通 app requester 或旧逐片 Channel route 消费。
+04D-3 já migrou atomicamente o desktop main/mobile web para um adapter acknowledged de escopo bridge e bidirecional; o parser global do app passou a aceitar oficialmente o novo fragment/ACK estrito e o branch legado de `rpc-frame` de peça única foi removido. O payload de transporte raw só é entregue ao adapter de bridge atual e não pode ser consumido por um app requester comum nem pela rota antiga de Channel peça a peça.
 
-production acknowledged adapter 的规范状态如下：
+O estado normativo do adapter acknowledged em produção é:
 
 ```text
 TX reserve(batch, exactOuterBytes, queuedAt)
@@ -357,32 +313,19 @@ RX assemble(one message, firstSeenAt)
   -> latest cumulative ACK, control-first flush
 ```
 
-- 每批在首片发送前完成最终 outer bytes admission；禁止发出部分 logical message 后才发现 replay
-  `8MiB+1`。`unacknowledgedBytes` 只统计未 ACK data batch，不统计 ACK。
-- production adapter 的 `measureFrameBytes(frame)` 与 `sendFrame` 绑定同一个 immutable
-  final-envelope serializer/cache；初发与 same-bridge replay 复用完全相同 JSON bytes，禁止
-  admission 与 WebSocket write 分别计量或因时间戳变化使账本漂移。
-- high/low 默认 `1MiB/256KiB`，状态边沿分别为 `> high` 与 `<= low`；持续饱和或重复 ACK 不重复通知。
-- reserve/flush/replay 入口与每个 ACK/data physical send 前都同步检查 45s age；timer 只是唤醒机制，
-  不能成为唯一 enforcement。
-- replay bytes/grace 与 assembly timeout options 只能收紧 `8MiB/45s/30s` hard caps，不能放宽。
-- future ACK 的上界是已被本地 transport 完整接纳的最大 `messageSeq`；reserved/partial batch 不能被 ACK。
-- pending cumulative ACK 只保留最大值且优先 flush；首个 pending ACK 的 45s age 不因更高累计值续期。
-  complete delivery 抛错时不得 ACK，直接进入单次 terminal degraded；same-bridge replay 保持原
-  physical/message seq 与原始 45s age。
-- adapter 必须容忍 `sendFrame` 同步把 ACK 回入本端的可重入调用，并保证 state mutation 串行。
-- 公共 `ConnectionFlowControl` 只读暴露 bytes 与 saturated/drained event；production mobile 通过
-  `connection-flow-v1` MessagePort sideband 与 trusted `v4/connection/flow` 把状态送到 CLI。
-  UI-facing service method 必须拒绝 terminal caller，只有 host scope 非 RPC 控制面与
-  trusted-host-relay namespace 可注入 connectionId。
-- CLI `pausedConnections` 只影响 matching connection：SAT 清该连接 timer 且 reserve 前二次检查；
-  ingest 与 sibling connection 继续。DRN 只 flush该连接，overflow/needsResync 自然发最新 snapshot；
-  closed 清 pause，owned unsubscribe 单独清 publisher state。
-- desktop main 普通 app payload 仍可进入有界短 buffer，但 raw frame/ACK 绕过该 buffer，由 adapter
-  唯一拥有 replay。两端 raw WebSocket message 在 `JSON.parse` 前执行 1 MiB UTF-8 gate；compression
-  不改变 admission。raw fault 只触发一次 hard bridge recovery，新 bridge 不继承旧 unacked batch。
+- Cada lote conclui a admission dos outer bytes finais antes do envio do primeiro fragmento; é proibido emitir parte de uma mensagem lógica e só então descobrir um replay de `8MiB+1`. `unacknowledgedBytes` conta apenas lotes de dados não ACKados, não os ACKs.
+- O `measureFrameBytes(frame)` do adapter em produção e o `sendFrame` estão ligados ao mesmo serializer/cache imutável do envelope final; o envio inicial e o replay no mesmo bridge reutilizam exatamente os mesmos bytes de JSON, e é proibido que a admission e a escrita no WebSocket sejam medidas separadamente ou que a variação de timestamp faça o razão de contas derivar.
+- high/low padrão `1MiB/256KiB`, com bordas de estado em `> high` e `<= low` respectively; saturação contínua ou ACK repetido não notificam de novo.
+- As entradas reserve/flush/replay e cada ACK/data physical send verificam sincronamente a idade de 45s; o timer é apenas um mecanismo de despertar e não pode ser o único enforcement.
+- As opções de replay bytes/grace e de timeout de montagem só podem restringir os hard caps `8MiB/45s/30s`, nunca afrouxá-los.
+- O limite superior de um ACK futuro é o maior `messageSeq` já aceito integralmente pelo transporte local; lotes reserved/partial não podem ser ACKados.
+- O ACK cumulativo pendente mantém apenas o valor máximo e tem prioridade no flush; a idade de 45s do primeiro ACK pendente não é renovada por um valor cumulativo maior. Quando a entrega completa lança erro, não se deve ACK; entra-se diretamente em um único estado terminal degraded; o replay no mesmo bridge mantém os mesmos physical/message seq e a idade original de 45s.
+- O adapter precisa tolerar `sendFrame` reentrando sincronamente um ACK para o próprio lado e garantir que as mutações de estado sejam serializadas.
+- O `ConnectionFlowControl` público expõe em modo somente leitura bytes e eventos de saturated/drained; o mobile em produção leva o estado até o CLI pelo sideband MessagePort `connection-flow-v1` e pelo `v4/connection/flow` confiável. Um service method orientado a UI precisa rejeitar caller terminal; apenas host scope fora do plano de controle RPC e o namespace trusted-host-relay podem injetar connectionId.
+- O `pausedConnections` do CLI só afeta a conexão correspondente: SAT limpa o timer daquela conexão e faz uma segunda checagem antes do reserve; o ingest e as conexões irmãs continuam. DRN só faz flush naquela conexão, e overflow/needsResync enviam naturalmente o snapshot mais recente; closed limpa o pause, e o unsubscribe owned limpa o estado do publisher separadamente.
+- Um payload comum de app do desktop main ainda pode entrar num buffer curto e limitado, mas quadros e ACKs raw ignoram esse buffer, e o adapter é o único dono do replay. Em ambos os lados, as mensagens raw de WebSocket passam por um gate UTF-8 de 1 MiB antes do `JSON.parse`; a compressão não altera a admission. Uma fault raw dispara apenas uma recuperação hard de bridge, e a nova bridge não herda lotes não ACKados antigos.
 
-### 3.5 Topic 五件套声明
+### 3.5 Declaração do quinteto de topic
 
 ```ts
 interface TopicDeclaration<S, D> {

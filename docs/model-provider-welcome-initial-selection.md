@@ -1,75 +1,75 @@
-# Model Provider Welcome 初始选中策略
+# Estratégia de Seleção Inicial no Welcome de Model Provider
 
-## 背景
+## Contexto
 
-WelcomeScreen 同时承载账号 OAuth 登录和 API Key 配置入口。两类入口的用户意图不同：
+A WelcomeScreen hospeda ao mesmo tempo o login OAuth de conta e a entrada de configuração por API Key. As duas entradas têm intenções de usuário diferentes:
 
-- OAuth 登录表示用户希望使用账号套餐权益。
-- API Key 入口表示用户希望配置同品牌的 API Key。
+- O login OAuth indica que o usuário quer usar os benefícios do plano da conta.
+- A entrada de API Key indica que o usuário quer configurar uma API Key da mesma marca.
 
-连接方式会写入 family mode / selected key，并影响输入框模型菜单展示同 family 下哪一组模型，因此初始化只能发生在明确入口意图下。
+O modo de conexão grava family mode / selected key e influencia qual grupo de modelos do menu de modelos da caixa de entrada é exibido dentro da mesma family, portanto a inicialização só pode acontecer sob uma intenção de entrada explícita.
 
-Model Provider 设置页的左侧导航只负责选择 provider family 或自定义 provider。Start Plan / Coding Plan / Team Plan / API Key 是同一个 family 内的连接方式，应通过右侧详情区的“连接方式”菜单切换。WelcomeScreen 入口需要同时决定左侧 family 和右侧连接方式；登录后 provider、个人套餐权益、体验套餐（Start Plan）fallback 权益和团队套餐结果又是异步刷新的，如果进入设置页首帧就选中，会误选 API Key 或个人套餐（Coding Plan）。
+A navegação à esquerda da página de configurações de Model Provider serve apenas para selecionar a provider family ou o custom provider. Start Plan / Coding Plan / Team Plan / API Key são modos de conexão dentro da mesma family e devem ser alternados pelo menu "连接方式" na área de detalhes à direita. A entrada da WelcomeScreen precisa decidir ao mesmo tempo a family à esquerda e o modo de conexão à direita; após o login, o provider, os benefícios de plano pessoal, o fallback de benefícios do plano de experiência (Start Plan) e o resultado do plano de equipe são atualizados de forma assíncrona, e se a seleção ocorrer já no primeiro frame da página de configurações, ela escolherá incorretamente a API Key ou o plano pessoal (Coding Plan).
 
-## 规则
+## Regras
 
-WelcomeScreen 不等待套餐查询完成，仍保持现有进入应用节奏。它只写入一次性初始选中意图，由 Model Provider 设置页消费。
+A WelcomeScreen não espera a consulta de plano terminar e mantém o ritmo atual de entrada no app. Ela grava apenas uma intenção de seleção inicial de uso único, consumida pela página de configurações de Model Provider.
 
-### 导航与连接方式分层
+### Camadas de Navegação e Modo de Conexão
 
-- 左侧 side 导航只显示 provider family / custom provider：
+- A navegação lateral à esquerda mostra apenas provider family / custom provider:
   - Z.ai
   - BigModel
-  - 其他 Built-in provider
-  - 自定义 provider
-- 右侧“连接方式”菜单显示同 family 内可切换的连接方式：
+  - outros Built-in provider
+  - custom provider
+- O menu "连接方式" à direita mostra os modos de conexão alternáveis dentro da mesma family:
   - Individual Plan / 个人套餐（个人）
   - Team Plan / 团队套餐（团队，按获取到的团队套餐逐项显示）
   - API Key
-- Start Plan / 体验套餐不作为未登录连接方式展示；只有登录后确认存在体验套餐权益，且没有个人/团队套餐权益时，才进入连接方式菜单。
-- 多个团队 Coding Plan 不生成多个 side 导航入口，只作为右侧连接方式菜单的多个选项。
-- side 导航选中 family 后，右侧详情根据当前 family 的连接方式选中项渲染对应 Plan Card 或 API Key 表单。
+- Start Plan / 体验套餐 não é exibido como modo de conexão antes do login; ele só entra no menu de modos de conexão quando, após o login, se confirma que existe o benefício do plano de experiência e não há benefício de plano pessoal/equipe.
+- Múltiplos Coding Plans de equipe não geram múltiplas entradas na navegação lateral; eles viram apenas múltiplas opções no menu de modos de conexão à direita.
+- Depois que a navegação lateral seleciona a family, os detalhes à direita renderizam o Plan Card ou o formulário de API Key correspondente ao item de modo de conexão selecionado da family atual.
 
-### OAuth 登录入口
+### Entrada de Login OAuth
 
-当用户通过 WelcomeScreen 选择 Z.ai 或 BigModel OAuth 登录后，Model Provider 设置页先选中对应 family 的 side 导航入口，再在同 family 内等待连接方式状态可判定，按以下优先级选中一次：
+Quando o usuário escolhe o login OAuth Z.ai ou BigModel pela WelcomeScreen, a página de configurações de Model Provider primeiro seleciona a entrada da navegação lateral da family correspondente e depois, dentro da mesma family, aguarda o estado dos modos de conexão se tornar decidível, selecionando uma única vez pela seguinte prioridade:
 
-1. 个人套餐（Coding Plan，个人）：有个人 Coding Plan 权益。
-2. 团队套餐（Coding Plan，团队）：按团队套餐获取结果中的第一个团队项。
-3. 体验套餐（Start Plan）：有体验套餐权益。
-4. 个人套餐（Coding Plan，个人）：无任何权益时仍落到个人 Coding 入口兜底。
+1. 个人套餐（Coding Plan，个人）：há benefício de Coding Plan pessoal.
+2. 团队套餐（Coding Plan，团队）：o primeiro item de equipe no resultado de obtenção dos planos de equipe.
+3. 体验套餐（Start Plan）：há benefício do plano de experiência.
+4. 个人套餐（Coding Plan，个人）：quando não há benefício algum, ainda assim cai na entrada pessoal de Coding como fallback.
 
-完整状态矩阵：
+Matriz de estados completa:
 
-| Start | 个人 Coding | 团队 Coding | 登录后 `modelProviderFamilySelectedKeys[family]` |
-| ----- | ----------- | ----------- | ------------------------------------------------ |
-| 有    | 有          | 有          | 个人 Coding                                      |
-| 有    | 有          | 无          | 个人 Coding                                      |
-| 有    | 无          | 有          | 团队 Coding                                      |
-| 有    | 无          | 无          | Start                                            |
-| 无    | 有          | 有          | 个人 Coding                                      |
-| 无    | 有          | 无          | 个人 Coding                                      |
-| 无    | 无          | 有          | 团队 Coding                                      |
-| 无    | 无          | 无          | 个人 Coding 兜底                                 |
+| Start | Coding pessoal | Coding de equipe | Após o login, `modelProviderFamilySelectedKeys[family]` |
+| ----- | -------------- | ---------------- | ------------------------------------------------------- |
+| Sim   | Sim            | Sim              | Coding pessoal                                          |
+| Sim   | Sim            | Não              | Coding pessoal                                          |
+| Sim   | Não            | Sim              | Coding de equipe                                        |
+| Sim   | Não            | Não              | Start                                                   |
+| Não   | Sim            | Sim              | Coding pessoal                                          |
+| Não   | Sim            | Não              | Coding pessoal                                          |
+| Não   | Não            | Sim              | Coding de equipe                                        |
+| Não   | Não            | Não            | Coding pessoal (fallback)                             |
 
-多个团队套餐同时可用时，使用后端返回顺序中的第一个 `subscribed === true` 团队；该团队下有多个项目时，使用 `teamProjects[0]`，没有项目 ID 时再依次回退到 product 级 `projectId` 和 `"0"`，保证 selected key 稳定。
+Quando vários planos de equipe estão disponíveis ao mesmo tempo, usa-se o primeiro `subscribed === true` na ordem retornada pelo backend; quando esse time tem vários projetos, usa-se `teamProjects[0]` e, sem ID de projeto, o fallback sucessivo para o `projectId` de nível de product e depois para `"0"`, garantindo uma selected key estável.
 
-体验套餐（Start Plan）查询依赖个人套餐（Coding Plan）的结果。只有确认个人套餐没有权益、团队套餐不可用或已判定，并且体验套餐 fallback 查询完成后，才认为体验套餐可判定。
+A consulta do 体验套餐（Start Plan） depende do resultado do 个人套餐（Coding Plan）. Só se considera que o plano de experiência é decidível depois de confirmar que o plano pessoal não tem benefício e que o plano de equipe está indisponível ou já decidido, e depois que a consulta de fallback do plano de experiência terminar.
 
-设置页内不再拥有独立的连接方式初始化写回逻辑。设置页重开或 Team Plan 异步返回时，必须优先恢复历史 `modelProviderFamilySelectedKeys[family]`；只有用户在设置页手动切换连接方式时，设置页才写入新的 `modelProviderFamilyModes[family]` 与 `modelProviderFamilySelectedKeys[family]`。
+A página de configurações não possui mais uma lógica própria de escrita de inicialização do modo de conexão. Ao reabrir a página de configurações ou quando o Team Plan retorna de forma assíncrona, é obrigatório restaurar primeiro o `modelProviderFamilySelectedKeys[family]` histórico; somente quando o usuário troca manualmente o modo de conexão na página de configurações é que a página escreve novos `modelProviderFamilyModes[family]` e `modelProviderFamilySelectedKeys[family]`.
 
-重新连接后的自动连接方式更新由 Root OAuth 回调统一负责。OAuth 会跳到统一登录入口，设置页可能保持挂载、切到后台，或被卸载后重新挂载；因此登录成功后的后台 selected-key 刷新必须落到 shared settings，而不是依赖设置页是否挂载。
+A atualização automática do modo de conexão após reconexão é responsabilidade única do callback OAuth do Root. O OAuth salta para a entrada de login unificada, e a página de configurações pode permanecer montada, ir para segundo plano ou ser desmontada e remontada; por isso, a atualização de selected key em segundo plano após o login bem-sucedido precisa cair no shared settings, em vez de depender de a página de configurações estar montada.
 
-OAuth 回调成功后还必须在 Root 后台尽力刷新当前账号的连接方式设置。回调链路完成 provider key 刷新后，应读取最新 provider、个人 Coding/Start entitlement 和 BigModel Team pricing，并按同一优先级写入 `modelProviderFamilyModes[family]` 与 `modelProviderFamilySelectedKeys[family]`。该后台写入失败不能回滚登录态，但要记录日志；设置页只读取写入后的历史 selected key，不再消费 initial selection intent 做二次覆盖。
+Após o sucesso do callback OAuth, é obrigatório ainda tentar, em segundo plano no Root, atualizar as configurações de modo de conexão da conta atual. Depois que a cadeia do callback concluir o refresh das provider keys, deve-se ler o provider mais recente, o entitlement pessoal Coding/Start e o pricing do BigModel Team, e gravar `modelProviderFamilyModes[family]` e `modelProviderFamilySelectedKeys[family]` pela mesma prioridade. Uma falha nessa escrita em segundo plano não pode reverter o estado de login, mas precisa ser registrada em log; a página de configurações apenas lê a selected key histórica já gravada e não consome mais o initial selection intent para uma segunda sobrescrita.
 
-### API Key 入口
+### Entrada por API Key
 
-当用户通过 WelcomeScreen 的 API Key 入口选择 Z.ai 或 BigModel 后，Model Provider 设置页选中同 family 的 side 导航入口，并在右侧连接方式中直接选中 API Key，不受体验套餐、个人套餐或团队套餐权益影响。
+Quando o usuário escolhe Z.ai ou BigModel pela entrada de API Key da WelcomeScreen, a página de configurações de Model Provider seleciona a entrada da navegação lateral da mesma family e, nos modos de conexão à direita, seleciona diretamente API Key, sem influência dos benefícios de plano de experiência, pessoal ou de equipe.
 
-API Key 登录只要求写入 `modelProviderFamilyModes[family] = "apiKey"`；输入框和设置页看到 API Key mode 后直接按同 family 的 API Key 入口展示，不需要依赖 OAuth selected key。
+O login por API Key só exige gravar `modelProviderFamilyModes[family] = "apiKey"`; a caixa de entrada e a página de configurações, ao ver o modo API Key, exibem diretamente a entrada de API Key da mesma family e não precisam depender do OAuth selected key.
 
-## 边界
+## Limites
 
-- 初始选中意图只消费一次，消费后不再因后续 entitlement refresh 抢用户手动选择。
-- 普通打开设置页不写入 WelcomeScreen 初始选中意图，继续沿用现有选中项、已保存 family mode 和 fallback 行为；不能按套餐权益优先级重新选择右侧连接方式。
-- 入口意图只限定当前 family，不跨 Z.ai / BigModel 互相选择。
+- A intenção de seleção inicial é consumida apenas uma vez e, após o consumo, não volta a disputar a escolha manual do usuário por causa de um refresh de entitlement posterior.
+- Abrir a página de configurações normalmente não grava a intenção de seleção inicial da WelcomeScreen; continua usando o item selecionado atual, o family mode já salvo e o comportamento de fallback existentes, e não pode reselecionar o modo de conexão à direita pela prioridade dos benefícios de plano.
+- A intenção da entrada limita-se à family atual e não faz seleção cruzada entre Z.ai e BigModel.

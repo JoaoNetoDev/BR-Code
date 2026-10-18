@@ -1,27 +1,27 @@
-# Todo 71：Composer Draft 持久化与 Submission 状态收口
+# Todo 71: Consolidação do Composer Draft persistente e do estado de Submission
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Verificação de atribuição atualizada (2026-09-09): a dívida residual de subteste/falha/promoção manual deste documento é transferida para [Todo102](todo-102-verification-debt-closeout.md), encerrando o agendamento de verificação independente aqui; as evidências históricas são preservadas, e a transferência não significa que os testes passaram.
 
-> 状态：已完成实现与阶段验收（2026-09-04）。
+> Status: implementação e aceitação por fases concluídas (2026-09-04).
 >
-> 来源：已有 Session 中切换 mode 后，Composer 被 Agent Session Snapshot 旧值覆盖，表现为菜单无法切换
+> Origem: em uma Session existente, após trocar o mode, o Composer era sobrescrito por um valor antigo do Agent Session Snapshot, aparecendo como um menu que não conseguia alternar
 >
-> 依赖：Todo 68 的 Active Model 执行事实收口；Todo 70 的历史 Session Selection 迁移边界
+> Dependências: consolidação do fato de execução do Active Model do Todo 68; limite de migração de Session Selection histórica do Todo 70
 >
-> 最新裁决：已有选择缺失/失效时留空，不自动切默认模型，不弹失效提示。与 Todo 70 使用同一规则。
+> Decisão mais recente: quando a seleção existente estiver ausente/inválida, deixá-la vazia; não mudar automaticamente para o modelo padrão e não exibir aviso de invalidez. Mesma regra do Todo 70.
 
-## 1. 问题
+## 1. Problema
 
-Composer 表达的是“下一次提交准备发送什么”。当前实现却把这份状态拆散在多个位置：
+O Composer representa "o que a próxima submissão prepara para enviar". A implementação atual, porém, espalha esse estado em vários lugares:
 
-- 文本和 Lexical 状态进入 `V4ComposerDraft`；
-- `mode` 和 `modelSelection` 只留在 React `draftConfig`；
-- Workspace Store 还保存 `draftPreferredModel`、`draftPreferredMode`、`draftPreferredThoughtLevel`；
-- mode 另有一份全局 localStorage 偏好；
-- 已有 Session 的 Toolbar 又持续读取 Agent Session Snapshot；
-- 提交时再临时合并 Snapshot、Draft 和各类 Preferred 状态。
+- texto e estado Lexical entram em `V4ComposerDraft`;
+- `mode` e `modelSelection` ficam apenas no `draftConfig` do React;
+- o Workspace Store ainda guarda `draftPreferredModel`, `draftPreferredMode`, `draftPreferredThoughtLevel`;
+- o mode tem ainda uma preferência global separada em localStorage;
+- a Toolbar de uma Session existente continua lendo o Agent Session Snapshot;
+- na submissão, tudo é mesclado temporariamente com Snapshot, Draft e cada tipo de estado Preferred.
 
-因此 Renderer 没有一个完整、稳定的 Composer 事实源。典型错误时序如下：
+Assim, o Renderer não tem uma fonte de verdade completa e estável para o Composer. Um sequenciamento típico de erro é:
 
 ```text
 已有 Session Snapshot.mode = yolo
@@ -43,13 +43,11 @@ React draftConfig.mode = build
               菜单看起来切换失败
 ```
 
-这不是下拉菜单组件本身的问题，而是 Composer 状态所有权错误：发送前状态被已经运行过的 Agent Session
-状态持续反向驱动。
+Não é um problema do componente de menu em si, mas de propriedade de estado do Composer: o estado anterior ao envio era continuamente retroalimentado pelo estado de uma Agent Session que já havia executado.
 
-## 2. 目标状态
+## 2. Estado-alvo
 
-现有 Composer Draft 扩展为 Composer 的唯一持久化载体。Renderer 内存态负责即时交互，持久 Draft 负责重启、
-切页和 Session 恢复；Agent Session Snapshot 不再作为 Composer 存活期间的实时输入。
+O Composer Draft existente é estendido para ser o único portador persistente do Composer. O estado em memória do Renderer cuida da interação imediata; o Draft persistente cuida de reinício, troca de página e recuperação de Session; o Agent Session Snapshot deixa de ser entrada em tempo real para o Composer enquanto ele vive.
 
 ```text
                     打开 / 恢复 Composer
@@ -81,24 +79,21 @@ React draftConfig.mode = build
                           immutable Active Model
 ```
 
-核心原则：
+Princípios centrais:
 
-1. Composer 只维护“下一次提交”的完整状态；
-2. Submission 被创建后冻结自己的状态，不回读 Composer 或 Session；
-3. Agent Session 状态可以记录已接纳 Submission 的执行事实，但不再持续反投影到 Renderer Composer；
-4. Active Model 继续由 Todo 68 管理，不进入 Composer 持久化；
-5. 不增加 `LastSubmittedState`、`SessionComposerState`、Context Model Snapshot 或新的 Provider/Model DTO。
+1. O Composer mantém apenas o estado completo da "próxima submissão";
+2. uma vez criada, a Submission congela seu próprio estado e não relê o Composer nem a Session;
+3. o estado da Agent Session pode registrar os fatos de execução das Submissions aceitas, mas deixa de ser projetado continuamente de volta ao Composer do Renderer;
+4. o Active Model continua gerenciado pelo Todo 68 e não entra na persistência do Composer;
+5. não adicionar `LastSubmittedState`, `SessionComposerState`, Context Model Snapshot ou novos DTO de Provider/Model.
 
-### 2.1 与模型缓存的关系
+### 2.1 Relação com o cache de modelos
 
-持久 Composer Draft 不直接决定服务端 Prompt Cache 是否命中；缓存仍取决于真实请求的
-Provider、Model、Options 和 Prefix。它的作用是保存用户正在持续使用的 mode/ModelSelection，
-避免切页、重启或 Snapshot 重渲染时意外跳到另一个模型或模式，从而无意中改变后续请求前缀并
-破坏缓存连续性。因此它是缓存稳定性的产品状态前提，但不是新的缓存配置层。
+O Composer Draft persistente não decide diretamente se o Prompt Cache do servidor será atingido; o cache ainda depende do Provider, Model, Options e Prefix da requisição real. Seu papel é guardar o mode/ModelSelection que o usuário vem usando continuamente, evitando que trocas de página, reinícios ou re-renderizações de Snapshot saltem para outro modelo ou modo e mudem sem querer o prefixo das requisições seguintes, quebrando a continuidade do cache. Portanto, ele é uma pré-condição de estado de produto para a estabilidade do cache, mas não uma nova camada de configuração de cache.
 
-## 3. Composer Draft 契约
+## 3. Contrato do Composer Draft
 
-复用现有 `V4ComposerDraft`，把当前散落的执行选择并入同一个记录：
+Reutilizar o `V4ComposerDraft` existente, incorporando ao mesmo registro as escolhas de execução hoje dispersas:
 
 ```ts
 interface V4ComposerDraft {
@@ -111,38 +106,31 @@ interface V4ComposerDraft {
 }
 ```
 
-这里的可选字段只服务持久化兼容和初始化过程。Composer 完成初始化后，内存态应持有可提交的完整 `mode`；
-`modelSelection` 是否为空由当前 `ModelSelectionView` 和初始化/失效规则决定；已有选择失效后不得 fallback。
+Os campos opcionais aqui servem apenas à compatibilidade de persistência e ao processo de inicialização. Depois que o Composer termina a inicialização, o estado em memória deve conter um `mode` completo e submissível; se `modelSelection` fica vazio é determinado pela `ModelSelectionView` atual e pelas regras de inicialização/invalidação; depois que uma seleção existente se torna inválida, não há fallback.
 
-当前 `V4ComposerDraft` 的 localStorage key 和文件头都是 `v1`。本轮增加的 `mode/modelSelection` 是可选的
-向后兼容叶子，继续使用 v1，不额外制造一次 key 搬迁；但 Reader 必须逐项校验 Draft 和新增叶子，不能继续
-把 `JSON.parse()` 结果中的 `scopes` 直接断言成当前类型。旧 Draft 只有 text/editor 时正常读取，并按第 4 节
-只执行一次缺失字段初始化。
+A localStorage key e o cabeçalho de arquivo do `V4ComposerDraft` atual são ambos `v1`. Os campos `mode/modelSelection` adicionados neste ciclo são folhas opcionais e retrocompatíveis, e continuam em v1 sem criar uma migração extra de key; mas o Reader deve validar campo a campo o Draft e as novas folhas, e não pode continuar afirmando o resultado de `JSON.parse()` como o tipo atual, especialmente `scopes`. Drets antigos que têm apenas text/editor são lidos normalmente e passam apenas pela inicialização de campos ausentes descrita na seção 4.
 
-### 3.1 不写入 Draft 的内容
+### 3.1 O que não é gravado no Draft
 
-- `maxOutputTokens` 不属于 ModelSelection，也不属于 Composer Draft。Agent 框架必须在每次模型请求时根据任务需要
-  显式传入；选择 `optionSpecs.maxOutputTokens.max` 本身可以是合法的显式决策。
-- Endpoint、API Schema、凭据、Properties 和 Option Specs 不进入 Draft；执行时由目标 Host Registry 解析。
-- Active Model 不持久化。
-- 不再持久化 `provider/model/thoughtLevel` 等 ModelSelection 的平铺别名。
+- `maxOutputTokens` não pertence ao ModelSelection nem ao Composer Draft. O framework de Agent deve passar explicitamente a cada requisição de modelo conforme a necessidade da tarefa; escolher `optionSpecs.maxOutputTokens.max` em si já pode ser uma decisão explícita legítima.
+- Endpoint, API Schema, credenciais, Properties e Option Specs não entram no Draft; em tempo de execução são resolvidos pelo Host Registry de destino.
+- Active Model não é persistido.
+- Não se persiste mais os apelidos achatados de ModelSelection como `provider/model/thoughtLevel`.
 
-### 3.2 附件边界
+### 3.2 Limite dos anexos
 
-逻辑上的 Composer 状态仍包含附件，Submission 必须冻结本次附件；但当前附件包含不可安全跨重启恢复的
-`File`、`objectUrl` 和本地路径所有权。本 Todo 不借机发明附件序列化协议：
+O estado lógico do Composer ainda inclui anexos, e a Submission deve congelar os anexos desta vez; mas hoje os anexos incluem `File`, `objectUrl` e posse de caminho local, que não podem ser restaurados com segurança entre reinícios. Este Todo não inventa um protocolo de serialização de anexos:
 
-- Composer 存活期间继续由当前内存附件状态持有；
-- 提交时与 prompt、mode、ModelSelection 一起进入 Submission；
-- 本轮持久化扩展只覆盖现有安全可序列化字段和 `mode/modelSelection`；
-- 跨重启附件恢复留给独立设计，不得把失效 object URL 或未校验本地路径直接写入持久 Draft。
+- enquanto o Composer vive, os anexos continuam mantidos pelo estado de anexos em memória atual;
+- na submissão, eles entram na Submission junto com prompt, mode e ModelSelection;
+- esta extensão de persistência cobre apenas os campos serializáveis com segurança já existentes e `mode/modelSelection`;
+- a recuperação de anexos entre reinícios fica para um design separado; não se deve gravar object URL inválido nem caminho local não validado diretamente no Draft persistente.
 
-## 4. 初始化规则
+## 4. Regras de inicialização
 
-初始化只在 Composer 创建、Workspace/Session scope 切换或恢复时执行一次。完成后，普通 React render 不再重新
-合并 Session Snapshot 与各类默认值。
+A inicialização acontece uma única vez, quando o Composer é criado, quando o escopo Workspace/Session muda ou na recuperação. Depois disso, um render React comum não volta a mesclar o Session Snapshot com os respectivos valores padrão.
 
-### 4.1 已有 Session
+### 4.1 Session existente
 
 ```text
 当前 Session scope 的持久 Composer Draft
@@ -155,16 +143,11 @@ interface V4ComposerDraft {
                          立即写入 Draft
 ```
 
-Session Selection 和 mode 在这里只是旧 Session 第一次建立 Composer Draft 的 seed。初始化完成后，即使 Agent
-Snapshot 更新，也不能覆盖用户正在编辑的 Composer。
+Session Selection e mode aqui servem apenas como seed para a primeira criação do Composer Draft de uma Session antiga. Depois da inicialização, mesmo que o Agent Snapshot seja atualizado, ele não pode sobrescrever o Composer que o usuário está editando.
 
-Todo 70 返回未绑定选择时，Draft 同样保留空模型或空 Reasoning，不再走默认模型初始化，也不弹提示。
-旧 Draft 只有 text/editor 时，可以执行一次缺失字段初始化；但已经初始化、因失效而留空的 Draft 不属于旧 Draft，
-不能在 remount、切页或重启后重新用 Session/Recent/preferred 填满。使用 Draft 中合法的 `mode` 区分是否已
-完成初始化：初始化始终保存 mode，包括明确空模型的状态；旧文本草稿没有 mode。不要仅凭
-`modelSelection === undefined` 判断是否需要初始化，不新增独立业务状态库或另一个初始化标志。
+Quando o Todo 70 retorna uma seleção não vinculada, o Draft também mantém modelo vazio ou Reasoning vazio, sem passar pela inicialização de modelo padrão e sem exibir aviso. Drets antigos que têm apenas text/editor podem executar uma única vez a inicialização de campos ausentes; mas um Draft já inicializado e deixado vazio por invalidez não é um Draft antigo e não pode ser preenchido novamente com Session/Recent/preferred após remount, troca de página ou reinício. Use o `mode` válido dentro do Draft para distinguir se a inicialização já foi concluída: a inicialização sempre salva o mode, inclusive no estado com modelo explicitamente vazio; um rascunho de texto antigo não tem mode. Não julgue a necessidade de inicialização apenas por `modelSelection === undefined`, e não crie uma nova biblioteca de estado de negócio nem outro flag de inicialização.
 
-### 4.2 新 Session / 空白任务
+### 4.2 Nova Session / tarefa em branco
 
 ```text
 Root Draft（scope = __draft__）
@@ -180,17 +163,15 @@ Root Draft（scope = __draft__）
 mode：已有 Root Draft 优先；全新 Root Draft 读取当前 workspace 的 Composer Recent.mode，缺失或非法才使用 build
 ```
 
-Host `preferredSelection` 已经包含 Configured Default 与 Registry fallback 的统一结果；Renderer 不复制这套
-算法，也不根据 Provider、模型名称或 Account 类型自行推断。
+O `preferredSelection` do Host já contém o resultado unificado do Default Configurado e do fallback do Registry; o Renderer não duplica esse algoritmo nem infere sozinho com base em Provider, nome do modelo ou tipo de Account.
 
-上述 Recent/preferred 只用于真正首次创建且没有持久 Draft 的新任务，不能用于修复已有 Draft 的空选择。
-用户主动选择新模型时仍按正常选模规则初始化档位；这不等于给失效的已保存 Reasoning 自动补值。
+Os Recent/preferred acima servem apenas para tarefas novas realmente criadas pela primeira vez e sem Draft persistente; não podem ser usados para corrigir uma seleção vazia de um Draft já existente. Quando o usuário escolhe ativamente um novo modelo, a inicialização do nível segue as regras normais de escolha de modelo; isso não equivale a preencher automaticamente um Reasoning salvo que ficou inválido.
 
-### 4.2.1 ZCT-2098314627607224320：新任务继承最近提交权限
+### 4.2.1 ZCT-2098314627607224320: novas tarefas herdam a permissão da última submissão
 
-修复原因：将 Root Draft 迁移到 Session 后删除来源是正确的任务隔离，但新 Root 固定 build 丢失了下一任务权限继承。
-扩展现有 App Recent 为 Composer Recent，模型与模式并列保存；不修改共享 ModelSelection 类型、不恢复第二套全局 mode preference。
-Recent 继续按 `workspaceIdentity?.trim() || workspacePath` 隔离，同路径不同远端不能串值。Desktop 与手机各自持有 Renderer Recent。
+Motivo da correção: migrar o Root Draft para a Session e apagar a origem é um isolamento de tarefas correto, mas o novo Root fixo em build perdeu a herança de permissões da próxima tarefa.
+Estender o App Recent existente para Composer Recent, guardando modelo e modo lado a lado; não modificar o tipo compartilhado ModelSelection nem restaurar uma segunda preferência global de mode.
+O Recent continua isolado por `workspaceIdentity?.trim() || workspacePath`; mesmo caminho com remotos diferentes não pode misturar valores. Desktop e celular têm cada um seu próprio Renderer Recent.
 
 ```text
 用户选择 -> 当前 scope Draft（即时持久化）
@@ -199,25 +180,24 @@ Recent 继续按 `workspaceIdentity?.trim() || workspacePath` 隔离，同路径
 Snapshot / Recent 后续更新 -X-> 已初始化的 Draft
 ```
 
-- 接纳含排队，不等待执行完成；执行后来失败也不撤销已接纳的选择。
-- 未发送、rejected/failed、空会话预热、历史恢复、重复 ACK 不刷新 Recent。
-- 同一 Renderer/workspace 按实际命令发起顺序记录候选；只有较新的已接纳命令能覆盖 Recent。迟到 ACK 不读取当前菜单、不覆盖用户的新草稿。
-- 沿用现有 Recent key，读取兼容旧纯 ModelSelection 记录；modelSelection 与 mode 独立校验，坏模型不丢合法模式，坏模式不丢合法模型。
-- Recent 写入失败只记录 UI logger 警告，不把已接纳发送报告成失败。现有草稿与历史 Session 不批量重写。
-- 只改 App Composer 初始化与接纳后偏好保存。Desktop continuous 和手机 replayable 的既有可信 attachment、shared-host、owner、CommandInbox 与恢复协议不变。
-- 回归必须真实点击 New Task；证明 toolbar、持久 Draft、后续工具执行权限一致，并保留 Session/Root 未发送意图隔离。
+- A aceitação inclui o enfileiramento e não espera a conclusão da execução; mesmo que a execução falhe depois, a seleção aceita não é revertida.
+- Não atualizam o Recent: envios não enviados, rejeitados/falhos, pré-aquecimento de sessão vazia, recuperação de histórico e ACKs duplicados.
+- No mesmo Renderer/workspace, os candidatos são registrados pela ordem real de emissão dos comandos; apenas um comando aceito mais recente pode sobrescrever o Recent. Um ACK atrasado não lê o menu atual nem sobrescreve o novo rascunho do usuário.
+- Reutiliza-se a key de Recent existente, com leitura compatível de registros antigos puramente ModelSelection; modelSelection e mode são validados de forma independente: um modelo ruim não perde um modo válido, e um modo ruim não perde um modelo válido.
+- Falha ao gravar o Recent só registra um aviso no logger de UI e não reporta um envio aceito como falha. Rascunhos existentes e Sessions históricas não são reescritos em lote.
+- Só altera a inicialização do App Composer e o salvamento de preferência após a aceitação. Os protocols confiáveis existentes de attachment, shared-host, owner e CommandInbox do Desktop continuous e do celular replayable permanecem inalterados.
+- A regressão deve clicar de verdade em New Task; provar que toolbar, Draft persistente e permissões de execução de ferramentas seguintes são consistentes, preservando o isolamento de intenção não enviada entre Session/Root.
 
-### 4.3 初始化后的约束
+### 4.3 Restrições após a inicialização
 
-- 初始化结果立即进入同一个 Composer 内存态并持久化，不保留“只有 UI 显示、尚未进入 Draft”的半状态；
-- mode 和 modelSelection 使用同一套状态读取原则；
-- 不在每次 render、Snapshot 事件或提交时重新计算优先级；
-- Prompt CLI、TUI、Automation、Repo Wiki、Subagent 和 Off-Peak 继续使用各自的 Draft/Config/Record，不复用
-  App Composer Draft。
+- o resultado da inicialização entra imediatamente no mesmo estado em memória do Composer e é persistido, sem manter um estado intermediário de "apenas exibido na UI, ainda fora do Draft";
+- mode e modelSelection seguem o mesmo princípio de leitura de estado;
+- a prioridade não é recalculada a cada render, evento de Snapshot ou submissão;
+- Prompt CLI, TUI, Automation, Repo Wiki, Subagent e Off-Peak continuam usando seus próprios Draft/Config/Record e não reutilizam o App Composer Draft.
 
-## 5. 用户修改与持久化
+## 5. Modificação do usuário e persistência
 
-用户修改 mode 或 ModelSelection 时：
+Quando o usuário modifica o mode ou o ModelSelection:
 
 ```text
 点击菜单项
@@ -227,27 +207,24 @@ Snapshot / Recent 后续更新 -X-> 已初始化的 Draft
     `--> 持久化当前 scope 的完整 Draft
 ```
 
-- UI 不等待 Host/Agent ack 才显示新值；
-- mode 和 ModelSelection 是低频离散操作，修改后可立即持久化；文本仍可沿用现有防抖写入；
-- 空文本不等于空 Composer。只要该 scope 已初始化并持有 mode 或 ModelSelection，普通持久化就必须保留记录；
-  删除整个 scope 只能走显式清理接口，不能继续使用“text 和 editorStateJson 为空”作为删除条件；
-- 持久化失败只记录一次可诊断日志，不把 UI 回滚成 Agent Snapshot；
-- 同一 scope 内连续修改遵守 latest intent wins，旧异步结果不能覆盖新内存态；
-- key 继续使用 `workspaceKey = workspaceIdentity?.trim() || workspacePath`，scope 使用 Session ID 或
-  `__draft__`。
+- A UI não espera o ack do Host/Agent para exibir o novo valor;
+- mode e ModelSelection são operações discretas de baixa frequência e podem ser persistidos imediatamente após a modificação; o texto continua podendo usar a gravação com debounce já existente;
+- texto vazio não significa Composer vazio. Enquanto o escopo estiver inicializado e tiver mode ou ModelSelection, a persistência comum precisa preservar o registro; apagar um escopo inteiro só pode passar por uma interface explícita de limpeza, e não se pode continuar usando "text e editorStateJson vazios" como condição de remoção;
+- falha de persistência registra apenas um log diagnosticável uma vez e não faz a UI voltar ao Agent Snapshot;
+- modificações consecutivas no mesmo escopo obedecem a latest intent wins; resultados assíncronos antigos não podem sobrescrever o novo estado em memória;
+- a key continua `workspaceKey = workspaceIdentity?.trim() || workspacePath`, e o escopo usa o Session ID ou `__draft__`.
 
-本 Todo 不引入跨窗口分布式锁或新的 Host Repository。当前 localStorage 载体可以继续使用；若后续需要同一
-Session 多窗口协同编辑，应作为独立同步设计处理。
+Este Todo não introduz bloqueio distribuído entre janelas nem um novo Host Repository. O portador localStorage atual pode continuar em uso; se depois for necessária edição colaborativa da mesma Session em várias janelas, isso deve ser tratado como um design de sincronização separado.
 
-### 5.1 草稿容量
+### 5.1 Capacidade do rascunho
 
-Composer Draft 不再按 scope 数量裁剪。模型选择属于长期用户状态，不能沿用临时文本草稿的固定上限而被静默删除；仅在用户显式清理 scope 或存储本身拒绝写入时移除。
+O Composer Draft não é mais podado pela quantidade de escopos. A escolha de modelo é estado de longo prazo do usuário e não pode ser removida silenciosamente por herdar um teto fixo do rascunho de texto temporário; só é removida quando o usuário limpa explicitamente o escopo ou quando o próprio armazenamento recusa a escrita.
 
-## 6. 提交时序
+## 6. Sequenciamento da submissão
 
-### 6.1 创建 Submission
+### 6.1 Criação da Submission
 
-Submission 必须从同一时刻的 Composer 内存态一次性复制：
+A Submission deve ser copiada de uma só vez do estado em memória do Composer no mesmo instante:
 
 ```text
 Composer State
@@ -260,16 +237,16 @@ Composer State
 一个不可变 Submission
 ```
 
-禁止提交函数再从以下位置补字段：
+É proibido que a função de submissão preencha campos a partir de:
 
-- Agent Session Snapshot；
-- Workspace `draftPreferred*`；
-- 全局 mode localStorage；
-- 提交前临时查询到的另一份模型状态。
+- Agent Session Snapshot;
+- Workspace `draftPreferred*`;
+- global mode em localStorage;
+- outra consulta de estado de modelo feita temporariamente antes do envio.
 
-### 6.2 Submission 被接纳
+### 6.2 Submission aceita
 
-接纳成功后，只清除已经发送的内容，保留执行选择：
+Após a aceitação bem-sucedida, limpa-se apenas o que já foi enviado e preservam-se as escolhas de execução:
 
 ```text
 提交前 Draft
@@ -289,13 +266,12 @@ Submission accepted
 └─ modelSelection = DeepSeek/high
 ```
 
-- 已有 Session：在原 Session scope 保存清空内容后的 Draft；
-- 新任务从 `__draft__` 建立真实 Session 时：把保留的 mode/ModelSelection 转移到新 Session scope，再删除旧
-  Root scope；
-- Composer Recent 在 App 接纳用户 Submission 后一次保存本次冻结的 modelSelection 与 mode，不由菜单点击、空 Session 预热或历史恢复更新；
-- Agent Session execution state 在接纳/启动边界更新，不能提前于 Submission 成功。
+- Session existente: salvar o Draft com o conteúdo limpo no escopo da Session original;
+- nova tarefa quando uma Session real é criada a partir de `__draft__`: transferir o mode/ModelSelection preservados para o escopo da nova Session e só então apagar o escopo Root antigo;
+- o Composer Recent salva uma única vez o modelSelection e o mode congelados desta submissão depois que o App aceita a Submission do usuário; ele não é atualizado por clique de menu, pré-aquecimento de sessão vazia nem recuperação histórica;
+- o execution state da Agent Session é atualizado na fronteira de aceitação/início e não pode anteceder o sucesso da Submission.
 
-接纳成功后的清理必须带本次提交的局部 revision/token，防止迟到结果清除用户在等待期间产生的新输入：
+A limpeza após a aceitação precisa carregar uma revisão/token local desta submissão, para impedir que um resultado atrasado apague a nova entrada gerada pelo usuário durante a espera:
 
 ```text
 Submission A 从 Composer revision R 创建
@@ -310,23 +286,21 @@ Submission A 接纳成功
              不得清理 R+1 的文本、附件、mode 或 ModelSelection
 ```
 
-这只是单次提交操作的局部比较与清理条件，不建立 `LastSubmittedState`。无论是否发生并发修改，提交成功后
-Composer 中保留的 mode/ModelSelection 都以当前最新内存态为准。
+Isso é apenas uma comparação e condição de limpeza locais a uma única operação de envio, e não estabelece `LastSubmittedState`. Com ou sem modificação concorrente, o mode/ModelSelection mantido no Composer após o envio bem-sucedido segue o estado em memória mais recente.
 
-### 6.3 提交失败
+### 6.3 Falha na submissão
 
-- Submission 未被接纳时，恢复或保留提交前的文本、附件、mode 和 ModelSelection；
-- 不允许只恢复 prompt 却丢失选择；
-- 失败恢复不能被迟到的清理操作再次覆盖；
-- 不创建 `LastSubmittedState`，提交前快照只作为这次异步操作的局部回滚材料。
+- Quando a Submission não é aceita, restaurar ou preservar o texto, anexos, mode e ModelSelection anteriores ao envio;
+- não é permitido restaurar apenas o prompt e perder a seleção;
+- a restauração após falha não pode ser sobrescrita novamente por uma limpeza atrasada;
+- não criar `LastSubmittedState`; o snapshot anterior ao envio serve apenas como material de rollback local desta operação assíncrona.
 
-Root scope 转移同样遵守 latest intent wins：先写入目标 Session scope，成功后才删除对应 Root scope；如果
-接纳期间 Root Composer 已经产生更新，只移动本次已接纳内容对应的状态，不能用旧快照覆盖更新后的 Composer。
+A transferência do escopo Root também obedece a latest intent wins: escrever primeiro no escopo da Session de destino e só apagar o escopo Root correspondente após o sucesso; se o Composer Root já tiver gerado atualizações durante a aceitação, mover somente o estado correspondente ao conteúdo aceito nesta vez, sem sobrescrever com um snapshot antigo o Composer já atualizado.
 
-## 7. Registry 更新与选择失效
+## 7. Atualização do Registry e invalidação da seleção
 
-Registry revision 变化时，当前 Composer Draft 的 ModelSelection 必须使用新的 `ModelSelectionView` 校验。
-校验只发生在 View 真正 Ready 且 revision 已推进时，不把 loading/error/unavailable 当作选择失效。
+Quando a revision do Registry muda, o ModelSelection do Composer Draft atual precisa ser validado com a nova `ModelSelectionView`.
+A validação acontece somente quando a View está realmente Ready e a revision avançou; não tratar loading/error/unavailable como invalidação de seleção.
 
 ```text
 Persisted / In-memory ModelSelection
@@ -351,204 +325,189 @@ Ready ModelSelectionView(revision N)
                  `--> 用户完成选择前禁止提交
 ```
 
-以下情况复用同一个 validator，但必须区分失效层级：
+Os casos a seguir reutilizam o mesmo validator, mas precisam distinguir a camada de invalidação:
 
-- Provider 不存在或不可选择、Model 不存在或不可选择：模型身份已经失效，整份 Selection 作废；
-- 已保存 reasoning 不再属于当前模型的有序 `values`，或缺少提交契约要求的 reasoning：模型身份仍然有效，
-  只清空 `reasoningLevel`。
+- Provider inexistente ou não selecionável, Model inexistente ou não selecionável: a identidade do modelo já está inválida, e a Selection inteira é anulada;
+- reasoning salvo que não pertence mais aos `values` ordenados do modelo atual, ou reasoning ausente exigido pelo contrato de envio: a identidade do modelo continua válida e apenas `reasoningLevel` é limpo.
 
-处理要求：
+Requisitos de tratamento:
 
-- Provider/Model 失效后保持空选择，不使用 Recent、Configured Default 或 Host preferred 自动替换；
-- Reasoning 失效时不得自动补成最高、最低或 Configured Default，也不得改动仍然有效的 Provider/Model；
-- 空模型或空 Reasoning 仅由控件空态和不可提交状态表达，不弹 Toast、弹窗或额外失效横幅；删除对应通知及去重逻辑；
-- 清空后的状态立即更新内存态并持久化，后续 render、revision、切页和重启不能自动填满；
-- 全新草稿从未有过选择且没有持久 Draft 时走正常初始化。
+- Após Provider/Model ficarem inválidos, manter a seleção vazia e não substituir automaticamente por Recent, Default Configurado ou preferred do Host;
+- Quando o Reasoning fica inválido, não preencher automaticamente com o mais alto, o mais baixo ou o Default Configurado, e não alterar o Provider/Model que continuam válidos;
+- Modelo vazio ou Reasoning vazio é expresso apenas pelo estado vazio do controle e pela impossibilidade de enviar, sem Toast, modal ou banner extra de invalidez; remover as notificações correspondentes e a lógica de deduplicação;
+- O estado limpo atualiza imediatamente o estado em memória e é persistido; renders, revisions, trocas de página e reinícios seguintes não podem preenchê-lo automaticamente;
+- Um rascunho totalmente novo que nunca teve seleção e não tem Draft persistente segue a inicialização normal.
 
-现有 `ModelSelection` 持久结构允许 `reasoningLevel` 暂时缺失，因此这里不新增
-`PartialModelSelection`、`ComposerModelChoice` 或其他中间 DTO。这个未完成状态只能存在于 Composer Draft
-和历史恢复边界；创建 Submission 时必须先通过完整性校验，ModelFactory 仍只接收完整、可执行的 Selection。
+A estrutura persistente atual de `ModelSelection` permite que `reasoningLevel` esteja temporariamente ausente, então aqui não se adiciona `PartialModelSelection`, `ComposerModelChoice` ou outro DTO intermediário. Esse estado incompleto só pode existir no Composer Draft e na fronteira de recuperação histórica; ao criar a Submission é preciso passar antes pela validação de completude, e o ModelFactory continua recebendo apenas uma Selection completa e executável.
 
-Todo 70 处理的是恢复历史 Session 时旧 Selection 的迁移/未绑定状态；本节处理的是已经正常打开的 Composer
-在 Registry 更新后的选择。两者统一为留空、不自动替换、不弹提示，不再保留按场景区分的失效 fallback。
-取消的是选择留空的通知，不是实际请求失败、提交失败或持久化故障的正常错误反馈。
+O Todo 70 trata da migração/estado não vinculado da Selection antiga ao recuperar Sessions históricas; esta seção trata das escolhas de um Composer já normalmente aberto após uma atualização do Registry. Os dois são unificados como deixar vazio, sem substituição automática e sem aviso, e já não se mantém um fallback de invalidez distinguido por cenário.
+O que é cancelado é a notificação de seleção vazia, não o feedback normal de erro de falha real de requisição, falha de envio ou falha de persistência.
 
-## 8. Queue、Guide 与执行边界
+## 8. Limites de Queue, Guide e execução
 
-本 Todo 不修改 Queue 与 Guide 的产品语义，只固定它们共同依赖的 Submission 边界：
+Este Todo não muda a semântica de produto de Queue e Guide; apenas fixa a fronteira de Submission da qual ambos dependem:
 
-- Queue item 保存入队时完整 Submission；出队时不回读 Composer 或最新 Session Selection；
-- 点击“立即”仍使用该 Queue item 自己的 Submission；
-- Guide 被当前 Loop 接纳后，按既有原子边界更新 Session execution state，并从合法 model-step 使用新 Active
-  Model；
-- Registry 在排队后变化、导致 Queue item 的 Selection 无法执行时，明确失败并保留输入，不静默路由到另一个
-  Provider/Model/Reasoning；
-- Desktop `continuous` 与 Mobile `replayable` 只传递同一份已提交 Submission，不各自推导默认值，也不在
-  Renderer 建立第二份 accepted-input queue。
+- um item de Queue salva a Submission completa no momento do enfileiramento; ao sair da fila não relê o Composer nem a Selection mais recente da Session;
+- clicar em "agora" continua usando a Submission própria daquele item de Queue;
+- depois que um Guide é aceito pelo Loop atual, o execution state da Session é atualizado pela fronteira atômica já existente, e o novo Active Model é usado a partir de um model-step válido;
+- quando o Registry muda após o enfileiramento e torna a Selection do item de Queue inexecutável, falhar explicitamente e preservar a entrada, sem rotear silenciosamente para outro Provider/Model/Reasoning;
+- Desktop `continuous` e Mobile `replayable` apenas passam a mesma Submission já submetida, não derivam padrões por conta própria e não criam uma segunda fila de accepted-input no Renderer.
 
-排队与“立即引导”的更大产品语义此前已决定暂缓，本 Todo 不借状态收口修改 `sendQueuedNow` 或默认立即行为。
+A semântica de produto mais ampla de enfileiramento e "guia imediato" já foi adiada; este Todo não modifica `sendQueuedNow` nem o comportamento padrão de imediato.
 
-## 9. 现有实现清理
+## 9. Limpeza da implementação existente
 
-### 9.1 合并 Composer 状态
+### 9.1 Unificar o estado do Composer
 
-- 扩展 `composerDraftStore.ts`，让读取、保存、清理和 scope 转移保留 mode/ModelSelection；
-- `ConversationComposer`、`SessionPane`、Toolbar 和 mode/model 控件统一读取 Composer 内存态；
-- 提交成功从“删除整个 Draft”改为“清除已提交内容、保留 mode/ModelSelection”；
-- Root Draft 建立 Session 时增加明确的 scope 转移测试。
+- estender `composerDraftStore.ts` para que leitura, gravação, limpeza e transferência de escopo preservem mode/ModelSelection;
+- `ConversationComposer`, `SessionPane`, a Toolbar e os controles de mode/model passam a ler uniformemente o estado em memória do Composer;
+- o sucesso do envio muda de "apagar o Draft inteiro" para "limpar o conteúdo enviado e preservar mode/ModelSelection";
+- adicionar testes explícitos de transferência de escopo quando o Root Draft cria uma Session.
 
-### 9.2 删除第二事实源
+### 9.2 Remover a segunda fonte de verdade
 
-在证明无其他产品消费者后删除或收窄：
+Depois de provar que não há outros consumidores de produto, remover ou restringir:
 
-- `draftPreferredModel`；
-- `draftPreferredMode`；
-- `draftPreferredThoughtLevel`；
-- Renderer 全局 `draftModePreference` 对当前 Composer 的持续 fallback；
-- `resolveCurrentComposerSubmission()` 中 Snapshot + Draft + Initial Config 的动态拼接；
-- Toolbar 从 `snapshot.config` 读取当前 mode/model 的逻辑；
-- 以 Agent config CAS 作为 mode/model 菜单点击确认的路径。
+- `draftPreferredModel`;
+- `draftPreferredMode`;
+- `draftPreferredThoughtLevel`;
+- o fallback contínuo do `draftModePreference` global do Renderer para o Composer atual;
+- a montagem dinâmica Snapshot + Draft + Initial Config em `resolveCurrentComposerSubmission()`;
+- a lógica de a Toolbar ler o mode/model atual de `snapshot.config`;
+- o caminho que usa CAS do config do Agent como confirmação de clique de menu de mode/model.
 
-删除前需用引用审计逐个确认。若 `draftPreferred*` 仍服务非 Composer 产品，先拆清消费者，不得机械删掉共享状态。
+Antes de remover, é preciso confirmar um a um com uma auditoria de referências. Se `draftPreferred*` ainda atender a produtos fora do Composer, primeiro separar claramente os consumidores; não apagar mecanicamente estado compartilhado.
 
-### 9.3 保留但重新定界
+### 9.3 Manter, mas redelimitar
 
-- Session Selection：保留，表示 Agent 后续执行的持久模型意图；不直接渲染 Composer；
-- Session mode/runtime config：保留，服务权限、工具行为、恢复和协议执行；只在 Composer 首次缺少 Draft 时提供
-  一次初始化 seed；
-- Prewarm：可以继续接收当前完整 Composer 配置用于启动性能和 readiness，但它不是 UI 事实源，第一次正式
-  Submission 仍必须原子携带 mode/ModelSelection；
-- `followupMode` 等不属于本次 Composer model/mode 收口的设置不机械删除。
+- Session Selection: manter; representa a intenção persistente de modelo para a execução posterior do Agent e não renderiza o Composer diretamente;
+- Session mode/runtime config: manter; serve a permissões, comportamento de ferramentas, recuperação e execução de protocolo; oferece uma única seed de inicialização apenas quando o Composer não tiver Draft pela primeira vez;
+- Prewarm: pode continuar recebendo a configuração completa atual do Composer para performance de inicialização e readiness, mas não é fonte de verdade da UI; a primeira Submission oficial ainda precisa carregar mode/ModelSelection de forma atômica;
+- configurações como `followupMode`, que não fazem parte desta consolidação de model/mode do Composer, não são removidas mecanicamente.
 
-## 10. 命名收口
+## 10. Consolidação de nomenclatura
 
-命名必须体现状态所有权：
+A nomenclatura precisa refletir a propriedade do estado:
 
-- `draftConfig` 改为 `composerState` 或 `composerDraftState`；
-- `resolveCurrentComposerSubmission` 改为表达“从 Composer 快照构造 Submission”的名称，例如
-  `createSubmissionFromComposer`；
-- Agent 侧 `getModelSelection()` 若实际读取 Session 后续选择，按 Todo 68 改为
-  `getSessionModelSelection()`；
-- 禁止继续使用 `currentModel`、`currentMode` 指代既可能是 Composer 又可能是 Agent Runtime 的含混值。
+- `draftConfig` passa a `composerState` ou `composerDraftState`;
+- `resolveCurrentComposerSubmission` passa a expressar "construir a Submission a partir de um snapshot do Composer", por exemplo `createSubmissionFromComposer`;
+- no lado do Agent, se `getModelSelection()` realmente ler a seleção posterior da Session, conforme o Todo 68 mudar para `getSessionModelSelection()`;
+- é proibido continuar usando `currentModel`, `currentMode` para valores ambíguos que podem ser tanto do Composer quanto do Agent Runtime.
 
-具体命名以实现时真实职责为准，不为改名新增包装层或兼容 alias。
+A nomenclatura concreta deve seguir a responsabilidade real na implementação; não criar camadas de wrapper nem aliases de compatibilidade apenas por causa da renomeação.
 
-## 11. 跨层影响面
+## 11. Superfície de impacto entre camadas
 
-| 层级 | 本 Todo 的改动 | 不允许发生的事 |
+| Camada | Mudanças deste Todo | O que não pode acontecer |
 | --- | --- | --- |
-| UI / Composer | 完整内存态、菜单交互、选择空态 | 每次 render 回读 Session Snapshot |
-| Draft persistence | 持久化 text/editor/mode/ModelSelection | 持久化 Active Model、凭据或 Option Specs |
-| Submission | 一次复制完整 Composer 状态 | 提交后再从 Session 补 mode/model |
-| App Recent | 接纳后保存最近 Submission 的 Selection + mode | 菜单点击即更新 Recent |
-| Agent Session | 接纳后记录执行状态 | 作为 Renderer Composer 的实时 store |
-| Registry | 提供 Ready View、preferred 和 Selection 校验 | Renderer 复制 fallback 算法 |
-| Queue / Guide | 保留冻结的 Submission | 执行时回读 Composer |
-| Remote | 透传相同 Submission 与 workspace identity | Relay/Main 持有 Composer 业务状态 |
+| UI / Composer | estado em memória completo, interação de menu, estado vazio de seleção | reler o Session Snapshot a cada render |
+| Draft persistence | persistir text/editor/mode/ModelSelection | persistir Active Model, credenciais ou Option Specs |
+| Submission | uma cópia do estado completo do Composer | completar mode/model a partir da Session após o envio |
+| App Recent | salvar após a aceitação a Selection + mode da última Submission | atualizar o Recent ao clicar no menu |
+| Agent Session | registrar o estado de execução após a aceitação | servir como store em tempo real do Composer do Renderer |
+| Registry | fornecer View Ready, preferred e validação de Selection | o Renderer copiar o algoritmo de fallback |
+| Queue / Guide | manter a Submission congelada | reler o Composer em tempo de execução |
+| Remote | repassar a mesma Submission e a workspace identity | Relay/Main manter estado de negócio do Composer |
 
-Automation、Repo Wiki、Subagent、Off-Peak、Bot、Prompt CLI 和 TUI 不迁入 App Composer Draft。本轮只验证它们
-没有被共享 helper 的清理误伤。
+Automation, Repo Wiki, Subagent, Off-Peak, Bot, Prompt CLI e TUI não migram para o App Composer Draft. Neste ciclo só se verifica que eles não foram atingidos indevidamente pela limpeza de helpers compartilhados.
 
-## 12. 测试先行计划
+## 12. Plano de testes primeiro
 
-### 12.1 Draft Store 单测
+### 12.1 Testes unitários do Draft Store
 
-- mode 和完整 ModelSelection JSON round-trip；
-- `workspaceIdentity` 优先于 `workspacePath` 隔离；
-- Session scope 与 `__draft__` 不串数据；
-- 只有 mode/ModelSelection、文本为空时仍保留 Draft；
-- 清除已提交内容不会清除 mode/ModelSelection；
-- Root scope 向新 Session scope 转移后不残留两份；
-- 旧版本只有 text/editor 的 Draft 可以读取并完成一次初始化；
-- 保存 51 个 scope 不淘汰；500 个正常保留；第 501 个按更新时间淘汰最旧 scope，保留新写入项；
-- 仅有 mode/modelSelection 或留空选择的记录，在容量以内正常 round-trip，不因空文本被删除。
+- round-trip de JSON de mode e ModelSelection completo;
+- `workspaceIdentity` tem precedência sobre o isolamento por `workspacePath`;
+- escopo de Session e `__draft__` não trocam dados;
+- Draft ainda é preservado quando só tem mode/ModelSelection e o texto está vazio;
+- limpar o conteúdo enviado não limpa mode/ModelSelection;
+- após a transferência do escopo Root para o escopo da nova Session não restam duas cópias;
+- um Draft de versão antiga com apenas text/editor pode ser lido e completar uma inicialização;
+- salvar 51 escopos não faz evicção; 500 são mantidos normalmente; o 501º faz evicção do escopo mais antigo por hora de atualização, preservando o item recém-escrito;
+- registros apenas com mode/modelSelection ou com seleção vazia fazem round-trip normal dentro da capacidade e não são removidos por causa do texto vazio.
 
-### 12.2 Composer 组件测试
+### 12.2 Testes de componente do Composer
 
-- 已有 Session 点击 mode 后立即显示新值并关闭菜单；Snapshot 重渲染不能覆盖；
-- 切换 Model/Reasoning 后 UI、Draft 和最终 Submission 三者一致；
-- App 重启/组件 remount 后恢复同一 mode/ModelSelection；
-- Submission 成功清空文本但保留 mode/ModelSelection；
-- Submission 失败恢复完整提交前状态；
-- 中文输入、附件和既有发送交互不回归。
+- em uma Session existente, clicar em um mode exibe o novo valor imediatamente e fecha o menu; o re-render por Snapshot não pode sobrescrever;
+- depois de trocar Model/Reasoning, a UI, o Draft e a Submission final são consistentes;
+- após reinício do App/remount do componente, o mesmo mode/ModelSelection é restaurado;
+- Submission bem-sucedida limpa o texto mas preserva mode/ModelSelection;
+- Submission com falha restaura integralmente o estado anterior ao envio;
+- entrada de texto em chinês, anexos e as interações de envio existentes não regridem.
 
-### 12.3 Registry 失效测试
+### 12.3 Testes de invalidação do Registry
 
-- Provider 或 Model 失效时整份 Selection 留空；即使 View 有 `preferredSelection` 也不自动替换；
-- 旧会话未绑定、已有 Draft 失效、重启恢复空 Draft 均保持留空；真正首次新任务初始化仍可使用 preferred；
-- Reasoning 缺失或失效时保留 Provider/Model，只清空 Reasoning，Renderer 不自动选择最高或最低档位；
-- Reasoning 未重新选择前禁止提交，选择完成后构造完整 Submission；
-- 空模型或所需 Reasoning 未选时禁止提交；
-- 清空模型/Reasoning 不弹失效提示，重复 revision/remount 也不弹；
-- loading/error/LKG 切换不误报失效；
-- 留空状态被持久化，重启后既不恢复旧失效值，也不自动补默认值。
+- quando Provider ou Model ficam inválidos, a Selection inteira fica vazia; mesmo que a View tenha `preferredSelection`, não há substituição automática;
+- sessão antiga não vinculada, Draft existente inválido e Draft vazio restaurado após reinício permanecem vazios; uma tarefa nova de verdade primeira ainda pode usar o preferred na inicialização;
+- quando Reasoning está ausente ou inválido, Provider/Model são mantidos e apenas Reasoning é limpo; o Renderer não escolhe automaticamente o nível mais alto nem o mais baixo;
+- é proibido enviar antes de o Reasoning ser escolhido de novo; após a escolha, a Submission completa é construída;
+- é proibido enviar sem modelo ou sem o Reasoning exigido;
+- limpar modelo/Reasoning não exibe aviso de invalidez, e revision/remount repetidos também não exibem;
+- alternâncias de loading/error/LKG não geram falso relato de invalidação;
+- o estado vazio é persistido e, após reinício, nem restaura o valor antigo inválido nem preenche automaticamente um valor padrão.
 
-### 12.4 Submission / Queue / Agent 集成测试
+### 12.4 Testes de integração Submission / Queue / Agent
 
-- Submission 原子携带 prompt、attachments、mode、ModelSelection；
-- 提交后修改 Composer 不改变已经入队的 Submission；
-- Queue 出队和点击“立即”不回读 Composer/Session 当前值；
-- Agent admission 后 Session 状态与 Submission 一致；
-- Todo 68 的 Active Model 由该 Submission Selection 创建，Context/Tools/Request 不滞后一拍；
-- 排队 Selection 后续失效时明确失败并保留输入。
+- a Submission carrega prompt, anexos, mode e ModelSelection de forma atômica;
+- modificar o Composer após o envio não altera a Submission já enfileirada;
+- a saída da Queue e o clique em "agora" não relê os valores atuais do Composer/Session;
+- após o Agent admission, o estado da Session é consistente com a Submission;
+- o Active Model do Todo 68 é criado pela Selection desta Submission, sem Context/Tools/Request ficando um passo atrasados;
+- quando a Selection enfileirada fica inválida depois, a falha é explícita e a entrada é preservada.
 
-### 12.5 App E2E / MacBook Pro 实机
+### 12.5 App E2E / máquina real MacBook Pro
 
-至少验证：
+Verificar no mínimo:
 
-1. 已有对话从“完全访问”切到“自动编辑”，菜单立即关闭且显示正确；
-2. 不发送消息，切换任务再回来，选择仍保留；
-3. 重启 App 后选择仍保留；
-4. 发送成功后文本清空，但 mode、Provider/Model 和 reasoning 不跳回旧值；
-5. 连续切换同 modelId 的不同 Provider，第一条请求使用当前 Composer Selection；
-6. Registry 更新使 Provider/Model 失效时模型留空；Reasoning 单独失效时保留 Provider/Model、只清空档位；
-   两者均不弹提示，重启后继续留空，用户重新选择后可发送；
-7. Desktop continuous 与 Mobile remote replayable 均收到相同 Submission 配置。
+1. uma conversa existente muda de "acesso total" para "edição automática", e o menu fecha imediatamente exibindo o valor correto;
+2. sem enviar mensagem, trocar de tarefa e voltar preserva a seleção;
+3. após reiniciar o App, a seleção é preservada;
+4. após o envio bem-sucedido o texto é limpo, mas mode, Provider/Model e reasoning não voltam ao valor antigo;
+5. alternando consecutivamente Providers diferentes com o mesmo modelId, a primeira requisição usa a Selection atual do Composer;
+6. quando uma atualização do Registry invalida Provider/Model o modelo fica vazio; quando apenas o Reasoning é invalidado, Provider/Model são mantidos e apenas o nível é limpo;
+   nenhum dos dois exibe aviso, ambos continuam vazios após reinício e o usuário consegue enviar depois de escolher novamente;
+7. Desktop continuous e Mobile remote replayable recebem a mesma configuração de Submission.
 
-涉及 UI 交互，必须新增或更新 Desktop E2E case；按用户最新要求在 MacBook Pro 验证。新增用例先按流程进入
-pending，不能因为自动化通过就声称已人工转正。
+Por envolver interação de UI, é preciso adicionar ou atualizar um caso de Desktop E2E; conforme a exigência mais recente do usuário, validar em um MacBook Pro. Casos novos entram primeiro em pending pelo fluxo; não se pode alegar promoção manual só porque a automação passou.
 
-## 13. 文档同步
+## 13. Sincronização da documentação
 
-实现时同步修订：
+Revisar junto com a implementação:
 
-- `design/interaction/selection-state.md`：提交成功只清除内容，保留 Composer 执行选择；澄清附件持久化边界；
-- `design/interaction/interaction.md`：Session 状态只在 Draft 缺失时参与一次初始化；
-- `design/interaction/submission-delivery.md`：Submission 从完整 Composer 快照创建；
-- Conversation Protocol / Product State Space / Case Catalog：更新 Composer state owner、成功清理和 Queue 冻结案例；
-- Feature Graph：删除 Renderer 从 Session Snapshot 持续投影 mode/model 的旧边；
-- Todo 68：只保留 Agent 内 Active Model/Context 事实，不承担 Composer 持久化；
-- Todo 70：复用同一个 Selection validator，统一留空、不自动替换、不弹提示，删除历史恢复/活跃 Draft 的策略分叉。
+- `design/interaction/selection-state.md`: o sucesso do envio limpa apenas o conteúdo e preserva a escolha de execução do Composer; esclarecer o limite de persistência de anexos;
+- `design/interaction/interaction.md`: o estado da Session participa de uma única inicialização apenas quando falta Draft;
+- `design/interaction/submission-delivery.md`: a Submission é criada a partir de um snapshot completo do Composer;
+- Conversation Protocol / Product State Space / Case Catalog: atualizar o state owner do Composer, a limpeza após sucesso e os casos de congelamento de Queue;
+- Feature Graph: remover as arestas antigas de projeção contínua de mode/model do Session Snapshot para o Renderer;
+- Todo 68: manter apenas o fato de Active Model/Context dentro do Agent, sem assumir a persistência do Composer;
+- Todo 70: reutilizar o mesmo Selection validator, unificando deixar vazio, sem substituição automática e sem aviso, removendo a bifurcação de política entre recuperação histórica e Draft ativo.
 
-当前 Case Catalog 中 I50/I51/I52 若仍把 model/mode 菜单操作描述为 Agent config CAS，需要按新状态所有权重新审查：
-保留“即时 UI 意图、latest intent wins、首次 Submission readiness barrier”等产品事实，删除“Agent Snapshot 是 Composer
-确认源”的旧实现假设。
+Se os itens I50/I51/I52 do Case Catalog atual ainda descreverem operações de menu model/mode como CAS de config do Agent, precisam ser revisados conforme a nova propriedade do estado:
+manter os fatos de produto como "intenção de UI imediata, latest intent wins, readiness barrier da primeira Submission" e remover a antiga premissa de implementação de que o Agent Snapshot é a fonte de confirmação do Composer.
 
-## 14. 不属于本 Todo
+## 14. Fora do escopo deste Todo
 
-- 不修改 Queue 与 Guide/立即的产品语义；
-- 不处理 `outputStyle` 在同一 Turn 内的历史一致性问题；
-- 不设计附件跨重启序列化；
-- 不改变 Provider Config、Account Overlay、Registry 或 ModelFactory 的领域结构；
-- 不改变 Automation、Repo Wiki、Subagent、Off-Peak 的选择继承规则；
-- 不增加新的超时、轮询或 Session/Renderer 双向同步协议；
-- 不把 Composer 状态下沉到 Desktop Main、Relay 或 Remote Host。
+- não modificar a semântica de produto de Queue e Guide/imediato;
+- não tratar o problema de consistência histórica de `outputStyle` dentro do mesmo Turn;
+- não projetar a serialização de anexos entre reinícios;
+- não mudar a estrutura de domínio de Provider Config, Account Overlay, Registry ou ModelFactory;
+- não mudar as regras de herança de escolha de Automation, Repo Wiki, Subagent e Off-Peak;
+- não adicionar novos timeouts, polling ou protocolo de sincronização bidirecional Session/Renderer;
+- não afundar o estado do Composer no Desktop Main, no Relay ou no Remote Host.
 
-## 15. 完成标准
+## 15. Critérios de conclusão
 
-- Composer 的 text/editor/mode/ModelSelection 由一份内存态和一份对应持久 Draft 表达；
-- 已有 Session 的 Agent Snapshot 只能初始化一次，不能覆盖存活 Composer；
-- mode/model 菜单点击立即生效、关闭菜单，并能在切页和重启后恢复；
-- Submission 原子冻结 Composer 状态，成功后只清除已发送内容，失败时完整恢复；
-- Registry 失效走统一 validator；Provider/Model 失效留空，Reasoning 失效只清空档位并保留模型身份；
-  不自动替换、不弹提示，留空状态在重启后保持；
-- Queue、Guide、Desktop continuous、Mobile replayable 不回读 Composer 或创建第二份选择事实；
-- `draftPreferred*`、动态 Snapshot merge 和旧 mode preference 等冗余路径完成引用审计并尽量删除；
-- Todo 68/70 与设计文档同步，不留下互相矛盾的状态所有权描述；
-- 相关单测、Bootstrap 集成测试、Desktop E2E、`pnpm typecheck`、`pnpm lint`、格式检查和
-  `git diff --check` 全部通过；
-- 在 MacBook Pro 复现原问题并取得修复后的运行时证据。
+- text/editor/mode/ModelSelection do Composer são expressos por um estado em memória e um Draft persistente correspondente;
+- o Agent Snapshot de uma Session existente só pode inicializar uma vez e não pode sobrescrever um Composer vivo;
+- o clique de menu de mode/model tem efeito imediato, fecha o menu e pode ser restaurado após troca de página e reinício;
+- a Submission congela atomicamente o estado do Composer; após o sucesso limpa apenas o conteúdo enviado e após a falha restaura integralmente;
+- a invalidação do Registry passa por um validator unificado; Provider/Model inválido deixa vazio e Reasoning inválido limpa apenas o nível preservando a identidade do modelo;
+  sem substituição automática e sem aviso, e o estado vazio se mantém após reinício;
+- Queue, Guide, Desktop continuous e Mobile replayable não relêem o Composer nem criam uma segunda verdade de seleção;
+- `draftPreferred*`, o merge dinâmico de Snapshot e a antiga preferência de mode passam por auditoria de referências e são removidos na medida do possível;
+- Todo 68/70 e os documentos de design ficam sincronizados, sem descrições contraditórias de propriedade do estado;
+- os testes unitários relacionados, testes de integração de Bootstrap, Desktop E2E, `pnpm typecheck`, `pnpm lint`, verificação de formatação e `git diff --check` passam todos;
+- o problema original é reproduzido em um MacBook Pro e obtém-se evidência de runtime após a correção.
 
-## 16. 实施记录
+## 16. Registro de implementação
 
-待执行后补充。
+A preencher após a execução.

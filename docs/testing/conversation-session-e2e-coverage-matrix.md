@@ -1,229 +1,269 @@
 # Conversation Session E2E Coverage Matrix
 
-SHR22 范围补充：`subagentRuntimeConfig.test.ts` 验证用户／项目扫描不进入子目录及重载隔离；`subagentRuntimeConfigWatcher.test.ts` 验证真实热更新和目录重建范围；`subagentsService.test.ts` 与 Bootstrap `subagents.test.ts` 验证 Settings／独立 CLI 第一层加载，保留插件递归发现。复用 cross-host pending 的 SHR22，断言两个 Host 的初始化及后续父轮 provider 请求不包含预置深层用户定义。
+Complemento de escopo do SHR22: `subagentRuntimeConfig.test.ts` verifica que a varredura de usuário/projeto não entra em subdiretórios e o isolamento no reload; `subagentRuntimeConfigWatcher.test.ts` verifica a atualização real a quente e o escopo de reconstrução de diretórios; `subagentsService.test.ts` e o Bootstrap `subagents.test.ts` verificam o carregamento de primeira camada via Settings/CLI independente, preservando a descoberta recursiva de plugins. Reaproveita o SHR22 pending cross-host, afirmando que a inicialização dos dois Hosts e as requisições ao provider nas rodadas-pai seguintes não contêm definições profundas predefinidas de usuário.
 
-2026-09-18：实施 SHR22 目录监听修复；直接监听已有配置路径，缺失时切换已有父目录。补目录生命周期、稳定补扫及取消/I/O 测试，复用跨 Host Desktop 验证首次创建和重建。Windows 空目录移动使用随 scope 释放的原生父目录结构订阅；父目录检查不推迟已排队文件批次。六组 pending Desktop 最终 11/11 通过；macOS / Windows / 大小写敏感卷相关单测通过。既有红灯证据及平台跳过项保留，详见 `docs/subagent-runtime-refresh.md`。
+2026-09-18: implementada a correção de escuta de diretórios do SHR22; escuta direta do caminho de configuração existente e, quando ausente, troca para o diretório pai já existente. Complementos de teste para ciclo de vida de diretório, varredura complementar estável e cancelamento/E/S. Reaproveita a validação Desktop cross-Host para primeira criação e reconstrução. Movimento de diretório vazio no Windows usa a assinatura nativa de estrutura do diretório pai, liberada junto com o escopo; a verificação do diretório pai não adia lotes de arquivo já enfileirados. Os seis grupos pending Desktop terminaram em 11/11 aprovados; os testes unitários relacionados a macOS / Windows / volumes sensíveis a caixa passaram. Evidências de vermelho existentes e itens de skip por plataforma foram preservados, veja `docs/subagent-runtime-refresh.md`.
 
-2026-09-18：接受 SHR22 路径大小写边界复现；扩展现有 cross-host pending E2E，以 Settings 保存和双 Host 下一轮 provider 请求验收，真实 watcher 单测覆盖用户/项目增删改名及目录生命周期。仅补测试，不修改生产实现；验证结果单独记录，不能把复现失败标为通过。详见 `docs/subagent-runtime-refresh.md`。
+2026-09-18: aceito o limite de caixa de caminho do SHR22; estendido o E2E pending cross-host existente, com aceitação pela gravação em Settings e pela requisição ao provider na rodada seguinte dos dois Hosts. Testes unitários do watcher real cobrem adição/remoção/renomeação de usuário e projeto e o ciclo de vida de diretórios. Apenas testes foram complementados, sem alteração da implementação de produção; os resultados de verificação são registrados separadamente e uma falha de reprodução não pode ser marcada como aprovada. Veja `docs/subagent-runtime-refresh.md`.
 
-2026-09-18：SHR01-SHR21 迁移到原生 watcher、Host 共享解析及逐文件读取。删除广播专属分支；文件读取失败改内置回退，文件事件恢复；RPC 故障仍终止父轮。六组继续 pending，保留 provider/轨迹/缓存断言。完整映射见 `docs/subagent-runtime-refresh.md`；以下旧日期记录为历史证据，不代表迁移已验证。
+2026-09-18: SHR01-SHR21 migrados para watcher nativo, resolução compartilhada pelo Host e leitura por arquivo. Removido o ramo exclusivo de broadcast; falha de leitura de arquivo passa a usar o fallback interno e o evento de arquivo é restaurado; falha de RPC ainda encerra a rodada-pai. Os seis grupos continuam pending, preservando as afirmações de provider/trilha/cache. O mapeamento completo está em `docs/subagent-runtime-refresh.md`; os registros de datas antigas abaixo são evidência histórica e não representam migração verificada.
 
-2026-09-17：SHR14/SHR16/SHR21 增补本地 session 初始化读取 Host 的一次配置 RPC，与每父轮读取分开计数；Bootstrap 覆盖初始配置来源、等待与失败，其他存储及独立 CLI/远程来源不变。复用原用例与 fixture。
+2026-09-17: SHR14/SHR16/SHR21 receberam uma chamada RPC de configuração lida pelo Host na inicialização da sessão local, contada separadamente da leitura por rodada-pai; o Bootstrap cobre origem da configuração inicial, espera e falha, sem alteração dos demais armazenamentos e das origens CLI independente/remota. Reaproveita os casos e fixtures originais.
 
-2026-09-16：SHR12/SHR20/SHR21 改为配置读取失败结束父轮且零 provider 请求；输入先展示并持久化，失败/取消后仍保留，恢复请求包含该输入且不重复；删除 CLI 失败继续执行分支，Host 重载/旧快照策略不变。
+2026-09-16: SHR12/SHR20/SHR21 passaram a encerrar a rodada-pai com falha na leitura da configuração e zero requisições ao provider; a entrada é exibida e persistida primeiro e permanece após falha/cancelamento, e a requisição de retomada contém essa entrada sem duplicá-la; o ramo de falha de exclusão via CLI continua executando, e a estratégia de reload/snapshot antigo do Host permanece inalterada.
 
-2026-09-15：SHR21 生效边界调整为首次初始化等待、后台重载期间返回完整旧快照、成功发布后后续父轮使用新快照；不改变加载失败策略。跨 Host 用例在文件屏障释放前验收旧配置父子请求，释放后验收新配置及迟到结果隔离。
+2026-09-15: o limite de efeito do SHR21 foi ajustado para espera na primeira inicialização, retorno do snapshot antigo completo durante o reload em segundo plano e uso do novo snapshot nas rodadas-pai seguintes após a publicação bem-sucedida; a estratégia de falha de carregamento não muda. Os casos cross-Host verificam as requisições pai/filho com a configuração antiga antes da liberação da barreira de arquivo, e a nova configuração e o isolamento de resultados atrasados depois da liberação.
 
-2026-09-15：接受 SHR18-SHR21：补齐双 Host 双向/两端下一轮、操作/state、故障和时序分支；动作、断言及证据层见 `docs/subagent-runtime-refresh.md` 的 Host 分支覆盖补充。仅修改测试与覆盖文档，不降低既有断言。
+2026-09-15: aceitos SHR18-SHR21: completados os ramos bidirecionais/de próxima rodada nos dois Hosts, de operação/state, de falha e de temporização; as ações, afirmações e camada de evidência estão na complemento de cobertura de ramos do Host em `docs/subagent-runtime-refresh.md`. Somente testes e o documento de cobertura foram modificados, sem reduzir as afirmações existentes.
 
-2026-09-15 补测结果：原五组 9/9；新增跨 Host 分支与冷启动均完成，保留 1 个关闭中配置 RPC 导致多发模型请求的失败断言。逐分支映射及验证产物见 `docs/subagent-runtime-refresh.md` 末节；未修改生产代码。
-2026-09-15：接受 SHR16（跨窗口 Host 失效通知）与 SHR17（无关 workspace 读取故障不阻断保存），实现并通过六组 Desktop 10/10 验证（仍为 manual-review/pending）；合同见 `docs/subagent-runtime-refresh.md`。复用现有用例与 helper，保留 SHR01-SHR15 覆盖，不增加生产测试钩子。
+2026-09-15 resultado dos testes complementares: os cinco grupos originais 9/9; os novos ramos cross-Host e o cold start foram concluídos, mantendo 1 asserção de falha em que a chamada RPC de configuração durante o fechamento provoca requisições extras ao modelo. O mapeamento por ramo e os artefatos de verificação estão na seção final de `docs/subagent-runtime-refresh.md`; nenhum código de produção foi alterado.
+2026-09-15: aceitos SHR16 (notificação de invalidação do Host entre janelas) e SHR17 (falha de leitura de workspace sem relação não bloqueia a gravação), implementados e aprovados na validação Desktop 10/10 dos seis grupos (ainda manual-review/pending); o contrato está em `docs/subagent-runtime-refresh.md`. Reaproveita os casos e helpers existentes, preserva a cobertura de SHR01-SHR15 e não adiciona hooks de teste em produção.
 
-2026-09-15：SHR01-SHR15 implemented / manual review pending。五组 Desktop 用例分别覆盖
-失败 child/compact、动态目录 user/MCS、单字段更新、运行/恢复/读取失败/retry、多个实际 CLI。
-父子请求的完整历史、工具配对和缓存标记有独立断言；child 四段 system 的缓存问题已修复。
-Guide 与 definitions 加载期间 Stop/迟到响应是 Core runtime 证据，未称为 Desktop 覆盖。
-测试去重保留全部场景与 fixture 合同，最新结果和历史失败归档统一见
-[subagent runtime spec](../subagent-runtime-refresh.md#测试组织与验证)。
+2026-09-15: SHR01-SHR15 implementados / manual review pending. Os cinco grupos de casos Desktop cobrem respectivamente
+child/compact com falha, diretório dinâmico user/MCS, atualização de campo único, execução/retomada/falha de leitura/retry e múltiplos CLI reais.
+O histórico completo das requisições pai/filho, o pareamento de ferramentas e as marcações de cache têm afirmações independentes; o problema de cache das quatro partes system do child foi corrigido.
+Stop/resposta atrasada durante o carregamento de Guide e definitions é evidência de Core runtime, não dubbed de cobertura Desktop.
+A deduplicação de testes preserva todos os cenários e contratos de fixture; resultados mais recentes e arquivo de falhas históricas estão unificados em
+[subagent runtime spec](../subagent-runtime-refresh.md#测试组织与验证).
 
-2026-09-14：扩展已有 I21/SA subagent prompt assembly 的验收：父请求 description 无目录、
-首发 agent_listing_delta 走通用 attachment 投影（MCS 合法时 system，关闭时 user reminder）、工具后不重复、child 无 Agent 不注入、UI 无伪用户消息。
-保留四类 profile 的 non-MCS 父子请求，MCS 仅增加 general-purpose 代表场景；剪枝另三类 profile 的 MCS 重复，正文、wrapper、顺序和工具配对仍有明确断言。
-compact/fork/rewind 与可替换 definitions 的组合通过 Core focused tests 验证，详见
-`docs/subagent-listing-attachment.md`；验证结果以本次实际运行记录为准。
-测试收窄后，正式 Electron `desktop-e2e-20260914124036720-p33068-abdaaec9eb6005b6` 2/2 首次通过；共 10 次父请求和 5 次 child 请求逐项验证，详见 spec 最新记录。
-同日增加 SendMessage lean 文案断言：SendMessage 按 ID 续跑、定义来源、并发提示只在 listing 出现一次；正式 Electron `desktop-e2e-20260914105041342-p8117-87dcf4e0620cd911` 1/1 通过（四组场景）。
+2026-09-14: estendida a aceitação da montagem de prompt de subagent I21/SA existente: descrição da requisição-pai sem diretório,
+primeiro `agent_listing_delta` passando pela projeção genérica de attachment (system quando MCS é válido, user reminder quando desligado), sem repetição após ferramenta, sem injeção de Agent no child e sem mensagem falsa de usuário na UI.
+Mantidas as requisições pai/filho não-MCS das quatro classes de profile, com MCS acrescentando apenas o cenário representativo general-purpose; podados os casos MCS duplicados das outras três classes de profile, mantendo afirmações explícitas sobre corpo, wrapper, ordem e pareamento de ferramentas.
+As combinações de compact/fork/rewind com definitions substituíveis foram verificadas por Core focused tests, veja
+`docs/subagent-listing-attachment.md`; os resultados de verificação seguem o registro real desta execução.
+Após o estreitamento dos testes, o Electron formal `desktop-e2e-20260914124036720-p33068-abdaaec9eb6005b6` passou 2/2 na primeira execução; 10 requisições-pai e 5 requisições-child foram verificadas item a item, veja o registro mais recente do spec.
+No mesmo dia foi acrescentada a asserção de texto enxuto do SendMessage: SendMessage continua por ID, origem da definição e o aviso de concorrência aparecem apenas uma vez no listing; o Electron formal `desktop-e2e-20260914105041342-p8117-87dcf4e0620cd911` passou 1/1 (quatro grupos de cenários).
 
-**数据库启动门禁（2026-09-14，新全局方案待 GUI 验收）**
+**Portão de inicialização do banco de dados (2026-09-14, novo esquema global aguardando aceitação pela GUI)**
 
-旧 DBSTART 方案与记录保留在 Todo 144；当前以 [全局启动 spec](../desktop/database-migration-startup-gate-plan.md) 和 Todo 145 为准，Host 初始化已纳入本次。
-[实施复审](../desktop/database-startup-implementation-review.md) 记录新测试与限制。真实旧库/锁/刷新、Host 锁和 CANTOPEN 手动重试用例已进入 `manual-review/pending`；Electron 在用例前崩溃，不计入正式 covered 数量。
+O esquema e os registros antigos do DBSTART permanecem no Todo 144; atualmente valem o [spec de inicialização global](../desktop/database-migration-startup-gate-plan.md) e o Todo 145, e a inicialização do Host foi incluída nesta rodada.
+A [revisão de implementação](../desktop/database-startup-implementation-review.md) registra os novos testes e limitações. Casos manuais de retentativa com banco antigo real/bloqueio/refresh, bloqueio de Host e CANTOPEN já entraram em `manual-review/pending`; o Electron crashou antes do caso e não conta para o número formal de covered.
 
-2026-09-10 Todo104 / I13：pending spec 增加首发前后工具栏完整 title 的 Provider 名称断言，覆盖真实配置 → Registry → Selection View → Composer；继续保留原 currentValue、模型请求、回复与 idle 断言。Pro 新 Desktop/Agent `desktop-e2e-20260910-062834-748`：1/1通过，显式 max 参数及 common+case-local replay。只增强既有用例，不新增请求或自动晋级；不表示手机/SSH 实机已验证。
+2026-09-10 Todo104 / I13: o spec pending recebeu asserção do nome do Provider no title completo da barra de ferramentas antes e depois do primeiro envio, cobrindo configuração real → Registry → Selection View → Composer; continuam preservadas as afirmações originais de currentValue, requisição de modelo, resposta e idle. Novo Desktop/Agent Pro `desktop-e2e-20260910-062834-748`: 1/1 aprovado, com parâmetro max explícito e replay common+case-local. Apenas casos existentes foram reforçados, sem nova requisição nem promoção automática; não significa que celular/SSH em dispositivo real foi verificado.
 
-## Todo103 闲时工具测试前置
+## Todo103 Pré-requisitos de teste da ferramenta Off-Peak
 
-OffPeakCreate 新建/冷恢复、闲时 Subagent 继承和失效 Ticket 的隔离回放，必须同时准备账号控制面与闲时网关。仅启用 `ZCODE_OFFPEAK_MOCK` 不会创建当前 Account Provider 权益；应复用现有 Coding Plan mock 并播种具体个人套餐连接，使普通 Registry 和隐藏 Off-Peak Selection View 来自正常解析。原用例的单模型白名单 GLM-5.2 通过 case-local Built-in 的 `builtinModelIds` 提供，不再从退役 client-config 字段提供；产品配置不变。不得在生产代码里绕过权益或直接塞候选来让测试通过。四类用例仍为 pending；录像依赖安装在隔离工具目录，不更改用户应用数据。
+A reprodução isolada da criação/cold recovery de OffPeakCreate, da herança de Subagent Off-Peak e do Ticket invalidado exige preparar simultaneamente o plano de controle de conta e o gateway Off-Peak. Habilitar apenas `ZCODE_OFFPEAK_MOCK` não cria o benefício do Account Provider atual; deve-se reaproveitar o mock de Coding Plan existente e semear a conexão do plano pessoal específico, de modo que o Registry normal e a Selection View oculta de Off-Peak venham da resolução normal. A lista branca de modelo único GLM-5.2 do caso original passa a ser fornecida pelo `builtinModelIds` do Built-in case-local, e não mais pelo campo client-config desativado; a configuração do produto não muda. Não é permitido contornar o benefício no código de produção nem inserir candidatos diretamente para fazer o teste passar. Os quatro tipos de caso permanecem pending; as dependências de gravação são instaladas em um diretório de ferramentas isolado, sem alterar os dados de aplicativo do usuário.
 
-OP10 下一普通轮的默认 DeepSeek 选择必须包含 preset 的思考档位。新建闲时 Session 不继承尚未提交的 Composer 草稿；不完整的 configuredDefault 不能证明普通轮应使用 DeepSeek。仍须检查普通请求不携带闲时 Ticket、不请求闲时网关。
+A seleção padrão DeepSeek da próxima rodada comum do OP10 deve incluir o nível de pensamento do preset. Uma nova sessão Off-Peak não herda o rascunho do Composer ainda não enviado; um configuredDefault incompleto não prova que a rodada comum deva usar DeepSeek. Ainda é preciso verificar que a requisição comum não carrega Ticket Off-Peak e não solicita o gateway Off-Peak.
 
-OP-CHAT-02 在冷恢复创建、编辑回显之后继续等待真实 scheduler 派发：已有 Session 的 `runtime/model_selection` 在创建前与闲时执行后保持一致；闲时任务的 conversationId 仍等于绑定的 Session，取票网关捕获到任务保存的闲时模型。不能用表单新建 Session 的 OP10 代替该绑定分支。
+O OP-CHAT-02, após a criação em cold recovery e o eco da edição, continua aguardando o despacho real do scheduler: o `runtime/model_selection` de uma Session existente permanece igual antes da criação e após a execução Off-Peak; o conversationId da tarefa Off-Peak continua igual à Session vinculada, e o gateway de retirada de ticket captura o modelo Off-Peak salvo na tarefa. O OP10 de criação de Session via formulário não pode substituir esse ramo de vínculo.
 
-该绑定用例复用网关 foreground-subagents 场景中 `E2E_OFFPEAK_SUBAGENT_CHILD_INHERIT` 的固定文本响应，不创建子任务；marker 仅供离线 fixture 匹配。不能使用会继续代理真实上游的 capture 模式来伪装纯离线验收。
+Esse caso de vínculo reaproveita a resposta de texto fixa de `E2E_OFFPEAK_SUBAGENT_CHILD_INHERIT` no cenário foreground-subagents do gateway, sem criar subtarefa; o marker serve apenas para o casamento com o fixture offline. Não se pode usar um modo capture que continua encaminhando para o upstream real para simular uma aceitação puramente offline.
 
-## Todo95C 关闭档位改名
+## Todo95C Renomeação do nível de desligamento
 
-R95C-01（accepted，pending 未晋级）：`conversation-session-model-provider-effective-selection.test.ts` 验证 GLM-5.2 旧 nothink 草稿冷启动显示 disabled、正文编辑不写回、发送后保存及实际关闭请求。Pro `desktop-e2e-20260909-121842-573` 通过；同组 SR87-01、SR87-06/SM96 套餐对应与后台任务回归 3/3 通过。历史记录在 pagehide 注入，避免旧页退出保存覆盖测试前置。
+R95C-01 (accepted, pending não promovido): `conversation-session-model-provider-effective-selection.test.ts` verifica que o rascunho antigo nothink de GLM-5.2 aparece como disabled no cold start, que a edição do corpo não é escrita de volta, que é salvo após o envio e que a requisição de desligamento é realmente efetuada. Pro `desktop-e2e-20260909-121842-573` aprovado; no mesmo grupo, SR87-01, a correspondência de pacote de SR87-06/SM96 e a regressão de tarefas em segundo plano passaram 3/3. O registro histórico é injetado em pagehide, evitando que o salvamento na saída da página antiga sobrescreva o pré-requisito do teste.
 
-本文把 `docs/conversation-session-case-catalog.md` 里的形式化 case 和当前自动化断言一一对齐。默认优先使用 WDIO E2E 证明端到端 GUI 行为；对于 auto compact retry 这类 runtime 内部控制流，可使用 focused core runtime 单测作为覆盖证据。
+Este documento alinha um a um os cases formais de `docs/conversation-session-case-catalog.md` com as asserções de automação atuais. Por padrão, prioriza-se o E2E via WDIO para provar o comportamento de GUI ponta a ponta; para fluxos de controle internos do runtime como o auto compact retry, podem-se usar testes unitários focados do core runtime como evidência de cobertura.
 
-核心口径：只有存在明确 setup、action、assert 的 case 才算自动化覆盖；仅仅在某条用户路径中经过相关状态，不算覆盖。
+Critério central: somente cases com setup, action e assert explícitos contam como cobertura automatizada; simplesmente passar por um estado relevante em algum caminho do usuário não conta como cobertura.
 
-## 后台 Bash 输出详情
+## Detalhes da saída de Bash em segundo plano
 
-BGV04 子会话用例补测 publisher 释放后重新订阅的冷恢复路径：旧 Bash 仍由祖先 adapter 管理，
-查询不能被新 child record 截断；要求真实释放/冷恢复证据及退出前两段输出。
-2026-09-11 已通过 `desktop-e2e-20260910-190613-523`：展开父会话执行历史冷恢复 child，
-重新激活保留的输出 tab，验证原 workId、两段新输出和最终输出；不新增历史后台任务目录。
+O caso de subsessão BGV04 foi complementado com o caminho de cold recovery de ressubscribe após a liberação do publisher: o Bash antigo continua sendo gerenciado pelo adapter ancestral,
+e a consulta não pode ser truncada pelo novo registro de child; exige evidência real de liberação/cold recovery e das duas saídas anteriores à saída.
+Em 2026-09-11 foi aprovado `desktop-e2e-20260910-190613-523`: expandindo o histórico de execução da sessão-pai, cold recovery do child,
+reativação da tab de saída preservada e verificação do workId original, das duas novas saídas e da saída final; sem adicionar diretório de tarefa em segundo plano histórico.
 
-前台 BDO07 本轮补测：最多显示 5 行且短输出自适应、连续输出刷新/吸底、用户上滚冻结、无按钮并滚回底部恢复和终态行数上限；
-使用现有真实 writer/barrier，记录文件与 DOM 时间。BGV 查询与跟随合同保持不变。
-BDO02、BG14 同步验证前台只显示正文，无附加截断提示或完整文件入口；provider 摘要与真实文件保留不变。
-BDO07、BGV03 通过真实滚动、输出更新验证共享渐隐的 none/top/bottom/both 状态，保持原有吸底和暂停操作。
-BGV01/02 状态条移至顶部，运行状态靠左，完整文件链接在运行及终态均靠右；BGV03 覆盖底部居中的圆形悬浮图标按钮、可访问名称及原有恢复跟随操作。
-BGV01/02 补充链接与运行状态同色；BGV03 补充手动滚到底部隐藏箭头并恢复跟随、再次上滚暂停和终态按钮恢复。
-BGV01/02 超过 8 KiB 后不展示截断提示，中英文一致；继续验证有界尾窗、文件保留和完整文件入口。
-2026-09-11 恢复简单滚动判断；BDO07/BGV03 不再声称覆盖尺寸变化钳制到底后的暂停保持或输入与输出更新同帧的竞争，这两项留待后续修复验证。
+O BDO07 em primeiro plano foi complementado nesta rodada: no máximo 5 linhas exibidas com adaptação para saídas curtas, atualização/seguir-o-fundo em saídas contínuas, congelamento ao rolar para cima pelo usuário, recuperação ao voltar ao botão inferior sem botão e limite de linhas no estado terminal;
+usando o writer/barrier reais existentes, com registro de tempo de arquivo e DOM. O contrato de consulta e de acompanhamento do BGV permanece inalterado.
+BDO02 e BG14 verificam em conjunto que o primeiro plano exibe apenas o corpo, sem aviso adicional de truncamento nem entrada de arquivo completo; o resumo do provider e o arquivo real permanecem inalterados.
+BDO07 e BGV03 verificam, por rolagem real e atualização de saída, os estados compartilhados de fade none/top/bottom/both, mantendo a operação original de seguir-o-fundo e pausar.
+BGV01/02 movem a barra de estado para o topo, com o estado de execução à esquerda e o link de arquivo completo à direita tanto em execução quanto no estado terminal; BGV03 cobre o botão de ícone flutuante circular centralizado na parte inferior, o nome acessível e a operação original de retomar o acompanhamento.
+BGV01/02 acrescentam cor igual entre o link e o estado de execução; BGV03 acrescenta ocultar a seta ao rolar manualmente até o fundo e retomar o acompanhamento, pausar novamente ao rolar para cima e restaurar o botão no estado terminal.
+BGV01/02 não exibem aviso de truncamento acima de 8 KiB, de forma consistente em chinês e inglês; continuam verificados a janela final limitada, a preservação do arquivo e a entrada de arquivo completo.
+Em 2026-09-11 foi restaurada a verificação simples de rolagem; BDO07/BGV03 não afirmam mais cobrir a manutenção da pausa após o dimensionamento ser limitado ao fundo nem a corrida entre entrada e atualização de saída no mesmo frame; esses dois itens ficam para verificação após correções futuras.
 
-BGV01–BGV06：accepted；2026-09-10 用户确认实时演示后通过 promotion 转为正式用例，共 7 个测试。
+BGV01–BGV06: accepted; em 2026-09-10, após o usuário confirmar a demonstração ao vivo, foram promovidos a casos formais pela promoção, totalizando 7 testes.
 
-| 范围              | 已有证据                                                                                              | 尚未执行                                    |
-| ----------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| BGV01/02/03/05/06 | Desktop 本地真实文件、barrier、进程与 UI；hook 单测覆盖隐藏无请求、慢响应、重试和迟到结果             | —                                           |
-| BGV04             | Desktop 主/子会话及并发会话；service/tab 单测覆盖 workspaceIdentity、remoteSessionId、两种 clientMode | Desktop SSH/WSL 工作区和手机远控完整 UI E2E |
-| 平台读取          | macOS/Linux Node 24.14.0；Windows Git Bash/CMD Node 24.14.0、25.9.0，均实跑 adapter                   | Windows/Linux Desktop UI E2E                |
+| Escopo             | Evidência existente                                                                                     | Ainda não executado                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| BGV01/02/03/05/06  | Arquivos reais locais, barrier, processo e UI no Desktop; testes unitários de hook cobrem oculto sem requisição, resposta lenta, retry e resultado atrasado | —                                                       |
+| BGV04              | Sessões principal/sub e sessões concorrentes no Desktop; testes unitários de service/tab cobrem workspaceIdentity, remoteSessionId e os dois clientMode | E2E de UI completa para workspace SSH/WSL no Desktop e controle remoto por celular |
+| Leitura por plataforma | macOS/Linux Node 24.14.0; Windows Git Bash/CMD Node 24.14.0, 25.9.0, todos com execução real do adapter | E2E de UI do Desktop em Windows/Linux               |
 
-正式 spec：`packages/desktop/test/e2e/conversation-session/conversation-session-background-bash-output.test.ts`。
-BGV01 增补普通运行成功轮询不落盘断言；精简响应由 schema/adapter 单测校验，日志失败分级由 Host 单测校验。
-详情与本地报告见 [后台 Bash spec](../background-bash-output-details.md#本轮验证2026-09-09)。
+Spec formal: `packages/desktop/test/e2e/conversation-session/conversation-session-background-bash-output.test.ts`.
+BGV01 acrescentou a asserção de que o polling de execução comum bem-sucedido não grava em disco; a resposta compacta é validada por testes unitários de schema/adapter, e a classificação de falha de log por testes unitários do Host.
+Detalhes e relatório local em [spec de Bash em segundo plano](../background-bash-output-details.md#本轮验证2026-09-09).
 
-## Todo88 迁移验收补充
+## Complemento de aceitação da migração do Todo88
 
-- TSL38 追加前置：退出后注入旧模型字段、重启后由 scheduler 首次执行，核对新 Selection、本轮冻结值与保留的回滚字段。仍在原 pending spec，不转正。仅在 Host 就绪后推进本 case 的 `next_run_at`，避免启动前无 Host 的正常重试影响此迁移验收；不修改新选择列、不经过编辑保存。Pro `desktop-e2e-20260907-145947-115` 通过。
-- I26/MP-R02：真实点选 Team 的非首个模型后，先验证新版连接重启，再注入同身份旧 mode/selectedKey 进行冷启动。核对模型、新版连接及旧回滚字段，最后实际发送。Pro `desktop-e2e-20260907-150508-565` 通过；只运行 I26，不代表该文件其余 case 全部通过。
+- TSL38 com pré-requisito adicional: após a saída, injetar o campo de modelo antigo e, após o reinício, executar pela primeira vez pelo scheduler, conferindo a nova Selection, o valor congelado da rodada e o campo de rollback preservado. Permanece no spec pending original, sem promoção. O `next_run_at` deste case só é avançado após o Host estar pronto, evitando que o retry normal sem Host antes da inicialização afete esta aceitação de migração; a coluna da nova seleção não é modificada e não passa por gravação de edição. Pro `desktop-e2e-20260907-145947-115` aprovado.
+- I26/MP-R02: após selecionar de fato um modelo que não seja o primeiro do Team, primeiro verificar o reinício da conexão nova e depois injetar o mode/selectedKey antigo da mesma identidade para um cold start. Conferir o modelo, a conexão nova e o campo de rollback antigo e, por fim, enviar de verdade. Pro `desktop-e2e-20260907-150508-565` aprovado; apenas I26 foi executado, o que não significa que todos os demais cases desse arquivo passaram.
 
-## MSD 消息流展示设置覆盖
+## Cobertura da configuração de exibição do fluxo de mensagens MSD
 
-| Case  | 覆盖状态 | 自动化                                              | 关键断言                                                                                             |
-| ----- | -------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| MSD00 | covered  | shared schema + Settings focused UI unit            | 空配置默认 reasoning=true 且迁移标记为 true；设置页与 SessionPane fallback 同步为开启                |
-| MSD01 | covered  | shared schema + setting service unit                | 无标记的缺失/false/true 三类旧值只迁移一次，并经串行设置写队列持久化 true 与 marker                  |
-| MSD02 | covered  | shared/service unit + renderer unit + pending TGE04 | marker 存在后保留用户关闭；首条 reasoning 仍可见、后续隐藏，desktop/mobile projection 与恢复边界不变 |
+| Case  | Status de cobertura | Automação                                             | Asserção-chave                                                                                              |
+| ----- | ------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| MSD00 | covered             | shared schema + teste de UI focado de Settings        | Configuração vazia tem reasoning=true por padrão e a migração marcada como true; a página de configurações e o fallback do SessionPane ficam sincronizados como ativados |
+| MSD01 | covered             | shared schema + teste unitário do serviço de setting | Valores antigos ausente/false/true sem marcador são migrados apenas uma vez, e true e o marker são persistidos pela fila de gravação serial de settings |
+| MSD02 | covered             | shared/service unit + renderer unit + TGE04 pending  | Com o marker presente, o desligamento do usuário é preservado; o primeiro reasoning continua visível e os seguintes ficam ocultos, e a projeção desktop/mobile e o limite de recuperação permanecem inalterados |
 
-## CUA-SUBAGENT 覆盖
+## Cobertura CUA-SUBAGENT
 
-| Case            | 覆盖状态 | 自动化                           | 关键断言                                              |
-| --------------- | -------- | -------------------------------- | ----------------------------------------------------- |
-| CUA-SUBAGENT-01 | planned  | core unit + manual-review/replay | wildcard child 隐藏官方 CUA，非官方 MCP/Skill 保留    |
-| CUA-SUBAGENT-02 | planned  | core unit                        | explicit CUA 配置在模型请求前以稳定错误失败           |
-| CUA-SUBAGENT-03 | planned  | zcode-cua producer unit          | `runtime_scope=subagent` 在 Broker 前拒绝全部 30 工具 |
-| CUA-SUBAGENT-04 | planned  | core integration                 | parent/main CUA 行为保持不变                          |
+| Case            | Status de cobertura | Automação                           | Asserção-chave                                          |
+| --------------- | ------------------- | ----------------------------------- | ------------------------------------------------------- |
+| CUA-SUBAGENT-01 | planned             | core unit + manual-review/replay   | child com wildcard oculta o CUA oficial; MCP/Skill não oficiais são preservados |
+| CUA-SUBAGENT-02 | planned             | core unit                           | configuração CUA explícita falha com erro estável antes da requisição ao modelo |
+| CUA-SUBAGENT-03 | planned             | zcode-cua producer unit             | `runtime_scope=subagent` rejeita as 30 ferramentas antes do Broker |
+| CUA-SUBAGENT-04 | planned             | core integration                    | o comportamento de CUA em parent/main permanece inalterado |
 
-## CUA-ERROR 覆盖
+## Cobertura CUA-ERROR
 
 | Case         | Status  | Evidence                                                                                                                                                                                                                                                    | Assertion                                                                         |
 | ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| CUA-ERROR-01 | partial | producer stdio + UI unit + [`conversation-session-cua-ordinary-error.test.ts`](../../packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-cua-ordinary-error.test.ts) pending replay `desktop-e2e-20260824-194204-941` | 明确权限错误是普通 ToolCallRow，无自动权限弹窗；模型仍可使用只读 `request_access` |
-| CUA-ERROR-02 | partial | producer error taxonomy tests；UI unit planned                                                                                                                                                                                                              | foreground/UIPI/Linux 等普通失败保留原始信息且不被改写为 macOS 权限               |
-| CUA-ERROR-03 | partial | producer delivery-state/fault tests；Kimi planned                                                                                                                                                                                                           | `possibly_sent` 不重放，native dispatch 最多一次                                  |
-| CUA-ERROR-04 | partial | CUA ordinary-error pending cold replay `desktop-e2e-20260824-194204-941`；mobile replay unit planned                                                                                                                                                        | continuous/replayable 恢复普通失败事实，不补造副作用、不重复 ToolCallRow          |
+| CUA-ERROR-01 | partial | producer stdio + UI unit + [`conversation-session-cua-ordinary-error.test.ts`](../../packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-cua-ordinary-error.test.ts) pending replay `desktop-e2e-20260824-194204-941` | erro de permissão explícito é um ToolCallRow comum, sem popup automático de permissão; o modelo ainda pode usar o `request_access` somente leitura |
+| CUA-ERROR-02 | partial | testes de taxonomia de erro do producer; UI unit planejado                                                                                                                                                                                                    | falhas comuns de foreground/UIPI/Linux preservam a informação original e não são reescritas como permissão do macOS |
+| CUA-ERROR-03 | partial | testes de delivery-state/fault do producer; Kimi planejado                                                                                                                                                                                                 | `possibly_sent` não é reproduzido, e o dispatch nativo ocorre no máximo uma vez |
+| CUA-ERROR-04 | partial | cold replay pending de CUA ordinary-error `desktop-e2e-20260824-194204-941`; mobile replay unit planejado                                                                                                                                                       | continuous/replayable recupera o fato da falha comum, sem fabricar efeitos colaterais e sem duplicar ToolCallRow |
 
-## CUA-ACCESS 覆盖
+## Cobertura CUA-ACCESS
 
 | Case          | Status  | Evidence                                               | Assertion                                                                                |
 | ------------- | ------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| CUA-ACCESS-01 | planned | core/protocol/UI unit + pending Electron manual-review | 后台本地 live official request_access 经新鲜复查只弹一次确认框                           |
-| CUA-ACCESS-02 | covered | UI prompt unit                                         | 取消不打开设置；同 turn 去重、并发串行，新 turn可再次提醒                                |
-| CUA-ACCESS-03 | planned | UI/service unit + pending Electron manual-review       | 确认后只引导新鲜缺失项，返回后重启 Helper/刷新，零 task command/continuation/tool replay |
-| CUA-ACCESS-04 | planned | core/protocol/service unit                             | malformed/third-party/history/recovery/mobile/remote 均无权限副作用                      |
-| CUA-ACCESS-05 | planned | UI/service unit                                        | Host 新鲜状态 granted/unknown/unavailable 时不弹框、不打开设置                           |
+| CUA-ACCESS-01 | planned | core/protocol/UI unit + Electron manual-review pending | request_access oficial e ao vivo em segundo plano local mostra apenas uma confirmação após nova verificação |
+| CUA-ACCESS-02 | covered | UI prompt unit                                         | cancelar não abre as configurações; desduplicação no mesmo turno, concorrência serializada, novo turno pode lembrar de novo |
+| CUA-ACCESS-03 | planned | UI/service unit + Electron manual-review pending       | após confirmar, só orienta itens realmente ausentes, reinicia o Helper/atualiza ao voltar, sem nenhum task command/continuation/tool replay |
+| CUA-ACCESS-04 | planned | core/protocol/service unit                             | malformed/third-party/history/recovery/mobile/remote não têm efeito colateral de permissão |
+| CUA-ACCESS-05 | planned | UI/service unit                                        | com estado novo do Host granted/unknown/unavailable não abre popup nem abre as configurações |
 
-## CUA-GROUP 覆盖
+## Cobertura CUA-GROUP
 
 | Case         | Status  | Evidence                                                                                                                                                                                                                                                               | Assertion                                                                                                                   |
 | ------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| CUA-GROUP-01 | partial | protocol + projection + UI unit + CUA-GROUP-09 formal replay                                                                                                                                                                                                           | response text 与 `request_access/list_apps` 共享 ID，并由 response 创建 Group                                               |
-| CUA-GROUP-02 | planned | UI unit                                                                                                                                                                                                                                                                | 未分类 streaming message 外置且不关闭旧 Group；CUA 到达后整体入组并原位刷新                                                 |
-| CUA-GROUP-03 | planned | UI unit + Electron manual                                                                                                                                                                                                                                              | success / failed / cancelled 依次进入 Explore 式滚动摘要                                                                    |
-| CUA-GROUP-04 | partial | UI unit + CUA-GROUP-09 formal replay                                                                                                                                                                                                                                   | 非 CUA tool 关闭旧 Group；text-only/mixed 细分由 unit 覆盖                                                                  |
-| CUA-GROUP-05 | partial | UI unit + remote manual + CUA-GROUP-09 cold replay                                                                                                                                                                                                                     | desktop continuous 冷恢复保持 Group；mobile replayable 仍保留 manual                                                        |
-| CUA-GROUP-06 | planned | UI unit                                                                                                                                                                                                                                                                | 第三方同名 MCP 不参与官方 CUA 聚合                                                                                          |
-| CUA-GROUP-07 | partial | UI unit + CUA-GROUP-09 formal replay                                                                                                                                                                                                                                   | 滚动仅终态 CUA；message 仍计数且展开后只在 Group 内出现                                                                     |
-| CUA-GROUP-08 | planned | projection + UI unit                                                                                                                                                                                                                                                   | 未分类 response 外置且不滚动；CUA 到达后升级，无 tool 完成时关闭旧 Group                                                    |
-| CUA-GROUP-09 | covered | formal replay [`conversation-session-cua-response-grouping.test.ts`](../../packages/desktop/test/e2e/conversation-session/conversation-session-cua-response-grouping.test.ts), case-local `desktop-e2e-20260820-072340-345`, default `desktop-e2e-20260820-072456-905` | 两段 Group、Bash 边界、展开混合时间线和 cold restore 均通过人工 review 与正式 replay                                        |
-| CUA-GROUP-10 | covered | protocol + projection + UI unit + CUA-GROUP-09 replay extension                                                                                                                                                                                                        | reasoning 复用 response ID 入组；覆盖可见性计数、mixed/text-only/legacy 外置，以及 live/cold restore 的边界、顺序和折叠详情 |
+| CUA-GROUP-01 | partial | protocol + projection + UI unit + replay formal do CUA-GROUP-09                                                                                                                                                                                                           | o texto da resposta compartilha ID com `request_access/list_apps` e o Group é criado pela response                                               |
+| CUA-GROUP-02 | planned | UI unit                                                                                                                                                                                                                                                                | mensagem de streaming não classificada é externalizada sem fechar o Group antigo; ao chegar a CUA entra inteira no grupo e é atualizada no lugar                 |
+| CUA-GROUP-03 | planned | UI unit + Electron manual                                                                                                                                                                                                                                              | success / failed / cancelled entram em sequência no resumo de rolagem no estilo Explore                                                          |
+| CUA-GROUP-04 | partial | UI unit + replay formal do CUA-GROUP-09                                                                                                                                                                                                                                   | ferramenta não-CUA fecha o Group antigo; a细分 text-only/mixed é coberta por unit                                                                                                              |
+| CUA-GROUP-05 | partial | UI unit + manual remoto + cold replay do CUA-GROUP-09                                                                                                                                                                                                                     | o cold restore de continuous no desktop mantém o Group; mobile replayable ainda preserva o manual                                               |
+| CUA-GROUP-06 | planned | UI unit                                                                                                                                                                                                                                                                | MCP de terceiros com o mesmo nome não participa da agregação oficial de CUA                                                                         |
+| CUA-GROUP-07 | partial | UI unit + replay formal do CUA-GROUP-09                                                                                                                                                                                                                                   | a rolagem mostra apenas CUA em estado terminal; a mensagem ainda conta e, quando expandida, aparece só dentro do Group                                |
+| CUA-GROUP-08 | planned | projection + UI unit                                                                                                                                                                                                                                                   | response não classificada é externalizada sem rolar; quando a CUA chega é elevada, e sem término de tool o Group antigo é fechado                              |
+| CUA-GROUP-09 | covered | replay formal [`conversation-session-cua-response-grouping.test.ts`](../../packages/desktop/test/e2e/conversation-session/conversation-session-cua-response-grouping.test.ts), case-local `desktop-e2e-20260820-072340-345`, default `desktop-e2e-20260820-072456-905` | dois trechos de Group, fronteira do Bash, linha do tempo mista expandida e cold restore passaram por revisão manual e replay formal             |
+| CUA-GROUP-10 | covered | protocol + projection + UI unit + extensão de replay do CUA-GROUP-09                                                                                                                                                                                                        | o reasoning reaproveita o response ID para entrar no grupo; cobre a contagem de visibilidade, a externalização de mixed/text-only/legacy e as fronteiras, ordem e detalhes de dobra de live/cold restore |
 
-## CUA-RECEIPT 覆盖
+## Cobertura CUA-RECEIPT
 
 | Case           | Status  | Evidence                                                                                                                        | Assertion                                                                                                                   |
 | -------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| CUA-RECEIPT-01 | covered | core `mcp-tool-bridge.test.ts` / `tool-executor-trace.test.ts` 的 trusted synthetic receipt；UI `cuaGroupToolCallBlock.test.ts` | receipt-only 官方 action 走普通 CUA ToolCallRow；无 post-state / `refresh_required`；数字 target 使用 `Element #N` fallback |
-| CUA-RECEIPT-02 | pruned  | receipt 没有专用持久化形态；复用 CUA-GROUP-09 的通用 ToolCallRow cold restore 合同                                              | 不再用缺少 producer state 的 pending E2E 误测真实 action；native dispatch 由 producer lane 负责                             |
+| CUA-RECEIPT-01 | covered | receipt sintético confiável de `mcp-tool-bridge.test.ts` / `tool-executor-trace.test.ts` do core; UI `cuaGroupToolCallBlock.test.ts` | action oficial só com receipt passa pelo ToolCallRow comum de CUA; sem post-state / `refresh_required`; target numérico usa o fallback `Element #N` |
+| CUA-RECEIPT-02 | pruned  | receipt não tem forma de persistência dedicada; reaproveita o contrato de cold restore do ToolCallRow comum do CUA-GROUP-09                                              | não se mede mais uma action real com um E2E pending que não tem state de producer; o dispatch nativo fica a cargo da lane do producer       |
 
-## CUA-IDENTITY 覆盖
+## Cobertura CUA-IDENTITY
 
 | Case            | Status  | Evidence                                     | Assertion                                                               |
 | --------------- | ------- | -------------------------------------------- | ----------------------------------------------------------------------- |
-| CUA-IDENTITY-01 | covered | CLI projection unit                          | `list_apps` 快照按事件顺序匹配对象/JSON `app_ref.pid`，失败不覆盖       |
-| CUA-IDENTITY-02 | partial | UI unit + Electron manual                    | 完成结果身份优先，图标失败保留 App name                                 |
-| CUA-IDENTITY-03 | covered | UI unit                                      | 数字 target 本地化为 `Element #n` / `元素 #n`                           |
-| CUA-IDENTITY-04 | partial | UI unit + Electron manual                    | 完整 raw、失败截图过滤与权限 action 布局                                |
-| CUA-IDENTITY-05 | partial | protocol/CLI unit + CUA-GROUP-09 cold replay | response/app identity 协议兼容与桌面恢复；mobile replayable 保留 manual |
+| CUA-IDENTITY-01 | covered | CLI projection unit                          | o snapshot de `list_apps` casa objeto/JSON `app_ref.pid` na ordem dos eventos e a falha não sobrescreve |
+| CUA-IDENTITY-02 | partial | UI unit + Electron manual                    | a identidade do resultado concluído tem prioridade; na falha do ícone mantém-se o nome do App |
+| CUA-IDENTITY-03 | covered | UI unit                                      | target numérico é localizado como `Element #n` / `元素 #n`              |
+| CUA-IDENTITY-04 | partial | UI unit + Electron manual                    | raw completo, filtro de screenshot de falha e layout da action de permissão |
+| CUA-IDENTITY-05 | partial | protocol/CLI unit + cold replay do CUA-GROUP-09 | compatibilidade de protocolo de response/app identity e recuperação no desktop; mobile replayable preserva o manual |
 
-分支覆盖以核心产品行为为分母；当前 WDIO 没有源码 coverage instrumentation，因此不把代表路径
-伪装成精确行覆盖率。新增 E2E 覆盖高风险跨层 seam，其余状态组合由协议、projection、UI unit 或
-平台 manual 证明。相邻原有分组回归也已通过：TGE01 `desktop-e2e-20260820-070647-555`，
-TGE04/TGE05 `desktop-e2e-20260820-070521-615`。此前没有独立 CUA Group Electron E2E。
+A cobertura de ramos usa o comportamento central do produto como denominador; como o WDIO atual não
+tem instrumentação de coverage do código-fonte, não se apresenta um caminho representativo como
+cobertura de linha precisa. O novo E2E cobre seams de alto risco entre camadas, e as demais combinações
+de estado são provadas por protocolo, projection, UI unit ou manual por plataforma. As regressões dos
+grupos vizinhos já passaram: TGE01 `desktop-e2e-20260820-070647-555`,
+TGE04/TGE05 `desktop-e2e-20260820-070521-615`. Antes não havia um E2E Electron dedicado de CUA Group.
 
-Goal 专项组合不再只看主路径 `H` 的 7 条基础语义；更细的 queue、compact、fork/edit、session/model、验证手段和环境异常拆到 [conversation-session-goal-specific-coverage-matrix.md](./conversation-session-goal-specific-coverage-matrix.md)。本文件里的 `H` 只能说明 goal 基础协议覆盖，不能代表 goal 所有组合都完成。
+As combinações dedicadas de Goal não olham mais apenas as 7 semânticas básicas do caminho principal `H`; queue, compact, fork/edit,
+session/model, meios de verificação e anomalias de ambiente mais detalhados foram movidos para
+[conversation-session-goal-specific-coverage-matrix.md](./conversation-session-goal-specific-coverage-matrix.md). O `H` neste arquivo só indica
+cobertura do protocolo básico de goal e não representa que todas as combinações de goal foram concluídas.
 
-Fork 交叉组合不做全排列；以能否 fork、复制历史边界、继承未来 session 状态三个不变量剪枝。详见 [conversation-session-fork-cross-product-matrix.md](./conversation-session-fork-cross-product-matrix.md)。
+Não se faz o produto cartesiano completo das combinações de Fork; a redução é feita por três invariantes: poder fazer fork,
+limite de cópia do histórico e herança do estado futuro da sessão. Veja [conversation-session-fork-cross-product-matrix.md](./conversation-session-fork-cross-product-matrix.md).
 
-Fork 类 E2E 的稳定断言必须同时看 UI snapshot 和 runtime 边界：`runtimeStatus=streaming` 且 `activeInputId` 存在时才发送 running held queue；edit/stop 前必须等待或断言对应 busy guard。fork 不再要求父 session completed，但 target 必须是 `completedSuccess` product turn 最后一段 completed assistant；primary/foreground subagent/goal continuation/goal verifier 运行时可 fork 更早稳定 target，当前未收口 turn 仍拒绝。running fork 必须证明 child 没有复制当前 active work、父 queue、live background work、pending background result 或 continuation inbox，不 rewind 共享 workspace，且父 session 继续。FK 的 goal 继承 case 只构造“父 session 已有 target”，不能额外发送可见 `/goal` query 来制造连续 user query。
+As asserções estáveis dos E2E de Fork precisam observar simultaneamente o snapshot de UI e a fronteira de runtime: a fila
+running held só é enviada quando `runtimeStatus=streaming` e `activeInputId` existe; antes de edit/stop é preciso esperar ou
+afirmar o busy guard correspondente. Fork não exige mais que a sessão-pai esteja completed, mas o target precisa ser a última
+seção completed assistant de um product turn `completedSuccess`; durante a execução de primary/foreground subagent/goal continuation/goal
+verifier é possível fazer fork de um target estável anterior, e um turn ainda não consolidado continua recusado. O fork running
+precisa provar que o child não copiou o active work atual, a fila pai, o trabalho vivo em segundo plano, o resultado pendente em
+segundo plano nem a inbox de continuação, que não houve rewind do workspace compartilhado e que a sessão-pai continua. O case de
+herança de goal do FK apenas constrói "a sessão-pai já tem o target" e não pode enviar uma query `/goal` visível extra para
+criar user query contínuos.
 
-Synthetic user message 投影边界是协议级不变量：`message.role === "user"` 只代表 provider/store 物理角色，不能直接映射为 UI `userInput` 或 transcript turn。`fork`、`rewind`、`goal-continuation`、`goal_state_change`、`background_task`、`subagent`、`todo_reminder`、compact summary 等 runtime 注入消息必须由 shared projection policy 分类；旧持久化里的 `fork user-visible synthetic + forkContext` 只能投成 `session_fork` separator，raw notice 文本不能出现在右侧用户气泡，也不能参与 v4 hydration 的 turn count 或 fork target id 推导。新持久化 fork raw notice 若作为 `model-only` provider context 保留，只能归类为 `providerContextOnly`；结构化 `session_fork` timeline part 才负责 UI separator。v4 如果一个逻辑 turn 投影出多段 assistant text row，fork action 只允许出现在该 turn 的最后一段完成态 assistant row；retry 还必须命中全时间线最后一条 assistantText row。
+A fronteira de projeção de mensagem sintética de usuário é um invariante de nível de protocolo: `message.role === "user"` representa
+apenas o papel físico provider/store e não pode ser mapeado diretamente para UI `userInput` ou turn de transcript. Mensagens injetadas
+em runtime como `fork`, `rewind`, `goal-continuation`, `goal_state_change`, `background_task`, `subagent`, `todo_reminder` e resumo de
+compact devem ser classificadas pela shared projection policy; o antigo `fork user-visible synthetic + forkContext` na persistência
+antiga só pode ser projetado como separator `session_fork`, e o texto do aviso raw não pode aparecer no bubble de usuário do lado
+direito nem participar da contagem de turns da hydration v4 nem da dedução do fork target id. Se o aviso raw de fork na nova
+persistência for mantido como provider context `model-only`, só pode ser classificado como `providerContextOnly`; a parte estruturada
+`session_fork` da timeline é a responsável pelo separator de UI. Se na v4 um turn lógico projetar várias linhas de assistant text,
+a action de fork só pode aparecer na última linha de assistant em estado completed daquele turn; o retry ainda precisa atingir a última
+linha assistantText de toda a linha do tempo.
 
-Session 列表标题的读写边界：新重命名必须写入 v4 `renameSession`，并在 sessions-index summary 暴露 `titleSource=custom`；旧 task-index `titleOverridden` 只作为 read-time legacy override，覆盖 `default/generated` summary，不能覆盖 `custom` summary。该兼容属于旧持久化数据读取，不新增表、不新增持久化字段。
+Fronteira de leitura/escritura do título da lista de sessões: um novo rename precisa escrever em v4 `renameSession` e expor
+`titleSource=custom` no summary do sessions-index; o antigo `titleOverridden` do task-index serve apenas como override legacy em
+tempo de leitura, cobrindo o summary `default/generated` e nunca o summary `custom`. Essa compatibilidade pertence à leitura de
+dados persistidos antigos e não cria tabela nem campo de persistência novo.
 
-Task 管理入口边界：重命名、归档与永久删除只从左侧 task 列表既有菜单进入；conversation pane chrome 必须不渲染 rename/delete 控件。协议层 `renameSession` / `deleteSession` 继续由列表入口和内部生命周期调用，不能因 UI 入口收敛而删除。
+Fronteira da entrada de gestão de tasks: rename, arquivamento e exclusão permanente entram apenas pelo menu existente da lista de
+tasks à esquerda; o chrome do conversation pane não deve renderizar controles de rename/delete. As actions de protocolo
+`renameSession` / `deleteSession` continuam sendo chamadas pela entrada da lista e pelo ciclo de vida interno e não podem ser
+removidas só porque a entrada de UI foi convergida.
 
-## Manual Review 迁移口径
+## Critério de migração do Manual Review
 
-历史 conversation 主路径 spec 已先统一迁入 `packages/desktop/test/e2e/conversation-session/manual-review/pending/`。这表示它们先作为“自动操作 + 人工 review + 留 artifact”的候选 case，不再属于默认 conversation 质量门禁。已经补齐确定性 replay、产品语义确认和稳定断言的新 case，可以放回 `packages/desktop/test/e2e/conversation-session/`。
+Os specs do caminho principal de conversation já foram migrados de forma unificada para
+`packages/desktop/test/e2e/conversation-session/manual-review/pending/`. Isso significa que eles passam a ser cases candidatos
+de "automação + revisão manual + artefato preservado", e deixam de pertencer ao gate padrão de qualidade de conversation.
+Os novos cases que já receberam replay determinístico, confirmação da semântica de produto e asserções estáveis podem voltar
+para `packages/desktop/test/e2e/conversation-session/`.
 
-本矩阵里已有的 `covered` 仍表示这些文件保留了历史 setup/action/assert 能力，审计脚本会继续检查文件存在、测试声明和缩写引用；但只要 spec 路径仍在 `manual-review/pending`，它就不能被表述为“已经通过人工确认的默认自动化验收”。人工确认产品预期后，先补齐 UI / network / log / snapshot 的确定性断言，再把对应 spec 从 `manual-review/pending` 移回 `packages/desktop/test/e2e/conversation-session/`，同时更新本矩阵路径。
+O `covered` já presente nesta matriz continua significando que esses arquivos mantêm a capacidade histórica de
+setup/action/assert, e o script de auditoria segue verificando a existência dos arquivos, as declarações de teste e as
+referências de abreviação; mas enquanto o caminho do spec ainda estiver em `manual-review/pending`, ele não pode ser descrito
+como "validação de automação padrão já confirmada manualmente". Depois da confirmação manual da expectativa do produto,
+completam-se primeiro as asserções determinísticas de UI / network / log / snapshot, depois move-se o spec correspondente
+de `manual-review/pending` de volta para `packages/desktop/test/e2e/conversation-session/`, atualizando ao mesmo tempo o caminho nesta matriz.
 
-若产品或 provider transport 合同已经变化，而 pending spec 仍保留与新合同相反的断言，该 spec
-即使 setup/action 仍有价值，也不能继续作为对应 case 的 `covered` 证据；应先降为 `partial` 或从该行
-证据列表移除，完成断言迁移并复跑后再恢复。
+Se o contrato do produto ou do transporte do provider já mudou, mas o spec pending ainda mantiver asserções contrárias ao novo
+contrato, esse spec, mesmo com setup/action ainda valioso, não pode continuar como evidência `covered` do case correspondente;
+deve ser rebaixado para `partial` ou removido da lista de evidências da linha, e só volta depois de migrar as asserções e reexecutar.
 
-本矩阵记录 spec 的**当前物理路径**。case manifest 和 case-local provider fixture 里的 `spec` 字段记录的是
-`packages/desktop/test/e2e/conversation-session/` 下的 **canonical formal target**，即使当前文件仍位于
-`manual-review/pending` 也不改成 pending 路径。`e2e:fixture:check` 同时接受这两种当前路径，并机械校验
-fixture target；pending replay 只有显式传入 `E2E_PROVIDER_REPLAY_FIXTURE_PATH` 时才加载 case-local fixture。
+Esta matriz registra o **caminho físico atual** do spec. O campo `spec` do case manifest e do fixture de provider case-local registra o
+**target formal canônico** sob `packages/desktop/test/e2e/conversation-session/`, e não é alterado para o caminho pending
+mesmo que o arquivo ainda esteja em `manual-review/pending`. `e2e:fixture:check` aceita as duas formas de caminho atual e
+valida mecanicamente o target do fixture; o pending replay só carrega o fixture case-local quando
+`E2E_PROVIDER_REPLAY_FIXTURE_PATH` for passado explicitamente.
 
-2026-07-24 本批转正已完成 case-local strict 与默认 replay 双跑；artifact 作为本次物理迁移和确定性
-fixture 的准入证据：
+Em 2026-07-24 a promoção deste lote concluiu a dupla execução case-local strict e replay default; o artefato serve como
+evidência de admissão desta migração física e do fixture determinístico:
 
-staging 的 BG45 历史 focused replay artifact 为 `desktop-e2e-20260903-111126-452`；它仅覆盖
-当时版本的 BG45，不替代上表原有 25-case 的 strict/default 双跑，也不代表 Todo103 整合版已验证。
+o artefato de focused replay histórico de BG45 no staging é `desktop-e2e-20260903-111126-452`; ele cobre apenas o
+BG45 da versão daquele momento, não substitui a dupla execução strict/default dos 25 cases da tabela acima e também não
+representa que a versão integrada do Todo103 foi verificada.
 
-| Formal spec                                                   | Case 数 | strict-case-local artifact        | 默认 replay artifact              |
-| ------------------------------------------------------------- | ------: | --------------------------------- | --------------------------------- |
-| `conversation-session-background.test.ts`                     |      26 | `desktop-e2e-20260724-154340-362` | `desktop-e2e-20260724-154720-609` |
-| `conversation-session-goal-run-cases.test.ts`                 |      22 | `desktop-e2e-20260724-142026-140` | `desktop-e2e-20260724-133653-654` |
-| `conversation-session-markdown-table-enhanced-scroll.test.ts` |       7 | `desktop-e2e-20260724-114042-401` | `desktop-e2e-20260724-114126-913` |
-| `conversation-session-markdown-table-layout.test.ts`          |       6 | `desktop-e2e-20260724-111036-361` | `desktop-e2e-20260724-111104-174` |
-| `conversation-session-compact-auto.test.ts`                   |       5 | `desktop-e2e-20260724-135201-193` | `desktop-e2e-20260724-135304-443` |
-| `conversation-session-model-switch-restore-repro.test.ts`     |       4 | `desktop-e2e-20260724-140311-511` | `desktop-e2e-20260724-140355-719` |
-| `conversation-session-running-guide-steer.test.ts`            |       4 | `desktop-e2e-20260724-120148-911` | `desktop-e2e-20260724-120259-422` |
-| `conversation-session-running-send-now.test.ts`               |       4 | `desktop-e2e-20260724-121921-999` | `desktop-e2e-20260724-122013-205` |
+| Formal spec                                                   | Número de cases | artefato strict-case-local            | artefato replay default                  |
+| ------------------------------------------------------------- | --------------: | ------------------------------------ | --------------------------------------- |
+| `conversation-session-background.test.ts`                     |              26 | `desktop-e2e-20260724-154340-362`    | `desktop-e2e-20260724-154720-609`      |
+| `conversation-session-goal-run-cases.test.ts`                 |              22 | `desktop-e2e-20260724-142026-140`    | `desktop-e2e-20260724-133653-654`      |
+| `conversation-session-markdown-table-enhanced-scroll.test.ts` |               7 | `desktop-e2e-20260724-114042-401`    | `desktop-e2e-20260724-114126-913`      |
+| `conversation-session-markdown-table-layout.test.ts`          |               6 | `desktop-e2e-20260724-111036-361`    | `desktop-e2e-20260724-111104-174`      |
+| `conversation-session-compact-auto.test.ts`                   |               5 | `desktop-e2e-20260724-135201-193`    | `desktop-e2e-20260724-135304-443`      |
+| `conversation-session-model-switch-restore-repro.test.ts`     |               4 | `desktop-e2e-20260724-140311-511`    | `desktop-e2e-20260724-140355-719`      |
+| `conversation-session-running-guide-steer.test.ts`            |               4 | `desktop-e2e-20260724-120148-911`    | `desktop-e2e-20260724-120259-422`      |
+| `conversation-session-running-send-now.test.ts`               |               4 | `desktop-e2e-20260724-121921-999`    | `desktop-e2e-20260724-122013-205`      |
 
-## 覆盖状态定义
+## Definição dos status de cobertura
 
-| 状态        | 含义                                       |
-| ----------- | ------------------------------------------ |
-| `covered`   | 已有独立自动化断言覆盖                     |
-| `failing`   | 已有自动化探针，但当前产品实现不满足预期   |
-| `partial`   | 只有弱断言或覆盖了相邻语义，不能算完整证明 |
-| `planned`   | 已有候选 spec 或步骤设计，尚未完成独立断言 |
-| `missing`   | 产品语义已 accepted，但当前没有自动化断言  |
-| `undefined` | 产品语义尚未定义，不能写稳定断言           |
-| `pruned`    | 产品已明确剪枝，不保留自动化覆盖要求       |
+| Status      | Significado                                                  |
+| ----------- | ------------------------------------------------------------ |
+| `covered`   | já coberto por asserções de automação independentes          |
+| `failing`   | já existe uma sonda de automação, mas a implementação atual do produto não satisfaz a expectativa |
+| `partial`   | só há asserções fracas ou semântica adjacente coberta, o que não prova cobertura completa |
+| `planned`   | já existe spec candidato ou design de passos, mas as asserções independentes não foram concluídas |
+| `missing`   | a semântica do produto já foi aceita, mas não há asserções de automação |
+| `undefined` | a semântica do produto ainda não foi definida e não permite escrever asserções estáveis |
+| `pruned`    | o produto foi explicitamente podado e não mantém requisito de cobertura automatizada |
 
-## 测试缩写
+## Abreviações de teste
 
-| 缩写   | Spec                                                                                                                                                                                                                                                                                                                               |
+| Abreviação | Spec                                                                                                                                                                                                                                                                                                                               |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FS`   | `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-first-send.test.ts`                                                                                                                                                                                                                     |
 | `PW`   | `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-prewarming-queue.test.ts`                                                                                                                                                                                                               |
@@ -376,7 +416,7 @@ staging 的 BG45 历史 focused replay artifact 为 `desktop-e2e-20260903-111126
 | `AML`  | `packages/desktop/test/e2e/automations-custom-monthly-interval.test.ts`                                                                                                                                                                                                                                                            |
 | `OPF`  | `packages/desktop/test/e2e/conversation-session/conversation-session-offpeak-full-flow.test.ts`（planned）                                                                                                                                                                                                                         |
 | `OPA`  | `packages/desktop/test/e2e/conversation-session/conversation-session-offpeak-approval.test.ts`（planned）                                                                                                                                                                                                                          |
-| `OPP`  | `packages/desktop/test/e2e/off-peak-create-manage.test.ts`（已编写：创建→回显→Pause→Continue→删除；进程内 mock 网关驱动，待 E2E 环境执行验证）                                                                                                                                                                                     |
+| `OPP`  | `packages/desktop/test/e2e/off-peak-create-manage.test.ts`(já escrito: criar → eco → Pause → Continue → excluir; dirigido por gateway mock no processo, aguardando verificação de execução no ambiente E2E)                                                                                                                                                                                     |
 | `OPR`  | `packages/desktop/test/e2e/conversation-session/conversation-session-offpeak-restart-resume.test.ts`（planned）                                                                                                                                                                                                                    |
 | `OPS`  | `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-offpeak-subagent-model-inheritance.test.ts`                                                                                                                                                                                             |
 | `OPB`  | `packages/desktop/test/e2e/conversation-session/conversation-session-offpeak-provider-boundary.test.ts`（planned）                                                                                                                                                                                                                 |

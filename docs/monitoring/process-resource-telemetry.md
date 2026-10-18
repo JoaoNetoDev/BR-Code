@@ -1,153 +1,115 @@
-# 全进程 CPU / 内存监控埋点（Process Resource Telemetry）
+# Telemetria de Recursos de Processo (CPU / Memória) — em todos os processos
 
-状态：**已实现**（v3.12.1）。2026-09-14 设计定稿，2026-09-15 完成契约收口。
-验收执行状态见「验收 Case」与「收口验证记录」；平台限定和真实远端验证单独列出，不等同于全部验收通过。
-本文是 CPU / 内存资源遥测的当前规范；[性能监控](./performance-monitoring.md)、
-[CLI 资源上报](./zcode-cli-resource-telemetry.md)与[MCP 生命周期](./mcp-process-arms-telemetry.md)
-中的旧资源内容均已替换为本文入口。旧事件的停发版本见[事件字典](./performance-telemetry-catalog.md)。
+Status: **implementado** (v3.12.1). Design finalizado em 2026-09-14, fechamento de contrato concluído em 2026-09-15.
+O status de execução da aceitação está em «Casos de Aceitação» e «Registro de Verificação de Fechamento»; as limitações de plataforma e a verificação remota real estão listadas separadamente e não equivalem a aceitação total.
+Este documento é a especificação atual de telemetria de recursos CPU / memória; o conteúdo antigo de recursos em [Monitoramento de Performance](./performance-monitoring.md), [CLI Resource Reporting](./zcode-cli-resource-telemetry.md) e [Ciclo de Vida do MCP](./mcp-process-arms-telemetry.md) foi substituído por esta entrada. A versão de descontinuação dos eventos antigos está em [Dicionário de Eventos](./performance-telemetry-catalog.md).
 
-### 复审修复契约（2026-09-15）
+### Contrato de correções da re-revisão (2026-09-15)
 
-本节固定 R1–R7、N1/N2 的修复语义，执行结果另记；影响面见
-[复审修复影响与验证](./process-resource-telemetry-fixes.md)。
+Esta seção fixa a semântica de correção de R1–R7 e N1/N2; os resultados de execução são registrados separadamente; a superfície de impacto está em [Impacto e Verificação das Correções da Re-revisão](./process-resource-telemetry-fixes.md).
 
-- **R1 / N2**：独立 Server 在 `/api/server-info` 的 `capabilities.processResourceTelemetry` 可选字段
-  声明支持这组资源旁路事件。Host 仅向声明支持的 Server 订阅；旧 Server 缺字段时继续正常连接，
-  跳过遥测订阅。两个 Server 实现都声明能力。本地及随 Desktop 配套部署的 SSH/WSL/Docker
-  保持原订阅路径，不增加版本号判断、UI 提示或协议主版本变更。
-- **R2**：CLI 为每条慢 Bash 完成事实生成随机 `completionToken`，只在协议内传递。
-  main 是唯一去重 owner，使用最多 1024 项的近期集合，使同一事实经多个连接、多个 window Host
-  到达时只上报一次。不同 token 的相同指标仍各计一次；token 不进入 ARMS，也不新增业务日志；显式开启的原始协议诊断 tap 保留既有帧记录语义。
-  字段可选以兼容旧 CLI，缺 token 时保留旧事件行为，不用指标内容猜测命令身份。
-- **R3**：CLI 的新读数按角色、运行面、运行环境、硬件分组判断；只有含新读数的组产生角色样本。
-  设备级总量按进程实例保留读数真实到达时间，过期判断不得被 main 的交付时刻或同组其他实例续期。
-  外部样本预算为 128 项（64 个 CLI 实例及原有 64 个 MCP 来源预算），保持有界且不因实例化挤掉 MCP。
-  60 秒节拍、错相位多组交付和退出残窗共用同一套规则。
-- **R4**：Host 复用 `buildRemoteEnvironmentKey(target)`（Server 优先使用返回的 serverId）
-  构造环境身份，并哈希后放入 Host→main 的可选 `environmentKey`。CLI/MCP 的实例存储、
-  分组与最终窗口均包含该身份，保证同规格不同环境不相加、同环境多连接仍能归并。
-  本地及旧 Host 缺字段时使用原有空身份分组。身份仅用于内存隔离，ARMS 属性白名单不变。
-- **R5**：同一 tick 多个 Host 的 heap 取已到达读数的最大值，交付后清空，避免后到低值覆盖峰值。
-- **R6**：CI 扫描覆盖 `telemetry`、`process-probe`、`process-resource`、`processResource` 命名；
-  所有实际来源模块都须受保护。资源管理器按需采样器保留有依据的关键字豁免。
-- **R7 / N1**：注释剥离须识别正则、转义和字符类；正则中的反引号不得打开模板字符串，
-  正则中的 `/*` 不得打开块注释。有效代码中的禁用调用须命中，真实注释中的禁用词须忽略。
+- **R1 / N2**: o Server independente declara suporte a este conjunto de eventos de desvio de recursos no campo opcional `capabilities.processResourceTelemetry` de `/api/server-info`. O Host só assina os Servers que declaram suporte; quando o Server antigo não tem o campo, a conexão continua normal e a assinatura de telemetria é pulada. Ambas as implementações de Server declaram a capacidade. Local e SSH/WSL/Docker empacotados com o Desktop mantêm o caminho de assinatura original, sem verificação de número de versão,aviso de UI ou mudança de versão principal do protocolo.
+- **R2**: a CLI gera um `completionToken` aleatório para cada fato de conclusão de Bash lento, transmitido apenas dentro do protocolo. O main é o único owner de deduplicação, usando um conjunto recente com no máximo 1024 itens, para que o mesmo fato chegando por múltiplas conexões e múltiplos Hosts de janela seja reportado apenas uma vez. Métricas idênticas com tokens diferentes ainda contam uma vez cada; o token não entra no ARMS e não gera novos logs de negócio; o tap de diagnóstico de protocolo bruto, habilitado explicitamente, preserva a semântica existente de registro de frames.
+  O campo é opcional para compatibilidade com CLI antiga; sem token, o comportamento antigo do evento é preservado, sem adivinhar a identidade do comando pelo conteúdo das métricas.
+- **R3**: as novas leituras da CLI são julgadas agrupadas por papel, superfície de execução, ambiente de execução e hardware; apenas grupos com novas leituras geram amostras de papel.
+  Os totais em nível de dispositivo preservam o tempo real de chegada da leitura por instância de processo; o julgamento de expiração não pode ser renovado pelo momento de entrega do main nem por outras instâncias do mesmo grupo.
+  O orçamento de amostras externas é de 128 itens (64 instâncias de CLI e o orçamento original de 64 fontes MCP), permanecendo limitado e sem que instâncias desplacem o MCP.
+  O tique de 60 segundos, entregas de múltiplos grupos fora de fase e a janela residual na saída compartilham o mesmo conjunto de regras.
+- **R4**: o Host reutiliza `buildRemoteEnvironmentKey(target)` (o Server prioriza o serverId retornado) para construir a identidade de ambiente, a hasheia e a coloca no campo opcional `environmentKey` do Host→main. O armazenamento de instâncias, o agrupamento e a janela final de CLI/MCP incluem essa identidade, garantindo que especificações iguais em ambientes diferentes não sejam somadas e que múltiplas conexões do mesmo ambiente ainda sejam unificadas.
+  Local e Hosts antigos sem o campo usam o agrupamento de identidade vazia original. A identidade é usada apenas para isolamento em memória; a lista de permissões de atributos do ARMS não muda.
+- **R5**: no mesmo tique, o heap de múltiplos Hosts usa o máximo das leituras já chegadas; é limpo após a entrega, evitando que um valor baixo tardio sobrescreva o pico.
+- **R6**: a varredura de CI cobre as nomenclaturas `telemetry`, `process-probe`, `process-resource`, `processResource`; todos os módulos de origem reais devem estar protegidos. O amostrador sob demanda do gerenciador de recursos mantém as isenções justificadas de palavras-chave.
+- **R7 / N1**: a remoção de comentários precisa reconhecer expressões regulares, escapes e classes de caracteres; crases dentro de regex não podem abrir template strings, e `/*` dentro de regex não pode abrir comentário de bloco. Chamadas proibidas em código válido devem ser detectadas; palavras proibidas em comentários reais devem ser ignoradas.
 
 ```text
-旧 Server 无能力 ──> Host 跳过资源订阅 ──> 连接继续工作
-新 Server 有能力 ──> Host 转发环境身份和完成标识 ──> main 分组 / 去重 ──> 白名单上报
-CLI 真实读数时间 ──> 分组新读数 ──> 有界窗口；交付不刷新读数年龄
+Server antigo sem capacidade ──> Host pula a assinatura de recursos ──> conexão continua funcionando
+Server novo com capacidade ──> Host repassa identidade de ambiente e identificador de conclusão ──> agrupamento / dedupe no main ──> envio pela lista de permissões
+Tempo real de leitura da CLI ──> novas leituras do grupo ──> janela limitada; a entrega não renova a idade da leitura
 ```
 
-这些旁路事实不进入 task/session、CommandInbox、snapshot 或恢复流；桌面
-`desktop-continuous` 与手机 `web-remote-replayable` attachment 继续返回空遥测事件。
+Esses fatos de desvio não entram em task/session, CommandInbox, snapshot nem fluxos de recuperação; o desktop `desktop-continuous` e o attachment do celular `web-remote-replayable` continuam retornando eventos de telemetria vazios.
 
-### 已实现的链路与兼容边界
+### Cadeia implementada e limites de compatibilidade
 
-- main 以来源注册表统一采集 Chromium 七角色、CLI 两角色与 MCP；设备级来源在同一 tick 第二阶段
-  读取各来源精确合计。heap 读数、CLI / MCP 最近样本与 Bash 即时事件沿下文唯一 owner 链路汇入。
-- host 与主 renderer 复用既有内存日志定时器；日志写盘门控不影响遥测。main 只接受已登记主窗口
-  webContents 的 heap，资源管理器、about、DevTools 与 webview guest 的读数丢弃。
-  heap 交付即清空，本 tick 没有完整角色样本时丢弃；各窗口定时器相位不同，因此 renderer heap
-  mean 是各 tick 已到达窗口中最大读数的平均，peak 是最大单窗口读数。
-- CLI 每 60 秒交出存活实例的最近合计，只有新读数才计样本；正常退出通过 `flushPending` 补交
-  已收到但未交付的事实。`instanceToken` 只在 main 内存中区分实例，不进入 ARMS；lane 由 services
-  按进程管理器标记，CLI 自身不携带 lane。节拍常量由 shared 单点声明。
-- 旧 CLI → 新 app 保持兼容（heap、uptime、内存总量、instanceToken 可选，硬件缺项逐字段回落到
-  桌面值）；新 CLI → 旧 app 的 strict schema 会拒绝新字段，遥测静默丢弃。旧独立 server 的事件
-  订阅风险与真实远端验收方式见 PRT-030。
-- 每个远端 service collection 只订阅一次，寿命随 connection handle 的 dispose 收口；手机
-  attachment 得到空事件，不增加底层订阅。运行机维度进入窗口分组 key，远端样本不计设备总量。
-- MCP tracker 唯一持有连接、owner 与实例；进程重启、关闭或 tracker 停止后丢弃在途旧结果。
-  main 按实例与采样时间去重，每次 flush 只投影一份分组合计（sample_count=1），最多 32 个 MCP
-  分组，超出只写 debug。旧 memory 通知在新 main 丢弃。
-- Bash 在实际 spawn 边界建立每命令 owner，复用已有一秒轮询器，15 秒起最多 20 次探针；退出或
-  stop 封口后迟到样本丢弃。Windows 不创建资源采样定时器，只发送 10 项零成本属性。
-- main 的 ps 线程数探针、10% 角色抽样、互斥旧属性布局、GPU 显存与磁盘 IO 字段均已删除。
-  MCP / Bash 共用 CLI 通用探针，全链路受遥测关键字门禁保护。
+- O main coleta de forma unificada, através de um registro de origens, os sete papéis do Chromium, os dois papéis da CLI e o MCP; as origens em nível de dispositivo leem os totais exatos de cada origem na segunda fase do mesmo tique. Leituras de heap, amostras recentes de CLI/MCP e eventos instantâneos de Bash convergem pelo único链路 de owner descrito abaixo.
+- O host e o renderer principal reutilizam o temporizador existente de log de memória; o gating de escrita em disco não afeta a telemetria. O main só aceita heap de webContents de janela principal já registrado; leituras do gerenciador de recursos, about, DevTools e webview guest são descartadas.
+  O heap é limpo na entrega; se não houver amostra completa de papel no tique, é descartado. Como os temporizadores das janelas têm fases diferentes, o heap mean do renderer é a média da maior leitura entre as janelas que chegaram em cada tique, e o peak é a maior leitura de janela única.
+- A CLI entrega a cada 60 segundos o total recente das instâncias vivas; apenas novas leituras contam como amostra. A saída normal complementa com `flushPending` os fatos recebidos mas não entregues. O `instanceToken` só distingue instâncias na memória do main, não entra no ARMS; a lane é marcada pelos services conforme o gerenciador de processos, a CLI em si não carrega lane. A constante de tique é declarada em um único ponto no shared.
+- CLI antiga → app novo permanece compatível (heap, uptime, total de memória, instanceToken opcionais; campos de hardware ausentes caem um a um para valores do desktop); CLI nova → app antigo tem schema estrito que rejeita campos novos, e a telemetria é descartada silenciosamente. O risco de assinatura de eventos do server independente antigo e o método de aceitação remota real estão em PRT-030.
+- Cada service collection remota é assinada uma única vez, com tempo de vida atrelado ao dispose do connection handle; o attachment do celular recebe eventos vazios, sem adicionar assinatura subjacente. A dimensão da máquina de execução entra na chave de agrupamento da janela, e amostras remotas não contam para o total do dispositivo.
+- O tracker do MCP é o único detentor de conexão, owner e instâncias; resultados antigos em trânsito são descartados após reinício de processo, fechamento ou parada do tracker.
+  O main deduplica por instância e tempo de amostragem, e cada flush projeta apenas uma soma por grupo (sample_count=1), com no máximo 32 grupos MCP; o excedente gera apenas log debug. Notificações antigas de memória são descartadas no novo main.
+- O Bash estabelece um owner por comando no limite real de spawn, reutilizando o poller de um segundo já existente, com no máximo 20 sondas a partir de 15 segundos; amostras tardias são descartadas após o exit ou o fechamento por stop. O Windows não cria temporizador de amostragem de recursos e envia apenas 10 atributos de custo zero.
+- A sonda de contagem de threads do main, a amostragem de papéis de 10%, o layout de atributos mutuamente exclusivos antigo, os campos de VRAM da GPU e de IO de disco foram removidos. MCP / Bash compartilham a sonda genérica da CLI, e toda a cadeia é protegida pelo gating de palavras-chave de telemetria.
 
-### 收口约定（票 11）
+### Convenção de fechamento (ticket 11)
 
-三个新事件以 shared 属性白名单为代码契约；spec 与事件字典逐项列出属性，由 PRT-026 的契约测试
-检查两份文档与白名单一致。只收窄无调用方的导出，不改变来源注册表、窗口 owner、采样时序、
-失败语义与 desktop continuous / mobile replayable 边界。验证沿用下文已约定测试缝，UT 与 E2E 按本票
-用户要求仅跑受影响 case；分别记录实际通过、跳过或阻塞，不把测试文件存在等同于运行通过。
+Os três eventos novos têm a lista de permissões de atributos do shared como contrato de código; a spec e o dicionário de eventos listam os atributos item a item, e os testes de contrato do PRT-026 verificam a consistência dos dois documentos com a lista. Apenas estreitam-se exportações sem chamadores, sem alterar o registro de origens, o owner de janela, a temporalidade de amostragem, a semântica de falha nem os limites desktop continuous / mobile replayable. A verificação reutiliza as costuras de teste já acordadas abaixo; UT e E2E rodam, por exigência do usuário deste ticket, apenas os casos afetados; passing, skipped ou blocked são registrados separadamente — a existência de um arquivo de teste não equivale a execução bem-sucedida.
 
-全仓门禁收口同时修复已存在契约文档的误报：managed 模块的文件枚举必须包含 `CONTRACT.md`，
-但文档不参与源码 import / 行数分析；文档真实缺失时仍报 `missing-module-artifact`。
-回归沿用 `checkArchitecture` 的临时模块 fixture 边界，不修改架构策略或刷新 baseline。
+O gating de todo o repositório corrige simultaneamente um falso positivo em um documento de contrato existente: a enumeração de arquivos do módulo gerenciado precisa incluir `CONTRACT.md`, mas o documento não participa da análise de import / contagem de linhas do código-fonte; quando o documento está realmente ausente, `missing-module-artifact` ainda é reportado. A regressão reutiliza o limite de fixture de módulo temporário de `checkArchitecture`, sem modificar a política de arquitetura nem atualizar o baseline.
 
-## Problem Statement
+## Declaração do Problema
 
-产品与开发团队现在无法用一句话回答"ZCode 的哪个进程、在哪个版本、在哪类机器上占了多少 CPU 与内存，
-有没有变差"。现有 ARMS 资源埋点分散在三个事件（`perf_resource_window`、`perf_resource_agent`、
-`perf_mcp_memory`）里，三种 schema、三条链路，且存在以下缺陷：
+Hoje os times de produto e desenvolvimento não conseguem responder em uma frase "qual processo do ZCode, em qual versão, em que tipo de máquina consome quanto de CPU e memória, e se piorou". Os pontos de埋 de recursos existentes no ARMS estão dispersos em três eventos (`perf_resource_window`, `perf_resource_agent`, `perf_mcp_memory`), com três schemas, três cadeias, e apresentam os seguintes defeitos:
 
-- 进程角色明细只对 10% 设备采集，低频问题（某个插件在某类机器上吃内存）几乎不可见。
-- Linux 上 ARMS 的 CPU 是单核口径，资源管理器 UI 是整机口径，同一指标两个数。
-- main 进程每 10 秒起一次 `ps` 取线程数，违反项目"main 不起外部进程"的规则，本身消耗 CPU。
-- MCP 子进程只有内存没有 CPU；cron scheduler 没有角色，混在 `other` 里；远端 workspace 的 CLI
-  文档写了上报链路但代码没有接线。
-- 用户反馈"Bash 工具非常耗时非常卡"时，没有任何数据能区分是命令本身重、机器没内存、还是 CLI 自己在忙。
-- 为绕过 ARMS 单事件 20 属性上限，同一事件在"命中角色采样"与"未命中"时使用两套互斥属性布局，
-  看板难以直接查询。
+- O detalhe por papel de processo é coletado apenas em 10% dos dispositivos; problemas de baixa frequência (um certo plugin comendo memória em um certo tipo de máquina) são quase invisíveis.
+- No Linux, a CPU do ARMS é medida em núcleo único, enquanto a UI do gerenciador de recursos é medida na máquina inteira — o mesmo métrico com dois números.
+- O processo main inicia um `ps` a cada 10 segundos para contar threads, violando a regra do projeto de que "main não inicia processos externos", e consumindo CPU por conta própria.
+- Subprocessos MCP têm apenas memória, sem CPU; o cron scheduler não tem papel e fica misturado em `other`; a documentação da CLI de workspace remoto descreve a cadeia de envio, mas o código não faz a conexão.
+- Quando o usuário reclama que "a ferramenta Bash é muito lenta e muito travada", nenhum dado distingue se o comando em si é pesado, se a máquina não tem memória, ou se a própria CLI está ocupada.
+- Para contornar o limite de 20 atributos por evento do ARMS, o mesmo evento usa dois layouts de atributos mutuamente exclusivos quando "acerta a amostragem de papel" e quando "não acerta", tornando o painel difícil de consultar diretamente.
 
-历史上还发生过一次事故：一个进程相关埋点让 Windows 用户机器每隔几秒调用 PowerShell，显著拖慢电脑。
-性能埋点反而损害性能，这是本 spec 必须杜绝的。
+Houve também um incidente histórico: um ponto de埋 de processo fez máquinas de usuários Windows chamarem PowerShell a cada poucos segundos, degradando significativamente o computador. Telemetria de performance prejudicando a performance é exatamente o que esta spec precisa eliminar.
 
-## Solution
+## Solução
 
-一套统一的进程资源埋点，覆盖桌面端全部进程角色，三个事件、一套 schema：
+Um conjunto unificado de pontos de埋 de recursos de processo, cobrindo todos os papéis de processo do desktop, três eventos, um schema:
 
-- `perf_process_window`：每个进程角色每 5 分钟一条，CPU 与内存的 mean / p95 / peak，多进程角色同时带
-  总量与最大单进程，附运行时长与前后台占比。全量设备、全部角色，不抽样。
-- `perf_system_window`：每台设备每 5 分钟一条，整机 CPU、剩余内存、应用总量与遥测自身开销。
-- `perf_tool_exec_resource`：每条超过 15 秒的 Bash 命令一条，命令进程树的内存峰值与 CPU 时间，
-  以及当时 CLI 自身与整机的内存状态。
+- `perf_process_window`: um registro por papel de processo a cada 5 minutos, com mean / p95 / peak de CPU e memória; papéis multiprocesso carregam simultaneamente o total e o maior processo individual, além de tempo de execução e proporção foreground/background. Todos os dispositivos, todos os papéis, sem amostragem.
+- `perf_system_window`: um registro por dispositivo a cada 5 minutos, com CPU da máquina inteira, memória livre restante, total da aplicação e o próprio custo da telemetria.
+- `perf_tool_exec_resource`: um registro por comando Bash acima de 15 segundos, com o pico de memória da árvore de processos do comando e o tempo de CPU, além do estado de memória da própria CLI e da máquina inteira no momento.
 
-应用只负责准确、完整、有代表性地上报；"什么算异常"由自建监控平台读取 RUM 数据源后按本文
-「平台侧告警规则」判定。所有采集点都以进程内 API 为主，外部进程探针只允许两个白名单项并有硬性节流，
-main 进程零外部进程，全链路禁止 PowerShell。
+A aplicação apenas reporta com precisão, completude e representatividade; "o que conta como anomalia" é julgado pela plataforma própria de monitoramento lendo a fonte de dados RUM conforme as «Regras de Alerta do Lado da Plataforma» deste documento. Todos os pontos de coleta priorizam APIs dentro do processo; sondas de processos externos são permitidas apenas em dois itens de lista de permissões e com throttling rígido; o processo main tem zero processos externos e PowerShell é proibido em toda a cadeia.
 
-## User Stories
+## Histórias de Usuário
 
-1. 作为性能负责人，我希望每个进程角色每 5 分钟都有 CPU 与内存的 mean / p95 / peak，以便发版后 1 小时内看出某个进程是否变差。
-2. 作为性能负责人，我希望所有设备都上报全部角色而不是 10% 抽样，以便某插件在某类机器上吃内存这类低频问题也能被看到。
-3. 作为性能负责人，我希望多进程角色同时带总量与最大单进程，以便区分"用户开了很多 workspace"和"某个进程泄漏"。
-4. 作为性能负责人，我希望事件带进程运行时长，以便在平台上按运行时长分桶发现内存随时间增长，而不需要客户端做泄漏判断。
-5. 作为性能负责人，我希望 Node 进程带 JS 堆用量，以便区分 JS 堆泄漏与 native / ArrayBuffer / 子进程侧的增长。
-6. 作为性能负责人，我希望有设备级的整机 CPU、剩余内存与应用总量事件，以便判断问题是 ZCode 造成的还是用户机器本身压力大。
-7. 作为性能负责人，我希望旧事件停发、新事件一次性替换，以便看板口径不混杂、过渡期不双倍上报。
-8. 作为值班工程师，我希望 spec 给出可直接落地的告警规则清单，含指标、分组、阈值与含义，以便在自建平台上配置而不依赖 ARMS 告警能力。
-9. 作为值班工程师，我希望告警规则按群体占比和版本对比定义，以便不被单台设备的正常波动打扰。
-10. 作为值班工程师，我希望有数据质量类规则，以便采集链路断了或上报量失控时最先知道。
-11. 作为插件负责人，我希望 MCP 按 mcp_id 上报内存与 CPU，以便找到吃资源的插件并推动修复。
-12. 作为插件负责人，我希望能看到 MCP 在应用后台时的 CPU，以便发现在后台轮询的插件。
-13. 作为 Agent 开发者，我希望超过 15 秒的 Bash 命令有一条资源摘要，以便回答用户反馈的"卡"是命令本身重、机器没内存还是 CLI 自己在忙。
-14. 作为 Agent 开发者，我希望 Bash 摘要带命令进程树的 CPU 时间，以便区分命令在忙和命令在等输入或网络。
-15. 作为 Agent 开发者，我希望远端 workspace 的 CLI 也上报并标记 runtime_surface=remote，以便远端场景不再是盲区。
-16. 作为最终用户，我希望遥测不会让我的电脑变慢，以便性能监控不成为新的性能问题。
-17. 作为 Windows 用户，我希望后台永远不会因为遥测出现 PowerShell 进程或 CPU 抖动，以便历史事故不再重演。
-18. 作为最终用户，我希望我的文件路径、workspace、session、命令内容、模型名不出现在遥测里，以便隐私不被泄露。
-19. 作为桌面端开发者，我希望 CPU 口径在所有平台上与资源管理器 UI 一致，以便用户看到的和后台看到的是同一个数。
-20. 作为桌面端开发者，我希望每个进程只有一个采样源同时喂本地诊断日志与 ARMS，以便两处数据一致且定时器不翻倍。
-21. 作为桌面端开发者，我希望 cron scheduler 有自己的角色，以便它的资源不再淹没在 `other` 里。
-22. 作为桌面端开发者，我希望应用正常退出时排空未满窗口，以便短会话的数据不丢。
-23. 作为桌面端开发者，我希望本地 `[memory]` 诊断日志保留，以便单机定位仍有领域计数器可用。
-24. 作为 UI 开发者，我希望 renderer 的 JS 堆进入 ARMS，以便 renderer 泄漏能在群体层面看到，而不只在用户日志里。
-25. 作为数据分析师，我希望所有角色共用一个 schema，以便一条 SQL 按 process_role 分组就能出图。
-26. 作为数据分析师，我希望事件带 sample_count 与 telemetry_self_ms，以便判断数据质量与遥测自身开销。
-27. 作为数据分析师，我希望角色事件的平台、架构、核数、内存总量描述"该进程实际运行的机器"，以便远端 CLI 不被错误地归到桌面机硬件下。
-28. 作为成本负责人，我希望每设备每天上报量可预估并有规则守护，以便按条数计费的成本不失控。
-29. 作为 QA，我希望有 E2E 断言三个事件名在开发态窗口内出现且属性数不超过 20，以便回归时立刻发现漏报或超限。
-30. 作为 QA，我希望 Windows 上有门禁证明 main 与 CLI 都不会启动 PowerShell，以便红线有机器验证而不是口头承诺。
+1. Como responsável por performance, quero mean / p95 / peak de CPU e memória a cada 5 minutos para cada papel de processo, para ver, até 1 hora após um lançamento, se algum processo piorou.
+2. Como responsável por performance, quero que todos os dispositivos reportem todos os papéis em vez de 10% de amostragem, para que problemas de baixa frequência como um plugin comendo memória em um certo tipo de máquina também apareçam.
+3. Como responsável por performance, quero que papéis multiprocesso carreguem simultaneamente o total e o maior processo individual, para distinguir "o usuário abriu muitos workspaces" de "um processo está vazando memória".
+4. Como responsável por performance, quero que o evento carregue o tempo de execução do processo, para descobrir no plateforme o crescimento da memória com o tempo por bucket de duração, sem precisar que o cliente faça julgamento de vazamento.
+5. Como responsável por performance, quero que processos Node carreguem o uso do JS heap, para distinguir vazamento de JS heap de crescimento em native / ArrayBuffer / subprocessos.
+6. Como responsável por performance, quero um evento de nível de dispositivo com CPU da máquina inteira, memória livre restante e total da aplicação, para julgar se o problema foi causado pelo ZCode ou pela própria máquina do usuário.
+7. Como responsável por performance, quero que os eventos antigos sejam descontinuados e os novos substituam tudo de uma vez, para que o painel não misture bases e o período de transição não duplique o envio.
+8. Como engenheiro de plantão, quero que a spec forneça uma lista de regras de alerta diretamente implementável, com métrica, agrupamento, limiar e significado, para configurar na plataforma própria sem depender da capacidade de alerta do ARMS.
+9. Como engenheiro de plantão, quero que as regras de alerta sejam definidas por proporção populacional e comparação entre versões, para não ser perturbado pela variação normal de um único dispositivo.
+10. Como engenheiro de plantão, quero regras de qualidade de dados, para ser o primeiro a saber quando a cadeia de coleta quebra ou o volume de envio sai de controle.
+11. Como responsável por plugin, quero que o MCP reporte memória e CPU por `mcp_id`, para encontrar o plugin que consome recursos e empurrar a correção.
+12. Como responsável por plugin, quero ver a CPU do MCP quando o aplicativo está em background, para descobrir plugins que fazem polling em segundo plano.
+13. Como desenvolvedor de Agent, quero um resumo de recursos para comandos Bash acima de 15 segundos, para responder ao usuário que reclamou de travamento se o comando em si é pesado, a máquina está sem memória ou a própria CLI está ocupada.
+14. Como desenvolvedor de Agent, quero que o resumo do Bash inclua o tempo de CPU da árvore de processos do comando, para distinguir comando ocupado de comando esperando entrada ou rede.
+15. Como desenvolvedor de Agent, quero que a CLI de workspace remoto também reporte e marque runtime_surface=remote, para que o cenário remoto deixe de ser uma área cega.
+16. Como usuário final, quero que a telemetria não deixe meu computador lento, para que o monitoramento de performance não se torne um novo problema de performance.
+17. Como usuário Windows, quero que o background nunca apresente processos PowerShell ou oscilação de CPU por causa da telemetria, para que o incidente histórico não se repita.
+18. Como usuário final, quero que meus caminhos de arquivo, workspace, sessão, conteúdo de comandos e nomes de modelo não apareçam na telemetria, para que a privacidade não seja vazada.
+19. Como desenvolvedor desktop, quero que a base de CPU seja consistente com a UI do gerenciador de recursos em todas as plataformas, para que o número visto pelo usuário e o visto pelo backend sejam o mesmo.
+20. Como desenvolvedor desktop, quero que cada processo tenha uma única fonte de amostragem alimentando simultaneamente o log de diagnóstico local e o ARMS, para que os dados dos dois lados sejam consistentes e os temporizadores não dobrem.
+21. Como desenvolvedor desktop, quero que o cron scheduler tenha seu próprio papel, para que seus recursos não fiquem afogados em `other`.
+22. Como desenvolvedor desktop, quero que as janelas incompletas sejam drenadas na saída normal do aplicativo, para que os dados de sessões curtas não se percam.
+23. Como desenvolvedor desktop, quero que o log de diagnóstico local `[memory]` seja preservado, para que o isolamento em uma única máquina ainda tenha contadores de domínio disponíveis.
+24. Como desenvolvedor de UI, quero que o JS heap do renderer entre no ARMS, para que vazamentos no renderer possam ser vistos em nível populacional, e não apenas nos logs do usuário.
+25. Como analista de dados, quero que todos os papéis compartilhem um schema, para que uma única SQL agrupando por process_role gere o gráfico.
+26. Como analista de dados, quero que o evento carregue sample_count e telemetry_self_ms, para julgar a qualidade dos dados e o custo da própria telemetria.
+27. Como analista de dados, quero que plataforma, arquitetura, contagem de núcleos e total de memória dos eventos de papel descrevam "a máquina em que aquele processo realmente roda", para que a CLI remota não seja incorretamente atribuída ao hardware da máquina desktop.
+28. Como responsável por custo, quero que o volume por dispositivo por dia seja previsível e protegido por regras, para que o custo cobrado por registro não saia do controle.
+29. Como QA, quero asserções E2E de que os três nomes de evento aparecem na janela de desenvolvimento e que a contagem de atributos não excede 20, para que uma regressão de subnotificação ou estouro de limite seja detectada imediatamente.
+30. Como QA, quero um gating no Windows comprovando que main e CLI nunca iniciam PowerShell, para que a linha vermelha tenha verificação por máquina em vez de promessa verbal.
 
-## 进程模型与角色
+## Modelo de Processo e Papéis
 
-桌面端运行期的进程树（源码核实，local 模式）：
+A árvore de processos do desktop em execução (verificado no código-fonte, modo local):
 
 ```text
-Electron App（单实例）
+Electron App（instância única）
 ├─ main（Browser）                        常驻 ×1
 │   ├─ GPU                                 Chromium 托管 ×0~1
 │   ├─ Chromium utility（network 等）      Chromium 托管，按需
@@ -166,36 +128,30 @@ Electron App（单实例）
 └─ macOS CUA Helper.app                    由 launchd 拉起，故意不是子进程
 ```
 
-remote 模式桌面端不新增进程，远端 zcode-server 及其 CLI / MCP / pty 全部在远端机器。手机远控桌面端
-不新增进程，也不参与本 spec。
+No modo remote o desktop não cria processos novos; o zcode-server remoto e seus CLI / MCP / pty ficam todos na máquina remota. O desktop controlado remotamente pelo celular também não cria processos novos e não participa desta spec.
 
-### 角色定义（第一期 10 个）
+### Definição de papéis (10 na primeira fase)
 
-| process_role     | 覆盖的进程                                                                  | CPU 与 RSS 来源                                                                                       | heap 来源                                                   | 上报粒度                |
-| ---------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------- |
-| `main`           | Electron 主进程                                                             | main 的 `app.getAppMetrics()`，10 秒                                                                  | 自采，60 秒                                                 | 单进程                  |
-| `renderer_main`  | 主窗口 webContents 的 renderer                                              | 同上                                                                                                  | renderer 60 秒采 `performance.memory`，经 preload 桥送 main | 聚合：总量 + 最大单进程 |
-| `renderer_guest` | 内置浏览器 `<webview>` guest 进程                                           | 同上                                                                                                  | 无                                                          | 聚合：总量 + 最大单进程 |
-| `gpu`            | GPU 进程                                                                    | 同上                                                                                                  | 无                                                          | 单进程                  |
-| `chromium_other` | network 等 utility、辅助窗口 renderer、DevTools，及其余未归类 Chromium 进程 | 同上                                                                                                  | 无                                                          | 聚合                    |
-| `host`           | 窗口 Host                                                                   | 同上                                                                                                  | 自采，60 秒，parentPort 送 main                             | 聚合：总量 + 最大单进程 |
-| `scheduler`      | cron scheduler                                                              | 同上                                                                                                  | 自采，60 秒，parentPort 送 main                             | 单进程                  |
-| `cli_chat`       | 每 workspace 一个 zcode-cli                                                 | CLI 自采 60 秒，经 Host 转 main                                                                       | 同一次采样                                                  | 聚合：总量 + 最大单进程 |
-| `cli_aux`        | plugin、mcp-status 两个 lane 的 zcode-cli                                   | 同上                                                                                                  | 同一次采样                                                  | 聚合                    |
-| `mcp`            | 每个 MCP 服务的进程树                                                       | CLI 每 5 分钟采一次；macOS `ps` 读取进程表后筛选根与后代，Linux 读 `/proc`，Windows `tasklist` 仅内存 | 无                                                          | 每 mcp_id 一条          |
+| process_role     | Processos cobertos                                                                               | Origem de CPU e RSS                                                                                       | Origem de heap                                          | Granularidade de envio                |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------- |
+| `main`           | Processo principal do Electron                                                                  | `app.getAppMetrics()` do main, a cada 10 segundos                                                          | Autocoleta, 60 segundos                                 | Processo individual                    |
+| `renderer_main`  | Renderer do webContents da janela principal                                                       | Idem                                                                                                       | Renderer coleta `performance.memory` a cada 60 s e envia ao main via bridge de preload | Agregado: total + maior processo individual |
+| `renderer_guest` | Processo guest `<webview>` do navegador embutido                                                  | Idem                                                                                                       | Nenhum                                                  | Agregado: total + maior processo individual |
+| `gpu`            | Processo GPU                                                                                      | Idem                                                                                                       | Nenhum                                                  | Processo individual                    |
+| `chromium_other` | Utility como network, renderer de janelas auxiliares, DevTools e o resto dos processos Chromium não classificados | Idem                                                                                                       | Nenhum                                                  | Agregado                               |
+| `host`           | Host da janela                                                                                    | Idem                                                                                                       | Autocoleta, 60 segundos, enviado ao main por parentPort  | Agregado: total + maior processo individual |
+| `scheduler`      | cron scheduler                                                                                    | Idem                                                                                                       | Autocoleta, 60 segundos, enviado ao main por parentPort  | Processo individual                    |
+| `cli_chat`       | Um zcode-cli por workspace                                                                        | Autocoleta da CLI a cada 60 s, encaminhada ao main pelo Host                                               | Mesma amostragem                                       | Agregado: total + maior processo individual |
+| `cli_aux`        | zcode-cli das duas lanes plugin e mcp-status                                                     | Idem                                                                                                       | Mesma amostragem                                       | Agregado                               |
+| `mcp`            | Árvore de processos de cada serviço MCP                                                          | CLI coleta a cada 5 minutos; no macOS `ps` lê a tabela de processos e filtra raiz e descendentes, no Linux lê `/proc`, no Windows `tasklist` só memória | Nenhum                                                  | Um registro por mcp_id                |
 
-角色归属规则：main 用 `collectChromiumProcessRolePids` 同源的 pid 集合归类。主窗口 webContents 的
-OS 进程为 `renderer_main`；`getType() === "webview"` 的 webContents 进程为 `renderer_guest`；
-Host 与 scheduler 的 utilityProcess pid 分别由各自的 spawn 点注册；其余 Chromium 进程一律
-`chromium_other`。cli 角色由 **services 打在样本上的 `lane`** 决定（CLI 进程不知道自己的 lane，
-lane 不是 CLI 协议字段）：`chat` 归 `cli_chat`，`plugin` / `mcp-status` 归 `cli_aux`。
+Regras de atribuição de papel: o main classifica usando o conjunto de pids da mesma origem de `collectChromiumProcessRolePids`. O processo de SO do webContents da janela principal é `renderer_main`; processos de webContents com `getType() === "webview"` são `renderer_guest`; os pids de utilityProcess do Host e do scheduler são registrados em seus respectivos pontos de spawn; todos os outros processos Chromium são `chromium_other`. O papel de CLI é determinado pela **`lane` que os services marcam na amostra** (o processo CLI não sabe sua própria lane, e a lane não é um campo do protocolo da CLI): `chat` vai para `cli_chat`, `plugin` / `mcp-status` vão para `cli_aux`.
 
-### 不采的进程
+### Processos não coletados
 
-Bash 短命令（见慢命令方案）、git、node-pty shell、worker_threads（线程，计入宿主进程）、
-没有走 CLI tracker / Bash 执行器的远端子进程、手机远控。`cua_helper` 角色移到二期，原因见「Out of Scope」。
+Comandos Bash curtos (ver plano de comandos lentos), git, shells node-pty, worker_threads (threads, contabilizadas no processo hospedeiro), subprocessos remotos que não passam pelo tracker da CLI / executor do Bash, e o controle remoto pelo celular. O papel `cua_helper` foi movido para a segunda fase, pelo motivo descrito em «Out of Scope».
 
-## 采集架构
+## Arquitetura de Coleta
 
 ```text
 renderer_main ──60s heap，preload 桥 IPC─────────────┐
@@ -210,111 +166,76 @@ CLI ──Bash 慢命令完成事件，protocol 通知────────�
                                        ARMS sendCustom（只有 main 持有凭据）
 ```
 
-### 各来源细则
+### Detalhes por origem
 
-- **Chromium 体系（main 侧）**：每 10 秒调用一次 `app.getAppMetrics()`，读取每个进程的
-  `percentCPUUsage`、`workingSetSize`、`creationTime`。Linux 上 `percentCPUUsage` 是单核口径，进入
-  聚合前除以逻辑核数，与资源管理器使用同一个归一化函数。同一 tick 顺带读取 `os.cpus()` 差分得到整机
-  CPU、`os.freemem()` 得到整机剩余内存。
-- **Node 进程自采（main、host、scheduler、CLI）**：`process.cpuUsage()` 与单调时钟差分得到 CPU
-  核数与整机归一化百分比，`process.memoryUsage()` 一次拿到 `rss` 与 `heapUsed`。每进程只有一个 60 秒
-  定时器；host、renderer 复用现有内存诊断日志的定时器，一次读数同时喂本地日志与 ARMS 样本，与 CLI
-  现有形态一致。
-- **renderer heap**：复用现有 60 秒 `performance.memory` 采样，除写本地日志外，经 preload 桥向 main
-  单向发送一条样本。Web 端无桥时 no-op。CPU 与 RSS 仍由 main 的 `getAppMetrics()` 提供。
-- **MCP（CLI 侧）**：CLI 的 MCP tracker 持有 pid 与 mcp_id 映射。每 5 分钟采一次全部活跃 MCP 进程树：
-  macOS 一次 `ps -eo pid=,ppid=,rss=,cputime=`（进程树要 ppid 才能展开后代，`-p <pid 列表>` 只回列表
-  自身，拿不到 `npx` 这类包装进程的子进程）；Linux 先读全部 `/proc/<pid>/stat` 拿 ppid、pgid 与
-  utime/stime，再只对树内 pid 读 `/proc/<pid>/status` 的 `VmRSS`，不起进程；Windows 一次
-  `tasklist /FO CSV /NH`，只有内存、没有 ppid，进程树退化为直连进程。CPU 取相邻两次
-  `cputime` 差分除以间隔，为 5 分钟均值。每窗口 1 个样本，`sample_count=1`。mcp_id 沿用
-  mcp-process-arms-telemetry.md 的定义与脱敏规则。
-- **Bash 慢命令（CLI 侧）**：Bash 工具子进程运行满 15 秒时开始采样，此后每 15 秒一次，命令结束时
-  发一条完成通知。macOS 以进程组为边界 `ps -o pid=,rss=,cputime= -g <pgid>`；Linux 读 `/proc` 并按
-  pgid 过滤；Windows 不采进程树，只带零成本字段。Bash 默认超时 5 分钟，单条命令最多约 20 个样本。
-  短于 15 秒的命令不产生任何事件。
-- **CPU 口径**：全部为整机归一化百分比，100 表示所有逻辑核占满。事件携带 `logical_cpu_count`，
-  平台侧可换算为核数。
-- **内存口径**：主指标 RSS（Windows 为 working set），单位 KB。Node 进程与 renderer_main 附
-  `heap_used_kb`。不上报 private、shared、GPU 显存。
-- **前后台**：main 每个 10 秒 tick 记录一次 scene，存在可见且聚焦的窗口为前台。窗口内
-  `background_ratio = 后台 tick 数 / 总 tick 数`。
-- **运行时长**：Chromium 进程用 `creationTime`；CLI 与 MCP 样本自带 `uptimeMinutes`。多进程角色取最大值。
-- **硬件维度**：角色事件的 `platform`、`arch`、`logical_cpu_count`、`total_memory_gb` 一律描述
-  该进程实际运行的机器。远端 CLI 与远端 MCP 的样本自带这四项并覆盖全局默认值；本机角色取桌面机的值。
+- **Sistema Chromium (lado main)**: `app.getAppMetrics()` é chamado a cada 10 segundos, lendo `percentCPUUsage`, `workingSetSize` e `creationTime` de cada processo. No Linux `percentCPUUsage` é em base de núcleo único e, antes da agregação, é dividido pelo número de núcleos lógicos, usando a mesma função de normalização do gerenciador de recursos. No mesmo tique lê-se também o delta de `os.cpus()` para a CPU da máquina inteira e `os.freemem()` para a memória livre da máquina inteira.
+- **Autocoleta de processos Node (main, host, scheduler, CLI)**: `process.cpuUsage()` e o delta de um relógio monotônico dão os núcleos de CPU e a porcentagem normalizada pela máquina inteira; `process.memoryUsage()` obtém `rss` e `heapUsed` de uma vez. Há apenas um temporizador de 60 segundos por processo; host e renderer reutilizam o temporizador existente do log de diagnóstico de memória, e uma única leitura alimenta ao mesmo tempo o log local e a amostra do ARMS, coerente com a forma já existente na CLI.
+- **Heap do renderer**: reutiliza a amostragem existente de `performance.memory` a cada 60 segundos; além de escrever no log local, envia uma amostra ao main de forma unidirecional pela bridge de preload. Sem bridge no lado Web, é no-op. CPU e RSS continuam vindos do `getAppMetrics()` do main.
+- **MCP (lado CLI)**: o tracker de MCP da CLI mantém o mapeamento pid ↔ mcp_id. A cada 5 minutos coleta todas as árvores de processos MCP ativas: no macOS, um `ps -eo pid=,ppid=,rss=,cputime=` (a árvore de processos precisa do ppid para expandir descendentes; `-p <lista de pids>` retorna apenas a própria lista, sem pegar os filhos de processos wrappers como `npx`); no Linux, lê primeiro todos os `/proc/<pid>/stat` para obter ppid, pgid e utime/stime, e depois lê apenas o `VmRSS` de `/proc/<pid>/status` dos pids da árvore, sem iniciar processo; no Windows, um `tasklist /FO CSV /NH`, apenas memória e sem ppid, degradando a árvore de processos ao processo direto. A CPU é o delta entre dois `cputime` consecutivos dividido pelo intervalo, ou seja, a média de 5 minutos. Um amostra por janela, `sample_count=1`. O mcp_id segue a definição e as regras de mascaramento de mcp-process-arms-telemetry.md.
+- **Comandos Bash lentos (lado CLI)**: a amostragem começa quando o subprocesso da ferramenta Bash roda por 15 segundos completos, seguindo a cada 15 segundos, e uma notificação de conclusão é enviada quando o comando termina. No macOS a fronteira é o grupo de processos, `ps -o pid=,rss=,cputime= -g <pgid>`; no Linux lê `/proc` filtrando por pgid; no Windows não coleta a árvore de processos e carrega apenas campos de custo zero. O timeout padrão do Bash é de 5 minutos, com no máximo cerca de 20 amostras por comando. Comandos com menos de 15 segundos não geram evento algum.
+- **Base de CPU**: todas são porcentagens normalizadas pela máquina inteira, onde 100 significa todos os núcleos lógicos ocupados. O evento carrega `logical_cpu_count`, permitindo ao lado da plataforma converter para número de núcleos.
+- **Base de memória**: métrica principal é RSS (working set no Windows), em KB. Processos Node e renderer_main anexam `heap_used_kb`. Não são enviados private, shared nem VRAM da GPU.
+- **Foreground/background**: o main registra o scene uma vez por tique de 10 segundos; há foreground quando existe uma janela visível e focada. Dentro da janela, `background_ratio = número de tiques em background / total de tiques`.
+- **Tempo de execução**: processos Chromium usam `creationTime`; amostras de CLI e MCP carregam `uptimeMinutes`. Papéis multiprocesso usam o máximo.
+- **Dimensão de hardware**: `platform`, `arch`, `logical_cpu_count` e `total_memory_gb` dos eventos de papel descrevem sempre a máquina em que aquele processo realmente roda. Amostras de CLI e MCP remotos carregam esses quatro valores e sobrescrevem os padrões globais; papéis locais usam os valores da máquina desktop.
 
-## 事件契约
+## Contrato dos Eventos
 
-所有事件带全局属性 `platform`、`app_version`、`arms_env`、`device_mid`。全局与事件属性合并后
-不超过 ARMS 单事件 20 个属性上限；值为 `undefined` 的属性不发送，不计入上限。`group=resource`。
+Todos os eventos carregam os atributos globais `platform`, `app_version`, `arms_env`, `device_mid`. A união dos atributos globais e do evento não excede o limite de ARMS de 20 atributos por evento; atributos com valor `undefined` não são enviados e não contam para o limite. `group=resource`.
 
 ### `perf_process_window`
 
-每角色 / runtime_surface / 运行机分组每窗口一条，MCP 再按 mcp_id 分组。`value` 为 `cpu_percent_mean`。
+Um registro por papel / runtime_surface / grupo de máquina de execução por janela, com MCP agrupado adicionalmente por mcp_id. `value` é `cpu_percent_mean`.
 
-| 类别 | 属性                      | 说明                                                               |
-| ---- | ------------------------- | ------------------------------------------------------------------ |
-| 维度 | `process_role`            | 上表 10 个枚举值                                                   |
-| 维度 | `runtime_surface`         | `local` / `remote`                                                 |
-| 维度 | `arch`                    | 运行机架构                                                         |
-| 维度 | `logical_cpu_count`       | 运行机逻辑核数                                                     |
-| 维度 | `total_memory_gb`         | 运行机物理内存，取整 GB                                            |
-| 维度 | `mcp_id`                  | 仅 `mcp` 角色                                                      |
-| 状态 | `background_ratio`        | 0 到 1，两位小数                                                   |
-| 状态 | `uptime_minutes`          | 该角色内最老进程的运行分钟数                                       |
-| CPU  | `cpu_percent_p95`         | 窗口内角色总 CPU 的 p95                                            |
-| CPU  | `cpu_percent_peak`        | 窗口内角色总 CPU 的最大值                                          |
-| 内存 | `rss_kb_total_mean`       | 角色内全部进程 RSS 之和的均值                                      |
-| 内存 | `rss_kb_total_peak`       | 角色内全部进程 RSS 之和的最大值                                    |
-| 内存 | `rss_kb_max_process_peak` | 窗口内单个进程 RSS 的最大值                                        |
-| 内存 | `heap_used_kb_mean`       | 仅 Node 与 renderer_main；多进程取每次收到读数的最大单进程再求均值 |
-| 内存 | `heap_used_kb_peak`       | 同上，取最大值                                                     |
-| 质量 | `process_count_peak`      | 窗口内该角色同时存活的最大进程数                                   |
-| 质量 | `sample_count`            | 窗口内样本数；main 侧角色预期 30，CLI 角色预期 5，mcp 为 1         |
+| Categoria | Atributo                     | Descrição                                                                              |
+| --------- | ---------------------------- | -------------------------------------------------------------------------------------- |
+| Dimensão  | `process_role`               | Os 10 valores de enumeração da tabela acima                                            |
+| Dimensão  | `runtime_surface`            | `local` / `remote`                                                                     |
+| Dimensão  | `arch`                       | Arquitetura da máquina de execução                                                      |
+| Dimensão  | `logical_cpu_count`          | Núcleos lógicos da máquina de execução                                                 |
+| Dimensão  | `total_memory_gb`            | Memória física da máquina de execução, em GB inteiros                                  |
+| Dimensão  | `mcp_id`                     | Apenas para o papel `mcp`                                                               |
+| Estado    | `background_ratio`           | De 0 a 1, com duas casas decimais                                                      |
+| Estado    | `uptime_minutes`             | Minutos de execução do processo mais antigo dentro do papel                            |
+| CPU       | `cpu_percent_p95`            | p95 da CPU total do papel dentro da janela                                             |
+| CPU       | `cpu_percent_peak`           | Máximo da CPU total do papel dentro da janela                                          |
+| Memória   | `rss_kb_total_mean`          | Média da soma do RSS de todos os processos do papel                                    |
+| Memória   | `rss_kb_total_peak`          | Máximo da soma do RSS de todos os processos do papel                                    |
+| Memória   | `rss_kb_max_process_peak`    | Maior RSS de um processo individual dentro da janela                                    |
+| Memória   | `heap_used_kb_mean`          | Apenas Node e renderer_main; em papéis multiprocesso, o maior processo individual de cada leitura recebida, depois a média |
+| Memória   | `heap_used_kb_peak`          | O mesmo, tomando o máximo                                                               |
+| Qualidade | `process_count_peak`         | Máximo de processos vivos simultaneamente do papel dentro da janela                   |
+| Qualidade | `sample_count`               | Número de amostras na janela; papéis do lado main esperam 30, papéis CLI esperam 5, mcp é 1 |
 
-属性数：Node 角色与 renderer_main 最多 20 个（heap 缺采时省略两项）；mcp 19 个（无 heap 两项，有 mcp_id）；gpu、renderer_guest、
-chromium_other 18 个。
+Contagem de atributos: papéis Node e renderer_main no máximo 20 (os dois itens de heap são omitidos quando não há coleta); mcp tem 19 (sem os dois itens de heap, com mcp_id); gpu, renderer_guest e chromium_other têm 18.
 
 ### `perf_system_window`
 
-每设备每窗口一条。`value` 为 `app_cpu_percent_mean`。属性 17 个。
+Um registro por dispositivo por janela. `value` é `app_cpu_percent_mean`. 17 atributos.
 
-| 类别 | 属性                                             | 说明                                                               |
-| ---- | ------------------------------------------------ | ------------------------------------------------------------------ |
-| 维度 | `arch`、`logical_cpu_count`、`total_memory_gb`   | 桌面机                                                             |
-| 状态 | `background_ratio`、`app_uptime_minutes`         | `background_ratio` 与角色事件同源；uptime 取 main 进程运行时长     |
-| 整机 | `system_cpu_percent_p95`                         | `os.cpus()` 差分                                                   |
-| 整机 | `system_free_memory_kb_min`                      | 窗口内 `os.freemem()` 最小值                                       |
-| 应用 | `app_cpu_percent_p95`                            | 全部本机 ZCode 进程合计                                            |
-| 应用 | `app_rss_kb_total_mean`、`app_rss_kb_total_peak` | Chromium 体系每 10 秒精确合计，加 CLI 与 MCP 最近一次已知样本      |
-| 应用 | `process_count_total_peak`                       | 全部本机 ZCode 进程数峰值                                          |
-| 质量 | `sample_count`                                   | 首个 tick 无 CPU 基线不产生样本，5 分钟窗口预期 29                 |
-| 质量 | `telemetry_self_ms`                              | 窗口内 main 侧采样与聚合代码累计墙钟毫秒数，`performance.now()` 计 |
+| Categoria | Atributo                                                     | Descrição                                                                                        |
+| --------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Dimensão  | `arch`, `logical_cpu_count`, `total_memory_gb`               | Máquina desktop                                                                                   |
+| Estado    | `background_ratio`, `app_uptime_minutes`                     | `background_ratio` tem a mesma origem dos eventos de papel; o uptime vem do tempo de execução do processo main |
+| Máquina   | `system_cpu_percent_p95`                                     | Delta de `os.cpus()`                                                                              |
+| Máquina   | `system_free_memory_kb_min`                                  | Mínimo de `os.freemem()` dentro da janela                                                         |
+| Aplicação | `app_cpu_percent_p95`                                        | Soma de todos os processos ZCode locais                                                            |
+| Aplicação | `app_rss_kb_total_mean`, `app_rss_kb_total_peak`             | Total exato do sistema Chromium a cada 10 segundos, mais a última amostra conhecida de CLI e MCP    |
+| Aplicação | `process_count_total_peak`                                   | Pico do número total de processos ZCode locais                                                    |
+| Qualidade | `sample_count`                                               | O primeiro tique sem baseline de CPU não gera amostra; para janela de 5 minutos espera-se 29        |
+| Qualidade | `telemetry_self_ms`                                          | Milissegundos de relógio de parede acumulados pelo código de amostragem e agregação do lado main dentro da janela, medidos com `performance.now()` |
 
-应用总量的两类来源：
+Duas categorias de origem para o total da aplicação:
 
-- **Chromium 体系**：每 10 秒 `getAppMetrics()` 的精确合计，与角色事件同一次读数。
-- **外部来源（CLI、MCP）**：不在 `getAppMetrics()` 里，采样周期也不是 10 秒，因此只保留每个来源
-  最近一次已知样本，并按该来源自身的采样周期判定过期——超过两个周期没有新样本即不再计入
-  （CLI 为 120 秒，MCP 为 600 秒）。远端进程的样本不计入设备级总量。宁可少算，也不拿旧值
-  充当当前事实。
+- **Sistema Chromium**: o total exato de `getAppMetrics()` a cada 10 segundos, na mesma leitura dos eventos de papel.
+- **Fontes externas (CLI, MCP)**: não estão em `getAppMetrics()` e o ciclo de amostragem também não é de 10 segundos; por isso apenas a última amostra conhecida de cada fonte é mantida, com expiração julgada pelo próprio ciclo de amostragem da fonte — sem amostra nova por mais de dois ciclos, deixa de contar (CLI 120 segundos, MCP 600 segundos). Amostras de processos remotos não contam para o total de nível de dispositivo. Preferimos subcontar a usar um valor antigo como fato atual.
 
 ### `perf_tool_exec_resource`
 
-每条超过 15 秒的 Bash 命令一条，命令结束时即时上报。`value` 为 `duration_ms`。属性 12 个，
-Windows 缺 `tree_*` 两项。
+Um registro por comando Bash acima de 15 segundos, enviado imediatamente quando o comando termina. `value` é `duration_ms`. 12 atributos; no Windows faltam os dois itens `tree_*`.
 
-09 落地约定：执行适配器在 Bash 的实际 spawn 边界创建每命令采样器，准备 shell / 输出文件的时间不计入
-`duration_ms`。前台转后台沿用同一采样器；根进程退出或既有 stop 结算时封口一次，不等待探针或输出读取。
-15 秒整开始具备上报资格，5 秒结束无事件；Windows 不创建采样定时器，结束时仅取零成本上下文，
-`sample_count=0`。非 Windows 最多尝试 20 次，只有成功且非空的探针结果计入 `sample_count`；
-无成功样本时 tree 两项为 0。RSS 为各次进程组 RSS 总和的最大值；CPU 按 PID 累加首次累计值及后续
-非负增量，保留已消失进程的已观测 CPU，避免短命后代退出导致累计值倒退（两次采样间出生又退出的进程不可见）。
-复用 Bash 已有的一秒共享轮询器，以单调时钟按命令起点门控；错相位命令允许最多一轮调度误差，
-首采不早于 15 秒，采样间隔不少于 15 秒；事件循环迟滞不补采。每命令不新增 interval。
-同命令不重叠采样，封口后的迟到结果丢弃；探针失败或通知回调异常只丢遥测，不修改工具结果。
-正常 exit（含非零 code）为 completed，超时为 timeout，取消 / 杀树 / signal exit 为 killed，spawn error 为 error；
-短于门槛的 spawn error 同样不发通知。
+Convenção de implementação de 09: o adaptador de execução cria o amostrador por comando no limite real de spawn do Bash, e o tempo gasto preparando shell / arquivos de saída não conta em `duration_ms`. A passagem de foreground para background reutiliza o mesmo amostrador; o fechamento acontece uma única vez na saída do processo raiz ou no settle do stop existente, sem esperar sondas ou leitura de saída. A elegibilidade para envio começa exatamente em 15 segundos; um comando que termina em 5 segundos não gera evento; no Windows nenhum temporizador de amostragem é criado e apenas o contexto de custo zero é capturado no fim, com `sample_count=0`. Em plataformas não-Windows há no máximo 20 tentativas, e apenas resultados de sonda bem-sucedidos e não vazios contam para `sample_count`; sem amostras bem-sucedidas, os dois itens de tree ficam em 0. O RSS é o máximo das somas de RSS do grupo de processos em cada amostragem; a CPU acumula por PID o primeiro valor cumulativo e os incrementos não negativos seguintes, preservando a CPU já observada de processos desaparecidos, para evitar que a saída de descendentes efêmeros faça o acumulado retroceder (um processo que nasce e morre entre duas amostragens é invisível). Reutiliza-se o poller compartilhado de um segundo já existente do Bash, com gating por relógio monotônico a partir do início do comando; comandos fora de fase podem ter até um ciclo de erro de agendamento, com primeira amostragem não antes de 15 segundos e intervalo não menor que 15 segundos; atrasos do event loop não geram amostragem compensatória. Nenhum intervalo novo por comando. Não há sobreposição de amostragem no mesmo comando, e resultados tardios após o fechamento são descartados; falha de sonda ou exceção no callback da notificação descarta apenas a telemetria, sem modificar o resultado da ferramenta.
+Exit normal (incluindo code diferente de zero) é completed, timeout é timeout, cancel / kill da árvore / saída por signal é killed, spawn error é error; spawn error abaixo do limiar também não envia notificação.
 
 ```text
 adapter spawn → 每命令 owner → 15s / 30s / …（最多 20 次）
@@ -322,134 +243,125 @@ adapter spawn → 每命令 owner → 15s / 30s / …（最多 20 次）
                          → services strict schema → trusted Host → main sendCustom
 ```
 
-通知经既有 Host 资源旁路传递，terminal-client（desktop-continuous / web-remote-replayable）不订阅。
-不新增 task 状态、队列、重试或 replay；硬件 platform 描述 CLI 所在机器。验收边界沿用 PRT-010/011/012，
-并由执行适配器真实子进程回归验证 timeout、cancel、后台移交和原输出不变。
+A notificação é transmitida pelo desvio de recursos existente do Host; o terminal-client (desktop-continuous / web-remote-replayable) não assina. Não se adicionam status de task, filas, retentativas nem replay; a plataforma de hardware descreve a máquina onde a CLI está. O limite de aceitação reaproveita PRT-010/011/012 e é validado por regressão com subprocessos reais do adaptador de execução para timeout, cancel, transferência para background e saída original inalterada.
 
-| 类别   | 属性                    | 说明                                                     |
-| ------ | ----------------------- | -------------------------------------------------------- |
-| 维度   | `runtime_surface`       |                                                          |
-| 维度   | `tool_name`             | 第一期固定 `bash`                                        |
-| 维度   | `exit_kind`             | `completed` / `timeout` / `killed` / `error`             |
-| 命令   | `tree_rss_kb_peak`      | 命令进程树 RSS 之和的峰值                                |
-| 命令   | `tree_cpu_time_ms`      | 命令进程树累计 CPU 时间；与 `duration_ms` 相除得到忙闲比 |
-| 命令   | `sample_count`          | 采到的样本数                                             |
-| 上下文 | `cli_rss_kb`            | 命令结束时 CLI 自身 RSS                                  |
-| 上下文 | `system_free_memory_kb` | 命令结束时整机剩余内存                                   |
+| Categoria | Atributo                | Descrição                                                          |
+| --------- | ----------------------- | -------------------------------------------------------------------- |
+| Dimensão  | `runtime_surface`       |                                                                     |
+| Dimensão  | `tool_name`             | Fixo em `bash` na primeira fase                                      |
+| Dimensão  | `exit_kind`             | `completed` / `timeout` / `killed` / `error`                        |
+| Comando   | `tree_rss_kb_peak`      | Pico da soma de RSS da árvore de processos do comando               |
+| Comando   | `tree_cpu_time_ms`      | Tempo de CPU acumulado da árvore; dividido por `duration_ms` dá a razão de ocupação |
+| Comando   | `sample_count`          | Número de amostras coletadas                                         |
+| Contexto  | `cli_rss_kb`            | RSS da própria CLI no fim do comando                                 |
+| Contexto  | `system_free_memory_kb` | Memória livre da máquina inteira no fim do comando                  |
 
-### 隐私边界
+### Limite de Privacidade
 
-任何事件不携带 pid、文件路径、workspace 标识、session / task id、命令文本、模型名、提示词。
-`mcp_id` 沿用既有脱敏规则。属性 key 集合在单测中白名单校验。
+Nenhum evento carrega pid, caminho de arquivo, identificador de workspace, session / task id, texto de comando, nome de modelo ou prompt. `mcp_id` segue as regras de mascaramento existentes. O conjunto de chaves de atributos é validado por lista de permissões em teste unitário.
 
-## 上报节奏、窗口与退出
+## Ritmo de Envio, Janelas e Saída
 
-| 项                   | 值                                         |
-| -------------------- | ------------------------------------------ |
-| 趋势窗口             | 生产 5 分钟；开发构建与 E2E 1 分钟便于验证 |
-| main 侧采样          | 10 秒                                      |
-| Node 进程自采        | 60 秒                                      |
-| MCP 采样             | 5 分钟，每窗口 1 个样本                    |
-| Bash 慢命令          | 门槛 15 秒，间隔 15 秒                     |
-| 每角色每序列样本上限 | 32（容忍定时器漂移）                       |
-| 每窗口 mcp_id 上限   | 32，超出丢弃                               |
-| Bash 单命令样本上限  | 20                                         |
+| Item                                   | Valor                                                    |
+| -------------------------------------- | -------------------------------------------------------- |
+| Janela de tendência                    | Produção 5 minutos; builds de desenvolvimento e E2E 1 minuto para facilitar a verificação |
+| Amostragem do lado main                | 10 segundos                                              |
+| Autocoleta de processos Node           | 60 segundos                                              |
+| Amostragem de MCP                      | 5 minutos, 1 amostra por janela                          |
+| Comandos Bash lentos                   | Limiar de 15 segundos, intervalo de 15 segundos          |
+| Limite de amostras por papel por série | 32 (tolera deriva de temporizador)                       |
+| Limite de mcp_id por janela            | 32, excedentes descartados                               |
+| Limite de amostras por comando Bash    | 20                                                       |
 
-正常退出时 main 排空所有角色与系统事件的未满窗口，`sample_count` 如实反映残窗，不做持久化与重试。
-CLI 进程退出时在途样本直接丢弃。崩溃、强杀、断电允许丢失未上报窗口。
+Na saída normal o main drena as janelas incompletas de todos os eventos de papel e de sistema; `sample_count` reflete fielmente a janela residual, sem persistência nem retentativa. Quando o processo CLI sai, amostras em trânsito são descartadas diretamente. Crash, kill forçado ou queda de energia permitem a perda de janelas não enviadas.
 
-E2E 跑的是打包构建（`app.isPackaged === true`），因此 1 分钟窗口的判据是「开发构建」或
-「`ZCODE_ENV=test` 且带 `ZCODE_E2E_RUN_ID`」；生产客户端始终 5 分钟。
+O E2E roda o build empacotado (`app.isPackaged === true`), portanto o critério da janela de 1 minuto é «build de desenvolvimento» ou «`ZCODE_ENV=test` com `ZCODE_E2E_RUN_ID`»; o cliente de produção é sempre 5 minutos.
 
-量级估算：每 5 分钟约 14 条（10 个角色若全部存活，约 3 个 mcp_id，1 条系统事件），每天在线 8 小时
-约 1350 条趋势事件每设备，Bash 事件按慢命令条数另计。现状约 480 到 576 条。计费按条数，效果优先。
+Estimativa de volume: cerca de 14 registros a cada 5 minutos (10 papéis, se todos vivos, cerca de 3 mcp_id, 1 evento de sistema), aproximadamente 1350 eventos de tendência por dispositivo para 8 horas online por dia; os eventos Bash são contados à parte pelo número de comandos lentos. A situação atual é de cerca de 480 a 576 registros. A cobrança é por registro, e o efeito vem primeiro.
 
-## 平台侧告警规则与看板
+## Regras de Alerta e Painéis do Lado da Plataforma
 
-三条设计原则：看群体占比而不看单台设备；三种判断方式为版本回归对比、绝对水位占比、随运行时长增长；
-阈值先起步再用真实 p95 校准。所有规则要求分组内至少 100 台设备，否则不评估。"基线"指同一角色上一个
-稳定版本近 7 天的值。优先级 P1 立即处理，P2 当天处理，P3 周报。
+Três princípios de design: observar proporção populacional em vez de um único dispositivo; três formas de julgamento — comparação de regressão entre versões, proporção sobre limiar absoluto e crescimento com o tempo de execução; limiares começam em um valor inicial e depois são calibrados com p95 reais. Todas as regras exigem pelo menos 100 dispositivos no grupo, caso contrário não são avaliadas. "Linha de base" significa o valor dos últimos 7 dias da mesma versão estável anterior do mesmo papel. Prioridade P1 é tratamento imediato, P2 no mesmo dia, P3 no relatório semanal.
 
-### 第一期配置（20 条）
+### Configuração da primeira fase (20 regras)
 
-**A 类：版本回归**（发版后 24 到 48 小时，P1）
+**Classe A: regressão entre versões** (24 a 48 horas após o lançamento, P1)
 
-| 规则             | 指标与统计                                                 | 分组                       | 触发条件                         | 含义                                   |
-| ---------------- | ---------------------------------------------------------- | -------------------------- | -------------------------------- | -------------------------------------- |
-| A1 内存回归      | `rss_kb_total_mean` 的设备级 p95                           | process_role × app_version | 新版本大于基线 1.2 倍            | 某进程在新版本上普遍变大               |
-| A2 闲置 CPU 回归 | `background_ratio ≥ 0.9` 的窗口中 `cpu_percent_p95` 的 p95 | process_role × app_version | 大于基线 1.5 倍，或绝对值大于 5% | 后台仍在烧 CPU，通常是定时器或轮询泄漏 |
-| A3 前台 CPU 回归 | `background_ratio ≤ 0.1` 的窗口中 `cpu_percent_p95` 的 p95 | process_role × app_version | 大于基线 1.3 倍                  | 交互时更卡                             |
-| A4 进程数回归    | `process_count_peak` 均值                                  | process_role × app_version | 大于基线 1.5 倍                  | 进程回收失效                           |
-| A5 应用总量回归  | `perf_system_window.app_rss_kb_total_mean` 的 p95          | app_version                | 大于基线 1.2 倍                  | 用户直观感受到的 ZCode 占内存          |
+| Regra              | Métrica e estatística                                                          | Agrupamento                 | Condição de disparo                    | Significado                                        |
+| ------------------ | ------------------------------------------------------------------------------ | --------------------------- | -------------------------------------- | ---------------------------------------------------- |
+| A1 Regressão de memória | p95 de nível de dispositivo de `rss_kb_total_mean`                       | process_role × app_version | Nova versão acima de 1,2× a linha de base | Algum processo ficou maior em geral na nova versão |
+| A2 Regressão de CPU ocioso | p95 de `cpu_percent_p95` nas janelas com `background_ratio ≥ 0.9`      | process_role × app_version | Acima de 1,5× a linha de base, ou valor absoluto acima de 5% | Continua queimando CPU em background, normalmente timer ou vazamento de polling |
+| A3 Regressão de CPU em foreground | p95 de `cpu_percent_p95` nas janelas com `background_ratio ≤ 0.1`  | process_role × app_version | Acima de 1,3× a linha de base            | Mais travado durante a interação                    |
+| A4 Regressão na contagem de processos | média de `process_count_peak`                                  | process_role × app_version | Acima de 1,5× a linha de base            | Falha na recuperação de processos                   |
+| A5 Regressão do total da aplicação | p95 de `perf_system_window.app_rss_kb_total_mean`                | app_version                | Acima de 1,2× a linha de base            | Uso de memória do ZCode sentido pelo usuário         |
 
-**B 类：绝对水位**（滚动 1 小时，P2）。统计"近 1 小时内出现过超阈值窗口的设备占全部活跃设备的比例"，
-触发条件统一为"占比大于基线 2 倍且大于 3%"。
+**Classe B: limiar absoluto** (janela móvel de 1 hora, P2). A estatística é "a proporção de dispositivos ativos que tiveram alguma janela acima do limiar na última hora em relação a todos os dispositivos ativos", e a condição de disparo é uniformemente "proporção acima de 2× a linha de base e acima de 3%".
 
-| 规则 | 角色                  | 指标                                       | 初始阈值                    |
-| ---- | --------------------- | ------------------------------------------ | --------------------------- |
-| B1   | renderer_main         | `rss_kb_max_process_peak`                  | 1.5 GB                      |
-| B2   | main                  | `rss_kb_max_process_peak`                  | 800 MB                      |
-| B3   | host                  | `rss_kb_max_process_peak`                  | 800 MB                      |
-| B4   | cli_chat              | `rss_kb_max_process_peak`                  | 1.5 GB                      |
-| B5   | mcp，再按 mcp_id 分组 | `rss_kb_max_process_peak`                  | 1 GB                        |
-| B6   | gpu                   | `rss_kb_max_process_peak`                  | 1 GB                        |
-| B7   | scheduler             | `rss_kb_max_process_peak`                  | 300 MB                      |
-| B8   | cli_aux               | `rss_kb_max_process_peak`                  | 1 GB                        |
-| B9   | renderer_guest        | `rss_kb_total_peak`                        | 2 GB                        |
-| B10  | 系统事件              | `app_rss_kb_total_peak / total_memory`     | 大于 40%                    |
-| B11  | 系统事件              | `system_free_memory_kb_min / total_memory` | 小于 5%；整机压力上下文，P3 |
+| Regra | Papel                   | Métrica                                      | Limiar inicial      |
+| ----- | ----------------------- | -------------------------------------------- | ------------------- |
+| B1    | renderer_main           | `rss_kb_max_process_peak`                     | 1,5 GB              |
+| B2    | main                    | `rss_kb_max_process_peak`                     | 800 MB              |
+| B3    | host                    | `rss_kb_max_process_peak`                     | 800 MB              |
+| B4    | cli_chat                | `rss_kb_max_process_peak`                     | 1,5 GB              |
+| B5    | mcp, agrupado por mcp_id | `rss_kb_max_process_peak`                     | 1 GB                |
+| B6    | gpu                     | `rss_kb_max_process_peak`                     | 1 GB                |
+| B7    | scheduler               | `rss_kb_max_process_peak`                     | 300 MB              |
+| B8    | cli_aux                 | `rss_kb_max_process_peak`                     | 1 GB                |
+| B9    | renderer_guest          | `rss_kb_total_peak`                           | 2 GB                |
+| B10   | Evento de sistema       | `app_rss_kb_total_peak / total_memory`        | Acima de 40%         |
+| B11   | Evento de sistema       | `system_free_memory_kb_min / total_memory`    | Abaixo de 5%; contexto de pressão da máquina, P3 |
 
-**G 类：数据质量**（滚动 1 小时，P1，保护其他所有规则）
+**Classe G: qualidade de dados** (janela móvel de 1 hora, P1, protege todas as outras regras)
 
-| 规则          | 指标                                           | 触发条件        | 含义                                                    |
-| ------------- | ---------------------------------------------- | --------------- | ------------------------------------------------------- |
-| G1 采样丢失   | main 侧角色事件 `sample_count < 15`            | 设备占比大于 5% | main 事件循环被阻塞超过一半时间，本身就是 main 卡顿信号 |
-| G2 角色缺失   | 有 renderer_main 事件但同窗口无 host 事件      | 设备占比大于 2% | 采集链路断了或 Host 没起来                              |
-| G3 上报量异常 | 每设备每天事件总数                             | 大于预期 1.5 倍 | 上报逻辑失控，成本告警                                  |
-| G4 数值异常   | `cpu_percent_* > 100` 或 `rss_kb_* = 0` 的事件 | 占比大于 0.1%   | 口径 bug，Linux 归一化问题会在这里暴露                  |
+| Regra               | Métrica                                                | Condição de disparo            | Significado                                                                |
+| ------------------- | ------------------------------------------------------ | ------------------------------ | ----------------------------------------------------------------------------- |
+| G1 Perda de amostragem | `sample_count < 15` em eventos de papel do lado main | Proporção de dispositivos acima de 5% | O event loop do main ficou bloqueado mais da metade do tempo; já é sinal de travamento do main |
+| G2 Papel ausente    | Há evento de renderer_main mas nenhum de host na mesma janela | Proporção de dispositivos acima de 2% | A cadeia de coleta quebrou ou o Host não subiu |
+| G3 Volume anômalo   | Total de eventos por dispositivo por dia               | Acima de 1,5× o esperado       | Lógica de envio fora de controle; alerta de custo                          |
+| G4 Valor anômalo    | Eventos com `cpu_percent_* > 100` ou `rss_kb_* = 0`   | Proporção acima de 0,1%         | Bug de base de cálculo; problemas de normalização do Linux aparecem aqui     |
 
-### 第二期配置（13 条，等一个版本的数据积累后）
+### Configuração da segunda fase (13 regras, aguardando acúmulo de dados de uma versão)
 
-**C 类：泄漏**（滚动 24 小时，P2）。按 `uptime_minutes` 分 4 桶：0 到 1 小时、1 到 4 小时、4 到 8 小时、8 小时以上。
+**Classe C: vazamento** (janela móvel de 24 horas, P2). Dividir por `uptime_minutes` em 4 buckets: 0 a 1 hora, 1 a 4 horas, 4 a 8 horas, acima de 8 horas.
 
-| 规则                | 指标与统计                             | 分组                       | 触发条件                            | 含义                                           |
-| ------------------- | -------------------------------------- | -------------------------- | ----------------------------------- | ---------------------------------------------- |
-| C1 内存随时长增长   | 各桶 `rss_kb_total_mean` 中位数        | process_role × app_version | 8 小时以上桶大于 0 到 1 小时桶 2 倍 | 典型泄漏曲线                                   |
-| C2 native 泄漏      | 各桶 `heap_used_kb_mean` 与 rss 中位数 | 同上，仅 Node 角色         | rss 满足 C1 但 heap 增长不到 1.3 倍 | 涨的不是 JS 堆                                 |
-| C3 进程数随时长增长 | 各桶 `process_count_peak` 中位数       | process_role               | 8 小时以上桶大于 1 小时桶 2 倍      | 进程未回收，重点 cli_chat、renderer_guest、mcp |
+| Regra                     | Métrica e estatística                     | Agrupamento                 | Condição de disparo                                       | Significado                            |
+| ------------------------- | ------------------------------------------ | --------------------------- | --------------------------------------------------------- | ---------------------------------------- |
+| C1 Memória cresce com o tempo | mediana de `rss_kb_total_mean` por bucket | process_role × app_version | Bucket acima de 8 horas 2× maior que o bucket de 0 a 1 hora | Curva típica de vazamento              |
+| C2 Vazamento native       | mediana de `heap_used_kb_mean` e de rss por bucket | Idem, apenas papéis Node    | rss satisfaz C1 mas o heap cresce menos de 1,3×           | O que cresce não é o JS heap            |
+| C3 Contagem de processos cresce com o tempo | mediana de `process_count_peak` por bucket | process_role               | Bucket acima de 8 horas 2× maior que o bucket de 1 hora  | Processos não recuperados; atenção a cli_chat, renderer_guest, mcp |
 
-**D 类：CPU 行为**（滚动 1 小时，P2）
+**Classe D: comportamento de CPU** (janela móvel de 1 hora, P2)
 
-| 规则              | 指标与统计                                                     | 分组          | 触发条件 | 含义                 |
-| ----------------- | -------------------------------------------------------------- | ------------- | -------- | -------------------- |
-| D1 后台空转       | `background_ratio ≥ 0.9` 且 `cpu_percent_p95 > 10%` 的设备占比 | process_role  | 大于 5%  | 用户没在用，进程在忙 |
-| D2 前台持续高 CPU | `background_ratio ≤ 0.1` 且 `cpu_percent_p95 > 50%` 的设备占比 | renderer_main | 大于 5%  | UI 卡顿风险          |
-| D3 GPU 进程高 CPU | `cpu_percent_p95 > 30%` 的设备占比                             | gpu           | 大于 3%  | 渲染层问题           |
-| D4 MCP 闲置耗 CPU | 同 D1                                                          | mcp × mcp_id  | 大于 5%  | 某插件后台轮询       |
-| D5 整机 CPU 饱和  | `system_cpu_percent_p95 > 90%` 且 app 占比超一半的设备占比     | app_version   | 大于 3%  | ZCode 是整机卡顿主因 |
+| Regra                    | Métrica e estatística                                                     | Agrupamento    | Condição de disparo | Significado                          |
+| ------------------------ | -------------------------------------------------------------------------- | -------------- | ------------------- | ------------------------------------- |
+| D1 Ociosidade em background | proporção de dispositivos com `background_ratio ≥ 0.9` e `cpu_percent_p95 > 10%` | process_role | Acima de 5%         | O usuário não está usando e o processo está ocupado |
+| D2 CPU alta contínua em foreground | proporção de dispositivos com `background_ratio ≤ 0.1` e `cpu_percent_p95 > 50%` | renderer_main | Acima de 5% | Risco de travamento de UI            |
+| D3 CPU alta no processo GPU | proporção de dispositivos com `cpu_percent_p95 > 30%`                  | gpu           | Acima de 3%         | Problema na camada de renderização    |
+| D4 MCP ocioso consumindo CPU | igual a D1                                                     | mcp × mcp_id  | Acima de 5%         | Algum plugin fazendo polling em background |
+| D5 CPU da máquina inteira saturada | proporção de dispositivos com `system_cpu_percent_p95 > 90%` e app acima da metade | app_version | Acima de 3% | O ZCode é a causa principal do travamento da máquina |
 
-cli_chat 不设 CPU 告警，Agent 工作时 CPU 高是正常的。
+cli_chat não tem alerta de CPU; CPU alta durante o trabalho do Agent é normal.
 
-**E 类：进程拓扑**（滚动 1 小时，P2）
+**Classe E: topologia de processos** (janela móvel de 1 hora, P2)
 
-| 规则               | 指标                                              | 初始阈值                 | 含义                                               |
-| ------------------ | ------------------------------------------------- | ------------------------ | -------------------------------------------------- |
-| E1 CLI 进程堆积    | cli_chat `process_count_peak`                     | 大于 6 的设备占比大于 3% | 启动预热上限 1，超过 6 说明 workspace 关闭后未回收 |
-| E2 浏览器 tab 堆积 | renderer_guest `process_count_peak`               | 大于 20                  | 内置浏览器 tab 泄漏                                |
-| E3 MCP 实例过多    | 同一窗口不同 mcp_id 数                            | 大于 10                  | 插件重复启动                                       |
-| E4 cli_aux 常驻    | cli_aux `process_count_peak` 连续 12 个窗口大于 0 | 设备占比大于 10%         | mcp-status lane 本应 5 分钟空闲回收                |
+| Regra                   | Métrica                                             | Limiar inicial                            | Significado                                                             |
+| ----------------------- | --------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
+| E1 Acúmulo de processos CLI | `process_count_peak` de cli_chat                | Proporção de dispositivos acima de 6 acima de 3% | O limite de pré-aquecimento é 1; acima de 6 significa que o workspace não foi recuperado ao ser fechado |
+| E2 Acúmulo de tabs do navegador | `process_count_peak` de renderer_guest     | Acima de 20                                 | Vazamento de tabs do navegador embutido                                |
+| E3 Instâncias MCP demais  | número de mcp_id distintos na mesma janela         | Acima de 10                                 | Plugins iniciados em duplicidade                                        |
+| E4 cli_aux sempre presente | `process_count_peak` de cli_aux acima de 0 em 12 janelas consecutivas | Proporção de dispositivos acima de 10% | A lane mcp-status deveria ser recuperada após 5 min de ociosidade |
 
-**F 类：Bash 慢命令**（滚动 24 小时，P3）
+**Classe F: comandos Bash lentos** (janela móvel de 24 horas, P3)
 
-| 规则                  | 指标与统计                                                              | 触发条件              | 含义                                                 |
-| --------------------- | ----------------------------------------------------------------------- | --------------------- | ---------------------------------------------------- |
-| F1 重命令             | `tree_rss_kb_peak > 2 GB` 的慢命令占比                                  | 大于 10%              | 命令本身吃内存                                       |
-| F2 命令在等           | `tree_cpu_time_ms / duration_ms < 0.05` 且 `duration_ms > 120 s` 的占比 | 大于 20%              | 命令在等输入或网络，应改进超时或提示；Windows 不评估 |
-| F3 整机压力下的慢命令 | `system_free_memory_kb` 小于总量 5% 的慢命令占比                        | 大于 10%              | 机器没内存导致慢                                     |
-| F4 CLI 自身膨胀       | `cli_rss_kb > 1.5 GB` 的慢命令占比                                      | 大于 5%               | 命令期间 CLI 自己涨了                                |
-| F5 慢命令频率回归     | 每活跃设备每天慢命令条数                                                | 新版本大于基线 1.5 倍 | 工具链变慢                                           |
+| Regra                        | Métrica e estatística                                                     | Condição de disparo            | Significado                                                      |
+| ---------------------------- | -------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------- |
+| F1 Comando pesado            | proporção de comandos lentos com `tree_rss_kb_peak > 2 GB`                | Acima de 10%                   | O comando em si consome memória                                   |
+| F2 Comando esperando         | proporção com `tree_cpu_time_ms / duration_ms < 0.05` e `duration_ms > 120 s` | Acima de 20%              | O comando está esperando entrada ou rede; melhorar timeout ou aviso; não avaliado no Windows |
+| F3 Comando lento sob pressão da máquina | proporção de comandos lentos com `system_free_memory_kb` abaixo de 5% do total | Acima de 10%        | Falta de memória na máquina causa lentidão                        |
+| F4 Inchaço da própria CLI    | proporção de comandos lentos com `cli_rss_kb > 1,5 GB`                    | Acima de 5%                    | A própria CLI cresceu durante o comando                           |
+| F5 Regressão na frequência de comandos lentos | número de comandos lentos por dia por dispositivo ativo | Nova versão acima de 1,5× a linha de base | A cadeia de ferramentas ficou mais lenta |
 
-### 规则落地示例
+### Exemplo de implementação de regra
 
 ```sql
 -- B1：renderer 单进程内存超 1.5GB 的设备占比（近 1 小时）
@@ -462,273 +374,157 @@ GROUP BY app_version
 HAVING COUNT(DISTINCT device_mid) >= 100
 ```
 
-### 看板
+### Painéis
 
-1. 各角色内存 p50 / p95 按 app_version 对比。
-2. uptime 分桶 × 角色的内存热力图。
-3. MCP 按 mcp_id 的内存与后台 CPU 排行。
-4. 单设备按 device_mid 下钻的时间线，叠加系统事件。
+1. p50 / p95 de memória por papel comparados por app_version.
+2. Mapa de calor de memória por bucket de uptime × papel.
+3. Ranking de memória por mcp_id e CPU em background do MCP.
+4. Linha do tempo por dispositivo, filtrada por device_mid, com sobreposição dos eventos de sistema.
 
-## 性能红线（硬约束）
+## Linhas Vermelhas de Performance (Restrições Duras)
 
-任何遥测改动不得让用户机器变慢。以下 7 条写入验收，并配 CI、单测、E2E 三层门禁。
+Nenhuma mudança de telemetria pode deixar a máquina do usuário mais lenta. As 7 regras abaixo entram na aceitação, com três camadas de gating: CI, teste unitário e E2E.
 
-1. **main 进程零外部进程**。删除现有每 10 秒的 `ps` 线程数探针。现有 Windows E2E 门禁
-   `PERF-RES-01` 保留。
-2. **全链路禁止 PowerShell、WMI、CIM、wmic**。CI 对遥测模块路径做关键字检查；单测断言 execFile
-   从未以 powershell 为参数被调用。
-3. **外部进程白名单只有两项**：CLI 进程内的 macOS `ps` 与 Windows `tasklist`。每次调用带 1 秒超时，
-   超时即丢样本；同一探针实例连续 3 次失败后停用，直到显式 `reset()`。MCP 在下一次五分钟
-   采样前重置，Bash 在单条命令内不重置失败预算。Linux 一律读 `/proc`，不起进程。
-4. **每进程一个遥测定时器**，复用已有定时器，Node 进程 `unref()`，不延长进程寿命，不新增定时器。
-5. **内存有界**：样本数组按上表上限截断，溢出丢弃；无队列、无持久化、无重试。
-6. **失败即丢**：采样、校验、转发、`sendCustom` 任一步失败只丢当前样本，不阻塞业务、不抛到主循环。
-7. **自证开销**：main 侧采样与聚合代码用 `performance.now()` 累计墙钟耗时，以 `telemetry_self_ms`
-   上报，上线后可直接观察遥测自身成本。
+1. **Zero processos externos no processo main**. Remover a sonda atual de contagem de threads via `ps` a cada 10 segundos. O gating E2E existente no Windows `PERF-RES-01` é preservado.
+2. **PowerShell, WMI, CIM e wmic proibidos em toda a cadeia**. A CI faz verificação de palavras-chave nos caminhos dos módulos de telemetria; o teste unitário afirma que execFile nunca foi chamado com powershell como argumento.
+3. **A lista de permissões de processos externos tem apenas dois itens**: `ps` no macOS dentro do processo CLI e `tasklist` no Windows. Cada chamada tem timeout de 1 segundo, e o timeout descarta a amostra; após 3 falhas consecutivas a mesma instância de sonda é desativada até um `reset()` explícito. O MCP faz reset antes da próxima amostragem de cinco minutos; o Bash não reseta o orçamento de falhas dentro de um único comando. No Linux lê-se sempre `/proc`, sem iniciar processo.
+4. **Um temporizador de telemetria por processo**, reutilizando temporizadores existentes, com `unref()` em processos Node, sem estender a vida do processo e sem adicionar temporizadores.
+5. **Memória limitada**: os arrays de amostras são truncados pelos limites da tabela acima e o excedente é descartado; sem filas, persistência ou retentativa.
+6. **Falha descarta**: falha em amostragem, validação, encaminhamento ou `sendCustom` descarta apenas a amostra atual, sem bloquear o negócio e sem lançar para o loop principal.
+7. **Autoprova do custo**: o código de amostragem e agregação do lado main acumula o tempo de relógio de parede com `performance.now()` e o envia como `telemetry_self_ms`, permitindo observar diretamente o custo da própria telemetria após o lançamento.
 
-### 受保护遥测文件命名约定（红线第 2 条的执行细则）
+### Convenção de nomenclatura de arquivos de telemetria protegidos (detalhamento da linha vermelha 2)
 
-关键字门禁不可能扫全仓库（`packages/services/src/process/` 下的进程回收链路、CLI 的剪贴板实现都
-合法使用 PowerShell），因此红线第 2 条落到一条命名约定上：**遥测代码放进名字带 `telemetry` /
-`Telemetry` / `process-probe` / `process-resource` / `processResource` 的文件或目录**，门禁只扫这批文件。
+O gating por palavra-chave não pode varrer o repositório inteiro (a cadeia de recuperação de processos em `packages/services/src/process/` e a implementação de área de transferência da CLI usam PowerShell legitimamente), por isso a linha vermelha 2 recai sobre uma convenção de nomenclatura: **o código de telemetra fica em arquivos ou diretórios cujo nome contém `telemetry` / `Telemetry` / `process-probe` / `process-resource` / `processResource`**, e o gating varre apenas esse conjunto.
 
-- **受保护范围**：`packages/desktop/src/**`、`packages/services/src/**`、`packages/shared/src/**`、
-  `apps/zcode-cli/**/src/**` 中，**相对路径**含 `telemetry`、`Telemetry`、`process-probe`、`process-resource` 或 `processResource` 的源码
-  文件（`.ts` / `.tsx` / `.js` / `.mjs` 等）。判定看整条路径而不只是文件名——只看文件名会让
-  `apps/zcode-cli/packages/telemetry/src/`（`agent-metrics.ts`、`otlp-exporter.ts` 等）与
-  `*/src/telemetry/` 这类整目录的遥测代码集体逃逸。受保护文件数从实际 Git 跟踪集动态统计，以门禁输出为准；来源注册表中的模块也由交叉回归保证进入扫描集。
-- **禁用关键字**：`powershell`、`Get-CimInstance`、`wmic`、`Get-Process`（大小写不敏感）。
-- **注释不算违规**：扫描前先剥离行注释与块注释，保证 spec 注释和 bugfix 注释能正常写清「为什么禁止
-  PowerShell」；字符串字面量保留，`execFile("powershell.exe", …)` 一定会被抓到。扫描器识别正则转义与字符类，正则内的反引号不再污染后续注释；
-  模板插值内按代码处理，除法不被当成正则。真实调用与真实注释分别有整仓回归。
-- **测试文件不受检查**：`*.test.*`、`*.spec.*` 与 `test/` `tests/` `__tests__/` 目录排除——单测需要
-  正面断言「execFile 从未以 powershell 为参数被调用」，必须能写出关键字。
-- **`packages/ui` 不在范围内**：渲染进程代码起不了子进程，renderer heap 样本经 preload 桥上报。
-- **实现位置**：`scripts/ci/ci-telemetry-keyword-guard.mjs`，由 `scripts/ci/ci-repo-hygiene.mjs`
-  在 CI 第一站调用（`.gitlab/ci/30-build.yml`），脚本单测在
-  `scripts/ci/ci-telemetry-keyword-guard.test.mjs`（已接入 `pnpm test:unit`，含「当前仓库必须通过」
-  这条回归）。本地可直接 `node scripts/ci/ci-telemetry-keyword-guard.mjs`。
-- **所有遥测模块必须遵守**：新增或拆分的探针、来源与聚合模块都要按该命名落文件或落进 telemetry 目录，
-  否则等于自动脱离门禁。
+- **Escopo protegido**: arquivos de código-fonte (`.ts` / `.tsx` / `.js` / `.mjs` etc.) em `packages/desktop/src/**`, `packages/services/src/**`, `packages/shared/src/**` e `apps/zcode-cli/**/src/**` cujo **caminho relativo** contém `telemetry`, `Telemetry`, `process-probe`, `process-resource` ou `processResource`. O julgamento considera o caminho inteiro e não apenas o nome do arquivo — considerar apenas o nome deixaria todo o código de telemetria em diretórios inteiros como `apps/zcode-cli/packages/telemetry/src/` (`agent-metrics.ts`, `otlp-exporter.ts` etc.) e `*/src/telemetry/` escapar em bloco. O número de arquivos protegidos é contabilizado dinamicamente a partir do conjunto realmente rastreado pelo Git, e a saída do gating é a referência; os módulos do registro de origens também são garantidos no conjunto varrido por regressão cruzada.
+- **Palavras-chave proibidas**: `powershell`, `Get-CimInstance`, `wmic`, `Get-Process` (sem distinção de maiúsculas).
+- **Comentários não violam**: comentários de linha e de bloco são removidos antes da varredura, garantindo que comentários de spec e de bugfix possam explicar livremente «por que PowerShell é proibido»; literais de string são preservados, de modo que `execFile("powershell.exe", …)` é necessariamente capturado. O scanner reconhece escapes de regex e classes de caracteres, e crases dentro de regex não poluem mais os comentários seguintes; dentro de interpolação de template o código é tratado como código, e divisão não é confundida com regex. Chamadas reais e comentários reais têm regressões próprias em todo o repositório.
+- **Arquivos de teste não são verificados**: `*.test.*`, `*.spec.*` e diretórios `test/` `tests/` `__tests__/` são excluídos — o teste unitário precisa afirmar positivamente «execFile nunca foi chamado com powershell como argumento» e por isso precisa poder escrever a palavra-chave.
+- **`packages/ui` está fora do escopo**: o código do renderer não inicia subprocessos, e a amostra de heap do renderer é enviada pela bridge de preload.
+- **Local da implementação**: `scripts/ci/ci-telemetry-keyword-guard.mjs`, invocado por `scripts/ci/ci-repo-hygiene.mjs` como primeira parada da CI (`.gitlab/ci/30-build.yml`). O teste unitário do script está em `scripts/ci/ci-telemetry-keyword-guard.test.mjs` (já integrado a `pnpm test:unit`, com a regressão «o repositório atual deve passar»). Localmente é possível rodar `node scripts/ci/ci-telemetry-keyword-guard.mjs` diretamente.
+- **Todos os módulos de telemetria devem obedecer**: sondas, origens e módulos de agregação novos ou separados devem seguir essa nomenclatura, ou ficam automaticamente fora do gating.
 
-豁免清单（写在门禁脚本的 `TELEMETRY_GUARD_EXEMPTIONS`，条目指向的文件必须存在，否则门禁按 `K2`
-失败，防止清单腐烂）。条目明确区分是否实际进入扫描；当前两项均为生效豁免，未登记的关键字仍会失败：
+Lista de isenções (escrita em `TELEMETRY_GUARD_EXEMPTIONS` do script de gating; os arquivos referenciados devem existir, caso contrário o gating falha com `K2`, impedindo o apodrecimento da lista). As entradas distinguem explicitamente se entram de fato na varredura; as duas entradas atuais são isenções vigentes, e palavras-chave não registradas ainda falham:
 
-| 文件                                                                 | 状态 | 豁免关键字                      | 原因                                                                                                                                                                                                                                                                                                                        |
-| -------------------------------------------------------------------- | ---- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/services/src/process/processResourceSampler.ts`            | 生效 | `powershell`、`Get-CimInstance` | 资源管理器 Host 侧进程表采样器：只在资源管理器窗口打开并主动请求时读一次整机进程表，属于**按需 UI 采样而非常驻遥测**；Windows 上需要同时拿到 RSS 与 CPU 时间，只能走 CIM。运行在 Host utility 进程，不在 main，也不参与 `perf_process_window` 上报。该文件因 processResource 命名进入扫描集，仅按此明确理由豁免两个关键字。 |
-| `apps/zcode-cli/packages/contracts/src/telemetry/agent-execution.ts` | 生效 | `powershell`                    | 纯类型文件：`powershell` 只是 `CommandShellKind` 枚举里「用户命令用的是哪种 shell」的上报标签，不启动任何进程。                                                                                                                                                                                                             |
+| Arquivo                                                                           | Status | Palavras-chave isentas                      | Motivo                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | ----- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/services/src/process/processResourceSampler.ts`                         | Vigente | `powershell`, `Get-CimInstance` | Amostrador da tabela de processos do lado Host do gerenciador de recursos: lê uma vez a tabela de processos da máquina inteira somente quando a janela do gerenciador está aberta e a solicitação é ativa, sendo uma **amostragem de UI sob demanda e não telemetria residente**; no Windows é preciso obter RSS e tempo de CPU ao mesmo tempo, e só o CIM permite isso. Roda no processo utility do Host, não no main, e não participa do envio de `perf_process_window`. O arquivo entra no conjunto varrido por causa da nomenclatura processResource e fica isento destas duas palavras-chave apenas por este motivo explícito. |
+| `apps/zcode-cli/packages/contracts/src/telemetry/agent-execution.ts`                 | Vigente | `powershell`                    | Arquivo puramente de tipos: `powershell` é apenas a etiqueta de reporte de «qual shell o comando do usuário usa» na enumeração `CommandShellKind`, e não inicia processo algum.                                                                                                                                                                                                             |
 
-各采集点成本核算见下表，作为红线的依据。
+A contagem de custo de cada ponto de coleta está na tabela abaixo, que fundamenta as linhas vermelhas.
 
-| 采集点                       | 进程     | 方式                          | 频率                 | 外部进程          | 与现状比               |
-| ---------------------------- | -------- | ----------------------------- | -------------------- | ----------------- | ---------------------- |
-| Chromium 体系 CPU 与 RSS     | main     | getAppMetrics                 | 10 秒                | 否                | 不变                   |
-| main 线程数                  | main     | ps                            | 删除                 | 删除              | 净减少                 |
-| main / host / scheduler 自采 | 各自     | cpuUsage、memoryUsage         | 60 秒                | 否                | 复用定时器             |
-| renderer heap                | renderer | performance.memory + 1 条 IPC | 60 秒                | 否                | 复用定时器             |
-| CLI 自采                     | CLI      | 已有 sampler                  | 60 秒                | 否                | 不变                   |
-| MCP                          | CLI      | ps / /proc / tasklist         | 5 分钟               | macOS、Windows 是 | 沿用旧链路五分钟节拍   |
-| Bash 慢命令进程树            | CLI      | ps / /proc                    | 仅慢命令期间每 15 秒 | macOS 是          | 新增，相对重命令可忽略 |
-| 整机指标                     | main     | os.cpus、os.freemem           | 10 秒                | 否                | 新增，可忽略           |
+| Ponto de coleta                  | Processo | Forma                             | Frequência                      | Processo externo      | Comparação com o现状                   |
+| ------------------------------- | -------- | --------------------------------- | ------------------------------- | --------------------- | ------------------------------------- |
+| CPU e RSS do sistema Chromium    | main     | getAppMetrics                     | 10 segundos                     | Não                   | Inalterado                             |
+| Contagem de threads do main      | main     | ps                                | Removido                        | Removido              | Redução líquida                        |
+| Autocoleta de main / host / scheduler | cada um | cpuUsage, memoryUsage        | 60 segundos                     | Não                   | Reutiliza temporizador                 |
+| Heap do renderer                 | renderer | performance.memory + 1 IPC        | 60 segundos                     | Não                   | Reutiliza temporizador                 |
+| Autocoleta da CLI                | CLI      | sampler existente                 | 60 segundos                     | Não                   | Inalterado                             |
+| MCP                              | CLI      | ps / /proc / tasklist            | 5 minutos                       | macOS e Windows       | Mantém o ritmo de cinco minutos da cadeia antiga |
+| Árvore de processos de comandos Bash lentos | CLI | ps / /proc            | A cada 15 segundos, só durante comandos lentos | macOS é | Novo, desprezível frente a comandos pesados |
+| Métricas da máquina inteira      | main     | os.cpus, os.freemem              | 10 segundos                     | Não                   | Novo, desprezível                      |
 
-## Implementation Decisions
+## Decisões de Implementação
 
-- **shared 协议层**：`process/resourceSample` 通知的 schema 新增可选字段 `heapUsedKb`、
-  `uptimeMinutes`、`totalMemoryGb` 与 `instanceToken`（CLI 进程启动时随机生成，字符集限定
-  `[A-Za-z0-9_-]{8,64}`，只供 main 统计进程数与最大单进程，不进 ARMS、不含 pid）；新增通知
-  `process/mcpResourceSamples`（数组，每项含 `mcpId`、
-  `processCount`、`rssKbTotal`、`rssKbMaxProcess`、`cpuTimeMsDelta`、`uptimeMinutes`）与
-  `process/toolExecResource`（Bash 完成事件）。全部新增字段可选，旧 CLI 发来的样本仍能通过校验。
-  **不递增协议握手版本号**：握手版本是兼容性开关而非字段版本，遥测字段变更走可选字段。
-  **`lane` 不在 CLI 协议 schema 里**：CLI 进程不知道自己被哪个进程管理器拉起，lane 由 app 侧
-  services 打标，因此它只出现在 app 内部的 `agentLaneResourceSampleSchema`
-  （= CLI 协议 schema + 可选 `lane`，仍 `strict`）；CLI 自报 lane 会被协议层直接拒绝。
-  Host 到 main 的响应消息新增 `HostResourceSample`（Host 自采，payload 为
-  `nodeSelfResourceSampleSchema`：`cpuPercent` / `rssKb` / `heapUsedKb` 三项且 `strict`）、
-  `McpResourceSamples`、`ToolExecResource`，现有 `AgentResourceSample` 的 `sample` 改用
-  `agentLaneResourceSampleSchema`；main 入口沿用 host 响应 schema 严格校验。scheduler 走自己的私有协议
-  （`scheduler/schedulerProtocol.ts` 的 `scheduler-resource-sample`），payload 复用同一个 schema，
-  main 摄入时再校验一次，非法样本直接丢弃。
-  新增 `ProcessResourceRole` 枚举、`PROCESS_RESOURCE_CLI_LANES` 词表与
-  `resolveCliProcessResourceRole`（lane → 角色，缺省按 `cli_chat`），以及三个事件的属性 key
-  白名单常量，供 main 与单测共用。
-- **CLI**：现有进程资源 sampler 扩展输出 heap、uptime、total memory 与 instanceToken（lane 由 app 侧
-  打标，CLI 不参与）；新增 MCP 资源采样器，
-  每 5 分钟从 MCP tracker 取 pid 与 mcp_id 映射并按平台采样；新增 Bash 慢命令采样器，挂在执行适配器
-  的子进程生命周期上，15 秒门槛后按进程组采样，结束时发完成通知。CLI 自采仍使用进程内 API；
-  MCP 与 Bash 共享同一个平台探针模块
-  `adapters/src/device/process-probe.ts`（`sampleProcessTrees(rootPids)`、
-  `sampleProcessGroup(pgid)`、`reset()`、`treeScope`），
-  实现超时、连续失败停用与 Windows 无 CPU 的策略。失败预算属于探针实例：每个采样场景持有一个
-  长生命周期实例（MCP 一个、每条 Bash 命令一个），场景间互不干扰。MCP 每次五分钟采样前
-  `reset()`；Bash 的失败预算持续到该命令结束。
-  Windows 的进程树口径由 `treeScope` 自报（`direct_process`），调用方不再自己判平台。
-  现有 5 分钟 `perf_mcp_memory` 采集停用，MCP 生命周期事件（start / crash / session-startup）不变。
-  **口径变更风险**：MCP 采样超时从原来的 5 秒收紧到红线要求的 1 秒，Windows 上 `tasklist` 在高负载机器
-  可能超过 1 秒，对应窗口静默无样本；上线后需观察 `perf_process_window` 的 mcp 角色
-  在 Windows 的窗口覆盖率是否下降。
-- **services**：Agent service 解析新通知并以 dynamic event 分发；remote workspace 的 service
-  collection 也接线资源遥测订阅，runtime_surface=remote。
-  落地位置（05）：`wireClient` 新增 lane 形参，四个调用点分别传 `chat`（workspace 级 Agent
-  两条路径）、`plugin`、`mcp-status`；`onDynamicProcessResourceSample` 的载荷类型
-  从 `ZCodeProcessResourceSample` 变为 `AgentLaneResourceSample`（多一个可选 `lane`）。
-  lane 只能在这里补：进程管理器是唯一知道「这个 client 属于哪条 lane」的地方。
-  落地位置（06）：远端订阅走的是既有的 `zcodeAgentConnectionScope` 边界，不新增 services 层代码——
-  远端 zcode-server 对桌面 Host 的连接是 `trusted-host-relay`（`packages/server` 的 stdio 与
-  `zcode-server-cli` 的 `/ws/host`），只有该角色能订阅 `onDynamicProcessResourceSample` /
-  `onDynamicMcpTelemetry` / `onDynamicMcpResourceSamples`；renderer 与手机远控 attachment 是 `terminal-client`，拿到 `RpcEvent.None`。
-- **Host**：资源遥测注册模块统一转发 CLI 样本、MCP 样本、Bash 事件；Host 自身样本复用内存诊断日志的
-  60 秒定时器，增加 CPU 差分，一次读数同时写本地日志与发 parentPort 消息。
-  落地位置（03）：`desktop/src/host/hostSelfResourceTelemetry.ts` 是 host/index.ts 的唯一入口，
-  内部包住 `hostMemoryDiagnosticsLog`（新增 `onMemoryUsage` 钩子，在写盘门控之前、与门控无关地
-  把同一次读数交给遥测）。
-  落地位置（06）：`desktop/src/host/hostServiceResourceTelemetry.ts` 的
-  `registerHostServiceResourceTelemetry({ services, postMessage, runtimeSurface, onError })` 是
-  「一份 service collection 的资源遥测订阅」的唯一入口，内部只组合 `hostAgentResourceTelemetry`
-  与 `hostMcpTelemetry` 两条转发。调用点两处：本地 host services 初始化（`runtime_surface=local`）、
-  `createWindowRemoteConnectionHandle` 里远端 services 建成之后（`runtime_surface=remote`，
-  订阅由 handle 持有并在 `dispose()` 中释放）。缺少 Agent service 或单条订阅抛错时返回 no-op 并
-  释放已建立的那条，绝不改变 Host 初始化与远程连接结果。
-- **scheduler**：新增 60 秒自采，经 parentPort 发送；spawn 点向 main 的进程角色注册表登记 pid。
-  落地位置（03）：`desktop/src/scheduler/schedulerResourceTelemetry.ts`（唯一的 unref 定时器，
-  在 `main()` 启动、`dispose()` 停止）。
-- **Node 自采换算**：`packages/shared/src/node/nodeSelfResourceTelemetry.ts` 的
-  `createNodeSelfResourceSampler` 是 host 与 scheduler 共用的一份差分逻辑（构造即建立 CPU 基线，
-  基线不可用时返回 null）；它不持有定时器、不负责发送，因此"定时器只有一个"的约束留在调用方。
-- **renderer**：内存诊断采样器在写本地日志的同一次采样中，经 preload 桥向 main 发送 heap 样本；
-  Web 端无桥 no-op。UI 层不得直接调用 `window.zcode.log` 或 ipc。
-  落地位置（04）：
-  - `packages/ui/src/lib/memoryDiagnostics.ts` 的 `startMemoryDiagnosticsLogger` 新增
-    `reportHeapSample` 注入点，在写盘门控之前调用；桥抛错只丢这条遥测样本，本地日志照旧写出
-  - `IPlatformService.reportRendererHeapSample`（`packages/shared/src/platform.ts`）是 UI 唯一的出口，
-    由 `App.tsx` 注入给采样器；desktop 在 `desktopPlatform.ts` 接 preload 桥，Web 与手机远控不实现
-  - `PlatformChannels.ReportRendererHeapSample` + `rendererHeapSampleSchema`（`strict`，只有 `heapUsedKb`）；
-    preload 只暴露 `ipcRenderer.send`，不提供 invoke
-  - `desktop/src/main/processResourceRendererHeapSource.ts`：来源注册表第四行，同时是该通道的 main 侧
-    落点与信任边界（通道只允许一个监听器，重复注册不叠加）。按 `event.sender.id` 经
-    `resourceManagerWindow.isMainApplicationWindowWebContents()` 判定归属（与角色 pid 同一份数据源），
-    只取 heap 并在下一个 tick 通过 `addRoleHeapSample` 交出，交付即清空；多窗口取本 tick 已到达读数的最大值
-- **main**：资源遥测模块重写。10 秒 tick 读取 getAppMetrics 与整机指标、Linux 归一化、按角色分类并
-  记录 scene；接收各来源样本进入有界窗口；5 分钟 flush 每角色一条 `perf_process_window` 与一条
-  `perf_system_window`；Bash 事件即时 `sendCustom`；正常退出排空残窗。删除线程数探针、10% 角色抽样、
-  互斥属性布局、`perf_resource_window`、`perf_resource_agent`、`perf_mcp_memory`。角色分类器扩展
-  `renderer_guest`、`chromium_other`、`scheduler`。Linux CPU 归一化函数从资源管理器模块提升为
-  两处共用。
-  落地后的模块划分（01）：
-  - `packages/shared/src/processResourceTelemetry.ts`：角色枚举、事件名、属性 key 白名单、属性计数与隐私校验
-  - `desktop/src/main/electronCpuNormalization.ts`：`normalizeElectronCpuToMachinePercent`（资源管理器 UI 与遥测共用）
-  - `desktop/src/main/processResourceRoleClassifier.ts`：Chromium 进程 → 角色归类与单 tick 聚合（纯函数）
-  - `desktop/src/main/processResourceWindowAggregator.ts`：有界窗口与报告投影（纯函数）
-  - `desktop/src/main/processResourceWindowEvent.ts`：`perf_process_window` 的属性投影
-  - `desktop/src/main/processResourceSampleSources.ts` + `processResourceSampleSourceRegistry.ts`：
-    按来源注册的摄入表；**03 到 09 各新增一个来源文件并在注册表数组追加一行**，单个来源抛错只丢自己的样本。
-    采样分两个阶段：`sample()` 产出角色样本与本 tick 的精确合计，`sampleDevice()` 供需要「同一 tick
-    其他来源已采到的事实」的来源使用（02 的设备级窗口）
-  - `desktop/src/main/processResourceChromiumSource.ts`：Chromium 体系来源（唯一 `getAppMetrics()` 读点，
-    同时导出本 tick 的体系精确合计供设备级事件使用）
-  - `desktop/src/main/desktopResourceTelemetry.ts`：定时器、scene 记录、ARMS 出口与退出排空
-    落地后新增的模块（02）：
-  - `desktop/src/main/processResourceSystemSource.ts`：设备级来源（注册表第二行），
-    `os.cpus()` 差分与 `os.freemem()` 的唯一读点，基线缺失时本 tick 不产生样本
-  - `desktop/src/main/processResourceSystemWindowAggregator.ts`：设备级有界窗口与报告投影
-  - `desktop/src/main/processResourceSystemWindowEvent.ts`：`perf_system_window` 的 17 个属性投影
-  - `desktop/src/main/processResourceExternalAppSamples.ts`：外部样本入口
-    （`recordExternalAppResourceSample`，按来源保留最近样本、按各自周期过期、条目有界，05 与 08 调用）
-  - `desktop/src/main/processResourceAppTotals.ts`：「一批进程的资源合计」这个值与相加逻辑的唯一实现，
-    Chromium 精确合计与外部样本合计共用
-  - 角色 pid 的唯一数据源是 `resourceManagerWindow.collectChromiumProcessRolePids()`；
-    主窗口由 `createWindow` 调 `registerMainApplicationWindow`，scheduler 由 `spawnCronScheduler` 调
-    `registerSchedulerProcess`，`<webview>` guest 用 `webContents.getType() === "webview"` 判定
-  - ARMS 出口同时写入 `desktopArmsCustomEvent` 的共享 E2E 捕获环，E2E 才能读到 main 自己发出的事件
-    落地后新增的模块（03）：
-  - `desktop/src/main/processResourceSelfHeapSource.ts`：host / scheduler 自采 heap 的来源
-    （注册表第三行），`ingestHostSelfResourceSample` / `ingestSchedulerSelfResourceSample` 由
-    `desktopHostProcess` 与 `desktopCronScheduler` 的消息分发点调用；只取 heap 并在下一个 tick
-    通过 `addRoleHeapSample` 交出，交付即清空
-  - `ProcessResourceSampleContext.addRoleHeapSample(role, heapUsedKb)`：只贡献 heap 读数的来源共用的
-    钩子（04 的 renderer heap 复用它）。heap 并入同一 tick 内该角色的完整样本，该角色本 tick 没有
-    完整样本时这次读数丢弃——heap 只是角色事件的附加维度，不足以独立开窗。main 自身的 heap 也走这条
-    合并路径，不再在 `takeSample` 里单独特判
-    落地后新增的模块（05）：
-  - `desktop/src/main/processResourceCliSource.ts`：CLI 角色来源（注册表第五行）。
-    `ingestCliResourceSample(sample, runtimeSurface)` 由 `desktopHostProcess` 的
-    `AgentResourceSample` 分发点调用，按「角色 × runtime_surface × instanceToken」保留每进程最近
-    一次读数；`sample()` 每 60 秒交出一次当前存活进程的合计，并把本机合计喂给
-    `recordExternalAppResourceSample`。**不采用「交付即清空」**：多个 CLI 进程的 60 秒定时器相位
-    不同，一个 tick 通常只到达其中一部分读数，清空式交付会让 `process_count_peak` 与总量偏小；
-    角色事件要的恰恰是「同时存活几个进程、合计多少」。过期判据与设备级外部样本一致（2 个周期）
-  - `ProcessResourceHardwareOverride` 与 `processResourceHardwareKey`
-    （`processResourceWindowAggregator.ts`）：样本自报的运行机信息改为可缺字段，出口
-    `{ ...desktopHardware, ...report.hardware }` 逐字段覆盖——旧 CLI 只带 platform / arch / 核数时，
-    `total_memory_gb` 仍取桌面机的值；Host 运行环境身份与硬件指纹同时进窗口 key，一条事件只描述一个运行环境
-  - `ProcessResourceSampleSource.flushPending`：退出排空时把「已收到、未交付」的读数补进窗口，
-    08 的 MCP 样本复用同一个钩子
-  - 删除 `desktop/src/main/agentResourceTelemetryWindow.ts` 与 `perf_resource_agent` 出口
-- **文档**：事件字典新增三个事件并标注旧事件停发版本；性能监控文档资源章节、CLI 资源上报文档、
-  MCP 文档内存章节改为指向本文；内存诊断日志文档补充"采样源与资源遥测共用"。
+- **Camada de protocolo shared**: o schema da notificação `process/resourceSample` ganha os campos opcionais `heapUsedKb`, `uptimeMinutes`, `totalMemoryGb` e `instanceToken` (gerado aleatoriamente na inicialização do processo CLI, com conjunto de caracteres restrito a `[A-Za-z0-9_-]{8,64}`, servindo apenas para o main contar processos e o maior processo individual, sem entrar no ARMS e sem conter pid); são adicionadas as notificações `process/mcpResourceSamples` (array, cada item com `mcpId`, `processCount`, `rssKbTotal`, `rssKbMaxProcess`, `cpuTimeMsDelta`, `uptimeMinutes`) e `process/toolExecResource` (evento de conclusão do Bash). Todos os campos novos são opcionais, e amostras enviadas por CLI antiga ainda passam na validação. **O número de versão do handshake não é incrementado**: a versão do handshake é um switch de compatibilidade e não uma versão de campos, e mudanças de campos de telemetria passam por campos opcionais. **A `lane` não está no schema do protocolo da CLI**: o processo CLI não sabe qual gerenciador de processos o iniciou; a lane é marcada pelos services do lado do app, portanto aparece apenas no `agentLaneResourceSampleSchema` interno do app (= schema do protocolo da CLI + `lane` opcional, ainda `strict`); uma lane reportada pela própria CLI é rejeitada diretamente pela camada de protocolo. As mensagens de resposta de Host para main acrescentam `HostResourceSample` (autocoleta do Host, payload `nodeSelfResourceSampleSchema`: três itens `cpuPercent` / `rssKb` / `heapUsedKb` e `strict`), `McpResourceSamples` e `ToolExecResource`, e o `sample` do `AgentResourceSample` existente passa a usar `agentLaneResourceSampleSchema`; a entrada do main continua com validação estrita pelo schema de resposta do host. O scheduler usa seu próprio protocolo privado (`scheduler/schedulerProtocol.ts` com `scheduler-resource-sample`), cujo payload reaproveita o mesmo schema e é validado de novo na ingestão pelo main, descartando amostras ilegais. São adicionados a enumeração `ProcessResourceRole`, o vocabulário `PROCESS_RESOURCE_CLI_LANES`, `resolveCliProcessResourceRole` (lane → papel, com padrão `cli_chat`) e as constantes de lista de permissões de chaves de atributos dos três eventos, compartilhados entre main e testes unitários.
+- **CLI**: o sampler de recursos de processo existente passa a produzir heap, uptime, total de memória e instanceToken (a lane é marcada pelo lado do app, e a CLI não participa); é adicionado o amostrador de recursos MCP, que a cada 5 minutos obtém do tracker MCP o mapeamento pid e mcp_id e amostra conforme a plataforma; é adicionado o amostrador de comandos Bash lentos, preso ao ciclo de vida do subprocesso do adaptador de execução, com amostragem por grupo de processos após o limiar de 15 segundos e notificação de conclusão no fim. A autocoleta da CLI continua usando APIs internas do processo; MCP e Bash compartilham o mesmo módulo de sonda de plataforma `adapters/src/device/process-probe.ts` (`sampleProcessTrees(rootPids)`, `sampleProcessGroup(pgid)`, `reset()`, `treeScope`), implementando timeout, desativação por falhas consecutivas e a política de ausência de CPU no Windows. O orçamento de falhas pertence à instância da sonda: cada cenário de amostragem mantém uma instância de longa duração (uma para o MCP, uma por comando Bash), sem interferência entre cenários. O MCP faz `reset()` antes de cada amostragem de cinco minutos; o orçamento de falhas do Bash dura até o fim do comando.
+  A base da árvore de processos no Windows é auto-relatada por `treeScope` (`direct_process`), e o chamador não precisa mais decidir a plataforma. A coleta existente de `perf_mcp_memory` a cada 5 minutos é desativada, e os eventos de ciclo de vida do MCP (start / crash / session-startup) permanecem inalterados. **Risco da mudança de base**: o timeout da amostragem MCP é apertado de 5 segundos para 1 segundo exigido pela linha vermelha; no Windows `tasklist` pode ultrapassar 1 segundo em máquinas sob alta carga, deixando a janela silenciosamente sem amostras; após o lançamento é preciso observar se a cobertura de janelas do papel mcp em `perf_process_window` no Windows diminui.
+- **services**: o service de Agent analisa as novas notificações e as despacha como eventos dinâmicos; a service collection de workspace remoto também conecta a assinatura de telemetria de recursos, com runtime_surface=remote.
+  Local de implementação (05): `wireClient` ganha um parâmetro de lane, e os quatro pontos de chamada passam respectivamente `chat` (os dois caminhos de Agent em nível de workspace), `plugin` e `mcp-status`; o tipo do payload de `onDynamicProcessResourceSample` passa de `ZCodeProcessResourceSample` para `AgentLaneResourceSample` (com uma `lane` opcional a mais). A lane só pode ser preenchida aqui: o gerenciador de processos é o único lugar que sabe «a qual lane este client pertence».
+  Local de implementação (06): a assinatura remota passa pelo limite de `zcodeAgentConnectionScope` já existente, sem novo código na camada services — a conexão do zcode-server remoto com o Host do desktop é `trusted-host-relay` (o stdio de `packages/server` e o `/ws/host` de `zcode-server-cli`), e apenas esse papel pode assinar `onDynamicProcessResourceSample` / `onDynamicMcpTelemetry` / `onDynamicMcpResourceSamples`; o renderer e o attachment de controle remoto pelo celular são `terminal-client` e recebem `RpcEvent.None`.
+- **Host**: o módulo de registro de telemetria de recursos encaminha de forma unificada amostras da CLI, amostras do MCP e eventos do Bash; a amostra do próprio Host reutiliza o temporizador de 60 segundos do log de diagnóstico de memória, com um delta de CPU acrescentado, e uma única leitura escreve ao mesmo tempo o log local e envia a mensagem pelo parentPort.
+  Local de implementação (03): `desktop/src/host/hostSelfResourceTelemetry.ts` é a única entrada do host/index.ts e envolve `hostMemoryDiagnosticsLog` (com um novo hook `onMemoryUsage`, que entrega a mesma leitura à telemetria antes do gating de escrita em disco e de forma independente dele).
+  Local de implementação (06): `registerHostServiceResourceTelemetry({ services, postMessage, runtimeSurface, onError })` em `desktop/src/host/hostServiceResourceTelemetry.ts` é a única entrada de «assinatura de telemetria de recursos de uma service collection», combinando internamente apenas os dois encaminhamentos `hostAgentResourceTelemetry` e `hostMcpTelemetry`. Há dois pontos de chamada: a inicialização dos host services locais (`runtime_surface=local`) e, em `createWindowRemoteConnectionHandle`, depois que os services remotos são construídos (`runtime_surface=remote`, assinatura mantida pelo handle e liberada em `dispose()`). Na ausência de Agent service ou se uma única assinatura lançar erro, retorna-se no-op e libera-se a que já foi estabelecida, nunca alterando o resultado da inicialização do Host ou da conexão remota.
+- **scheduler**: nova autocoleta a cada 60 segundos enviada por parentPort; o ponto de spawn registra o pid no registro de papéis de processo do main.
+  Local de implementação (03): `desktop/src/scheduler/schedulerResourceTelemetry.ts` (o único temporizador unref, iniciado em `main()` e parado em `dispose()`).
+- **Conversão da autocoleta Node**: `createNodeSelfResourceSampler` em `packages/shared/src/node/nodeSelfResourceTelemetry.ts` é a lógica de delta compartilhada entre host e scheduler (estabelece o baseline de CPU na construção e retorna null quando o baseline está indisponível); não mantém temporizador nem é responsável por enviar, portanto a restrição «apenas um temporizador» fica a cargo do chamador.
+- **renderer**: o amostrador de diagnóstico de memória, na mesma amostragem em que escreve o log local, envia uma amostra de heap ao main pela bridge de preload; sem bridge no Web, é no-op. A camada de UI não pode chamar `window.zcode.log` ou ipc diretamente.
+  Local de implementação (04):
+  - `startMemoryDiagnosticsLogger` em `packages/ui/src/lib/memoryDiagnostics.ts` ganha o ponto de injeção `reportHeapSample`, chamado antes do gating de escrita em disco; erro da bridge descarta apenas esta amostra de telemetria e o log local continua sendo escrito
+  - `IPlatformService.reportRendererHeapSample` (`packages/shared/src/platform.ts`) é a única saída da UI, injetada ao amostrador por `App.tsx`; o desktop conecta a bridge de preload em `desktopPlatform.ts`, e o Web e o controle remoto pelo celular não implementam
+  - `PlatformChannels.ReportRendererHeapSample` + `rendererHeapSampleSchema` (`strict`, apenas `heapUsedKb`); o preload expõe somente `ipcRenderer.send`, sem invoke
+  - `desktop/src/main/processResourceRendererHeapSource.ts`: quarta linha do registro de origens, ao mesmo tempo o ponto de chegada do lado main desse canal e sua fronteira de confiança (o canal permite apenas um listener; registro duplicado não acumula). A atribuição é decidida por `event.sender.id` via `resourceManagerWindow.isMainApplicationWindowWebContents()` (a mesma fonte de dados dos pids por papel); apenas o heap é taken e entregue no tique seguinte por `addRoleHeapSample`, sendo limpo na entrega; com múltiplas janelas vale o máximo das leituras que chegaram neste tique
+- **main**: o módulo de telemetria de recursos é reescrito. O tique de 10 segundos lê getAppMetrics e as métricas da máquina inteira, normaliza no Linux, classifica por papel e registra o scene; recebe amostras das várias origens em janelas limitadas; o flush de 5 minutos emite uma `perf_process_window` por papel e uma `perf_system_window`; eventos de Bash vão imediatamente para `sendCustom`; a saída normal drena janelas residuais. A sonda de contagem de threads, a amostragem de papéis de 10%, o layout de atributos mutuamente exclusivos, `perf_resource_window`, `perf_resource_agent` e `perf_mcp_memory` são removidos. O classificador de papéis ganha `renderer_guest`, `chromium_other` e `scheduler`. A função de normalização de CPU no Linux é elevada do módulo do gerenciador de recursos para uso compartilhado nos dois lugares.
+  Divisão de módulos após a implementação (01):
+  - `packages/shared/src/processResourceTelemetry.ts`: enumeração de papéis, nomes de evento, lista de permissões de chaves de atributos, contagem de atributos e validação de privacidade
+  - `desktop/src/main/electronCpuNormalization.ts`: `normalizeElectronCpuToMachinePercent` (compartilhado entre a UI do gerenciador de recursos e a telemetria)
+  - `desktop/src/main/processResourceRoleClassifier.ts`: classificação de processo Chromium → papel e agregação de um tique (funções puras)
+  - `desktop/src/main/processResourceWindowAggregator.ts`: janelas limitadas e projeção do relatório (funções puras)
+  - `desktop/src/main/processResourceWindowEvent.ts`: projeção de atributos de `perf_process_window`
+  - `desktop/src/main/processResourceSampleSources.ts` + `processResourceSampleSourceRegistry.ts`: tabela de ingestão registrada por origem; **de 03 a 09 cada um adiciona um arquivo de origem e uma linha ao array do registro**, e um erro em uma única origem descarta apenas as próprias amostras. A amostragem tem duas fases: `sample()` produz amostras de papel e o total exato deste tique, e `sampleDevice()` atende origens que precisam de «fatos de outras origens já amostrados no mesmo tique» (janela de nível de dispositivo de 02)
+  - `desktop/src/main/processResourceChromiumSource.ts`: origem do sistema Chromium (único ponto de leitura de `getAppMetrics()`, exportando também o total exato do sistema neste tique para uso pelo evento de nível de dispositivo)
+  - `desktop/src/main/desktopResourceTelemetry.ts`: temporizadores, registro de scene, saída ARMS e drenagem na saída
+    Módulos adicionados após a implementação (02):
+  - `desktop/src/main/processResourceSystemSource.ts`: origem de nível de dispositivo (segunda linha do registro), único ponto de leitura do delta de `os.cpus()` e de `os.freemem()`, sem amostra no tique quando falta o baseline
+  - `desktop/src/main/processResourceSystemWindowAggregator.ts`: janela limitada de nível de dispositivo e projeção do relatório
+  - `desktop/src/main/processResourceSystemWindowEvent.ts`: projeção dos 17 atributos de `perf_system_window`
+  - `desktop/src/main/processResourceExternalAppSamples.ts`: entrada de amostras externas (`recordExternalAppResourceSample`, mantendo a amostra mais recente por origem, expirando conforme o ciclo próprio de cada uma e com entradas limitadas; chamada por 05 e 08)
+  - `desktop/src/main/processResourceAppTotals.ts`: única implementação do valor «soma de recursos de um lote de processos» e da lógica de soma, compartilhada pelo total exato do Chromium e pelo total das amostras externas
+  - a única fonte de dados dos pids por papel é `resourceManagerWindow.collectChromiumProcessRolePids()`; a janela principal é registrada por `createWindow` chamando `registerMainApplicationWindow`, o scheduler por `spawnCronScheduler` chamando `registerSchedulerProcess`, e o guest `<webview>` é determinado por `webContents.getType() === "webview"`
+  - a saída ARMS também escreve no anel de captura E2E compartilhado de `desktopArmsCustomEvent`, para que o E2E consiga ler os eventos emitidos pelo próprio main
+    Módulos adicionados após a implementação (03):
+  - `desktop/src/main/processResourceSelfHeapSource.ts`: origem do heap de autocoleta de host / scheduler (terceira linha do registro); `ingestHostSelfResourceSample` / `ingestSchedulerSelfResourceSample` são chamados pelos pontos de distribuição de mensagens de `desktopHostProcess` e `desktopCronScheduler`; apenas o heap é tomado e entregue no tique seguinte por `addRoleHeapSample`, sendo limpo na entrega
+  - `ProcessResourceSampleContext.addRoleHeapSample(role, heapUsedKb)`: hook compartilhado pelas origens que só contribuem com leituras de heap (o heap do renderer de 04 o reaproveita). O heap é mesclado na amostra completa daquele papel dentro do mesmo tique, e a leitura é descartada quando esse papel não tem amostra completa neste tique — o heap é apenas uma dimensão adicional do evento de papel e não basta para abrir uma janela sozinho. O heap do próprio main também segue esse caminho de mesclagem e deixa de ter tratamento especial em `takeSample`
+    Módulos adicionados após a implementação (05):
+  - `desktop/src/main/processResourceCliSource.ts`: origem dos papéis de CLI (quinta linha do registro). `ingestCliResourceSample(sample, runtimeSurface)` é chamado pelo ponto de distribuição de `AgentResourceSample` de `desktopHostProcess` e mantém a leitura mais recente por processo sob a chave «papel × runtime_surface × instanceToken»; `sample()` entrega a cada 60 segundos a soma dos processos atualmente vivos e alimenta `recordExternalAppResourceSample` com o total local. **Não se adota «entrega limpa tudo»**: os temporizadores de 60 segundos dos vários processos de CLI têm fases diferentes e num tique normalmente chega apenas parte das leituras, de modo que uma entrega limpada deixaria `process_count_peak` e o total pequenos demais; o que o evento de papel quer é exatamente «quantos processos estão vivos ao mesmo tempo e qual é a soma». O critério de expiração é o mesmo das amostras externas de nível de dispositivo (2 ciclos)
+  - `ProcessResourceHardwareOverride` e `processResourceHardwareKey` (em `processResourceWindowAggregator.ts`): as informações da máquina de execução autodeclaradas pela amostra passam a ter campos opcionais, e a saída `{ ...desktopHardware, ...report.hardware }` sobrescreve campo a campo — quando a CLI antiga só traz platform / arch / núcleo, `total_memory_gb` continua vindo da máquina desktop; a identidade de ambiente de execução do Host e a impressão digital de hardware entram juntas na chave da janela, e um evento descreve apenas um ambiente de execução
+  - `ProcessResourceSampleSource.flushPending`: na drenagem de saída, preenche a janela com as leituras «recebidas mas não entregues»; as amostras MCP de 08 reaproveitam o mesmo hook
+  - remoção de `desktop/src/main/agentResourceTelemetryWindow.ts` e da saída `perf_resource_agent`
+- **Documentação**: o dicionário de eventos ganha os três eventos e anota a versão de descontinuação dos eventos antigos; a seção de recursos do documento de monitoramento de performance, o documento de上报 de recursos da CLI e a seção de memória do documento do MCP passam a apontar para este documento; o documento de log de diagnóstico de memória complementa com «a fonte de amostragem é compartilhada com a telemetria de recursos».
 
-## Testing Decisions
+## Decisões de Teste
 
-好的测试只断言外部行为：给定一组输入样本与时钟推进，断言发出的事件名、value、属性集合与属性数；
-给定平台，断言没有启动任何外部进程；给定失败注入，断言样本被丢弃且不抛错、不阻塞。不测内部数据结构。
+Bom teste afirma apenas comportamento externo: dada uma conjunto de amostras de entrada e o avanço do relógio, afirmar o nome do evento emitido, o value, o conjunto de atributos e a contagem de atributos; dada uma plataforma, afirmar que nenhum processo externo foi iniciado; dada uma injeção de falha, afirmar que a amostra foi descartada sem lançar erro e sem bloquear. Não se testam estruturas de dados internas.
 
-测试缝（优先复用既有缝，自高向低）：
+Costuras de teste (preferir reaproveitar as existentes, da mais alta para a mais baixa):
 
-1. **main 聚合器缝**：注入伪造的 `getAppMetrics`、`os` 指标、时钟与 `armsRum.sendCustom` 间谍，
-   推进 tick 与 flush 断言事件。先例：`desktopResourceTelemetry.test.ts`、`desktopMcpTelemetry.test.ts`。
-2. **CLI 采样器缝**：注入 `readCpuUsage`、`readMemoryUsage`、`readMonotonicTimeNs`、定时器与平台探针
-   桩。先例：CLI bootstrap 的 process-resource-sampler 单测。
-3. **Host 转发缝**：伪造 agentService 的 dynamic event 与 `postMessage` 间谍。先例：
-   `hostAgentResourceTelemetry.test.ts`、`hostMemoryDiagnosticsLog.test.ts`。
-   collection 级接线（06）用同一个缝再高一层：往真实 `ServiceCollection` 里注册一个只实现两个
-   `onDynamic*` 的 Agent service 桩，断言订阅数、转发消息的 `runtimeSurface` 与 dispose 后不再转发；
-   手机远控用真实 `windowHostAttachmentRegistry` + 真实 `createZCodeAgentConnectionScope` 建 attachment，
-   断言 attachment 侧拿不到样本、底层订阅数不变。先例：`hostServiceResourceTelemetry.test.ts`。
-4. **renderer 缝**：伪造 `performance.memory` 与 preload 桥。先例：UI 的 memoryDiagnostics 与 logger 单测。
-5. **E2E 缝**：开发态 1 分钟窗口，用现有 `ReadFinalArmsCustomEventsE2E` 通道读取 main 侧最终
-   ARMS 自定义事件。先例：`desktopArmsCustomEventE2E.test.ts` 与使用该通道的 E2E。
-6. **Windows 探针缺席 E2E**：现有 `windows-agent-metric-probe-absence.test.ts` 保留并扩展断言
-   runtime log 不含 `powershell`。
-7. **CI 关键字门禁**：`ci-repo-hygiene` 增加遥测模块路径的禁用关键字检查。先例：该脚本已有的
-   node-gyp 产物与 `.playwright-mcp/` 拒绝规则。
+1. **Costura do agregador do main**: injetar `getAppMetrics` falso, métricas de `os` falsas, relógio e espião de `armsRum.sendCustom`, e avançar tiques e flush para afirmar eventos. Precedentes: `desktopResourceTelemetry.test.ts`, `desktopMcpTelemetry.test.ts`.
+2. **Costura do amostrador da CLI**: injetar `readCpuUsage`, `readMemoryUsage`, `readMonotonicTimeNs`, temporizadores e stubs de sonda de plataforma. Precedente: teste unitário do process-resource-sampler no bootstrap da CLI.
+3. **Costura de encaminhamento do Host**: falsos dynamic events do agentService e espião de `postMessage`. Precedentes: `hostAgentResourceTelemetry.test.ts`, `hostMemoryDiagnosticsLog.test.ts`.
+   A conexão em nível de collection (06) usa a mesma costura um nível acima: registrar um stub de Agent service que implemente apenas os dois `onDynamic*` em um `ServiceCollection` real e afirmar a contagem de assinaturas, o `runtimeSurface` das mensagens encaminhadas e que após o dispose nada mais é encaminhado; para o controle remoto pelo celular, construir o attachment com `windowHostAttachmentRegistry` real + `createZCodeAgentConnectionScope` real e afirmar que o lado do attachment não obtém amostras e que a contagem de assinaturas subjacentes não muda. Precedente: `hostServiceResourceTelemetry.test.ts`.
+4. **Costura do renderer**: falsificar `performance.memory` e a bridge de preload. Precedente: testes unitários de memoryDiagnostics e do logger na UI.
+5. **Costura E2E**: janela de 1 minuto em desenvolvimento, lendo os custom events ARMS finais do lado main pelo canal existente `ReadFinalArmsCustomEventsE2E`. Precedentes: `desktopArmsCustomEventE2E.test.ts` e os E2E que usam esse canal.
+6. **E2E de ausência de sonda no Windows**: o `windows-agent-metric-probe-absence.test.ts` existente é preservado e estendido para afirmar que o runtime log não contém `powershell`.
+7. **Gating de palavras-chave na CI**: `ci-repo-hygiene` ganha a verificação de palavras-chave proibidas nos caminhos de módulos de telemetria. Precedente: as regras existentes de rejeição de artefatos node-gyp e `.playwright-mcp/` desse script.
 
-纯函数（角色分类、统计、属性白名单、归一化、门控）全部单测；协议 schema 兼容性在 shared 与 services 单测。
+Funções puras (classificação de papéis, estatística, listas de permissões de atributos, normalização, gating) têm todas teste unitário; a compatibilidade dos schemas de protocolo é testada em shared e services.
 
-### 验收 Case
+### Casos de Aceitação
 
-| Case ID | Setup                                                                                                                | Action                           | Assertions                                                                                                                              | Layer          | 验证与对应测试（2026-09-15）                               |
-| ------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------- |
-| PRT-001 | 伪造 getAppMetrics 含 main / 主窗口 renderer / webview guest / GPU / host utility / scheduler utility / 其他 utility | 推进 30 个 10 秒 tick 后 flush   | 7 条 `perf_process_window` 角色正确，1 条 `perf_system_window`；每条属性数不超 20                                                       | unit           | [x] 通过；[desktop][prt-desktop]、[system][prt-system]     |
-| PRT-002 | platform=linux，8 核，percentCPUUsage=80                                                                             | tick                             | 角色 cpu 为 10                                                                                                                          | unit           | [x] 通过；[desktop][prt-desktop]                           |
-| PRT-003 | renderer_guest 3 个进程 RSS 100 / 200 / 300                                                                          | flush                            | `rss_kb_total_peak`=600，`rss_kb_max_process_peak`=300，`process_count_peak`=3                                                          | unit           | [x] 通过；[desktop][prt-desktop]                           |
-| PRT-004 | 30 个 tick 中 9 个后台                                                                                               | flush                            | `background_ratio`=0.3                                                                                                                  | unit           | [x] 通过；[desktop][prt-desktop]                           |
-| PRT-005 | creationTime 分别 90 分钟与 10 分钟前                                                                                | flush                            | 单进程角色 uptime 正确，多进程角色取最大                                                                                                | unit           | [x] 通过；[desktop][prt-desktop]                           |
-| PRT-006 | host 样本含 heapUsedKb；gpu 无                                                                                       | flush                            | host 事件有 heap 两项共 20 属性；gpu 事件无 heap 共 18 属性                                                                             | unit           | [x] 通过；[desktop][prt-desktop]                           |
-| PRT-007 | CLI 样本 2 条 lane=chat、1 条 lane=plugin                                                                            | flush                            | cli_chat `process_count_peak`=2，cli_aux=1，总量与最大单进程正确                                                                        | unit           | [x] 通过；[cli][prt-cli]                                   |
-| PRT-008 | CLI 样本 runtimeSurface=remote，platform=linux，arch=x64                                                             | flush                            | 事件 platform=linux、runtime_surface=remote，覆盖桌面机全局值                                                                           | unit           | [x] 通过；[cli][prt-cli]                                   |
-| PRT-009 | 两个 mcp_id 的 MCP 样本                                                                                              | flush                            | 2 条 mcp 事件各带 mcp_id，无 heap，19 属性                                                                                              | unit           | [x] 通过；[desktop][prt-desktop]                           |
-| PRT-010 | Host 转发 Bash 完成通知                                                                                              | 收到即刻                         | 1 条 `perf_tool_exec_resource`，value=duration_ms，12 属性；Windows 样本 10 属性                                                        | unit           | [x] 通过；[desktop][prt-desktop]                           |
-| PRT-011 | CLI Bash 采样器，伪造时钟与 ps 桩                                                                                    | 命令运行 40 秒后结束             | 在 15 秒与 30 秒各采一次，peak 正确，完成通知只发一次；命令 5 秒结束不发通知                                                            | unit           | [x] 通过；[bash][prt-bash]                                 |
-| PRT-012 | CLI Bash 采样器 platform=win32                                                                                       | 命令 40 秒                       | 无 tree 字段，未调用任何外部进程                                                                                                        | unit           | [x] 通过；[bash][prt-bash]                                 |
-| PRT-013 | CLI MCP 采样器                                                                                                       | 推进 5 分钟                      | macOS 调用一次 ps 且根与后代展开正确；Linux 读 /proc 不 spawn；Windows 调用一次 tasklist；1 秒超时丢样本；连续 3 次失败后停用直到 reset | unit           | [x] 通过；[probe][prt-probe]、[mcp][prt-mcp]               |
-| PRT-014 | main 模块，间谍 child_process                                                                                        | 全平台 tick + flush + 退出 flush | child_process 从未被调用                                                                                                                | unit           | [x] 通过；[desktop][prt-desktop]、[system][prt-system]     |
-| PRT-015 | CI 卫生脚本                                                                                                          | 扫描遥测模块路径                 | 不含 powershell / Get-CimInstance / wmic / Get-Process                                                                                  | CI             | [x] 通过；[guard][prt-guard]                               |
-| PRT-016 | 已有 12 个 tick                                                                                                      | 调用带 flush 的 stop             | 发出残窗事件，`sample_count`=12；stop 后不再采样                                                                                        | unit           | [x] 通过；[desktop][prt-desktop]、[system][prt-system]     |
-| PRT-017 | 任意窗口                                                                                                             | flush                            | `perf_system_window.telemetry_self_ms` 存在且不小于 0                                                                                   | unit           | [x] 通过；[system][prt-system]                             |
-| PRT-018 | 40 个 tick 不 flush                                                                                                  | flush                            | `sample_count` 不超过 32                                                                                                                | unit           | [x] 通过；[window][prt-window]                             |
-| PRT-019 | 任意窗口                                                                                                             | flush                            | 不出现 `perf_resource_window`、`perf_resource_agent`、`perf_mcp_memory`                                                                 | unit           | [x] 通过；[desktop][prt-desktop]、[legacy][prt-legacy]     |
-| PRT-020 | host 60 秒 tick                                                                                                      | 推进定时器                       | 一条 `HostResourceSample` 含 cpuPercent / rssKb / heapUsedKb；本地日志行仍按门控写出；只有一个定时器                                    | unit           | [x] 通过；[host][prt-host]                                 |
-| PRT-021 | renderer 60 秒 tick                                                                                                  | 推进定时器                       | 桥收到 heap 样本；本地日志仍写；无桥时 no-op                                                                                            | unit           | [x] 通过；[renderer][prt-renderer]                         |
-| PRT-022 | scheduler 60 秒 tick                                                                                                 | 推进定时器                       | parentPort 收到样本                                                                                                                     | unit           | [x] 通过；[scheduler][prt-scheduler]                       |
-| PRT-023 | 开发态 1 分钟窗口                                                                                                    | 冷启动进入 workspace 等待 90 秒  | E2E 通道读到 `perf_process_window`（至少 main、renderer_main、host）与 `perf_system_window`；属性数不超 20且符合白名单；无旧事件名      | e2e            | [x] 通过；[e2e][prt-e2e]                                   |
-| PRT-024 | Windows，PERF-RES-01 场景                                                                                            | 跨过一个采样周期                 | 原断言保留；runtime log 不含 powershell                                                                                                 | e2e（Windows） | [ ] macOS 按条件跳过，待 Windows；[windows][prt-windows]   |
-| PRT-025 | 旧格式 CLI 样本（无新字段）                                                                                          | services 解析                    | 通过校验并分发                                                                                                                          | unit           | [x] 通过；[compat][prt-compat]                             |
-| PRT-026 | 三个事件的属性 key                                                                                                   | 白名单校验                       | 无隐私 key；spec / 事件字典属性表与代码白名单逐项一致                                                                                   | unit           | [x] 通过；[contract][prt-contract]                         |
-| PRT-027 | 远端 workspace 的 service collection（Agent service 为远端 zcode-server 的 RPC 代理）                                | Host 建立远端连接                | 注册了资源遥测订阅，CLI 样本与 MCP 事件都以 `runtimeSurface=remote` 送 main                                                             | unit           | [x] 通过；[remote][prt-remote]                             |
-| PRT-028 | 同一份远端 collection 上再建立 `web-remote-replayable` attachment                                                    | attach 手机远控                  | attachment 侧订阅资源样本得到空事件，底层订阅数不变，转发给 main 的仍只有 Host 那一条                                                   | unit           | [x] 通过；[remote][prt-remote]                             |
-| PRT-029 | 已订阅的远端连接                                                                                                     | 释放 connection handle           | 两条订阅随之释放（重复 dispose 幂等），后续样本不再转发；缺 Agent service 或单条订阅抛错时不订阅、不抛错                                | unit           | [x] 通过；[remote][prt-remote]                             |
-| PRT-030 | 真实远端 workspace（SSH / WSL / Docker / Server）+ 开发态 1 分钟窗口                                                 | 连接后停留 90 秒                 | E2E 通道读到 `runtime_surface=remote` 的 `cli_chat` 事件，`platform` / `arch` 为远端机器的值；手机远控接入时不出现重复事件              | 手工           | [ ] 真实远端手工待补；仅订阅 UT 通过；[remote][prt-remote] |
+| Case ID | Setup                                                                                                                | Action                           | Assertions                                                                                                                              | Layer          | Verificação e teste correspondente (2026-09-15)                         |
+| ------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------- |
+| PRT-001 | getAppMetrics falso com main / renderer da janela principal / webview guest / GPU / host utility / scheduler utility / outras utilities | Avançar 30 tiques de 10 s e depois flush   | 7 `perf_process_window` com papéis corretos, 1 `perf_system_window`; nenhuma com mais de 20 atributos                     | unit           | [x] passou; [desktop][prt-desktop], [system][prt-system]                    |
+| PRT-002 | platform=linux, 8 núcleos, percentCPUUsage=80                                                                             | tick                             | cpu do papel = 10                                                                                                                        | unit           | [x] passou; [desktop][prt-desktop]                                         |
+| PRT-003 | renderer_guest com 3 processos RSS 100 / 200 / 300                                                                          | flush                            | `rss_kb_total_peak`=600, `rss_kb_max_process_peak`=300, `process_count_peak`=3                                                          | unit           | [x] passou; [desktop][prt-desktop]                                         |
+|PRT-004 | 9 dos 30 ticks em background                                                                                                | flush                            | `background_ratio`=0.3                                                                                                                  | unit           | [x] passou; [desktop][prt-desktop]                                         |
+| PRT-005 | creationTime de 90 e 10 minutos atrás                                                                                      | flush                            | uptime correto para papéis de processo individual, máximo para papéis multiprocesso                                                     | unit           | [x] passou; [desktop][prt-desktop]                                         |
+| PRT-006 | amostra de host com heapUsedKb; gpu sem                                                                                    | flush                            | evento de host com os dois itens de heap totalizando 20 atributos; evento de gpu sem heap, 18 atributos                                  | unit           | [x] passou; [desktop][prt-desktop]                                         |
+| PRT-007 | 2 amostras de CLI com lane=chat, 1 com lane=plugin                                                                           | flush                            | `process_count_peak`=2 em cli_chat, cli_aux=1, total e maior processo individual corretos                                               | unit           | [x] passou; [cli][prt-cli]                                                 |
+| PRT-008 | amostra de CLI com runtimeSurface=remote, platform=linux, arch=x64                                                          | flush                            | platform=linux e runtime_surface=remote no evento, sobrepondo o valor global da máquina desktop                                       | unit           | [x] passou; [cli][prt-cli]                                                 |
+| PRT-009 | amostras MCP de dois mcp_id                                                                                                | flush                            | 2 eventos mcp com mcp_id cada, sem heap, 19 atributos                                                                                    | unit           | [x] passou; [desktop][prt-desktop]                                         |
+| PRT-010 | Host encaminhando notificação de conclusão do Bash                                                                           | Imediatamente ao receber         | 1 `perf_tool_exec_resource`, value=duration_ms, 12 atributos; amostra no Windows com 10 atributos                                       | unit           | [x] passou; [desktop][prt-desktop]                                         |
+| PRT-011 | amostrador Bash da CLI, relógio falso e stub de ps                                                                          | comando roda 40 s e termina     | uma amostragem em 15 s e outra em 30 s, peak correto, notificação de conclusão enviada uma única vez; comando terminando em 5 s não envia notificação | unit      | [x] passou; [bash][prt-bash]                                              |
+| PRT-012 | amostrador Bash da CLI com platform=win32                                                                                   | comando de 40 s                  | sem campos tree, nenhum processo externo chamado                                                                                        | unit           | [x] passou; [bash][prt-bash]                                              |
+| PRT-013 | amostrador MCP da CLI                                                                                                       | Avançar 5 minutos                | macOS chama ps uma vez e a expansão de raiz e descendentes está correta; Linux lê /proc sem spawn; Windows chama tasklist uma vez; timeout de 1 s descarta a amostra; desativa após 3 falhas consecutivas até o reset | unit | [x] passou; [probe][prt-probe], [mcp][prt-mcp]                            |
+| PRT-014 | módulo do main, espião de child_process                                                                                    | tick + flush + flush de saída em todas as plataformas | child_process nunca foi chamado                                                                                                    | unit           | [x] passou; [desktop][prt-desktop], [system][prt-system]                    |
+| PRT-015 | script de higiene da CI                                                                                                      | varrer caminhos de módulos de telemetria | sem powershell / Get-CimInstance / wmic / Get-Process                                                                              | CI             | [x] passou; [guard][prt-guard]                                             |
+| PRT-016 | 12 ticks já existentes                                                                                                      | chamar stop com flush              | emite o evento de janela residual, `sample_count`=12; nenhuma amostragem após o stop                                                  | unit           | [x] passou; [desktop][prt-desktop], [system][prt-system]                    |
+| PRT-017 | qualquer janela                                                                                                             | flush                            | `perf_system_window.telemetry_self_ms` existe e é ≥ 0                                                                                  | unit           | [x] passou; [system][prt-system]                                           |
+| PRT-018 | 40 ticks sem flush                                                                                                          | flush                            | `sample_count` não ultrapassa 32                                                                                                       | unit           | [x] passou; [window][prt-window]                                           |
+| PRT-019 | qualquer janela                                                                                                             | flush                            | não aparecem `perf_resource_window`, `perf_resource_agent`, `perf_mcp_memory`                                                         | unit           | [x] passou; [desktop][prt-desktop], [legacy][prt-legacy]                     |
+| PRT-020 | tick de 60 s do host                                                                                                        | avançar o temporizador            | um `HostResourceSample` com cpuPercent / rssKb / heapUsedKb; a linha de log local continua sendo escrita conforme o gating; apenas um temporizador | unit | [x] passou; [host][prt-host]                                               |
+| PRT-021 | tick de 60 s do renderer                                                                                                   | avançar o temporizador            | a bridge recebe a amostra de heap; o log local continua sendo escrito; no-op sem bridge                                                | unit           | [x] passou; [renderer][prt-renderer]                                       |
+| PRT-022 | tick de 60 s do scheduler                                                                                                  | avançar o temporizador            | parentPort recebe a amostra                                                                                                            | unit           | [x] passou; [scheduler][prt-scheduler]                                     |
+
+| PRT-023 | janela de 1 minuto em desenvolvimento                                                                                     | partida a frio entrando no workspace, esperar 90 s | O canal E2E lê `perf_process_window` (ao menos main, renderer_main, host) e `perf_system_window`; contagem de atributos não passa de 20 e está na lista de permissões; sem nomes de eventos antigos | e2e | [x] passou; [e2e][prt-e2e]                                   |
+| PRT-024 | Windows, cenário PERF-RES-01                                                                                              | cruzar um ciclo de amostragem     | asserções originais preservadas; o runtime log não contém powershell                                                                       | e2e (Windows)   | [ ] pulado condicionalmente no macOS, pendente no Windows; [windows][prt-windows] |
+| PRT-025 | amostras de CLI no formato antigo (sem campos novos)                                                                      | análise pelos services            | passa na validação e é despachada                                                                                                    | unit           | [x] passou; [compat][prt-compat]                                           |
+| PRT-026 | chaves de atributos dos três eventos                                                                                       | validação por lista de permissões | sem chaves de privacidade; a spec / tabela de atributos do dicionário de eventos é item a item consistente com a lista do código | unit      | [x] passou; [contract][prt-contract]                                       |
+| PRT-027 | service collection de workspace remoto (Agent service é proxy RPC do zcode-server remoto)                                   | Host estabelece a conexão remota | a assinatura de telemetria de recursos foi registrada, e amostras de CLI e eventos MCP vão ao main com `runtimeSurface=remote` | unit      | [x] passou; [remote][prt-remote]                                           |
+| PRT-028 | estabelecer `web-remote-replayable` attachment sobre a mesma collection remota                                                | conectar o controle remoto pelo celular | o lado do attachment obtém eventos vazios ao assinar amostras de recursos, a contagem de assinaturas subjacentes não muda e só a assinatura do Host continua encaminhando ao main | unit | [x] passou; [remote][prt-remote]                        |
+| PRT-029 | conexão remota já assinada                                                                                                  | liberar o connection handle       | as duas assinaturas são liberadas (dispose repetido é idempotente) e amostras posteriores não são encaminhadas; sem Agent service ou erro em uma assinatura, não assina e não lança erro | unit | [x] passou; [remote][prt-remote]                        |
+| PRT-030 | workspace remoto real (SSH / WSL / Docker / Server) + janela de 1 minuto em desenvolvimento                                   | permanecer conectado 90 s         | O canal E2E lê o evento `cli_chat` com `runtime_surface=remote`, com `platform` / `arch` da máquina remota; sem eventos duplicados quando o controle remoto pelo celular entra | manual | [ ] verificação manual com remoto real pendente; apenas a UT de assinatura passou; [remote][prt-remote] |
 
 [prt-desktop]: ../../packages/desktop/test/desktopResourceTelemetry.test.ts
 [prt-system]: ../../packages/desktop/test/desktopResourceSystemWindow.test.ts
@@ -748,93 +544,51 @@ HAVING COUNT(DISTINCT device_mid) >= 100
 [prt-guard]: ../../scripts/ci/ci-telemetry-keyword-guard.test.mjs
 [prt-window]: ../../packages/desktop/test/processResourceWindowAggregator.test.ts
 
-### 收口验证记录（2026-09-15）
+### Registro de Verificação de Fechamento (2026-09-15)
 
-- 受影响 UT：app / shared / services / renderer 29 文件、234 case；CLI adapters / bootstrap
-  6 文件、51 case（含 macOS 真实 Node 子进程和 16.5 秒 Bash 资源烟测）；架构门禁 12 case。
-  按本票用户要求未执行全量 UT。两个新增回归均已验证先失败后通过：PRT-026 文档缺属性表，
-  以及全仓门禁漏枚举 CONTRACT.md。
-- `pnpm typecheck`、`pnpm --filter @zcode/desktop typecheck:e2e` 通过；`pnpm lint` 为
-  0 error / 42 条存量 warning；修改文件格式检查通过。
-- `pnpm architecture:check` 与 `pnpm architecture:check --changed` 通过，baseline / new 均为 0。
-  门禁原本将磁盘上已存在的 `packages/services/src/storage/CONTRACT.md` 误报为缺失：文件枚举只收
-  源码。现已纳入契约文档并排除文档的源码分析；真实缺失仍失败，未更新 baseline。
-- `pnpm knip` 的存量问题仍使命令非零退出；对比任务起点，未使用值导出 707 → 704，类型导出
-  915 → 914，无新增未使用导出。去掉 CLI 实例上限与系统 CPU 内部函数 / 类型的 export 前，
-  已用全仓 `dep:refs` 确认无外部引用；保留采样实现。
-- 生产源码中的三个旧事件名、hardware_profile、role_detail_sampled 均零命中；测试保留旧事件
-  停发的负向断言。遥测关键字门禁通过（56 个受保护文件、2 个已登记豁免）。
-- E2E：按用户最新要求仅运行受影响的 PRT-023 / PRT-024，命令退出码 0：PRT-023
-  **1 passed（59.7s）**，PRT-024 **1 skipped**（macOS 平台条件，需 Windows 补验）。
-  使用 `ZCODE_E2E_SPEC` 指定 `process-resource-telemetry-roles.test.ts` 与
-  `windows-agent-metric-probe-absence.test.ts`；运行 ID：
-  `desktop-e2e-20260915090553275-p30388-8c6c049d47706164`。先前全量尝试已按用户要求中止，
-  套餐、后台会话等失败保留在对应产物中，不作为本票受影响验收结果，不继续扩大范围。
-  PRT-030 需要真实远端 workspace，本机尚未执行；不能以订阅单测代替真实远端验收。
-- code-review 双轴：Standards 0 项；Spec 复核发现的 4 处旧文档口径已修复，无遗留实现问题。
-  清理仅收窄 desktop 模块内部导出；
-  状态 owner、采样事件顺序、远端运行机隔离及 continuous / replayable 交付边界不变。
+- UT afetados: 29 arquivos e 234 casos em app / shared / services / renderer; 6 arquivos e 51 casos em CLI adapters / bootstrap (incluindo um subprocesso Node real no macOS e um smoke test de recursos Bash de 16,5 segundos); 12 casos de gating de arquitetura. Conforme pedido do usuário deste ticket, a UT completa não foi executada. As duas regressões novas foram verificadas como falhando antes e passando depois: PRT-026 sem tabela de atributos no documento, e o gating de todo o repositório sem enumerar CONTRACT.md.
+- `pnpm typecheck` e `pnpm --filter @zcode/desktop typecheck:e2e` passaram; `pnpm lint` com 0 erros / 42 warnings pré-existentes; a verificação de formatação dos arquivos alterados passou.
+- `pnpm architecture:check` e `pnpm architecture:check --changed` passaram, com baseline / new ambos em 0. O gating reportava erroneamente como ausente o `packages/services/src/storage/CONTRACT.md`, que já existia no disco: a enumeração de arquivos só coletava código-fonte. Documentos de contrato foram agora incluídos e a análise de código-fonte os exclui; ausência real ainda falha, e o baseline não foi atualizado.
+- Os problemas pré-existentes de `pnpm knip` continuam fazendo o comando sair com código diferente de zero; comparado ao início da tarefa, exportações de valores não usadas 707 → 704 e exportações de tipos 915 → 914, sem nova exportação não usada. Antes de remover o export do limite de instâncias de CLI e das funções/tipos internos de CPU do sistema, `dep:refs` em todo o repositório confirmou que não há referência externa; a implementação de amostragem foi mantida.
+- Os três nomes de eventos antigos, `hardware_profile` e `role_detail_sampled` têm zero ocorrências no código de produção; os testes mantêm as asserções negativas de descontinuação dos eventos antigos. O gating de palavras-chave de telemetria passou (56 arquivos protegidos, 2 isenções registradas).
+- E2E: conforme pedido mais recente do usuário, apenas PRT-023 / PRT-024 afetados foram executados, com código de saída 0: PRT-023 **1 passed (59,7 s)**, PRT-024 **1 skipped** (condição de plataforma macOS, precisa de verificação no Windows). `ZCODE_E2E_SPEC` especificou `process-resource-telemetry-roles.test.ts` e `windows-agent-metric-probe-absence.test.ts`; ID de execução: `desktop-e2e-20260915090553275-p30388-8c6c049d47706164`. Uma tentativa completa anterior foi abortada conforme pedido do usuário; as falhas de assinatura, sessões em background etc. permanecem nos artefatos correspondentes, não são tratadas como resultado da aceitação afetada deste ticket e o escopo não é ampliado. PRT-030 exige um workspace remoto real e ainda não foi executado; uma única unitário de assinatura não substitui a aceitação remota real.
+- code-review de dois eixos: 0 itens em Standards; as 4 inconsistências de documentação antiga encontradas na revisão da Spec foram corrigidas, sem problemas de implementação remanescentes. A limpeza apenas estreitou exportações internas do módulo desktop; owner de estado, ordem dos eventos de amostragem, isolamento da máquina de execução remota e os limites de entrega continuous / replayable permanecem inalterados.
 
-#### PRT-030 的手工验证方式（票 06）
+#### Método de verificação manual de PRT-030 (ticket 06)
 
-1. 用 `pnpm dev:desktop` 起开发构建（开发态窗口是 1 分钟，不是 5 分钟）。
-2. 连接一个真实远端 workspace（SSH / WSL / Docker / Server 任一），进入该 workspace 发一次对话，
-   确认远端 zcode-cli 已拉起。
-3. 停留 90 秒以上，让远端 CLI 至少自采一次（60 秒）并跨过一个上报窗口。
-4. 读事件：E2E 环境用 `ReadFinalArmsCustomEventsE2E` 通道取 main 最终发出的自定义事件；
-   手工联调直接看 main 的 ARMS 出口日志。筛 `perf_process_window` 且 `runtime_surface=remote`。
-5. 断言：至少一条 `process_role=cli_chat`；`platform` / `arch` / `logical_cpu_count` /
-   `total_memory_gb` 是远端机器的值而不是桌面机的值；同窗口本机角色（main / host / renderer_main）
-   仍是 `runtime_surface=local`，两台机器的 RSS 没有被相加。
-6. 关掉该远端 workspace（tab 关闭 → logical session 释放）后再等一个窗口：不再出现该远端机器的
-   `cli_chat` 事件。**注意因果**：订阅是随 registry 释放 entry 一起收口的；只是网络掉线时事件也会停，
-   但那是因为远端 CLI 已经不可达，不能用来证明订阅已释放——要验证释放必须走关闭 workspace 这条路径。
-7. 混装场景：桌面端连接缺少 `capabilities.processResourceTelemetry` 的旧独立 Server，
-   确认仍可使用业务 RPC、旧 Core 不退出，且没有资源事件订阅；再连接声明能力的 Server，
-   确认四类遥测正常转发。真实旧版 Desktop E2E fixture 的缺口见修复验证文档。
+1. Subir o build de desenvolvimento com `pnpm dev:desktop` (a janela em desenvolvimento é de 1 minuto, não 5).
+2. Conectar um workspace remoto real (SSH / WSL / Docker / Server, qualquer um), entrar nesse workspace e enviar uma conversa, confirmando que o zcode-cli remoto foi iniciado.
+3. Permanecer mais de 90 segundos, para que a CLI remota faça pelo menos uma autocoleta (60 segundos) e atravesse uma janela de envio.
+4. Ler os eventos: em ambiente E2E, usar o canal `ReadFinalArmsCustomEventsE2E` para obter os custom events finais emitidos pelo main; na verificação manual, olhar diretamente o log de saída ARMS do main. Filtrar `perf_process_window` com `runtime_surface=remote`.
+5. Asserções: pelo menos um `process_role=cli_chat`; `platform` / `arch` / `logical_cpu_count` / `total_memory_gb` são os valores da máquina remota e não da desktop; papéis locais da mesma janela (main / host / renderer_main) continuam com `runtime_surface=local` e o RSS das duas máquinas não foi somado.
+6. Fechar o workspace remoto (fechar a tab → liberação do logical session) e esperar mais uma janela: nenhum evento `cli_chat` daquela máquina remota deve aparecer. **Atenção à causalidade**: a assinatura é recolhida junto com a entrada no registro; em caso de queda de rede os eventos também param, mas isso é porque a CLI remota já está inacessível e não prova que a assinatura foi liberada — para verificar a liberação é preciso passar pelo caminho de fechar o workspace.
+7. Cenário misto: conectar o desktop a um Server independente antigo sem `capabilities.processResourceTelemetry` e confirmar que as RPC de negócio continuam funcionando, que o Core antigo não sai e que não há assinatura de eventos de recursos; depois conectar um Server que declara a capacidade e confirmar que as quatro categorias de telemetria são encaminhadas normalmente. A lacuna do fixture E2E do Desktop antigo real está no documento de verificação das correções.
 
-**混装边界（R1 / N2 已修）**：此前 Host 对远端无条件订阅
-`onDynamicProcessResourceSample`、`onDynamicMcpTelemetry`、`onDynamicMcpResourceSamples` 与
-`onDynamicToolExecResource`。不仅早于前两项事件的旧版本有风险，基准 staging `26dcf8d27c`
-也不具备本次新增的后两项，未知事件会经旧端 `ProxyChannel`、`ChannelServer` 和 WebSocket
-读循环抛出，造成 Core 退出；桌面同步 try/catch 捕获不到对端异常。
+**Limite do cenário misto (R1 / N2 já corrigido)**: antes, o Host assinava incondicionalmente `onDynamicProcessResourceSample`, `onDynamicMcpTelemetry`, `onDynamicMcpResourceSamples` e `onDynamicToolExecResource` para o remoto. Não apenas versões mais antigas que precedem os dois primeiros eventos estavam em risco; o staging de referência `26dcf8d27c` também não tinha os dois últimos itens novos, e eventos desconhecidos lançam exceção através do `ProxyChannel`, do `ChannelServer` e do loop de leitura WebSocket do lado antigo, causando a saída do Core; o try/catch do desktop não captura exceções da contraparte.
+O Host atual verifica o campo opcional de capacidade de `/api/server-info` antes de emitir a assinatura; sem a capacidade, pula este conjunto de eventos de desvio e mantém a conexão normal, sem adivinhar capacidade por número de versão. Ambas as implementações de Server declaram suporte. Local e SSH/WSL/Docker empacotados com o Desktop mantêm o caminho de assinatura original. O comportamento genérico de eventos desconhecidos em RPC do Server antigo não foi alterado pela atualização do cliente, mas esta entrada de telemetria não envia mais assinaturas de eventos a Servers que não os suportam.
 
-当前 Host 在发出订阅前检查 `/api/server-info` 的可选能力字段；缺能力时跳过这组旁路事件并保留
-正常连接，不按版本号猜测能力。两个 Server 实现均声明支持。本地及 Desktop 配套部署的
-SSH/WSL/Docker 保留原订阅路径。旧 Server 的通用 RPC 未知事件行为并未被客户端更新改变，
-但本遥测入口不再向不支持它的 Server 发送事件订阅。
+## Fora de Escopo
 
-## Out of Scope
+- **Papel `cua_helper`**. O Helper do Windows é forkado pelo Host, mas executa o código do pacote externo fixado zcode-cua-helper-runtime, e a autocoleta exigiria alterar o upstream e passar por uma atualização atômica `bump:producer`; o Helper.app do macOS é iniciado pelo launchd e não está na árvore de processos, então o Host só poderia amostrá-lo via `ps`. Solução para a segunda fase: o runtime do Helper se reporta em CPU e RSS no heartbeat de saúde já existente, com zero processos externos.
+- Probes MCP / Bash separados no lado do zcode-server. Os fatos de recursos gerados pela própria CLI remota são encaminhados pelo relay Host trusted existente, já conectado por 08 / 09.
+- CPU do MCP e árvore de processos do Bash no Windows. A direção é uma extensão nativa sem processos externos (GetProcessMemoryInfo / GetProcessTimes), um esforço de engenharia independente.
+- A configuração das classes de alerta C, D, E e F (as regras já estão definidas neste documento, aguardando acúmulo de dados para serem configuradas).
+- A janela do gerenciador de recursos e sua amostragem via CIM no Windows. É acionada pelo usuário abrindo a janela, não é telemetria, mas é um mecanismo da mesma natureza do incidente histórico; recomenda-se avaliar separadamente a substituição por tasklist.
+- Eventos de estabilidade (perf_crash, perf_anr, perf_process_exit etc.), eventos de volume do diretório de dados e eventos de rede permanecem inalterados.
+- O formato de linha e os contadores de domínio do log de diagnóstico local `[memory]` permanecem inalterados.
+- O controle remoto pelo celular e o lado Web não participam.
+- A configuração de alertas do próprio console ARMS.
 
-- **`cua_helper` 角色**。Windows Helper 由 Host fork，但运行的是外部 pinned 包 zcode-cua-helper-runtime
-  的代码，自采需要改上游并走 `bump:producer` 原子升级；macOS Helper.app 由 launchd 拉起，不在进程树里，
-  Host 只能靠 `ps` 采。二期方案：Helper runtime 在已有 health 心跳中自报 CPU 与 RSS，零外部进程。
-- 在 zcode-server 侧另起独立的 MCP / Bash 探针。远端 CLI 自己产生的资源事实沿既有 trusted Host relay 转发，已由 08 / 09 接线。
-- Windows 上的 MCP CPU 与 Bash 进程树。方向是一个零外部进程的原生扩展（GetProcessMemoryInfo /
-  GetProcessTimes），独立工程量。
-- C、D、E、F 四类告警规则的配置（规则已在本文定义，等数据积累后配）。
-- 资源管理器窗口及其 Windows CIM 采样。它由用户打开窗口触发，不是遥测，但与历史事故同类机制，
-  建议单独评估替换为 tasklist。
-- 稳定性事件（perf_crash、perf_anr、perf_process_exit 等）、数据目录体积事件、网络事件不变。
-- 本地 `[memory]` 诊断日志的行格式与领域计数器不变。
-- 手机远控与 Web 端不参与。
-- ARMS 控制台自身的告警配置。
+## Observações Adicionais
 
-## Further Notes
+- A cobrança é por número de registros enviados. O princípio de design é efeito primeiro, e sobre essa base remove-se o envio sem sentido, sem orçamento rígido.
+- Todo o julgamento de alerta acontece na plataforma própria, pelos seguintes motivos: mudanças de limiar não exigem lançamento; alertas valiosos são julgamentos populacionais; a lógica de julgamento no cliente tem bugs e falhas de notificação são invisíveis.
+- As estatísticas de CPU mantêm p95 e peak; a memória mantém apenas peak e mean: o dano da CPU vem de ocupação alta sustentada, e picos isolados são ruído normal — p95 filtra o ruído enquanto peak preserva o valor diagnóstico de «ocorreu 100%?»; o dano da memória vem de nível alto, e encostar uma vez em 1,5 GB já traz risco de OOM, então peak é a estatística-chave, e dentro de 5 minutos p95 e peak são quase iguais.
+- O limiar de 15 segundos do Bash é estratégia de amostragem e não julgamento de anomalia: comandos curtos não têm oportunidade de amostragem nem informação.
+- Relação com [memory-diagnostics-log.md](./memory-diagnostics-log.md): o log local continua existindo, mas a fonte de amostragem de host e renderer é compartilhada com esta spec, a CLI já está na forma compartilhada, e a leitura de heap do main é mesclada no mesmo tique.
+- Relação com [zcode-data-size-arms-telemetry.md](./zcode-data-size-arms-telemetry.md): o evento de volume do diretório de dados continua usando `resolveResourceUsageScene` para julgar background, e esta spec preserva a semântica dessa função.
 
-- 计费按上报条数。设计原则为效果第一，在此基础上删除无意义上报，不设硬预算。
-- 告警判定全部在自建平台完成，理由：阈值改动不需要发版；有价值的告警是群体判断；客户端判定逻辑本身会有
-  bug 且漏报不可见。
-- CPU 统计保留 p95 与 peak 两项，内存只保留 peak 与 mean：CPU 的危害来自持续高占用，单点尖峰是正常噪声，
-  p95 过滤噪声而 peak 保留"是否出现过 100%"的诊断价值；内存的危害来自高水位，碰到一次 1.5 GB 就有
-  OOM 风险，peak 是关键统计量，5 分钟内 p95 与 peak 几乎相等。
-- Bash 15 秒门槛是采样策略而非异常判定：短命令没有采样机会也没有信息量。
-- 与 [memory-diagnostics-log.md](./memory-diagnostics-log.md) 的关系：本地日志继续存在，但 host 与
-  renderer 的采样源与本 spec 共用，CLI 已是共用形态，main 的 heap 读取并入同一 tick。
-- 与 [zcode-data-size-arms-telemetry.md](./zcode-data-size-arms-telemetry.md) 的关系：数据目录体积事件
-  沿用 `resolveResourceUsageScene` 判断后台，本 spec 保留该函数语义。
-
-## 架构治理决策记录
+## Registro de Decisões de Governança de Arquitetura
 
 ```text
 owner:            main 进程资源遥测模块（角色窗口、系统窗口、Bash 即时事件的唯一聚合与 ARMS 出口）；

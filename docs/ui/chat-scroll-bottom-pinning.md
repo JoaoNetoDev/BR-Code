@@ -1,12 +1,12 @@
 # Chat scroll bottom pinning
 
-> **V4 当前事实**：`ConversationTimeline` 持有底部跟随与滚动记忆接线；记忆模块为
-> `packages/ui/src/lib/chatSessionScrollMemory.ts`。
+> **Fato atual do V4**: `ConversationTimeline` detém a fiação de acompanhamento de fundo e de memória de rolagem; o módulo de memória é
+> `packages/ui/src/lib/chatSessionScrollMemory.ts`.
 
-V4 timeline 维护一个显式吸底状态机：
+A timeline do V4 mantém uma máquina de estados explícita de fixação ao fundo:
 
-- `isPinnedToBottom=true` 表示当前视口吸附在消息底部，流式输出、thinking shimmer 和消息布局变化时自动跟随到底部。
-- `isPinnedToBottom=false` 表示用户已经离开底部，流式输出不得覆盖用户当前阅读位置。
+- `isPinnedToBottom=true` indica que o viewport atual está grudado na parte inferior das mensagens, acompanhando automaticamente até o fundo durante a saída em streaming, o thinking shimmer e as mudanças de layout das mensagens.
+- `isPinnedToBottom=false` indica que o usuário já saiu da parte inferior, e a saída em streaming não pode sobrescrever a posição de leitura atual do usuário.
 
 ```text
                          用户回到底部 / 点击“回到底部”
@@ -22,23 +22,21 @@ V4 timeline 维护一个显式吸底状态机：
           └────────────── 保持 FOLLOWING ────────────────────────┴─ 保持 DETACHED
 ```
 
-`FOLLOWING / DETACHED` 表达用户滚动意图，不是每次读取
-`scrollHeight - clientHeight - scrollTop` 得到的瞬时几何结果。终态切换会让 running live tail
-迁入虚拟历史，同时把“工作中”历史折为“已工作”；virtualizer 的估算、真实测高和折叠动画会在
-连续多个布局阶段改变 `scrollTop`。这些变化不是用户上滚，不能把 `FOLLOWING` 误判成
-`DETACHED`。
+`FOLLOWING / DETACHED` expressa a intenção de rolagem do usuário, e não o resultado geométrico instantâneo obtido a cada leitura de
+`scrollHeight - clientHeight - scrollTop`. A mudança para o estado terminal faz a live tail migrar para o histórico virtual ao mesmo tempo em que o histórico "工作中" é recolhido como "已工作"; a estimativa do virtualizer, a medição real de altura e a animação de recolhimento alteram o `scrollTop` ao longo de várias fases de layout consecutivas. Essas mudanças não são rolagem do usuário para cima e não podem fazer `FOLLOWING` ser julgado erroneamente como
+`DETACHED`.
 
-## 行为
+## Comportamento
 
-- 打开 task 时优先读取滚动记忆；如果记忆里记录离开前处于吸底状态，则切回时执行一次滚动到底部并继续保持吸底；否则恢复保存的历史阅读位置。没有滚动记忆时滚动到底部并进入吸底状态。
-- 用户滚动后，如果 `distanceToBottom > 48px`，立即退出吸底状态。
-- 用户回到底部附近或点击“滚动到底部”按钮后，恢复吸底状态。
-- running assistant 进入 terminal 时，如果切换前仍是吸底状态，则 live tail 迁入虚拟历史、assistant history 自动折叠和后续动态测高期间都继续贴底。
-- 用户已经离底，或在终态布局变化同一帧发起向上滚动时，用户输入优先；终态切换不得恢复吸底，也不得把视口拉回最新消息。
-- 对话内查找、全局搜索结果高亮和 fork 锚点属于定位型滚动，触发前必须退出吸底状态，避免下一次流式布局更新把定位结果拉回底部。
-- “回到底部”按钮只在离底且存在 render unit 时显示；内容没有纵向溢出时不显示。
+- Ao abrir uma task, a memória de rolagem tem prioridade de leitura; se a memória registra que o estado antes de sair era fixado ao fundo, ao voltar executa-se uma rolagem até o fundo e se continua fixado; caso contrário, restaura-se a posição de leitura salva. Sem memória de rolagem, rola-se até o fundo e entra-se no estado fixado.
+- Após o usuário rolar, se `distanceToBottom > 48px`, sai-se imediatamente do estado fixado ao fundo.
+- Quando o usuário volta para perto da parte inferior ou clica no botão "滚动到底部", restaura-se o estado fixado ao fundo.
+- Quando um assistant em running entra em estado terminal, se ainda estava fixado ao fundo antes da troca, a live tail migra para o histórico virtual e, durante o recolhimento automático do histórico do assistant e a medição dinâmica de altura subsequente, continua grudada no fundo.
+- Se o usuário já saiu da parte inferior, ou iniciar uma rolagem para cima no mesmo quadro da mudança de layout do estado terminal, a entrada do usuário tem prioridade; a mudança para o estado terminal não pode restaurar a fixação ao fundo nem puxar o viewport de volta para a mensagem mais recente.
+- A busca dentro da conversa, o destaque dos resultados da busca global e a âncora de fork são rolagens de posicionamento, e devem sair do estado fixado ao fundo antes de serem disparadas, evitando que a próxima atualização de layout do streaming puxe o resultado da localização de volta para o fundo.
+- O botão "回到底部" só aparece quando se está fora do fundo e existe uma render unit; ele não é exibido quando o conteúdo não tem overflow vertical.
 
-## 滚动事件优先级
+## Prioridade dos Eventos de Rolagem
 
 ```text
 同一帧内：用户滚动意图 > 显式定位动作 > 内容/测高/折叠布局变化
@@ -52,22 +50,22 @@ V4 timeline 维护一个显式吸底状态机：
 | live delta、terminal 折叠、virtualizer 测高补偿 | 保持 FOLLOWING 并贴底 | 保持 DETACHED，不夺滚动权 |
 | 查找、轮次导航、fork 锚点定位                   | 先转 DETACHED 再定位  | 保持 DETACHED             |
 
-## 实现边界
+## Fronteira de Implementação
 
-- 会话流滚动视口使用 `scrollbar-gutter: stable` 预留原生纵向滚动条空间，避免内容在滚动条出现或消失时发生横向位移；桌面端与手机 Web 复用同一规则。
-- 自动吸底使用 `scrollRef.current.scrollTop = scrollHeight - clientHeight`，避免流式输出期间连续 smooth scroll 造成抖动。
-- 用户点击“回到底部”或提交需要定位到最新消息的 prompt 时，使用 instant `scrollTop` 写入并立即进入吸底状态；同一处理内必须同步提交当前 session 的吸底记忆，不能等待后续 `scroll` 或 scope cleanup，确保紧接着切换 session 仍按“吸底”恢复。
-- `scroll` 事件只有在关联到真实用户滚动输入时才允许改变吸底意图；组件自身贴底以及 virtualizer/折叠/测高造成的 `scrollTop` 变化只更新几何账目，不改变 `FOLLOWING / DETACHED`。用户向上滚动的输入在浏览器派发 `scroll` 之前先登记，因此与 terminal commit 同帧时也能优先解除跟随。
-- 滚动记忆只保存 renderer-local 的阅读位置和吸底意图；切到别的 task 后后台继续流式输出时，原本吸底的 task 切回必须重新吸到底部，避免旧 `scrollTop` 被当成用户阅读历史位置。
-- 用户滚动、scope 变化和 timeline 卸载都会保存当前状态；scope 变化使用 React before-mutation snapshot 读取旧 DOM，并对账尚未派发的上滚/下滚，避免快速“滚动后切走”被新会话 DOM 覆盖或误存为吸底。
-- 会话恢复时 rows 可能晚于 session scope 到达；“回到底部”按钮可见性必须在 rows/测高就绪后重新对账。只要恢复意图是离底且已有可滚动内容，就必须提供按钮；不得因为恢复瞬间 `rowCount=0` 而永久隐藏，也不得出现视口明显离底但逻辑仍显示为吸底的状态。
-- session scope、lease 与 rows 必须来自同一会话：lease 尚未匹配目标 session 时 timeline 暂不消费旧 projection。非空 tail window 或未完成测高把离底位置钳制到临时边界时，保留原始恢复意图；历史补齐后重新落地，期间 prepend 锚定不得把临时钳制位置升级为最终阅读锚点。真实用户滚动仍拥有最高优先级并立即取消待恢复意图。
-- 记忆按 workspace key、pane 与 session/task scope 隔离，最多保留 200 项；只持续到当前 renderer 结束，不跨刷新、应用重启或设备同步。
-- 本功能只影响 renderer 内部滚动位置，不改变 desktop continuous 和 web remote replayable 的 task 消息语义。
+- O viewport de rolagem do fluxo da sessão usa `scrollbar-gutter: stable` para reservar o espaço da barra de rolagem vertical nativa, evitando deslocamento horizontal do conteúdo quando a barra aparece ou desaparece; desktop e Web no celular reutilizam a mesma regra.
+- A fixação automática ao fundo usa `scrollRef.current.scrollTop = scrollHeight - clientHeight`, evitando o tremor causado por smooth scroll contínuo durante a saída em streaming.
+- Quando o usuário clica em "回到底部" ou envia um prompt que precisa ser posicionado na mensagem mais recente, usa-se uma escrita de `scrollTop` instantânea e entra-se imediatamente no estado fixado ao fundo; no mesmo tratamento é obrigatório enviar de forma síncrona a memória de fixação da session atual, sem esperar um `scroll` posterior ou o cleanup do scope, garantindo que uma troca de session imediatamente em seguida ainda seja restaurada como "fixado ao fundo".
+- O evento `scroll` só pode alterar a intenção de fixação quando estiver associado a uma entrada de rolagem real do usuário; a própria fixação do componente e as mudanças de `scrollTop` causadas por virtualizer/recolhimento/medição apenas atualizam a contabilidade geométrica e não alteram `FOLLOWING / DETACHED`. A entrada de rolagem do usuário para cima é registrada antes de o navegador despachar o `scroll` e, por isso, também tem prioridade para desfazer o acompanhamento quando ocorre no mesmo quadro do commit terminal.
+- A memória de rolagem guarda apenas a posição de leitura renderer-local e a intenção de fixação ao fundo; ao trocar para outra task, se a saída em streaming continuar em segundo plano, a task que estava fixada ao fundo deve voltar a grudar no fundo ao ser retomada, evitando que o `scrollTop` antigo seja tratado como posição de histórico de leitura do usuário.
+- A rolagem do usuário, a mudança de scope e o desmonte da timeline salvam o estado atual; a mudança de scope usa o snapshot before-mutation do React para ler o DOM antigo e conferir as rolagens para cima/para baixo ainda não despachadas, evitando que um rápido "rolar e trocar" seja sobrescrito pelo DOM da nova sessão ou armazenado por engano como fixado ao fundo.
+- Na restauração da sessão, as rows podem chegar depois do scope da sessão; a visibilidade do botão "回到底部" precisa ser reconferida depois que rows/medição estiverem prontas. Assim que a intenção de restauração for ficar fora do fundo e já houver conteúdo rolável, o botão tem de estar disponível; não pode ser ocultado permanentemente só porque no instante da restauração `rowCount=0`, nem pode aparecer um estado em que o viewport está claramente fora do fundo mas a lógica ainda mostra-se fixada ao fundo.
+- session scope, lease e rows têm de vir da mesma sessão: enquanto o lease não corresponder à session alvo, a timeline não consome a projection antiga. Quando uma tail window não vazia ou uma medição incompleta prende a posição fora do fundo em um limite temporário, a intenção original de restauração é preservada e é reaplicada depois que o histórico for completo; nesse meio tempo, a ancoragem por prepend não pode promover a posição temporariamente presa ao ancora final de leitura. A rolagem real do usuário continua com a prioridade máxima e cancela imediatamente a intenção de restauração pendente.
+- A memória é isolada por workspace key, pane e scope de session/task, mantendo no máximo 200 itens; ela dura apenas enquanto o renderer atual existir, sem atravessar refresh, reinício do app ou sincronização entre dispositivos.
+- Esta funcionalidade afeta apenas a posição de rolagem dentro do renderer e não muda a semântica das mensagens de task do desktop continuous nem do web remote replayable.
 
-## 覆盖决策
+## Decisões de Cobertura
 
-- 接受 `following=true` 的 running -> terminal 折叠/虚拟化路径，以及 `following=false` 和“用户上滚与 terminal 同帧”的竞争路径。
-- desktop `desktop-continuous` 用 controlled-stream E2E 代表真实流式和终态时序；最终正文使用足够长的自然文本，即使模型不遵守显式换行也能稳定产生可滚动高度。
-- 手机 Web 与桌面复用 renderer 滚动状态机，以 focused test 证明输入来源和状态优先级；本修复不新增 snapshot、queue、owner、relay 或 `web-remote-replayable` 状态，不把 desktop 的 renderer-local 滚动位置同步到手机。
-- reasoning/tool/subagent 的具体内容形态、主题和 locale 不改变滚动权归属，不做笛卡尔积；E2E 选择一段可折叠 assistant history 作为代表。
+- Aceita o caminho de recolhimento/virtualização de running -> terminal com `following=true`, bem como os caminhos de competição com `following=false` e com "usuário rolando para cima no mesmo quadro do terminal".
+- O desktop `desktop-continuous` usa E2E de controlled-stream para representar o timing real de streaming e de estado terminal; o corpo final usa texto natural suficientemente longo, de modo que uma altura rolável seja gerada de forma estável mesmo que o modelo não respeite quebras de linha explícitas.
+- O Web no celular e o desktop reutilizam a máquina de estados de rolagem do renderer, provando a origem das entradas e a prioridade dos estados com focused tests; esta correção não adiciona snapshot, queue, owner, relay nem estado `web-remote-replayable`, e não sincroniza a posição de rolagem renderer-local do desktop para o celular.
+- A forma específica do conteúdo de reasoning/tool/subagent, o tema e o locale não alteram a atribuição do direito de rolagem e não justificam um produto cartesiano; o E2E escolhe um trecho de assistant history recolhível como representante.
