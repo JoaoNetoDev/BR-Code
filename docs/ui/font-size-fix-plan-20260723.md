@@ -1,8 +1,8 @@
-# 字号修复方案
+# Plano de correção de tamanho de fonte
 
-## 映射规则
+## Regras de mapeamento
 
-| 当前值 | 默认大小 | 目标值 | 默认大小 |
+| Valor atual | Tamanho padrão | Valor alvo | Tamanho padrão |
 |--------|---------|--------|---------|
 | `text-xs` | 12px | `text-ui-sm` | 12px |
 | `text-sm` | 14px | `text-ui-base` | 14px |
@@ -10,9 +10,9 @@
 | `text-[14px]` | 14px | `text-ui-base` | 14px |
 | `text-[15px]` | 15px | `text-ui-base` | 14px |
 | `text-[16px]` | 16px | `text-ui-lg` | 16px |
-| `text-[28px]` | 28px | **不动** | 页面级 h1，与设置页标题同级 |
+| `text-[28px]` | 28px | **sem alteração** | h1 de nível de página, no mesmo nível do título da página de configurações |
 
-## 文件清单
+## Lista de arquivos
 
 ### 1. `BrowserSettingsSection.tsx`
 
@@ -92,7 +92,7 @@
 
 ### 14. `AutomationEditView.tsx`
 
-- L1900: `text-[28px]` → **不动**
+- L1900: `text-[28px]` → **sem alteração**
 - L1906: `text-[16px]` → `text-ui-lg`
 - L1951: `text-[14px]` → `text-ui-base`
 - L1965: `text-[14px]` → `text-ui-base`
@@ -110,7 +110,7 @@
 
 ### 15. `AutomationsSection.tsx`
 
-- L598: `text-[28px]` → **不动**
+- L598: `text-[28px]` → **sem alteração**
 - L601: `text-[14px]` → `text-ui-base`
 - L616: `text-[14px]` → `text-ui-base`
 - L702: `text-[14px]` → `text-ui-base`

@@ -1,40 +1,40 @@
-# Windows CUA Indicator Shadow Implementation Plan
+# Plano de Implementação da Sombra do Indicador CUA no Windows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 去除 Windows CUA 顶部提示的矩形原生阴影和 CSS 裁剪硬边，同时保持可见卡片尺寸与顶部位置不变。
+**Objetivo:** Remover a sombra nativa retangular e as bordas duras de recorte CSS do aviso superior do CUA no Windows, mantendo inalterados o tamanho visível do cartão e sua posição superior.
 
-**Architecture:** `WindowsCuaOperationIndicator` 继续拥有唯一的 capture-excluded 透明 `BrowserWindow`。窗口显式关闭 DWM shadow，并把原来的可见卡片包在透明安全区中；定位逻辑以扩大后的窗口居中，但用 top inset 抵消 y 坐标，保证卡片顶边仍是 work area `+12px`。
+**Arquitetura:** `WindowsCuaOperationIndicator` continua sendo o dono da única `BrowserWindow` transparente com captura excluída. A janela desativa explicitamente a sombra do DWM e envolve o cartão visível original em uma zona segura transparente; a lógica de posicionamento centraliza a janela ampliada, mas compensa a coordenada y com o inset superior, garantindo que a borda superior do cartão continue sendo a work area `+12px`.
 
-**Tech Stack:** Electron `BrowserWindow`、TypeScript、内嵌 HTML/CSS、Vitest。
+**Stack tecnológico:** Electron `BrowserWindow`, TypeScript, HTML/CSS embutido, Vitest.
 
-## Global Constraints
+## Restrições Globais
 
-- 只修改 Windows 原生浮层，不修改 macOS、Linux、Web、手机或 CUA lifecycle 状态链。
-- 可见卡片保持中文/英文 `234px`/`308px` 宽、`38px` 高，顶边保持 work area `+12px`。
-- 透明安全区固定为左/右 `8px`、上 `6px`、下 `12px`；窗口为中文 `250px × 56px`、英文 `324px × 56px`。
-- `BrowserWindow` 必须显式 `hasShadow: false`，阴影只能由 CSS 绘制。
-- 保持 `alwaysOnTop`、不可聚焦、鼠标穿透、`setContentProtection(true)`、主题、国际化和 reduced-motion 行为。
-- 先看到回归测试因旧窗口几何失败，再修改生产代码。
-- 完成前运行定向测试、`pnpm typecheck`、`pnpm lint` 和 `git diff --check`。
+- Modificar apenas a camada flutuante nativa do Windows, sem tocar em macOS, Linux, Web, mobile ou na cadeia de estados de lifecycle do CUA.
+- O cartão visível mantém a largura `234px`/`308px` (chinês/inglês) e a altura `38px`, com a borda superior mantendo work area `+12px`.
+- A zona segura transparente é fixa em esquerda/direita `8px`, superior `6px`, inferior `12px`; a janela é `250px × 56px` em chinês e `324px × 56px` em inglês.
+- A `BrowserWindow` deve definir explicitamente `hasShadow: false`; a sombra só pode ser desenhada por CSS.
+- Preservar `alwaysOnTop`, não focável, mouse pass-through, `setContentProtection(true)`, tema, internacionalização e comportamento de reduced-motion.
+- Primeiro ver o teste de regressão falhar por causa da geometria antiga da janela, e só então modificar o código de produção.
+- Antes de concluir, executar os testes direcionados, `pnpm typecheck`, `pnpm lint` e `git diff --check`.
 
 ---
 
-### Task 1: 让透明窗口承载唯一的圆角 CSS 阴影
+### Tarefa 1: Fazer a janela transparente carregar a única sombra CSS arredondada
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/desktop/test/windowsCuaOperationIndicator.test.ts`
 - Modify: `packages/desktop/src/main/windowsCuaOperationIndicator.ts`
 
 **Interfaces:**
 
-- Consumes: `createWindowsCuaOperationIndicator(options)`、`indicatorCopy(locale)` 和现有 `positionWindow()`/`loadContent()` 生命周期。
-- Produces: 关闭原生阴影、带透明安全区且保持可见卡片位置不变的 `BrowserWindow`；不新增跨模块接口。
+- Consumes: `createWindowsCuaOperationIndicator(options)`, `indicatorCopy(locale)` e o ciclo de vida existente `positionWindow()`/`loadContent()`.
+- Produces: uma `BrowserWindow` com sombra nativa desativada, com zona segura transparente e posição do cartão visível inalterada; sem novos interfaces entre módulos.
 
-- [ ] **Step 1: 写窗口阴影 owner 和几何的失败测试**
+- [ ] **Step 1: Escrever o teste falhando do owner da sombra da janela e da geometria**
 
-在首个 active turn 测试中要求：
+No primeiro teste de active turn, exigir:
 
 ```ts
 expect(browserWindowOptions[0]).toMatchObject({
@@ -61,7 +61,7 @@ expect(html).toContain(
 expect(html).not.toContain("box-shadow: 0 4px 12px");
 ```
 
-把再次激活后的 work area 断言改为：
+Alterar a asserção de work area após nova ativação para:
 
 ```ts
 expect(windows[0]?.setBounds).toHaveBeenLastCalledWith({
@@ -72,7 +72,7 @@ expect(windows[0]?.setBounds).toHaveBeenLastCalledWith({
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认按预期失败**
+- [ ] **Step 2: Executar o teste e confirmar que falha como esperado**
 
 Run:
 
@@ -80,11 +80,11 @@ Run:
 pnpm exec vitest run packages/desktop/test/windowsCuaOperationIndicator.test.ts
 ```
 
-Expected: FAIL；实际 options 缺少 `hasShadow:false`，bounds 仍为 `236 × 40`，HTML 仍包含旧阴影。
+Expected: FAIL; as options atuais não têm `hasShadow:false`, os bounds ainda são `236 × 40` e o HTML ainda contém a sombra antiga.
 
-- [ ] **Step 3: 写最小生产实现**
+- [ ] **Step 3: Escrever a implementação de produção mínima**
 
-在 `windowsCuaOperationIndicator.ts` 中把 copy width 定义为可见卡片宽度，并集中声明安全区：
+Em `windowsCuaOperationIndicator.ts`, definir a largura do copy como a largura do cartão visível e declarar centralmente a zona segura:
 
 ```ts
 const INDICATOR_CARD_HEIGHT = 38;
@@ -106,7 +106,7 @@ function indicatorWindowSize(locale: Locale): { width: number; height: number } 
 }
 ```
 
-`positionWindow()` 和 `createWindow()` 使用 `indicatorWindowSize()`；y 坐标为：
+`positionWindow()` e `createWindow()` usam `indicatorWindowSize()`; a coordenada y é:
 
 ```ts
 y: Math.round(
@@ -114,13 +114,13 @@ y: Math.round(
 ),
 ```
 
-BrowserWindow options 新增：
+Novas opções da BrowserWindow:
 
 ```ts
 hasShadow: false,
 ```
 
-HTML 中改为：
+No HTML, alterar para:
 
 ```css
 body {
@@ -138,9 +138,9 @@ body {
 }
 ```
 
-dark media query 使用 spec 中的双层暗色阴影。新增中文原因注释，说明旧的 `1px` 透明余量裁剪 CSS shadow，且默认 DWM shadow 造成矩形灰带。
+A media query de dark usa a sombra escura de duas camadas definida na spec. Adicionar um comentário de motivo em chinês explicando que a margem transparente antiga de `1px` recortava a sombra CSS e que a sombra padrão do DWM causava uma faixa cinza retangular.
 
-- [ ] **Step 4: 运行定向测试并确认转绿**
+- [ ] **Step 4: Executar os testes direcionados e confirmar que ficam verdes**
 
 Run:
 
@@ -148,9 +148,9 @@ Run:
 pnpm exec vitest run packages/desktop/test/windowsCuaOperationIndicator.test.ts
 ```
 
-Expected: PASS，全部 Windows indicator tests 通过。
+Expected: PASS, todos os testes do indicador do Windows passam.
 
-- [ ] **Step 5: 运行仓库门禁**
+- [ ] **Step 5: Executar os gates do repositório**
 
 Run:
 
@@ -160,22 +160,22 @@ pnpm lint
 git diff --check
 ```
 
-Expected: commands exit `0`；lint 允许仓库既有 warning，但不得新增本次文件 warning。
+Expected: os comandos saem com `0`; o lint permite os warnings já existentes do repositório, mas não pode adicionar warnings para os arquivos desta tarefa.
 
-- [ ] **Step 6: 提交实现并重启本地 dev**
+- [ ] **Step 6: Commitar a implementação e reiniciar o dev local**
 
-只暂存本任务两个代码/测试文件，不包含 `.pnpm-store/` 或 `.tmp/`：
+Adicionar ao stage apenas os dois arquivos de código/teste desta tarefa, sem incluir `.pnpm-store/` ou `.tmp/`:
 
 ```powershell
 git add -- packages/desktop/src/main/windowsCuaOperationIndicator.ts packages/desktop/test/windowsCuaOperationIndicator.test.ts
 git commit -m "fix(cua): render natural Windows indicator shadow"
 ```
 
-停止当前 `@zcode/desktop dev:local-cli` 进程树，然后用以下环境变量启动隐藏 dev 进程：
+Parar a árvore de processos atual de `@zcode/desktop dev:local-cli` e então iniciar o processo dev oculto com as variáveis de ambiente abaixo:
 
 ```powershell
 $env:ZCODE_CUA_DEV_ROOT = "C:\Users\dev\zcode-cua"
 pnpm --filter @zcode/desktop dev:local-cli
 ```
 
-Expected: Electron main、desktop Host、`zcode.cjs app-server --stdio` 和 `C:\Users\dev\zcode-cua\dist\windows-helper.js` 均存在。
+Expected: Electron main, desktop Host, `zcode.cjs app-server --stdio` e `C:\Users\dev\zcode-cua\dist\windows-helper.js` existem.

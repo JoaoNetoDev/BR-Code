@@ -1,67 +1,43 @@
-# CI 构建产物飞书 Card 2.0 通知
+# Notificação de artefatos de build do CI via Feishu Card 2.0
 
-## 范围
+## Escopo
 
-本规范只覆盖构建阶段的 `notify:feishu:<platform>:<arch>` 通知，不改变正式发版
-通知 `release:notify:feishu`。平台构建成功后仍各发送一条消息；sandbox/test tag
-仍跳过通知；通知发送失败仍不阻断主流水线。
+Esta especificação cobre apenas a notificação de fase de build `notify:feishu:<platform>:<arch>`, sem alterar a notificação de release oficial `release:notify:feishu`. Após o sucesso do build de cada plataforma ainda é enviada uma mensagem; sandbox/test tag continuam pulando a notificação; e a falha no envio da notificação continua não bloqueando o pipeline principal.
 
-## 消息契约
+## Contrato da mensagem
 
-通知由 CI 脚本组装 Feishu Card 2.0，交给 zcode-internal 的通用飞书通知服务发送：
+A notificação é montada pelo script de CI como um Feishu Card 2.0 e entregue pelo serviço genérico de notificação do Feishu do zcode-internal:
 
 ```
 POST <ZCODE_FEISHU_NOTIFY_BASE_URL>/api/v1/feishu/messages
 Authorization: Bearer $ZCODE_FEISHU_NOTIFY_TOKEN
 ```
 
-服务用 ZCode Infra 应用投递，CI 侧不再持有飞书应用凭证。`scene` 为
-`ci.build.completed` / `ci.build.failed`；收件人优先用 CI 自己的 `FEISHU_RECEIVE_ID`
-（显式传给服务），未配置时回落到服务端的场景默认收件人。原 Template 所使用的字段保持不变：
+O serviço entrega usando o aplicativo ZCode Infra; o lado do CI não mantém mais credenciais de aplicativo do Feishu. O `scene` é `ci.build.completed` / `ci.build.failed`; os destinatários preferem o `FEISHU_RECEIVE_ID` do próprio CI (passado explicitamente ao serviço), e, quando não configurado, caem para o destinatário padrão da cena no servidor. Os campos usados pelo Template original permanecem inalterados:
 
-- 标题：`构建完成 · 测试/生产 · <平台架构> · <分支名>`
-- 分支：`CI_COMMIT_REF_NAME`（仅在标题展示）
-- 提交人：`CI_COMMIT_AUTHOR`
-- 提交信息：`CI_COMMIT_MESSAGE`
+- Título: `构建完成 · 测试/生产 · <平台架构> · <分支名>`
+- Branch: `CI_COMMIT_REF_NAME` (exibido apenas no título)
+- Committer: `CI_COMMIT_AUTHOR`
+- Commit message: `CI_COMMIT_MESSAGE`
 
-提交作者的 @ 改为卡片内的 `{{mention:<CI_COMMIT_AUTHOR>}}` 占位符，由通知服务用统一的
-「人员配置」目录解析成 `<at id=ou_xxx></at>`——该目录就是控制台「人员配置」页维护的那份，
-覆盖原 `zcode-labs` 对照表的 15 位 GitLab 用户。也可通过 `FEISHU_MENTION_OPEN_IDS`
-（逗号分隔的飞书 `open_id`）额外指定 @ 对象，这些显式 id 仍直接内联在卡片里。占位符未命中时
-服务退化为纯文本，不伪造 @；未命中且未额外配置时不渲染「相关人员」区块。
+O @ do autor do commit passa a ser o placeholder `{{mention:<CI_COMMIT_AUTHOR>}}` dentro do card, resolvido pelo serviço de notificação, a partir do diretório unificado「人员配置」, em `<at id=ou_xxx></at>` — esse diretório é justamente o mantido na página「人员配置」do console, cobrindo os 15 usuários do GitLab da antiga tabela de referência `zcode-labs`. Também é possível especificar @ adicionais por `FEISHU_MENTION_OPEN_IDS` (lista de `open_id` do Feishu separada por vírgulas); esses ids explícitos continuam embutidos diretamente no card. Quando o placeholder não é encontrado, o serviço degrada para texto simples e não forja @; quando não há match e não há configuração adicional, o bloco「相关人员」não é renderizado.
 
-成功卡片不在正文直接展示产物 URL，而是在正文底部提供“下载产物”按钮；失败卡片不展示产物 URL，
-在正文底部提供“查看失败 Job”按钮，跳转到同一流水线中对应失败构建 Job 的 `web_url`；该地址由
-`notify-feishu-ci.mjs` 使用 CI 变量 `GITLAB_ACCESS_TOKEN`（或兼容的 `GITLAB_PRIVATE_TOKEN`）查询 GitLab Pipeline Jobs 得到。对应 URL 缺失时不渲染按钮；查询失败时失败通知 Job 以非零状态结束并打印原因。
-两个按钮均使用 `default` 描边样式和 `default` 自适应宽度。
+O card de sucesso não exibe a URL do artefato diretamente no corpo, mas oferece um botão“下载产物”no rodapé do corpo; o card de falha não exibe a URL do artefato e oferece um botão“查看失败 Job”no rodapé do corpo, que navega para o `web_url` do Job de build correspondente que falhou na mesma pipeline; esse endereço é obtido por `notify-feishu-ci.mjs` consultando os Pipeline Jobs do GitLab usando a variável de CI `GITLAB_ACCESS_TOKEN` (ou a `GITLAB_PRIVATE_TOKEN` compatível). Quando a URL correspondente não existe, o botão não é renderizado; quando a consulta falha, o Job de notificação de falha termina com status diferente de zero e imprime o motivo.
+Os dois botões usam estilo de contorno `default` e largura adaptativa `default`.
 
-环境、架构、触发人和分支只在标题或内部变量中处理，不再作为正文独立字段展示。卡片使用 Card 2.0
-`schema: "2.0"`、蓝色 header 和浅色信息块；按钮仅用于打开产物或 Job 地址，不新增外部回调
-或其他业务交互。长文本必须在卡片 JSON 中安全转义，并设置与飞书请求限制
-匹配的大小校验；提交人和提交信息作为不可信输入统一转义 Markdown/HTML 特殊字符，并限制长度。
+Ambiente, arquitetura, quem disparou e branch são tratados apenas no título ou em variáveis internas e não são mais exibidos como campos independentes no corpo. O card usa Card 2.0 com `schema: "2.0"`, header azul e bloco de informação claro; os botões servem apenas para abrir o artefato ou o endereço do Job, sem novos callbacks externos ou outras interações de negócio. Textos longos devem ser escapados com segurança no JSON do card e passar por uma validação de tamanho compatível com os limites de requisição do Feishu; autor do commit e mensagem de commit, tratados como entrada não confiável, têm escapamento unificado de caracteres especiais de Markdown/HTML e limite de comprimento.
 
-构建失败时为对应平台增加失败通知：标题将“构建完成”替换为“构建失败”，正文展示提交人、
-提交信息并提供 GitLab Job 地址按钮；失败卡片不展示产物下载地址。触发人和分支不作为正文独立字段展示。
-成功卡片使用蓝色 Header 与 `success_colorful` 图标，失败卡片使用红色 Header 与
-`fail_colorful` 图标，确保两种状态在通知列表中可以快速区分。
+Em caso de falha de build, é adicionada a notificação de falha para a plataforma correspondente: no título “构建完成”é substituído por“构建失败”, o corpo exibe autor do commit e mensagem de commit e oferece o botão com o endereço do Job do GitLab; o card de falha não exibe o endereço de download do artefato. Quem disparou e branch não são exibidos como campos independentes no corpo.
+O card de sucesso usa Header azul e o ícone `success_colorful`, e o card de falha usa Header vermelho e o ícone `fail_colorful`, garantindo que os dois estados sejam diferenciados rapidamente na lista de notificações.
 
-配置 `FEISHU_HEADER_ICON_IMAGE_KEY` 后，Header 改用飞书 `custom_icon` 展示 ZCode
-Logo；该 key 必须由同一个飞书应用在具备 `im:resource:upload` 或 `im:resource` 权限后
-上传 `public/icon_512@2x.png` 获得。未配置时回退上述成功/失败标准图标。
+Após configurar `FEISHU_HEADER_ICON_IMAGE_KEY`, o Header passa a usar o `custom_icon` do Feishu para exibir o Logo do ZCode; essa key deve ser obtida pelo mesmo aplicativo do Feishu depois que ele fizer upload de `public/icon_512@2x.png` com as permissões `im:resource:upload` ou `im:resource`. Sem configuração, volta para os ícones padrão de sucesso/falha descritos acima.
 
-## 配置与测试
+## Configuração e testes
 
-需要新增 GitLab CI/CD 变量 `ZCODE_FEISHU_NOTIFY_TOKEN`（与服务端同值），可选
-`ZCODE_FEISHU_NOTIFY_BASE_URL`（默认 `http://intranet.example.invalid:3011`）。生产接收方仍由
-GitLab 的 `FEISHU_RECEIVE_ID` 提供。构建通知单元测试和后续手动验证统一使用临时测试群
-`oc_5725795450da6920872fdb25412848bf`，不得把该测试群写入生产 CI 默认配置。
+É necessário criar a variável GitLab CI/CD `ZCODE_FEISHU_NOTIFY_TOKEN` (com o mesmo valor do servidor), e opcionalmente `ZCODE_FEISHU_NOTIFY_BASE_URL` (padrão `http://intranet.example.invalid:3011`). O receptor de produção continua sendo fornecido pelo `FEISHU_RECEIVE_ID` do GitLab. Os testes unitários da notificação de build e a validação manual posterior usam uniformemente o grupo de teste temporário `oc_5725795450da6920872fdb25412848bf`, e esse grupo de teste não deve ser escrito na configuração padrão de produção do CI.
 
-构建通知只有这一条发送链路：CI 侧不持有任何飞书应用凭证，`FEISHU_APP_ID` /
-`FEISHU_APP_SECRET` 与该脚本无关。缺少 `ZCODE_FEISHU_NOTIFY_TOKEN` 时脚本直接报错退出，
-不会静默降级到别的发送身份——否则群里会混入非 ZCode Infra 的机器人。
+A notificação de build tem apenas esta via de envio: o lado do CI não mantém nenhuma credencial de aplicativo do Feishu, e `FEISHU_APP_ID` / `FEISHU_APP_SECRET` não têm relação com esse script. Quando `ZCODE_FEISHU_NOTIFY_TOKEN` está ausente, o script-erra e sai diretamente, sem degradar silenciosamente para outra identidade de envio — caso contrário, robôs que não são do ZCode Infra se misturariam ao grupo.
 
-## 失败边界
+## Limite de falha
 
-通知服务调用失败时脚本重试一次；两次都失败才返回非零，因为通知不能静默丢失。
-`notify-feishu-ci.mjs` 捕获该状态并以零退出，确保通知故障不改变构建、发布和后续
-流水线状态。
+Quando a chamada ao serviço de notificação falha, o script tenta uma vez; só retorna status diferente de zero quando as duas tentativas falham, porque a notificação não pode ser perdida silenciosamente. `notify-feishu-ci.mjs` captura esse estado e sai com zero, garantindo que uma falha de notificação não altere o estado do build, do release nem das pipelines seguintes.

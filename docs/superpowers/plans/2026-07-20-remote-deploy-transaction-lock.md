@@ -1,46 +1,46 @@
-# Remote Deploy Transaction Lock Implementation Plan
+# Plano de Implementação do Lock de Transação de Deploy Remoto
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让跨 Host/跨进程的远端部署在同一 install root 内串行执行，并消除目录上传固定归档和最终目录交错替换。
+**Goal:** Fazer com que o deploy remoto entre Hosts/processos seja executado serialmente no mesmo install root e eliminar a intercalação entre o upload de diretório com arquivo fixo e a substituição final do diretório.
 
-**Architecture:** 新建 remote lock-holder，以远端原子 `mkdir`、UUID owner、30 秒心跳和 600 秒 stale takeover 管理 `${REMOTE_BASE}/.deploy.lock`；`deployServer` 在锁内重新执行部署判断并完成全部组件安装。LocalUpload、RemoteDownload 和开发态目录安装分别使用 owner 唯一 archive/extract staging，失败时只清理自己的路径。
+**Architecture:** Criar um novo lock-holder remoto, gerenciando `${REMOTE_BASE}/.deploy.lock` com `mkdir` atômico remoto, owner UUID, heartbeat de 30 segundos e takeover de stale em 600 segundos; `deployServer` reexecuta a decisão de deploy dentro do lock e conclui toda a instalação dos componentes. LocalUpload, RemoteDownload e a instalação de diretórios em modo de desenvolvimento usam, respectivamente, staging de archive/extract único por owner, e em caso de falha limpam apenas os próprios caminhos.
 
-**2026-07-23 SSH 例外：** 桌面端当前只有单窗口，同一窗口与 SSH target 复用 shared SSH host readiness；在不考虑多个客户端部署到同一 SSH install root，并接受断线后旧远端命令可能与重连短暂重叠的产品前提下，桌面 `InitRemoteSshHost` shared-host 调用声明 caller-side serialization 并跳过 remote lock-holder。Dedicated SSH runtime、WSL、Docker 和未显式声明 caller-side serialization 的调用继续执行本计划定义的远端锁。
+**Exceção de SSH em 2026-07-23:** o desktop atualmente tem apenas uma janela, e a mesma janela e o mesmo SSH target reutilizam o shared SSH host readiness; sob a premissa de produto de não considerar múltiplos clientes implantando no mesmo SSH install root e de aceitar uma sobreposição breve entre comandos remotos antigos após desconexão e a reconexão, a chamada shared-host `InitRemoteSshHost` do desktop declara serialização do lado do caller e dispensa o lock-holder remoto. O runtime SSH dedicado, WSL, Docker e as chamadas que não declaram explicitamente a serialização do lado do caller continuam executando o lock remoto definido por este plano.
 
-**Tech Stack:** TypeScript、Vitest、POSIX shell、`IRemoteBackend` stdio。
+**Tech Stack:** TypeScript, Vitest, shell POSIX, stdio de `IRemoteBackend`.
 
-## Global Constraints
+## Restrições globais
 
-- 除桌面 shared SSH host 明确声明 caller-side serialization 外，锁覆盖完整 `deployServer` transaction，不能缩小到单个 asset installer。
-- workspace/distro/user install root 仍为 `~/.zcode/server`，不调用 `wsl --terminate`。
-- owner token 必须不可预测；释放和 stale takeover 不使用宽泛 glob。
-- 保持 WSL、Docker 以及仍使用锁的 SSH 调用的 POSIX backend 兼容，不依赖 `flock`、GNU `mv -T` 或系统 tar。
-- 完成前运行定向测试、`pnpm typecheck` 和 `pnpm lint`。
+- Exceto pelo shared SSH host do desktop que declara explicitamente a serialização do lado do caller, o lock cobre a transaction completa de `deployServer` e não pode ser reduzido a um único asset installer.
+- O install root de workspace/distro/user continua sendo `~/.zcode/server`, sem chamar `wsl --terminate`.
+- O owner token precisa ser imprevisível; a liberação e o takeover de stale não usam globs amplos.
+- Manter compatibilidade com o backend POSIX de WSL, Docker e das chamadas SSH que ainda usam o lock, sem depender de `flock`, GNU `mv -T` ou tar do sistema.
+- Executar os testes direcionados, `pnpm typecheck` e `pnpm lint` antes de concluir.
 
 ---
 
-### Task 1: Remote deploy lock-holder
+### Task 1: Lock-holder de deploy remoto
 
 **Files:**
 - Create: `packages/server/src/remote/remoteDeployLock.ts`
 - Test: `packages/server/test/remoteDeployLock.test.ts`
 
 **Interfaces:**
-- Produces: `acquireRemoteDeployLock(backend, options?): Promise<RemoteDeployLockHandle>`。
-- Produces: `RemoteDeployLockHandle.release(): Promise<void>`，重复 release 幂等。
+- Produces: `acquireRemoteDeployLock(backend, options?): Promise<RemoteDeployLockHandle>`.
+- Produces: `RemoteDeployLockHandle.release(): Promise<void>`, com release repetido idempotente.
 
-- [x] **Step 1: 写失败测试**
+- [x] **Step 1: escrever o teste que falha**
 
-  测试 command 含原子 `mkdir`、owner token、30 秒 heartbeat、600 秒 stale 判定和 owner-checked cleanup；用可控 stdio backend 验证 acquired marker 前 Promise 不 resolve、marker 后 resolve、release 写入 owner token 并等待 close。
+  O comando de teste contém `mkdir` atômico, owner token, heartbeat de 30 segundos,determinação de stale em 600 segundos e limpeza e limpeza verificada por owner; com um backend stdio controlável, verifica-se que a Promise não resolve antes do acquired marker, que resolve após o marker, e que o release escreve o owner token e aguarda o close.
 
-- [x] **Step 2: 运行测试并确认 RED**
+- [x] **Step 2: rodar o teste e confirmar RED**
 
   Run: `pnpm vitest run packages/server/test/remoteDeployLock.test.ts`
 
-  Expected: FAIL，模块或 `acquireRemoteDeployLock` 不存在。
+  Expected: FAIL, pois o módulo ou `acquireRemoteDeployLock` não existe.
 
-- [x] **Step 3: 实现最小 lock-holder**
+- [x] **Step 3: implementar o lock-holder mínimo**
 
   ```ts
   export interface RemoteDeployLockHandle {
@@ -54,46 +54,46 @@
   ): Promise<RemoteDeployLockHandle>;
   ```
 
-  stdout 只在看到 `zcode-deploy-lock-acquired:<owner>` 后 resolve；stream 提前关闭则 reject。release 写入
-  `zcode-deploy-lock-release:<owner>\n` 并结束 stdin，随后等待 lock-holder close。
+  O stdout só resolve após ver `zcode-deploy-lock-acquired:<owner>`; se o stream fechar antes, rejeita. O release escreve
+  `zcode-deploy-lock-release:<owner>\n` e encerra o stdin, aguardando em seguida o close do lock-holder.
 
-- [x] **Step 4: 运行测试并确认 GREEN**
+- [x] **Step 4: rodar o teste e confirmar GREEN**
 
   Run: `pnpm vitest run packages/server/test/remoteDeployLock.test.ts`
 
-  Expected: PASS。
+  Expected: PASS.
 
-### Task 2: Deploy transaction 与 lock 内版本复查
+### Task 2: Transaction de deploy e re-verificação de versão dentro do lock
 
 **Files:**
 - Modify: `packages/server/src/remote/deploy.ts`
 - Test: `packages/server/test/remoteDeploy.test.ts`
 
 **Interfaces:**
-- Consumes: `acquireRemoteDeployLock()`。
-- Produces: `deployServer()` 在持锁后调用 `checkServerDeployDecision()`，并在所有成功/失败出口 release。
+- Consumes: `acquireRemoteDeployLock()`.
+- Produces: `deployServer()` chamando `checkServerDeployDecision()` após obter o lock e fazendo release em todas as saídas de sucesso/falha.
 
-- [x] **Step 1: 写失败测试**
+- [x] **Step 1: escrever o teste que falha**
 
-  注入可控 lock backend：第一个部署判断返回需要部署，等待 lock 时模拟另一个 owner 已完成；获得 lock 后第二次判断返回版本匹配，断言没有 upload 且 lock 被释放。再让 installer 失败，断言异常路径仍释放 lock。
+  Injetar um lock backend controlável: a primeira decisão de deploy retorna que é preciso implantar e, enquanto aguarda o lock, simula-se que outro owner já concluiu; após obter o lock, a segunda decisão retorna versão correspondente, e afirma-se que não houve upload e que o lock foi liberado. Depois, faz-se o installer falhar e afirma-se que o caminho de exceção ainda libera o lock.
 
-- [x] **Step 2: 运行测试并确认 RED**
-
-  Run: `pnpm vitest run packages/server/test/remoteDeploy.test.ts`
-
-  Expected: FAIL，当前部署判断只执行一次或没有 lock-holder 命令。
-
-- [x] **Step 3: 接入完整 transaction**
-
-  `deployServer()` 获取 lock 后再计算 `serverDeployDecision`；`options.force` 保持强制部署语义，普通等待者根据 lock 内复查结果进入 skip/repair 路径；`finally` 无条件 release。
-
-- [x] **Step 4: 运行测试并确认 GREEN**
+- [x] **Step 2: rodar o teste e confirmar RED**
 
   Run: `pnpm vitest run packages/server/test/remoteDeploy.test.ts`
 
-  Expected: PASS。
+  Expected: FAIL, pois a decisão de deploy atual só é executada uma vez ou não há comando de lock-holder.
 
-### Task 3: Owner 唯一目录 staging 与清理
+- [x] **Step 3: conectar a transaction completa**
+
+  `deployServer()` calcula `serverDeployDecision` somente após obter o lock; `options.force` mantém a semântica de deploy forçado, e quem espera normalmente entra nos caminhos de skip/repair conforme o resultado da re-verificação dentro do lock; o `finally` faz release incondicionalmente.
+
+- [x] **Step 4: rodar o teste e confirmar GREEN**
+
+  Run: `pnpm vitest run packages/server/test/remoteDeploy.test.ts`
+
+  Expected: PASS.
+
+### Task 3: Staging e limpeza com diretório único por owner
 
 **Files:**
 - Modify: `packages/server/src/remote/remoteAssetInstaller.ts`
@@ -102,26 +102,24 @@
 - Test: `packages/server/test/remoteDeploy.test.ts`
 
 **Interfaces:**
-- Consumes: deploy-root transaction lock 保证最终目录替换串行。
-- Produces: 每次目录部署唯一 `remoteArchivePath`、`extractRoot`、`stagingDir`；失败 cleanup 只引用这些 owner 路径。
+- Consumes: o lock de transação do deploy root, que garante a serialização da substituição final do diretório.
+- Produces: `remoteArchivePath`, `extractRoot` e `stagingDir` únicos por deploy de diretório; o cleanup de falha referencia apenas esses caminhos de owner.
 
-- [x] **Step 1: 写失败测试**
+- [x] **Step 1: escrever o teste que falha**
 
-  并发调用两次 LocalUpload `installDirectory()`，断言两个 remote tar/extract 路径不同；断言命令包含 owner cleanup trap。开发态目录上传断言不再使用固定 `packages.tar.gz`；RemoteDownload 断言唯一 staging 只在 transaction lock 内执行。
+  Chamar `installDirectory()` do LocalUpload duas vezes de forma concorrente e afirmar que os dois caminhos remotos de tar/extract são diferentes; afirmar que o comando contém a trap de cleanup por owner. No upload de diretório em modo de desenvolvimento, afirmar que o `packages.tar.gz` fixo não é mais usado; no RemoteDownload, afirmar que o staging único só é executado dentro do lock de transação.
 
-- [x] **Step 2: 运行测试并确认 RED**
+- [x] **Step 2: rodar o teste e confirmar RED**
 
   Run: `pnpm vitest run packages/server/test/remoteAssetInstaller.test.ts packages/server/test/remoteDeploy.test.ts`
 
-  Expected: FAIL，LocalUpload 和开发态仍复用固定 tar。
+  Expected: FAIL, pois o LocalUpload e o modo de desenvolvimento ainda reutilizam o tar fixo.
 
-- [x] **Step 3: 实现目录 staging 与失败清理**
+- [x] **Step 3: implementar o staging de diretório e a limpeza em caso de falha**
 
-  LocalUpload 先上传到 `${remoteDir}.tar.gz-<owner>`，解压到 `${remoteDir}.extract-<owner>`，从其中的 basename
-  目录移动到最终位置；shell trap 和上传失败 catch 都只清理这两个路径。开发态采用相同 owner 规则；
-  RemoteDownload 保留现有 unique staging，并补明确 transaction-lock 注释和失败 cleanup trap。
+  O LocalUpload faz upload primeiro para `${remoteDir}.tar.gz-<owner>`, extrai para `${remoteDir}.extract-<owner>` e move o diretório basename de dentro dele para a posição final; tanto o trap do shell quanto o catch de falha de upload limpam apenas esses dois caminhos. O modo de desenvolvimento adota a mesma regra de owner; o RemoteDownload mantém o staging único já existente e ganha um comentário explícito sobre o transaction lock e uma trap de cleanup em caso de falha.
 
-- [x] **Step 4: 完整验证并提交**
+- [x] **Step 4: validação completa e commit**
 
   Run:
 
@@ -131,4 +129,4 @@
   pnpm lint
   ```
 
-  Expected: exit code 0；随后提交 `fix(remote): serialize remote asset deployment` 并推送当前分支。
+  Expected: exit code 0; em seguida fazer commit de `fix(remote): serialize remote asset deployment` e push da branch atual.

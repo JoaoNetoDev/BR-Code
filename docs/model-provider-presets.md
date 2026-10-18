@@ -1,56 +1,56 @@
-# Model Provider Presets
+# Presets de Model Provider
 
-## 当前边界
+## Limites atuais
 
-- 自动刷新的预置供应商只包含当前 Z.ai 与 BigModel 的 API Key、Coding Plan 和 Start Plan 入口。
-- `default-*` 自定义供应商模板已移除，不再在刷新预置供应商时补齐 OpenRouter、Moonshot、MiniMax、DeepSeek、MiMo、Qwen 等默认模板。
-- codex/claude/gemini 官方 OAuth 不再作为模型供应商设置入口，也不再暴露 model provider service RPC。
+- Os providers predefinidos com atualização automática incluem apenas as entradas de API Key, Coding Plan e Start Plan atuais da Z.ai e da BigModel.
+- Os templates de provider customizado `default-*` foram removidos; ao atualizar os providers predefinidos não são mais completados templates default de OpenRouter, Moonshot, MiniMax, DeepSeek, MiMo, Qwen etc.
+- O OAuth oficial de codex/claude/gemini não é mais entrada de configuração de model provider e o RPC do model provider service não é mais exposto.
 
-## 远端模型能力补齐
+## Complementação de capacidades remotas de modelo
 
-- `client/configs.builtinModels` 下发的是按模型 ID 复用的官方模型事实，不只服务于 builtin provider。
-- 每次预置供应商同步完成后，所有 provider 都可以为已有模型按模型 ID 获取远端 `reasoning` 和 `modalities` 补齐，包括 Start Plan 和用户创建的 custom provider；该链路不新增或删除模型。
-- 模型 ID 使用 `trim + lowercase` 后的完整字符串匹配；不做别名、前后缀、子串或模糊匹配，命中后仍保留本地 provider 中的模型 ID。
-- `reasoning` 采用 fill-only 规则：本地没有时使用远端事实，本地已经配置时完整保留。`modalities` 在 `modalitiesConfigured !== true` 时按 input/output 分侧合入；用户明确配置后完整保留本地值。该链路不覆盖 context window、max output tokens 或其它本地模型 metadata。
-- Start Plan 的模型集合仍由 billing/balance 权益决定；通用补齐只 enrich 套餐已有模型，禁止按 `builtinModels` 扩大套餐可选范围。
+- O que `client/configs.builtinModels` distribui são fatos oficiais de modelo reutilizados por ID de modelo, não-serving apenas ao builtin provider.
+- Após cada sincronização de provider predefinido, todos os providers podem obter, para os modelos existentes e por ID de modelo, a complementação remota de `reasoning` e `modalities`, incluindo o Start Plan e custom providers criados pelo usuário; esse caminho não adiciona nem remove modelos.
+- O ID de modelo usa a string completa após `trim + lowercase` para comparação exata; não há correspondência por apelido, prefixo, sufixo, substring ou aproximada, e após o acerto o ID de modelo do provider local é preservado.
+- `reasoning` segue a regra fill-only: usa o fato remoto quando não existe localmente e preserva integralmente o valor local quando já configurado. `modalities` é mesclado por lado de input/output enquanto `modalitiesConfigured !== true`; depois de configurado explicitamente pelo usuário, o valor local é preservado integralmente. Esse caminho não sobrescreve context window, max output tokens ou outros metadados locais do modelo.
+- O conjunto de modelos do Start Plan continua sendo determinado pelos benefícios de billing/balance; a complementação genérica apenas enriquece os modelos já existentes no plano e não pode ampliar a seleção do plano com base em `builtinModels`.
 
-## GLM 默认模型
+## Modelos GLM padrão
 
-- Z.ai / BigModel API Key 预置供应商的默认 GLM 模型列表固定为：`GLM-5.2`、`GLM-5-Turbo`。
-- Z.ai / BigModel Coding Plan 预置供应商的默认 GLM 模型列表固定为：`GLM-5.2`、`GLM-5-Turbo`。
-- Start Plan 免费入口模型列表固定为：`GLM-5.2`、`GLM-5-Turbo`。
-- Z.ai / BigModel 的 API Key 入口允许用户自定义模型 context window；用户保存的显式值优先于预置默认值，设置页与 `config.json` 必须保持一致。
-- Z.ai / BigModel 的 Coding Plan 与 Start Plan 入口允许用户手动追加模型配置；本地保存的用户模型只表达客户端可选模型，不改变服务端套餐权益、白名单或额度校验。
-- Z.ai / BigModel 的 Coding Plan 与 Start Plan 入口中的 `GLM-5.2` context window 固定为 `1_000_000`，设置页模型列表统一使用英文 compact token 表示（如 `128K`、`1M`）。
-- 默认列表顺序就是 UI 和模型选择的优先展示顺序；远端或本地同步逻辑不得把已托管的旧 GLM 模型重新插入默认列表。
-- `GLM-5.1` 不再进入 Z.ai / BigModel API Key、Coding Plan 或 Start Plan 的默认模型选择。
+- A lista padrão de modelos GLM dos providers predefinidos Z.ai / BigModel com API Key é fixa: `GLM-5.2`, `GLM-5-Turbo`.
+- A lista padrão de modelos GLM dos providers predefinidos Z.ai / BigModel com Coding Plan é fixa: `GLM-5.2`, `GLM-5-Turbo`.
+- A lista de modelos da entrada gratuita do Start Plan é fixa: `GLM-5.2`, `GLM-5-Turbo`.
+- A entrada de API Key da Z.ai / BigModel permite ao usuário personalizar o context window dos modelos; o valor explícito salvo pelo usuário tem precedência sobre o valor padrão predefinido, e a página de Settings e o `config.json` devem permanecer consistentes.
+- As entradas de Coding Plan e Start Plan da Z.ai / BigModel permitem ao usuário adicionar manualmente configurações de modelos; os modelos do usuário salvos localmente expressam apenas os modelos selecionáveis no cliente e não alteram os benefícios do plano no servidor, a whitelist ou a validação de cota.
+- O context window de `GLM-5.2` nas entradas de Coding Plan e Start Plan da Z.ai / BigModel é fixo em `1_000_000`; a lista de modelos da página de Settings usa de forma unificada a representação compacta em inglês (como `128K`, `1M`).
+- A ordem da lista padrão é a ordem de exibição prioritária na UI e na seleção de modelos; a lógica de sincronização remota ou local não pode reinserir modelos GLM antigos já hospedados na lista padrão.
+- `GLM-5.1` não entra mais na seleção padrão de modelos da Z.ai / BigModel para API Key, Coding Plan ou Start Plan.
 
-## Start Plan 命名
+## Nomeação do Start Plan
 
-- `builtin:zai-start-plan` 的固定展示名为 `Z.ai - Coding Plan`。
-- `builtin:bigmodel-start-plan` 的固定展示名为 `BigModel- Coding Plan`。
-- 旧版本已落盘的中文名或 `Start Plan` 名称只作为历史数据读取，展示层需要按以上固定名称规范化。
-- 中文界面的购买入口 banner 中，Start Plan 入口标题展示为“体验套餐”；英文界面继续展示为 `Start Plan`。
+- O nome de exibição fixo de `builtin:zai-start-plan` é `Z.ai - Coding Plan`.
+- O nome de exibição fixo de `builtin:bigmodel-start-plan` é `BigModel- Coding Plan`.
+- Nomes em chinês ou o nome `Start Plan` já persistidos por versões antigas servem apenas como dados históricos de leitura, e a camada de exibição precisa normalizá-los para os nomes fixos acima.
+- No banner da entrada de compra da interface em chinês, o título da entrada do Start Plan é exibido como “体验套餐”; a interface em inglês continua exibindo `Start Plan`.
 
-## Coding Plan 详情页
+## Página de detalhes do Coding Plan
 
-- 已开通 Coding Plan 时，详情页保留 URL、Models 等配置内容；Models 允许用户手动追加，点击状态卡的升级入口只打开购买流程，不替换或隐藏下方配置区。
-- 未登录、未连接、未开通或权益获取失败时，详情页只展示 Coding Plan 状态卡和下方提示 banner，不展示 API Key、URL、Models 等配置内容，避免把托管套餐入口误导成手动配置入口。
-- BigModel 未登录时，详情页不展示体验套餐标题或体验额度说明，只在状态卡下方展示“Start Plan”“个人套餐”“团队套餐”三个全宽入口 banner；Start Plan 使用 Start Plan 额度 banner 的绿色弱强调背景，个人套餐和团队套餐分别使用 Pro 蓝、Max 金色彩，并采用 Start Plan 同款左上径向渐变方向，包含裸图标、标题、说明和右侧箭头。若 150% 配额活动配置可用，未登录的“个人套餐”和“团队套餐”入口标题旁都展示 compact 活动徽标。
-- BigModel 已登录但 Start Plan 和 Coding Plan 都没有权益时，详情页不展示体验套餐标题或体验额度说明，只在状态卡下方展示“个人套餐”和“团队套餐”两个全宽入口 banner；个人套餐和团队套餐分别使用 Pro 蓝、Max 金色彩，并采用 Start Plan 同款左上径向渐变方向，包含裸图标、标题、说明和右侧箭头。
-- Upgrade Coding Plan 中不可点击的套餐行动按钮统一使用 outline disabled 样式；可购买 / 可升级 / 可续费按钮继续使用默认主按钮样式。售罄、当前套餐、已包含、不可购买和计费周期不可选都属于 outline disabled。
-- BigModel 已登录且企业套餐 pricing 已返回时，团队入口不再显示单个泛化“团队套餐”banner，而是复用 Upgrade Coding Plan 团队套餐分组渲染多个团队 banner，例如“标准版”“高级版”，价格也来自对应团队套餐商品。未登录或团队 pricing 尚不可用时继续保留单个“团队套餐”引导入口。
-- 个人套餐入口 banner 需要在已登录且购买 token 可用时前置展示售罄状态；当个人套餐商品均为 `soldOut` 时，原价格位置显示“暂时售罄”，不再显示最低价。未登录时不展示售罄状态，继续显示正常入口和价格兜底。
-- Z.ai 当前没有团队套餐，购买面板和详情入口都只展示个人套餐，不展示团队套餐入口。
-- BigModel 团队套餐列表卡片只用边框和背景表达选中态，不显示“已选择”文字标签。
-- 已开通 Start Plan 或 Coding Plan 时，点击升级或打开购买面板不收起状态卡下方的今日余额和剩余额度用量卡（5h、1w、Tool 等）；购买动作只追加购买面板。
-- 已开通 Coding Plan 时，详情页状态卡下方的 5h、1w、MCP 剩余额度卡需要展示接口返回的 `nextResetTime`，时间格式复用 sidebar 剩余额度：5h 展示日期时间并在当天时省略日期，1w 和 MCP 展示日期。
+- Com o Coding Plan já ativado, a página de detalhes mantém os conteúdos de configuração como URL e Models; Models permite ao usuário adicionar manualmente, e clicar na entrada de upgrade do cartão de status apenas abre o fluxo de compra, sem substituir nem ocultar a área de configuração abaixo.
+- Quando não há login, conexão, ativação ou a obtenção dos benefícios falha, a página de detalhes exibe apenas o cartão de status do Coding Plan e o banner de dica abaixo, sem mostrar conteúdos de configuração como API Key, URL e Models, evitando confundir a entrada de plano hospedado com uma entrada de configuração manual.
+- Com a BigModel sem login, a página de detalhes não exibe o título do plano de experiência nem a explicação da cota de experiência, e mostra abaixo do cartão de status apenas três banners de entrada de largura total: “Start Plan”“个人套餐”“团队套餐”. O Start Plan usa o fundo verde de ênfase fraca do banner de cota do Start Plan; 个人套餐 e 团队套餐 usam respectivamente as cores Pro azul e Max dourada, com a mesma direção de gradiente radial do canto superior à esquerda do Start Plan, incluindo ícone puro, título, descrição e seta à direita. Se a configuração da promoção de cota de 150% estiver disponível, os títulos das entradas “个人套餐” e “团队套餐” sem login exibem um emblema compacto da promoção ao lado.
+- Com a BigModel logada, mas sem benefícios de Start Plan e Coding Plan, a página de detalhes não exibe o título do plano de experiência nem a explicação da cota de experiência, e mostra abaixo do cartão de status apenas dois banners de entrada de largura total: “个人套餐” e “团队套餐”. 个人套餐 e 团队套餐 usam respectivamente as cores Pro azul e Max dourada, com a mesma direção de gradiente radial do canto superior à esquerda do Start Plan, incluindo ícone puro, título, descrição e seta à direita.
+- No Upgrade Coding Plan, os botões de ação de plano não clicáveis usam uniformemente o estilo outline disabled; os botões de compra/upgrade/renovação continuam usando o estilo de botão primário padrão. Esgotado, plano atual, já incluído, não comprável e ciclo de cobrança não selecionável pertencem a outline disabled.
+- Com a BigModel logada e o pricing do plano empresarial já retornado, a entrada de equipe deixa de exibir um único banner genérico “团队套餐” e passa a reutilizar o grupo de团队套餐 do Upgrade Coding Plan para renderizar múltiplos banners de equipe, como “标准版”“高级版”, com preços vindos dos correspondentes produtos de equipe. Sem login ou enquanto o pricing de equipe ainda não estiver disponível, mantém-se a entrada única de orientação “团队套餐”.
+- O banner da entrada 个人套餐 precisa exibir o estado de esgotado antecipadamente quando o usuário está logado e o token de compra está disponível; quando todos os produtos 个人套餐 estão `soldOut`, o lugar do preço original exibe “暂时售罄” e deixa de exibir o menor preço. Sem login, não se exibe o estado de esgotado e continua-se mostrando a entrada normal e o preço de reserva.
+- A Z.ai atualmente não tem plano de equipe; tanto o painel de compra quanto a entrada de detalhes exibem apenas 个人套餐, sem entrada de 团队套餐.
+- Os cartões da lista de 团队套餐 da BigModel expressam o estado selecionado apenas com borda e fundo, sem o rótulo de texto “已选择”.
+- Com Start Plan ou Coding Plan já ativado, clicar em upgrade ou abrir o painel de compra não recolhe os cartões de saldo de hoje e de uso de cota restante (5h, 1w, Tool etc.) abaixo do cartão de status; a ação de compra apenas acrescenta o painel de compra.
+- Com o Coding Plan já ativado, os cartões de cota restante 5h, 1w e MCP abaixo do cartão de status na página de detalhes precisam exibir o `nextResetTime` retornado pela interface, reutilizando o formato de tempo da cota restante na sidebar: 5h exibe data e hora omitindo a data quando for o mesmo dia, e 1w e MCP exibem a data.
 
-## 旧数据迁移
+## Migração de dados antigos
 
-读取本地 provider store 时会清理旧 `default-*` 供应商：
+Ao ler o store local de providers, os providers antigos `default-*` são limpos:
 
-- `apiKey` 为空：视为用户从未启用，直接删除。
-- `apiKey` 非空：视为用户已有自定义配置，按普通 custom provider 保留，不再享受默认模板排序或自动补齐。
+- `apiKey` vazio: considerado como nunca habilitado pelo usuário e removido diretamente.
+- `apiKey` não vazio: considerado como configuração customizada já existente do usuário, mantido como custom provider comum, sem mais se beneficiar de ordenação de template padrão nem de complementação automática.
 
-刷新预置供应商只更新 builtin provider 元信息；普通预置刷新不会隐式修改用户 API Key。
+Atualizar os providers predefinidos apenas atualiza os metadados dos builtin providers; a atualização comum de predefinidos não modifica implicitamente a API Key do usuário.

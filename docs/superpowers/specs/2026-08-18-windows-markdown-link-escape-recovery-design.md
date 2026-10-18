@@ -1,139 +1,120 @@
-# Windows 路径 markdown 链接转义还原设计
+# Design de recuperação de escapes em links markdown de caminhos do Windows
 
-日期：2026-08-18
-状态：设计 → 实施
-影响面：`packages/ui/src/lib/windowsFileLinkEscapeRemarkPlugin.ts`（新增）、
-`packages/ui/src/components/ai-elements/message.tsx`（挂载 remark 插件）。
-不改文件打开链路、不改 rehype 改写、不改 citation 插件。
+Data: 2026-08-18
+Estado: design → implementação
+Superfície afetada: `packages/ui/src/lib/windowsFileLinkEscapeRemarkPlugin.ts` (novo),
+`packages/ui/src/components/ai-elements/message.tsx` (monta o plugin remark).
+Sem alteração na cadeia de abertura de arquivos, sem alteração na reescrita rehype, sem alteração no plugin de citation.
 
-## 背景
+## Contexto
 
-同一份「截图失败」现场日志里，除了 Helper DPI 网关拦截（已在 producer 侧修复），
-还有第二个用户可见故障：模型走 PowerShell 兜底截图成功落盘
+No mesmo log de campo de «falha na captura de tela», além do bloqueio do gateway de DPI do Helper (já corrigido do lado do producer),
+existia um segundo defeito visível ao usuário: o modelo, pelo fallback de captura via PowerShell, gravou a imagem com sucesso em disco
 
 ```text
 C:\Users\dev\.zcode\workspace\default\screenshot.png   518252 bytes
 ```
 
-但会话区里的预览打不开，`file.stat` / `file.readMediaPreview` 报 ENOENT，
-实际请求的是
+mas a pré-visualização na área da conversa não abria, e `file.stat` / `file.readMediaPreview` reportavam ENOENT,
+com o pedido na verdade sendo para
 
 ```text
 C:/Users/dev.zcode/workspace/default/screenshot.png
 ```
 
-`\.zcode` 变成了 `.zcode` —— 少了一个反斜杠。
+`\.zcode` virou `.zcode` — faltou uma barra invertida.
 
-## 根因
+## Causa raiz
 
-CommonMark 规定链接目标里的反斜杠转义**只对 ASCII 标点生效**：`\X` 中 X 是标点
-时产出 X 本身，否则反斜杠原样保留。Windows 路径恰好横跨这两类：
+O CommonMark determina que o escape de barras invertidas no destino de um link **vale apenas para pontuação ASCII**: em `\X`, quando X é pontuação o resultado é o próprio X; caso contrário a barra invertida é mantida como está. Caminhos do Windows atravessam exatamente as duas categorias:
 
 ```text
-源码   [screenshot.png](C:\Users\dev\.zcode\workspace\default\screenshot.png)
+Fonte   [screenshot.png](C:\Users\dev\.zcode\workspace\default\screenshot.png)
                           ↑U    ↑z   ↑.      ↑w        ↑d       ↑s
-                          留    留   吃掉    留        留       留
+                          fica fica come   fica      fica     fica
 mdast  url = C:\Users\dev.zcode\workspace\default\screenshot.png
 ```
 
-实测（`remark-parse`）确认：只有 `\.` 这一处塌掉，其余反斜杠全部存活。
+Teste real (`remark-parse`) confirma: apenas `\.` collapses; todas as demais barras invertidas sobrevivem.
 
-丢失发生在 **mdast 解析阶段**。现有的 `rewriteLocalFileMarkdownTargetsRehypePlugin`
-跑在 rehype 阶段，拿到的 `node.properties.href` 已经是丢失后的字符串，它把
-`\` 换成 `/` 只是把错误路径换了个写法，无从还原。
+A perda ocorre na **etapa de parsing do mdast**. O `rewriteLocalFileMarkdownTargetsRehypePlugin` existente roda na etapa rehype, onde o `node.properties.href` já é a string após a perda; trocar `\` por `/` ali apenas reescreve o caminho errado de outra forma, sem como recuperá-lo.
 
-这是**设计层面的阶段错配**，不是那个 rehype 插件的实现 bug：任何 rehype 插件都
-无法看到原始 destination 文本。修复必须提前到 remark 阶段，那里 `node.position`
-仍然指向 VFile 原文。
+Este é um **descasamento de etapa em nível de design**, não um bug de implementação daquele plugin rehype: qualquer plugin rehype é incapaz de ver o texto de destination original. A correção precisa ser antecipada para a etapa remark, onde `node.position` ainda aponta para o texto original do VFile.
 
-## 目标
+## Objetivos
 
-1. 模型输出的 Windows 绝对路径（盘符与 UNC）链接/图片，`node.url` 还原为原文写法。
-2. 还原必须**可验证**：只有「把原文按 CommonMark 规则反转义后恰好等于 `node.url`」
-   才替换，否则保持现状。宁可不修，不可修错。
-3. 不影响非 Windows 路径、不影响 `http(s)`、不影响相对路径与 citation。
+1. Para links/imagens com caminhos absolutos do Windows na saída do modelo (letra de unidade e UNC), restaurar `node.url` à forma original do texto.
+2. A restauração precisa ser **verificável**: só substituir quando «aplicar as regras de remoção de escape do CommonMark ao texto original resultar exatamente em `node.url`»; caso contrário, manter como está. Melhor não corrigir do que corrigir errado.
+3. Não afetará caminhos não-Windows, nem `http(s)`, nem caminhos relativos nem citations.
 
-## 非目标
+## Não objetivos
 
-- 不改模型侧输出（让模型自己转义反斜杠不可控，且历史消息已经落库）。
-- 不改 rehype 阶段那条链路，它对已正确的 URL 继续照常工作。
-- 不处理 `<...>` 尖括号形式与带 title 的链接：这两种在本场景不出现，
-  统一按「不还原」处理，保持 fail closed。
+- Não alterar a saída do lado do modelo (deixar o modelo escapar as barras invertidas é incontrolável, e mensagens antigas já estão persistidas).
+- Não alterar a cadeia da etapa rehype, que continua funcionando normalmente para URLs já corretas.
+- Não tratar a forma com colchetes angulares `<...>` nem links com title: esses dois não ocorrem neste cenário e são tratados uniformemente como «não restaurar», mantendo o fail closed.
 
-## 设计
+## Design
 
-### 阶段
+### Etapas
 
 ```text
-markdown 源文本
+texto markdown de origem
     │
-    ├─ remark-parse ──────────► mdast（此时 destination 已被反转义，位置信息尚在）
+    ├─ remark-parse ──────────► mdast (neste ponto o destination já foi re-escapeado, as informações de posição ainda existem)
     │
-    ├─ ✦ windowsFileLinkEscapeRemarkPlugin  ← 新增，在此还原 node.url
+    ├─ ✦ windowsFileLinkEscapeRemarkPlugin  ← novo, restaura node.url aqui
     │
-    ├─ 其余 remark 插件（GFM / citation）
+    ├─ demais plugins remark (GFM / citation)
     │
     ├─ mdast → hast
     │
-    ├─ rewriteLocalFileMarkdownTargetsRehypePlugin（既有，规整成 /C:/… 供安全层放行）
+    ├─ rewriteLocalFileMarkdownTargetsRehypePlugin (existente, normaliza para /C:/… para a camada de segurança liberar)
     │
-    └─ rehype-harden → 渲染
+    └─ rehype-harden → render
 ```
 
-### 还原算法
+### Algoritmo de restauração
 
-对每个 `link` / `image` / `definition` 节点：
+Para cada nó `link` / `image` / `definition`:
 
-1. 门禁：`node.url` 必须形如 `X:\…` / `X:/…`（盘符）或以单个 `\` 开头（UNC）。
-   其余一律跳过，普通 URL 不进入本插件的改写面。
+1. Portão: `node.url` precisa ter a forma `X:\…` / `X:/…` (letra de unidade) ou começar com uma única `\` (UNC).
+   Todo o resto é pulado; URLs comuns não entram na superfície de reescrita deste plugin.
 
-   UNC 只要求**单个**前导反斜杠：源码里的 `\\host` 中 `\\` 自身就是一次标点转义，
-   解析后只剩一个反斜杠（实测 `[log](\\build01\share\.logs\run.txt)` →
-   `\build01\share.logs\run.txt`）。要求两个反而会把真正需要还原的 UNC 全部漏掉。
-2. `node.title` 非空则跳过（不解析 title 语法）。
-3. 用 `node.position` 的 start/end offset 从 VFile 原文切出整段，按节点形态取
-   destination：
-   - `link` / `image`：`[label](dest)` / `![alt](dest)`，要求以 `)` 结尾，取最后一个
-     `](` 之后到收尾 `)` 之前的片段。Windows 路径不含 `](`，所以在门禁之内「取最后
-     一个」是安全的，label/alt 内部的方括号也不会把切片带偏。
-   - `definition`：`[ref]: dest`，取 `]:` 之后的片段。引用式链接的 URL 由 definition
-     提供，同一处丢失在这条路径上同样成立。
-4. 尖括号形式（`<…>`）跳过。
-5. **验证**：`unescapeCommonMarkPunctuation(raw) === node.url` 才认为切片正确
-   且还原无歧义，此时 `node.url = raw`；否则保持不变。
+   Para UNC exige-se apenas **uma** barra invertida inicial: no texto-fonte, em `\\host`, o próprio `\\` já é um escape de pontuação, e após o parsing sobra uma única barra invertida (medido: `[log](\\build01\share\.logs\run.txt)` →
+   `\build01\share.logs\run.txt`). Exigir duas acabaria descartando todos os UNC que realmente precisam de restauração.
+2. Se `node.title` não for vazio, pular (a sintaxe de title não é interpretada).
+3. Usar os offsets start/end de `node.position` para recortar da origem no VFile o trecho inteiro, obtendo o destination conforme a forma do nó:
+   - `link` / `image`: `[label](dest)` / `![alt](dest)`, exige terminação em `)`, tomando o trecho após o último `](` até o `)` final. Caminhos do Windows não contêm `](`, portanto, dentro do portão, «pegar o último» é seguro, e colchetes dentro do label/alt não deslocam o corte.
+   - `definition`: `[ref]: dest`, tomando o trecho após `]:`. A URL de um link por referência é fornecida pela definition, e a mesma perda ocorre igualmente nesse caminho.
+4. Forma com colchetes angulares (`<…>`): pular.
+5. **Verificação**: só se considera que o corte está correto e a restauração é inequívoca quando `unescapeCommonMarkPunctuation(raw) === node.url`; nesse caso `node.url = raw`; caso contrário, manter sem alteração.
 
-其中反转义规则与 CommonMark 一致：
+As regras de reversão de escape são idênticas às do CommonMark:
 
 ```text
-\ 后跟 ASCII 标点（! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~）
-  → 去掉反斜杠
-其他情况 → 原样保留
+\ seguido de pontuação ASCII (! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~)
+  → remover a barra invertida
+outros casos → manter como está
 ```
 
-第 5 步是整个设计的安全阀：切片切错、原文含实体引用（`&amp;`）、
-或任何我们没预料到的语法，都会导致等式不成立，从而放弃还原而不是写入错误路径。
+O passo 5 é a válvula de segurança de todo o design: um corte errado, um texto original contendo referência de entidade (`&amp;`) ou qualquer sintaxe inesperada faz a igualdade falhar, e então a restauração é abandonada em vez de gravar um caminho errado.
 
-### 挂载
+### Montagem
 
-`message.tsx` 里 `messageRemarkPlugins` 目前只在
-`renderZCodeFileCitations && workspacePath` 时才显式提供，否则传 `undefined`
-（走 Streamdown 默认）。本插件必须**无条件**生效，因此改为始终显式提供
-`defaultRemarkPlugins + windowsFileLinkEscapeRemarkPlugin`，citation 插件仍按原
-条件追加。显式传入默认插件是既有约定（见该处既有注释：不带默认插件会让表格退化）。
+Em `message.tsx`, o `messageRemarkPlugins` hoje só é fornecido explicitamente quando
+`renderZCodeFileCitations && workspacePath`, e caso contrário recebe `undefined`
+(seguindo o padrão do Streamdown). Este plugin precisa ter efeito **incondicionalmente**, portanto passou-se a sempre fornecer explicitamente
+`defaultRemarkPlugins + windowsFileLinkEscapeRemarkPlugin`, mantendo o plugin de citation anexado pela condição original. Passar os plugins padrão explicitamente é a convenção já existente (ver o comentário já presente no local: sem os plugins padrão as tabelas degradam).
 
-## 影响与风险
+## Impacto e riscos
 
-- **多平台**：门禁只认盘符/UNC 形态，macOS/Linux 上模型不会产出这种 URL，
-  插件对它们是一次正则判断。
-- **性能**：只在命中门禁时才切片原文，正常会话里命中率极低。
-- **误伤**：由第 5 步等式验证兜底；不成立即放弃。
-- **历史消息**：还原发生在渲染期，历史消息重新渲染即生效，无需数据迁移。
+- **Multiplataforma**: o portão só reconhece letra de unidade/UNC; no macOS/Linux o modelo não produz essa URL, então o plugin custa uma verificação por regex.
+- **Desempenho**: o recorte do texto original só ocorre quando o portão é atingido, e a taxa de acerto em conversas normais é baixíssima.
+- **Dano colateral**: coberto pela verificação de igualdade do passo 5; se não fechar, a restauração é abandonada.
+- **Mensagens antigas**: a restauração ocorre no momento da renderização, então basta re-renderizar as mensagens antigas, sem migração de dados.
 
-## 验收
+## Aceitação
 
-1. 新增单测覆盖：`\.zcode` 还原、image 节点、UNC 前导反斜杠塌陷、引用式 definition、
-   无需还原时不动、非 Windows URL 不动、带 title 跳过、尖括号跳过、
-   验证不通过（实体引用）时保持原值。
-2. `pnpm exec vitest run packages/ui/test/windowsFileLinkEscapeRemarkPlugin.test.ts` 通过，
-   且 message.tsx 依赖的 11 个既有测试文件全绿。
-3. 端到端：会话里 `[x](C:\Users\dev\.zcode\...\screenshot.png)` 预览可打开。
+1. Novos testes unitários cobrindo: restauração de `\.zcode`, nó image, colapso da barra invertida inicial de UNC, definition por referência, nada muda quando não é preciso restaurar, URLs não-Windows intactas, pulo quando há title, pulo no formato com colchetes angulares e manutenção do valor original quando a verificação falha (referência de entidade).
+2. `pnpm exec vitest run packages/ui/test/windowsFileLinkEscapeRemarkPlugin.test.ts` passa, e os 11 arquivos de teste existentes dos quais message.tsx depende ficam todos verdes.
+3. Ponta a ponta: na conversa, a pré-visualização de `[x](C:\Users\dev\.zcode\...\screenshot.png)` abre.

@@ -1,42 +1,42 @@
-# Chat Find Placement
+# Posicionamento do Localizar no Chat
 
-`Cmd/Ctrl+F` 打开的任务内查找框属于当前聊天区域，而不是全局窗口标题区控件。
+A caixa de busca dentro da task aberta por `Cmd/Ctrl+F` pertence à área de chat atual, e não aos controles globais da barra de título da janela.
 
-查找框应渲染在 workspace conversation panel 的视觉边界内，位于聊天内容上方并水平居中。桌面端直接挂载在 conversation panel；手机 Web 远控通过 shell 的独立 chat overlay 插槽挂载，使浮层仍跟随聊天内容区域，但不成为聊天正文 DOM 的后代。这样桌面端在展开侧栏、Git/Browser side pane、终端分栏时仍跟随聊天列，手机端也不占用全局导航或窗口按钮区域。
+A caixa de busca deve ser renderizada dentro dos limites visuais do painel de conversa do workspace, acima do conteúdo do chat e centralizada horizontalmente. No desktop ela é montada diretamente no painel de conversa; no Web remoto do celular, via o slot de overlay de chat do shell, de modo que a camada flutuante continue acompanhando a área de conteúdo do chat sem se tornar descendente do DOM do corpo do chat. Assim, no desktop ela continua seguindo a coluna do chat mesmo com a barra lateral expandida, o side pane de Git/Browser e o terminal dividido, e no celular não ocupa a navegação global nem a área de botões da janela.
 
-查找状态仍由 `App` 统一持有，继续驱动聊天正文高亮和文件变更高亮。`TaskFindDialog` 只负责输入、范围切换和结果导航，不新增跨端 runtime 状态，也不改变 desktop continuous 与 web remote replayable 的消息链路。
+O estado da busca continua sendo mantido de forma unificada por `App`, que ainda alimenta o realce do corpo do chat e o realce de alterações de arquivo. `TaskFindDialog` responde apenas pela entrada, troca de escopo e navegação entre resultados; não acrescenta estado de runtime cross-plataforma nem altera a cadeia de mensagens de desktop continuous e web remote replayable.
 
-查找框内的图标按钮必须提供 tooltip。结果导航按钮即使在无结果禁用时也应能展示 tooltip，避免纯图标控件含义不可见。搜索范围切换按钮的 tooltip 使用固定文案“切换搜索范围会话/文件”，按钮自身的 `aria-label` 仍表达下一次点击将切到的范围。
+Os botões de ícone dentro da caixa de busca devem fornecer tooltip. Os botões de navegação de resultados devem mostrar tooltip mesmo quando desabilitados por ausência de resultados, evitando que controles puramente icônicos tenham significado invisível. O tooltip do botão de troca do escopo de busca usa o texto fixo “切换搜索范围会话/文件”, enquanto o `aria-label` do próprio botão continua expressando o escopo para o qual o próximo clique vai trocar.
 
-## 手机 Web 覆盖抽屉层级
+## Hierarquia da gaveta de overlay no Web do celular
 
-手机 Web 打开 Git/Browser side pane 时，覆盖式抽屉会把底层聊天表面设置为 `inert` 和 `aria-hidden`。该隔离是防止遮罩下 composer、模型选择等控件继续响应点击的既有安全边界，不得为了查找功能移除或放宽。
+Quando o Web no celular abre o side pane de Git/Browser, a gaveta em overlay define a superfície de chat subjacente como `inert` e `aria-hidden`. Esse isolamento é um limite de segurança já existente que impede que controles sob o overlay, como o composer e o seletor de modelo, continuem respondendo a cliques; ele não deve ser removido nem afrouxado por causa da funcionalidade de busca.
 
-`TaskFindDialog` 必须由 `WebRemoteControlMobileShell` 的独立 `chatOverlay` 插槽承载。该插槽与聊天表面、side pane overlay 同级，不受聊天表面的 `inert` / `aria-hidden` 继承，并使用高于抽屉遮罩的层级。切到文件变更范围后，输入框、上一个/下一个、范围切换和关闭按钮都必须继续可聚焦、可点击；切回会话范围时复用同一个组件实例和本地 query/scope 状态，不能通过在聊天树与抽屉树之间搬运组件造成重挂载。
+`TaskFindDialog` deve ser hospedado pelo slot `chatOverlay` próprio do `WebRemoteControlMobileShell`. Esse slot está no mesmo nível da superfície de chat e do overlay do side pane, não herda o `inert` / `aria-hidden` da superfície de chat e usa um nível superior ao da máscara da gaveta. Depois de trocar para o escopo de alterações de arquivo, o campo de entrada, o botão de anterior/seguinte, a troca de escopo e o botão de fechar precisam continuar focalizáveis e clicáveis; ao voltar para o escopo de conversas, a mesma instância do componente e o estado local de query/scope são reaproveitados, sem provocar remontagem por mover o componente entre a árvore do chat e a árvore da gaveta.
 
-不采用以下方案：
+As seguintes abordagens não são adotadas:
 
-- 移除聊天表面的 `inert`：会恢复遮罩下控件穿透，破坏既有移动端交互隔离。
-- 按查找范围把组件在聊天树与 side pane 树之间迁移：会引入 scope 外部化和组件重挂载，增加 query、焦点和导航版本丢失风险。
+- Remover o `inert` da superfície de chat: isso restauraria a passagem de cliques através do overlay e quebraria o isolamento de interação móvel já existente.
+- Migrar o componente entre a árvore do chat e a árvore do side pane conforme o escopo de busca: isso introduziria externalização de scope e remontagem do componente, aumentando o risco de perda de query, foco e versão de navegação.
 
-移动端 DOM 回归必须证明查找 overlay 位于 `inert` 聊天表面之外，并且打开 side pane 后仍保留可交互控件。桌面 pending E2E 继续证明真实会话/Git 滚动重新居中；在没有独立 mobile replayable E2E 基础设施前，不把桌面 case 表述成手机端端到端证明。
+A regressão de DOM no mobile precisa provar que o overlay de busca está fora da superfície de chat `inert` e que, depois de abrir o side pane, os controles interativos continuam presentes. O E2E pendente do desktop continua provando que sessão real / rolagem do Git é recentralizada; enquanto não houver infraestrutura E2E mobile replayable separada, o caso de desktop não deve ser descrito como prova end-to-end no celular.
 
-## Escape 优先级
+## Prioridade do Escape
 
-chat placement 使用 window 冒泡阶段监听补齐 Escape 关闭语义。监听器必须先检查 `event.defaultPrevented`：活动的嵌套浮层或控件已经消费 Escape 时，查找框保持打开；只有未被处理的 Escape 才由查找框调用 `preventDefault()` 并关闭。测试必须同时覆盖已处理与未处理两条路径。
+O posicionamento no chat usa um listener na fase de bubble da window para completar a semântica de fechamento por Escape. O listener precisa checar primeiro `event.defaultPrevented`: quando uma camada flutuante aninhada ativa ou um controle já consumiu o Escape, a caixa de busca permanece aberta; somente um Escape não tratado faz a caixa de busca chamar `preventDefault()` e fechar. Os testes devem cobrir os dois caminhos, tratado e não tratado.
 
-## 结果导航语义
+## Semântica de navegação entre resultados
 
-查找状态必须区分“当前选中哪个命中”和“用户新发起了一次导航”。查询词与命中索引描述当前选择；独立、单调递增的导航请求版本描述用户是否再次要求定位。不能只用 `(query, activeIndex)` 判断是否需要滚动，因为单命中时上一个、下一个、`Enter` 和 `Shift+Enter` 都会环绕到同一个索引。
+O estado da busca precisa distinguir “qual hit está atualmente selecionado” de “o usuário iniciou uma nova navegação”. O termo de busca e o índice do hit descrevem a seleção atual; uma versão de requisição de navegação independente e monotonicamente crescente descreve se o usuário pediu uma nova localização. Não se pode decidir apenas por `(query, activeIndex)` se é necessário rolar, pois, com um único hit, anterior, próximo, `Enter` e `Shift+Enter` dão a volta e chegam ao mesmo índice.
 
-以下入口必须采用一致语义：
+Os pontos de entrada a seguir devem adotar a mesma semântica:
 
-- 点击上一个或下一个结果。
-- 在搜索输入框按 `ArrowUp`、`ArrowDown`、`Enter` 或 `Shift+Enter`。
-- 会话正文与文件变更两种搜索范围。
+- Clicar no resultado anterior ou no seguinte.
+- Pressionar `ArrowUp`, `ArrowDown`, `Enter` ou `Shift+Enter` no campo de busca.
+- Os dois escopos de busca: corpo da conversa e alterações de arquivo.
 
-当用户滚离当前命中后，即使目标索引没有变化，任一结果导航入口都必须重新将该命中滚到视口中央。多命中时继续按现有环绕顺序切换；零命中时按钮和键盘导航入口都保持禁用，不产生新的导航请求版本。
+Quando o usuário rola para longe do hit atual, qualquer ponto de entrada de navegação de resultados deve rolar esse hit novamente para o centro da viewport, mesmo que o índice alvo não tenha mudado. Com múltiplos hits, a troca continua seguindo a ordem circular já existente; com zero hits, os botões e a navegação por teclado permanecem desabilitados e não geram nova versão de requisição de navegação.
 
-导航请求版本只属于 renderer 本地 UI 状态，不进入 session/task runtime、协议、snapshot、队列或持久化。会话正文与文件变更各自维护独立版本，避免切换范围时互相触发滚动。文本高亮 hook 继续保留 DOM mutation 去重，但新的用户导航版本必须突破同一 `(query, activeIndex, matchCount)` 的滚动去重。
+A versão de requisição de navegação pertence apenas ao estado de UI local do renderer; não entra em session/task runtime, protocolo, snapshot, filas ou persistência. O corpo da conversa e as alterações de arquivo mantêm versões independentes cada um, evitando que a troca de escopo dispare rolagem mútua. O hook de realce de texto continua com a deduplicação de mutações do DOM, mas uma nova versão de navegação do usuário precisa ultrapassar a deduplicação de rolagem do mesmo `(query, activeIndex, matchCount)`.
 
-桌面端与手机 Web 端复用同一 `TaskFindDialog` 和高亮 hook，因此交互语义保持一致；该变更不触碰 `desktop-continuous` 与 `web-remote-replayable` 的消息恢复边界。
+O desktop e o Web no celular reutilizam o mesmo `TaskFindDialog` e o mesmo hook de realce, portanto a semântica de interação permanece consistente; esta mudança não toca nos limites de recuperação de mensagens de `desktop-continuous` e `web-remote-replayable`.

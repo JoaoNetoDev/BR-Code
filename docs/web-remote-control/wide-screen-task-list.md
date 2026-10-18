@@ -1,51 +1,45 @@
-# 宽屏 Web 远控任务列表
+# Lista de tarefas do remote Web em tela larga
 
-## 背景
+## Contexto
 
-手机 `/remote` 窄屏已经有独立任务首页，使用 `listWorkspaces()` 返回的
-`WebRemoteControlWorkspaceListResult` 作为跨工作区任务事实源。宽屏 `/remote` 仍复用桌面
-sidebar 外壳，但左侧任务列表区域需要遵守同一远控事实源，否则用户在宽屏远控看到的任务、搜索、视图切换和归档入口会彼此不一致。
+O `/remote` em tela estreita do celular já tem uma home de tarefas própria, usando o `WebRemoteControlWorkspaceListResult` retornado por `listWorkspaces()` como fonte de verdade de tarefas entre workspaces. O `/remote` em tela larga ainda reutiliza o shell da sidebar do desktop, mas a área da lista de tarefas do lado esquerdo precisa obedecer à mesma fonte de verdade do remote; caso contrário, as tarefas, a busca, a troca de visão e as entradas de arquivamento vista pelo usuário no remote em tela larga ficam inconsistentes entre si.
 
-## 范围
+## Escopo
 
-- 仅影响宽屏 Web remote control shell 的左侧任务列表区域。
-- 桌面端 sidebar 继续使用原有 `WorkspaceGroupedTasksSection`、`WorkspaceTimelineTasksSection`、
-  `WorkspaceArchivedTasksFlatSection`、`WorkspacePinnedTasksSection` 和 continuous 实时链路。
-- 不改变 relay、desktop main、host process、task realtime、snapshot、queue 或 owner command 语义。
-- 宽屏 Web remote 继续通过 shared-host attachment 访问已有 desktop host，不启动独立 runtime。
+- Afeta apenas a área da lista de tarefas do shell de remote control Web em tela larga.
+- A sidebar do desktop continua usando as existentes `WorkspaceGroupedTasksSection`, `WorkspaceTimelineTasksSection`,
+  `WorkspaceArchivedTasksFlatSection`, `WorkspacePinnedTasksSection` e o链路 em tempo real continuous.
+- Não altera relay, desktop main, processo de host, task realtime, snapshot, queue nem a semântica de owner command.
+- O remote Web em tela larga continua acessando o desktop host existente por shared-host attachment, sem iniciar um runtime independente.
 
-## 行为
+## Comportamento
 
-宽屏 Web remote 在任务工具栏内保留现有视图、排序、搜索和归档入口，但这些入口在远控模式下必须消费
-`listWorkspaces()` 返回的同一份任务索引：
+O remote Web em tela larga mantém, dentro da barra de ferramentas de tarefas, as entradas existentes de visão, ordenação, busca e arquivamento, mas essas entradas, no modo remote, devem consumir o mesmo índice de tarefas retornado por `listWorkspaces()`:
 
-1. `workspace` 视图按 desktop 返回的 workspace 顺序分组，只展示非置顶任务；置顶任务仅在独立置顶区展示，避免重复。
-2. `timeline` 视图跨所有可见 workspace 展示非置顶任务，并使用与桌面一致的两层排序：running 先于非 running，running 内按 `createdAt` 倒序稳定排列，非 running 再按用户选择的 `created` 或 `updated` 字段排序。运行层成员 = `displayStatus === "running"` 或 `hasBackgroundWork === true`（2026-09-09 追记：会话挂着后台 workflow run 时只推进 `updatedAt`、不改图标，不并入运行层就会随进度事件换位）。
-   任务行在标题下绘制与桌面一致的工作流运行行（`WebRemoteControlTaskTarget.workflowActivity`，2026-09-14 追记）：Workflow 图标 + 迷你轨道灯 + 当前 phase 名；结束的 run 行由远控端自己的已确认集合折叠，不依赖桌面 localStorage。
-3. 归档视图展示远控任务索引中的归档任务。归档任务仍按同一排序字段排序，并保留 workspace label，避免退回当前 bridge workspace。
-4. 搜索只过滤当前宽屏远控任务区里的任务和 workspace label，不打开桌面 Command Center；搜索词为空时恢复完整列表。
-5. `workspace` 视图的收起/展开全部只控制宽屏远控分组展开状态，不写入或复用桌面 sidebar 的展开状态。
-6. 切换排序、视图、搜索词或归档状态不得改变桌面端任务列表行为。
-7. 普通和置顶任务行在 hover 后展示置顶/取消置顶与归档入口，交互语义对齐桌面端侧栏：置顶直接切换 membership，归档先进入确认态，第二次点击才归档。
-8. 任务操作通过当前 shared-host bridge 可解析到的 `zcodeTaskService` 执行。本地 workspace 走 base services；远端 workspace 只有在已注册 remote session services 时才允许操作，避免把远端 `workspacePath` 误交给本机 host。
-9. 操作成功后宽屏远控本地任务索引立即按返回的 membership 更新，等待 desktop renderer 后续 task snapshot 同步收敛；失败时保留原索引并提示用户。
-10. 置顶、取消置顶、归档、取消归档属于 task list membership 变化。服务层必须广播明确的 membership reason，desktop renderer 收到后重新刷新对应 task list，不能把这类事件当作普通 `task_meta_changed` 增量保留 membership。
-11. Desktop renderer 把更新后的 Web remote task snapshot 同步给 desktop main 后，desktop main 只通过既有 app payload 通道通知已连接 Web remote 重新采用最新 `WebRemoteControlWorkspaceListResult`。relay 和 main 不新增 task 业务状态，只转发 renderer 已同步的任务索引快照。
+1. A visão `workspace` agrupa pela ordem de workspaces retornada pelo desktop e mostra apenas tarefas não fixadas; tarefas fixadas aparecem somente na seção de fixadas, evitando duplicação.
+2. A visão `timeline` mostra tarefas não fixadas de todos os workspaces visíveis, usando a mesma ordenação em dois níveis do desktop: running antes de non-running, running ordenadas de forma estável por `createdAt` em ordem decrescente, e non-running ordenadas pelo campo `created` ou `updated` escolhido pelo usuário. Membro da camada running = `displayStatus === "running"` ou `hasBackgroundWork === true` (adendo de 2026-09-09: quando a sessão tem um workflow run em background pendente, apenas `updatedAt` avança, o ícone não muda, e não uni-la à camada running faz a tarefa trocar de posição a cada evento de progresso).
+   A linha da tarefa desenha, abaixo do título, a linha de execução de workflow igual à do desktop (`WebRemoteControlTaskTarget.workflowActivity`, adendo de 2026-09-14): ícone de Workflow + luz de trilho compacta + nome da phase atual; as linhas de run encerradas são colapsadas pelo conjunto já confirmado do próprio remote, sem depender do localStorage do desktop.
+3. A visão de arquivamento mostra as tarefas arquivadas do índice de tarefas do remote. As tarefas arquivadas continuam ordenadas pelo mesmo campo de ordenação e preservam o label de workspace, evitando voltar ao bridge workspace atual.
+4. A busca filtra apenas as tarefas e os labels de workspace da área de tarefas do remote em tela larga e não abre o Command Center do desktop; quando o termo de busca está vazio, a lista completa é restaurada.
+5. Recolher/expandir tudo na visão `workspace` controla apenas o estado de expansão dos grupos do remote em tela larga e não escreve nem reutiliza o estado de expansão da sidebar do desktop.
+6. Trocar ordenação, visão, termo de busca ou estado de arquivamento não pode alterar o comportamento da lista de tarefas do desktop.
+7. Linhas de tarefas normais e fixadas mostram, após hover, as entradas de fixar/desafixar e arquivar, com semântica de interação alinhada à sidebar do desktop: fixar alterna a membership diretamente; arquivar entra primeiro em estado de confirmação e só no segundo clique arquiva.
+8. As operações de tarefa são executadas pelo `zcodeTaskService` resolvível pelo bridge de shared-host atual. Workspaces locais passam pelos base services; workspaces remotos só permitem operação quando já há remote session services registradas, evitando entregar um `workspacePath` remoto ao host local por engano.
+9. Após sucesso da operação, o índice local de tarefas do remote em tela larga é atualizado imediatamente conforme a membership retornada, aguardando a convergência pelo task snapshot subsequente do desktop renderer; em caso de falha, o índice original é mantido e o usuário é avisado.
+10. Fixar, Desafixar, Arquivar e Desarquivar são mudanças de membership na task list. A camada de serviço precisa transmitir um reason de membership explícito, e o desktop renderer, ao recebê-lo, precisa recarregar a task list correspondente, sem tratar esse tipo de evento como um `task_meta_changed` incremental que preserva a membership.
+11. Depois que o desktop renderer sincroniza o task snapshot atualizado do Web remote para o desktop main, o desktop main apenas notifica, pelo canal de app payload já existente, os Web remotes conectados para adotarem o `WebRemoteControlWorkspaceListResult` mais recente. Relay e main não adicionam estado de negócio de tasks; apenas encaminham o snapshot do índice de tarefas sincronizado pelo renderer.
 
-## 数据约定
+## Convenção de dados
 
-`WebRemoteControlTaskTarget` 的 `pinned` 表示任务属于置顶分区；`archived` 表示任务属于归档分区。旧客户端可能没有
-`archived` 字段，缺省按普通任务处理。宽屏远控模型在 UI 层过滤这两个标记，不改变协议和 realtime 数据流。
+Em `WebRemoteControlTaskTarget`, `pinned` indica que a task pertence à seção de fixadas; `archived` indica que a task pertence à seção de arquivadas. Clientes antigos podem não ter o campo `archived`, e por padrão são tratados como tarefas normais. O modelo do remote em tela larga filtra esses dois marcadores na camada de UI, sem alterar o protocolo nem o fluxo de dados realtime.
 
-宽屏远控的置顶/归档动作不新增 relay 业务协议，也不把 task 状态下沉到 desktop main。mobile Web 仍通过已经 attach
-的 host/service 调用任务服务；desktop main 只继续提供 `workspace-list-request` 的索引快照和 `rpc-frame` 透传。
-当 desktop renderer 由于 task list membership 变化调用 `syncWebRemoteControlTasks` 时，desktop main 可以发送
-`workspace-list-updated` app payload，把同一份 `buildWorkspaceListResult()` 快照推给 Web remote，避免 Web 端继续展示旧列表。
+As ações de fixar/arquivar do remote em tela larga não adicionam protocolo de negócio ao relay nem empurram o estado de task para baixo do desktop main. O Web mobile continua chamando o serviço de tarefas pelo host/service já anexado; o desktop main continua fornecendo apenas o snapshot de índice de `workspace-list-request` e o repasse de `rpc-frame`.
+Quando o desktop renderer chama `syncWebRemoteControlTasks` devido a uma mudança de membership na task list, o desktop main pode enviar o app payload `workspace-list-updated`, empurrando o mesmo snapshot de `buildWorkspaceListResult()` para o Web remote e evitando que o lado Web continue exibindo a lista antiga.
 
-## 测试要求
+## Requisitos de teste
 
-- 单元测试覆盖排序字段切换、置顶去重、时间线跨工作区、归档跨工作区、搜索过滤、分组收起，以及操作后 task membership 更新。
-- 单元测试覆盖 `task_archived` / `task_unarchived` / `task_pinned` / `task_unpinned` 会触发跨端列表刷新，并覆盖 service 广播这些明确 reason。
-- 单元测试覆盖 desktop main 在 task snapshot membership 变化后推送 `workspace-list-updated`，Web payload schema 接受该消息。
-- 布局测试覆盖宽屏远控任务行渲染置顶和归档操作入口。
-- 运行 `pnpm typecheck` 和 `pnpm lint`。
+- Testes unitários cobrindo troca de campo de ordenação, desduplicação de fixadas, timeline entre workspaces, arquivamento entre workspaces, filtro de busca, recolhimento de grupos e atualização da task membership após operações.
+- Testes unitários cobrindo que `task_archived` / `task_unarchived` / `task_pinned` / `task_unpinned` disparam a atualização da lista entre as pontas, e cobrindo que o serviço transmite esses reasons explícitos.
+- Testes unitários cobrindo que o desktop main empurra `workspace-list-updated` após mudança de membership no task snapshot, e que o schema do payload Web aceita essa mensagem.
+- Testes de layout cobrindo que a linha de tarefa do remote em tela larga renderiza as entradas de ação de fixar e arquivar.
+- Executar `pnpm typecheck` e `pnpm lint`.

@@ -1,26 +1,26 @@
-# Sidebar Purpose Section Order
+# Ordem das Seções de Finalidade na Barra Lateral
 
-## Feature Summary
+## Resumo da Funcionalidade
 
-| Field                 | Value                                                                                                                     |
+| Campo                 | Valor                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Change                | `Project + By project` 中的“项目 / 任务”二级分区支持拖拽换位，并持久化用户顺序                                            |
-| User-visible surfaces | Desktop 与共享 Web workspace sidebar；共享 task-purpose 标签同步显示为“任务 / Tasks”                                      |
-| Existing docs         | `docs/ui/sidebar-task-view-switcher.md`、`docs/superpowers/specs/2026-07-10-non-project-conversation-workspace-design.md` |
-| State owner           | Renderer-local `zcode-sidebar-purpose-section-preferences`                                                                |
-| Out of scope          | 手机 `/remote` 拖拽布局、跨窗口实时同步、Host/Agent/protocol 状态、其它“对话”文案                                         |
+| Alteração              | A subseção “项目 / 任务” em `Project + By project` passa a aceitar arrastar-e-soltar para reordenar, com a ordem do usuário persistida |
+| Superfícies visíveis  | Barra lateral do Desktop e do workspace Web compartilhado; o rótulo compartilhado de task-purpose passa a exibir “任务 / Tasks”     |
+| Docs existentes       | `docs/ui/sidebar-task-view-switcher.md`、`docs/superpowers/specs/2026-07-10-non-project-conversation-workspace-design.md`         |
+| Dono do estado        | `zcode-sidebar-purpose-section-preferences` local ao Renderer                                                              |
+| Fora de escopo        | Layout por arrastar no `/remote` do celular, sincronização em tempo real entre janelas, estado de Host/Agent/protocol, outros textos de “对话” |
 
-内部 `workspacePurpose=conversation` 语义保持不变；把共享的 task-purpose 分区/工作区标签及桌面侧栏空态、创建入口文案从
-“对话 / Conversations”调整为“任务 / Tasks”。手机 `/remote` 可复用新标签，但不获得拖拽入口。
+A semântica interna `workspacePurpose=conversation` permanece inalterada; as subseções/ rótulos de workspace compartilhados de task-purpose e os textos de estado vazio e de entrada de criação da barra lateral da desktop passam de
+“对话 / Conversations” para “任务 / Tasks”. O `/remote` do celular pode reutilizar o novo rótulo, mas não ganha entrada de arrastar.
 
-## Clarification Log
+## Registro de Esclarecimentos
 
-| Round | Question                                                                    | User answer      | Boundary fixed                                                                                        |
-| ----- | --------------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| 1     | 排序是否持久化、拖拽入口、输入方式、多端范围、同步范围、空/收起分区是否可拖 | 按推荐方案       | renderer-local 持久化；专用手柄；鼠标/触摸/键盘；Desktop/共享 Web；不实时跨窗口同步；整个分区始终可拖 |
-| 2     | 是否同时调整分区文案                                                        | “对话”改成“任务” | 只调整该侧栏分区相关文案，不改 conversation 产品/协议语义                                             |
+| Rodada | Questão                                                                         | Resposta do usuário | Limite fixado                                                                                      |
+| ------ | ------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
+| 1      | A ordenação é persistida, entrada de arrasto, forma de entrada, escopo multi-plataforma, escopo de sincronização, seções vazias/recolhidas podem ser arrastadas | Pela opção recomendada | Persistência local ao renderer; alça dedicada; mouse/toque/teclado; Desktop/Web compartilhado; sem sincronização em tempo real entre janelas; a seção inteira sempre pode ser arrastada |
+| 2      | Ajustar também os textos das seções                                            | “对话” → “任务”     | Ajustar apenas os textos relacionados a essa seção da barra lateral, sem mudar a semântica de produto/protocolo de conversation |
 
-## State And Sync Boundary
+## Limite de Estado e Sincronização
 
 ```text
 pointer / touch / keyboard drag handle
@@ -34,48 +34,48 @@ pointer / touch / keyboard drag handle
   -X-> live broadcast to another open window
 ```
 
-展开态跟随分区自身，不因换位改变：
+O estado expandido acompanha a própria seção e não muda com a reordenação:
 
 ```text
 projects      -> projectsExpanded
 conversations -> conversationsExpanded
 ```
 
-## Domain Scope And Dimensions
+## Escopo de Domínio e Dimensões
 
-| Dimension          | Values                                     | Decision                                                                |
-| ------------------ | ------------------------------------------ | ----------------------------------------------------------------------- |
-| Input              | mouse pointer / touch pointer / keyboard   | accepted，统一走专用 drag handle                                        |
-| Section content    | non-empty / empty                          | accepted，都可拖                                                        |
-| Section expansion  | expanded / collapsed                       | accepted，整体移动且保留原展开态                                        |
-| Initial preference | missing / legacy / valid / corrupt         | accepted；missing、legacy、corrupt 使用默认 `projects -> conversations` |
-| Surface            | Desktop / shared Web / mobile `/remote`    | 前两者 accepted 拖拽；mobile 只接受共享文案，拖拽 pruned，保持独立布局  |
-| Window             | current / another open renderer / remount  | 当前立即更新；另一窗口实时同步 pruned；remount 恢复 accepted            |
-| Runtime delivery   | desktop-continuous / web-remote-replayable | ignored；排序不进入 runtime/realtime 链路                               |
-| Theme / locale     | Zai Light / Zai Dark；zh-CN / en-US        | accepted；使用现有语义 token 与双语文案                                 |
+| Dimensão             | Valores                                    | Decisão                                                                                   |
+| -------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Entrada              | ponteiro do mouse / ponteiro de toque / teclado | aceita, sempre passando pela alça de arrasto dedicada                                  |
+| Conteúdo da seção   | não vazia / vazia                          | aceita, ambas podem ser arrastadas                                                         |
+| Expansão da seção    | expandida / recolhida                      | aceita, move-se por inteiro preservando o estado expandido original                       |
+| Preferência inicial  | ausente / legada / válida / corrompida     | aceita; ausente, legada e corrompida usam o padrão `projects -> conversations`            |
+| Superfície           | Desktop / Web compartilhado / `/remote` do celular | as duas primeiras aceitam arrasto; mobile só aceita o texto compartilhado, arrasto removido, layout independente mantido |
+| Janela               | atual / outro renderer aberto / remontagem  | a atual atualiza imediatamente; sincronização em tempo real com outra janela removida; restauração na remontagem aceita |
+| Entrega em runtime    | desktop-continuous / web-remote-replayable | ignorada; a ordenação não entra na cadeia runtime/realtime                                |
+| Tema / locale        | Zai Light / Zai Dark; zh-CN / en-US         | aceita; usando os tokens semânticos existentes e textos bilíngues                        |
 
-## Candidate And Pruning Decisions
+## Candidatos e Decisões de Remoção
 
-| Candidate | Setup / action             | Expected result                                        | Status                                      |
-| --------- | -------------------------- | ------------------------------------------------------ | ------------------------------------------- |
-| SPO01     | 默认偏好查看侧栏           | 项目在任务上方，两个分区默认展开                       | accepted                                    |
-| SPO02     | 从任务分区手柄拖到项目上方 | 整个任务分区换位，展开态和内容不变，顺序写入本地偏好   | accepted                                    |
-| SPO03     | 刷新或重启 renderer        | 恢复任务在项目上方                                     | accepted                                    |
-| SPO04     | 收起或空分区后拖拽         | 仍可换位；不清理缓存、workspace/task 顺序或展开态      | accepted                                    |
-| SPO05     | 键盘聚焦手柄并排序         | 与 pointer 排序得到相同结果，手柄具有可读 `aria-label` | accepted                                    |
-| SPO06     | 在另一个已打开窗口观察顺序 | 不要求实时变化；该窗口下次挂载读取持久化值             | pruned，renderer-local 偏好不新增 broadcast |
-| SPO07     | 手机 `/remote` 查看或拖拽  | task-purpose 标签显示“任务”，但不提供拖拽入口，不改变 replayable 恢复 | copy accepted；drag pruned，独立移动端布局  |
-| SPO08     | 修改全产品其它“对话”文案   | 保持原文案                                             | ignored，本次只调整 sidebar purpose section |
+| Candidato | Configuração / ação                          | Resultado esperado                                                     | Status                                                                     |
+| --------- | -------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| SPO01     | Ver a barra lateral com a preferência padrão | Projetos acima de tarefas, ambas as seções expandidas por padrão      | aceito                                                                     |
+| SPO02     | Arrastar da alça da seção de tarefas para acima de projetos | A seção inteira de tarefas troca de lugar, mantendo estado expandido e conteúdo, e a ordem vai para a preferência local | aceito                                       |
+| SPO03     | Atualizar ou reiniciar o renderer             | Restaura tarefas acima de projetos                                    | aceito                                                                     |
+| SPO04     | Arrastar com seção recolhida ou vazia        | Ainda pode trocar de lugar; não limpa cache, ordem de workspace/task nem estado expandido | aceito                        |
+| SPO05     | Ordenar com o teclado focando a alça         | Mesmo resultado da ordenação por ponteiro, com `aria-label` legível na alça | aceito                                                        |
+| SPO06     | Observar a ordem em outra janela já aberta  | Não se exige mudança em tempo real; essa janela lê o valor persistido na próxima montagem | removido, a preferência local ao renderer não ganha broadcast |
+| SPO07     | Ver ou arrastar no `/remote` do celular       | O rótulo de task-purpose exibe “任务”, mas sem entrada de arrasto e sem alterar a restauração replayable | cópia aceita; arrasto removido, layout móvel independente |
+| SPO08     | Alterar outros textos de “对话” do produto   | Manter os textos atuais                                               | ignorado, desta vez só a seção de finalidade da barra lateral é ajustada |
 
-## Accepted Case And Evidence
+## Casos Aceitos e Evidências
 
-| Case             | Setup                                            | Action                                   | Assertions                                                                                                         | Evidence                                                 | E2E                                                                              |
-| ---------------- | ------------------------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| CWP02 / SPO01-05 | fresh profile，仅 conversation backing workspace | 查看、折叠、拖拽“任务”到“项目”上方并重载 | 双语 section 语义正确；action 在 collapse trigger 外；专用手柄可访问；顺序和展开态独立持久化；无项目 workspace row | DOM order + `aria-expanded` + localStorage + remount DOM | 更新既有 `conversation-session-conversation-workspace.test.ts`；无 provider 请求 |
+| Caso              | Configuração                                        | Ação                                                      | Asserções                                                                                                        | Evidência                                              | E2E                                                                                         |
+| ----------------- | --------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| CWP02 / SPO01-05  | perfil novo, apenas workspace de backing de conversation | Ver, recolher, arrastar “任务” para cima de “项目” e recarregar | Semântica das seções bilíngue correta; ação fora do gatilho de recolhimento; alça dedicada acessível; ordem e estado expandido persistidos de forma independente; workspace sem projetos não mostra linha | Ordem no DOM + `aria-expanded` + localStorage + DOM após remontagem | Atualizar o `conversation-session-conversation-workspace.test.ts` existente; sem requisições ao provider |
 
-## E2E Handoff
+## Handoff E2E
 
-- 复用正式 CWP02，不新建重复 case。
-- 这是纯 renderer interaction，不产生 provider 请求；case-local fixture 为空并声明 `noProviderRequests`，不新增 provider response replay。
-- pointer E2E 证明真实换位与重载恢复；keyboard/touch sensor 契约由 focused component/source test 覆盖。
-- 不进入 Docker 新准入流程；继续沿用 CWP02 当前 suite 归属。
+- Reutilizar o CWP02 formal, sem criar caso duplicado.
+- É uma interação puramente local ao renderer e não gera requisições ao provider; o fixture local do caso fica vazio e declara `noProviderRequests`, sem novo replay de resposta de provider.
+- O E2E de ponteiro prova a reordenação real e a restauração após recarga; os contratos de sensor de teclado/toque são cobertos por teste de componente focado/source.
+- Não entra no novo processo de admissão via Docker; continua sob a atual atribuição de suite do CWP02.

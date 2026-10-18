@@ -1,22 +1,22 @@
-# Todo138：空模型草稿与 Model 层推理档位兜底
+# Todo138：草稿 de modelo vazio e fallback de nível de raciocínio na camada Model
 
-> 状态：已完成。2026-09-12；按最终裁决实施并通过下述验证。
+> Status：concluído. 2026-09-12; implementado conforme a decisão final e aprovado nas verificações abaixo.
 
-> 合并说明：来源分支编号为 Todo134，现统一为 Todo138。来源实现的 builtin revision 为 23；合并另一份 revision 23 的 Turbo 禁用改动后升为 24，正文旧版本记录保留为历史证据。
+> Nota de merge: o número da branch de origem era Todo134, padronizado agora como Todo138. A builtin revision da implementação de origem era 23; após mesclar a alteração de desativação do Turbo de outra revision 23, subiu para 24, e o registro da versão antiga no corpo é mantido como evidência histórica.
 
-## 背景与最终裁决
+## Contexto e decisão final
 
-新增模型未填写 ID 就显示 disabled，来源是 ProviderCardSections.createEmptyModel 的 UI 硬编码。用户要求空白草稿不预填档位，实际模型提供关闭/开启两档兜底。
+Um novo modelo aparece como disabled quando o ID não é preenchido, devido ao hardcode de UI em ProviderCardSections.createEmptyModel. O usuário exigiu que o rascunho em branco não pré-preencha níveis, e que os modelos reais ofereçam o fallback desligado/ligado em dois níveis.
 
-讨论后撤回“Model 通用档位留空、API 层新增两档”的初稿：现有 Model + API 规则后置覆盖，会覆盖 Model 层专用档位。最终不改层级、排序、overlay 算法，不引入字段特例，也不跨层重复声明专用档位。
+Após a discussão, o rascunho inicial de “níveis genéricos vazios na camada Model, dois níveis novos na camada API” foi retirado: as regras atuais de Model + API com sobreposição posterior sobrescrevem os níveis dedicados da camada Model. No final, não se alteram camadas, ordenação nem algoritmo de overlay, não se introduzem casos especiais de campo e não se redeclara em camadas diferentes os níveis dedicados.
 
-## 修改后的状态
+## Estado após a modificação
 
-### 新增模型 UI
+### UI de novo modelo
 
-未填写模型 ID 时，推理档位为空，不预填 disabled。可添加档位；输入 ID 后沿用现有解析、草稿投影、个人覆盖机制。清空 ID 不发解析请求；没有用户覆盖时回到空档位。有显式编辑的档位继续保留。已有模型、手动设置及其他初始能力不被重置。
+Quando o ID do modelo não é preenchido, o nível de raciocínio fica vazio, sem pré-preencher disabled. É possível adicionar níveis; após informar o ID, valem a resolução existente, a projeção do rascunho e o mecanismo de sobrescrita pessoal. Limpar o ID não dispara requisição de resolução; sem sobrescrita do usuário, volta ao nível vazio. Níveis com edição explícita continuam preservados. Modelos existentes, configurações manuais e outras capacidades iniciais não são redefinidos.
 
-### Model 层通用兜底
+### Fallback genérico na camada Model
 
 ```ts
 reasoningLevel: {
@@ -25,19 +25,19 @@ reasoningLevel: {
 }
 ```
 
-已知模型继续用后续专用规则声明自己的档位，不要求每个模型额外添加 disabled/enabled。无 API 信息时也可得到 Model 层两档，但不代表配置完整或可发请求；不放宽完整性校验。
+Os modelos conhecidos continuam declarando seus próprios níveis pelas regras dedicadas posteriores; não é necessário adicionar disabled/enabled a cada modelo. Mesmo sem informações de API é possível obter os dois níveis na camada Model, mas isso não significa configuração completa nem que seja possível enviar requisições; a validação de completude não é afrouxada.
 
-### 三种 API 通用映射
+### Mapeamentos genéricos das três APIs
 
-API 通用规则不新增 values，只修改 map 的 enabled 分支：
+As regras genéricas de API não adicionam values, apenas modificam o ramo enabled do map:
 
-- Anthropic Messages：disabled 保持 thinking.type=disabled；enabled 使用 thinking.type=adaptive、output_config.effort=high。
-- OpenAI Chat Completions：disabled 保持关闭字段及 effort=none；enabled 使用 thinking.type=enabled、enable_thinking=true，reasoning_effort 和 reasoning.effort 均为 high。
-- OpenAI Responses：disabled 保持 reasoning.effort=none；enabled 映射 reasoning.effort=high。
+- Anthropic Messages: disabled mantém thinking.type=disabled; enabled usa thinking.type=adaptive, output_config.effort=high.
+- OpenAI Chat Completions: disabled mantém o campo de desligamento e effort=none; enabled usa thinking.type=enabled, enable_thinking=true, com reasoning_effort e reasoning.effort ambos high.
+- OpenAI Responses: disabled mantém reasoning.effort=none; enabled mapeia reasoning.effort=high.
 
-其他档位按原映射处理，模型/API/站点专用 map 和个人覆盖保持。只调整通用表达式，不把 enabled 作为接口 effort 原样发出。
+Os demais níveis seguem o mapeamento original; os maps dedicados de modelo/API/site e as sobrescritas pessoais permanecem. Apenas a expressão genérica é ajustada, sem enviar enabled como effort da interface sem alteração.
 
-## 所有权与边界
+## Posse e limites
 
 ```text
 空 ID 草稿（UI，空档位，不解析）
@@ -47,32 +47,32 @@ API 通用规则不新增 values，只修改 map 的 enabled 分支：
   -> 现有请求适配器执行 API map
 ```
 
-UI 只拥有未提交草稿；规则和有效模型配置仍由 Provider 解析链路负责。不增加协议、状态源、定时器或同步链，不改变桌面 continuous / 手机 replayable 边界。两端复用相同编辑组件。
+A UI possui apenas o rascunho não submetido; as regras e a configuração efetiva de modelos continuam sendo responsabilidadeda cadeia de resolução do Provider. Não são adicionados protocolos, fontes de estado, temporizadores ou cadeias de sincronização, e a fronteira desktop continuous / mobile replayable não muda. Ambos os lados reutilizam os mesmos componentes de edição.
 
-用户主动选模型或全新初始化时，completeNewModelSelection 取档位数组最后一项，因而会为兜底模型选到 enabled；恢复/重解析已有选择不走此补全策略；本次接受两档的自然结果，不修改选档策略，不覆盖用户已保存选择。builtin revision 从 22 递增到 23，不改 schemaVersion，不增加文件格式或迁移。
+Quando o usuário escolhe ativamente um modelo ou em uma inicialização totalmente nova, completeNewModelSelection pega o último item do array de níveis, escolhendo assim enabled para o modelo de fallback; restaurar/re-resolver uma seleção existente não passa por essa estratégia de preenchimento; o resultado natural de aceitar os dois níveis é aproveitado, sem modificar a política de escolha de nível nem sobrescrever escolhas já salvas pelo usuário. A builtin revision sobe de 22 para 23, sem alterar schemaVersion e sem adicionar formato de arquivo ou migração.
 
-## 实施与验收
+## Implementação e aceitação
 
-- [x] 更新空模型初始值，补首次打开、输入 ID 后解析、清空、手动编辑保留的回归。
-- [x] 验证真实内置规则的通用两档、专用档位和个人 map 覆盖；不修改解析器。
-- [x] 执行三种 API 通用 CEL，并捕获真实 SDK 最终请求体验证 disabled/enabled（对应 high），其他强度由 CEL 和既有专用请求用例回归。
-- [x] 浏览器覆盖桌面/手机宽度、深浅主题和中英文，记录运行结果；不冒充完整 Electron/远控验证。
-- [x] 更新相关 spec/索引，运行相关单测、类型、lint、架构检查后提交。
+- [x] Atualizar os valores iniciais do modelo vazio e cobrir regressões de primeira abertura, resolução após informar o ID, limpeza e preservação de edição manual.
+- [x] Validar os dois níveis genéricos das regras builtin reais, os níveis dedicados e a sobrescrita por map pessoal; sem modificar o resolvedor.
+- [x] Executar o CEL genérico das três APIs e capturar a requisição final real do SDK para validar disabled/enabled (correspondente a high); as demais intensidades são cobertas por regressão do CEL e dos casos de requisição dedicados já existentes.
+- [x] Cobrir no navegador larguras desktop/mobile, temas claro/escuro e chinês/inglês, registrando o resultado; sem se passar por validação completa de Electron/controle remoto.
+- [x] Atualizar specs/índices relevantes, rodar testes unitários, tipos, lint e verificação de arquitetura antes de commitar.
 
-## 代码定位
+## Localização no código
 
-- UI：packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx。
-- 解析/投影：useModelConfigResolution.ts、useProviderModelDraft.ts、ProviderModelDraftState.ts（仅回归，不改生命周期）。
-- 内置：config/provider/zcode-builtin.json 第一条 Model 规则与三条通用 Model + API map。
-- 规则顺序：packages/provider/src/config/schema.ts、model-config.ts（保持现状）。
+- UI: packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx.
+- Resolução/projeção: useModelConfigResolution.ts, useProviderModelDraft.ts, ProviderModelDraftState.ts (apenas regressão, sem mudar o ciclo de vida).
+- Builtin: config/provider/zcode-builtin.json, primeira regra de Model e os três maps genéricos Model + API.
+- Ordem das regras: packages/provider/src/config/schema.ts, model-config.ts (manter como está).
 
-## 验证记录
+## Registro de verificação
 
-- 先红后绿：UI 初始档位、真实内置解析、SDK 未声明 enabled 校验及两种尺寸浏览器均先复现旧行为。
-- 相关 UI/内置配置单测 153 项通过；草稿规则 7 项通过；真实 SDK 序列化请求 64 项通过（含三种格式 disabled/enabled 共6项），使用隔离 fetch，不请求付费模型。
-- 类型检查、desktop E2E 类型检查通过；Lint 42 条既有警告、0 错误；架构检查 0 违规。
-- 专用 map 历史基线及 GPT-5.4、GLM-5.3 多档位保持。Grok-4.3 没有专用档位声明，因此与未知模型一样继承两档；其内置默认关闭状态未改。个人持久化不回写。
-- 浏览器新增用例两项通过；校验首次打开无档位/无请求，解析后两档，清空 ID 回到空列表，以及手动编辑不被后续回包覆盖。测试曾误等待推荐输入的 value，按运行记录改为等待 placeholder，不改生产同步逻辑。
-- 浏览器测试使用共享组件及隔离服务，未执行完整 Electron、手机远控或真实供应商联网调用。
+- Primeiro vermelho, depois verde: o nível inicial da UI, a resolução builtin real, a validação de enabled não declarado pelo SDK e as duas larguras de navegador reproduziram antes o comportamento antigo.
+- 153 testes unitários de UI/configuração builtin relacionados passaram; 7 casos de regras de rascunho passaram; 64 testes de requisição com serialização real do SDK passaram (incluindo 6 casos de disabled/enabled nos três formatos), usando fetch isolado e sem chamar modelos pagos.
+- Checagem de tipos e checagem de tipos do E2E desktop passaram; lint com 42 avisos existentes e 0 erros; verificação de arquitetura com 0 violações.
+- A linha de base histórica dos maps dedicados e os múltiplos níveis de GPT-5.4 e GLM-5.3 foram mantidos. Grok-4.3 não declara níveis dedicados, portanto herda os dois níveis como um modelo desconhecido; seu estado builtin padrão desligado não foi alterado. A persistência pessoal não é reescrita.
+- Dois novos casos no navegador passaram; a validação cobre a primeira abertura sem níveis/sem requisição, os dois níveis após a resolução, o retorno à lista vazia ao limpar o ID e a não sobrescrita da edição manual pela resposta posterior. O teste chegou a esperar por engano o value da recomendação de input e, conforme o registro de execução, passou a esperar pelo placeholder, sem alterar a lógica de sincronização em produção.
+- Os testes de navegador usaram componentes compartilhados e serviço isolado; não executaram Electron completo, controle remoto de celular nem chamadas de rede reais a provedores.
 
-共用设置页浏览器合跑 22 项：21 项直接通过，手机 provider batch 被本次注释整理触发的 Vite HMR 打断；文件固定后两项 provider batch 重跑均通过。测试故障不涉及产品修复。新增两项也已独立通过。
+Na execução conjunta dos testes de navegador da página de configurações compartilhada, 22 casos: 21 passaram diretamente; o batch de providers no celular foi interrompido pelo HMR do Vite disparado pela organização de comentários feita nesta alteração; depois que os arquivos foram corrigidos, os dois batches de providers foram rerodados e passaram. As falhas de teste não envolvem correção de produto. Os dois novos casos também passaram de forma ind

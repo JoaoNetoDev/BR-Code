@@ -1,18 +1,17 @@
-# Session 打开：CUA spawn 解耦与目录读取重新评估
+# Abertura de sessão: desacoplamento do spawn CUA e reavaliação da leitura de catálogo
 
-## 基线与范围
+## Linha de base e escopo
 
-2026-09-10 基于 staging `279907140bd7`，只重新应用 CUA 安全预留 tuple 提前返回。
-不恢复目录后置，也不恢复旧 Provider 实现。
-旧改动及 CCR01/CCR02 配置竞态复现完整保存在 stash `38d1e293`；那些测试针对已经移除的
-`readWorkspaceState`/配置缓存合同，本轮不直接移植，也不宣称新 staging 已通过旧复现。
+Em 2026-09-10, com base no staging `279907140bd7`, reaplicou-se somente o retorno antecipado da tupla de reserva de segurança do CUA.
+Não se restaurou o catálogo pós-leitura, nem a antiga implementação de Provider.
+As alterações antigas e a reprodução completa da corrida de configuração CCR01/CCR02 estão preservadas no stash `38d1e293`; esses testes mirar o contrato de `readWorkspaceState`/cache de configuração que já foi removido, portanto não são portados diretamente nesta rodada, nem se afirma que o novo staging passou pela reprodução antiga.
 
-新 staging 的 `workspace/readPresentation` 只返回 mode/slash commands，不再创建临时 App。
-模型候选由 Host ModelSelectionView 提供，Composer draft intent 与 session 执行配置保持原 owner。
-因此旧版“后置目录省去约 700ms 临时 App”的结论不再适用。
-剩余 slash discovery、Host client 准备及协议排队不能合并归因于目录计算，本轮不为此调整 UI 时序。
+No novo staging, `workspace/readPresentation` retorna apenas mode/slash commands, sem criar um App temporário.
+Os candidatos de modelo são fornecidos pelo Host ModelSelectionView, e o Composer draft intent e a configuração de execução da sessão mantêm seus owners originais.
+Portanto, a conclusão antiga de que o "catálogo em pós-leitura economiza cerca de 700ms de App temporário" não se aplica mais.
+O slash discovery restante, a preparação do client do Host e o enfileiramento do protocolo não podem ser atribuídos em conjunto ao cálculo do catálogo; nesta rodada a temporização da UI não é ajustada por causa disso.
 
-## 时序与不变量
+## Temporização e invariantes
 
 ```text
 CUA：start + 原 startup tracker
@@ -21,56 +20,52 @@ CUA：start + 原 startup tracker
        └─ 无预留 -> 原有界等待、超时检查及 fail-closed
 ```
 
-- UI 的目录读取、Composer 初始化与提交时序保持 staging 原样。
-- CUA 保留 warm health、admission marker、失败 backoff 与后台 startup tracker。
-  提前返回不等于 Helper 已可用；完整启动失败仍只限制后续 spawn，不回收已有 Agent。
-- 不新增 timer、调度层、协议、状态 owner、持久化或跨模块接口。
-- desktop continuous 与 mobile replayable 各自 delivery、gap、owner 边界不变。
-  远程 Host 与 Windows 的 transport 准入不被本地 macOS 预留快路替代。
+- A leitura de catálogo da UI, a inicialização do Composer e a temporização de submissão permanecem exatamente como no staging.
+- O CUA mantém warm health, admission marker, backoff de falha e o startup tracker em background.
+  O retorno antecipado não significa que o Helper já esteja disponível; uma falha completa de startup continua restringindo apenas os spawns seguintes, sem reciclar Agents já existentes.
+- Não se adiciona timer, camada de agendamento, protocolo, state owner, persistência ou interface entre módulos.
+- Os limites de delivery, gap e owner de desktop continuous e mobile replayable permanecem inalterados.
+  A admissão de transport do Host remoto e do Windows não é substituída pelo atalho local de reserva do macOS.
 
-## 验证
+## Verificação
 
-1. 测试先行：CUA fake timer 证明已有预留时无需推进 1s；覆盖延迟预留、Windows transport_ready、warm health 失败及原 admission/失败生命周期。
-2. 完整依赖 `pnpm bootstrap` 后生产构建；WDIO 启动独立 Electron，App ready、默认 workspace 目录 ready 后点击真实 session。
-   以实际 pointer click 到首个 viewport 内 conversation row 为主指标，协议阶段单独记录。
-3. 两个真实 session 各测 5 次，报告全部样本与中位数、interval/cumulative，不把各阶段独立中位数相加冒充总中位数。
+1. Teste primeiro: fake timer do CUA prova que, quando já há reserva, não é preciso avançar 1s; cobre reserva atrasada, transport_ready do Windows, falha de warm health e o ciclo de vida original de admissão/falha.
+2. Build de produção após `pnpm bootstrap` completo; o WDIO inicia um Electron independente e, com o App pronto e o catálogo do workspace padrão pronto, clica em uma sessão real.
+   A métrica principal é o clique real até a primeira conversation row visível no viewport; as fases do protocolo são registradas separadamente.
+3. Duas sessões reais, 5 medições cada; reportar todas as amostras e a mediana, interval/cumulative, sem somar medianas independentes de fases e chamar isso de mediana total.
 
-## 当前运行记录
+## Registro das execuções atuais
 
-- 纯 staging 已测：a6（Agent 已启动）657/669/986/1857/796ms，中位数 796ms；
-  6951（点击后启动 Agent）2919/2211/2704/2452/2705ms，中位数 2704ms。
-- 隔离生产包、manifest、WDIO 首个可见 row 截图、日志与阶段数据：`/tmp/zcode-session-staging-ab.KWbOnL`。
-- 首轮隔离包缺少新 Provider 配置路径导致 startup error；补齐构建/显式配置路径后重跑。
-  启动失败的 smoke/control1 不计入基线，control2 为预热预检，round1–5 为正式样本。
-- 优化后：a6 为 721/766/862/628/819ms；6951 为 1483/1390/2361/1272/1476ms。
-  10 次均得到目标会话可见 row，snapshot row count 前后分别稳定为 295 / 25。
-- 两组串行运行、各组交替 session 顺序；不是随机交错 A/B，也不是稳定性 SLA。
-  UI 两个入口文件与 CLI bundle hash 前后相同，唯一生产代码变化是 services 的 CUA env 快路。
+- Apenas staging, já medido: a6 (Agent já iniciado) 657/669/986/1857/796ms, mediana 796ms;
+  6951 (Agent iniciado após o clique) 2919/2211/2704/2452/2705ms, mediana 2704ms.
+- Build de produção isolado, manifest, screenshot da primeira row visível pelo WDIO, logs e dados de fase: `/tmp/zcode-session-staging-ab.KWbOnL`.
+- A primeira rodada do pacote isolado não tinha o novo caminho de configuração de Provider, o que causou startup error; após completar o build/caminho de configuração explícito, a execução foi refeita.
+  Os smoke/control1 com falha de startup não contam para a linha de base; control2 é a pré-verificação de aquecimento e round1–5 são as amostras oficiais.
+- Após a otimização: a6 = 721/766/862/628/819ms; 6951 = 1483/1390/2361/1272/1476ms.
+  Nas 10 execuções a row da sessão alvo ficou visível, e o snapshot row count ficou estavelmente em 295 / 25 antes e depois.
+- Os dois grupos rodaram em série, cada grupo alternando a ordem das sessões; não é um A/B interleaved aleatório nem um SLA de estabilidade.
+  Os hashes dos dois arquivos de entrada da UI e do bundle da CLI são iguais antes e depois; a única alteração de código de produção é o atalho de env do CUA em services.
 
-### 中位数对照（ms）
+### Comparação de medianas (ms)
 
-| 指标 | staging | CUA 优化后 | 差值（后－前） |
+| Métrica | staging | Após otimização CUA | Diferença (depois – antes) |
 | --- | ---: | ---: | ---: |
-| a6 click → 首个可见 row（Agent reused） | 796 | 766 | -30 |
-| 6951 click → 首个可见 row（Agent spawned） | 2704 | 1476 | -1228 |
-| 6951 command resolved → spawn preflight（Host 子阶段） | 1051 | 60 | -991 |
+| a6 click → primeira row visível (Agent reused) | 796 | 766 | -30 |
+| 6951 click → primeira row visível (Agent spawned) | 2704 | 1476 | -1228 |
+| 6951 command resolved → spawn preflight (subfase do Host) | 1051 | 60 | -991 |
 | 6951 Host prepare | 1775 | 770 | -1005 |
 | 6951 CLI request → ACK | 566 | 541 | -25 |
-| 6951 session restore（request → ACK 子阶段） | 343 | 330 | -13 |
-| 6951 ACK → 可见 row（残差，含埋点间隙） | 225 | 115 | -110 |
+| 6951 session restore (subfase request → ACK) | 343 | 330 | -13 |
+| 6951 ACK → row visível (resíduo, inclui gaps de instrumentação) | 225 | 115 | -110 |
 
-各行独立取中位数，且存在父子关系，不能求和。端到端减少约 45%，明确可归因的是 Host
-约 1s 固定等待消除；不能把另外约 0.2s 的差异也全部算成 CUA 收益。a6 已有 Agent，30ms
-差异不作为确定收益。6951 的 2361ms 慢样本中 preflight 仅 60ms、Host prepare 为 1429ms，
-长等待发生在 preflight 之后，不能据此判为快路失效。
+Cada linha tem a mediana tirada de forma independente e há relações pai/filho, portanto não podem ser somadas. A redução end-to-end é de cerca de 45%; o que é claramente atribuível é a eliminação da espera fixa de cerca de 1s do Host; não se pode contabilizar toda a diferença restante de cerca de 0.2s como ganho do CUA. a6 já tinha Agent, e a diferença de 30ms não é tratada como ganho confirmado. Na amostra lenta de 2361ms do 6951, o preflight foi apenas 60ms e o Host prepare foi 1429ms; a longa espera ocorre depois do preflight, então não se pode concluir que o atalho falhou.
 
-### 同一轮 interval / cumulative 对照（ms）
+### Comparação interval / cumulative da mesma rodada (ms)
 
-取首个可见 row 恰好处于各组中位数的运行：baseline 6951 round3、optimized 6951 round5。
-累计为同一轮已测阶段的算术累计，埋点之间未覆盖的时间单列；可见 row 使用独立 DOM 终点，
-不把 interactive 终点冒充可见终点。
+Foram escolhidas as execuções em que a primeira row visível fica exatamente na mediana de cada grupo: baseline 6951 round3, optimized 6951 round5.
+O cumulative é a soma aritmética das fases já medidas da mesma rodada, com o tempo não coberto entre instrumentações listado à parte; a row visível usa um endpoint DOM independente e não se faz passar o endpoint interactive pelo endpoint de visibilidade.
 
-| 阶段 | staging interval | staging cumulative | optimized interval | optimized cumulative |
+| Fase | staging interval | staging cumulative | optimized interval | optimized cumulative |
 | --- | ---: | ---: | ---: | ---: |
 | click → acquire | 55 | 55 | 52 | 52 |
 | Renderer prepare | 0 | 55 | 0 | 52 |
@@ -79,29 +74,23 @@ CUA：start + 原 startup tracker
 | initial frame transport + snapshot apply | 5 | 2479 | 2 | 1350 |
 | React render | 92 | 2571 | 56 | 1406 |
 | paint → interactive | 134 | 2705 | 35 | 1441 |
-| 未分配的埋点间隙（补齐独立 click → interactive） | 11 | 2716 | 41 | 1482 |
+| gap de instrumentação não atribuído (completado por click → interactive independente) | 11 | 2716 | 41 | 1482 |
 
-独立 DOM 可见终点分别为 2704 / 1476ms。其他轮的 interval/cumulative 保存在各自
-`runs/<variant>-<session>-roundN/profile.md`；原始样本与汇总在 `results.json`。
+Os endpoints DOM de visibilidade independentes foram 2704 / 1476ms. Os interval/cumulative das outras rodadas ficam em seus respectivos
+`runs/<variant>-<session>-roundN/profile.md`; as amostras brutas e o resumo estão em `results.json`.
 
-### read 后置的剩余空间
+### Espaço restante com a leitura em pós-leitura
 
-a6 的 workspace presentation 已预热，点击窗口没有目录请求。6951 仍有目录读取先于 resume，
-但 `CLI request → ACK` 扣除 restore 的中位数残差仅为 223 → 211ms；这还包含请求排队与
-其他 subscribe 处理，不是纯目录耗时，不能承诺后置可全部省掉。Host 的整段
-`readWorkspacePresentation` 时间包含 Agent 启动，尤其不能把约 1s 的 Host 准备重复算成目录成本。
-当前先保留 staging 的目录读取顺序，只有后续独立证据证明收益值得时再评估后置。
+A workspace presentation do a6 já está aquecida, então a janela de clique não tem requisição de catálogo. O 6951 ainda tem leitura de catálogo antes do resume, mas o resíduo mediano de `CLI request → ACK` descontando o restore é apenas 223 → 211ms; isso ainda inclui o enfileiramento da requisição e outros tratamentos de subscribe, não é tempo puro de catálogo, portanto não se pode prometer que a pós-leitura economize tudo. O tempo completo do `readWorkspacePresentation` do Host inclui a inicialização do Agent, e em especial não se pode contabilizar novamente a preparação de cerca de 1s do Host como custo de catálogo.
+Por enquanto mantém-se a ordem de leitura de catálogo do staging, e a pós-leitura só é reavaliada se evidência independente provar que o ganho compensa.
 
-### 验证与限制
+### Verificação e limitações
 
-- 新增零时间推进单测在原代码上失败，优化后通过；CUA env、producer resolver、Helper Host、
-  Windows Host 与 service dispose 共 144 项单测通过。
-- `pnpm typecheck`、Desktop `typecheck:e2e`、`pnpm architecture:check --changed`、变更 TS 格式检查通过。
-  `pnpm lint` 为 0 error / 43 条未改动文件 warning；`git diff --check` 通过。
-- `check-workspace-freshness` 因落后旧实验 `origin/feat/session_opt` 1 个提交报错；本轮按用户指定的
-  已拉取 `origin/staging` / HEAD `279907140bd7` 为基线，未混入旧实验提交。
-- 本轮 WDIO 是真实本地会话打开 benchmark，不是 CUA 权限/实际工具调用的完整 E2E。
-  Windows 实机、手机远控以及实际 CUA 调用未重跑，不宣称全平台端到端零风险。
-- 快路仅适用于已安全预留的 transport；首次 start 尚未发布预留、warm health 和 Windows
-  transport_ready 仍可能有原来的有界等待，没有新增轮询、缓存或更宽的准入。
-- 本轮不自动提交或 push，旧 stash 保留。
+- O novo teste unitário sem avanço de tempo falha no código original e passa após a otimização; CUA env, producer resolver, Helper Host, Windows Host e service dispose somam 144 testes unitários passando.
+- `pnpm typecheck`, `typecheck:e2e` do Desktop, `pnpm architecture:check --changed` e a verificação de formatação dos TS alterados passaram.
+  `pnpm lint` resulted em 0 error / 43 warnings em arquivos não alterados; `git diff --check` passou.
+- `check-workspace-freshness` falhou por estar 1 commit atrás do experimento antigo `origin/feat/session_opt`; nesta rodada a base é o `origin/staging` já trazido / HEAD `279907140bd7`, conforme especificado pelo usuário, sem misturar commits do experimento antigo.
+- O WDIO desta rodada é um benchmark real de abertura de sessão local, não um E2E completo de permissões do CUA / chamadas reais de ferramentas.
+  Máquina Windows real, controle remoto de celular e chamadas reais de CUA não foram reexecutados, e não se afirma risco zero end-to-end em todas as plataformas.
+- O atalho só se aplica a transports já reserva dos com segurança; no primeiro start, antes de a reserva ser publicada, ainda pode haver a espera limitada original por warm health e transport_ready do Windows; não há nova sondagem, cache ou admissão mais ampla.
+- Esta rodada não faz commit nem push; o stash antigo é mantido.

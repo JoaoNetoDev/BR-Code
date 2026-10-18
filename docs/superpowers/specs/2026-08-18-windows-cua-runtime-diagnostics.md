@@ -1,121 +1,111 @@
-# Windows CUA 运行时诊断与「陈旧安装」陷阱
+# Diagnóstico do runtime CUA no Windows e a armadilha da «instalação obsoleta»
 
-日期：2026-08-18
-状态：已落地
-关联：`docs/cua/windows-product-runtime.md`（发布契约本体）
+Data: 2026-08-18
+Estado: já implementado
+Relacionado: `docs/cua/windows-product-runtime.md` (o próprio contrato de lançamento)
 
-## 1. 起因与结论
+## 1. Origem e conclusão
 
-本次任务的初始判断是「pin 到 72a8487d 的 producer 把 Windows 宿主层删了」。**这个判断是错的**，
-正确结论是：
+O juízo inicial desta tarefa foi «o producer fixado em 72a8487d removeu a camada de host do Windows». **Esse juízo está errado**;
+a conclusão correta é:
 
-> `node_modules/@zcode/zcode-cua` 停在 pin 之前的旧提交，仓库源码本身没有问题。
-> 按 lockfile 重装后，未经改动的源码 `tsc` 零错误，`prepare:windows-cua-helper` 正常出包。
+> `node_modules/@zcode/zcode-cua` está parado num commit antigo anterior ao pin; o código-fonte do repositório em si não tem problema.
+> Depois de reinstalar conforme o lockfile, o `tsc` do código-fonte sem alterações roda com zero erros e o `prepare:windows-cua-helper` empacota normalmente.
 
-记下来是因为这个陷阱会重复发生：`@zcode/zcode-cua` 是 git 依赖，**改 pin 不会自动重装**。
+Isso é registrado porque a armadilha vai se repetir: `@zcode/zcode-cua` é uma dependência git e **mudar o pin não reinstala automaticamente**.
 
-## 2. 误判是怎么发生的
+## 2. Como o diagnóstico errado aconteceu
 
-审计时读的是 `node_modules/@zcode/zcode-cua`，把它当成了「pin 指向的内容」。二者当时并不一致：
+Na auditoria foi lido o `node_modules/@zcode/zcode-cua`, tratado como «o conteúdo para onde o pin aponta». Na época os dois não coincidiam:
 
 ```
-pnpm-workspace.yaml  catalog: ...zcode-cua.git#72a8487d   ← 声明
-pnpm-lock.yaml       resolution: {commit: 72a8487d}       ← 锁定（一致）
-node_modules/...     ← 实际安装：8/10 装的旧提交（不一致）
+pnpm-workspace.yaml  catalog: ...zcode-cua.git#72a8487d   ← declaração
+pnpm-lock.yaml       resolution: {commit: 72a8487d}       ← travamento (coincidente)
+node_modules/...     ← instalação real: commit antigo instalado em 10/08 (não coincidente)
 ```
 
-于是同一个符号在两处结论相反：
+Assim, o mesmo símbolo levava a conclusões opostas em cada lugar:
 
-| 事实 | node_modules（旧） | producer main@72a8487d（真） |
+| Fato | node_modules (antigo) | producer main@72a8487d (real) |
 |---|---|---|
-| `package.json.zcodeCuaRuntime` | 无 | **有** |
-| `dist/windows-helper.js` | 无 | **有（已入库）** |
-| `WINDOWS_DEV_CONTROL_PROTOCOL` | 无导出 | **有**（`windowsDevHelperMain.ts:17`） |
-| `ports.ts` 的 controller 端口 | 无 | **有**（`CuaController*` + take/stop） |
+| `package.json.zcodeCuaRuntime` | ausente | **presente** |
+| `dist/windows-helper.js` | ausente | **presente (versionado)** |
+| `WINDOWS_DEV_CONTROL_PROTOCOL` | sem exportação | **presente** (`windowsDevHelperMain.ts:17`) |
+| porta do controller em `ports.ts` | ausente | **presente** (`CuaController*` + take/stop) |
 
-那 8 个 TS 错误全部由此而来，不是 producer 回归。基于错误前提的改动已由
-`b99a74dbdf` 整体回退（被误删的 controller 端口和协议常量单源引入均已还原）。
+Os 8 erros de TS vieram todos daí; não era uma regressão do producer. As alterações feitas sobre a premissa errada foram revertidas por inteiro em `b99a74dbdf` (as portas do controller removidas por engano e a reintrodução em fonte única das constantes de protocolo foram restauradas).
 
-### 判别方法（下次先做这一步）
+### Método de distinção (faça este passo primeiro da próxima vez)
 
 ```sh
-# 安装与 pin 是否一致：files 字段、版本、关键 artifact 三选一即可证伪
+# A instalação está consistente com o pin? Os campos files, a versão ou um artifact-chave — bastam três opções para refutar
 node -e "console.log(JSON.stringify(require('./node_modules/@zcode/zcode-cua/package.json').zcodeCuaRuntime))"
 ls node_modules/@zcode/zcode-cua/dist/windows-helper.js
 ```
 
-任何一项与 producer 仓库同 SHA 的内容对不上，先 `pnpm install --frozen-lockfile`，
-**不要**直接在消费端删接口去迁就它。CI 每次从 lockfile 干净安装，所以这类假象只在本地出现——
-按假象改仓库，等于把本地环境问题固化进代码。
+Se qualquer um desses não bater com o conteúdo do repositório do producer no mesmo SHA, rode primeiro `pnpm install --frozen-lockfile` e **não** apague interfaces no consumidor para se acomodar a ele. O CI instala limpo a partir do lockfile toda vez, então esse tipo de ilusão só aparece localmente — alterar o repositório conforme a ilusão equivale a cristalizar um problema de ambiente local no código.
 
-## 3. 本次实际保留的两项改进
+## 3. As duas melhorias realmente mantidas nesta rodada
 
-两项都与上面的误判无关，是独立成立的可诊断性缺口。
+Ambas são independentes do diagnóstico errado acima: são lacunas de diagnosticabilidade que se sustentam por si só.
 
-### 3.1 运行时解析失败落日志
+### 3.1 Falha de resolução do runtime agora gera log
 
-`resolveWindowsCuaRuntime` 有 13 个稳定失败原因（`missing-native-addon` /
-`artifact-integrity-mismatch` / `incompatible-runtime-manifest` …），此前全部被
-`createWindowsCuaHelperHost` 原样透给调用方后咽掉：用户只看到设置页「未加载」。
+`resolveWindowsCuaRuntime` tem 13 causas de falha estáveis (`missing-native-addon` /
+`artifact-integrity-mismatch` / `incompatible-runtime-manifest` …), antes todas repassadas
+como estavam por `createWindowsCuaHelperHost` ao chamador e engolidas: o usuário só via «não carregado» na página de configurações.
 
 ```
 start() ──▶ getHost ──▶ resolveRuntime() ──✗ reject
                              │                 │
-                             │                 └─▶ logger.error(reason, artifact, …)  ← 新增
+                             │                 └─▶ logger.error(reason, artifact, …)  ← novo
                              ▼
-                        （缓存 rejection）
-start() 再次调用 ──▶ 复用同一条 promise ──▶ 不重复落日志
+                        （rejection em cache）
+start() chamado de novo ──▶ reaproveita a mesma promise ──▶ não registra log de novo
 ```
 
-- `catch` 只包住 `resolveRuntime()` 本身。其后 `then` 里的 `assertActive` 抛出是 `stop()` 竞态，
-  不是解析失败，混进同一条日志会误导。
-- 载荷仅 `reason / artifact / errorName / message`。解析发生在 mint token 与命名管道之前，
-  载荷天然不含密钥；用例把这条时序保证钉成了回归断言。
-- `createWindowsCuaHelperHost` 因此需要导出（供测试注入 logger 与桩 host）。
+- O `catch` envolve apenas o próprio `resolveRuntime()`. Um `assertActive` lançar dentro do `then` seguinte é uma corrida de `stop()`, não uma falha de resolução; misturar os dois na mesma linha de log seria enganoso.
+- O payload contém apenas `reason / artifact / errorName / message`. Como a resolução acontece antes do mint do token e do named pipe, o payload naturalmente não contém segredos; o caso de teste fixou essa garantia de ordem como asserção de regressão.
+- `createWindowsCuaHelperHost` passou a precisar ser exportado (para os testes injetarem logger e host stub).
 
-### 3.2 构建期契约报错自证身份
+### 3.2 Erro de contrato em tempo de build prova a própria identidade
 
-`readProducerRuntimeContract` 原来把十一个条件挤在一个 `if` 里，只抛一句
-`invalid zcodeCuaRuntime Windows artifact path contract`。现在拆成逐条判定，报错含
-**包名@版本、源目录、具体不满足项**（缺 `zcodeCuaRuntime` / `schema` 不对 / 路径非法）。
+`readProducerRuntimeContract` antes espremia onze condições em um único `if`, lançando só uma frase:
+`invalid zcodeCuaRuntime Windows artifact path contract`. Agora foi dividido em verificações item a item, e o erro contém
+**nome do pacote@versão, diretório de origem, item específico não atendido** (falta `zcodeCuaRuntime` / `schema` incorreto / caminho inválido).
 
-价值恰好由本次事故印证：如果当初报错就说清「`@zcode/zcode-cua@0.5.2` 于
-`<路径>`：`zcodeCuaRuntime is missing`」，陈旧安装会当场暴露，不会被误读成 producer 回归。
+O valor disso fica exatamente comprovado por este incidente: se o erro desde o início tivesse dito com clareza «`@zcode/zcode-cua@0.5.2` em
+`<caminho>`: `zcodeCuaRuntime is missing`», a instalação obsoleta apareceria na hora e não seria lida como regressão do producer.
 
-### 3.3 标准 dev 启动补上 Windows 侧的 runtime 根
+### 3.3 Início padrão em dev completa a raiz do runtime no lado Windows
 
-`scripts/dev-desktop-env.mjs` 一直为 macOS 注入 `ZCODE_CUA_BUNDLED_HELPER_APP_PATH`
-（绑定本 checkout 构建出的 Helper.app），Windows 什么都不注入。于是 host 落到产品分支去读
-`process.resourcesPath`——dev 下那是 `node_modules/electron/dist/resources`，实测只有
-`default_app.asar`：
+`scripts/dev-desktop-env.mjs` sempre injetou `ZCODE_CUA_BUNDLED_HELPER_APP_PATH` no macOS
+(vinculado ao Helper.app construído deste checkout), e no Windows não injetava nada. Assim o host caía no ramo de produto para ler
+`process.resourcesPath` — em dev isso é `node_modules/electron/dist/resources`, que na prática contém apenas
+`default_app.asar`:
 
 ```
-                     ┌ macOS：ZCODE_CUA_BUNDLED_HELPER_APP_PATH → checkout 内 Helper.app  OK
+                     ┌ macOS：ZCODE_CUA_BUNDLED_HELPER_APP_PATH → Helper.app dentro do checkout  OK
 pnpm dev:desktop ────┤
-                     └ Windows：无注入 → resourcesPath = electron/dist/resources
-                                        → 无 tools/cua-helper → invalid-runtime-manifest  FAIL
+                     └ Windows：sem injeção → resourcesPath = electron/dist/resources
+                                        → sem tools/cua-helper → invalid-runtime-manifest  FALHA
 ```
 
-结果标准 dev 启动的 Windows computer use 恒不可用，只能靠开发者自己记得设
-`ZCODE_CUA_DEV_ROOT`（`docs/cua/windows-source-development.md` 有写，但那是 source 开发手册，
-不是每次跑 dev 的人都会读）。
+O resultado é que o computer use do Windows no início padrão em dev era sempre indisponível, dependendo de o desenvolvedor lembrar de definir
+`ZCODE_CUA_DEV_ROOT` (`docs/cua/windows-source-development.md` documenta isso, mas é um manual de desenvolvimento de código-fonte,
+e não é lido por quem apenas roda dev).
 
-新增 `scripts/dev-desktop-cua-env.mjs`，缺省把 `ZCODE_CUA_DEV_ROOT` 绑到
-`<repo>/node_modules/@zcode/zcode-cua`，即 catalog pin 指向的那一版、与产品 staging 同源。
-边界：
+Novo `scripts/dev-desktop-cua-env.mjs`, que por padrão vincula `ZCODE_CUA_DEV_ROOT` a
+`<repo>/node_modules/@zcode/zcode-cua`, ou seja, a versão apontada pelo pin do catalog, da mesma origem do staging do produto.
+Limites:
 
-- 开发者显式设置时**永远**尊重其取值（指向自己的 producer checkout 的场景不变）；
-  纯空白与 runtime 侧一致地视为未配置。
-- 只补 dev 启动脚本的缺省，不动 runtime 侧「只认 `ZCODE_CUA_DEV_ROOT`、不搜索相邻目录、
-  不回退安装包资源」的既有边界。
-- 依赖仓库 `.npmrc` 的 `node-linker=hoisted` 让该路径是物理目录。换 isolated linker 时它是
-  symlink，解析按 `development-root-not-found` fail closed，并由 3.1 的日志说明原因。
+- Quando o desenvolvedor define explicitamente, seu valor é **sempre** respeitado (o cenário de apontar para o próprio checkout do producer não muda); espaço em branco puro é tratado como não configurado, de forma consistente com o lado do runtime.
+- Completa apenas o padrão do script de início em dev, sem tocar nos limites já existentes do lado do runtime («só reconhece `ZCODE_CUA_DEV_ROOT`, não busca diretórios vizinhos, não recorre aos recursos do pacote instalado»).
+- O `node-linker=hoisted` do `.npmrc` do repositório faz com que esse caminho seja um diretório físico. Se o linkeder isolado for usado, ele será um symlink, a resolução falha fechada como `development-root-not-found`, e o log do item 3.1 explica o motivo.
 
 
-## 4. 复核过、确认「不是差距」的项
+## 4. Itens revisados e confirmados como «não são lacunas»
 
-- **orphan reaper 只在 darwin 跑**：正确。Windows 子进程有 `--parent-pid` watchdog 兜底，
-  不需要开机扫描残留。
-- **installer 只在 darwin**：正确。Windows 走安装包内 `resources/tools/cua-helper`，无下载源。
-- **Windows 设置面只有开关一项**：由 `2026-08-17-cua-settings-surface-minimization.md` 锁定。
-  把 runtime reason 端到 UI 属于推翻那份 spec，需单独评审，本次未动。
+- **o reaper de órfãos roda só no darwin**: correto. Processos filhos no Windows têm um watchdog de `--parent-pid` como rede de proteção, não precisam de varredura de sobras na inicialização.
+- **o instalador existe só no darwin**: correto. No Windows é usado o `resources/tools/cua-helper` dentro do pacote de instalação, sem fonte de download.
+- **a tela de configurações do Windows tem apenas uma opção**: travado por `2026-08-17-cua-settings-surface-minimization.md`. Levar o motivo do runtime de ponta a ponta até a UI seria derrubar aquela spec, exige revisão própria e não foi alterado nesta rodada.

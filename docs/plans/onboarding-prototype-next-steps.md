@@ -1,23 +1,32 @@
-# Onboarding 原型后续计划
+# Próximos Passos do Protótipo de Onboarding
 
-记录日期：2026-09-15。分支：`prototype/onboarding-suggestions`。
+Data do registro: 2026-09-15. Branch: `prototype/onboarding-suggestions`.
 
-## 已确认需求
+## Necessidades Confirmadas
 
-- 将原有数据迁移环节融入新的 onboarding，避免两套引导连续弹出。
-- 保留当前三步：工作方向 → UI 模式 → 助手偏好。
-- UI 模式接入已合入 staging 的通用／编程模式；工作区记忆沿用设置页术语。
-- 当前处于原型迭代阶段；本文记录需求和建议，不代表迁移交互已实现或全部确认。
+- Incorporar a etapa de migração de dados existentes ao novo onboarding, evitando que dois fluxos de
+  entrada apareçam em sequência.
+- Manter os três passos atuais: direção de trabalho → modo de UI → preferências do assistente.
+- O modo de UI passa a usar o modo geral / de programação que já foi mergeado no staging; a memória do
+  workspace mantém a terminologia da página de configurações.
+- O projeto está na fase de iteração do protótipo; este documento registra necessidades e sugestões, e não
+  significa que a interação de migração já esteja implementada nem que tudo esteja confirmado.
 
-## 现有实现事实
+## Fatos da Implementação Atual
 
-`OccupationOnboarding` 完成后渲染旧 `OnboardingDialog`。旧迁移选择顺序为：会话 → Skills → MCP 服务器 → 命令 → AGENTS.md → 迁移执行／结果；插件及代理设置步骤暂时隐藏。
+Após a conclusão do `OccupationOnboarding`, a aplicação renderiza o antigo `OnboardingDialog`. A ordem de
+seleção da migração antiga é: conversas → Skills → servidores MCP → comandos → AGENTS.md → execução/resultado
+da migração; as etapas de plugins e configurações de agentes estão temporariamente ocultas.
 
-会话来源是 Claude Code 原生历史；其他导入类别沿用外部 Agent 资源导入能力。AGENTS.md 步骤将 Claude 用户级 CLAUDE.md 复制到 ZCode 用户级 AGENTS.md，覆盖前需要明确确认。
+A origem das conversas é o histórico nativo do Claude Code; as demais categorias de importação usam a
+capacidade de importação de recursos de agentes externos já existente. A etapa do AGENTS.md copia o
+CLAUDE.md de nível de usuário do Claude para o AGENTS.md de nível de usuário do ZCode, exigindo uma
+confirmação explícita antes da sobrescrita.
 
-## 建议交互（待确认）
+## Interação Sugerida (a confirmar)
 
-保留三步偏好进度条，将迁移作为结束后的可选分支，不将五个技术类别展开成五个必经首启步骤。
+Manter a barra de progresso das três preferências, tratar a migração como um ramo opcional após a conclusão
+e não expandir as cinco categorias técnicas em cinco passos obrigatórios de primeira execução.
 
 ```text
 登录／注册（顺序此前建议，尚待产品确认）
@@ -27,22 +36,45 @@
       └─ 导入已有数据 → 选择内容 → 确认并导入 → 结果 → 工作区
 ```
 
-- 准备页复用当前视觉，取消旧欢迎页的重复介绍。说明“用过 Claude Code 等工具？可以导入已有会话和配置，也可以稍后在设置中导入”。
-- 未经用户选择不启动迁移；进入导入分支后再按需扫描，区分扫描中、未发现内容和扫描失败。
-- 选择页集中展示会话、Skills、MCP、命令、用户指令五类；类别展开后选择来源和具体条目，保留原有目标、导入方式与 scope 控件。无工作区时明确提示项目级导入需先选项目。
-- 通用模式仍可导入，不根据职业或模式隐藏能力；使用“历史对话”“自定义指令”等易懂标签，并保留技术名称作为辅助信息。
-- 操作区域：返回／确认并导入；返回时保留选择。预览实际导入目标、冲突与覆盖行为。AGENTS.md 覆盖维持现有显式确认。
-- 执行页展示真实进度；完成页区分成功、跳过、失败，提供进入工作区入口。复用现有运行中退出确认；后台迁移与重试能力需另行确认，不预先承诺。
-- 已有用户、已完成偏好或已跳过迁移的用户不重复弹出；设置中保留主动进入迁移的入口。
+- A página de preparação reaproveita o visual atual e remove a introdução duplicada da antiga página de
+  boas-vindas. Explicar: "usou Claude Code e outras ferramentas? É possível importar conversas e
+  configurações existentes, ou fazer isso mais tarde nas configurações".
+- Não iniciar a migração sem escolha do usuário; só após entrar no ramo de importação a varredura é feita
+  conforme a necessidade, distinguindo varredura em andamento, nenhum conteúdo encontrado e falha na
+  varredura.
+- A página de seleção concentra em um só lugar as cinco categorias: conversas, Skills, MCP, comandos e
+  instruções de usuário; com a categoria expandida, escolhe-se a origem e os itens específicos, mantendo os
+  controles existentes de destino, forma de importação e scope. Sem workspace, informar explicitamente que a
+  importação em nível de projeto exige escolher um projeto antes.
+- O modo geral continua permitindo importações; não ocultar capacidades com base na profissão ou no modo. Use
+  rótulos fáceis de entender, como "histórico de conversas" e "instruções customizadas", mantendo os nomes
+  técnicos como informação auxiliar.
+- Área de ações: voltar / confirmar e importar; ao voltar, manter as seleções. Pré-visualizar o destino real
+  da importação, os conflitos e o comportamento de sobrescrita. A sobrescrita do AGENTS.md mantém a
+  confirmação explícita atual.
+- A página de execução mostra o progresso real; a página de conclusão distingue sucesso, pulado e falha,
+  oferecendo uma entrada para o workspace. Reaproveitar a confirmação de saída durante a execução em
+  segundo plano; a capacidade de migração em segundo plano e de retry precisa ser confirmada separadamente e
+  não é prometida antecipadamente.
+- Usuários existentes, quem já concluiu as preferências ou quem já pulou a migração não vê o fluxo de novo;
+  as configurações mantêm uma entrada para entrar na migração ativamente.
 
-## 后续实现清单
+## Próxima Lista de Implementação
 
-- [ ] 确认准备页与可选导入分支方案，以及登录位置。
-- [ ] 用统一流程入口替代新旧引导串接，移除重复欢迎步骤。
-- [ ] 定义偏好完成、迁移未选择／跳过／完成各自的持久化边界，避免一个标记控制所有流程。
-- [ ] 复用迁移服务与导入控件，统一布局与扫描／空／错误／执行／结果状态。
-- [ ] 保留覆盖确认、原始数据保护、已有导入作用域及去重规则。
-- [ ] 对齐桌面、远程工作区和手机能力；保持 shared-host、workspaceIdentity 与 continuous／replayable 边界。
-- [ ] 原型确认可用后再补测试、正式 spec 和提交准备。
+- [ ] Confirmar o desenho da página de preparação e do ramo de importação opcional, bem como a posição do
+      login.
+- [ ] Substituir o encadeamento dos guias antigo e novo por uma entrada de fluxo unificada, removendo a etapa
+      de boas-vindas duplicada.
+- [ ] Definir os limites de persistência para conclusão das preferências e para migração não escolhida /
+      pulada / concluída, evitando que uma única flag controle todos os fluxos.
+- [ ] Reaproveitar o serviço de migração e os controles de importação, unificando layout e os estados de
+      varredura / vazio / erro / execução / resultado.
+- [ ] Preservar a confirmação de sobrescrita, a proteção dos dados originais, o escopo de importação já
+      existente e as regras de deduplicação.
+- [ ] Alinhar desktop, workspace remoto e capacidades de celular; manter as fronteiras shared-host,
+      workspaceIdentity e continuous / replayable.
+- [ ] Só depois da confirmação de que o protótipo funciona, adicionar testes, o spec formal e preparar o
+      commit.
 
-参考：`docs/ui/onboarding-migration-flow.md`、`docs/onboarding-external-agent-import-steps.md`。实际能力以当前实现为准。
+Referências: `docs/ui/onboarding-migration-flow.md`, `docs/onboarding-external-agent-import-steps.md`. As
+capacidades reais seguem a implementação atual.

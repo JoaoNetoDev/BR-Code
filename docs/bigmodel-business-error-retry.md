@@ -1,16 +1,16 @@
-# BigModel 业务错误重试策略
+# Estratégia de Retry para Erros de Negócio BigModel
 
-记录时间：2026-06-08
+Data de registro: 2026-06-08
 
-## 背景
+## Contexto
 
-BigModel / Z.AI 兼容接口会把一部分可恢复失败包装成业务错误码返回，甚至可能出现在 HTTP 200 的 SSE error frame 中。ZCode adapter 已经在 provider fetch 边界把这类响应归一为 `ProviderBusinessError`，再由 model runner 分类并进入统一 retry budget。
+A interface compatível BigModel / Z.AI retorna parte das falhas recuperáveis embrulhada em códigos de erro de negócio, e isso pode aparecer até mesmo em frames de erro SSE dentro de HTTP 200. O adapter do ZCode já normaliza esse tipo de resposta como `ProviderBusinessError` no limite de fetch do provider, e então o model runner classifica e entra no retry budget unificado.
 
-这次是保守改动：不重构 retry 目录，不新增协议字段，只补充 BigModel 业务码到现有分类表，并复用已有的失败事件、重试事件和日志。若 SSE error chunk 没有结构化 `code` 字段、只在 message 里返回 `[1302][...][request_id]` 这类 BigModel 强格式前缀，adapter 也会先提取四位业务码再进入同一张分类表。
+Desta vez a mudança é conservadora: não refatorar o diretório de retry, não adicionar campos de protocolo, apenas complementar os códigos de negócio BigModel na tabela de classificação existente e reutilizar os eventos de falha, eventos de retry e logs já existentes. Se o error chunk SSE não tiver um campo `code` estruturado e retornar apenas em message um prefixo de formato forte BigModel como `[1302][...][request_id]`, o adapter também extrai primeiro o código de negócio de quatro dígitos antes de entrar na mesma tabela de classificação.
 
-参考文档：[BigModel API 错误码 FAQ](https://docs.bigmodel.cn/cn/faq/api-code)
+Documento de referência: [FAQ de códigos de erro da API BigModel](https://docs.bigmodel.cn/cn/faq/api-code)
 
-## 实现位置
+## Pontos de Implementação
 
 - `apps/zcode-cli/packages/adapters/src/model/failure-provider-business-codes.ts`
 - `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`
@@ -21,66 +21,66 @@ BigModel / Z.AI 兼容接口会把一部分可恢复失败包装成业务错误�
 - `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts`
 - `apps/zcode-cli/packages/adapters/src/model/runner-status.ts`
 
-实现继续复用既有 retry loop、stream retry 边界和日志发布路径；业务码分类、错误对象检查、SSE error chunk 重建和 delay 计算分别保持在上述文件中，避免把 provider 特例扩散到 core runtime。
+A implementação continua reutilizando o retry loop existente, os limites de retry de stream e o caminho de publicação de logs; a classificação de códigos de negócio, a inspeção de objetos de erro, a reconstrução do error chunk SSE e o cálculo do delay permanecem cada um nos arquivos acima, evitando espalhar casos específicos de provider pelo core runtime.
 
-## 会重试的 BigModel 业务码
+## Códigos de Negócio BigModel que Serão Repetidos
 
-| 业务码 | 语义 | ZCode 分类 | retry reason |
+| Código de negócio | Semântica | Classificação ZCode | retry reason |
 | --- | --- | --- | --- |
-| `1120` | 临时账号访问异常，文档建议稍后重试 | `model_request_failed` | `server_error` |
-| `1230` | API 调用流程异常 | `model_request_failed` | `server_error` |
-| `1234` | 网络错误 | `model_request_failed` | `network_error` |
-| `1302` | 并发过高 | `model_rate_limited` | `rate_limited` |
-| `1303` | 调用频率过高 | `model_rate_limited` | `rate_limited` |
-| `1305` | 平台流量限制或过载 | `model_rate_limited` | `rate_limited` |
-| `1312` | 模型访问负载过高 | `model_request_failed` | `provider_overloaded` |
+| `1120` | Anomalia temporária de acesso à conta, a documentação recomenda tentar mais tarde | `model_request_failed` | `server_error` |
+| `1230` | Anomalia no fluxo de chamada da API | `model_request_failed` | `server_error` |
+| `1234` | Erro de rede | `model_request_failed` | `network_error` |
+| `1302` | Concorrência muito alta | `model_rate_limited` | `rate_limited` |
+| `1303` | Frequência de chamada muito alta | `model_rate_limited` | `rate_limited` |
+| `1305` | Limite de tráfego da plataforma ou sobrecarga | `model_rate_limited` | `rate_limited` |
+| `1312` | Carga de acesso a modelos muito alta | `model_request_failed` | `provider_overloaded` |
 
-这些错误只在还没有向上游产出已提交模型事件时自动重试。流式请求如果已经产出 `text_delta`、`tool_call` 或 `finish`，仍然不会自动重放，避免重复文本或重复工具调用。
+Esses erros só são repetidos automaticamente quando ainda não foi produzido um evento de modelo confirmado para o upstream. Se a requisição de streaming já produziu `text_delta`, `tool_call` ou `finish`, ela continua não sendo reproduzida automaticamente, evitando texto duplicado ou chamadas de ferramenta duplicadas.
 
-## Retry-After Header
+## Header Retry-After
 
-当 provider 返回 `retry-after-ms` 或 `retry-after` 时，adapter 会优先使用 provider 指定的等待时间；合理上限是 5 分钟。若同一响应带有 `x-should-retry: false` 或 `x-should-retry: 0`，则不使用 `retry-after` 驱动等待，只保留本地 retry 判断。
+Quando o provider retorna `retry-after-ms` ou `retry-after`, o adapter prioriza o tempo de espera especificado pelo provider; um limite razoável é 5 minutos. Se a mesma resposta tiver `x-should-retry: false` ou `x-should-retry: 0`, o `retry-after` não é usado para dirigir a espera e apenas a decisão local de retry é mantida.
 
-响应头必须贯穿三条路径：fetch 层直接抛出的 `ProviderBusinessError`、AI SDK error chunk / finish metadata 重建出的 `ProviderBusinessError`、以及被 `APICallError.cause` 包住的业务错误。否则 adapter 会把 `retry-after` 误判为缺失，并退回本地指数退避。
+Os headers de resposta devem atravessar os três caminhos: o `ProviderBusinessError` lançado diretamente pela camada de fetch, o `ProviderBusinessError` reconstruído a partir do error chunk / finish metadata do AI SDK, e o erro de negócio embrulhado em `APICallError.cause`. Caso contrário o adapter vai considerar `retry-after` ausente e recorrer ao backoff exponencial local.
 
-## 流式 attempt 清理边界
+## Limite de Limpeza do Attempt de Stream
 
-所有准备进入下一次物理请求的失败 attempt 都必须先中止本轮请求，并在有界屏障内等待 iterator 与 AI SDK tee 保留分支清理。这一约束同时适用于 `iterator.next()` 直接抛错和 AI SDK 产出 `type: "error"` chunk 后由 adapter 内部调度 retry 的路径。
+Todo attempt de falha que se prepara para entrar na próxima requisição física deve primeiro abortar a requisição atual e aguardar, dentro de uma barreira limitada, a limpeza do iterator e das branches retidas pelo tee do AI SDK. Essa restrição se aplica tanto ao caminho em que `iterator.next()` lança erro diretamente quanto ao caminho em que o AI SDK produz um chunk `type: "error"` e o adapter agenda internamente o retry.
 
-清理异常或超时不得覆盖原始 provider 错误，也不得无限阻塞 retry；但在清理完成或有界超时之前，下一次 `streamText()` 不得启动。
+Exceções ou timeout na limpeza não podem sobrescrever o erro original do provider nem bloquear o retry indefinidamente; mas antes de a limpeza terminar ou de o timeout limitado estourar, o próximo `streamText()` não pode ser iniciado.
 
-## 不重试的 BigModel 业务码
+## Códigos de Negócio BigModel que Não São Repetidos
 
-| 业务码 | 原因 |
+| Código de negócio | Motivo |
 | --- | --- |
-| `1113` | provider 明确返回的终止型业务错误，自动 retry 不会改变结果 |
-| `1304` | 日调用限制，短时间 retry 不会改变结果 |
-| `1308` | 使用量上限，需要等重置时间 |
-| `1309` | Coding Plan 到期 |
-| `1310` | 周/月额度上限，需要等重置时间 |
-| `1311` | 套餐没有模型权限 |
-| `1313` | fair usage restriction，继续 retry 容易放大异常流量 |
+| `1113` | Erro de negócio terminal retornado explicitamente pelo provider; retry automático não muda o resultado |
+| `1304` | Limite diário de chamadas; retry em curto intervalo não muda o resultado |
+| `1308` | Limite de uso atingido, é preciso aguardar o horário de reset |
+| `1309` | Coding Plan expirado |
+| `1310` | Limite de cota semanal/mensal atingido, é preciso aguardar o horário de reset |
+| `1311` | O plano não tem permissão de acesso aos modelos |
+| `1313` | fair usage restriction; continuar o retry tende a amplificar tráfego anômalo |
 
-这类错误即使由 HTTP 429 携带，也保持非重试。原因是它们不是瞬时并发或平台负载问题，自动 retry 会浪费预算，也可能加重 provider 侧的限流。
+Esses erros permanecem sem retry mesmo quando são transportados por HTTP 429. A razão é que não são problemas transitórios de concorrência ou de carga da plataforma; o retry automático desperdiçaria budget e também poderia agravar o rate limiting do lado do provider.
 
-## 日志
+## Logs
 
-没有新增日志入口，继续复用 model runner 的结构化状态事件：
+Nenhum novo ponto de log; continua-se reutilizando os eventos de estado estruturados do model runner:
 
-- `model_request_failed`：单次尝试失败，记录 `requestId`、`traceId`、`attempt`、`maxAttempts`、`reason`、`retryable`、`statusCode`、安全错误消息等。
-- `model_retry_scheduled`：准备进入下一次尝试，记录 `nextAttempt`、`delayMs`、`reason`、`statusCode` 等。
+- `model_request_failed`: falha de uma tentativa, registra `requestId`, `traceId`, `attempt`, `maxAttempts`, `reason`, `retryable`, `statusCode`, mensagens de erro seguras etc.
+- `model_retry_scheduled`: preparação para a próxima tentativa, registra `nextAttempt`, `delayMs`, `reason`, `statusCode` etc.
 
-这两个事件会在 `runner-status.ts` 里通过 logger 以 `warn` 级别落日志。它们是低频生命周期事件，不是逐 chunk 高频日志。
+Esses dois eventos são registrados pelo logger em `runner-status.ts` no nível `warn`. São eventos de lifecycle de baixa frequência, não logs de alta frequência por chunk.
 
-## 测试覆盖
+## Cobertura de Testes
 
-- `failure-classifier.test.ts` 覆盖 BigModel transient code 会被分类为可重试。
-- `failure-classifier.test.ts` 覆盖 quota、套餐、长期限制类 code 保持非重试。
-- `failure-classifier.test.ts` 覆盖 error chunk 重建和 `APICallError.cause` 包装后仍保留 `retry-after`。
-- `runner-provider-business-network.test.ts` 覆盖 SSE 中的 `1305` 业务错误在可安全重放时会发布失败事件、重试调度事件，并在下一次请求成功。
-- `runner-provider-business-network.test.ts` 覆盖 SSE error chunk 中的 `retry-after` 会决定下一次物理请求的等待时间。
-- `runner-provider-business-network.test.ts` 覆盖 SSE error chunk 调度 retry 后，下一次物理请求必须等待上一轮 abort、`iterator.return()` 和 tee 保留分支的有界清理。
+- `failure-classifier.test.ts` cobre que códigos transitórios BigModel são classificados como retryable.
+- `failure-classifier.test.ts` cobre que códigos de quota, de plano e de limitação de longo prazo permanecem sem retry.
+- `failure-classifier.test.ts` cobre que o `retry-after` é preservado após a reconstrução do error chunk e o embrulho em `APICallError.cause`.
+- `runner-provider-business-network.test.ts` cobre que um erro de negócio `1305` no SSE publica evento de falha e evento de agendamento de retry quando o replay é seguro, e a requisição seguinte tem sucesso.
+- `runner-provider-business-network.test.ts` cobre que o `retry-after` no error chunk SSE determina o tempo de espera da próxima requisição física.
+- `runner-provider-business-network.test.ts` cobre que, depois de um retry agendado por error chunk SSE, a próxima requisição física precisa aguardar o abort do round anterior, o `iterator.return()` e a limpeza limitada das branches retidas pelo tee.
 
-## 后续方向
+## Direções Futuras
 
-如果后续要把 retry 逻辑进一步集中，可以把 provider business code mapping、HTTP status fallback、network inspection 和 retry budget 配置统一收敛到 `apps/zcode-cli/packages/adapters/src/model/retry/`。这次先不做目录级搬迁，避免扩大改动面。
+Se mais adiante se quiser centralizar ainda mais a lógica de retry, o mapeamento de provider business codes, o fallback de status HTTP, a inspeção de rede e a configuração de retry budget podem ser convergidos para `apps/zcode-cli/packages/adapters/src/model/retry/`. Desta vez não fazemos a movimentação em nível de diretório, para não ampliar a superfície da mudança.

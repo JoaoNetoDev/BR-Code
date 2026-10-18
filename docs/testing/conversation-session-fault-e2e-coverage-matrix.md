@@ -1,127 +1,127 @@
 # Conversation Session Fault E2E Coverage Matrix
 
-本文把 [conversation-session-environment-fault-catalog.md](./conversation-session-environment-fault-catalog.md) 中的产品 fault case 和后续 WDIO E2E 覆盖状态一一对齐。
+Este documento alinha, um a um, os fault cases de produto de [conversation-session-environment-fault-catalog.md](./conversation-session-environment-fault-catalog.md) e o status posterior de cobertura WDIO E2E.
 
-核心口径：fault case 必须先有产品结论，才能写稳定断言。`decision-needed` 不能伪装成 `covered`；`covered` 必须有独立 setup/action/assert 和自动化证据。
+Critério central: um fault case precisa ter primeiro uma conclusão de produto para que se possa escrever asserções estáveis. `decision-needed` não pode se passar por `covered`; `covered` precisa ter setup/action/assert próprios e evidência automatizada.
 
-## 覆盖状态定义
+## Definição dos status de cobertura
 
-| 状态 | 含义 |
+| Status | Significado |
 | --- | --- |
-| `decision-needed` | 产品预期未确认，不能写稳定断言 |
-| `missing` | 产品预期已 accepted，但还没有独立自动化断言 |
-| `covered` | 已有独立自动化断言覆盖 |
-| `failing` | 已有自动化探针，但当前实现不满足产品预期 |
-| `partial` | 只有弱断言或覆盖了相邻语义，不能算完整证明 |
-| `ignored` | 产品确认当前版本不覆盖 |
-| `invalid` | 产品确认该组合被前置规则剪掉 |
+| `decision-needed` | A expectativa de produto não está confirmada; não se pode escrever asserções estáveis |
+| `missing` | A expectativa de produto foi aceita, mas ainda não há asserção automatizada própria |
+| `covered` | Já há asserção automatizada própria cobrindo o caso |
+| `failing` | Já existe uma sonda automatizada, mas a implementação atual não atende à expectativa de produto |
+| `partial` | Só há asserção fraca ou cobertura de semântica adjacente; não conta como prova completa |
+| `ignored` | O produto confirmou que a versão atual não cobre |
+| `invalid` | O produto confirmou que essa combinação é podada por regras prévias |
 
-## Fault 测试缩写
+## Abreviações de teste de fault
 
-fault spec 在正式目录前可以先以 `manual-review/pending` 形式登记；pending 仍算 `missing`，不能计入 `covered`。
+Uma fault spec pode ser registrada antes do diretório definitivo no formato `manual-review/pending`; pending ainda conta como `missing` e não pode entrar em `covered`.
 
-| 缩写 | Spec |
+| Abreviação | Spec |
 | --- | --- |
 | NQ | `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-turn-error-queue-preserved.test.ts` |
 
-## 当前统计
+## Estatísticas atuais
 
-| 范围 | 数量 |
+| Escopo | Quantidade |
 | --- | ---: |
-| 产品 fault row | 40 |
+| Linha de fault de produto | 40 |
 | decision-needed | 36 |
-| missing accepted fault | 4 |
+| fault aceito sem cobertura | 4 |
 | covered | 0 |
-| failing probe | 0 |
+| sonda failing | 0 |
 | partial | 0 |
 | ignored | 0 |
 | invalid | 0 |
-| 自动化缩写 | 1 |
-| 被引用自动化缩写 | 1 |
-| 有测试声明的 spec | 1 |
-| 含 skip/only 的 spec | 0 |
+| Abreviações de automação | 1 |
+| Abreviações de automação referenciadas | 1 |
+| Specs com declaração de teste | 1 |
+| Specs com skip/only | 0 |
 
-## N. 模型/API 请求故障
+## N. Falhas de requisição ao modelo/API
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| N01 | decision-needed |  | 主模型请求返回 401/403 |
-| N02 | decision-needed |  | provider 未配置或 API Key 缺失 |
-| N03 | decision-needed |  | 主模型请求返回 429 |
-| N04 | decision-needed |  | 主模型请求返回 502/503 |
-| N05 | missing | NQ | 主模型请求返回 500 JSON error；错误终态保留 queue 并暂停自动消费，待 pending case review |
-| N06 | decision-needed |  | DNS/connection refused，未拿到响应头 |
-| N07 | decision-needed |  | 请求超时，长时间无响应头 |
-| N08 | decision-needed |  | 200 但响应不是合法模型 JSON/SSE |
-| N09 | decision-needed |  | title/sidecar 请求失败 |
+| N01 | decision-needed |  | A requisição ao modelo principal retorna 401/403 |
+| N02 | decision-needed |  | Provider não configurado ou API Key ausente |
+| N03 | decision-needed |  | A requisição ao modelo principal retorna 429 |
+| N04 | decision-needed |  | A requisição ao modelo principal retorna 502/503 |
+| N05 | missing | NQ | A requisição ao modelo principal retorna 500 com JSON de erro; o estado terminal de erro preserva a queue e pausa o consumo automático, aguardando review do caso pending |
+| N06 | decision-needed |  | DNS/connection refused, sem obter os headers de resposta |
+| N07 | decision-needed |  | Timeout da requisição, sem headers de resposta por muito tempo |
+| N08 | decision-needed |  | 200, mas a resposta não é um JSON/SSE de modelo válido |
+| N09 | decision-needed |  | A requisição de title/sidecar falha |
 
-## S. SSE 流式故障
+## S. Falhas de streaming SSE
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| S01 | decision-needed |  | 响应头已返回，但无任何 SSE event 后断开 |
-| S02 | decision-needed |  | `message_start` / thinking 后 stall 已有 pending diagnostic；只采当前事实，不计 covered |
-| S03 | decision-needed |  | text delta 后 stall 已有 pending diagnostic；partial 最终产品语义仍待确认 |
-| S04 | decision-needed |  | SSE event JSON malformed |
-| S05 | decision-needed |  | provider 在 SSE 中发 error event |
-| S06 | decision-needed |  | 六类 cutoff 已有真实 idle-timeout/recovery diagnostic；最终 UI/耗尽语义仍待确认 |
-| S07 | decision-needed |  | stop 后 provider 继续发 late SSE event |
+| S01 | decision-needed |  | Os headers de resposta foram devolvidos, mas a conexão cai sem nenhum evento SSE |
+| S02 | decision-needed |  | Já há diagnóstico pending para o stall após `message_start` / thinking; coleta-se apenas o fato atual, sem contar como covered |
+| S03 | decision-needed |  | Já há diagnóstico pending para o stall após um delta de texto; a semântica final de produto para partial ainda precisa ser confirmada |
+| S04 | decision-needed |  | JSON de evento SSE malformado |
+| S05 | decision-needed |  | O provider emite um error event no SSE |
+| S06 | decision-needed |  | As seis categorias de cutoff já têm diagnóstico real de idle-timeout/recovery; a semântica final de UI/exaustão ainda precisa ser confirmada |
+| S07 | decision-needed |  | Após o stop, o provider continua emitindo eventos SSE tardios |
 
-### 已确认恢复子边界证据
+### Evidência de sub-limites de recuperação já confirmada
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| S02-R1 | partial | Core focused unit | reasoning-only 可重试断流/idle timeout 已证明安全锚点、新 assistant message id 与 discard 事件；pending fault-stream E2E 已补，但仍不计入顶层 fault 覆盖统计 |
+| S02-R1 | partial | Core focused unit | Para o corte de stream/idle timeout somente de reasoning já foi provado que é seguro ancorar uma nova assistant message id e descartar eventos; o fault-stream E2E pending foi complementado, mas ainda não entra nas estatísticas de cobertura de fault do nível superior |
 
-pending diagnostic 的断言和证据边界见 [conversation-session-sse-stall-e2e-diagnostic.md](./conversation-session-sse-stall-e2e-diagnostic.md)。它覆盖真实 Desktop → Host → CLI → provider → V4 UI 链路，但在顶层产品结论确认前不登记 fault 自动化缩写，仍不计入 covered。
+Os limites de asserção e de evidência dos diagnósticos pending estão em [conversation-session-sse-stall-e2e-diagnostic.md](./conversation-session-sse-stall-e2e-diagnostic.md). Ele cobre a cadeia real Desktop → Host → CLI → provider → UI V4, mas não registra abreviação de automação de fault antes da confirmação da conclusão de produto no nível superior, e portanto não conta como covered.
 
-## C. Compact 故障别名
+## C. Aliases de falha de Compact
 
-`C01-C03` 是主路径 `F09/G11/G12` 的环境故障视角别名。它们不额外增加 unique product case，但必须和源 case 的决策状态保持一致。
+`C01-C03` são aliases da perspectiva de falha de ambiente dos casos de caminho principal `F09/G11/G12`. Eles não adicionam um product case único a mais, mas precisam manter o mesmo estado de decisão dos casos de origem.
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| C01 | missing |  | F09：手动 compact 的 streaming 主腿与 non-stream fallback 腿均失败（已裁决：completed + failed marker + retry，待补稳定断言 E2E） |
-| C02 | missing |  | G11：自动 compact 连续 3 次失败（已裁决：继续无压缩执行 + circuit breaker，待补稳定断言 E2E） |
-| C03 | missing |  | G12：自动 compact 被 stop（已裁决：与普通 stop 对齐、pendingAction 留时间线，待补稳定断言 E2E） |
+| C01 | missing |  | F09: tanto a perna de streaming do compact manual quanto a perna de fallback non-stream falham (já arbitrado: completed + failed marker + retry; falta um E2E com asserções estáveis) |
+| C02 | missing |  | G11: o compact automático falha 3 vezes seguidas (já arbitrado: seguir executando sem compactação + circuit breaker; falta um E2E com asserções estáveis) |
+| C03 | missing |  | G12: o compact automático é interrompido por stop (já arbitrado: alinhar com o stop comum e manter pendingAction na linha do tempo; falta um E2E com asserções estáveis) |
 
-## D. 文件系统/存储故障
+## D. Falhas de sistema de arquivos/armazenamento
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| D01 | decision-needed |  | session history 写入 ENOSPC |
-| D02 | decision-needed |  | tool 正在写 workspace 文件时磁盘满；当前 fault 注入限于父目录创建、非原子写入或删除，默认 atomic temp/rename 不注入 |
-| D03 | decision-needed |  | 保存 provider 设置时 app data permission denied |
-| D04 | decision-needed |  | 启动恢复时 session snapshot 文件损坏 |
-| D05 | decision-needed |  | 长时间流式日志/artifact 写入失败 |
+| D01 | decision-needed |  | ENOSPC na gravação do session history |
+| D02 | decision-needed |  | Disco cheio enquanto uma tool grava um arquivo do workspace; a injeção de fault atual se limita a criação de diretório pai, gravação não atômica ou remoção; o padrão atomic temp/rename não é injetado |
+| D03 | decision-needed |  | Permissão negada nos dados do app ao salvar as configurações do provider |
+| D04 | decision-needed |  | Arquivo de snapshot da sessão corrompido na recuperação da inicialização |
+| D05 | decision-needed |  | Falha de gravação de log/artifact de streaming longo |
 
-## L. App 生命周期/进程故障
+## L. Falhas de ciclo de vida/processo do App
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| L01 | decision-needed |  | 用户切到其他 app 或最小化 |
-| L02 | decision-needed |  | 关闭当前窗口但不退出 app |
-| L03 | decision-needed |  | 退出 app 后重新打开 |
-| L04 | decision-needed |  | renderer reload/crash |
-| L05 | decision-needed |  | host process crash/restart |
-| L06 | decision-needed |  | agent process crash/exit |
-| L07 | decision-needed |  | 系统 sleep/wake |
-| L08 | decision-needed |  | compacting 时 app 关闭/退出 |
+| L01 | decision-needed |  | O usuário muda para outro app ou minimiza |
+| L02 | decision-needed |  | Fecha a janela atual sem sair do app |
+| L03 | decision-needed |  | Sai do app e abre de novo |
+| L04 | decision-needed |  | Reload/crash do renderer |
+| L05 | decision-needed |  | Crash/restart do host process |
+| L06 | decision-needed |  | Crash/saída do agent process |
+| L07 | decision-needed |  | Sleep/wake do sistema |
+| L08 | decision-needed |  | O app é fechado/encerrado durante o compacting |
 
-## W. Workspace / Tool 外部变化
+## W. Mudanças externas em Workspace / Tool
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| W01 | decision-needed |  | workspace 目录被删除或重命名 |
-| W02 | decision-needed |  | tool read/write 中目标文件被外部修改/删除 |
-| W03 | decision-needed |  | git repo 不存在或 dirty state 改变 |
-| W04 | decision-needed |  | remote workspace SSH/WSL/Docker 连接断开 |
-| W05 | decision-needed |  | permission request pending 时用户关闭或切换 session |
+| W01 | decision-needed |  | O diretório do workspace é apagado ou renomeado |
+| W02 | decision-needed |  | O arquivo alvo é modificado/apagado externamente durante um read/write de tool |
+| W03 | decision-needed |  | O repositório git não existe ou o dirty state muda |
+| W04 | decision-needed |  | A conexão do remote workspace por SSH/WSL/Docker cai |
+| W05 | decision-needed |  | O usuário fecha ou troca de sessão enquanto há um permission request pendente |
 
-## X. 跨 Session 故障隔离
+## X. Isolamento de falhas entre Sessions
 
-| ID | 覆盖状态 | 自动化 | 备注 |
+| ID | Status de cobertura | Automação | Observações |
 | --- | --- | --- | --- |
-| X01 | decision-needed |  | A running，B active，A 主模型请求失败 |
-| X02 | decision-needed |  | A compacting，B active，A compact 失败 |
-| X03 | decision-needed |  | A error，B active，切回 A |
+| X01 | decision-needed |  | A em execução, B ativa, a requisição ao modelo principal de A falha |
+| X02 | decision-needed |  | A em compacting, B ativa, o compact de A falha |
+| X03 | decision-needed |  | A em erro, B ativa, voltando para A |

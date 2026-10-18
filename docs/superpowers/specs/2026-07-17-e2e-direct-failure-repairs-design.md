@@ -1,22 +1,31 @@
-# 11 个可直接修复 E2E 失败修复设计
+# Design de Correção dos 11 Falhas de E2E Reparáveis Diretamente
 
-## 范围
+## Escopo
 
-本次只修复 `summary.json` 中已确认可直接处理的 11 个失败：
+Desta vez são corrigidas apenas as 11 falhas do `summary.json` já confirmadas como tratáveis diretamente:
 
-- I35～I39、I42 共 6 个 Turbo provider case：补齐 WDIO Coding Plan mock 的 spec 识别。
-- I25、I29 共 2 个 DeepSeek case：case-local replay 同时覆盖 seed provider 的 OpenAI `/chat/completions` 与重启窗口可能先恢复到的 Anthropic `/messages`；case 只验证 provider/model，不把传输协议竞态误纳入语义。
-- `conversation-session-v4-refresh-permission`：不再依赖已按产品设计隐藏的 exact rule 文本，通过稳定的权限 option 语义定位“始终允许”。
-- `conversation-session-v4-queue`：queue 冲突 toast 断言同时接受产品支持的中英文文案。
-- `conversation-session-v4-load-older`：在触发补页时记录真实可见 turn 锚点，prepend 后按 DOM 几何差校正视口；现有总高度差保留为无 DOM 锚点时的 fallback。
+- 6 casos Turbo provider (I35～I39, I42): completar o reconhecimento de spec do mock do WDIO Coding Plan.
+- 2 casos DeepSeek (I25, I29): o replay case-local cobre simultaneamente o `/chat/completions` OpenAI do
+  provider seed e o `/messages` Anthropic para o qual a janela reiniciada pode restaurar primeiro; o case
+  verifica apenas provider/model, sem trazer a corrida do protocolo de transporte para dentro da semântica.
+- `conversation-session-v4-refresh-permission`: parar de depender do texto da regra exata, oculto por decisão
+  de design do produto, e localizar "Sempre permitir" pela semântica estável da opção de permissão.
+- `conversation-session-v4-queue`: a asserção do toast de conflito de fila aceita ao mesmo tempo os textos em
+  chinês e em inglês suportados pelo produto.
+- `conversation-session-v4-load-older`: registrar a âncora real do turn visível ao disparar o carregamento de
+  páginas anteriores e corrigir o viewport pela diferença de geometria do DOM após o prepend; a diferença de
+  altura total existente é mantida como fallback quando não há âncora no DOM.
 
-I27、I28 不在本次范围内；即使共享修复使其结果变化，也不把它们声明为已修复。
+I27 e I28 não estão no escopo desta vez; mesmo que a correção compartilhada altere seus resultados, eles não
+são declarados como corrigidos.
 
-## 根因与边界
+## Causa Raiz e Limites
 
-### Provider 启动与 replay 合同
+### Contrato de inicialização de provider e replay
 
-拆分 Turbo spec 后，`shouldUseCodingPlanTeamMock` 仍只识别旧 spec，导致 provider registry 中没有可用 Coding Plan。DeepSeek 启动 provider 已使用 `anthropic-messages`，但两个旧 fixture 仍匹配 `/chat/completions` 并返回 OpenAI SSE。
+Após separar o spec do Turbo, `shouldUseCodingPlanTeamMock` continua reconhecendo apenas o spec antigo, o que
+deixa o provider registry sem Coding Plan disponível. O provider de inicialização do DeepSeek já usa
+`anthropic-messages`, mas os dois fixtures antigos ainda casam `/chat/completions` e devolvem SSE da OpenAI.
 
 ```text
 formal spec -> WDIO spec gate -> Coding Plan mock -> provider registry -> toolbar/session
@@ -28,13 +37,18 @@ seeded DeepSeek(apiFormat=openai-compatible)   -> POST /chat/completions
 case-local fixture                             -> 两种稳定响应合同
 ```
 
-修复只更新 E2E 基础设施和 fixture，不改变 provider 产品逻辑。
+A correção atualiza apenas a infraestrutura de E2E e os fixtures, sem alterar a lógica de produto do
+provider.
 
-### 权限 option 定位
+### Localização da opção de permissão
 
-exact rule 按既定产品设计不展示，因此 E2E helper 不能再用 `data-permission-rule-scopes` 推断 allow-always。`PermissionDialog` 在 option 按钮上暴露规范化后的 display kind，helper 按 `allowAlways` 选择。刷新 case 继续通过“弹窗恢复、批准成功、重复 exact 命令不再询问”证明规则恢复，不断言被隐藏的文本。
+A regra exata não é exibida por decisão de design de produto já definida, portanto o helper de E2E não pode
+mais usar `data-permission-rule-scopes` para inferir allow-always. O `PermissionDialog` expõe o display kind
+normalizado nos botões de opção, e o helper seleciona por `allowAlways`. O case de refresh continua provando
+a restauração da regra por "o diálogo reaparece, a aprovação funciona e o comando exato repetido não pergunta
+de novo", sem afirmar o texto oculto.
 
-### Queue 草稿冲突提示
+### Aviso de conflito de rascunho na fila
 
 ```text
 workspace locale=zh-CN -> 产品显示中文 toast
@@ -42,9 +56,12 @@ workspace locale=zh-CN -> 产品显示中文 toast
 旧 E2E 只匹配英文 ----------+-> 误报 toast 缺失
 ```
 
-运行时日志确认产品已正确阻止撤回并显示中文 toast；失败来自测试继承 workspace locale 后仍只匹配英文。断言改为接受同一 i18n key 的中英文文案，不修改 queue admission、桌面 continuous 或 Web replayable 行为。
+O log de runtime confirma que o produto bloqueou corretamente o cancelamento e exibiu o toast em chinês; a falha vem
+de o teste herdar o locale do workspace e continuar casando apenas o inglês. A asserção passa a aceitar os
+textos em chinês e inglês da mesma chave i18n, sem modificar o comportamento de admissão da fila, o
+continuous do desktop nem o replayable da Web.
 
-### Load older 锚点
+### Âncora do load older
 
 ```text
 用户接近顶部
@@ -55,11 +72,15 @@ workspace locale=zh-CN -> 产品显示中文 toast
   -> scrollTop += delta（绘制前）
 ```
 
-旧逻辑只比较 `virtualizer.getTotalSize()`；prepend 的新估算高度尚未进入该值时 delta 为 0，且下一 commit 已失去“首行变小”的检测窗口。真实 DOM 锚点优先，既有总高度差 fallback 兼容锚点未挂载的虚拟化窗口。
+A lógica antiga comparava apenas `virtualizer.getTotalSize()`: quando a nova altura estimada pelo prepend
+ainda não entrou nesse valor, o delta é 0, e o commit seguinte já perdeu a janela de detecção de "a primeira
+linha ficou menor". A âncora real do DOM tem prioridade, e o fallback da diferença de altura total existente
+mantém a compatibilidade com janelas virtualizadas cuja âncora ainda não foi montada.
 
-## 验证
+## Verificação
 
-- 秒级单测覆盖 Turbo spec gate、权限 option kind 和 prepend 锚点差值。
-- 两个 model-provider spec 运行 fixture check。
-- 运行受影响 UI/desktop 定向测试。
-- 最后执行根目录 `pnpm typecheck`、`pnpm lint`。
+- Testes unitários de nível de segundo cobrem o Turbo spec gate, o permission option kind e o delta da
+  âncora de prepend.
+- Os dois specs de model-provider executam a verificação de fixtures.
+- Executar os testes direcionados de UI/desktop afetados.
+- Por fim, executar `pnpm typecheck` e `pnpm lint` na raiz.

@@ -1,46 +1,46 @@
-# Task File Change Summary
+# Resumo de Alterações de Arquivos da Tarefa
 
-## 目标
+## Objetivo
 
-任务结束后，把该任务涉及的文件改动汇总到任务标题和任务条目下方，同时保留后续接入回滚功能需要的轮次信息。
+Ao final da tarefa, consolidar no subtítulo da tarefa e abaixo dos itens da tarefa as alterações de arquivos envolvidos nesta tarefa, mantendo ao mesmo tempo as informações de turno necessárias para a futura integração do recurso de rollback.
 
-## 数据流
+## Fluxo de Dados
 
-1. Agent runtime 的文件写入继续只记录原始 `fileChanges`
-   - 会话文件追踪器在 `packages/services/src/session/fileChangeTracker.ts`
-   - 每次写入都会把 `beforeContent` / `afterContent` 记到 session file change tracker
+1. O runtime do Agent continua registrando apenas o `fileChanges` original nas escritas de arquivo
+   - O rastreador de arquivos da sessão está em `packages/services/src/session/fileChangeTracker.ts`
+   - Cada escrita registra `beforeContent` / `afterContent` no session file change tracker
 
-2. 任务摘要在读取任务列表时动态聚合
-   - 聚合实现：`packages/services/src/session/taskChangeSummary.ts`
-   - 注入位置：`packages/services/src/session/zcodeTaskService.ts`
-   - 摘要字段挂在 `ZCodeTaskMeta.changeSummary`
+2. O resumo da tarefa é agrega dinamicamente ao ler a lista de tarefas
+   - Implementação da agregação: `packages/services/src/session/taskChangeSummary.ts`
+   - Ponto de injeção: `packages/services/src/session/zcodeTaskService.ts`
+   - O campo de resumo fica em `ZCodeTaskMeta.changeSummary`
 
-3. UI 只消费摘要，不直接扫描完整快照
-   - 格式化实现：`packages/ui/src/lib/taskChangeSummary.ts`
-   - 任务列表：`packages/ui/src/TaskList.tsx`
-   - 顶部标题：`packages/ui/src/App.tsx`
+3. A UI apenas consome o resumo, sem varrer diretamente o snapshot completo
+   - Implementação da formatação: `packages/ui/src/lib/taskChangeSummary.ts`
+   - Lista de tarefas: `packages/ui/src/TaskList.tsx`
+   - Título superior: `packages/ui/src/App.tsx`
 
-## 摘要结构
+## Estrutura do Resumo
 
-- `fileCount`: 任务涉及的唯一文件数
-- `added` / `removed`: 按任务最终结果聚合后的总行数
+- `fileCount`: número de arquivos únicos envolvidos na tarefa
+- `added` / `removed`: total de linhas agregado pelo resultado final da tarefa
 - `files[]`
   - `path`
   - `added` / `removed`
   - `writeCount`
   - `lastTurnIndex`
 
-## 回滚预留
+## Reserva para Rollback
 
-- 真正的回滚仍然只依赖 `fileChanges`
-- `changeSummary.files[].lastTurnIndex` 只是 UI 快速定位入口
-- 后续如果要做“回滚整个任务”或“回滚单个文件”，直接复用 session file change tracker 的 rewind/truncate 能力
+- O rollback real continua dependendo apenas de `fileChanges`
+- `changeSummary.files[].lastTurnIndex` é apenas um ponto de entrada rápido da UI para localização
+- Se mais adiante for feito "rollback da tarefa inteira" ou "rollback de um único arquivo", reutilizar diretamente a capacidade de rewind/truncate do session file change tracker
 
-## v4 每轮文件摘要与文件撤销规划
+## Planejamento de Resumo de Arquivos por Turno e Desfazer Arquivo no v4
 
-v4 conversation 不复用旧 `session/previewFileRewind` / `session/applyFileRewind` 入口；每轮文件摘要和撤销要走 v4 投影与命令/查询边界。产品语义固定为“只撤销工作区文件修改”：撤销成功后不删除、不截断、不改写聊天历史，只把对应轮次的文件状态标记为已撤销。
+A conversa v4 não reutiliza as antigas entradas `session/previewFileRewind` / `session/applyFileRewind`; o resumo de arquivos por turno e o desfazer passam pela projeção v4 e pela fronteira de comandos/consultas. A semântica de produto é fixa como "desfazer somente as modificações de arquivos do workspace": após o sucesso do desfazer, não se deleta, não se trunca e não se reescreve o histórico do chat, apenas marcando o estado dos arquivos do turno correspondente como desfeito.
 
-### 状态与事件链路
+### Cadeia de Estado e Eventos
 
 ```text
 Write/Edit 等文件工具
@@ -62,53 +62,45 @@ Write/Edit 等文件工具
   -> v4 ProductProjection 标记该轮文件已撤销，不触发 row.removed
 ```
 
-### 投影边界
+### Fronteira de Projeção
 
-- `turnHeader.fileChanges` 只承载轻量摘要：文件数、总新增行、总删除行，以及后续需要的撤销状态；不要把完整 patch 或 before/after content 放进 replayable snapshot。
-- 文件明细、readonly diff patch、preview safe/unsafe 列表按需从 host/core 查询；展开面板或点击撤销时再读取 checkpoint artifact。
-- `CheckpointCreated` 的 event store 是运行时内存账本；checkpoint payload 还必须写入既有
-  `session_entry`，child/main runtime 冷恢复时先重建事件再执行 preview/apply。该持久化复用现有表，
-  不新增数据库表或 migration；artifact 仍是 before/after 内容的唯一大对象来源。
-- workspace-only `RewindTriggered` 同样写入既有 `session_entry`；否则关闭详情或重启后会把已撤销
-  turn 重新投影成 active。detached child cold resume 产生新的 raw event epoch 时，以
-  `SessionResumed` 重设 gateway raw cursor，但 transport sequence 继续单调递增。
-- 同一轮同一文件多次改动时，摘要按该轮最初 before 到最终 after 计算；中间 checkpoint 只用于安全撤销顺序，不重复累计展示行数。
-- 归属和撤销目标优先使用 stable `messageId` / `turnId` / checkpoint id；`turnIndex` 只能作为旧数据兼容 fallback，不能作为新协议的主要定位。
-- `CheckpointCreated(scope=workspace|both)` 可以贡献文件摘要；shell/bash checkpoint 如果 core 判为 ignored，撤销 preview 只展示 ignored，不作为可安全写回文件。
+- `turnHeader.fileChanges` carrega apenas um resumo leve: número de arquivos, total de linhas adicionadas, total de linhas removidas e o estado de desfazer necessário depois; não coloque o patch completo nem o conteúdo before/after no replayable snapshot.
+- Detalhes de arquivo, patch de diff somente-leitura e a lista safe/unsafe do preview são consultados do host/core sob demanda; o painel expandido ou o clique em desfazer lê o checkpoint artifact.
+- O event store de `CheckpointCreated` é o livro-razão em memória do runtime; o payload do checkpoint também precisa ser escrito no `session_entry` existente, e na cold recovery de child/main runtime o evento é reconstruído antes de executar preview/apply. Essa persistência reaproveita a tabela existente, sem criar nova tabela nem migration; o artifact continua sendo a única fonte dos objetos grandes de conteúdo before/after.
+- O `RewindTriggered` de workspace-only também é escrito no `session_entry` existente; caso contrário, ao fechar os detalhes ou reiniciar, um turno já desfeito seria projetado novamente como active. Quando o detached child cold resume gera um novo raw event epoch, o gateway raw cursor é redefinido com `SessionResumed`, mas a sequência de transport continua crescendo monotonicamente.
+- Quando o mesmo arquivo é alterado várias vezes no mesmo turno, o resumo é calculado do before inicial do turno até o after final; checkpoints intermediários servem apenas para a ordem segura de desfazer, sem acumular novamente as linhas exibidas.
+- Atribuição e alvo de desfazer priorizam o `messageId` / `turnId` / checkpoint id estáveis; `turnIndex` só pode servir como fallback de compatibilidade para dados antigos, não como o principal mecanismo de localização do novo protocolo.
+- `CheckpointCreated(scope=workspace|both)` pode contribuir com o resumo de arquivos; checkpoint de shell/bash, se o core os classificar como ignored, aparecem no preview de desfazer apenas como ignored e não como arquivos seguros para gravação.
 
-### 撤销边界
+### Fronteira de Desfazer
 
-- 只允许在 session 空闲时执行文件撤销；running、compacting、permission/elicitation 等 active 状态下入口 disabled 或命令被拒绝，避免和正在写文件的 tool loop 竞争。
-- preview 阶段如果任一文件存在外部修改、checkpoint 缺失、checkpoint 不可读或 unsupported patch，确认按钮 disabled；apply 不做部分写回。
-- apply 成功后对话行保持不变，只在对应 turn 的文件摘要面板显示已撤销状态，并可保留 diff review 入口。
-- Subagent 文件撤销只使用 child projection 的 `canRewindFiles` 门禁；父 task 是否仍在运行不新增
-  父级 guard。父任务或外部进程对同一文件的修改继续由现有 hash preview 判为 unsafe。
-- 右侧 child 详情保持 conversation 只读，仅把 preview/apply 作为显式 workspace capability；不得
-  因此开放 composer、edit/retry/fork/stop 或 permission/elicitation response。
-- detached live child 没有直接 bootstrap record 时，首次 preview 可以 cold resume 已持久化的
-  child record，但不得启动新 turn；后续 apply 仍以 `childSessionId` 为命令 session。
-- apply 只恢复真实 workspace 并把目标 child turn 标为已撤销，不改写父 Agent 行、目录、父 task
-  aggregate 或任一聊天历史。
-- 桌面端 `desktop-continuous` 通过 live delta 更新摘要和撤销状态；手机 `/remote` 的 `web-remote-replayable` 通过同一 host projection/snapshot 恢复，不在 relay 或 main 进程下沉 session/task/stream/file 状态。
-- 远程 workspace 必须沿用 `workspaceIdentity` / `remoteSessionId` 贯穿 bridge、snapshot、撤销 target 和缓存 key；身份隔离使用 `workspaceKey = workspaceIdentity?.trim() || workspacePath`。
+- O desfazer de arquivos só é permitido quando a sessão está ociosa; em estados ativos como running, compacting, permission/elicitation, a entrada fica disabled ou o comando é rejeitado, evitando competir com o tool loop que está escrevendo arquivos.
+- Se na fase de preview algum arquivo tiver modificação externa, checkpoint ausente, checkpoint ilegível ou patch não suportado, o botão de confirmação fica disabled; o apply não faz gravação parcial.
+- Após o apply bem-sucedido, a linha da conversa permanece inalterada, apenas exibindo o estado desfeito no painel de resumo de arquivos do turno correspondente, e a entrada de diff review pode ser mantida.
+- O desfazer de arquivos de Subagent usa apenas o gate `canRewindFiles` da projeção do child; não se adiciona guard de nível pai para saber se a task pai ainda está em execução. Modificações no mesmo arquivo pela task pai ou por processos externos continuam sendo julgadas como unsafe pelo hash preview existente.
+- O detalhe do child no lado direito mantém a conversa somente leitura, usando preview/apply apenas como capability explícita de workspace; não se abre por isso o composer, nem edit/retry/fork/stop, nem resposta de permission/elicitation.
+- Um detached live child sem bootstrap record direto pode, no primeiro preview, fazer cold resume do child record já persistido, mas não deve iniciar um novo turno; o apply subsequente continua usando `childSessionId` como session do comando.
+- O apply apenas restaura o workspace real e marca o turno alvo do child como desfeito, sem reescrever a linha do Agent pai, o diretório, o aggregate da task pai ou qualquer histórico de chat.
+- No desktop, `desktop-continuous` atualiza resumo e estado de desfazer via live delta; no celular, `/remote` com `web-remote-replayable` recupera pelo mesmo host projection/snapshot, sem afundar estado de session/task/stream/file no relay ou no processo main.
+- O workspace remoto deve manter `workspaceIdentity` / `remoteSessionId` de forma consistente através de bridge, snapshot, alvo de desfazer e cache key; o isolamento de identidade usa `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
 
-### UI 形态
+### Forma da UI
 
-- 每轮文件摘要显示在该 turn 的 assistant 工作区尾部，格式为 `N files changed +A -D`；移动端保持同等信息，但按钮和文件行更紧凑。
-- 展开后展示每个文件的相对路径和 `+/-` 行数，不展示写入/修改次数；点击文件行或 Review 打开 code viewer diff。
-- 写入/修改次数只在文件撤销预检弹窗中展示，用于解释撤销操作边界，不作为摘要行信息。
-- 撤销按钮先打开 preview dialog；dialog 区分 safe、unsafe、ignored 文件，unsafe 原因必须可见。
-- 手机远控继续隐藏“选择 App 打开”下拉，只保留应用内 diff review 和文件撤销能力。
+- O resumo de arquivos de cada turno é exibido no fim da área de trabalho do assistant daquele turno, no formato `N files changed +A -D`; no celular a mesma informação é mantida, mas botões e linhas de arquivo são mais compactos.
+- Após expandir, mostra o caminho relativo de cada arquivo e as linhas `+/-`, sem exibir a contagem de escritas/modificações; clicar na linha do arquivo ou em Review abre o diff no code viewer.
+- A contagem de escritas/modificações só é exibida no diálogo de pré-verificação do desfazer de arquivos, para explicar a fronteira da operação de desfazer, e não como informação da linha de resumo.
+- O botão de desfazer primeiro abre um diálogo de preview; o diálogo distingue arquivos safe, unsafe e ignored, e o motivo do unsafe deve estar visível.
+- O controle remoto do celular continua ocultando o dropdown "选择 App 打开", mantendo apenas o diff review dentro do app e a capacidade de desfazer arquivos.
 
-## 消息内变更摘要交互
+## Interação do Resumo de Alterações Dentro da Mensagem
 
-- 消息里的变更摘要默认只展开到文件列表，不再支持在单个文件行内继续展开 inline diff
-- 单个文件行点击、Enter、Space 的行为与该行的 `Review` 按钮一致：打开右侧 code viewer 的 diff 预览
-- `Review` 按钮保留文字入口，不展示图标，避免和整行点击入口形成重复视觉强调
-- 文件行仍保留普通文件打开入口；手机远控继续隐藏“选择 App 打开”下拉，只保留应用内预览能力
-- diff 预览源继续优先使用 readonly patch，没有 patch 时使用本轮 checkpoint 的 before/after snapshot
+- O resumo de alterações dentro da mensagem expande por padrão apenas até a lista de arquivos, sem suporte a expandir inline diff dentro da linha de um único arquivo
+- Clicar na linha de um único arquivo, apertar Enter ou Space tem o mesmo comportamento do botão `Review` da linha: abre a pré-visualização do diff no code viewer à direita
+- O botão `Review` mantém a entrada de texto, sem exibir ícone, para evitar duplicar a ênfase visual com a entrada de clique na linha inteira
+- A linha do arquivo mantém a entrada normal de abrir arquivo; o controle remoto do celular continua ocultando o dropdown "选择 App 打开", mantendo apenas a pré-visualização dentro do app
+- A origem da pré-visualização do diff continua priorizando o patch somente-leitura; sem patch, usa o snapshot before/after do checkpoint daquele turno
 
-## 额外修正
+## Correções Adicionais
 
-- `task_error` 现在也会持久化本轮 `fileChanges`
-- 这样失败任务同样能显示文件汇总，也不会丢掉后续回滚所需的数据
+- `task_error` agora também persiste o `fileChanges` do turno
+- Assim, mesmo tarefas com falha conseguem exibir o resumo de arquivos, sem perder os dados necessários para o rollback posterior

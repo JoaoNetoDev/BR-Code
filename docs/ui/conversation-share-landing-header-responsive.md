@@ -1,49 +1,50 @@
-# 分享落地页顶部 Header 响应式布局
+# Layout responsivo do Header da página de compartilhamento
 
-## 目标
+## Objetivo
 
-分享落地页在窄屏和宽屏之间调整浏览器宽度时，`ZCode`、分享标题和「去 ZCode 继续」按钮保持在同一条连续轨道上移动。顶部栏高度、标题单行省略和按钮可用性在过渡期间保持稳定，不因为从窄屏布局切换到宽屏布局而发生瞬移。
+Ao ajustar a largura do navegador entre telas estreitas e largas, a landing page de compartilhamento mantém `ZCode`, o título do compartilhamento e o botão「去 ZCode 继续」movendo-se na mesma trilha contínua. A altura da barra superior, a elipse em linha única do título e a usabilidade do botão permanecem estáveis durante a transição, sem saltos ao passar do layout estreito para o largo.
 
-## 布局契约
+## Contrato de layout
 
-顶部栏使用固定高度的全宽 shell。品牌、标题和继续按钮始终挂载，由同一组几何变量控制位置：
+A barra superior usa um shell de largura total com altura fixa. Marca, título e botão de continuar estão sempre montados e são controlados pelas mesmas variáveis geométricas de posição:
 
 ```text
-窄屏 p=0                 过渡 p∈(0,1)                 宽屏 p=1
-内容栏内联排列           品牌/按钮向两侧连续移动         品牌/按钮贴视口边缘
+Tela estreita p=0            Transição p∈(0,1)                Tela larga p=1
+arranjo em linha na área      marca/botão se deslocam          marca/botão encostam
+de conteúdo                    continuamente para as bordas     nas bordas da viewport
 ```
 
-`p` 根据真实测量的可用宽度计算，不使用单一 CSS 断点。两侧分别判断自己的安全空间：当左侧 gutter 足够容纳 `ZCode`、边距和安全间距时，品牌保持在视口左侧锚点；只有左侧 gutter 不足时，品牌才沿轨道向内容栏回收。右侧 CTA 使用同样的独立规则。标题左边界在品牌右侧安全间距与正文内容栏左边缘之间插值，标题右边界取正文内容栏右边缘和按钮左侧安全间距中的较小值。
+`p` é calculado a partir da largura útil realmente medida, sem usar um único breakpoint de CSS. Cada lado avalia seu próprio espaço seguro: quando a gutter esquerda comporta `ZCode`, a margem e o espaçamento seguro, a marca permanece ancorada no lado esquerdo da viewport; só quando a gutter esquerda é insuficiente a marca recolhe ao longo da trilha para a área de conteúdo. O CTA da direita usa a mesma regra independente. O limite esquerdo do título interpola entre o espaçamento seguro à direita da marca e a borda esquerda da área de conteúdo do corpo; o limite direito do título é o menor entre a borda direita da área de conteúdo do corpo e o espaçamento seguro à esquerda do botão.
 
-标题始终单行显示并使用原生 ellipsis。窗口调整过程中只改变标题可用宽度，不改变 Header 高度，也不通过 `display: none` 重新挂载或卸载品牌、标题和继续按钮。
+O título é sempre exibido em uma única linha com ellipsis nativo. Durante o redimensionamento da janela apenas a largura disponível do título muda, nunca a altura do Header, e marca, título e botão de continuar não são remontados ou desmontados via `display: none`.
 
-## 极窄窗口保护
+## Proteção para janelas extremamente estreitas
 
-在截图覆盖的窄屏范围内，继续按钮保持完整文案和点击区域。只有当实际宽度低于按钮的最小安全宽度时，才进入紧凑按钮态；紧凑态保留可访问名称和点击区域，通过文案收缩完成，不把按钮从布局中瞬间移除。
+Dentro da faixa estreita coberta pelas capturas de tela, o botão de continuar mantém o texto completo e a área de clique. Somente quando a largura real fica abaixo da largura mínima segura do botão entra no estado compacto; o estado compacto preserva o nome acessível e a área de clique, sendo obtido pela redução do texto, sem remover o botão instantaneamente do layout.
 
-## 主题切换契约
+## Contrato de troca de tema
 
-Header 右侧保留一个图标主题按钮，位于「去 ZCode 继续」之前；只读分享没有继续按钮时仍显示主题按钮。按钮根据当前解析后的主题显示太阳或月亮图标，并通过 `aria-label` 和 `title` 说明下一步操作。
+O Header mantém à direita um botão de tema com ícone, localizado antes de「去 ZCode 继续」; mesmo sem botão de continuar no compartilhamento somente leitura, o botão de tema continua exibido. O botão mostra ícone de sol ou lua conforme o tema atualmente resolvido e descreve a próxima ação por meio de `aria-label` e `title`.
 
-- 分享入口优先读取 `zcode-theme`，没有已保存偏好时默认 `zai-light`；`system` 继续按系统偏好解析。
-- 点击主题按钮将当前解析主题切换为显式的 `zai-light` 或 `zai-dark`，同步根节点主题 class、浏览器主题元信息和 `zcode-theme` 持久化值。
-- 继续按钮只使用 `bg-primary text-primary-foreground`：浅色主题为黑底白字，深色主题为白底黑字。
-- 主题按钮与继续按钮共同参与右侧几何测量，不能挤压标题或在窄屏下被隐藏。
+- O ponto de entrada do compartilhamento lê primeiro `zcode-theme`, com padrão `zai-light` quando não há preferência salva; `system` continua sendo resolvido conforme a preferência do sistema.
+- Clicar no botão de tema alterna o tema resolvido atual para um `zai-light` ou `zai-dark` explícito, sincronizando a classe de tema do nó raiz, os metadados de tema do navegador e o valor persistido em `zcode-theme`.
+- O botão de continuar usa apenas `bg-primary text-primary-foreground`: tema claro é fundo preto com texto branco, tema escuro é fundo branco com texto preto.
+- O botão de tema e o botão de continuar participam juntos da medição geométrica direita; não podem espremer o título nem ficar ocultos em telas estreitas.
 
-## 实现约束
+## Restrições de implementação
 
-- `ResizeObserver` 只更新连续几何值或 CSS 自定义属性，不在每个宽度变化时切换离散 layout enum。
-- 过渡期间使用 transform 或 CSS 变量驱动位置，避免品牌和 CTA 重新参与 flex 排版后挤动标题。
-- Header 使用 `text-ui-*`、语义颜色和现有 rail spacing；不引入任意字号或硬编码颜色。
-- 中文和英文 CTA 分别以实际固有宽度参与测量。
-- 只读分享没有继续按钮时，右侧轨道保持空状态，但品牌和标题仍使用同一套几何计算。
-- 该变更只属于 Web 分享落地页 presentation 层，不改变分享协议、深链、Desktop continuous、手机 `/remote` 或远程 workspace 行为。
+- `ResizeObserver` atualiza apenas valores geométricos contínuos ou custom properties CSS, sem alternar enums de layout discretos a cada mudança de largura.
+- Durante a transição a posição é guiada por transform ou variáveis CSS, evitando que marca e CTA voltem a participar do layout flex e empurrem o título.
+- O Header usa `text-ui-*`, cores semânticas e o espaçamento de rail existente; não introduz tamanhos de fonte arbitrários nem cores hardcoded.
+- Os CTAs em chinês e em inglês participam da medição com suas larguras intrínsecas reais.
+- Quando o compartilhamento somente leitura não tem botão de continuar, a trilha direita permanece vazia, mas marca e título continuam usando o mesmo conjunto de cálculos geométricos.
+- Esta mudança pertence apenas à camada de apresentação da landing page de compartilhamento web e não altera o protocolo de compartilhamento, deep links, o continuous do Desktop, `/remote` no celular ou o comportamento de workspace remoto.
 
-## 验收
+## Aceitação
 
-- 320px、768px、1280px、1920px、2560px 宽度下均无水平溢出。
-- 从窄到宽、从宽到窄连续拖动窗口时，品牌和 CTA 的横坐标单调变化；在对应侧空间仍足够时保持外侧锚点，只有空间不足后才开始向内容栏回收。
-- Header 高度和垂直中心保持稳定，标题不会覆盖 CTA，CTA 不会覆盖标题。
-- 中文、英文、长标题、短标题、只读分享、可导入分享、亮色和暗色主题均通过。
-- 无主题偏好时打开为浅色；点击主题按钮后页面、Markdown 内容和按钮样式同步切换，刷新后保持选择。
-- `prefers-reduced-motion` 下不增加额外缓动，但几何位置仍连续更新。
+- Sem overflow horizontal nas larguras 320px, 768px, 1280px, 1920px e 2560px.
+- Ao arrastar a janela continuamente de estreito para largo e de largo para estreito, as coordenadas horizontais da marca e do CTA variam de forma monótona; permanecem ancoradas por fora enquanto houver espaço do lado correspondente e só começam a recolher para a área de conteúdo quando o espaço for insuficiente.
+- A altura e o centro vertical do Header permanecem estáveis; o título não cobre o CTA e o CTA não cobre o título.
+- Passam: chinês, inglês, título longo, título curto, compartilhamento somente leitura, compartilhamento importável, temas claro e escuro.
+- Sem preferência de tema a abertura é clara; após clicar no botão de tema a página, o conteúdo Markdown e o estilo dos botões trocam em conjunto, e a escolha é mantida após o refresh.
+- Sob `prefers-reduced-motion` não há easing adicional, mas as posições geométricas continuam sendo atualizadas continuamente.

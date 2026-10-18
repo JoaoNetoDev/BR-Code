@@ -1,38 +1,38 @@
-# Coding Plan Webview Upgrade E2E Cases
+# Casos E2E do Upgrade do Coding Plan no Webview
 
-本文记录 Coding Plan 升级入口迁到官网 embedded webview 后，桌面端需要覆盖的 E2E case。范围限定在 desktop local workspace，接口使用 WDIO case-local mock server，不访问真实 BigModel / Z.AI 套餐接口。
+Este documento registra os casos E2E que o desktop precisa cobrir depois que a entrada de upgrade do Coding Plan foi migrada para o embedded webview do site oficial. O escopo é limitado ao desktop local workspace, as interfaces usam um mock server local ao case via WDIO e não acessam as interfaces reais de pacotes da BigModel / Z.AI.
 
-## 覆盖原则
+## Princípios de Cobertura
 
-- 每条 case 都必须有独立 setup、action、assert，不把“打开过 webview”视为购买完成覆盖。
-- 打开升级页后断言 Windows/Linux 的最小化、最大化、关闭窗口按钮可见且命中区域不被覆盖；macOS 不显示这组自绘按钮。按钮命令与关闭网页的区别由 `overlayWindowControls.test.ts` 回归。
-- 官网 webview 完成支付后，App 的业务语义是：先关闭升级 webview，再刷新当前 Coding Plan provider。
-- Provider 刷新通过当前 ProviderSettingsService / Account 凭据边界，至少覆盖返回新 key 的复制请求和 `subscription/list` 权益校验；不能把 Account apiKey 写入 Personal Provider Config。
-- 本组 case 不发送模型请求，不生成 DeepSeek provider replay fixture。
-- CPUW-01 初始即有 Personal/Start 权益，须通过真实 Account 控制面解析：初始 customerInfo 提供组织/项目，受控 mock profile 保留查询 Start 的 JWT，不用旧 Personal apiKey 伪造账号连接。库存 loading/error 文案同时覆盖中英文启动语言。
+- Cada case precisa ter setup, action e assert independentes; não basta considerar "abriu o webview" como cobertura de compra concluída.
+- Depois de abrir a página de upgrade, assertar que os botões de minimizar, maximizar e fechar janela do Windows/Linux estão visíveis e que sua área de clique não está encoberta; no macOS esse grupo de botões desenhados pela própria app não é exibido. A diferença entre o comando dos botões e o fechamento da página web é coberta pela regressão em `overlayWindowControls.test.ts`.
+- Depois que o webview do site oficial conclude o pagamento, a semântica de negócio do App é: primeiro fechar o webview de upgrade e depois atualizar o Coding Plan provider atual.
+- A atualização do Provider passa pelo ProviderSettingsService / fronteira de credenciais do Account atual e cobre, no mínimo, a requisição de cópia que devolve a nova key e a verificação de entitlement via `subscription/list`; não é permitido gravar a apiKey do Account no Personal Provider Config.
+- Este grupo de cases não envia requisições de modelo nem gera fixture de replay do provider DeepSeek.
+- A CPUW-01 já parte de Personal/Start entitlement e precisa ser resolvida pelo plano de controle real do Account: o customerInfo inicial fornece organização/projeto, e o perfil mock controlado mantém o JWT de consulta do Start, sem forjar conexão de conta com a antiga Personal apiKey. Os textos de inventory loading/error são cobertos simultaneamente nos dois idiomas de inicialização, chinês e inglês.
 
 ## Accepted Cases
 
-Todo103 重接说明：下表历史 `builtin:*` 落盘 apiKey/enabled 断言已由当前架构替代。CPUW-01 核对本次新 key 对应的 copy 请求、入口完整库存与 WebView 同一 funnel、刷新/重载不重复上报；CPUW-01/03 还断言 Account key 不泄漏到 Personal Config。账号密钥解析与实际凭据缓存归服务层测试，不为 E2E 恢复旧 Provider Store。候选 Electron 实跑结果另记 Todo103，不继承历史通过。
+Nota de reconexão do Todo103: as asserções históricas de apiKey/enabled persistidas em `builtin:*` na tabela abaixo foram substituídas pela arquitetura atual. A CPUW-01 confere, para a nova key desta rodada, a requisição de cópia correspondente, o inventário completo da entrada e o mesmo funnel do WebView, e garante que refresh/reload não reporte duplicado; CPUW-01/03 também asseveram que a key do Account não vaza para o Personal Config. A resolução de chaves de conta e o cache real de credenciais ficam por conta dos testes da camada de serviço, sem restaurar o antigo Provider Store para o E2E. O resultado real de execução no Electron é registrado à parte no Todo103, sem herdar as aprovações históricas.
 
-| Case    | 场景                                                                             | Setup                                                                                                                                                                                                   | Action                                                              | Assertions                                                                                                                                                                                                        |
+| Case    | Cenário                                                                             | Setup                                                                                                                                                                                                   | Action                                                              | Assertions                                                                                                                                                                                                        |
 | ------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CPUW-01 | 官网 webview 通知 App 关闭升级弹窗并刷新当前 provider                            | 已登录 BigModel，当前连接方式为 BigModel Coding Plan；初始 provider apiKey 为 `bigmodel-personal-api-key`；mock 官网页可触发 `window.zcodeBridge.notifyPurchaseComplete({ provider: "bigmodel" })`      | 头像菜单打开升级 webview，在 guest webContents 中触发购买完成       | App 中 `coding-plan-embedded-webview` 消失；mock server 收到 `getCustomerInfo`、`api_keys`、`copy`、`subscription/list`；落盘 `builtin:bigmodel-coding-plan.apiKey` 更新为 mock 返回的新 key；provider 仍 enabled |
-| CPUW-02 | 官网 webview 外链/加载异常不回退旧内置购买面板                                   | mock 官网页加载失败或接口返回系统繁忙                                                                                                                                                                   | 打开升级入口                                                        | App 展示 webview shell 或 load-failure fallback；不渲染旧 `CodingPlanPurchasePanel` 个人套餐按钮                                                                                                                  |
-| CPUW-03 | Z.ai 官网 webview 通知 App 关闭升级弹窗并刷新当前 provider 与 Team Plan products | 已登录 Z.ai，当前连接方式为 Z.ai Coding Plan；webview localStorage 注入 `oauth:zai:access_token` 与 `zcodejwttoken`；mock 官网页可触发 `window.zcodeBridge.notifyPurchaseComplete({ provider: "zai" })` | 头像菜单打开升级 webview，在 guest webContents 中触发 Z.ai 购买完成 | App 中 `coding-plan-embedded-webview` 消失；mock server 收到 Z.ai provider 刷新所需 `getCustomerInfo`，并收到 `/subscription/enterprise/v2/pricing`；落盘 `builtin:zai-coding-plan` 保持 enabled                  |
+| CPUW-01 | O webview do site oficial notifica o App para fechar o diálogo de upgrade e atualizar o provider atual                            | Já autenticado na BigModel, com o modo de conexão atual sendo BigModel Coding Plan; apiKey inicial do provider `bigmodel-personal-api-key`; página oficial mock capaz de disparar `window.zcodeBridge.notifyPurchaseComplete({ provider: "bigmodel" })`      | Abrir o webview de upgrade pelo menu do avatar e disparar a conclusão da compra no guest webContents       | `coding-plan-embedded-webview` desaparece no App; o mock server recebe `getCustomerInfo`, `api_keys`, `copy`, `subscription/list`; o `builtin:bigmodel-coding-plan.apiKey` persistido é atualizado para a nova key retornada pelo mock; o provider continua enabled |
+| CPUW-02 | Falha de link externo/carregamento do webview do site oficial não recai no antigo painel de compra embutido                                   | A página oficial mock falha ao carregar ou a interface retorna sistema ocupado                                                                                                                                                                   | Abrir a entrada de upgrade                                                        | O App exibe o shell do webview ou o fallback de load-failure; não renderiza o botão de plano pessoal do antigo `CodingPlanPurchasePanel`                                                                                                                  |
+| CPUW-03 | O webview do site oficial Z.ai notifica o App para fechar o diálogo de upgrade e atualizar o provider atual e os products do Team Plan | Já autenticado na Z.ai, com o modo de conexão atual sendo Z.ai Coding Plan; localStorage do webview recebe `oauth:zai:access_token` e `zcodejwttoken`; página oficial mock capaz de disparar `window.zcodeBridge.notifyPurchaseComplete({ provider: "zai" })` | Abrir o webview de upgrade pelo menu do avatar e disparar a conclusão da compra da Z.ai no guest webContents | `coding-plan-embedded-webview` desaparece no App; o mock server recebe o `getCustomerInfo` necessário para atualizar o provider Z.ai, além de `/subscription/enterprise/v2/pricing`; o `builtin:zai-coding-plan` persistido continua enabled                  |
 
 ## Pruned Cases
 
 | Decision | Pruned combinations                 | Reason                                                                                                        | Representative coverage                                                                                                                   |
 | -------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| CPUW-P01 | Z.AI PayPal / Stripe 真支付完成     | 需要真实第三方支付授权，不能在桌面 CI 中稳定执行；App 侧完成语义由 Z.ai mock webview completion 覆盖          | CPUW-03 覆盖 Z.ai bridge + App close/refresh；支付方式内部保留单元/组件测试                                                               |
-| CPUW-P02 | Mobile `/remote` webview completion | 手机远控不创建独立官网购买 webview；当前升级 webview 是桌面 renderer 本地弹层                                 | CPUW-01 保持 desktop local scope；远端 Environment 的 Provider Runtime 独立拥有配置与 Registry，不由本用例验证跨 Environment Provisioning |
-| CPUW-P03 | 企业 Team Plan webview 完整购买     | 当前官网完成信号到 App 的关闭/刷新语义与个人套餐相同；企业产品刷新只需断言 `refreshTeamPlanProducts` 单元覆盖 | `modelProviderCodingPlan.test.ts` 覆盖 Team products refresh；CPUW-01 覆盖真实 webview IPC                                                |
+| CPUW-P01 | Pagamento real concluído via Z.AI PayPal / Stripe     | Exige autorização real de pagamento de terceiro, que não pode ser executada de forma estável no CI do desktop; a semântica de conclusão do lado do App é coberta pela completion do webview mock da Z.ai          | CPUW-03 cobre o bridge da Z.ai + close/refresh do App; os meios de pagamento mantêm cobertura de teste unitário/componente internamente                                                               |
+| CPUW-P02 | Conclusion do webview no Mobile `/remote` | O controle remoto do celular não cria um webview de compra independente do site oficial; o webview de upgrade atual é uma camada local do renderer do desktop                                 | CPUW-01 mantém o escopo desktop local; o Provider Runtime de um Environment remoto possui configuração e Registry próprios e não é validado por este caso quanto a Provisioning entre Environments |
+| CPUW-P03 | Compra completa do Team Plan empresarial     | O sinal de conclusão do site oficial para o App tem o mesmo semântica de close/refresh do plano pessoal; a atualização dos produtos empresariais só precisa da asserção de unidade de `refreshTeamPlanProducts` | `modelProviderCodingPlan.test.ts` cobre o refresh de Team products; CPUW-01 cobre o IPC real do webview                                                |
 
 ## Fixture Contract
 
-- WDIO mock server 负责：
-  - `/coding-plan`：模拟官网 embedded 页面。
+- O mock server do WDIO é responsável por:
+  - `/coding-plan`: simula a página embedded do site oficial.
   - `/api/v2/releases/latest`
   - `/api/v1/client/configs`
   - `/api/biz/customer/getCustomerInfo`
@@ -40,11 +40,11 @@ Todo103 重接说明：下表历史 `builtin:*` 落盘 apiKey/enabled 断言已�
   - `/api/biz/v1/organization/:organizationId/projects/:projectId/api_keys/copy/:apiKey`
   - `/api/biz/subscription/list`
   - `/api/monitor/usage/quota/limit`
-- mock server 提供 `/__e2e/coding-plan/requests` 供 spec 断言请求。
-- `CPUW-01` / `CPUW-03` 使用 `fast-text` timing，不依赖真实流式模型请求。
-- Coding Plan webview origin 是 Vite 构建期常量。定向运行和默认全量 glob 都必须在
-  desktop build 前启动同一个 shard-owned mock origin；不能等到 worker `beforeSession`
-  才注入 origin。
-- 同一全量 shard 可能依次运行 sold-out、system-busy 和 refresh-provider。mock origin
-  在 shard 生命周期内保持不变，每个 upgrade worker 在启动 Electron 前通过测试控制端点
-  重置 `scenario`、购买状态与 request ledger；其它 worker 不得关闭 launcher-owned server。
+- O mock server fornece `/__e2e/coding-plan/requests` para que o spec assert as requisições.
+- `CPUW-01` / `CPUW-03` usam timing `fast-text`, sem depender de requisições reais de modelo em streaming.
+- A origin do Coding Plan webview é uma constante do build do Vite. Tanto a execução direcionada quanto o glob completo padrão devem iniciar o mesmo mock origin sharded antes do build do
+  desktop; não se pode esperar até o `beforeSession` do worker para injetar a origin.
+- O mesmo shard completo pode rodar, em sequência, sold-out, system-busy e refresh-provider. A mock origin
+  permanece inalterada durante o ciclo de vida do shard, e cada worker de upgrade, antes de iniciar o Electron,
+  redefine `scenario`, o estado da compra e o request ledger pelo endpoint de controle de testes; nenhum outro
+  worker pode encerrar o server pertencente ao launcher.

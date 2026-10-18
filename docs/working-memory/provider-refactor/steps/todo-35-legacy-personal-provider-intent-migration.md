@@ -1,29 +1,26 @@
-# Todo 35：Legacy Personal Provider 用户意图迁移收口
+# Todo 35：Fechamento da Migração de Intenção do Usuário do Legacy Personal Provider
 
-> 状态：已完成
+> 状态：Concluído
 >
 > 日期：2026-08-28
 >
-> 来源：Todo 33 上线前 Legacy Importer 复核
+> 来源：Revisão do Legacy Importer antes do lançamento do Todo 33
 >
 > 关联任务：[`Todo 33`](./todo-33-personal-provider-config-file-cutover.md)
 
-## 1. 问题
+## 1. Problema
 
-Todo 33 已把正式 Personal Provider/Model Config 切换到 `provider_config.json`，但现有 Legacy Importer
-仍按“旧 Effective Config 与当前 Built-in 求差异”的方式迁移。旧 `config.json` 中混入了 Built-in Preset、
-Catalog enrichment、设置页默认回填、账号运行态与已经退役的模型 hardcode，因此差异不能等同于用户意图。
+O Todo 33 já migrou o Personal Provider/Model Config oficial para `provider_config.json`, mas o Legacy Importer existente ainda migra pela forma de calcular a diferença entre o "Effective Config antigo" e o Built-in atual. O `config.json` antigo mistura Built-in Preset, enriquecimento de Catalog, preenchimento padrão da página de configurações, estado de execução da conta e hardcode de modelos já aposentados, portanto a diferença não equivale à intenção do usuário.
 
-当前实现还存在三类直接偏差：
+A implementação atual ainda apresenta três desvios diretos:
 
-- `source=builtin` 仍可能迁移 API Key、enabled、用户新增模型和 Model Rule；
-- Personal Provider 缺少 `group=standard-personal`，迁移后不能作为完整 Personal Provider 投影；
-- `maxOutputTokens`、modalities、tools、structured output、reasoning 等系统生成事实会被固化为 Personal Rule。
+- `source=builtin` ainda pode migrar API Key, enabled, modelos adicionados pelo usuário e Model Rule;
+- O Personal Provider está sem `group=standard-personal` e, após a migração, não pode ser projetado como um Personal Provider completo;
+- Fatos gerados pelo sistema como `maxOutputTokens`, modalities, tools, structured output e reasoning são fixados como Personal Rule.
 
-## 2. 最终裁决
+## 2. Decisão Final
 
-迁移只保留可以稳定表达的用户自定义 Provider 调用意图、模型成员/顺序，以及自定义模型的
-`contextWindow`。Importer 不再解析或比较当前 Built-in Config，不创建第二套模型事实推断。
+A migração preserva apenas a intenção de invocação de Provider personalizado do usuário que pode ser expressa de forma estável, os membros/ordem dos modelos e o `contextWindow` dos modelos personalizados. O Importer não analisa nem compara mais o Built-in Config atual e não cria um segundo conjunto de inferências sobre fatos de modelo.
 
 ```text
 旧 config.json
@@ -45,36 +42,32 @@ Catalog enrichment、设置页默认回填、账号运行态与已经退役的�
                     `─ 仅保留合法 contextWindow
 ```
 
-`models-dev` 已废弃，`workspace` 不属于本迁移的现实输入；Importer 不为它们建立兼容分支。缺少
-`source`、但由旧 Reader 识别为用户自定义结构的 Provider，继续按旧 Reader 的 `custom` 缺省语义处理。
+`models-dev` já está obsoleto e `workspace` não é uma entrada realista desta migração; o Importer não cria branches de compatibilidade para eles. Provedores sem `source`, mas reconhecidos pelo Reader antigo como estrutura personalizada do usuário, continuam sendo tratados pela semântica default `custom` do Reader antigo.
 
-## 3. Provider 迁移
+## 3. Migração de Provider
 
 ### 3.1 Built-in
 
-`source=builtin` 整体丢弃，不产生 Provider Overlay 或 Model Rule。API Key、Endpoint、Schema、Headers、
-enabled、模型新增/删除、模型顺序和所有账号状态均不抢救。当前 ZCode Built-in Config 与 Account Overlay
-重新提供正式事实。
+`source=builtin` é descartado por completo, não gerando Provider Overlay nem Model Rule. API Key, Endpoint, Schema, Headers, enabled, adição/remoção de modelos, ordem dos modelos e todo estado de conta não são resgatados. O Built-in Config e o Account Overlay atuais do ZCode fornecem novamente os fatos oficiais.
 
-### 3.2 用户自定义 Provider
+### 3.2 Provider personalizado pelo usuário
 
-有效自定义 Provider 迁移以下字段：
+Um Provider personalizado válido migra os seguintes campos:
 
-- trim 后非空的 `providerId`；
-- 固定 `group=standard-personal`；
-- 用户名称与 logo；名称等于 ID 时可省略 label；
-- API Key 与 API Key 管理地址；
-- 旧配置明确保存的 API Schema、归一化 Base URL 与 Headers；
-- `enabled` 原样保留，`undefined` 不回填；
-- 非空、未删除、去重后的 `modelIds`；
-- 同一有效成员顺序写入 `modelOrder`。
+- `providerId` não vazio após o trim;
+- `group=standard-personal` fixo;
+- nome e logo do usuário; quando o nome é igual ao ID, o label pode ser omitido;
+- API Key e endereço de gerenciamento da API Key;
+- API Schema, Base URL normalizado e Headers explicitamente salvos na configuração antiga;
+- `enabled` preservado como está, sem preencher `undefined`;
+- `modelIds` não vazios, não removidos e deduplicados;
+- a mesma ordem válida de membros é gravada em `modelOrder`.
 
-不迁移 source、Catalog 身份、created/updated 时间、`systemDisabledReason`、登录/套餐/连接失败等运行态。
+Não são migrados source, identidade de Catalog, tempos de created/updated, `systemDisabledReason`, nem estados de execução como login/plano/falha de conexão.
 
-## 4. 模型迁移
+## 4. Migração de Modelos
 
-旧字符串模型只提供成员身份，不产生 Model Rule。旧对象模型在 `deleted=true` 时从成员和规则中同时移除；
-其他对象模型只在 `contextWindow` 是有限正整数时产生精确的 `providerId + modelId` Personal Rule：
+Modelos antigos no formato string apenas fornecem identidade de membro e não geram Model Rule. Modelos antigos no formato objeto, quando `deleted=true`, são removidos simultaneamente dos membros e das regras; outros modelos no formato objeto só geram uma Personal Rule precisa de `providerId + modelId` quando `contextWindow` é um inteiro positivo finito:
 
 ```ts
 new ModelConfig({
@@ -82,64 +75,53 @@ new ModelConfig({
 });
 ```
 
-`contextWindow` 不依赖 `modified`、不和 Built-in 默认值比较，也不在 Importer 内调用 Resolver。
+`contextWindow` não depende de `modified`, não é comparado com os valores default do Built-in e não chama o Resolver dentro do Importer.
 
-下列模型事实全部丢弃，由当前 Built-in Model Config Rules 重新解析：
+Todos os seguintes fatos de modelo são descartados e reanalisados pelas Model Config Rules atuais do Built-in:
 
-- `maxOutputTokens` 与 `hasMaxOutputTokens`；
-- Text/Image/Video/Audio/PDF 输入输出格式与 `modalitiesConfigured`；
-- tools、structured output、native web search、mid-conversation system；
-- reasoning spec/mapping/profile；
-- compatibility、priority、disabled reason、model headers/options、`modelIdByKind`；
-- Catalog 名称与展示元数据。
+- `maxOutputTokens` e `hasMaxOutputTokens`;
+- formatos de entrada/saída Text/Image/Video/Audio/PDF e `modalitiesConfigured`;
+- tools, structured output, native web search, mid-conversation system;
+- reasoning spec/mapping/profile;
+- compatibility, priority, disabled reason, model headers/options, `modelIdByKind`;
+- nome de Catalog e metadados de exibição.
 
-`modified` 只是整个旧模型条目参与过编辑的标记，不能证明某个叶子字段由用户修改，因此不参与迁移判断。
+`modified` é apenas uma marca de que a entrada antiga do modelo participou de alguma edição; não prova que um campo folha foi alterado pelo usuário e portanto não participa do julgamento de migração.
 
-## 5. 文件与运行时边界
+## 5. Fronteira de Arquivos e Runtime
 
-Todo 33 的生命周期保持不变：仅当 `provider_config.json` 不存在时只读旧 `config.json` 并执行一次导入，
-不备份、不读取 `model-providers.json`，成功落盘后只监听 `provider_config.json`。本 Todo 不增加 Provider v1/v2
-中间格式兼容，也不修改账号、模型选择或 Active Model 冻结语义。
+O ciclo de vida do Todo 33 permanece inalterado: somente quando `provider_config.json` não existe, o `config.json` antigo é lido somente para escrita e a importação é executada uma única vez, sem backup e sem ler `model-providers.json`; após gravar com sucesso, apenas `provider_config.json` é monitorado. Este Todo não adiciona compatibilidade com formatos intermediários de Provider v1/v2 nem modifica a semântica de conta, seleção de modelo ou congelamento do Active Model.
 
-## 6. 测试计划
+## 6. Plano de Testes
 
-先写失败测试，再修改生产实现：
+Escrever primeiro os testes que falham e depois modificar a implementação de produção:
 
-1. Built-in Provider 即使包含 API Key、modified 模型和新增模型也零迁移；
-2. 自定义 Provider 完整保留调用配置、`standard-personal` group、enabled、成员和顺序；
-3. 字符串/对象/删除/空白/重复模型正确投影；
-4. 有效 context 全量迁移，不依赖 `modified`；非法或缺失 context 不产生 Rule；
-5. max output、modalities、tools、structured output、reasoning、compatibility 等均不进入 Personal Rule；
-6. 迁移结果经正式 codec JSON round-trip 后语义不变；
-7. 迁移后的自定义 Provider 能与 Built-in 通用 Model Rules 组合为完整 Registry 模型；
-8. Provider Runtime 首次导入、已有正式文件跳过导入及文件监听回归通过。
+1. Provider Built-in tem migração zero mesmo contendo API Key, modelos modificados e modelos novos;
+2. Provider personalizado preserva integralmente a configuração de invocação, o group `standard-personal`, enabled, membros e ordem;
+3. Modelos string/objeto/removido/em branco/duplicado são projetados corretamente;
+4. context válido é migrado integralmente sem depender de `modified`; context inválido ou ausente não gera Rule;
+5. max output, modalities, tools, structured output, reasoning, compatibility etc. não entram na Personal Rule;
+6. O resultado da migração mantém a semântica após um round-trip JSON pelo codec oficial;
+7. O Provider personalizado migrado consegue se combinar com as Model Rules genéricas do Built-in para formar um modelo de Registry completo;
+8. A primeira importação do Provider Runtime, o salto da importação com arquivo oficial já existente e a regressão do monitoramento de arquivo passam.
 
-## 7. 完成标准
+## 7. Critérios de Conclusão
 
-- Legacy Importer 不再依赖 ZCode Built-in Snapshot 或 Effective diff projection；
-- Built-in、Catalog/账号状态和退役模型能力不会进入 Personal Config；
-- 自定义 Provider 在迁移后具有完整 group、调用配置、成员与排序；
-- Personal Model Rule 只可能包含 `properties.contextWindow`；
-- 定向单测、相关 Services/Provider 测试、根 `pnpm typecheck` 与 `pnpm lint` 通过；
-- 完成后提交 Conventional Commit。
+- O Legacy Importer não depende mais do Built-in Snapshot do ZCode nem da projeção de diff do Effective;
+- Built-in, estado de Catalog/conta e capacidades de modelos aposentados não entram no Personal Config;
+- O Provider personalizado tem após a migração group completo, configuração de invocação, membros e ordenação;
+- Personal Model Rule só pode conter `properties.contextWindow`;
+- Os testes unitários direcionados, os testes relacionados de Services/Provider, o `pnpm typecheck` e o `pnpm lint` da raiz passam;
+- Ao final, é submetido um Conventional Commit.
 
-## 8. 实施结果
+## 8. Resultado da Implementação
 
-- Importer 已删除 ZCode Built-in Snapshot 输入与 Effective diff projection，`source=builtin`、退役
-  `models-dev` 和非 Personal 的 `workspace` 输入均不会写入正式文件；
-- 仅为旧迁移提供的 `projectEffectiveProvidersToPersonalConfig` 已确认无生产调用方，并连同公开导出和
-  自测一并删除，避免继续暴露“从 Effective Config 反推 Personal 意图”的错误入口；
-- 自定义 Provider 直接生成带 `group=standard-personal` 的 Personal Config，保留调用配置、enabled、
-  去重后的模型成员和原始顺序；
-- 旧字符串/对象/删除/空白/重复模型统一经过单一成员收集器；Personal Model Rule 只可能包含合法正整数
-  `properties.contextWindow`；
-- reasoning 转换、max output、modalities、tools 和 structured output 等旧能力迁移实现已删除；
-- 纵向测试证明迁移 context 与当前通用 Built-in Model Rule 合成后，完整格式、能力和 max output 均来自
-  当前规则，并能进入正式 Resolver；
-- Services 首次迁移测试证明 `provider_config.json` codec round-trip 保留 group、成员顺序和 context Rule；
-- 后续生命周期 Review 发现 Standalone CLI importer 仍引用已经删除的 Effective→Personal projection；现已同步
-  改为直接生成 `standard-personal` Provider，并同样只保留模型成员、顺序与合法 `contextWindow`，避免 CLI
-  启动时因缺失导出而把迁移静默降级为空配置；
-- 定向 Services 测试 13 条、`@zcode/provider` 151 条、`@zcode/provider-node` 44 条全部通过；根
-  `pnpm typecheck` 与 `pnpm lint` 通过，lint 仅报告 33 条本轮无关既存 warning；全量 `pnpm test:unit`
-  1486 个文件通过、1 个跳过，12672 条测试通过、25 条跳过。
+- O Importer removeu a entrada de Built-in Snapshot do ZCode e a projeção de diff do Effective; `source=builtin`, o `models-dev` aposentado e a entrada `workspace` não-Personal não são gravados no arquivo oficial;
+- O `projectEffectiveProvidersToPersonalConfig`, fornecido apenas para a migração antiga, foi confirmado sem chamadores em produção e removido junto com a exportação pública e o autotest, evitando continuar expondo a entrada errada de "deduzir a intenção Personal a partir do Effective Config";
+- O Provider personalizado gera diretamente um Personal Config com `group=standard-personal`, preservando a configuração de invocação, enabled, os membros de modelo deduplicados e a ordem original;
+- Modelos antigos string/objeto/removido/em branco/duplicado passam por um único coletor de membros; Personal Model Rule só pode conter um `properties.contextWindow` inteiro positivo válido;
+- As implementações de migração das capacidades antigas de conversão de reasoning, max output, modalities, tools e structured output foram removidas;
+- Testes verticais provam que, depois que o context migrado é combinado com a Model Rule genérica do Built-in atual, o formato, as capacidades e o max output completos vêm das regras atuais e conseguem entrar no Resolver oficial;
+- O teste de primeira migração dos Services prova que o round-trip do codec de `provider_config.json` preserva group, ordem dos membros e context Rule;
+- A revisão posterior de ciclo de vida encontrou que o importer do Standalone CLI ainda referenciava a projeção Effective→Personal já removida; agora ele foi alterado para gerar diretamente um Provider `standard-personal`, mantendo também apenas os membros de modelo, a ordem e o `contextWindow` válido, evitando que a inicialização da CLI degradasse silenciosamente a migração para uma configuração vazia por causa da exportação ausente;
+- Os testes direcionados de Services (13), `@zcode/provider` (151) e `@zcode/provider-node` (44) passaram; o `pnpm typecheck` e o `pnpm lint` da raiz passaram, sendo que o lint reportou apenas 33 warnings preexistentes e não relacionados a esta rodada; o `pnpm test:unit` completo passou em 1486 arquivos com 1 pulado, e 12672 testes passaram com 25 pulados.

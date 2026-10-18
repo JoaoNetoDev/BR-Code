@@ -1,34 +1,30 @@
-# OpenAI Responses 非流式 JSON 最小兼容设计
+# Compatibilidade mínima de JSON não-streaming do OpenAI Responses
 
-> 2026-07-15 更新：本文的 JSON normalizer 和 provider 边界继续有效；“compact 固定非流式”合同已被
-> [Compact Stream-first → Non-stream Fallback 设计](./2026-07-15-compact-stream-first-nonstream-fallback-design.md)
-> 取代。该兼容器现在服务于 compact streaming 失败后的 HTTP fallback leg。下文保留原始设计背景，
-> 其中固定 non-stream 的描述仅代表 2026-07-11 的实现基线。
+> Atualização de 2026-07-15: o JSON normalizer e a fronteira de provider deste documento continuam válidos; o contrato "compact fixo não-streaming" foi
+> substituído pelo
+> [Compact Stream-first → Non-stream Fallback design](./2026-07-15-compact-stream-first-nonstream-fallback-design.md).
+> O adaptador agora atende à leg de HTTP fallback após a falha do compact streaming. O contexto original do design é preservado abaixo,
+> onde as descrições de non-stream fixo representam apenas a linha de base de implementação de 2026-07-11.
 
-## 背景与根因
+## Contexto e causa raiz
 
-部分第三方 OpenAI Responses 服务在流式请求中返回可被 AI SDK 接受的 SSE 事件，但在非流式
-JSON 响应中省略官方 Responses 结构要求的字段：
+Alguns serviços de terceiros do OpenAI Responses retornam, em requisições de streaming, eventos SSE aceitos pelo AI SDK, mas omitem em respostas JSON não-streaming campos exigidos pela estrutura oficial do Responses:
 
-- `output[].type === "message"` 时省略 `id`；
-- `output[].content[].type === "output_text"` 时省略 `annotations`。
+- omitem `id` quando `output[].type === "message"`;
+- omitem `annotations` quando `output[].content[].type === "output_text"`.
 
-ZCode 的主会话默认走流式请求，而 compact 固定调用 `modelAdapter.generateText()`。因此同一个
-provider/model 可以正常完成主会话，却在 compact 的 HTTP 200 响应进入
-`OpenAIResponsesLanguageModel.doGenerate()` 后，被 AI SDK 以 `Invalid JSON response` 拒绝。
+A sessão principal do ZCode usa requisições de streaming por padrão, enquanto o compact chama `modelAdapter.generateText()` de forma fixa. Portanto o mesmo provider/model pode concluir a sessão principal normalmente e, no compact, ter a resposta HTTP 200 rejeitada pelo AI SDK com `Invalid JSON response` ao entrar em `OpenAIResponsesLanguageModel.doGenerate()`.
 
-当前工作区实际使用的 `@ai-sdk/openai` 仍在非流式 Responses schema 中要求上述两个字段。
-这不是请求参数、鉴权、网络或 compact prompt 问题，而是第三方 Responses 非流式返回体不完整。
+O `@ai-sdk/openai` realmente em uso no workspace atual ainda exige esses dois campos no schema de Responses não-streaming.
+Não é um problema de parâmetros de requisição, autenticação, rede ou prompt de compact, mas sim um corpo de resposta não-streaming de Responses de terceiros incompleto.
 
-## 目标
+## Objetivo
 
-在不改变 compact 非流式合同、不修改 AI SDK、不影响其他协议的前提下，让已确认的缺字段
-Responses JSON 可以通过 AI SDK 校验并返回文本。
+Sem alterar o contrato não-streaming do compact, sem modificar o AI SDK e sem afetar outros protocolos, permitir que o JSON de Responses com campos faltantes já confirmado passe pela validação do AI SDK e retorne o texto.
 
-## 兼容边界
+## Limites da compatibilidade
 
-新增独立的 OpenAI Responses JSON fetch 兼容器，并只在 adapter registry 的
-`providerKind === "openai"` factory 分支组合：
+Adicionar um adaptador independente de fetch de JSON do OpenAI Responses e combiná-lo somente no branch de factory `providerKind === "openai"` do adapter registry:
 
 ```ts
 const providerFetch = createProviderBusinessErrorFetch(...);
@@ -39,105 +35,86 @@ createOpenAI({
 }).responses;
 ```
 
-`createProviderBusinessErrorFetch()` 继续只负责所有 provider 共用的网络代理与业务错误识别。
-Responses 返回体兼容不得放入该共享 fetch，也不得进入 `anthropic`、`gateway` 或
-`openai-compatible` factory。
+`createProviderBusinessErrorFetch()` continua responsável apenas pelo proxy de rede compartilhado e pela identificação de erros de negócio comuns a todos os providers.
+A compatibilidade do corpo de resposta do Responses não deve entrar nesse fetch compartilhado nem nos factories de `anthropic`, `gateway` ou `openai-compatible`.
 
-ZCode 的 provider 类型合同已经把 `providerKind === "openai"` 唯一映射为
-`apiFormat === "openai-responses"`。registry 必须显式返回 AI SDK 的 `provider.responses`
-factory，让 factory 组合本身成为协议判据；兼容器不得通过请求 URL、method、模型名或 baseURL
-再次猜测协议。
+O contrato de tipo de provider do ZCode já mapeia `providerKind === "openai"` unicamente para `apiFormat === "openai-responses"`. O registry deve retornar explicitamente a factory `provider.responses` do AI SDK, para que a própria composição do factory seja o critério de protocolo; o adaptador não deve tentar adivinhar o protocolo novamente por URL de requisição, method, nome de modelo ou baseURL.
 
-兼容器只处理该 Responses factory 返回且同时满足以下条件的响应：
+O adaptador processa apenas respostas retornadas por essa factory de Responses que satisfazem simultaneamente:
 
-1. HTTP 状态为 2xx；
-2. 响应不是 `text/event-stream`；
-3. body 是可解析的 JSON object，且 `output` 是数组。
+1. status HTTP 2xx;
+2. a resposta não é `text/event-stream`;
+3. o body é um JSON object parseável, e `output` é um array.
 
-任一条件不满足时返回原始 `Response`。
+Se qualquer condição não for satisfeita, a `Response` original é retornada.
 
-## 最小归一化规则
+## Regras mínimas de normalização
 
-只归一化已由历史日志和当前 AI SDK 最小复现确认的两种缺失字段：
+Normalizar somente os dois campos ausentes confirmados por logs históricos e pela reprodução mínima atual no AI SDK:
 
-1. 对 `type === "message"` 且 `id === undefined` 的 output item：
-   - 只有顶层 `response.id` 是非空字符串时才补 ID；
-   - 使用 Node `node:crypto` 的 `randomUUID()` 补为 `msg_<UUIDv4>`，避免复用 provider
-     已返回 ID 的可预测命名空间；不新增 UUID 依赖或 collision resolver。
-2. 对上述 message 的 `type === "output_text"` 且 `annotations === undefined` 的 content item，
-   补为 `annotations: []`。
+1. para output item com `type === "message"` e `id === undefined`:
+   - o ID só é preenchido quando o `response.id` de nível superior é uma string não vazia;
+   - usa-se `randomUUID()` do Node `node:crypto` para preencher como `msg_<UUIDv4>`, evitando reaproveitar o namespace previsível de IDs já devolvidos pelo provider; sem nova dependência de UUID nem collision resolver.
+2. para content item da message acima com `type === "output_text"` e `annotations === undefined`, preencher com `annotations: []`.
 
-以下输入不属于本次归一化范围，继续交给 AI SDK 校验：
+As entradas a seguir estão fora do escopo desta normalização e continuam delegadas à validação do AI SDK:
 
-- 除上述两个字段缺失之外的 schema 问题；
-- 非 message output item；
-- 非 output_text content item；
-- 顶层 `response.id` 无效时缺失的 message ID；
-- 无效 JSON、错误响应与 SSE。
+- problemas de schema além da ausência desses dois campos;
+- output item que não seja message;
+- content item que não seja output_text;
+- message ID ausente quando o `response.id` de nível superior é inválido;
+- JSON inválido, respostas de erro e SSE.
 
-只有确实发生归一化时才重建 `Response`。重建时保留 status、statusText 和其他 headers，并删除
-已经失效的 `content-length` 与 `content-encoding`。合法 Responses 响应必须返回原始
-`Response` 实例。
+A `Response` só é reconstruída quando a normalização realmente ocorre. Ao reconstruir, preservam-se status, statusText e os demais headers, removendo o `content-length` e o `content-encoding` já invalidados. Uma resposta Responses legítima deve retornar a instância original de `Response`.
 
-## 明确不做
+## Fora de escopo explicitamente
 
-- 不把 compact 改为 `streamText()`，继续保留其非流式请求合同。
-- 不在非流式失败后回退到流式重试，避免重复请求、重复计费和潜在副作用。
-- 不修改、fork 或放宽 AI SDK schema。
-- 不给所有 output item 补 ID，不兼容其他未观察到的缺失字段。
-- 不根据模型名、provider 名或 baseURL 建立名单。
-- 不根据 URL pathname 或 HTTP method 推断 Responses 协议。
-- 不修改 Chat Completions、Anthropic、Gateway、reasoning policy 或请求 payload。
-- 不新增 model-io、prompt-trajectory、遥测字段或协议事件。
+- Não mudar o compact para `streamText()`; seu contrato de requisição não-streaming é preservado.
+- Não recorrer a streaming após uma falha não-streaming, evitando requisições duplicadas, cobrança duplicada e possíveis efeitos colaterais.
+- Não modificar, forkar nem afrouxar o schema do AI SDK.
+- Não preencher IDs em todos os output items, nem buscar compatibilidade com outros campos ausentes não observados.
+- Não montar uma lista com base no nome do modelo, do provider ou do baseURL.
+- Não inferir o protocolo Responses pelo pathname da URL ou pelo HTTP method.
+- Não modificar Chat Completions, Anthropic, Gateway, reasoning policy ou o payload das requisições.
+- Não adicionar campos de model-io, prompt-trajectory, telemetria ou eventos de protocolo.
 
-## 错误与诊断合同
+## Contrato de erros e diagnóstico
 
-兼容器无法解析或不满足最小规则时必须返回原始响应，让 AI SDK 保留现有
-`AI_APICallError: Invalid JSON response` 及具体 validation issues。不得吞掉错误、改写成空文本或
-触发额外重试。
+Quando o adaptador não consegue fazer o parse ou não satisfaz as regras mínimas, ele deve retornar a resposta original, para que o AI SDK preserve o `AI_APICallError: Invalid JSON response` existente e os validation issues específicos. Não se pode engolir o erro, reescrevê-lo como texto vazio nem disparar retries extras.
 
-## 验证范围
+## Escopo de verificação
 
-### 单元与集成测试
+### Testes unitários e de integração
 
-- pure normalizer：缺失 message `id` 与 output_text `annotations` 时只补这两个字段，
-  message ID 符合 `msg_<UUIDv4>`；
-- 合法 Responses JSON 返回原始 Response，body 不变；
-- 未知 output item 不被修改；
-- SSE、非 2xx 响应保持原样；
-- 使用 fake API key 与本地 fake HTTP server，真实经过
-  `AiSdkModelRegistry -> AiSdkModelAdapter.generateText -> @ai-sdk/openai doGenerate`，证明历史缺字段
-  JSON 最终返回 compact summary 文本；
-- registry 集成测试证明 `openai` 显式选择 Responses factory，并以最相邻的
-  OpenAI-compatible Chat Completions 为负向对照，证明其 response body 不进入该兼容器；
-  Anthropic 与 Gateway 的互斥 factory 分支保持不变。
+- pure normalizer: com message `id` e output_text `annotations` ausentes, preenche somente esses dois campos, e o message ID segue o formato `msg_<UUIDv4>`;
+- JSON Responses legítimo retorna a Response original, com body inalterado;
+- output item desconhecido não é modificado;
+- SSE e respostas não-2xx permanecem como estão;
+- usando fake API key e um fake HTTP server local, passar de verdade por `AiSdkModelRegistry -> AiSdkModelAdapter.generateText -> @ai-sdk/openai doGenerate`, provando que o JSON histórico com campos ausentes finalmente retorna o texto do summary do compact;
+- teste de integração do registry prova que `openai` escolhe explicitamente a factory de Responses e, usando como controle negativo o OpenAI-compatible Chat Completions mais próximo, prova que o response body dele não entra nesse adaptador; os branches mutuamente exclusivos de Anthropic e Gateway permanecem inalterados.
 
 ### E2E
 
-新增一个 case-local fake Responses server 场景：
+Adicionar um cenário de fake Responses server local ao case:
 
-1. 主会话 `stream: true` 返回合法 SSE 并成功；
-2. `/compact` 发出非流式 `/responses` 请求；
-3. fake server 的非流式 JSON 刻意省略 message `id` 和 output_text `annotations`；
-4. compact 最终发布 completed boundary，并保留 summary marker；
-5. 抓包证明 provider 原始响应确实缺字段，同时没有请求 Chat Completions endpoint。
+1. a sessão principal com `stream: true` retorna SSE válido e tem sucesso;
+2. `/compact` emite uma requisição não-streaming para `/responses`;
+3. o JSON não-streaming do fake server omite deliberadamente message `id` e output_text `annotations`;
+4. o compact publica o completed boundary e preserva o summary marker;
+5. a captura de pacotes prova que a resposta original do provider realmente estava sem os campos e que nenhuma requisição ao endpoint de Chat Completions foi feita.
 
-测试只使用 fake API key 和本地 server，不依赖真实 provider。
+Os testes usam apenas fake API key e server local, sem depender de um provider real.
 
-该场景是现有手动 compact success 产品状态 F08 的 provider 兼容补充证据，不新增独立的
-conversation product case、自动化缩写或 coverage audit 规则，也不改变产品 case 统计。
+Esse cenário é evidência complementar de compatibilidade de provider para o estado de produto F08 de compact success manual existente; não adiciona um conversation product case independente, atalhos de automação ou regras de coverage audit, e não altera as estatísticas de product cases.
 
-扩展 compact harness 时保持既有 artifact 合同：dry-run 的顶层 `model`、`baseURL` 和 suite
-结果的顶层 `model` 继续存在。单独运行具有 case-local model 的场景时，顶层 `model` 可以使用
-该场景的准确值；多 case 仍保留原有默认 model，并由具体 case 的 `model` 字段表达例外。
-case registry 解析必须位于 suite 的统一 `try/finally` 内，确保注册表异常仍进入失败落盘和
-既有的诊断目录保留策略。
+Ao estender o harness do compact, manter o contrato de artifacts existente: o `model` de nível superior do dry-run e o `model` de nível superior do resultado da suite continuam existindo. Ao executar isoladamente um cenário com model local do case, o `model` de nível superior pode usar o valor exato desse cenário; com múltiplos cases, mantém-se o model default original, e a exceção é expressa pelo campo `model` do case específico.
+O parse do case registry deve ficar dentro do `try/finally` unificado da suite, garantindo que uma exceção no registry ainda entre no caminho de gravação de falha e na política existente de retenção do diretório de diagnóstico.
 
-## 验收标准
+## Critérios de aceitação
 
-- 当前 AI SDK 下的历史缺字段最小复现由失败变为成功；
-- compact 仍发送非流式 Responses 请求；
-- 主会话 SSE 行为不变；
-- 其他 provider kind 与协议的请求和响应字节不变；
-- 不产生额外请求或重试；
-- 相关测试、`pnpm typecheck`、`pnpm lint` 通过。
+- a reprodução mínima histórica do campo ausente no AI SDK atual passa de falha para sucesso;
+- o compact continua enviando requisições Responses não-streaming;
+- o comportamento SSE da sessão principal não muda;
+- os bytes de requisição e resposta dos demais provider kinds e protocolos não mudam;
+- não são produzidas requisições ou retries extras;
+- os testes relevantes, `pnpm typecheck` e `pnpm lint` passam.

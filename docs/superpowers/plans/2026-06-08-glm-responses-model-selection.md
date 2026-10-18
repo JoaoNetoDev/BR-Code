@@ -1,23 +1,23 @@
-# GLM Responses Model Selection Implementation Plan
+# Plano de Implementação da Seleção de Modelos GLM Responses
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Show Responses-only model providers in GLM chat model selection and Bot `/model` selection.
+**Objetivo:** Mostrar provedores de modelos apenas-Responses na seleção de modelos do chat GLM e na seleção `/model` do Bot.
 
-**Architecture:** Keep shared format semantics unchanged: `responses` maps to provider kind `openai`, while OpenAI-compatible Chat Completions stays `openai-compatible`. Update only the two selection filters that currently define GLM as `anthropic/openai` so they also accept `responses`.
+**Arquitetura:** Manter inalterada a semântica compartilhada de formatos: `responses` mapeia para o tipo de provider `openai`, enquanto Chat Completions compatível com OpenAI permanece `openai-compatible`. Alterar apenas os dois filtros de seleção que hoje definem GLM como `anthropic/openai`, para que também aceitem `responses`.
 
-**Tech Stack:** TypeScript, React UI model selection helpers, services Bot model selection helpers, Vitest, existing markdown docs.
+**Stack tecnológico:** TypeScript, helpers de seleção de modelos da UI React, helpers de seleção de modelos dos services do Bot, Vitest, docs markdown existentes.
 
 ---
 
-### Task 1: Add Failing UI Selection Tests
+### Tarefa 1: Adicionar testes de seleção da UI que falham
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/test/chatInputToolbarModelGroups.test.ts`
 
-- [ ] **Step 1: Add the failing regression test**
+- [ ] **Step 1: Adicionar o teste de regressão que falha**
 
-Add this test inside `describe("shouldIncludeModelProviderInSelection", ...)`, after the existing "ZCode Agent 下 custom provider 只配置 openai endpoint 时也展示" case:
+Adicione este teste dentro de `describe("shouldIncludeModelProviderInSelection", ...)`, após o caso existente "ZCode Agent 下 custom provider 只配置 openai endpoint 时也展示":
 
 ```ts
   it("ZCode Agent 下 custom provider 只配置 responses endpoint 时也展示", () => {
@@ -41,7 +41,7 @@ Add this test inside `describe("shouldIncludeModelProviderInSelection", ...)`, a
   });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Verificar RED**
 
 Run:
 
@@ -49,16 +49,16 @@ Run:
 pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts -t "responses endpoint"
 ```
 
-Expected: FAIL because GLM required formats and endpoint checks do not include `responses`.
+Expected: FAIL porque os formatos exigidos pelo GLM e as verificações de endpoint não incluem `responses`.
 
-### Task 2: Add Failing Bot Selection Tests
+### Tarefa 2: Adicionar testes de seleção do Bot que falham
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/services/test/botsModelSelectionHelpers.test.ts`
 
-- [ ] **Step 1: Add the failing regression test**
+- [ ] **Step 1: Adicionar o teste de regressão que falha**
 
-Add this test after "GLM /model 入口允许只配置 openai endpoint 的供应商":
+Adicione este teste após "GLM /model 入口允许只配置 openai endpoint 的供应商":
 
 ```ts
   it("GLM /model 入口允许只配置 responses endpoint 的供应商", () => {
@@ -81,7 +81,7 @@ Add this test after "GLM /model 入口允许只配置 openai endpoint 的供应�
   });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Verificar RED**
 
 Run:
 
@@ -89,17 +89,17 @@ Run:
 pnpm vitest run packages/services/test/botsModelSelectionHelpers.test.ts -t "responses endpoint"
 ```
 
-Expected: FAIL because Bot GLM selection does not include `responses`.
+Expected: FAIL porque a seleção GLM do Bot não inclui `responses`.
 
-### Task 3: Update GLM Selection Filters
+### Tarefa 3: Atualizar os filtros de seleção do GLM
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/chat-input-toolbar/modelSelection.ts`
 - Modify: `packages/services/src/bots/modelSelectionHelpers.ts`
 
-- [ ] **Step 1: Update chat model selection**
+- [ ] **Step 1: Atualizar a seleção de modelo do chat**
 
-In `packages/ui/src/chat-input-toolbar/modelSelection.ts`, change the GLM required format return to:
+Em `packages/ui/src/chat-input-toolbar/modelSelection.ts`, altere o retorno de formato exigido do GLM para:
 
 ```ts
     // Bugfix: GLM runtime supports Anthropic-compatible, OpenAI-compatible, and OpenAI Responses upstreams.
@@ -107,15 +107,15 @@ In `packages/ui/src/chat-input-toolbar/modelSelection.ts`, change the GLM requir
     return ["anthropic", "responses", "openai"];
 ```
 
-Also change the GLM provider inclusion endpoint check to:
+Também altere a verificação de endpoint para inclusão de provider do GLM para:
 
 ```ts
     return hasEndpointForSupportedFormats(provider, ["anthropic", "responses", "openai"]);
 ```
 
-- [ ] **Step 2: Update Bot model selection**
+- [ ] **Step 2: Atualizar a seleção de modelo do Bot**
 
-In `packages/services/src/bots/modelSelectionHelpers.ts`, change the GLM required format return to:
+Em `packages/services/src/bots/modelSelectionHelpers.ts`, altere o retorno de formato exigido do GLM para:
 
 ```ts
     // Bugfix: GLM runtime supports Anthropic-compatible, OpenAI-compatible, and OpenAI Responses upstreams.
@@ -123,7 +123,7 @@ In `packages/services/src/bots/modelSelectionHelpers.ts`, change the GLM require
     return ["anthropic", "responses", "openai"];
 ```
 
-Also change the GLM provider inclusion endpoint check to:
+Também altere a verificação de endpoint para inclusão de provider do GLM para:
 
 ```ts
     return hasEndpointForFormat(provider, "anthropic") ||
@@ -131,7 +131,7 @@ Also change the GLM provider inclusion endpoint check to:
       hasEndpointForFormat(provider, "openai");
 ```
 
-- [ ] **Step 3: Verify GREEN**
+- [ ] **Step 3: Verificar GREEN**
 
 Run:
 
@@ -141,20 +141,20 @@ pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts packages/se
 
 Expected: PASS.
 
-### Task 4: Document GLM Responses Selection
+### Tarefa 4: Documentar a Seleção GLM Responses
 
-**Files:**
+**Arquivos:**
 - Modify: `docs/ui/chat-model-select-menu.md`
 
-- [ ] **Step 1: Add compatibility note**
+- [ ] **Step 1: Adicionar nota de compatibilidade**
 
-Add this bullet under "兼容边界":
+Adicione este bullet em "兼容边界":
 
 ```md
 - GLM/ZCode Agent 的自定义 provider 模型菜单按 Agent 当前可发送协议过滤，当前支持 Anthropic-compatible、OpenAI-compatible Chat Completions 和 OpenAI Responses；Bot `/model` 入口使用同一能力边界。
 ```
 
-- [ ] **Step 2: Run required verification**
+- [ ] **Step 2: Executar a verificação obrigatória**
 
 Run:
 
@@ -164,9 +164,9 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: all commands exit 0.
+Expected: todos os comandos saem com 0.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Commitar**
 
 Run:
 
@@ -176,4 +176,4 @@ git add docs/superpowers/specs/2026-06-08-glm-responses-model-selection-design.m
 git commit -m "feat(model-provider): support glm responses selection"
 ```
 
-Expected: commit succeeds.
+Expected: o commit é bem-sucedido.

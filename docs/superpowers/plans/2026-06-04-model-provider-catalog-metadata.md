@@ -1,167 +1,167 @@
-# Model Provider Catalog Metadata Implementation Plan
+# Plano de Implementação de Metadata do Catálogo de Model Providers
 
-> 状态（2026-07-15）：已实施，本文保留为历史实施计划。当前事实以
-> `packages/shared/src/model-provider-types.ts`、`packages/services/src/model-provider/` 和
-> `packages/ui/src/settings/model-provider-section/` 为准；下文复选框不代表当前完成度。
+> Status (2026-07-15): implementado; este documento permanece como plano histórico de implementação. Os fatos atuais estão em
+> `packages/shared/src/model-provider-types.ts`, `packages/services/src/model-provider/` e
+> `packages/ui/src/settings/model-provider-section/`; as caixas de seleção abaixo não representam o progresso atual.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para trabalhadores agentivos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Implement the model provider catalog metadata design from `docs/superpowers/specs/2026-06-03-model-provider-catalog-metadata-design.md`.
+**Objetivo:** Implementar o design de metadata do catálogo de model providers descrito em `docs/superpowers/specs/2026-06-03-model-provider-catalog-metadata-design.md`.
 
-**Architecture:** Add shared catalog/provider v2 schemas and migration helpers first, then make the host service read/write v2 provider data, catalog sources, and display order. UI consumes object models and independent display order, while ZCode Agent registry projection remains the only runtime metadata path.
+**Arquitetura:** Adicionar primeiro os schemas compartilhados de catálogo/provider v2 e os helpers de migração, depois fazer o host service ler/gravar dados de provider v2, fontes de catálogo e ordem de exibição. A UI consome modelos de objeto e uma ordem de exibição independente, enquanto a projeção do registro do ZCode Agent permanece como o único caminho de metadata de runtime.
 
-**Tech Stack:** TypeScript, Zod, Vitest, React, @dnd-kit, Electron desktop dev server.
+**Stack tecnológico:** TypeScript, Zod, Vitest, React, @dnd-kit, servidor dev desktop Electron.
 
 ---
 
-### Task 1: Shared Schema And Projection
+### Tarefa 1: Schema Compartilhado e Projeção
 
-**Files:**
-- Modify: `packages/shared/src/model-provider-types.ts`
-- Modify: `packages/shared/src/zcode-protocol/index.ts`
-- Test: `packages/shared/test/zcodeProtocol.test.ts`
+**Arquivos:**
+- Modificar: `packages/shared/src/model-provider-types.ts`
+- Modificar: `packages/shared/src/zcode-protocol/index.ts`
+- Teste: `packages/shared/test/zcodeProtocol.test.ts`
 
-- [ ] **Step 1: Write failing schema and projection tests**
+- [ ] **Passo 1: Escrever testes de schema e projeção que falham**
 
-Add tests for parsing a `zcode.model-providers.v1` catalog file, parsing a v2 provider store file, migrating a legacy bare provider array to v2, and projecting context window, image modality, max output tokens, kind-aware model id, and reasoning provider options.
+Adicionar testes para fazer o parse de um arquivo de catálogo `zcode.model-providers.v1`, fazer o parse de um arquivo de store de provider v2, migrar um array legado de providers "bare" para v2, e projetar context window, modalidade de imagem, max output tokens, model id consciente de kind e opções de reasoning do provider.
 
-- [ ] **Step 2: Run focused tests and verify failure**
+- [ ] **Passo 2: Executar os testes focados e verificar a falha**
 
-Run: `pnpm vitest run packages/shared/test/zcodeProtocol.test.ts`
-Expected: FAIL because catalog/provider v2 schemas and new projection helpers do not exist yet.
+Executar: `pnpm vitest run packages/shared/test/zcodeProtocol.test.ts`
+Esperado: FAIL porque os schemas de catálogo/provider v2 e os novos helpers de projeção ainda não existem.
 
-- [ ] **Step 3: Implement shared types, schemas, migration helpers, and projection**
+- [ ] **Passo 3: Implementar tipos, schemas, helpers de migração e projeção compartilhados**
 
-Add `ModelProviderKind`, `ModelProviderCatalogFile`, `ModelProviderModelConfig`, `ModelProviderStoreFile`, display order state types, model helper functions, legacy migration, endpoint/kind resolution, reasoning patch application, and v2-aware `convertModelProviderConfigToZCodeProviderInput`.
+Adicionar `ModelProviderKind`, `ModelProviderCatalogFile`, `ModelProviderModelConfig`, `ModelProviderStoreFile`, tipos de estado de ordem de exibição, funções auxiliares de modelo, migração legada, resolução de endpoint/kind, aplicação de patch de reasoning e `convertModelProviderConfigToZCodeProviderInput` consciente de v2.
 
-- [ ] **Step 4: Run focused tests and verify pass**
+- [ ] **Passo 4: Executar os testes focados e verificar a aprovação**
 
-Run: `pnpm vitest run packages/shared/test/zcodeProtocol.test.ts`
-Expected: PASS.
+Executar: `pnpm vitest run packages/shared/test/zcodeProtocol.test.ts`
+Esperado: PASS.
 
-### Task 2: Service Storage, Catalog Sources, And Display Order
+### Tarefa 2: Armazenamento do Service, Fontes de Catálogo e Ordem de Exibição
 
-**Files:**
-- Modify: `packages/services/src/model-provider/modelProvider.ts`
-- Modify: `packages/services/src/model-provider/modelProviderService.ts`
-- Modify: `packages/services/src/model-provider/modelProviderServiceStorage.ts`
-- Create: `packages/services/src/model-provider/modelProviderCatalogSources.ts`
-- Test: `packages/services/test/modelProviderService.test.ts`
+**Arquivos:**
+- Modificar: `packages/services/src/model-provider/modelProvider.ts`
+- Modificar: `packages/services/src/model-provider/modelProviderService.ts`
+- Modificar: `packages/services/src/model-provider/modelProviderServiceStorage.ts`
+- Criar: `packages/services/src/model-provider/modelProviderCatalogSources.ts`
+- Teste: `packages/services/test/modelProviderService.test.ts`
 
-- [ ] **Step 1: Write failing service tests**
+- [ ] **Passo 1: Escrever testes de service que falham**
 
-Add tests for local China catalog loading, models.dev conversion to unified catalog model, legacy provider file backup/writeback to v2, API key/mapping/display names/format migration, and display order save without provider registry changed event.
+Adicionar testes para carregamento do catálogo local da China, conversão de models.dev para o modelo de catálogo unificado, backup/escrita de volta do arquivo legado de provider para v2, migração de API key/mapping/nomes de exibição/formato e salvamento da ordem de exibição sem disparar o evento de mudança do registro de providers.
 
-- [ ] **Step 2: Run focused tests and verify failure**
+- [ ] **Passo 2: Executar os testes focados e verificar a falha**
 
-Run: `pnpm vitest run packages/services/test/modelProviderService.test.ts`
-Expected: FAIL because service APIs and storage migration are missing.
+Executar: `pnpm vitest run packages/services/test/modelProviderService.test.ts`
+Esperado: FAIL porque as APIs do service e a migração de armazenamento estão ausentes.
 
-- [ ] **Step 3: Implement storage and source APIs**
+- [ ] **Passo 3: Implementar as APIs de armazenamento e de fontes**
 
-Make `readProviders` accept v2 store files and legacy bare arrays, write v2 store files, preserve a v1 backup on migration, expose `getCatalogProviders`, `getDisplayOrder`, and `saveDisplayOrder`, and ensure display-order writes do not invalidate provider registry snapshots.
+Fazer `readProviders` aceitar arquivos de store v2 e arrays legados "bare", gravar arquivos de store v2, preservar um backup v1 na migração, expor `getCatalogProviders`, `getDisplayOrder` e `saveDisplayOrder`, e garantir que as escritas de ordem de exibição não invalidem os snapshots do registro de providers.
 
-- [ ] **Step 4: Run focused tests and verify pass**
+- [ ] **Passo 4: Executar os testes focados e verificar a aprovação**
 
-Run: `pnpm vitest run packages/services/test/modelProviderService.test.ts`
-Expected: PASS.
+Executar: `pnpm vitest run packages/services/test/modelProviderService.test.ts`
+Esperado: PASS.
 
-### Task 3: UI Model Editing And Provider Ordering
+### Tarefa 3: Edição de Modelos na UI e Ordenação de Providers
 
-**Files:**
-- Modify: `packages/ui/src/lib/modelProviderOrdering.ts`
-- Modify: `packages/ui/src/hooks/useModelProviders.ts`
-- Modify: `packages/ui/src/settings/model-provider-section/AddProviderCard.tsx`
-- Modify: `packages/ui/src/settings/model-provider-section/InlineEditableProviderCard.tsx`
-- Modify: `packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx`
-- Modify: `packages/ui/src/settings/model-provider-section/ProviderFormControls.tsx`
-- Modify: `packages/ui/src/settings/model-provider-section/Navigation.tsx`
-- Modify: `packages/ui/src/settings/model-provider-section/useModelProviderNavigation.ts`
-- Modify: `packages/ui/src/settings/ModelProviderSection.tsx`
-- Modify: `packages/ui/src/chat-input-toolbar/modelSelection.ts`
-- Modify: `packages/ui/src/ChatInputToolbar.tsx`
-- Test: `packages/ui/test/modelProviderCodingPlan.test.ts`
-- Test: `packages/ui/test/chatInputToolbarModelGroups.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/lib/modelProviderOrdering.ts`
+- Modificar: `packages/ui/src/hooks/useModelProviders.ts`
+- Modificar: `packages/ui/src/settings/model-provider-section/AddProviderCard.tsx`
+- Modificar: `packages/ui/src/settings/model-provider-section/InlineEditableProviderCard.tsx`
+- Modificar: `packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx`
+- Modificar: `packages/ui/src/settings/model-provider-section/ProviderFormControls.tsx`
+- Modificar: `packages/ui/src/settings/model-provider-section/Navigation.tsx`
+- Modificar: `packages/ui/src/settings/model-provider-section/useModelProviderNavigation.ts`
+- Modificar: `packages/ui/src/settings/ModelProviderSection.tsx`
+- Modificar: `packages/ui/src/chat-input-toolbar/modelSelection.ts`
+- Modificar: `packages/ui/src/ChatInputToolbar.tsx`
+- Teste: `packages/ui/test/modelProviderCodingPlan.test.ts`
+- Teste: `packages/ui/test/chatInputToolbarModelGroups.test.ts`
 
-- [ ] **Step 1: Write failing UI pure tests**
+- [ ] **Passo 1: Escrever testes puros de UI que falham**
 
-Add tests for display order sorting, settings navigation order persistence input, chat group order by display order, catalog import writing object models, and model object labels/kinds/modalities used by filtering and display.
+Adicionar testes para ordenação pela ordem de exibição, entrada de persistência da ordem de navegação em Settings, ordenação dos grupos de modelo do chat pela ordem de exibição, importação de catálogo gravando modelos de objeto e labels/kinds/modalidades de modelo de objeto usados por filtragem e exibição.
 
-- [ ] **Step 2: Run focused UI tests and verify failure**
+- [ ] **Passo 2: Executar os testes focados de UI e verificar a falha**
 
-Run: `pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts packages/ui/test/modelProviderCodingPlan.test.ts`
-Expected: FAIL because UI still uses string model lists and no display order.
+Executar: `pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts packages/ui/test/modelProviderCodingPlan.test.ts`
+Esperado: FAIL porque a UI ainda usa listas de modelos em string e não existe ordem de exibição.
 
-- [ ] **Step 3: Implement UI changes**
+- [ ] **Passo 3: Implementar as mudanças de UI**
 
-Add display order hook state to model provider hooks, use `@dnd-kit` sortable handles for provider nav items, save order optimistically with rollback logging, switch model rows to object metadata editing, add catalog source selection, and pass display order into chat model grouping.
+Adicionar estado de hook de ordem de exibição aos hooks de model provider, usar handles de ordenação do `@dnd-kit` nos itens de navegação de providers, salvar a ordem de forma otimista com log de rollback, migrar as rows de modelo para edição de metadata de objeto, adicionar seleção de fonte de catálogo e passar a ordem de exibição para o agrupamento de modelos do chat.
 
-- [ ] **Step 4: Run focused UI tests and verify pass**
+- [ ] **Passo 4: Executar os testes focados de UI e verificar a aprovação**
 
-Run: `pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts packages/ui/test/modelProviderCodingPlan.test.ts`
-Expected: PASS.
+Executar: `pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts packages/ui/test/modelProviderCodingPlan.test.ts`
+Esperado: PASS.
 
-### Task 4: Documentation And Required Verification
+### Tarefa 4: Documentação e Verificação Obrigatória
 
-**Files:**
-- Create or update: `docs/model-provider-catalog-metadata.md`
+**Arquivos:**
+- Criar ou atualizar: `docs/model-provider-catalog-metadata.md`
 
-- [ ] **Step 1: Document implementation boundary**
+- [ ] **Passo 1: Documentar o limite da implementação**
 
-Record local China catalog source, future CDN migration point, v2 store migration behavior, display order file, and manual desktop verification scope.
+Registrar a fonte do catálogo local da China, o ponto futuro de migração para CDN, o comportamento de migração do store v2, o arquivo de ordem de exibição e o escopo da verificação manual no desktop.
 
-- [ ] **Step 2: Run code verification**
+- [ ] **Passo 2: Executar a verificação de código**
 
-Run:
+Executar:
 - `pnpm vitest run packages/shared/test/zcodeProtocol.test.ts packages/services/test/modelProviderService.test.ts packages/ui/test/chatInputToolbarModelGroups.test.ts packages/ui/test/modelProviderCodingPlan.test.ts`
 - `pnpm typecheck`
 - `pnpm lint`
 
-Expected: all commands exit 0.
+Esperado: todos os comandos saem com 0.
 
-### Task 5: Desktop Manual Verification
+### Tarefa 5: Verificação Manual no Desktop
 
-**Files:**
-- Runtime only; no source edits unless bugs are found.
+**Arquivos:**
+- Apenas runtime; nenhuma edição de código-fonte, a não ser que bugs sejam encontrados.
 
-- [ ] **Step 1: Start desktop app**
+- [ ] **Passo 1: Iniciar o app desktop**
 
-Run: `pnpm dev:desktop`.
-Use `computer-use` to interact with the desktop UI.
+Executar: `pnpm dev:desktop`.
+Usar `computer-use` para interagir com a UI do desktop.
 
-- [ ] **Step 2: Settings page provider CRUD**
+- [ ] **Passo 2: CRUD de providers na página de Settings**
 
-Verify:
-- China catalog provider import.
-- models.dev provider import still works.
-- custom provider create/edit/delete.
-- provider name/API key/base URL/default kind save.
-- model id/display name/kinds/default kind/modalities/context/output/reasoning level toggles save.
-- provider drag reorder persists after restart.
-- display order affects settings nav and chat model group order.
+Verificar:
+- Importação de provider do catálogo da China.
+- A importação de provider do models.dev continua funcionando.
+- Criação/edição/exclusão de provider custom.
+- Salvamento de nome do provider/API key/base URL/kind padrão.
+- Salvamento de model id/nome de exibição/kinds/kind padrão/modalidades/context/output/toggles de nível de reasoning.
+- A reordenação de providers por drag persiste após reiniciar.
+- A ordem de exibição afeta a navegação de Settings e a ordem dos grupos de modelo do chat.
 
-- [ ] **Step 3: Chat runtime verification**
+- [ ] **Passo 3: Verificação de runtime no chat**
 
-Verify:
-- Chat model selector reads latest provider metadata.
-- Switching provider/model updates the next sent message.
-- Switching thought/reasoning level updates the next sent message.
-- Logs show selected provider, model, and reasoning/provider options are effective for each sent message.
+Verificar:
+- O seletor de modelo do chat lê a metadata mais recente do provider.
+- Trocar provider/modelo atualiza a próxima mensagem enviada.
+- Trocar o nível de thought/reasoning atualiza a próxima mensagem enviada.
+- Os logs mostram que o provider selecionado, o modelo e as opções de reasoning/provider estão efetivos para cada mensagem enviada.
 
-- [ ] **Step 4: Loop on failures**
+- [ ] **Passo 4: Iterar sobre as falhas**
 
-For any failure, use systematic debugging: collect logs/CDP evidence, identify root cause, add or update an automated regression test where practical, fix, restart, and repeat manual verification.
+Para qualquer falha, usar depuração sistemática: coletar logs/evidências de CDP, identificar a causa raiz, adicionar ou atualizar um teste de regressão automatizado quando prático, corrigir, reiniciar e repetir a verificação manual.
 
-### Task 6: Commit
+### Tarefa 6: Commit
 
-**Files:**
-- All changed implementation, tests, docs, catalog files.
+**Arquivos:**
+- Toda a implementação, testes, docs e arquivos de catálogo alterados.
 
-- [ ] **Step 1: Inspect diff and status**
+- [ ] **Passo 1: Inspecionar diff e status**
 
-Run: `git status --short` and `git diff --stat`.
+Executar: `git status --short` e `git diff --stat`.
 
-- [ ] **Step 2: Commit with Conventional Commit**
+- [ ] **Passo 2: Commitar com Conventional Commit**
 
-Run: `git add ... && git commit -m "feat: add provider catalog metadata"`.
-Expected: commit succeeds.
+Executar: `git add ... && git commit -m "feat: add provider catalog metadata"`.
+Esperado: o commit tem sucesso.

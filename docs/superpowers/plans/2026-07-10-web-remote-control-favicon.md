@@ -1,39 +1,39 @@
-# Web Remote Control Favicon Implementation Plan
+# Plano de implementação do Favicon do Web Remote Control
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 在手机和桌面浏览器的 Web Remote Control 标签页显示与桌面 App 一致的 ZCode 图标。
+**Objetivo:** Exibir, na aba do Web Remote Control em navegadores de celular e desktop, o ícone ZCode consistente com o App desktop.
 
-**Architecture:** 将桌面端现有多尺寸 ICO 原样复制到 Web 的 Vite `public` 目录，保留传统 `/favicon.ico` 兼容路径；同时在 HTML 入口内嵌现有 App 32x32 PNG data URL favicon，让浏览器在解析入口 HTML 时即可拿到标签图标。回归测试同时约束 HTML metadata、PNG data URL 来源和两端图标二进制一致性，构建验证覆盖非根部署前缀下的 data URL 稳定性。
+**Arquitetura:** Copiar o ICO multi-resolução existente do desktop tal e qual para o diretório `public` do Vite do Web, preservando o caminho de compatibilidade tradicional `/favicon.ico`; ao mesmo tempo, embutir no HTML de entrada o favicon PNG data URL de 32x32 do App já existente, para que o navegador obtenha o ícone da aba já ao parsear o HTML de entrada. Os testes de regressão restringem simultaneamente o metadata do HTML, a origem do PNG data URL e a consistência binária dos ícones dos dois lados, e a verificação de build cobre a estabilidade do data URL sob prefixos de deploy não-root.
 
-**Tech Stack:** Vite 8、HTML、Vitest 4、Node.js 24
+**Stack tecnológico:** Vite 8, HTML, Vitest 4, Node.js 24
 
-## Global Constraints
+## Restrições globais
 
-- 直接复用 `packages/desktop/build/icon.ico`，不重新设计品牌资产。
-- 不增加 PWA manifest、Apple Touch Icon 或 Android 主屏幕图标。
-- 不修改页面标题、启动页、主题或其他 UI。
-- 不改变桌面端 continuous 链路、手机端 replayable 链路或任何远控业务状态。
-- 使用普通文件而不是符号链接，保持 Windows、macOS 和 Linux 兼容。
-- Web Remote Control 必须兼容 `/remote/`、`/remote/v3/` 和 `/remote/__test__/` 部署前缀。
+- Reutilizar diretamente `packages/desktop/build/icon.ico`, sem redesenhar o asset de marca.
+- Não adicionar PWA manifest, Apple Touch Icon nem ícone de tela inicial do Android.
+- Não modificar o título da página, a tela de inicialização, o tema ou qualquer outra UI.
+- Não alterar o fluxo continuous do desktop, o fluxo replayable do celular nem nenhum estado de negócio do controle remoto.
+- Usar arquivos comuns em vez de links simbólicos, mantendo compatibilidade com Windows, macOS e Linux.
+- O Web Remote Control deve ser compatível com os prefixos de deploy `/remote/`, `/remote/v3/` e `/remote/__test__/`.
 
 ---
 
-### Task 1: 添加并验证 Web favicon
+### Tarefa 1: adicionar e verificar o favicon do Web
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/web/test/webRemoteControlBootstrapShell.test.ts`
 - Create: `packages/web/public/favicon.ico`
 - Modify: `packages/web/index.html`
 - Modify: `docs/superpowers/specs/2026-07-10-web-remote-control-favicon-design.md`
 
 **Interfaces:**
-- Consumes: `public/logo/icons/32x32.png` 小尺寸 App 图标和 `packages/desktop/build/icon.ico` 品牌资产。
-- Produces: base 无关的 `<link rel="icon" type="image/png" href="data:image/png;base64,..." sizes="32x32">` metadata，以及构建后进入 `dist` 的传统 `favicon.ico` 静态文件。
+- Consumes: o ícone do App em tamanho pequeno `public/logo/icons/32x32.png` e o asset de marca `packages/desktop/build/icon.ico`.
+- Produces: metadata `<link rel="icon" type="image/png" href="data:image/png;base64,..." sizes="32x32">` independente do base, além do arquivo estático `favicon.ico` tradicional que entra no `dist` após o build.
 
-- [x] **Step 1: 写出失败的回归测试**
+- [x] **Passo 1: escrever o teste de regressão que falha**
 
-在 `packages/web/test/webRemoteControlBootstrapShell.test.ts` 中增加二进制读取 helper 和测试：
+Adicionar em `packages/web/test/webRemoteControlBootstrapShell.test.ts` um helper de leitura binária e o teste:
 
 ```ts
 function readWorkspaceFile(path: string): Buffer {
@@ -62,60 +62,60 @@ it("内嵌与桌面 App 同源的浏览器标签图标", () => {
 });
 ```
 
-- [x] **Step 2: 运行测试并确认按预期失败**
+- [x] **Passo 2: rodar o teste e confirmar que ele falha como esperado**
 
 Run: `pnpm exec vitest run packages/web/test/webRemoteControlBootstrapShell.test.ts`
 
-Expected: FAIL；失败原因是 HTML 尚未内嵌 App 32x32 PNG data URL favicon。
+Expected: FAIL; a falha ocorre porque o HTML ainda não embutiu o favicon PNG data URL de 32x32 do App.
 
-- [x] **Step 3: 添加最小实现**
+- [x] **Passo 3: adicionar a implementação mínima**
 
-在 `packages/web/index.html` 的 viewport metadata 后增加基于 `public/logo/icons/32x32.png` 生成的 data URL favicon：
+Adicionar em `packages/web/index.html`, após o metadata de viewport, um favicon em data URL gerado a partir de `public/logo/icons/32x32.png`:
 
 ```html
 <link rel="icon" type="image/png" href="data:image/png;base64,..." sizes="32x32" />
 ```
 
-继续将 `packages/desktop/build/icon.ico` 原样复制为 `packages/web/public/favicon.ico`，保留传统 favicon 路径兼容。使用文件复制命令不会改写二进制内容：
+Continuar copiando `packages/desktop/build/icon.ico` tal e qual para `packages/web/public/favicon.ico`, preservando a compatibilidade do caminho tradicional de favicon. O uso de um comando de cópia de arquivo não reescreve o conteúdo binário:
 
 ```bash
 cp packages/desktop/build/icon.ico packages/web/public/favicon.ico
 ```
 
-- [x] **Step 4: 运行定向测试并确认通过**
+- [x] **Passo 4: rodar o teste direcionado e confirmar que passa**
 
 Run: `pnpm exec vitest run packages/web/test/webRemoteControlBootstrapShell.test.ts`
 
-Expected: PASS，2 tests passed。
+Expected: PASS, 2 tests passed。
 
-- [x] **Step 5: 验证非根部署路径构建结果**
+- [x] **Passo 5: verificar o resultado do build em caminho de deploy não-root**
 
 Run: `pnpm run build:web-remote-control:test`
 
-Expected: exit 0；`packages/web/dist/index.html` 保留 `data:image/png;base64,` favicon，且存在 `packages/web/dist/favicon.ico`。随后运行：
+Expected: exit 0; `packages/web/dist/index.html` mantém o favicon `data:image/png;base64,` e `packages/web/dist/favicon.ico` existe. Em seguida rodar:
 
 ```bash
 rg -n 'rel="icon" type="image/png" href="data:image/png;base64,' packages/web/dist/index.html
 cmp packages/web/dist/favicon.ico packages/desktop/build/icon.ico
 ```
 
-Expected: `rg` 输出匹配行，`cmp` exit 0。
+Expected: `rg` imprime a linha correspondente, `cmp` exit 0.
 
-- [x] **Step 6: 执行仓库强制验证**
+- [x] **Passo 6: executar a verificação obrigatória do repositório**
 
 Run: `pnpm typecheck`
 
-Expected: exit 0，无 TypeScript 错误。
+Expected: exit 0, sem erros de TypeScript.
 
 Run: `pnpm lint`
 
-Expected: exit 0，无 lint 错误。
+Expected: exit 0, sem erros de lint.
 
-- [x] **Step 7: 检查改动并提交**
+- [x] **Passo 7: revisar as alterações e commitar**
 
 Run: `git diff --check && git status --short`
 
-Expected: `git diff --check` exit 0；状态只包含 favicon 实现、测试、spec 修正和本计划。
+Expected: `git diff --check` exit 0; o status contém apenas a implementação do favicon, os testes, a correção do spec e este plano.
 
 ```bash
 git add packages/web/index.html packages/web/public/favicon.ico packages/web/test/webRemoteControlBootstrapShell.test.ts docs/superpowers/specs/2026-07-10-web-remote-control-favicon-design.md docs/superpowers/plans/2026-07-10-web-remote-control-favicon.md

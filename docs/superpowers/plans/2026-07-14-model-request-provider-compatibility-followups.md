@@ -1,89 +1,108 @@
-# 模型请求 provider 兼容后续 Action
+# Actions de follow-up de compatibilidade de provider para requisições de modelo
 
-> 状态：差异已审计，未纳入本轮输出 token 最小修复。本文不修改 Compact、`extra_body`
-> 展开优先级、空回复状态或 UI。
+> Estado: as diferenças foram auditadas e não entram nesta rodada de correção mínima de
+> token de saída. Este documento não modifica Compact, a prioridade de expansão de
+> `extra_body`, o estado de resposta vazia nem a UI.
 
-## 当前协议职责
+## Responsabilidades atuais do protocolo
 
-| 请求协议               | 当前实现                     | 字段序列化责任                                                  |
+| Protocolo de requisição | Implementação atual | Responsabilidade pela serialização de campos |
 | ---------------------- | ---------------------------- | --------------------------------------------------------------- |
-| OpenAI Compatible Chat | 已接入                       | AI SDK 将 `maxOutputTokens` 映射为 `max_tokens`                 |
-| OpenAI Responses       | 已接入                       | AI SDK 将 `maxOutputTokens` 映射为 `max_output_tokens`          |
-| Anthropic Messages     | 已接入                       | AI SDK 映射 `max_tokens`，并把 fixed thinking budget 加入最终值 |
-| Gemini                 | 未接入对应 SDK/provider kind | 不能视为已由现有 AI SDK 路径支持                                |
-| Bedrock                | 未接入对应 SDK/provider kind | 不能视为已由现有 AI SDK 路径支持                                |
+| OpenAI Compatible Chat | já integrado | o AI SDK mapeia `maxOutputTokens` para `max_tokens` |
+| OpenAI Responses       | já integrado | o AI SDK mapeia `maxOutputTokens` para `max_output_tokens` |
+| Anthropic Messages     | já integrado | o AI SDK mapeia `max_tokens` e soma o fixed thinking budget ao valor final |
+| Gemini                 | SDK/provider kind correspondente não integrado | não pode ser considerado suportado pelo caminho atual do AI SDK |
+| Bedrock                | SDK/provider kind correspondente não integrado | não pode ser considerado suportado pelo caminho atual do AI SDK |
 
-ZCode 负责模型能力预算、provider 条件省略和最终 JSON body 的 provider-specific 改名；
-AI SDK 只负责已接入协议的标准字段序列化，不负责 ZCode 的 provider/model 策略。
+O ZCode responde pelo orçamento de capacidades do modelo, pela omissão condicional por
+provider e pela renomeação de campos provider-specific no JSON body final; o AI SDK
+responde apenas pela serialização dos campos padrão dos protocolos já integrados, não
+pela política de provider/model do ZCode.
 
-## Action 1：统一 providerOptions 深合并边界
+## Action 1: unificar a fronteira de deep merge de providerOptions
 
-当前存在四个不同的合并行为：
+Existem hoje quatro comportamentos de merge diferentes:
 
-1. workspace provider options 与 model options 使用顶层浅合并；model 同名 namespace 会整体覆盖 provider namespace。
-2. model target options 与 thought-level options 使用递归深合并。
-3. 同一 provider 的多个 registry target 如果 `providerOptions` 不完全相等会报配置冲突。
-4. adapter runner 将 resolved provider options 与 request provider options 顶层浅合并；之后仅对
-   OpenAI Compatible 的 SDK namespace 做局部递归合并。
+1. As provider options do workspace e as model options usam merge raso de nível superior;
+   a namespace de mesmo nome do model sobrescreve por completo a namespace do provider.
+2. As model target options e as thought-level options usam merge profundo recursivo.
+3. Vários registry targets do mesmo provider acusam conflito de configuração se as
+   `providerOptions` não forem exatamente iguais.
+4. O adapter runner faz merge raso de nível superior entre as provider options resolvidas
+   e as request provider options; depois disso, só faz merge recursivo parcial na
+   namespace de SDK do OpenAI Compatible.
 
-受影响字段包括：
+Os campos afetados incluem:
 
-- `anthropic.thinking`、`anthropic.effort`、cache/beta 类 options；
-- `openai.reasoningEffort`、`reasoningSummary`、`store`、cache key；
-- `openaiCompatible.extra_body`、`thinking`、`chat_template_kwargs`；
-- gateway routing/caching namespace；
-- 后续 Gemini、Bedrock provider namespace。
+- `anthropic.thinking`, `anthropic.effort`, options de cache/beta;
+- `openai.reasoningEffort`, `reasoningSummary`, `store`, cache key;
+- `openaiCompatible.extra_body`, `thinking`, `chat_template_kwargs`;
+- namespace de gateway routing/caching;
+- as futuras namespaces de provider Gemini e Bedrock.
 
-典型差异是 base 中 `{ anthropic: { custom: true, thinking: {...} } }` 与请求覆盖
-`{ anthropic: { effort: "high" } }` 合并后，当前 runner 会丢失 `custom` 和 `thinking`。
+A diferença típica é: no base, `{ anthropic: { custom: true, thinking: {...} } }` e a
+sobrescrita da requisição `{ anthropic: { effort: "high" } }`; após o merge, o runner atual
+perde `custom` e `thinking`.
 
-后续实现应先明确唯一优先级，再将共享递归合并函数用于 provider→model→runtime request；
-数组和标量仍由后者整体覆盖。`extra_body` 只参与普通对象合并，不改变其现有展开和同名字段优先级。
+A implementação futura deve primeiro definir uma prioridade única e depois aplicar a
+função de merge recursivo compartilhada a provider→model→runtime request; arrays e
+escalares continuam sendo sobrescritos por completo pelo último. `extra_body` participa
+apenas da mesclagem de objetos comuns, sem alterar sua expansão atual nem a prioridade de
+campos de mesmo nome.
 
-## Action 2：补齐 provider/model 默认请求参数矩阵
+## Action 2: completar a matriz de parâmetros de requisição padrão de provider/model
 
-当前主轮次默认只显式设置模型输出预算和 reasoning providerOptions；`temperature`、`topP`、
-`topK`、penalty、stop、seed 虽然存在于通用请求合同，但主轮次未设置时会交给 SDK/provider 默认值。
+Hoje o turno principal define explicitamente apenas o orçamento de saída do modelo e as
+providerOptions de reasoning; `temperature`, `topP`, `topK`, penalty, stop e seed existem
+no contrato geral de requisição, mas, quando não definidos no turno principal, ficam por
+conta dos padrões do SDK/provider.
 
-需要逐项评估而不是一次性全开：
+É preciso avaliar item a item em vez de ligar tudo de uma vez:
 
-- Responses/OpenAI-compatible 的 `store`、reasoning summary、encrypted reasoning continuation；
-- session/prompt cache key；
-- OpenRouter/Gateway usage 与 caching options；
-- Gemini、Anthropic-compatible、Alibaba 等 reasoning/thinking 默认值；
-- Qwen、Gemini、MiniMax、Kimi 等模型的 temperature/topP/topK 默认值；
-- provider-required headers 与 tool streaming 开关。
+- `store`, reasoning summary e encrypted reasoning continuation em
+  Responses/OpenAI-compatible;
+- session/prompt cache key;
+- options de usage e caching em OpenRouter/Gateway;
+- padrões de reasoning/thinking em Gemini, Anthropic-compatible, Alibaba etc.;
+- padrões de temperature/topP/topK em modelos Qwen, Gemini, MiniMax, Kimi etc.;
+- headers obrigatórios do provider e interruptores de tool streaming.
 
-每条默认值必须以 provider/model capability 为条件，并使用最终 request body 测试证明；未知 provider
-保持不注入，避免把一个 provider 的扩展参数发送到所有兼容端点。
+Cada valor padrão deve ser condicionado à capability de provider/model e comprovado por
+teste sobre o request body final; providers desconhecidos permanecem sem injeção, evitando
+enviar a extensão de um provider para todos os endpoints compatíveis.
 
-## Action 3：扩展 message/tool 兼容矩阵
+## Action 3: ampliar a matriz de compatibilidade de message/tool
 
-当前已有：media capability projection、空媒体替换、Anthropic cache control、DeepSeek reasoning
-回放、Anthropic thinking metadata、Responses stateless reasoning item 清理、Anthropic tool eager input
-关闭和结构化 tool result 投影。
+Já existem hoje: projeção de capability de mídia, substituição de mídia vazia, Anthropic
+cache control, replay de reasoning DeepSeek, metadata de thinking Anthropic, limpeza de
+reasoning item stateless em Responses, desativação de tool eager input no Anthropic e
+projeção de structured tool result.
 
-尚未统一覆盖：
+Ainda não cobertos de forma unificada:
 
-- 非法 Unicode surrogate 清理；
-- Anthropic/Bedrock 空消息和空 content part 过滤；
-- Claude、Mistral 的 tool call id 字符集/长度要求；
-- Mistral tool→user 消息序列修正；
-- OpenAI、Moonshot、Gemini tool JSON Schema 降级；
-- providerOptions namespace 在 message/content part 上的重映射；
-- provider-specific no-op tool 与 tool-call repair。
+- limpeza de surrogate Unicode inválido;
+- filtragem de mensagens vazias e content parts vazios em Anthropic/Bedrock;
+- requisitos de conjunto de caracteres/comprimento de tool call id em Claude e Mistral;
+- correção da sequência de mensagens tool→user no Mistral;
+- degradação de tool JSON Schema em OpenAI, Moonshot e Gemini;
+- remapeamento da namespace de providerOptions em message/content part;
+- tool no-op provider-specific e tool-call repair.
 
-后续应按真实 provider failure 逐项加入，不建立未知 provider 的自动猜测或失败重试。每项至少包含
-纯 transform 测试和一个最终 provider-visible request body 测试。
+Isso deve ser adicionado item a item conforme as falhas reais de cada provider, sem criar
+adivinhação automática nem retry de falha para providers desconhecidos. Cada item deve
+conter pelo menos um teste de transform puro e um teste do request body final visível ao
+provider.
 
-## Action 4：新增一等 provider 协议
+## Action 4: adicionar providers de protocolo de primeira classe
 
-Gemini、Bedrock、Azure、Vertex 等不能仅靠当前 OpenAI Compatible 路径声明为完整支持。接入时需要同时提供：
+Gemini, Bedrock, Azure, Vertex etc. não podem ser declarados como plenamente suportados
+apenas pelo caminho OpenAI Compatible atual. A integração precisa fornecer simultaneamente:
 
-- provider factory、鉴权和 endpoint 选择；
-- providerOptions namespace 投影；
-- reasoning/default options；
-- message/tool schema compatibility；
-- 最终请求体与流式响应测试。
+- provider factory, autenticação e escolha de endpoint;
+- projeção da namespace de providerOptions;
+- opções de reasoning/padrão;
+- compatibilidade de schema de message/tool;
+- testes do request body final e da resposta em streaming.
 
-优先级应按真实用户 provider 需求确定，不因 catalog 中存在模型记录就自动视为 runtime 已支持。
+A prioridade deve ser definida pela demanda real dos usuários por provider, e não pelo
+fato de existir um registro de modelo no catálogo.

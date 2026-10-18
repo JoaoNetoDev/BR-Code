@@ -1,50 +1,50 @@
-# Coding Plan 限时配额活动提示
+# Aviso de promoção de cota por tempo limitado do Coding Plan
 
-日期：2026-06-12
+Data: 2026-06-12
 
-## 背景
+## Contexto
 
-`GET https://zcode.z.ai/api/v1/client/configs?app_version=<ZCODE_VERSION>&platform=<platform>-<arch>` 可能返回 `data.configs.codingPlanBillingDiscount`。该字段用于控制 Coding Plan 的限时配额活动提示。
+`GET https://zcode.z.ai/api/v1/client/configs?app_version=<ZCODE_VERSION>&platform=<platform>-<arch>` pode retornar `data.configs.codingPlanBillingDiscount`. Esse campo controla o aviso de promoção de cota por tempo limitado do Coding Plan.
 
-## 语义
+## Semântica
 
-- `codingPlanBillingDiscount` 字段不存在：前端不暴露任何活动 UI，不展示徽标或 banner。
-- `codingPlanBillingDiscount` 字段存在：前端按当前 locale 读取字段内下发的文案展示活动提示。
-- 当前字段不再作为纯活动开关使用；没有当前 locale 文案时不展示对应活动 UI。
-- 新字段格式为 `{"zh-CN": {"cardTitle": "...", "cardBody": "...", "badgeBody": "..."}, "en-US": {...}}`；前端不硬编码兜底文案。
-- 文案表达配额活动，不表达价格折扣，避免用户误解为支付金额折扣。
+- campo `codingPlanBillingDiscount` ausente: o front-end não expõe nenhuma UI de promoção, nem mostra badge ou banner.
+- campo `codingPlanBillingDiscount` presente: o front-end lê, conforme o locale atual, os textos enviados dentro do campo e exibe o aviso da promoção.
+- o campo não é mais usado apenas como um interruptor de promoção; sem texto para o locale atual, a UI da promoção correspondente não é exibida.
+- o novo formato do campo é `{"zh-CN": {"cardTitle": "...", "cardBody": "...", "badgeBody": "..."}, "en-US": {...}}`; o front-end não codifica textos de fallback.
+- os textos falam de promoção de cota, não de desconto de preço, para evitar que o usuário entenda como desconto no valor do pagamento.
 
-## 展示位置
+## Pontos de exibição
 
-- Context usage remaining 的标题显示“剩余额度”，标题旁复用同一短徽标。
-- Context usage remaining 的短徽标使用 compact 尺寸和 badge 级 `text-ui-xs` 字号，保留默认渐变样式，避免在紧凑弹层标题里过大。
-- Model Settings 的个人套餐和团队套餐 status card 标题旁展示短徽标；Start Plan status card 标题旁不展示短徽标。
-- Coding Plan 套餐列表顶部展示活动 banner，banner 图标使用 `astroid`，标题字号使用 `text-base`。
-- Coding Plan 套餐列表顶部活动 banner 最右侧通过 `CodingPlanBillingDiscountBadge` 展示短徽标和 `info` 图标，组件结构为 `<>徽标 div + info</>`；`info` 是普通图标触发器，不使用 Button 包装；点击 `info` 后复用现有 Dialog 展示 GLM-5.2 150% 额度权益折算规则说明；说明文案必须走 i18n，不能直接硬编码在组件中。
-- banner 右侧短徽标在渐变 banner 内使用 `surface` 样式，即 `bg-white text-[#191A1D]`，避免默认渐变徽标和 banner 背景融合后不可见。
-- `CodingPlanBillingDiscountBadge` 默认渲染 `<>徽标 div + info</>`，不再通过开关控制；嵌在按钮内部的场景使用纯徽标 `CodingPlanBillingDiscountBadgePill`，避免 Dialog 触发按钮嵌套在外层 Button 中。
-- 说明 Dialog 正文使用现有 Markdown 渲染组件展示，文字使用 `text-foreground` 主文字色；标题用 markdown 二级标题 `##` 表达，折算规则用 markdown 列表表达，规则项文案保持活动原文。
-- Start Plan 升级按钮内展示短徽标，活动态升级按钮右侧展示同一个 `info` 图标触发器，点击后复用说明 Dialog；聊天 context 面板内的 Start Plan 升级按钮、聊天区 Start Plan quota banner 的升级按钮也遵循同一规则。
-- Start Plan 已有权益时，plan card 的升级按钮使用 `button-gradient dark:bg-[#484A58]` 背景。
-- Start Plan 升级按钮内的短徽标使用 `bg-white text-[#191A1D] rounded-full`，不再使用徽标默认渐变背景。
-- Start Plan 升级按钮内的短徽标不展示 `trending-up` 图标，只展示 `150% 配额` 文案。
-- 聊天区 quota banner 的徽标嵌入升级按钮时使用 `pr-px`，让白色徽标贴近按钮右侧，仅保留 1px 的活动背景边界；Model Settings 保留自身卡片按钮间距。
-- 聊天区 quota banner 的活动升级按钮不使用固定高度，由徽标和按钮内容自然撑开，避免活动文案与固定 `h-6` 产生拥挤或裁切。
-- 所有活动短徽标统一使用 badge 级 `text-ui-xs` 字号并保持单行不换行；compact 只缩小间距和图标，不改变字号层级。
-- Model Settings 的 provider 导航入口和 family header 不展示短徽标；只有 Coding Plan 权益/套餐语义明确的位置展示。
-- Sidebar usage remaining 的 Coding Plan 标题旁不展示短徽标，避免用量菜单标题过载；输入框 context usage 弹层仍展示。
-- Start Plan plan card/status card 标题旁不展示短徽标，即使已有 Start Plan 权益；Start Plan 活动提示只放在升级按钮和套餐列表中。
+- O título de Context usage remaining exibe “剩余额度”; ao lado do título é reutilizado o mesmo badge curto.
+- O badge curto de Context usage remaining usa dimensionamento compact e o tamanho de fonte de badge `text-ui-xs`, mantendo o gradiente padrão, para não ficar grande demais no título de um popover compacto.
+- Ao lado do título do status card de plano pessoal e de plano de equipe em Model Settings exibe-se o badge curto; no status card do Start Plan o badge curto não é exibido.
+- No topo da lista de planos do Coding Plan exibe-se um banner de promoção; o ícone do banner usa `astroid` e o tamanho de fonte do título usa `text-base`.
+- No topo da lista de planos do Coding Plan, o banner de promoção exibe, na extremidade mais à direita, o badge curto e o ícone `info` por meio de `CodingPlanBillingDiscountBadge`, cuja estrutura é `<>徽标 div + info</>`; `info` é um gatilho de ícone comum, sem wrapper Button; ao clicar em `info` reutiliza-se o Dialog existente para exibir a explicação das regras de conversão da cota GLM-5.2 de 150%; o texto da explicação precisa passar por i18n e não pode ficar codificado diretamente no componente.
+- O badge curto à direita do banner, dentro do banner com gradiente, usa o estilo `surface`, isto é `bg-white text-[#191A1D]`, para evitar que o gradiente padrão do badge se funda com o fundo do banner e fique invisível.
+- `CodingPlanBillingDiscountBadge` renderiza por padrão `<>徽标 div + info</>`, sem controle por flag; em cenários aninhados dentro de botões usa-se o badge puro `CodingPlanBillingDiscountBadgePill`, evitando aninhar o gatilho do Dialog dentro de um Button externo.
+- O corpo do Dialog de explicação usa o componente de renderização Markdown existente, com texto na cor principal `text-foreground`; o título é expresso pelo heading markdown de segundo nível `##`, as regras de conversão por listas markdown e os textos das regras mantêm o original da promoção.
+- O botão de upgrade do Start Plan exibe o badge curto em seu interior; no estado de promoção, o botão de upgrade exibe o mesmo gatilho de ícone `info` à direita e, ao clicar, reutiliza o Dialog de explicação; o botão de upgrade do Start Plan no painel de contexto do chat e o botão de upgrade do quota banner do Start Plan na área de chat seguem a mesma regra.
+- Quando o Start Plan já possui benefícios, o botão de upgrade do plan card usa o fundo `button-gradient dark:bg-[#484A58]`.
+- O badge curto dentro do botão de upgrade do Start Plan usa `bg-white text-[#191A1D] rounded-full`, sem usar mais o fundo gradiente padrão do badge.
+- O badge curto dentro do botão de upgrade do Start Plan não exibe o ícone `trending-up`, apenas o texto `150% 配额`.
+- Quando o badge do quota banner da área de chat é embutido no botão de upgrade, usa-se `pr-px`, deixando o badge branco colado ao lado direito do botão e mantendo apenas 1px de borda com o fundo da promoção; Model Settings mantém o espaçamento próprio de seus botões de card.
+- O botão de upgrade da promoção no quota banner da área de chat não usa altura fixa, sendo definido naturalmente pelo badge e pelo conteúdo do botão, evitando que o texto da promoção fique apertado ou cortado em relação ao `h-6` fixo.
+- Todos os badges curtos de promoção usam uniformemente o tamanho de fonte de badge `text-ui-xs` e permanecem em uma única linha sem quebra; compact apenas reduz espaçamento e ícone, sem alterar o nível de tamanho da fonte.
+- A entrada de navegação de provider e o family header em Model Settings não exibem o badge curto; ele só é exibido onde a semântica de benefício/plano do Coding Plan é clara.
+- Ao lado do título do Coding Plan em Sidebar usage remaining não se exibe o badge curto, para não sobrecarregar o título do menu de uso; o popover de context usage na caixa de entrada continua exibindo.
+- Ao lado do título do plan card/status card do Start Plan não se exibe o badge curto, mesmo que já existam benefícios do Start Plan; o aviso de promoção do Start Plan aparece apenas no botão de upgrade e na lista de planos.
 
-## 调用与缓存
+## Chamadas e cache
 
-- 服务层通过现有 `BigModelCodingPlanSubscriptionProvider.getClientConfigs()` 读取该字段。
-- 该读取必须复用现有 `clientConfigSnapshot` / `clientConfigRequest`，避免 sidebar、context usage、设置页同屏重复请求。
-- `clientConfigSnapshot` 和 UI 活动状态缓存 TTL 均为 1 小时；TTL 过期后下一次读取会重新请求 `/api/v1/client/configs`。
-- UI 挂载后懒加载活动状态，不阻塞原有 usage remaining、Start Plan 和套餐列表渲染。
+- A camada de serviço lê esse campo pelo `BigModelCodingPlanSubscriptionProvider.getClientConfigs()` já existente.
+- Essa leitura precisa reutilizar o `clientConfigSnapshot` / `clientConfigRequest` existentes, evitando requisições duplicadas na mesma tela entre sidebar, context usage e página de configurações.
+- O TTL de `clientConfigSnapshot` e do cache de estado de promoção na UI é de 1 hora; após o TTL expirar, a próxima leitura refaz a requisição a `/api/v1/client/configs`.
+- O estado da promoção é carregado de forma lazy após a montagem da UI, sem bloquear a renderização já existente de usage remaining, Start Plan e da lista de planos.
 
-## 国际化与服务端文案
+## Internacionalização e textos do servidor
 
-- 使用 `codingPlanBillingDiscount[locale].badgeBody` 展示短徽标文案，中文示例：`150% 配额`，英文示例：`150% Quota`。
-- 使用 `codingPlanBillingDiscount[locale].cardTitle` 和 `cardBody` 展示套餐列表顶部 banner。
-- banner 右侧说明 Dialog 使用本地 i18n 文案，弹窗宽度使用 `max-w-lg`，文案区域用 `div.p-3.!space-y-3` 包裹；标题为“权益规则说明：”；正文说明用户在 ZCode 中通过 Coding Plan 使用 GLM-5.2 模型时，额度消耗全周期按 0.67 系数折算；同样的模型调用量，在额度扣减侧仅按 67% 计算，等效来看，用户在活动周期内的可用额度约为原来的 1.5 倍；高峰期每日 14:00～18:00 由原先的 3x 调整为 2x 系数，非高峰期由原先的 1x 调整为 0.67x 系数；额度权益截止时间以官方公告为准。说明 Dialog 不展示额外寒暄或感谢文案。
-- 服务端未下发当前 locale 或某个必需文案为空时，不展示对应活动 UI。
+- Usar `codingPlanBillingDiscount[locale].badgeBody` para exibir o texto do badge curto; exemplo em chinês: `150% 配额`, exemplo em inglês: `150% Quota`.
+- Usar `codingPlanBillingDiscount[locale].cardTitle` e `cardBody` para exibir o banner no topo da lista de planos.
+- O Dialog de explicação à direita do banner usa texto i18n local; a largura do popup usa `max-w-lg` e a área de texto é envolvida por `div.p-3.!space-y-3`; o título é “权益规则说明：”; o corpo explica que, ao usar o modelo GLM-5.2 no ZCode pelo Coding Plan, o consumo da cota é convertido por um fator de 0,67 em todo o ciclo; para o mesmo volume de chamadas de modelo, a dedução da conta apenas 67%, o que equivale a cerca de 1,5 vez a cota disponível no período da promoção; no horário de pico, das 14:00 às 18:00, o fator passa de 3x para 2x, e fora do horário de pico passa de 1x para 0,67x; o prazo dos benefícios de cota segue o anúncio oficial. O Dialog de explicação não exibe textos extras de cortesia ou agradecimento.
+- Quando o servidor não envia o locale atual ou algum texto obrigatório está vazio, a UI da promoção correspondente não é exibida.

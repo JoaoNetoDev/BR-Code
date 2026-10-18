@@ -1,16 +1,15 @@
-# Todo 67：正式 Model 创建前的 Selection 完整性收口
+# Todo 67: fechamento da completude da Selection antes da criação formal do Model
 
-> 状态：Completed
+> Status: Completed
 >
-> 来源：Account Provider 连接测试实机回归与完整执行入口 Review
+> Origem: regressão em máquina real do teste de conexão de Account Provider e Review da entrada de execução completa
 
-## 1. 背景与根因
+## 1. Contexto e causa raiz
 
-Provider Registry 已经把 `reasoningLevel` 定义为执行 Selection 的必需事实。ModelFactory
-只校验和装配完整 Selection，不再替调用方猜测缺省值。
+O Provider Registry já definiu `reasoningLevel` como um fato obrigatório da Selection de execução. O ModelFactory
+apenas valida e monta a Selection completa, sem mais adivinhar defaults para o chamador.
 
-连接测试虽然已经决定使用模型 Reasoning Spec 的最低公开档位 `values[0]`，但当前实现的
-执行顺序错误：
+Embora o teste de conexão já tenha decidido usar o nível público mais baixo do Reasoning Spec do modelo, `values[0]`, a implementação atual tem a ordem de execução errada:
 
 ```text
 设置页只提交 providerId/modelId
@@ -23,21 +22,17 @@ ModelFactory 先校验 Selection
 原计划中的 values[0] 绑定发生在 Model 创建之后，因此永远到不了。
 ```
 
-这是确定的本地失败，不是 Account 套餐、请求 Header、凭据或服务端网络问题。
+Esta é uma falha local determinística, não um problema de plano de Account, header de requisição, credenciais ou rede do servidor.
 
-本轮 Review 同时发现同类不完整 Selection 还存在于 Git 提交信息生成、Subagent 显式模型
-保存，以及 Session 创建的分裂 `model`/`thoughtLevel` 输入。显式 Title Generation Model
-Override 也存在同样的潜在契约缺口。
+Este Review também encontrou Selection incompleta do mesmo tipo na geração da mensagem de commit do Git, no salvamento do modelo explícito do Subagent e na entrada dividida `model`/`thoughtLevel` da criação de Session. O Title Generation Model Override explícito tem a mesma lacuna contratual potencial.
 
-## 2. 统一原则
+## 2. Princípio unificado
 
-### 2.1 身份 Selection 与执行 Selection
+### 2.1 Selection de identidade e Selection de execução
 
-`ModelSelection` 仍可作为跨进程、历史存储和 UI 选择中的模型身份，因此不能把共享 Schema
-全局改成 Reasoning 必填。
+`ModelSelection` ainda pode servir como identidade de modelo em processos cruzados, no armazenamento histórico e na seleção da UI, portanto não se pode tornar o Reasoning globalmente obrigatório no Schema compartilhado.
 
-但凡进入正式 ModelFactory 的执行 Selection，必须已经包含该模型支持的合法
-`reasoningLevel`：
+Toda Selection de execução que entra no ModelFactory formal deve já conter um `reasoningLevel` válido suportado por aquele modelo:
 
 ```text
 身份 Selection
@@ -52,105 +47,89 @@ Override 也存在同样的潜在契约缺口。
 ModelFactory
 ```
 
-不得放宽 ModelFactory，不得恢复 Runtime fallback，不得根据 Provider ID、modelId 或
-`off`/`nothink` 等字符串猜测档位。
+Não se pode afrouxar o ModelFactory, restaurar fallback em Runtime, nem adivinhar o nível a partir do Provider ID, modelId ou de strings como `off`/`nothink`.
 
-### 2.2 正常选择与辅助请求
+### 2.2 Seleção normal e requisições auxiliares
 
-- 用户正常选择模型时，缺省档位继续取有序 `values` 的最后一项；
-- 连接测试、Git 提交信息和标题生成等辅助请求使用最低公开档位 `values[0]`；
-- `values[0]` 不等价于字符串 `disabled`；
-- 不新增 `reasoningLevelPolicy` 或另一套默认值抽象；
-- 输出预算继续由各辅助请求已有规则显式绑定。
+- quando o usuário seleciona um modelo normalmente, o nível default continua sendo o último item do `values` ordenado;
+- requisições auxiliares como teste de conexão, mensagem de commit do Git e geração de título usam o nível público mais baixo, `values[0]`;
+- `values[0]` não equivale à string `disabled`;
+- não se adiciona `reasoningLevelPolicy` nem outra abstração de default;
+- o orçamento de saída continua sendo vinculado explicitamente pelas regras já existentes de cada requisição auxiliar.
 
-## 3. 实施范围
+## 3. Escopo de implementação
 
-### 3.1 Provider 连接测试
+### 3.1 Teste de conexão do Provider
 
-连接测试继续只从设置页提交 Provider/Model 身份。拥有正式 Registry 的 App/Bootstrap 边界
-读取目标 Model 的 `optionSpecs.reasoningLevel.values[0]`，先形成完整执行 Selection，再调用
-ModelFactory。
+O teste de conexão continua submetendo apenas a identidade Provider/Model a partir da página de configurações. A fronteira App/Bootstrap que possui o Registry oficial lê `optionSpecs.reasoningLevel.values[0]` do Model alvo, forma primeiro a Selection de execução completa e só então chama o ModelFactory.
 
-Core 保留已有的辅助请求绑定：
+O Core mantém os bindings auxiliares já existentes:
 
-- `reasoningLevel = values[0]`；
-- `maxOutputTokens = min(5000, optionSpecs.maxOutputTokens.max)`。
+- `reasoningLevel = values[0]`;
+- `maxOutputTokens = min(5000, optionSpecs.maxOutputTokens.max)`.
 
-不得增加 Account、Start、Individual、Team 或具体模型分支。
+Não se deve adicionar branch de Account, Start, Individual, Team ou de modelo específico.
 
-### 3.2 Git 提交信息生成
+### 3.2 Geração da mensagem de commit do Git
 
-当前模型提供方已经返回完整 Host Selection。Git 生成器不得再主动删除 `options`；完整
-Selection 必须原样进入正式 Model 创建边界。Core 仍在实际 Git 辅助请求上绑定最低档位，
-因此这不会让 Git 请求沿用交互会话的高档 Reasoning。
+O provedor de modelo atual já devolve a Selection completa do Host. O gerador do Git não deve mais remover ativamente `options`; a Selection completa deve entrar tal qual na fronteira formal de criação do Model. O Core ainda faz bind do nível mais baixo na requisição auxiliar real do Git,
+portanto isso não faz a requisição do Git herdar o Reasoning alto da sessão interativa.
 
-删除把“丢弃交互 Reasoning”误写成“丢弃完整 Selection”的旧测试断言。
+Remover a antiga asserção de teste que escrevia "descartar o Reasoning interativo" como "descartar a Selection completa".
 
-### 3.3 Subagent 显式模型
+### 3.3 Modelo explícito do Subagent
 
-模型选择控件已经根据 Registry 显示正常缺省 Reasoning。保存显式 Subagent 模型时，必须将
-该已解析档位与 Provider/Model 一起持久化，不能显示有值却保存 `undefined`。
+O controle de seleção de modelo já exibe o Reasoning default normal segundo o Registry. Ao salvar um modelo explícito de Subagent, o nível já resolvido deve ser persistido junto com o Provider/Model, não pode mostrar um valor e salvar `undefined`.
 
-历史缺失值只允许在明确的读取/迁移边界完成一次性补全；ModelFactory 不兜底。
+Valores históricos ausentes só podem ser completados uma única vez em uma fronteira explícita de leitura/migração; o ModelFactory não faz fallback.
 
-### 3.4 Session 创建
+### 3.4 Criação de Session
 
-协议暂时保留兼容字段 `model` 与 `thoughtLevel`。在构造 App/Runtime Config 前先原子合并：
+O protocolo mantém temporariamente os campos de compatibilidade `model` e `thoughtLevel`. Antes de construir o App/Runtime Config, eles são mesclados atomicamente:
 
-- `model.options.reasoningLevel` 已存在时使用它；
-- 否则使用独立 `thoughtLevel`；
-- 两者都不存在时，由正式 Registry 选择边界完成正常新选择，不允许把不完整 Selection 先送进
-  ModelFactory。
+- usa-se `model.options.reasoningLevel` quando ele já existe;
+- caso contrário, usa-se o `thoughtLevel` independente;
+- quando nenhum dos dois existe, a fronteira de seleção do Registry oficial faz uma nova seleção normal, e não é permitido enviar uma Selection incompleta antes ao ModelFactory.
 
-后续 `setModel`/`setThoughtLevel` 只负责会话状态事件，不再承担首次 Model 能否创建的前置条件。
+Depois disso, `setModel`/`setThoughtLevel` respondem apenas por eventos de estado da sessão e deixam de carregar a precondição de o primeiro Model poder ser criado.
 
-### 3.5 Title Generation 显式 Override
+### 3.5 Override explícito de Title Generation
 
-普通标题生成使用当前完整 Session Selection，不改行为。若保留显式
-`titleGeneration.modelSelection`，其生产/加载边界必须保证完整，不能依赖创建 Model 后再绑定
-最低档位。没有生产调用方的旧入口应优先删除，而不是新增兼容分支。
+A geração normal de título usa a Selection completa atual da Session, sem mudar o comportamento. Caso o `titleGeneration.modelSelection` explícito seja mantido, sua fronteira de produção/carregamento deve garantir completude, sem depender de fazer bind do nível mais baixo depois de criar o Model. Entradas antigas sem chamador de produção devem ser removidas antes de se criar um branch de compatibilidade novo.
 
-## 4. 测试先行
+## 4. Teste primeiro
 
-先写失败测试，再改生产代码：
+Escrever primeiro os testes que falham, depois alterar o código de produção:
 
-1. 使用正式 Provider Registry 与 ModelFactory，向连接测试输入仅含 Provider/Model 身份，证明
-   Adapter 最终收到 `values[0]` 和受限输出预算；
-2. 参数化覆盖 API Key、Start Plan、Team Plan，证明没有 Provider 特化；
-3. Git 生成器保留完整输入 Selection，同时正式请求最终使用 `values[0]`；
-4. Subagent 切换模型后不操作 Reasoning 控件也会保存界面显示的合法档位；
-5. Session Create 在 App 构造前合并分裂的 Model/Thought；
-6. 显式 Title Override 若保留，使用正式 Registry-backed 测试验证；
-7. Desktop Provider Settings E2E 必须真正点击连接测试按钮，不能只检查 Account 页面和模型列表。
+1. usando o Provider Registry e o ModelFactory oficiais, enviar ao teste de conexão apenas a identidade Provider/Model e provar que o Adapter recebe `values[0]` e o orçamento de saída limitado;
+2. cobrir parametrizadamente API Key, Start Plan e Team Plan, provando que não há especialização por Provider;
+3. o gerador do Git preserva a Selection de entrada completa, enquanto a requisição oficial acaba usando `values[0]`;
+4. trocar o modelo do Subagent e não tocar no controle de Reasoning ainda salva o nível legal exibido na interface;
+5. Session Create mescla Model/Thought divididos antes de construir o App;
+6. se o Title Override explícito for mantido, validar com teste oficial apoiado no Registry;
+7. o E2E de Provider Settings do Desktop precisa clicar de verdade no botão de teste de conexão, não basta checar a página de Account e a lista de modelos.
 
-Core 的假 ModelFactory 单测可以保留用于验证 bind 行为，但不能再被视为 Registry 纵向证明。
+Os testes unitários do Core com ModelFactory falso podem ser mantidos para verificar o comportamento de bind, mas não podem mais ser tratados como prova vertical do Registry.
 
-## 5. 完成标准
+## 5. Critérios de conclusão
 
-- Account Provider、API Key Provider 的连接测试不再报 Reasoning 缺失；
-- 连接测试实际使用 `values[0]`，且不识别任何具体 Provider/模型；
-- Git、Subagent、Session Create 不再把不完整执行 Selection 送入 ModelFactory；
-- 普通聊天、Compact、Memory、Repo Wiki、Automation、Bot 和 Off-Peak 行为不变；
-- 没有放宽 Registry/ModelFactory，也没有建立第二套 Reasoning 默认事实；
-- 定向单测、Desktop E2E 类型检查、根 `pnpm typecheck` 与 `pnpm lint` 通过；
-- 完成后重新审计所有正式 ModelFactory 调用点，并记录尚未验证的真实 E2E 环境限制。
+- o teste de conexão de Account Provider e API Key Provider não reporta mais Reasoning ausente;
+- o teste de conexão realmente usa `values[0]` e não reconhece nenhum Provider/modelo específico;
+- Git, Subagent e Session Create não enviam mais Selection de execução incompleta ao ModelFactory;
+- o comportamento de chat normal, Compact, Memory, Repo Wiki, Automation, Bot e Off-Peak não muda;
+- não houve afrouxamento do Registry/ModelFactory nem um segundo conjunto de fatos default de Reasoning;
+- os testes unitários direcionados, a verificação de tipos do Desktop E2E, o `pnpm typecheck` e o `pnpm lint` na raiz passam;
+- ao final, reauditar todos os pontos de chamada do ModelFactory oficial e registrar as limitações de ambiente E2E real ainda não verificadas.
 
-## 6. 实施记录
+## 6. Registro da implementação
 
-首轮修复已完成两个确定会把不完整 Selection 送入正式 ModelFactory 的入口：
+A primeira rodada de correção cobriu as duas entradas que de fato enviavam Selection incompleta ao ModelFactory oficial:
 
-- Provider 连接测试在 Bootstrap/App 的 Registry 边界补入目标模型的 `values[0]`，再创建
-  Model；Core 的统一辅助请求预算保持不变；
-- Git 提交信息生成不再剥离 Host 当前 Selection 的 `options`。Bootstrap 先验证完整
-  Selection，Core 再统一把实际辅助请求降至 `values[0]`。
+- o teste de conexão de Provider passou a preencher `values[0]` do modelo alvo na fronteira Registry do Bootstrap/App antes de criar o Model; o orçamento unificado de requisição auxiliar do Core permanece inalterado;
+- a geração da mensagem de commit do Git não stripa mais os `options` da Selection atual do Host. O Bootstrap valida primeiro a Selection completa e o Core reduz uniformemente a requisição auxiliar real para `values[0]`.
 
-纵向回归测试使用真实 `ProviderRegistry -> ApiProviderModelRuntime -> Core` 链路，证明身份
-Selection 不会再在 Factory 处因缺少 Reasoning 失败。
+O teste de regressão vertical usa a cadeia real `ProviderRegistry -> ApiProviderModelRuntime -> Core`, provando que a Selection de identidade não falha mais na Factory por falta de Reasoning.
 
-Subagent 设置页也已修正：切换显式模型时，把控件根据 Registry 展示的正常缺省档位一并写入
-Model Selection，不再展示 `high` 却持久化 `undefined`。
+A página de configurações do Subagent também foi corrigida: ao trocar o modelo explícito, ela grava na Model Selection o nível default normal exibido pelo controle segundo o Registry, sem exibir `high` e persistir `undefined`.
 
-复查结果：Session Create 的正常 Host 调用已经在创建前合并 `model` 与 `thoughtLevel`；共享协议
-继续允许读取历史身份 Selection，不能为本 Bug 把 `ModelSelection` 全局改成必填。Title 的显式
-Model Override 当前没有生产配置写入方，因此未增加无消费者的兼容分支。ModelFactory 的严格
-完整性校验保持不变。
+Resultado da reavaliação: a chamada normal do Host em Session Create já mescla `model` e `thoughtLevel` antes da criação; o protocolo compartilhado continua permitindo ler Selections de identidade históricas, e `ModelSelection` não pode ser tornado globalmente obrigatório por causa deste Bug. O Model Override explícito de Title hoje não tem escritor de configuração em produção, portanto não foi adicionado branch de compatibilidade sem consumidor. A validação estrita de completude do ModelFactory permanece inalterada.

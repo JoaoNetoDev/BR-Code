@@ -1,75 +1,62 @@
-# Background Task POSIX Process Tree Stop
+# Parada da árvore de processos POSIX em Background Task
 
-## 状态
+## Estado
 
-- 日期：2026-08-14
-- 状态：accepted
-- 类型：bugfix
+- Data: 2026-08-14
+- Estado: accepted
+- Tipo: bugfix
 
-## 问题
+## Problema
 
-`NodeExecutionAdapter` 在 POSIX 上以 `detached: true` 启动 execution。旧停止逻辑只向
-`-rootPid` 对应的进程组发送 `SIGTERM`，并在 750ms 后向同一进程组发送 `SIGKILL`。
+`NodeExecutionAdapter` inicia a execution no POSIX com `detached: true`. A lógica antiga de parada enviava `SIGTERM` apenas para o grupo de processos correspondente a `-rootPid` e, após 750ms, `SIGKILL` para o mesmo grupo de processos.
 
-Bash job control、pipeline、`xargs -P` 或 PTY 可以让仍属于 root PPID 后代树的进程进入不同
-PGID。只按根进程组发信号时，这些后代不会随 `TaskStop` 或 session close 一起停止。
+Bash job control, pipeline, `xargs -P` ou PTY podem fazer com que processos que ainda pertencem à árvore de descendentes do PPID raiz entrem em um PGID diferente. Ao enviar sinais apenas para o grupo de processos raiz, esses descendentes não param junto com `TaskStop` ou com o fechamento da sessão.
 
-## 行为合同
+## Contrato de comportamento
 
-本次只实现 POSIX Bash process-tree stop，不改变 Windows、TaskStop 协议、UI、
-background notification、desktop continuous 或 web remote replayable 行为。
+Esta mudança implementa apenas a parada da árvore de processos POSIX do Bash, sem alterar Windows, o protocolo TaskStop, a UI, a notificação de background, o desktop continuous nem o comportamento de web remote replayable.
 
 ```text
 cancel / close
       |
-      +--> 异步读取一次 `ps -A -o pid= -o ppid=`（最多等待 500ms）
+      +--> leitura assíncrona única de `ps -A -o pid= -o ppid=` (espera máxima de 500ms)
       |          |
-      |          +--> SIGTERM 根进程组；失败时退化为 root PID
-      |          +--> SIGTERM 本次快照中的传递 PPID 后代
+      |          +--> SIGTERM no grupo de processos raiz; em caso de falha, degrada para o root PID
+      |          +--> SIGTERM nos descendentes transitivos de PPID presentes neste snapshot
       |
-      +--> 固定等待 1500ms
+      +--> espera fixa de 1500ms
                  |
-                 +--> SIGKILL 根进程组（best effort）
-                 +--> 重新读取一次 `ps`，再 SIGKILL 当次仍挂在 root 下的传递后代
+                 +--> SIGKILL no grupo de processos raiz (best effort)
+                 +--> nova leitura de `ps`, depois SIGKILL nos descendentes transitivos que ainda estiverem sob o root
 ```
 
-必须满足：
+Requisitos obrigatórios:
 
-1. 每次 process-tree signal 都先用独立、最多 500ms 的 `ps` 快照计算传递 PPID 后代。
-2. 每次都先发根进程组信号；组信号失败时回退到 root PID；随后逐个向快照后代发同一信号。
-3. 首轮 `SIGTERM` 不阻塞 stop ACK；1500ms 后无条件执行 `SIGKILL` escalation，不提前轮询退出。
-4. escalation 使用新的 PPID 快照，不记忆首轮后代，不读取启动时间，也不增加 PID identity 校验。
-5. `ps` 启动失败、报错或超时时按空后代集合处理，根进程组/root PID fallback 仍继续。
-6. 单次 execution 与 stop ACK 不显式等待 escalation Promise；adapter shutdown 会等待已经登记的
-   1500ms escalation timer 及升级轮次的实际 PPID 快照/信号发送，并引用其清理句柄以保活。
-   2026-09-08 补充：Bash 直写后不能依赖 pipe 保活，也不能认为单独 await Promise 会阻止 Node 退出。
-7. Windows 保持现有 `taskkill /T /F` 路径。
-8. 该合同只适用于 `command.shellProfile === "posix-bash"` 的 Bash execution。通用 shell、argv、
-   hook 和自定义命令展开继续保持既有 POSIX 进程组停止策略：立即向根进程组发送 `SIGTERM`，
-   750ms 后仅在进程组仍存活时发送 `SIGKILL`；不得为这些执行枚举 PPID 后代或登记 Bash escalation。
-9. 2026-09-08 当前 Bash 直写合同：root 自然退出即结算，不再进入 foreground pipe drain，
-   也不主动清理后代。Bash process-tree stop 只由 task cancel、adapter close、abort/timeout
-   和 output limit 等真实终止路径触发；本次 shutdown 保活修复不恢复历史 drain 行为。
+1. Cada sinal para a árvore de processos calcula primeiro os descendentes transitivos de PPID usando um snapshot de `ps` independente, com espera máxima de 500ms.
+2. Sempre primeiro se envia o sinal ao grupo de processos raiz; quando o sinal de grupo falha, há fallback para o root PID; em seguida o mesmo sinal é enviado individualmente aos descendentes do snapshot.
+3. O primeiro `SIGTERM` não bloqueia o ACK de parada; após 1500ms a escalação para `SIGKILL` é executada incondicionalmente, sem polling antecipado de saída.
+4. A escalação usa um novo snapshot de PPID, não memoriza os descendentes da primeira rodada, não lê tempo de início e não acrescenta verificação de identidade de PID.
+5. Se o `ps` falhar ao iniciar, der erro ou exceder o tempo limite, o conjunto de descendentes é tratado como vazio, e o grupo de processos raiz / fallback do root PID continua.
+6. Uma execution individual e o ACK de parada não aguardam explicitamente a Promise de escalação; o shutdown do adapter aguarda o timer de escalação de 1500ms já registrado e o snapshot real de PPID / envio de sinais da rodada de escalação, referenciando seu handle de limpeza para mantê-lo vivo.
+   Em 2026-09-08 foi adicionado: após a escrita direta do Bash não se pode depender do pipe para manter tudo vivo, nem supor que apenas fazer await de uma Promise impede o Node de encerrar.
+7. O Windows mantém o caminho existente com `taskkill /T /F`.
+8. Este contrato se aplica somente à execution de Bash com `command.shellProfile === "posix-bash"`. Shell genérico, argv, hooks e expansão de comandos customizados continuam com a estratégia de parada por grupo de processos POSIX já existente: `SIGTERM` imediato no grupo de processos raiz e, após 750ms, `SIGKILL` apenas se o grupo de processos ainda estiver vivo; não é permitido enumerar descendentes de PPID nem registrar escalação de Bash para essas executions.
+9. Em 2026-09-08 o contrato atual de escrita direta do Bash ficou assim: a saída natural do root já encerra a execução, sem entrar em foreground pipe drain e sem limpar ativamente os descendentes. A parada da árvore de processos do Bash só é acionada por caminhos reais de terminação, como cancelamento de task, fechamento do adapter, abort/timeout e output limit; esta correção de shutdown com keep-alive não restaura o comportamento histórico de drain.
 
-## 已知边界
+## Limites conhecidos
 
-以下边界有意保留，本次不额外增强：
+Os limites abaixo são mantidos de propósito e não são reforçados nesta mudança:
 
-- 首轮 TERM 后已经 reparent、且忽略 TERM 的跨 PGID 后代不会出现在第二次 PPID 快照中，可能继续存活。
-- 快照与逐 PID 发信号之间没有 PID/start-time identity 校验。
-- 不新增 cgroup、systemd scope、Windows Job Object、额外进程 ownership 或新的 stop surface。
+- Descendentes cross-PGID que já fizeram reparent após o primeiro TERM e ignoram TERM não aparecerão no segundo snapshot de PPID e podem continuar vivos.
+- Não há verificação de identidade por PID/start-time entre o snapshot e o envio de sinal PID a PID.
+- Nenhum cgroup, systemd scope, Windows Job Object, ownership de processo adicional ou nova stop surface é introduzido.
 
-## 验证
+## Verificação
 
-- POSIX 真实进程测试：background Bash 通过 job control 创建独立 PGID 的 cooperative worker；
-  stop 后 launcher 与 worker 都退出，结果收口为 cancelled。
-- POSIX 真实进程测试：generic argv execution 创建独立 PGID worker；取消只停止原进程组，worker
-  保持存活并由测试自行清理，证明 Bash 杀树策略没有扩散到通用 ExecutionPort 调用方。
-- 当前 Bash 直写回归：root 自然退出即结算，后代仍可写文件并由测试负责收尾；不再要求历史
-  foreground Bash pipe drain。通用 argv/Hook 的 pipe drain 与停止策略继续保留。
-- 独立 Node 进程回归：abort、close、后台 Stop、timeout、output limit 后调用 adapter close，
-  忽略 TERM 的同组 worker 必须终止，且 Node 退出前已完成 close，不能依赖测试框架 IPC 保活。
-- 可控时钟回归：1500ms timer 到期后，shutdown 仍须等待异步 SIGKILL 查表与信号发送完成。
-- 既有同组后代、通用执行的继承 pipe / foreground drain、adapter close 和 Windows tree-kill
-  测试继续保留。
-- `pnpm typecheck` 与 `pnpm lint` 必须通过。
+- Teste de processos reais no POSIX: Bash de background cria via job control um worker cooperativo com PGID independente; após o stop, tanto o launcher quanto o worker encerram e o resultado é consolidado como cancelled.
+- Teste de processos reais no POSIX: execution com argv genérico cria um worker com PGID independente; o cancelamento para apenas o grupo de processos original, o worker permanece vivo e é limpo pelo próprio teste, provando que a estratégia de mata-árvore do Bash não se espalhou para quem chama a ExecutionPort genérica.
+- Regressão da escrita direta atual do Bash: a saída natural do root já encerra a execução, os descendentes ainda podem gravar arquivos e o teste é responsável pelo cleanup; não se exige mais o histórico de foreground Bash pipe drain. O pipe drain e a estratégia de parada do argv/Hook genéricos continuam mantidos.
+- Regressão em processo Node separado: após abort, close, Stop de background, timeout e output limit, a chamada de adapter close deve terminar o worker do mesmo grupo que ignora TERM, e o close deve ter sido concluído antes da saída do Node, sem depender do IPC do framework de testes para keep-alive.
+- Regressão com relógio controlado: após o timer de 1500ms expirar, o shutdown ainda precisa aguardar a consulta assíncrona de SIGKILL e o envio dos sinais.
+- Os testes existentes de descendentes do mesmo grupo, pipe herdado / foreground drain de executions genéricas, adapter close e tree-kill no Windows continuam mantidos.
+- `pnpm typecheck` e `pnpm lint` devem passar.
