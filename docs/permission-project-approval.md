@@ -25,7 +25,7 @@ A CUA oficial confiável tem ainda uma semântica restrita de grupo de capacidad
 
 O app legacy repassa a decisão conforme `option.response`; o V4 entrega ao interaction handler já registrado no Agent por meio do optionId estável e não deriva a resposta do índice de UI. O acesso total pertence à ação de submissão independente descrita abaixo e não pode ser tratado como um allow comum.
 
-## Deny with feedback (V4)
+## Recusa com feedback (V4)
 
 O snapshot de permissão do V4 pode declarar "feedback permitido ao recusar" por meio de `freeText: true`. Esse campo é uma capacidade de entrada, não uma quarta decisão de permission, e não altera o protocolo de `allow_once`, `allow_project` e `deny`.
 
@@ -51,7 +51,7 @@ UI focus (fullAccess): [1 Allow once] <-> [2 Allow project] <-> [3 Full access]
 
 ## Semântica de exibição do diálogo
 
-- O `reason` continua sendo preservado na requisição de permissão, para diagnóstico de política, logs e cadeia de recuperação; a UI não deve tratar todas as razões de política como提示 para o usuário.
+- O `reason` continua sendo preservado na requisição de permissão, para diagnóstico de política, logs e cadeia de recuperação; a UI não deve tratar todas as razões de política como dicas para o usuário.
 - `High risk tools require explicit approval` e `Tool has side effects and requires approval` são explicações internas de política e não são exibidas no diálogo de permissão. O diálogo já expressa o estado de aprovação por meio de "aguardando confirmação", dos detalhes da ferramenta e das opções de ação; repetir essas explicações não ajudaria o usuário a decidir.
 - O `description` concreto nas entradas da ferramenta, comandos, alterações de arquivos, URLs e outros detalhes acionáveis continuam sendo exibidos conforme as regras existentes.
 

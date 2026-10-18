@@ -62,7 +62,7 @@ codificação/decodificação de URL. A gravação no HKCU não exige permissõe
 menu moderno de nível superior do Windows 11 não é implementada por enquanto, e o item de menu aparece no menu
 shell tradicional padrão do sistema.
 
-## Boundaries
+## Fronteiras
 
 - Seleção múltipla: apenas o primeiro diretório é processado; os demais são ignorados.
 - Arquivo selecionado: a configuração do menu do sistema deve ficar restrita a pastas; o lado do app rejeita

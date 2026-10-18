@@ -3,7 +3,7 @@
 > Atualização do orçamento de requisição: o bucket de orçamento de vídeo isolado mencionado abaixo é
 > uma solução histórica. Atualmente todas as mídias compartilham o orçamento de requisição de
 > `40MiB` após codificação, e um vídeo individual continua sendo validado em `30MiB` do arquivo
-> original; o vale a
+> original; o que vale a
 > [spec de orçamento de requisição de anexos](../../apps/zcode-cli/docs/design/v2/message-attachments.md#413-请求体防线).
 
 - Data: 2026-08-17
@@ -152,7 +152,7 @@ current-provider request projection
 
 - Anexos do usuário continuam usando o `file` part da user message; mídia produzida por ferramentas usa
   `ToolStateCompleted.attachments`; ambos apontam para a mesma fonte de fato de artifact.
-- A troca de modelo dentro da conversa e a recuperação a friohydrate o block provider-neutral primeiro
+- A troca de modelo dentro da conversa e a recuperação reidrata o block provider-neutral primeiro
   e só então projetam pelo provider atual; não se pode reutilizar o wire payload do provider anterior
   como fato histórico.
 - Se o conteúdo provider-visible de um tool result for composto de text e blocks de image/video/file

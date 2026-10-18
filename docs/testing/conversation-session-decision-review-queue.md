@@ -31,7 +31,7 @@ node scripts/audit-conversation-session-case-coverage.mjs --check --review-queue
 4. Conforme o `回写目标`, atualize o catalog / fault catalog / coverage matrix de origem.
 5. Depois que a semântica de produto estiver clara, escreva o E2E correspondente e, por fim, execute `pnpm audit:conversation-session-coverage`.
 
-## Review Queue
+## Fila de revisão
 
 ### P0-2 Falhas de requisição de modelo/API
 
