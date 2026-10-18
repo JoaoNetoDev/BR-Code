@@ -51,7 +51,7 @@ os contratos de pausa de acompanhamento, retomada, consulta e estado terminal; a
 link do arquivo nem o botão flutuante, e é compatível com o tema da UI compartilhada e com o layout mobile.
 Tanto no primeiro plano quanto em segundo plano, o componente restaura o julgamento simples baseado na posição de
 rolagem; a restauração indevida causada por mudança de tamanho continua sendo um problema conhecido, com os limites
-descritos em [前台输出视口与跟随](bash-background-parity.md#前台输出视口与跟随2026-09-10). Detalhes ocultos não
+descritos em [Viewport de saída em primeiro plano e acompanhamento](bash-background-parity.md#前台输出视口与跟随2026-09-10). Detalhes ocultos não
 consultam.
 
 ```text

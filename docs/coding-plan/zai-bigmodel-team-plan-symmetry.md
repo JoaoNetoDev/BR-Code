@@ -201,7 +201,7 @@ versão family-aware. Cada checkpoint literal `startsWith("team-plan:...")` é a
 Requisição real em ambiente de teste a `https://api.z.ai/api/biz/customer/getCustomerInfo` (domínio
 zai) com sucesso, retornando estrutura isomórfica à do bigmodel (incluindo `organizations[].projects[]`,
 com `projectType=2` identificando projeto de programação de time). O token zai usa header `Bearer`
-(diferente do token裸 do bigmodel).
+(diferente do token puro do bigmodel).
 
 Conclusão: a validação de availability do zai team plan (verificação de projeto de time via
 customerInfo) pode reutilizar a estrutura de URL do bigmodel, cambiando apenas host →

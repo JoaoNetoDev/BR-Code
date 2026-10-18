@@ -58,7 +58,7 @@ falha.
 
 ### 1.4 Situação atual do protocolo zcode (antes da integração)
 
-- Todo o julgamento de image no链路 é um `mime.startsWith("image/")` exato ou uma extensão de imagem; o
+- Todo o julgamento de image na cadeia é um `mime.startsWith("image/")` exato ou uma extensão de imagem; o
   vídeo não casa com nenhum ramo de image: a serialize da UI cai em `kind:"file"`, o mapeamento de
   ref da CLI cai em `type:"file"`, o core cai no caminho de referência `binary_file` e o Read cai no
   erro vago de `looksLikeBinary`. **O vídeo não pode se pendurar no canal de image; é preciso abrir um

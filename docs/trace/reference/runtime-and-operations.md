@@ -1,8 +1,8 @@
 # Referência de Runtime, Privacidade, Performance e ARMS
 
 > Este documento define o ciclo de vida, a propagação, a privacidade, a performance, os testes e as restrições operacionais de ARMS do CLI Agent Telemetry Runtime.
-> O desenho geral e a forma de integração estão em [CLI Agent Telemetry 设计与开发规范](../cli-agent-telemetry.md); as definições de campos estão em
-> [Schema 字典](./schema-reference.md).
+> O desenho geral e a forma de integração estão em [CLI Agent Telemetry — desenho e especificação de desenvolvimento](../cli-agent-telemetry.md); as definições de campos estão em
+> [Dicionário do Schema](./schema-reference.md).
 
 ## 1. Runtime em nível de processo
 
@@ -182,7 +182,7 @@ workflow_child / nested_workflow_child -> workflow_child
 Se essas operações chamarem um modelo, precisam ser executadas no seu `scope.run()`, tornando o Model Call automaticamente um Child.
 
 O Project Memory Recall captura a Causation no momento do agendamento/prefetch; Dream, Extraction e Title seguem o mesmo padrão. A enumeração completa de Operation
-está em [Schema 字典](./schema-reference.md#101-operation-目录).
+está em [Dicionário do Schema](./schema-reference.md#101-operation-目录).
 
 ### 2.5 Fatos vivos multiplataforma
 

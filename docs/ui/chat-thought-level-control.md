@@ -35,7 +35,7 @@ A configuração do modelo fornece as faixas opcionais e sua ordem. O controle f
 | max                                                                 | 最高  | Max         |
 | ultra                                                               | 极致  | Ultra       |
 
-A correspondência de texto remove espaços iniciais e finais do value e converte para minúsculas; a seleção e o envio preservam o value original e não fundem opções de mesmo nome. extra-high／extra_high são aliases preservados, sem ampliar outras grafias.
+A correspondência de texto remove espaços iniciais e finais do value e converte para minúsculas; a seleção e o envio preservam o value original e não fundem opções de mesmo nome. extra-high/extra_high são aliases preservados, sem ampliar outras grafias.
 
 light, shallow, balanced, default, normal, standard, deep, maximum, very-high, very_high deixam de ter uma categorização fixa e, como outros valores desconhecidos, exibem o name fornecido pela origem, permanecendo selecionáveis. Não se infere intensidade nem se está desligado pelo name, e não se adiciona automaticamente uma faixa nem se reescreve a configuração.
 

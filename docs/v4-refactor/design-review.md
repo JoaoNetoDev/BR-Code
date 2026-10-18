@@ -25,7 +25,7 @@
 | Decidido (2026-07-05) | ① Forma persistente do log de eventos = **Opção B** (log em memória limitado + logEpoch, zero tabelas); ② prevenção de duplicidade na janela de crash de fork/createSession = **child session registra `source_command_id`**; ③ C-01 permissão de ação em múltiplos clientes = **paridade total** (fechamento idempotente); ④ C-04 = **manter o draft** (derruba 10-P2, `createSession.firstInput` passa a opcional, o draft permanece só em memória); ⑤ 10-P3 rewind = **remover o comando independente** (entrada de UI de editUserQuery); ⑥ caminho de execução = **hard cut** (abandona o período de escrita dupla, ver 08/11) |
 | Pendente de decisão | os demais pontos de confirmação de §5 (C-02 pending TTL, C-06 escopo de contenção de danos da Phase 2, C-07 lista de mudanças de comportamento, C-08 library-ização de stream-animate); G-12 fault catalog; G-13 superfície de autenticação; os quatro limites PB-* |
 
-**Ordem de ação sugerida:** **antes de começar a Phase 0** — reescrever os documentos de design conforme §2.2 (M1–M8) e §7; concluir a fixação das 18 regras de §3 e o capítulo de schema ausente de §4; decidir §9.2 e a prevenção de duplicidade no fork. **Durante a implementação** — transformar agolden test/aparato de caos em aceitação de primeira classe (a primeira produção da camada rpc precisa desse护航).
+**Ordem de ação sugerida:** **antes de começar a Phase 0** — reescrever os documentos de design conforme §2.2 (M1–M8) e §7; concluir a fixação das 18 regras de §3 e o capítulo de schema ausente de §4; decidir §9.2 e a prevenção de duplicidade no fork. **Durante a implementação** — transformar um golden test / aparato de caos em aceitação de primeira classe (a primeira produção da camada rpc precisa desse apoio).
 
 ## 2. Resultado da Verificação do Diagnóstico Atual
 
@@ -123,7 +123,7 @@ O **valor atual** de provider/model/thought/followupMode é estado que a UI prec
 Patches atuais: "usage_update chegando repetidamente → React acorda sem sentido e perde quadros" (taskSlice:537), "a atualização da janela não pode recriar o objeto usage, senão sobrescreve o used positivo com 0" (:586), a contabilidade duplicada entre pontas depende de uma tabela circular de 128 eventKeys (Types:180). A §13 do 09 diz apenas "manter como está" para usage/*, mas as evidências indicam que também precisa ser topicizado (conflated do estado mais recente) ou entrar na área A.
 
 **G-03 backgroundWorks[] e cancelBackgroundWork.**
-O snapshot tem apenas o booleano `hasBackgroundWork`; a gaveta de fundo precisa do estado de cada item e de uma entrada de cancelamento (hoje inferido a partir de tool startedAt do chat, o que já gerou falsos报警; depois passou a ser reportado explicitamente pelo runtime, handlers:1645). product-protocol tem `backgroundWorks[]`; o 09 precisa dar o destino e o comando.
+O snapshot tem apenas o booleano `hasBackgroundWork`; a gaveta de fundo precisa do estado de cada item e de uma entrada de cancelamento (hoje inferido a partir de tool startedAt do chat, o que já gerou falsos alarmes; depois passou a ser reportado explicitamente pelo runtime, handlers:1645). product-protocol tem `backgroundWorks[]`; o 09 precisa dar o destino e o comando.
 
 **G-04 Destino de projeção de plan/todo, resumo goalStats/goalVerifications e aviso de apiRetry.**
 taskSnapshotRuntimeStateSync.ts escreveu um patch de recuperação para cada uma dessas sete classes de campos de bypass (plan "antes só ficava na memória do componente ChatView, e sair da tela o perdia" handlers:1200; apiRetry sem restauração deixa o usuário "esperando à toa"). Se não entrarem na projeção (área A ou topic separado), os patches de recuperação serão reescritos em outro lugar.
@@ -138,7 +138,7 @@ Hoje isso depende de parsear atributos XML com regex + farejar prefixos de texto
 `retry` (RowActions.canRetry tem o campo mas não o comando), `resumeGoal` (stopPausesActiveGoalTarget exige resume explícito), a forma de recuperação/drenagem da autoDrain e da held queue, a relação entre rewind-to-checkpoint e editUserQuery, o canal de upload de anexos (como os bytes de um AttachmentRef sobem em web/controle remoto), o domínio de atribuição de exclusão/renomeação de sessão + **limpeza em cascata da exclusão** (hoje: excluir não limpa sincronamente o balde localStorage de rascunho do composer, e ele fica residual, taskSlice:1924; excluir a task que está sendo visualizada deixa o activeTaskId pendurado, :2001 — a V4 precisa definir que o pane volta ao estado vazio quando outro lado exclui, mais o GC do estado local por sessionKey).
 
 **G-08 Classificação de falhas terminais e "quando desistir de reconectar".** (P3-8)
-Vários caminhos de recuperação hoje declaram各自 um estado terminal, causando "duas páginas de erro contraditórias" (main.tsx:1316). O backoff com teto de 30s da §12 do 09, ao pé da letra, é retry infinito; é preciso classificar invalidação de auth / expulsão / acima do limiar, com a apresentação de UI e a condição de desistência correspondentes.
+Vários caminhos de recuperação hoje declaram cada um o seu estado terminal, causando "duas páginas de erro contraditórias" (main.tsx:1316). O backoff com teto de 30s da §12 do 09, ao pé da letra, é retry infinito; é preciso classificar invalidação de auth / expulsão / acima do limiar, com a apresentação de UI e a condição de desistência correspondentes.
 
 **G-09 Viabilidade da reformulação do relay hub (pré-confirmação).**
 O 01 exige que "relay permaneça como tubo mudo", mas o relay externo atual é um **protocolo com estado**: register/auth_challenge/pair/KICKED, comportamento da camada de borda fragmentado por query.mid (transport:205), e o recolhimento por ociosidade precisa de desvio de tráfego (:377). Se o relay for um serviço externo imutável, o "remover pair_status, PersistentProtocol ponta a ponta" do 05 precisa de um design de transição que coexista com o relay atual; e o ciclo de vida do pareamento também precisa ficar explícito.
@@ -173,7 +173,7 @@ O 01 reduz owner a "qual processo iniciou o CLI", mas não escreve: quando o hos
 - **P-02 Merge da tempestade de snapshots.** Quando vários clientes degradam ao mesmo tempo, a camada de canal pode permitir o merge de resync concorrente do mesmo topic (cache de estado suave do snapshot mais recente, TTL de segundos); unificar com a posição do 01 "o host não faz cache" conforme D-04.
 - **P-03 Confirmação do compressão por segmento.** (corrigindo C4 da primeira rodada) o trecho desktop↔relay já negociou permessage-deflate (transport:210; o lado do navegador só consegue confirmar passivamente as extensions); é preciso confirmar que o trecho celular↔relay e cada trecho da nova cadeia da V4 também têm efeito, remedir o benefício após a binaryização e, ao reescrever, **não perder esta otimização existente**.
 - **P-04 A posição do overlay segue o inputRouting.** Quando o cliente já sabe `inputRouting=enqueue`, desenhar a exibição otimista direto no painel da queue evita que a mensagem "pule" do fim da timeline para a queue no fechamento.
-- **P-05 Conflation é mecanismo contra perda de quadros, não só economia de banda.** Hoje há um caso direto de "usage_update com o mesmo valor chegando repetidamente → React acorda sem sentido → perda de quadros" (taskSlice:537); ao落地 a conflation da área A, preservar a semântica de "não下发 quando o valor não mudou".
+- **P-05 Conflation é mecanismo contra perda de quadros, não só economia de banda.** Hoje há um caso direto de "usage_update com o mesmo valor chegando repetidamente → React acorda sem sentido → perda de quadros" (taskSlice:537); ao aplicar a conflation da área A, preservar a semântica de "não emitir quando o valor não mudou".
 
 ## 7. Lista de Revisões de Consistência de Documentos (Classe D)
 
@@ -242,7 +242,7 @@ Razão para recomendar B: o único ganho que A compra é "poupar um snapshot ap�
 
 A semânticasatélite das decisões (precisa ser fixada junto, senão o que se perde é correção, e não apenas persistência):
 
-1. **O本质 da correção de "a mensagem foi enviada mas não aparece" é a subida de posse, não a persistência**: a queue sai da memória do renderer para a memória do CLI + eco autoritativo (state.updated), e então todos os cenários de refresh/desconexão/múltiplas pontas ficam corretos; a persistência só afeta a janela de "o processo do CLI morreu" — e lá o turno em execução morre junto, a percepção do usuário já é de sessão interrompida, e a queue morrer com ela é uma semântica de produto coerente.
+1. **A essência da correção de "a mensagem foi enviada mas não aparece" é a subida de posse, não a persistência**: a queue sai da memória do renderer para a memória do CLI + eco autoritativo (state.updated), e então todos os cenários de refresh/desconexão/múltiplas pontas ficam corretos; a persistência só afeta a janela de "o processo do CLI morreu" — e lá o turno em execução morre junto, a percepção do usuário já é de sessão interrompida, e a queue morrer com ela é uma semântica de produto coerente.
 2. **A idempotência na janela de crash passa a ser responsabilidade de "o efeito carrega o commandId"**: a ordem de busca do `commands/query` = tabela de idempotência em memória → transcript por `sourceCommandId`. Comandos com efeito persistido (sendText startNow, editUserQuery, marker de compact) são anti-duplicação por natureza; comandos sem efeito (stop, resolveInteraction) são inofensivos ao reenvio. A única fresta é a criação duplicada em fork/createSession: **decidido (2026-07-05), o child session registra `source_command_id`** (uma coluna ou metadata, mudança aditiva sem migração).
 3. **O ACK `accepted` não promete sobrevivência entre processos**: o fechamento final do pending do cliente depende da chegada dos dados autoritativos (a row / o `sourceCommandId` do QueueItem) — que é exatamente o princípio original do 02, "o fechamento do overlay não depende do ACK"; após o reinício do CLI, a consulta de comandos em trânsito devolve `unknown` → conforme C-02, apresentar "não entregue, reenviar?". Com isso C-03 (quais comandos fazem replay no reinício) se dissolve: **nenhum**.
 4. **pendingInteractions não é persistido** (sem mudança): é um fato em memória derivado do turno em execução, e o sumiço do popup quando o turno morre é a semântica correta.
@@ -272,7 +272,7 @@ Resultado líquido: no lado do CLI, o SQLite fica com **zero tabelas novas e zer
 | P1-7 | flags de controle inferidas por arranjo do array de mensagens (backfill de canFork etc., identificação de execução contínua de goal) | zcodeTimelineRuntime.ts:49; renderUnits:27 | elim (02 sessionControl/actions) |
 | P1-8 | farejamento de texto semântico do provider (casamento de texto de três gerações, regex de stopReason, regex de XML de mailbox) | :219-252,:62,:378,:1236 | elim parcial + falta G-06(mailbox) |
 | P1-9 | o nível de água do snapshot não é um nível de água consistente | zcodeSessionEventOrder.ts:93 | fix R-03 |
-| P1-10 | máquina de compensação de desordem do cliente (detecção de gap/cache pending/tabela de dedup de 10 mil entradas) | zcodeSessionEventOrderFields.ts全文 | elim (regra 2 do 04) + premissa R-01 |
+| P1-10 | máquina de compensação de desordem do cliente (detecção de gap/cache pending/tabela de dedup de 10 mil entradas) | zcodeSessionEventOrderFields.ts (inteiro) | elim (regra 2 do 04) + premissa R-01 |
 | P1-11 | cálculo local de tempo de trabalho/duração e escolha entre duas fontes (espera por permissão contada por engano, congelamento antes do verifier, sem regredir e ficar menor) | :636,:1020,:1962; helpers:701 | falta G-05 |
 | P1-12 | heurísticas de atribuição/pontes de colapso do compact + dedup do conteúdo de replay (diferença de toolId + recorte com startsWith) | renderUnits:48,:389 | a) fix R-15; b) falta G-05(grupo colapsado) |
 
@@ -281,12 +281,12 @@ Resultado líquido: no lado do CLI, o SQLite fica com **zero tabelas novas e zer
 | # | Classe de patologia | Evidência | Decisão |
 | --- | --- | --- | --- |
 | P2-1 | zoológico de estratégias de merge de snapshot (cinco estratégias: replace/terminal_reconcile/backfill/preserve/drop) | snapshotSync:615-668; useTaskRestore:1558 | elim (regra 1 do 04, a evidência positiva mais forte da V4) |
-| P2-2 | snapshot em execução não atômico (polling para alcançar o nível de água, snapshot parcial, sete campos com recuperação individual) | eventOrder:93; useTaskStreamEvents:540; snapshotSync:78,:539; runtimeStateSync全文 | fix R-03 |
+| P2-2 | snapshot em execução não atômico (polling para alcançar o nível de água, snapshot parcial, sete campos com recuperação individual) | eventOrder:93; useTaskStreamEvents:540; snapshotSync:78,:539; runtimeStateSync (inteiro) | fix R-03 |
 | P2-3 | corrida de atribuição de estado terminal atrasado (quatro booleanos shouldTreat*, estado terminal sem inputId) | terminalHandlers:180; snapshotSync:576-611,:852 | elim (eventos turn.* desaparecem, phase vem da projeção) |
 | P2-4 | máquina de compensação de lacunas de seq no cliente (timer de recuperação de 250ms, dedup de prefixo/sufixo por trimChunkOverlap, cursor unverifiedFromSeq) | useTaskStreamEvents:56,:530; handlers:247,:769 | elim + premissa R-01 |
 | P2-5 | bifurcação de comportamento por deliveryKind no cliente (bifurcação na recuperação de gap, consumo exclusivo de replayable, isFilteredNonOwnerBatch) | :104,:530; snapshotSync:774; handlers:716 | elim (tabela de parâmetros do 05 + contabilidade por faixas) |
 | P2-6 | eventos de interação bloqueante perdidos/sobrescritos/não sincronizados entre pontas | :641; handlers:1216,:1240 | elim (pendingInteractions da §5 do 09) |
-| P2-7 | inferência de flags por array (palpite de isChatTaskRunning, caso especial de execute pendente residual de SSH) | useChatViewDisplayFlags全文; chatStatus:42 | elim; o shimmer pode ser derivado de phase + última linha |
+| P2-7 | inferência de flags por array (palpite de isChatTaskRunning, caso especial de execute pendente residual de SSH) | useChatViewDisplayFlags (inteiro); chatStatus:42 | elim; o shimmer pode ser derivado de phase + última linha |
 | P2-8 | orquestração de drain/held/steer da queue no cliente (drain disparado localmente após estado terminal, stopRequested reescrevendo held localmente) | terminalHandlers:346-407; handlers:297 | elim + D-03(expressão do estado intermediário de steer) |
 | P2-9 | dedup difuso de mensagem de usuário otimista na janela de 15s, texto original de /goal sobrescrito pelo objective | handlers:148-178,:165 | elim + fix R-07 |
 | P2-10 | corrida de eco de modelo/config (guard de casamento de eco, preserve de três camadas de thought, mais de 15 stale guards) | handlers:1413-1497; useTaskStreamEvents:117; useTaskRestore em vários pontos | falta G-01 (a descoberta mais importante desta região) |
@@ -306,8 +306,8 @@ Resultado líquido: no lado do CLI, o SQLite fica com **zero tabelas novas e zer
 | P3-7 | cruzamento de identidade de workspace (fallback de path lendo config/fila/estado de erro um do outro) | selectors:203,:241 | fix R-16 |
 | P3-8 | estados terminais conflitantes entre caminhos de recuperação (unknown→invalid-mobile, duas páginas de erro, DEVICE_OFFLINE correndo na frente) | main.tsx:1316; transport:463,:585 | elim + falta G-08(classificação terminal) |
 | P3-9 | remount de toda a árvore ao trocar de bridge (key=bridgeSessionId, flash "carregando" ao voltar ao primeiro plano) | main.tsx:1703,:1388,:1407 | elim (identidade da assinatura persistente) |
-| P3-10 | buraco negro de envio em conexão meio-aberta (descarte silencioso, retry de reconstrução unidirecional) | transport:504,:899; main.tsx:1563 | elim (troca de管 de detecção de morte e replay no 05) |
-| P3-11 | tempestade em cascata de reconexão (10 entradas, single-flight manual, 4 comparações de geração) | transport:839,:416; main.tsx:1439 等 | elim + premissa R-01 |
+| P3-10 | buraco negro de envio em conexão meio-aberta (descarte silencioso, retry de reconstrução unidirecional) | transport:504,:899; main.tsx:1563 | elim (troca da lógica de detecção de morte e replay no 05) |
+| P3-11 | tempestade em cascata de reconexão (10 entradas, single-flight manual, 4 comparações de geração) | transport:839,:416; main.tsx:1439 etc. | elim + premissa R-01 |
 | P3-12 | identidade do cliente como singleton de localStorage (mesmo id em múltiplas abas, fallback de private mode) | main.tsx:851,:863,:178 | fix R-08 |
 
 ### D. Transporte e controle remoto (P4)
@@ -322,8 +322,8 @@ Resultado líquido: no lado do CLI, o SQLite fica com **zero tabelas novas e zer
 | P4-6 | múltiplos heartbeats/detecção de morte/cascata de reconexão (5-6 entradas de transport + grace de 3s) | transport:288,:374,:425,:407,:436; manager:336 | elim + falta G-09(viabilidade do relay) |
 | P4-7 | falso vivo em conexão meio-aberta/em suspension (kernel não dispara close, waiting_terminal travado) | transport:359,:475 | elim (detecção de morte por ACK na camada de aplicação, argumentação e casos batem) |
 | P4-8 | estado de transporte mapeado em estado de UI com contradição (estado suspect staleWaiting, debounce mantendo active) | transport:365; manager:1000,:578,:1293 | elim + fix R-13 |
-| P4-9 | PersistentProtocol sem dedup no receptor/sem attach no servidor/sem ACK ativo | protocol.ts:411-425; remote.ts:302 | **volta** (sem a correção a tempestade de A1不会出现) → R-02 |
-| P4-10 | PersistentProtocol com zero implantação em produção | server/stdio.ts:53、http.ts:66、websocket.ts:97、host/index.ts:572 | correção de distorção M1 |
+| P4-9 | PersistentProtocol sem dedup no receptor/sem attach no servidor/sem ACK ativo | protocol.ts:411-425; remote.ts:302 | **volta** (sem a correção a tempestade de A1 não aparece) → R-02 |
+| P4-10 | PersistentProtocol com zero implantação em produção | server/stdio.ts:53, http.ts:66, websocket.ts:97, host/index.ts:572 | correção de distorção M1 |
 | P4-11 | entrega duplicada por múltiplos caminhos com fallback de eventId no fim (tabela circular de mil entradas, flush forçado entre canais para preservar ordem) | bus:1039,:444; transport:253 | elim + fix R-01(três ramos) |
 | P4-12 | dupla codificação base64/fatiamento manual (blocos de 0x8000 para evitar estouro de pilha) | manager:781; relayProtocol:30-47 | elim (quadros binários) + P-03(preservar deflate) |
 
@@ -338,7 +338,7 @@ Resultado líquido: no lado do CLI, o SQLite fica com **zero tabelas novas e zer
 | P5-5 | hoje fork em execução é proibido de forma absoluta vs o alvo permite histórico estável | :2042 | mudança de comportamento → lista C-07 |
 | P5-6 | escopo de herança do fork recuperado por patches item a item (modelo sobrescrito pelo default, timeline do goal quebrado) | :2072,:2121 | elim (tabelamento de herança testável em golden test) |
 | P5-7 | corrida de fechamento entre stop e estado terminal atrasado (verifier sem abort reteve active goal, cancelled sem evento terminal complementar) | :2310; event-reducer.ts:302,:435 | elim + fix R-15(entra no golden test) |
-| P5-8 | revision incrementada à mão em pontos espalhados, puramente em memória, -32009 não estruturado | :1207 等 15+ 处; server-types.ts:152 | fix R-04(revision derivada) |
+| P5-8 | revision incrementada à mão em pontos espalhados, puramente em memória, -32009 não estruturado | :1207 e mais 15+ pontos; server-types.ts:152 | fix R-04(revision derivada) |
 | P5-9 | dupla fila para entradas subsequentes em execução, volátil em dois pontos (steer puramente em memória + deferred queue da UI) | agent-runtime.ts:158; :1602-1617 | elim + correção M3 + 08 complementando a migração |
 | P5-10 | imposto de dedup por dupla expressão de streaming (scheduled repetindo grandes parâmetros, máquina de estados de dedup entre eventos) | :504 | elim (row.delta única + lista fechada de permissões) |
 | P5-11 | a fronteira de protocolo do CLI já tem uma camada de batching determinístico | :447,:3277-3279 | fix R-14(decisão de manter/remover) |

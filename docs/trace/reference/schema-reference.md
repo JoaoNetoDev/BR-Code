@@ -1,7 +1,7 @@
 # Dicionário de Span, Attribute, Event e Metric
 
 > Este documento define os Span, Attribute, Event e Metric do Telemetry Schema Version 6. Os princípios de design e exemplos de uso estão em
-> [CLI Agent Telemetry 设计与开发规范](../cli-agent-telemetry.md).
+> [CLI Agent Telemetry — desenho e especificação de desenvolvimento](../cli-agent-telemetry.md).
 
 Este arquivo precisa ser mantido manualmente. O TypeScript consegue restringir os parâmetros dos Setters, mas não substitui a explicação do significado dos campos, da semântica de ausência, da privacidade, da cardinalidade, dos usos de consulta e das relações de herança. Ao adicionar ou modificar qualquer Span, Attribute, Event, Metric ou alias de compatibilidade, este arquivo deve ser atualizado junto.
 
@@ -53,10 +53,10 @@ Os campos não precisam de um Schema Registry em runtime. Eles são escritos con
 
 | Fase     | Origem típica             | Campos típicos                                       |
 | -------- | ------------------------- | ---------------------------------------------------- |
-| Start    | já definidos ao criar o Span | operation、tool_name、requested_model            |
-| Progress | primeira definição no ciclo de vida | first_content、permission_decision、HTTP status |
-| Terminal | definidos na encerramento | outcome、failure_stage、exit_code、finish_reason |
-| Resource | definidos na criação do Runtime | version、build、runtime surface              |
+| Start    | já definidos ao criar o Span | operation, tool_name, requested_model            |
+| Progress | primeira definição no ciclo de vida | first_content, permission_decision, HTTP status |
+| Terminal | definidos no encerramento | outcome, failure_stage, exit_code, finish_reason |
+| Resource | definidos na criação do Runtime | version, build, runtime surface              |
 
 Os métodos Writer são a entrada dos campos; as Keys explícitas dentro do Runtime são o mapeamento de saída.
 
@@ -99,18 +99,18 @@ Os campos a seguir vêm do `AgentTelemetryExecutionContext` imutável e são pro
 
 | Campo                                  | Tipo    | Significado                                          | Principais locais de ocorrência                     |
 | -------------------------------------- | ------- | ---------------------------------------------------- | --------------------------------------------------- |
-| `zcode.execution.session_id`           | string? | Session atual                                       | Turn、Detached、Call、Attempt                        |
+| `zcode.execution.session_id`           | string? | Session atual                                       | Turn, Detached, Call, Attempt                        |
 | `zcode.execution.parent_session_id`    | string? | Session pai do Child                                | idem                                                  |
 | `zcode.execution.turn_id`              | string? | Turn atual                                           | todos os Span-chave com Turn Context                 |
-| `zcode.execution.parent_turn_id`       | string? | Turn pai do Child                                   | Turn、Detached、Call、Attempt                        |
-| `zcode.execution.query_id`             | string? | Query ID no nível da requisição                      | Turn、Detached、Call、Attempt                        |
-| `zcode.execution.actor_kind`           | enum?   | `main` / `subagent` / `workflow_child`              | Turn、Tool、Detached、Call、Attempt                  |
+| `zcode.execution.parent_turn_id`       | string? | Turn pai do Child                                   | Turn, Detached, Call, Attempt                        |
+| `zcode.execution.query_id`             | string? | Query ID no nível da requisição                      | Turn, Detached, Call, Attempt                        |
+| `zcode.execution.actor_kind`           | enum?   | `main` / `subagent` / `workflow_child`              | Turn, Tool, Detached, Call, Attempt                  |
 | `zcode.execution.agent_name`           | string? | Nome controlado do Agent                            | Turn                                                  |
 | `zcode.execution.identity_state`       | enum?   | `authenticated` / `anonymous` / `unknown`           | Turn                                                  |
 | `zcode.execution.user_subject_id`      | string? | ID controlado do sujeito usuário                    | Turn                                                  |
 | `zcode.execution.launch_surface`       | enum?   | `desktop` / `standalone_cli` / `web_remote` / `automation` / `bot` | Span com Execution Context        |
-| `zcode.execution.tool_call_id`         | string? | ID de correlação de Tool Call                       | Tool、Command、Call/Attempt dentro da ferramenta     |
-| `zcode.execution.logical_call_id`      | string? | ID da chamada de modelo lógica                      | Call、Attempt                                         |
+| `zcode.execution.tool_call_id`         | string? | ID de correlação de Tool Call                       | Tool, Command, Call/Attempt dentro da ferramenta     |
+| `zcode.execution.logical_call_id`      | string? | ID da chamada de modelo lógica                      | Call, Attempt                                         |
 | `zcode.execution.model_operation`      | enum?   | Snapshot da Call Operation pai do Attempt           | Attempt                                               |
 | `zcode.execution.model_role`           | string? | Snapshot do Model Role da Call pai do Attempt       | Attempt                                               |
 
@@ -215,8 +215,8 @@ failure_stage =
 
 Events:
 
-- `permission_requested`：no máximo um por Tool；
-- `permission_decided { decision }`：escrito apenas quando houve requisição e foi necessário uma decisão final.
+- `permission_requested`: no máximo um por Tool;
+- `permission_decided { decision }`: escrito apenas quando houve requisição e foi necessário uma decisão final.
 
 ## 8. `command_execution`
 
@@ -243,7 +243,7 @@ failure_stage = prepare | spawn | execute | timeout | collect_output | unhandled
 
 Events:
 
-- `first_output`：no máximo um；
+- `first_output`: no máximo um;
 - `termination_requested { reason }`，com reason sendo `cancelled/timeout/shutdown`。
 
 O comando completo, os argumentos, scripts, caminhos, cwd e variáveis de ambiente são proibidos no reporte.
@@ -431,10 +431,10 @@ failure_stage = configuration | connect | response | stream | parse | validation
 
 Events:
 
-- `first_provider_event`：no máximo um；
-- `first_content`：no máximo um；
-- `first_text`：no máximo um；
-- `stream_stalled { idle_ms }`：escrito a cada pausa nítida detectada; o Metric mantém apenas Count e Max;
+- `first_provider_event`: no máximo um;
+- `first_content`: no máximo um;
+- `first_text`: no máximo um;
+- `stream_stalled { idle_ms }`: escrito a cada pausa nítida detectada; o Metric mantém apenas Count e Max;
 - `fallback_selected { reason }` do `model_call` pai registra a decisão lógica de Fallback.
 
 ## 13. Compatibility Adapter
@@ -483,24 +483,24 @@ Todas as Histogram de Duration/TTF têm Unit em segundos; os Attributes `_ms` co
 
 | Instrument                                         | Tipo      | Significado                                  | Labels permitidos                                                                              |
 | -------------------------------------------------- | --------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `zcode.agent.turn.duration`                        | Histogram | Duração/volume do Turn em estado terminal    | outcome、error_category、actor_kind、input_source、launch_surface                              |
-| `zcode.agent.step.duration`                        | Histogram | Duração/volume do Step em estado terminal    | outcome、error_category、actor_kind、terminal_reason                                           |
-| `zcode.tool.execution.duration`                    | Histogram | Duração/volume da Tool em estado terminal    | outcome、error_category、tool_name                                                             |
-| `zcode.command.execution.duration`                 | Histogram | Duração/volume do Command em estado terminal | outcome、error_category、command_category、command_safe_name                                   |
-| `zcode.context.compaction.duration`                | Histogram | Duração/volume da Compaction em estado terminal | outcome、error_category、trigger、model_mode                                               |
-| `zcode.detached.operation.duration`                | Histogram | Duração/volume do Detached em estado terminal| outcome、error_category、operation、execution_kind                                             |
-| `zcode.model.call.duration`                        | Histogram | Duração/volume da Call lógica em estado terminal | outcome、error_category、model_operation、model_role、call_cause                           |
-| `zcode.model.attempt.duration`                     | Histogram | Duração/volume do Attempt do Provider em estado terminal | outcome、error_category、provider_kind、model、transport、model_operation、model_role |
+| `zcode.agent.turn.duration`                        | Histogram | Duração/volume do Turn em estado terminal    | outcome, error_category, actor_kind, input_source, launch_surface                              |
+| `zcode.agent.step.duration`                        | Histogram | Duração/volume do Step em estado terminal    | outcome, error_category, actor_kind, terminal_reason                                           |
+| `zcode.tool.execution.duration`                    | Histogram | Duração/volume da Tool em estado terminal    | outcome, error_category, tool_name                                                             |
+| `zcode.command.execution.duration`                 | Histogram | Duração/volume do Command em estado terminal | outcome, error_category, command_category, command_safe_name                                   |
+| `zcode.context.compaction.duration`                | Histogram | Duração/volume da Compaction em estado terminal | outcome, error_category, trigger, model_mode                                               |
+| `zcode.detached.operation.duration`                | Histogram | Duração/volume do Detached em estado terminal| outcome, error_category, operation, execution_kind                                             |
+| `zcode.model.call.duration`                        | Histogram | Duração/volume da Call lógica em estado terminal | outcome, error_category, model_operation, model_role, call_cause                           |
+| `zcode.model.attempt.duration`                     | Histogram | Duração/volume do Attempt do Provider em estado terminal | outcome, error_category, provider_kind, model, transport, model_operation, model_role |
 | `zcode.model.call.attempts`                        | Histogram | Quantidade de Attempts por Call               | Labels de Call acima + retry_state                                                             |
-| `zcode.model.attempt.tokens`                       | Counter   | Incremento de Token do Provider               | provider_kind、model、transport、model_operation、model_role、token_type                     |
+| `zcode.model.attempt.tokens`                       | Counter   | Incremento de Token do Provider               | provider_kind, model, transport, model_operation, model_role, token_type                     |
 | `zcode.model.attempt.time_to_first_provider_event` | Histogram | TTF Provider Event                            | Labels de Attempt                                                                             |
 | `zcode.model.attempt.time_to_first_content`        | Histogram | TTFC                                          | Labels de Attempt                                                                             |
 | `zcode.model.attempt.time_to_first_text`           | Histogram | TTFT                                          | Labels de Attempt                                                                             |
 | `zcode.model.attempt.stream_stall.count`           | Counter   | Quantidade de pausas no streaming             | Labels de Attempt                                                                             |
 | `zcode.model.attempt.stream_max_idle`              | Histogram | Maior pausa por Attempt                       | Labels de Attempt                                                                             |
 | `zcode.command.execution.time_to_first_output`     | Histogram | Primeira saída do Command                     | Labels de Command                                                                             |
-| `zcode.telemetry.creation_drop.count`              | Counter   | Descartes por proteção de capacidade antes da criação pelo Writer | span_name、drop_reason                                       |
-| `zcode.telemetry.abandoned.count`                  | Counter   | Span com encerramento anormal                 | span_name、abandon_reason                                                                    |
+| `zcode.telemetry.creation_drop.count`              | Counter   | Descartes por proteção de capacidade antes da criação pelo Writer | span_name, drop_reason                                       |
+| `zcode.telemetry.abandoned.count`                  | Counter   | Span com encerramento anormal                 | span_name, abandon_reason                                                                    |
 
 ```text
 token_type = input | output | reasoning | cache_read | cache_write

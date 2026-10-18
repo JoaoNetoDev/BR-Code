@@ -78,7 +78,7 @@ substituindo progressivamente a cadeia de produção duplicada de `plan_request`
 | Abstração de monitoramento | runtime de Telemetria genérico + Schema/Recorder fortemente tipado e específico de modelo            |
 | Classificação da chamada de modelo | usar um caminho `operation` pontuado e estável, sem criar `operation_phase` separado                    |
 | Campos customizados da Feature | usar discriminated union e campos com namespace, sem permitir Map de atributos arbitrários           |
-| Endpoint do Provider | sanitização automática interna do cliente; sem configuração, sem UI, sem感知 do usuário                     |
+| Endpoint do Provider | sanitização automática interna do cliente; sem configuração, sem UI, sem percepção do usuário                     |
 | Sanitização de Path | remover credenciais/query/fragment da URL e depois substituir com regex leve e-mail, UUID, números longos e segmentos estilo Token/Hash; sem template excessivo |
 | Cache de Endpoint   | memoizado no processo por `providerKind + baseURL`; sem persistência                                      |
 | Thought Level       | reutilizar o Model Catalog existente, o `thoughtLevel` da UI e o mapeamento final de Provider Options, sem criar níveis independentes de fornecedor |
@@ -386,7 +386,7 @@ Significado:
 - O Adapter precisa primeiro projetar um único namespace de Provider a partir do `provider_kind`
   real e do `provider_options_name` do SDK, e só então resolver `state`, `control_type`,
   `effective_level` e `effective_budget_tokens`. Namespaces de outros Providers no mesmo objeto contam
-  apenas como configuração não consumida e não podem participar da判定 dos fatos desta requisição.
+  apenas como configuração não consumida e não podem participar da determinação dos fatos desta requisição.
 
 Esses três campos são fatos ortogonais:
 
@@ -1414,8 +1414,8 @@ direcionais relevantes a esta rodada passaram.
 ## 25. Índice de pontos de entrada da implementação
 
 - Telemetry Contract: `apps/zcode-cli/packages/contracts/src/telemetry/index.ts`
-- Runtime/Recorder: `apps/zcode-cli/packages/telemetry/src/runtime.ts`、`model-api-recorder.ts`
-- Bootstrap/Exporter OTLP: `apps/zcode-cli/packages/telemetry/src/bootstrap.ts`、`lazy-otlp-exporter.ts`、`otlp-exporter.ts`
+- Runtime/Recorder: `apps/zcode-cli/packages/telemetry/src/runtime.ts`, `model-api-recorder.ts`
+- Bootstrap/Exporter OTLP: `apps/zcode-cli/packages/telemetry/src/bootstrap.ts`, `lazy-otlp-exporter.ts`, `otlp-exporter.ts`
 - Sanitização de Endpoint: `apps/zcode-cli/packages/telemetry/src/provider-endpoint.ts`
 - Model Adapter: `apps/zcode-cli/packages/adapters/src/model/runner.ts`
 - Status de Attempt: `apps/zcode-cli/packages/adapters/src/model/runner-status.ts`
@@ -1424,7 +1424,7 @@ direcionais relevantes a esta rodada passaram.
 - Classificador de Falhas: `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`
 - Thought Catalog: `apps/zcode-cli/packages/contracts/src/model/catalog.ts`
 - Políticas de Thought: `apps/zcode-cli/packages/adapters/src/model/reasoning-policy.ts`
-- Mapeamento de Thought do Runtime: `apps/zcode-cli/packages/adapters/src/model/runtime-thought-level.ts`（Bootstrap 保留兼容 re-export）
+- Mapeamento de Thought do Runtime: `apps/zcode-cli/packages/adapters/src/model/runtime-thought-level.ts`(o Bootstrap mantém o re-export compatível)
 - Bootstrap App/Standalone: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
 - Usage local: `apps/zcode-cli/packages/core/src/runtime/methods/usage-observability.ts`
 - Usage no SQLite: `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts`

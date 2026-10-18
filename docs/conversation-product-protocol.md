@@ -33,7 +33,7 @@ escrito de volta na rule table, no case catalog e na coverage matrix.
 | `packages/shared/src/validationAppSettings.ts` | Validação e valor padrão do app setting `zcodeInteractionBehavior = queue | guide` |
 | `packages/shared/src/zcode-protocol-v4/` | Schema atual de command, snapshot, delta, topic e ACK |
 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/` | Fonte de fatos atual para command inbox, guard, projection, publicação de topic e recuperação |
-| `packages/ui/src/v4/ConversationComposer.tsx`、`conversationStatusPanelModel.ts`、`SessionPane.tsx` | Controle do composer, painel de parada/status, despacho de comandos e lógica de consumo de projection |
+| `packages/ui/src/v4/ConversationComposer.tsx`, `conversationStatusPanelModel.ts`, `SessionPane.tsx` | Controle do composer, painel de parada/status, despacho de comandos e lógica de consumo de projection |
 | `packages/formal-proof/src/model.ts` | Protótipo atual do enumerador formal, como referência para a execucibilidade do protocolo |
 
 ## Forma do Protocolo
@@ -520,9 +520,9 @@ estável sem perder detalhes internos:
 | `sessionEnded` | `true` / `false` | se a entrada do composer pode imediatamente se tornar o próximo active turn |
 | `hasBackgroundWork` | `true` / `false` | se a session atual ainda tem background bash/subagent pendente; não decide o botão de stop principal |
 | `canStop` | `true` / `false` | se a session atual possui active work bloqueante de conclusão que o stop do usuário pode encerrar |
-| `stopState` | `idle`、`stoppable`、`stopping` | estado estável de exibição do botão de parada; após o clique pode entrar otimisticamente em `stopping` até a projeção autoritativa convergir |
-| `stopTargetKind` | `assistant`、`tool`、`subagent`、`compact`、`goalVerifier`、`goalContinuation`、`mixed`、`unknown` | sobre qual tipo de work o stop atual atuará principalmente; afeta apenas tooltip, log, telemetria e textos de detalhe, e não decide se o botão pisca |
-| `inputRouting` | `startNow`、`enqueue`、`guide`、`reject` | resumo da arbitragem de produto da entrada atual do composer, que precisa ser rastreável até um guard da rule table |
+| `stopState` | `idle`, `stoppable`, `stopping` | estado estável de exibição do botão de parada; após o clique pode entrar otimisticamente em `stopping` até a projeção autoritativa convergir |
+| `stopTargetKind` | `assistant`, `tool`, `subagent`, `compact`, `goalVerifier`, `goalContinuation`, `mixed`, `unknown` | sobre qual tipo de work o stop atual atuará principalmente; afeta apenas tooltip, log, telemetria e textos de detalhe, e não decide se o botão pisca |
+| `inputRouting` | `startNow`, `enqueue`, `guide`, `reject` | resumo da arbitragem de produto da entrada atual do composer, que precisa ser rastreável até um guard da rule table |
 
 O botão de parar não deve piscar durante transições de active work como
 `assistant -> compact -> goalVerifier -> goalContinuation`. Enquanto `canStop=true` ou
@@ -563,8 +563,8 @@ iniciado posteriormente.
 
 | Dimensão | Valores | Significado |
 | --- | --- | --- |
-| `queue.length` | `0`、`1`、`2`、`3+` | classes de equivalência de comprimento usadas na exibição do GUI e na convergência de cases |
-| `queue.autoDrain` | `true`、`false` | se a cabeça da fila é consumida automaticamente após o turno atual terminar |
+| `queue.length` | `0`, `1`, `2`, `3+` | classes de equivalência de comprimento usadas na exibição do GUI e na convergência de cases |
+| `queue.autoDrain` | `true`, `false` | se a cabeça da fila é consumida automaticamente após o turno atual terminar |
 
 A queue representa intenção futura do usuário e não pertence ao histórico já concluído. Todas as
 entradas vindas do desktop ou do celular, já submetidas e que não conseguem iniciar imediatamente
@@ -667,9 +667,9 @@ Fronteiras já confirmadas:
 
 | Dimensão | Valores | Significado |
 | --- | --- | --- |
-| `compact.origin` | `manual`、`auto` | disparado pelo usuário ou pela manutenção preparatória do sistema |
-| `compact.memory` | `never`、`compactable`、`justCompacted`、`notNeeded` | se o contexto atual precisa ou pode continuar a compactação |
-| `compact.canCompactAgain` | `true`、`false` | se, logo após um compact, compactar de novo ainda pode produzir uma compactação efetiva |
+| `compact.origin` | `manual`, `auto` | disparado pelo usuário ou pela manutenção preparatória do sistema |
+| `compact.memory` | `never`, `compactable`, `justCompacted`, `notNeeded` | se o contexto atual precisa ou pode continuar a compactação |
+| `compact.canCompactAgain` | `true`, `false` | se, logo após um compact, compactar de novo ainda pode produzir uma compactação efetiva |
 | `compact.pendingAction` | envio comum, queue item, goal enfileirado, rerun de edit etc. | ação a continuar após um auto compact bem-sucedido |
 
 O auto compact é um passo de manutenção preparatória inserido pelo sistema e não ocupa a queue do

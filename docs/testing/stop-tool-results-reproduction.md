@@ -158,7 +158,7 @@ As 4 novas regressões de Core falharam primeiro na implementação antiga e pas
 - Recuperação fria de Stop com imagem: o conteúdo de mídia bem-sucedido e os dois resultados cancelados são recuperados por completo; na recuperação fria com falha de salvamento, o primeiro item já salvo mantém a saída original e os dois não salvos continuam como interrupted.
 - As regressões existentes de identidade de streaming part, multimodal, provider request, continuação de output-token, cancelamento de checkpoint e ordem do goal reminder passaram.
 
-A revisão posterior de上下游 再 rodou 6 suítes de Core, com 99 casos no total passando: runtime persistence, command queue,
+A revisão posterior de ponta a ponta (upstream/downstream) executou novamente 6 suítes de Core, com 99 casos no total passando: runtime persistence, command queue,
 guide model selection / refresh, browser screenshot e stream recovery.
 Somando esses aos 12 suítes acima, são 18 suítes e 377 casos passando; os logs estão em `verification/boundary-audit.log` e
 `verification/stream-audit.log`. A verificação de arquitetura hoje cobre apenas os módulos managed, e a CLI ainda não está no seu escopo;

@@ -200,7 +200,7 @@ export interface IPlatformService {
 
 - [ ] **Passo 4: modificar test-ids.ts — remover TIDs antigos de login, adicionar TIDs de OAuth**
 
-Remova `TID_LOGIN_FORM`、`TID_USERNAME_INPUT`、`TID_PASSWORD_INPUT`、`TID_LOGIN_BUTTON`、`TID_LOGIN_ERROR`.
+Remova `TID_LOGIN_FORM`, `TID_USERNAME_INPUT`, `TID_PASSWORD_INPUT`, `TID_LOGIN_BUTTON`, `TID_LOGIN_ERROR`.
 
 Adicione:
 ```ts

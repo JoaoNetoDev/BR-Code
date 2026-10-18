@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Depois que o `feature-boundary-planner` foi generalizado, a partir de um skill de conversation, para se tornar a porta de entrada geral de esclarecimento de fronteiras de funcionalidade do ZCode, o fluxo principal preservou formal-proof, o catálogo de cases e o método de poda do usuário, mas o núcleo passou a ser弄清楚 primeiro a fronteira da funcionalidade. Quando o usuário traz questões como 「切换模型」 (trocar de modelo), 「手机模式」 (modo celular), 「队列功能」 (funcionalidade de fila), 「渲染性能」 (performance de renderização), 「持久化数据更新」 (atualização de dados persistidos), 「监控埋点」 (instrumentação de monitoramento) ou 「数据跟踪」 (rastreamento de dados), o skill precisa primeiro listar os estados de produto possivelmente cruzados e só então guiar o usuário a podar passo a passo, em vez de simplesmente aplicar as dimensões padrão de conversation.
+Depois que o `feature-boundary-planner` foi generalizado, a partir de um skill de conversation, para se tornar a porta de entrada geral de esclarecimento de fronteiras de funcionalidade do ZCode, o fluxo principal preservou formal-proof, o catálogo de cases e o método de poda do usuário, mas o núcleo passou a ser: primeiro entender a fronteira da funcionalidade. Quando o usuário traz questões como 「切换模型」 (trocar de modelo), 「手机模式」 (modo celular), 「队列功能」 (funcionalidade de fila), 「渲染性能」 (performance de renderização), 「持久化数据更新」 (atualização de dados persistidos), 「监控埋点」 (instrumentação de monitoramento) ou 「数据跟踪」 (rastreamento de dados), o skill precisa primeiro listar os estados de produto possivelmente cruzados e só então guiar o usuário a podar passo a passo, em vez de simplesmente aplicar as dimensões padrão de conversation.
 
 ## Objetivos
 

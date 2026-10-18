@@ -35,7 +35,7 @@ Veículo atual: `packages/ui/src/v4/composer/V4ComposerToolbar.tsx`, `SessionPan
    `z-code-m6-model` (branch `m6-model-selection`, baseado em feature/v4-vertical-slice 52fb19e61),
    com outras sessões concorrentes no diretório principal; depois fazer cherry-pick/merge.
 
-## 一、Lista de lacunas (capacidade × implementação antiga × situação atual no v4)
+## 1. Lista de lacunas (capacidade × implementação antiga × situação atual no v4)
 
 ### A. Lembrar a última seleção (persistência) — lacuna real
 | Capacidade | Origem antiga | Situação atual no v4 |
@@ -71,7 +71,7 @@ Veículo atual: `packages/ui/src/v4/composer/V4ComposerToolbar.tsx`, `SessionPan
 ### E. Polish
 - `showManageModelsAction={false}` (`V4ComposerToolbar.tsx:379`); `isItemLocked={()=>false}` (`:331`); logs de depuração `[v4-toolbar]/[v4-draft-config]/[v4-pane]`; guarda de compactação mantida em data de expiração (a discutir se necessário).
 
-## 二、Plano de execução por fases
+## 2. Plano de execução por fases
 
 Dependências: **4b depende de 1**; 2 se beneficia de 1 no lado do CLI; 3/4a/4c são basicamente
 independentes. Ordem recomendada: **4a + 4c → 1 → 4b → 2 → 3 → 5**.
@@ -82,7 +82,7 @@ independentes. Ordem recomendada: **4a + 4c → 1 → 4b → 2 → 3 → 5**.
 - **Phase 4 (C)**: 4a gate de entitlement (o mais leve, os dados já estão em mãos); 4b select do modo de conexão (depende de 1); 4c painel de consumo + breakdown/cache-hit (alinha com `m5-composer-parity §六`). Cada uma com L1/e2e.
 - **Phase 5 (E)**: manage-models, bloqueio durante execução, limpeza dos logs; a guarda de compactação fica para decisão.
 
-## 三、Critérios de aceitação
+## 3. Critérios de aceitação
 
 - Cada Phase traz L1/L2 + e2e; atualizar primeiro `docs/conversation-session-case-catalog.md` e `docs/testing/conversation-session-e2e-coverage-matrix.md` e só então escrever os cases.
 - Disciplina: sem ponte em `zcode-protocol-v4/`; código novo não chama o protocolo antigo; protocolo aditivo + sincronização de `10-protocol-spec.md`; caminhos antigos que podem ser removidos recebem data de expiração e são removidos.
@@ -146,7 +146,7 @@ ModelSelected(deepseek/deepseek-v4-flash, max) -> accepted ACK -> snapshot/UI
 snapshot model identity 不变 -> setThoughtLevel(用户显式值) -> 成功发布 / 不支持则失败且模型不变
 ```
 
-## 四、Progresso da execução
+## 4. Progresso da execução
 - [x] **Phase 4a — gate de entitlement** (`5c14a3927`): função pura `filterModelProvidersByEntitlement` + integração na montagem de grupos do V4ComposerToolbar + 7 testes unitários.
 - [x] **Phase 3 — persistência global do last-model**: `seedDraftOptionsFromGlobalPreference` (semente do diretório do draft, com revalidação contra o diretório) + escrita da semente global/consistente de primeiro envio em `useDraftConfigControl` + `SessionPane` também escreve no global ao trocar no meio da sessão + 4 testes unitários.
 - [~] **Phase 2 — fallback/posicionamento automático (slice1+2 concluídos)**: slice1 exibição no gatilho (placeholder "选择模型" para `<synthetic>`/modelo indisponível, `resolveModelSelectTriggerDisplay`); slice2 auto-cura de modelo inválido no estado de sessão trocando para o primeiro disponível (função pura `resolveV4ModelAutoFallback` com 8 testes unitários + effect na toolbar, exclusão durante a hidratação de entitlement + guard antideflutuação). **slice3 (seleção automática do primeiro modelo após o login) deferred** (o v4 não tem o evento de login; `resolveLoginProviderFirstModel` já existe, será conectado quando a face de login for v4-izada).

@@ -1,4 +1,4 @@
-# Design de埋点 de travamento na caixa de entrada (perf_ui_input_lag)
+# Design de instrumentação (埋点) de travamento na caixa de entrada (perf_ui_input_lag)
 
 Data: 2026-06-25
 Status: projetado, aguardando implementação
@@ -11,7 +11,7 @@ em digitação contínua.
 
 O `uiPerfArmsTelemetry.ts` existente já cobre a performance do **lado de saída** (primeiro token, conclusão
 da mensagem, agent step, pausa de streaming `perf_ui_stream_stall`), mas não tem observação de travamento do
-**lado de entrada**. Este design adiciona uma nova categoria de埋点, reportando ao ARMS a latência de
+**lado de entrada**. Este design adiciona uma nova categoria de instrumentação (埋点), reportando ao ARMS a latência de
 processamento de entrada para validar a causa raiz com dados de produção e quantificar a sensação.
 
 Não objetivos: não fazer uma latência ponta a ponta de "tecla até paint" (não introduzir pareamento
@@ -65,7 +65,7 @@ validada pela dimensão `text_length`.
 
 **Exclusões (não contam como travamento de digitação):**
 
-1. **Durante a composição de IME**: durante a composição de输入法 de chinês/japonês, o update é frequente e
+1. **Durante a composição de IME**: durante a composição de IME (输入法) de chinês/japonês, o update é frequente e
    naturalmente caro, o que causaria falso positivo; excluir.
    - Detalhe de implementação: o update listener em si não traz `isComposing`, é preciso descobrir a partir
      do estado de composição da root do editor (ou do `isComposing` do elemento root) se o Lexical expõe
@@ -91,7 +91,7 @@ Reutiliza o `ArmsCustomEventPayload` existente (`name` / `group` / `value` / `pr
 | `properties.task_id` | taskId atual (vazio no estado de rascunho) | correlacionar a sessão, consistente com os demais eventos ui_perf |
 
 Não incluído (YAGNI): conteúdo do texto (privacidade + volume), model (o lado de entrada não tem relação
-com o modelo), quantidade de mentions (a primeira版本 olha primeiro text_length; adiciona se precisar).
+com o modelo), quantidade de mentions (a primeira versão olha primeiro text_length; adiciona se precisar).
 
 ### 4. Integração e testes
 
@@ -123,7 +123,7 @@ com o modelo), quantidade de mentions (a primeira版本 olha primeiro text_lengt
 
 ## Registro de decisões-chave
 
-- Escopo de cobertura: não limitado a um único fenômeno; o埋点 cobre o que é mensurável, e a primeira versão foca na latência de processamento de keystroke.
+- Escopo de cobertura: não limitado a um único fenômeno; a instrumentação (埋点) cobre o que é mensurável, e a primeira versão foca na latência de processamento de keystroke.
 - Estratégia de reporte: reportar somente travamentos acima do limiar (volume mínimo de eventos; comentários no código citam a preocupação de que reportar item a item aumentaria demais o volume).
 - Mecanismo de medição: temporização com `performance.now` dentro do update listener (o mais próximo do custo real de processamento, com a menor mudança).
 - Limiar: 500ms (especificado pelo usuário, ponto de partida conservador).

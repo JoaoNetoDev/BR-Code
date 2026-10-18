@@ -40,10 +40,10 @@ A definição autoritativa é o Zod schema em `packages/shared/src/cloudContent.
 
 | Tipo do Hero        | Campos                                                                                        |
 | ------------------- | ---------------------------------------------------------------------------------------------- |
-| image               | src、darkSrc?、alt、fit?                                                                        |
-| video               | src、darkSrc?、poster、autoplay?、loop?、muted:true、fit?                                       |
-| lottie              | src、darkSrc?、autoplay?、loop?、speed?（0.1–4）、fallback?                                     |
-| interactive_bundle  | runtime:zcode-hero-sandbox-v1、bundle、viewport:{aspectRatio:"4:3"}、data、events、fallback?     |
+| image               | src, darkSrc?, alt, fit?                                                                        |
+| video               | src, darkSrc?, poster, autoplay?, loop?, muted:true, fit?                                       |
+| lottie              | src、darkSrc?、autoplay?、loop?、speed? (0.1–4), fallback?                                     |
+| interactive_bundle  | runtime:zcode-hero-sandbox-v1, bundle, viewport:{aspectRatio:"4:3"}, data, events, fallback?     |
 
 O bundle deve conter `format:"zip"`, `url`, `entry`, `sha256` (64 caracteres hexadecimais minúsculos); `sizeBytes` é opcional e, quando fornecido, deve ser um inteiro positivo e corresponder ao tamanho real. O Marketing Touch do servidor não tem campo de tamanho, mas o limite real de bytes para download e extração continua sendo aplicado. O mock HTTP usa metadados calculados de verdade, e não pode passar na verificação com hash de placeholder.
 

@@ -118,19 +118,19 @@ Campos básicos:
 - `cwd`
 - `permission_mode`
 - `hook_event_name`
-- `agent_type`（quando presente）
+- `agent_type` (quando presente)
 
-Campos por evento：
+Campos por evento:
 
 | Event                | Required Claude-compatible fields                                                   |
 | -------------------- | ------------------------------------------------------------------------ |
 | `SessionStart`       | `source`, com `agent_type` e `model` opcionais                                     |
 | `UserPromptSubmit`   | `prompt`                                                                 |
-| `PreToolUse`         | `tool_name`、`tool_input`、`tool_use_id`                                 |
-| `PermissionRequest`  | `tool_name`、`tool_input`、`permission_suggestions` opcional                 |
-| `PostToolUse`        | `tool_name`、`tool_input`、`tool_use_id`、`tool_response` completo           |
-| `PostToolUseFailure` | `tool_name`、`tool_input`、`tool_use_id`、string `error`、`is_interrupt` |
-| `Stop`               | `stop_hook_active`、`last_assistant_message`                             |
+| `PreToolUse`         | `tool_name`, `tool_input`, `tool_use_id`                              |
+| `PermissionRequest`  | `tool_name`, `tool_input`, `permission_suggestions` opcional                |
+| `PostToolUse`        | `tool_name`, `tool_input`, `tool_use_id`, `tool_response` completo          |
+| `PostToolUseFailure` | `tool_name`, `tool_input`, `tool_use_id`, string `error`, `is_interrupt` |
+| `Stop`               | `stop_hook_active`, `last_assistant_message`                             |
 
 `PostToolUse.tool_response` usa a saída estruturada completa do handler da ferramenta; `toolResultPreview` continua sendo preservado como campo de extensão do ZCode, mas não pode substituir `tool_response`.
 

@@ -134,7 +134,7 @@ Isso cobre requisições de permissão comuns como comandos de shell, caminhos d
 
 ## "Acesso total" no diálogo de aprovação (Todo158)
 
-A aprovação de task principal comum oferece, quando o Agent suporta a capacidade de submissão completa,依次: permitir uma vez, sempre permitir este comando, acesso total e recusar; quando `freeText` é declarado, o feedback é a quinta linha. A permissão de projeto do comando preserva a prefix/exact rule dada pelo Agent; arquivo, rede, MCP e CUA preservam seus próprios textos de escopo.
+A aprovação de task principal comum oferece, quando o Agent suporta a capacidade de submissão completa, nesta ordem: permitir uma vez, sempre permitir este comando, acesso total e recusar; quando `freeText` é declarado, o feedback é a quinta linha. A permissão de projeto do comando preserva a prefix/exact rule dada pelo Agent; arquivo, rede, MCP e CUA preservam seus próprios textos de escopo.
 
 O item 2 da aprovação de comando é descrito como "no escopo do projeto, o mesmo comando não volta a perguntar"; o item 3 é descrito como "concede ao Agent acesso total, sem novas confirmações." Esse texto não altera o escopo de autorização nem os limites de Plan descritos acima.
 

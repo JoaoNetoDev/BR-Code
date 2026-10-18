@@ -180,7 +180,7 @@ Bootstrap e typecheck:e2e do desktop aprovados. Host/shared direcionado, 7 arqui
 por rodada de escopo e não somam execuções repetidas como número de casos independentes. A falha existente de Cron do grupo completo
 de protocolo continua registrada na seção 5, sem se passar por verde em todo o repositório.
 
-**Decisão final secundária:** o usuário respondeu "还没有，你甭管了先",adiando explicitamente a página Web da mesma versão e o teste conjunto
+**Decisão final secundária:** o usuário respondeu "还没有，你甭管了先", adiando explicitamente a página Web da mesma versão e o teste conjunto
 real no celular shared-host＋SSH do W99-E05. A implementação e a revisão desta rodada podem ser encerradas, sem alegar aprovação desse
 item. Ciclo de vida sincronizado, transação global A→B→A, CLI independente e Todo101 continuam fora de escopo conforme a decisão
 original. Publicar Host/Worker exige usar o mesmo lote de artefatos de protocolo; esta rodada não implantou o pacote Web para o usuário.
