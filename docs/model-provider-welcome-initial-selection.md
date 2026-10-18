@@ -23,8 +23,8 @@ A WelcomeScreen não espera a consulta de plano terminar e mantém o ritmo atual
   - outros Built-in provider
   - custom provider
 - O menu "连接方式" à direita mostra os modos de conexão alternáveis dentro da mesma family:
-  - Individual Plan / 个人套餐（个人）
-  - Team Plan / 团队套餐（团队，按获取到的团队套餐逐项显示）
+  - Individual Plan / 个人套餐 (个人)
+  - Team Plan / 团队套餐 (团队, 按获取到的团队套餐逐项显示)
   - API Key
 - Start Plan / 体验套餐 não é exibido como modo de conexão antes do login; ele só entra no menu de modos de conexão quando, após o login, se confirma que existe o benefício do plano de experiência e não há benefício de plano pessoal/equipe.
 - Múltiplos Coding Plans de equipe não geram múltiplas entradas na navegação lateral; eles viram apenas múltiplas opções no menu de modos de conexão à direita.
@@ -34,10 +34,10 @@ A WelcomeScreen não espera a consulta de plano terminar e mantém o ritmo atual
 
 Quando o usuário escolhe o login OAuth Z.ai ou BigModel pela WelcomeScreen, a página de configurações de Model Provider primeiro seleciona a entrada da navegação lateral da family correspondente e depois, dentro da mesma family, aguarda o estado dos modos de conexão se tornar decidível, selecionando uma única vez pela seguinte prioridade:
 
-1. 个人套餐（Coding Plan，个人）：há benefício de Coding Plan pessoal.
-2. 团队套餐（Coding Plan，团队）：o primeiro item de equipe no resultado de obtenção dos planos de equipe.
-3. 体验套餐（Start Plan）：há benefício do plano de experiência.
-4. 个人套餐（Coding Plan，个人）：quando não há benefício algum, ainda assim cai na entrada pessoal de Coding como fallback.
+1. 个人套餐 (Coding Plan, 个人): há benefício de Coding Plan pessoal.
+2. 团队套餐 (Coding Plan, 团队): o primeiro item de equipe no resultado de obtenção dos planos de equipe.
+3. 体验套餐 (Start Plan): há benefício do plano de experiência.
+4. 个人套餐 (Coding Plan, 个人): quando não há benefício algum, ainda assim cai na entrada pessoal de Coding como fallback.
 
 Matriz de estados completa:
 

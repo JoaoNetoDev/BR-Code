@@ -57,7 +57,7 @@ Seleção padrão do Markdown do plugin (somente leitura)
 - Integração B2: IDs de habilitação padrão vão para o contrato compartilhado de marketplace, reutilizado pelas três entradas de recursos; incluindo o computer-use hoje explicitamente habilitado por padrão
   (a lista upstream de quatro itens omite este), com comparação mecânica contra a definition da CLI. A varredura de diretório fica na entrada compartilhada apenas-Node,
   sem nova importação de implementação concreta do domínio Plugins por parte de Subagents/Skills/Commands; sem refatorar os demais mecanismos de descoberta de recursos.
-- Aceitação B2: builtin padrão sem registro de instalação é visível; não padrão/ desativado explicitamente / suprimido é invisível; entre versões válidas nova e antiga escolhe-se a nova,
+- Aceitação B2: builtin padrão sem registro de instalação é visível; builtin não padrão / desativado explicitamente / suprimido é invisível; entre versões válidas nova e antiga escolhe-se a nova,
   name incompatível com o manifest faz fallback, diretórios temporários/de backup não participam; registro de instalação tem prioridade e registro disabled não é ressuscitado pelo fallback de cache.
 - O `settingsUserOnly` do Settings ainda lista apenas itens de usuário/embutido gerenciáveis e não lê arquivos de projeto; mas `pluginAgents`
   precisa retornar a projeção de recursos somente-leitura dos plugins locais, senão o controle de sobrescrita compartilhado é inalcançável na página do usuário.
@@ -136,7 +136,7 @@ type BuiltInSubagentModelSelectionOverrides = Partial<Record<BuiltInSubagentName
 
 O bootstrap lê o state na inicialização; a entrada local integrada, em um novo contexto pai, atualiza as coberturas de model/thought level do profile de builtin com o state em memória do Host. Cobertura passada explicitamente pela configuração de inicialização tem prioridade sobre a do disco; se a configuração de inicialização substituiu o model de um agent mas não forneceu thought level, esse agent não herda o thought level do model antigo no disco.
 
-A input provider-visible da tool `Agent` não oferece parâmetros de `model` ou `thoughtLevel`, e não existe cobertura em nível de invocation. O child runtime de uma sessão comum lê o `AgentProfile` finalmente resolvido:
+A entrada provider-visible da tool `Agent` não oferece parâmetros de `model` ou `thoughtLevel`, e não existe cobertura em nível de invocation. O child runtime de uma sessão comum lê o `AgentProfile` finalmente resolvido:
 
 - Quando o profile não configura modelo, herda o main model da sessão pai e as provider options.
 - Quando o profile configura um modelo específico sem thought level, as provider options são geradas com o nível padrão do catalog daquele modelo alvo.
@@ -253,5 +253,5 @@ Salvamento e limpeza de cobertura no Settings são cobertos por testes unitário
 - Nível histórico inválido não recai silenciosamente nem é salvo.
 - Limpar a cobertura restaura o modelo padrão.
 - O child request de runtime usa o modelo coberto e as provider options correspondentes a esse modelo.
-- A input provider-visible de `Agent` não contém `model`, e versões históricas que passem esse campo adicional não alteram o modelo do child.
+- A entrada provider-visible de `Agent` não contém `model`, e versões históricas que passem esse campo adicional não alteram o modelo do child.
 - As child tools de `Explore` são coerentes com as capacidades do modelo coberto.

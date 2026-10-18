@@ -13,7 +13,7 @@
 ### Tarefa 1: Adicionar testes de seleção da UI que falham
 
 **Arquivos:**
-- Modify: `packages/ui/test/chatInputToolbarModelGroups.test.ts`
+- Modificar: `packages/ui/test/chatInputToolbarModelGroups.test.ts`
 
 - [ ] **Step 1: Adicionar o teste de regressão que falha**
 
@@ -43,18 +43,18 @@ Adicione este teste dentro de `describe("shouldIncludeModelProviderInSelection",
 
 - [ ] **Step 2: Verificar RED**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts -t "responses endpoint"
 ```
 
-Expected: FAIL porque os formatos exigidos pelo GLM e as verificações de endpoint não incluem `responses`.
+Esperado: FAIL porque os formatos exigidos pelo GLM e as verificações de endpoint não incluem `responses`.
 
 ### Tarefa 2: Adicionar testes de seleção do Bot que falham
 
 **Arquivos:**
-- Modify: `packages/services/test/botsModelSelectionHelpers.test.ts`
+- Modificar: `packages/services/test/botsModelSelectionHelpers.test.ts`
 
 - [ ] **Step 1: Adicionar o teste de regressão que falha**
 
@@ -83,19 +83,19 @@ Adicione este teste após "GLM /model 入口允许只配置 openai endpoint 的�
 
 - [ ] **Step 2: Verificar RED**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/services/test/botsModelSelectionHelpers.test.ts -t "responses endpoint"
 ```
 
-Expected: FAIL porque a seleção GLM do Bot não inclui `responses`.
+Esperado: FAIL porque a seleção GLM do Bot não inclui `responses`.
 
 ### Tarefa 3: Atualizar os filtros de seleção do GLM
 
 **Arquivos:**
-- Modify: `packages/ui/src/chat-input-toolbar/modelSelection.ts`
-- Modify: `packages/services/src/bots/modelSelectionHelpers.ts`
+- Modificar: `packages/ui/src/chat-input-toolbar/modelSelection.ts`
+- Modificar: `packages/services/src/bots/modelSelectionHelpers.ts`
 
 - [ ] **Step 1: Atualizar a seleção de modelo do chat**
 
@@ -133,18 +133,18 @@ Também altere a verificação de endpoint para inclusão de provider do GLM par
 
 - [ ] **Step 3: Verificar GREEN**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts packages/services/test/botsModelSelectionHelpers.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
 ### Tarefa 4: Documentar a Seleção GLM Responses
 
 **Arquivos:**
-- Modify: `docs/ui/chat-model-select-menu.md`
+- Modificar: `docs/ui/chat-model-select-menu.md`
 
 - [ ] **Step 1: Adicionar nota de compatibilidade**
 
@@ -156,7 +156,7 @@ Adicione este bullet em "兼容边界":
 
 - [ ] **Step 2: Executar a verificação obrigatória**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/ui/test/chatInputToolbarModelGroups.test.ts packages/services/test/botsModelSelectionHelpers.test.ts
@@ -164,11 +164,11 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: todos os comandos saem com 0.
+Esperado: todos os comandos saem com 0.
 
 - [ ] **Step 3: Commitar**
 
-Run:
+Executar:
 
 ```bash
 git status --short
@@ -176,4 +176,4 @@ git add docs/superpowers/specs/2026-06-08-glm-responses-model-selection-design.m
 git commit -m "feat(model-provider): support glm responses selection"
 ```
 
-Expected: o commit é bem-sucedido.
+Esperado: o commit é bem-sucedido.

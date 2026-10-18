@@ -1,45 +1,45 @@
-# WSL Remote Process Cleanup Implementation Plan
+# Plano de Implementação da Limpeza de Processos Remotos WSL
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. As etapas usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:** Make real window close, application quit, and update installation deterministically release all ZCode-owned Remote Hosts and WSL server/Agent processes without terminating the WSL distro.
+**Objetivo:** fazer com que o fechamento real da janela, a saída do aplicativo e a instalação de atualização liberem, de forma determinística, todos os Hosts Remotos e processos de server/Agent pertencentes ao ZCode, sem encerrar a distribuição WSL.
 
-**Architecture:** Desktop Main will use the remote session manager as the lifecycle authority and wait for all unique Local/Remote Hosts through one idempotent shutdown barrier. Host and remote stdio shutdown become bounded phase machines that always attempt Agent cleanup, while WSL tracks only the child processes it created. A strict owner registry provides safe cleanup for newly created, provably orphaned ZCode Agent processes.
+**Arquitetura:** o Main do Desktop usará o gerenciador de sessões remotas como autoridade de ciclo de vida e aguardará todos os Hosts Locais/Remotos únicos através de uma barreira de desligamento idempotente. O desligamento de stdio do Host e do server remoto passa a ser uma máquina de fases com prazo limitado que sempre tenta a limpeza do Agent, enquanto o WSL rastreia apenas os processos filhos que ele criou. Um registro estrito de proprietors fornece limpeza segura para processos de Agent do ZCode recém-criados e comprovadamente órfãos.
 
-**Tech Stack:** TypeScript, Electron UtilityProcess, Node.js child_process/stdio, Vitest, Zustand-independent Desktop Main/Host services.
+**Stack técnico:** TypeScript, Electron UtilityProcess, child_process/stdio do Node.js, Vitest, serviços de Main/Host do Desktop independentes de Zustand.
 
-**Execution scope note (2026-07-20):** 用户确认的产品边界是“真实关闭（非托盘隐藏）与更新安装时销毁”。
-本次实现 Task 1-3 和文档/验证；Task 4 的跨启动 owner registry/reaper 不属于该触发边界，且会扩大到全局
-进程检查，因此暂不引入。当前 fallback 只回收 `WSLBackend` 本实例明确创建的 child，不按进程名扫描。
+**Nota de escopo de execução (2026-07-20):** a fronteira de produto confirmada pelo usuário é “fechamento real (sem ocultação na bandeja) e na instalação de atualização”.
+Esta implementação cobre as Tasks 1-3 e a documentação/verificação; o registro de proprietários/reaper de inicialização cruzada da Task 4 não pertence a essa fronteira de gatilho e ampliaria para uma verificação
+global de processos, portanto não é introduzido agora. O fallback atual recupera apenas os filhos criados explicitamente pela própria instância de `WSLBackend`, sem varrer por nome de processo.
 
-## Global Constraints
+## Restrições globais
 
-- Never call `wsl --terminate` or `wsl --shutdown`.
-- Do not destroy runtimes for minimize, tray hide, renderer reload, or mobile bridge disconnect.
-- Desktop local/SSH/WSL/Docker attachments remain `desktop-continuous`; mobile remains `web-remote-replayable`.
-- Mobile `/remote` must continue attaching to an existing Host and must never start an independent runtime.
-- Preserve `workspaceKey = workspaceIdentity?.trim() || workspacePath`, `remoteSessionId`, owner/lease, and CommandInbox semantics.
-- All lifecycle APIs must be idempotent and reuse an in-flight/result Promise.
-- Comments explaining bug causes are written in Chinese.
-- Run `pnpm typecheck` and `pnpm lint` before completion.
+- Nunca chamar `wsl --terminate` nem `wsl --shutdown`.
+- Não destruir runtimes para minimizar, ocultar na bandeja, recarregar o renderer ou desconectar a ponte móvel.
+- Anexos local/SSH/WSL/Docker do Desktop permanecem `desktop-continuous`; o mobile permanece `web-remote-replayable`.
+- O `/remote` móvel deve continuar se anexando a um Host existente e nunca iniciar um runtime independente.
+- Preservar `workspaceKey = workspaceIdentity?.trim() || workspacePath`, `remoteSessionId`, owner/lease e a semântica de CommandInbox.
+- Todas as APIs de ciclo de vida devem ser idempotentes e reutilizar uma Promise em voo/resultante.
+- Comentários explicando causas de bug são escritos em chinês.
+- Executar `pnpm typecheck` e `pnpm lint` antes de concluir.
 
 ---
 
-### Task 1: Application-Level Remote Host Shutdown Barrier
+### Task 1: Barreira de Desligamento de Hosts Remotos no Nível do Aplicativo
 
-**Files:**
-- Modify: `packages/desktop/src/main/desktopRemoteSessions.ts`
-- Modify: `packages/desktop/src/main/index.ts`
-- Modify: `packages/desktop/test/desktopRemoteSessions.test.ts`
-- Modify: `packages/desktop/test/desktopHostProcess.test.ts`
+**Arquivos:**
+- Modificar: `packages/desktop/src/main/desktopRemoteSessions.ts`
+- Modificar: `packages/desktop/src/main/index.ts`
+- Modificar: `packages/desktop/test/desktopRemoteSessions.test.ts`
+- Modificar: `packages/desktop/test/desktopHostProcess.test.ts`
 
 **Interfaces:**
-- Consumes: existing `disposeHostProcessAndWait(child, label, timers, logger, options)`.
-- Produces: `disposeAllAndWaitForAppShutdown(reason: string): Promise<void>` on the remote session manager.
+- Consome: `disposeHostProcessAndWait(child, label, timers, logger, options)` já existente.
+- Produz: `disposeAllAndWaitForAppShutdown(reason: string): Promise<void>` no gerenciador de sessões remotas.
 
-- [ ] **Step 1: Write failing manager tests**
+- [ ] **Etapa 1: Escrever testes falhos do gerenciador**
 
-Add tests that create one dedicated WSL session, one shared SSH Host, one pending SSH connect, and one Bot runtime, then assert application shutdown:
+Adicionar testes que criam uma sessão WSL dedicada, um Host SSH compartilhado, uma conexão SSH pendente e um runtime de Bot, e então verificar o desligamento da aplicação:
 
 ```ts
 const shutdown = manager.disposeAllAndWaitForAppShutdown("app-before-quit");
@@ -51,21 +51,21 @@ expect(disposeHostProcessAndWait).toHaveBeenCalledWith(
 await shutdown;
 ```
 
-Add a second call assertion proving the same in-flight Promise is reused and Host processes are deduplicated.
+Adicionar uma segunda asserção de chamada provando que a mesma Promise em voo é reutilizada e que os processos de Host são deduplicados.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [ ] **Etapa 2: Executar os testes e verificar RED**
 
-Run:
+Executar:
 
 ```sh
 pnpm exec vitest run packages/desktop/test/desktopRemoteSessions.test.ts
 ```
 
-Expected: FAIL because `disposeAllAndWaitForAppShutdown` and the async disposer injection do not exist.
+Esperado: FAIL porque `disposeAllAndWaitForAppShutdown` e a injeção do disposer assíncrono não existem.
 
-- [ ] **Step 3: Implement the manager barrier**
+- [ ] **Etapa 3: Implementar a barreira do gerenciador**
 
-Extend manager options with:
+Estender as opções do gerenciador com:
 
 ```ts
 disposeHostProcessAndWait: (
@@ -74,7 +74,7 @@ disposeHostProcessAndWait: (
 ) => Promise<void>;
 ```
 
-Implement a single-flight function that rejects pending connects, snapshots unique dedicated/shared/Bot processes, clears lifecycle maps before awaiting, and runs all disposals in parallel:
+Implementar uma função single-flight que rejeita as conexões pendentes, tira um snapshot dos processos dedicados/compartilhados/Bot únicos, limpa os mapas de ciclo de vida antes de aguardar e executa todos os desligamentos em paralelo:
 
 ```ts
 let appShutdownInFlight: Promise<void> | null = null;
@@ -91,45 +91,45 @@ function disposeAllAndWaitForAppShutdown(reason: string): Promise<void> {
 }
 ```
 
-Creation APIs must reject after `appShutdownStarted`.
+As APIs de criação devem rejeitar depois de `appShutdownStarted`.
 
-- [ ] **Step 4: Wire app quit and update install**
+- [ ] **Etapa 4: Conectar a saída do app e a instalação de atualização**
 
-In `index.ts`, inject `disposeHostProcessAndWait` into the manager. Change both `prepareAppQuit` and `prepareWindowsProcessesForUpdateInstall` to await Local Host cleanup and `remoteSessionManager.disposeAllAndWaitForAppShutdown(reason)` in parallel. Preserve existing per-window `closed` disposal.
+Em `index.ts`, injetar `disposeHostProcessAndWait` no gerenciador. Alterar tanto `prepareAppQuit` quanto `prepareWindowsProcessesForUpdateInstall` para aguardar a limpeza do Host Local e `remoteSessionManager.disposeAllAndWaitForAppShutdown(reason)` em paralelo. Preservar a disposição por janela via `closed` já existente.
 
-- [ ] **Step 5: Run focused tests and verify GREEN**
+- [ ] **Etapa 5: Executar os testes direcionados e verificar GREEN**
 
-Run:
+Executar:
 
 ```sh
 pnpm exec vitest run packages/desktop/test/desktopRemoteSessions.test.ts packages/desktop/test/desktopHostProcess.test.ts packages/desktop/test/desktopWindowLifecycle.test.ts packages/desktop/test/e2eProcessCleanup.test.ts
 ```
 
-Expected: all tests PASS.
+Esperado: todos os testes PASSAM.
 
-- [ ] **Step 6: Commit**
+- [ ] **Etapa 6: Commitar**
 
 ```sh
 git add packages/desktop/src/main/desktopRemoteSessions.ts packages/desktop/src/main/index.ts packages/desktop/test/desktopRemoteSessions.test.ts packages/desktop/test/desktopHostProcess.test.ts
 git commit -m "fix(desktop): await remote hosts during shutdown"
 ```
 
-### Task 2: Bounded Host and Remote Server Cleanup Phases
+### Task 2: Fases de Limpeza Limitadas do Host e do Server Remoto
 
-**Files:**
-- Modify: `packages/desktop/src/host/index.ts`
-- Modify: `packages/server/src/stdio-lifecycle.ts`
-- Modify: `packages/server/test/stdioLifecycle.test.ts`
-- Create: `packages/desktop/src/host/hostShutdownPhases.ts`
-- Create: `packages/desktop/test/hostShutdownPhases.test.ts`
+**Arquivos:**
+- Modificar: `packages/desktop/src/host/index.ts`
+- Modificar: `packages/server/src/stdio-lifecycle.ts`
+- Modificar: `packages/server/test/stdioLifecycle.test.ts`
+- Criar: `packages/desktop/src/host/hostShutdownPhases.ts`
+- Criar: `packages/desktop/test/hostShutdownPhases.test.ts`
 
 **Interfaces:**
-- Produces: `runHostShutdownPhases(phases, options): Promise<HostShutdownResult>`.
-- Consumes later: `RemoteConnection.disposeAndWait()` from Task 3; until then the remote phase may wrap synchronous `dispose()`.
+- Produz: `runHostShutdownPhases(phases, options): Promise<HostShutdownResult>`.
+- Consome depois: `RemoteConnection.disposeAndWait()` da Task 3; até lá a fase remota pode envolver um `dispose()` síncrono.
 
-- [ ] **Step 1: Write failing stdio lifecycle test**
+- [ ] **Etapa 1: Escrever o teste falho do ciclo de vida de stdio**
 
-Add a fake-timer test where `stopRpc` never resolves and verify `dispose` is still called after the RPC phase deadline:
+Adicionar um teste de fake timers em que `stopRpc` nunca resolve e verificar que `dispose` ainda é chamado depois do prazo da fase de RPC:
 
 ```ts
 stdin.emit("end");
@@ -139,17 +139,17 @@ await vi.advanceTimersByTimeAsync(3_500);
 expect(exit).toHaveBeenCalledTimes(1);
 ```
 
-- [ ] **Step 2: Run the server test and verify RED**
+- [ ] **Etapa 2: Executar o teste do server e verificar RED**
 
 ```sh
 pnpm exec vitest run packages/server/test/stdioLifecycle.test.ts
 ```
 
-Expected: FAIL because current total `Promise.race` skips `dispose` while `stopRpc` is pending.
+Esperado: FAIL porque a corrida total atual `Promise.race` pula `dispose` enquanto `stopRpc` está pendente.
 
-- [ ] **Step 3: Give each stdio phase an independent deadline**
+- [ ] **Etapa 3: Dar a cada fase de stdio um prazo independente**
 
-Replace the single total race with a reusable bounded phase runner:
+Substituir a corrida total única por um executor de fases limitado reutilizável:
 
 ```ts
 await runBoundedPhase("rpc-stop", stopRpc, rpcStopTimeoutMs);
@@ -157,15 +157,15 @@ await runBoundedPhase("service-dispose", dispose, serviceDisposeTimeoutMs);
 exit(requestedExitCode);
 ```
 
-Timeout/error marks exit code 1 and logs the exact phase, but never skips the next phase.
+Timeout/erro marca o código de saída 1 e registra a fase exata, mas nunca pula a próxima fase.
 
-- [ ] **Step 4: Write Host phase tests**
+- [ ] **Etapa 4: Escrever os testes de fases do Host**
 
-Cover service cleanup failure followed by remote cleanup, repeated shutdown calls, and cleanup timeout returning a non-zero result.
+Cobrir falha de limpeza de serviço seguida de limpeza remota, chamadas repetidas de desligamento e timeout de limpeza retornando um resultado diferente de zero.
 
-- [ ] **Step 5: Implement and wire Host phases**
+- [ ] **Etapa 5: Implementar e conectar as fases do Host**
 
-Create the focused helper and make `disposeHostResources` call it. Change `disconnect` to:
+Criar o helper focado e fazer `disposeHostResources` chamá-lo. Alterar `disconnect` para:
 
 ```ts
 process.once("disconnect", () => {
@@ -173,45 +173,45 @@ process.once("disconnect", () => {
 });
 ```
 
-Keep `exit` synchronous best-effort only.
+Manter `exit` como algo síncrono e best-effort apenas.
 
-- [ ] **Step 6: Run focused tests and verify GREEN**
+- [ ] **Etapa 6: Executar os testes direcionados e verificar GREEN**
 
 ```sh
 pnpm exec vitest run packages/server/test/stdioLifecycle.test.ts packages/desktop/test/hostShutdownPhases.test.ts
 ```
 
-Expected: all tests PASS.
+Esperado: todos os testes PASSAM.
 
-- [ ] **Step 7: Commit**
+- [ ] **Etapa 7: Commitar**
 
 ```sh
 git add packages/server/src/stdio-lifecycle.ts packages/server/test/stdioLifecycle.test.ts packages/desktop/src/host/index.ts packages/desktop/src/host/hostShutdownPhases.ts packages/desktop/test/hostShutdownPhases.test.ts
 git commit -m "fix(remote): bound every shutdown cleanup phase"
 ```
 
-### Task 3: Awaitable RemoteConnection and WSL Child Ownership
+### Task 3: RemoteConnection Aguardável e Posse de Filhos WSL
 
-**Files:**
-- Modify: `packages/server/src/remote/backend.ts`
-- Modify: `packages/server/src/remote/connect.ts`
-- Modify: `packages/server/src/remote/wsl-backend.ts`
-- Modify: `packages/server/src/remote/docker-backend.ts`
-- Modify: `packages/desktop/src/host/index.ts`
-- Modify: `packages/server/test/remoteConnect.test.ts`
-- Modify: `packages/server/test/wslBackend.test.ts`
+**Arquivos:**
+- Modificar: `packages/server/src/remote/backend.ts`
+- Modificar: `packages/server/src/remote/connect.ts`
+- Modificar: `packages/server/src/remote/wsl-backend.ts`
+- Modificar: `packages/server/src/remote/docker-backend.ts`
+- Modificar: `packages/desktop/src/host/index.ts`
+- Modificar: `packages/server/test/remoteConnect.test.ts`
+- Modificar: `packages/server/test/wslBackend.test.ts`
 
 **Interfaces:**
-- Produces: `RemoteConnection.disposeAndWait(): Promise<void>`.
-- Produces: optional `IRemoteBackend.disposeAndWait?(): Promise<void>` while retaining synchronous `dispose()` compatibility.
+- Produz: `RemoteConnection.disposeAndWait(): Promise<void>`.
+- Produz: `IRemoteBackend.disposeAndWait?(): Promise<void>` opcional, mantendo a compatibilidade com o `dispose()` síncrono.
 
-- [ ] **Step 1: Write failing connection tests**
+- [ ] **Etapa 1: Escrever os testes falhos de conexão**
 
-Assert `disposeAndWait` closes stdin immediately, waits for `stream.onClose`, falls back to backend cleanup after a fake-timer deadline, and returns the same Promise on repeated calls. Add a connect failure test asserting backend dispose when detect/deploy/handshake throws.
+Verificar que `disposeAndWait` fecha o stdin imediatamente, aguarda `stream.onClose`, faz fallback para a limpeza do backend após um prazo de fake timers e retorna a mesma Promise em chamadas repetidas. Adicionar um teste de falha de conexão verificando a disposição do backend quando detect/deploy/handshake lança erro.
 
-- [ ] **Step 2: Write failing WSL child tests**
+- [ ] **Etapa 2: Escrever os testes falhos de filhos WSL**
 
-Extend the spawn mock child with `kill`, `exit`, and `close`. Assert:
+Estender o child do spawn mock com `kill`, `exit` e `close`. Verificar:
 
 ```ts
 const stream = await backend.exec("sleep 60");
@@ -221,135 +221,135 @@ child.emit("close", 0);
 await disposal;
 ```
 
-Add timeout coverage proving only children spawned by that backend are killed and no WSL terminate/shutdown args are issued.
+Adicionar cobertura de timeout provando que apenas filhos criados por aquele backend são mortos e que nenhum argumento de terminate/shutdown do WSL é emitido.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [ ] **Etapa 3: Executar os testes e verificar RED**
 
 ```sh
 pnpm exec vitest run packages/server/test/remoteConnect.test.ts packages/server/test/wslBackend.test.ts
 ```
 
-Expected: FAIL because async cleanup and child ownership do not exist.
+Esperado: FAIL porque a limpeza assíncrona e a posse de filhos não existem.
 
-- [ ] **Step 4: Implement RemoteConnection single-flight**
+- [ ] **Etapa 4: Implementar o single-flight de RemoteConnection**
 
-`dispose()` starts the same cleanup Promise; `disposeAndWait()` returns it. Cleanup stops client/protocol/socket first, waits for stream close with an injected/default grace period, then invokes backend fallback cleanup. Wrap connection setup in `try/catch` so failed setup disposes the backend.
+`dispose()` inicia a mesma Promise de limpeza; `disposeAndWait()` a retorna. A limpeza para primeiro cliente/protocolo/socket, aguarda o fechamento do stream com um período de tolerância injetado/padrão e então invoca a limpeza de fallback do backend. Envolver a configuração da conexão em `try/catch` para que uma configuração com falha disposte o backend.
 
-- [ ] **Step 5: Track WSL children**
+- [ ] **Etapa 5: Rastrear filhos WSL**
 
-Keep a `Set<ChildProcess>` for active `spawn`/`execFile` calls, unregister on terminal events, reject new commands after disposal, and implement bounded wait plus `child.kill()` fallback. Do not call distro-wide WSL commands.
+Manter um `Set<ChildProcess>` para chamadas ativas de `spawn`/`execFile`, desregistrar nos eventos terminais, rejeitar novos comandos após a disposição e implementar espera limitada mais fallback `child.kill()`. Não chamar comandos WSL de escopo da distribuição.
 
-- [ ] **Step 6: Wire Host await**
+- [ ] **Etapa 6: Conectar a espera no Host**
 
-Use `await remoteConnection.disposeAndWait()` in the Host remote cleanup phase.
+Usar `await remoteConnection.disposeAndWait()` na fase de limpeza remota do Host.
 
-- [ ] **Step 7: Run focused tests and verify GREEN**
+- [ ] **Etapa 7: Executar os testes direcionados e verificar GREEN**
 
 ```sh
 pnpm exec vitest run packages/server/test/remoteConnect.test.ts packages/server/test/wslBackend.test.ts packages/server/test/dockerBackend.test.ts packages/desktop/test/hostShutdownPhases.test.ts
 ```
 
-Expected: all tests PASS.
+Esperado: todos os testes PASSAM.
 
-- [ ] **Step 8: Commit**
+- [ ] **Etapa 8: Commitar**
 
 ```sh
 git add packages/server/src/remote packages/server/test packages/desktop/src/host/index.ts packages/desktop/test/hostShutdownPhases.test.ts
 git commit -m "fix(remote): await WSL server process shutdown"
 ```
 
-### Task 4: Safe WSL Owner Registry and Orphan Reaper
+### Task 4: Registro Seguro de Proprietários WSL e Reaper de Órfãos
 
-**Files:**
-- Create: `packages/services/src/zcode-agent/remoteAgentOwnerRegistry.ts`
-- Create: `packages/services/test/remoteAgentOwnerRegistry.test.ts`
-- Modify: `packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`
-- Modify: `packages/services/src/node.ts`
-- Modify: `packages/server/src/remote/connect.ts`
-- Modify: `packages/server/src/entry-stdio.ts`
+**Arquivos:**
+- Criar: `packages/services/src/zcode-agent/remoteAgentOwnerRegistry.ts`
+- Criar: `packages/services/test/remoteAgentOwnerRegistry.test.ts`
+- Modificar: `packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`
+- Modificar: `packages/services/src/node.ts`
+- Modificar: `packages/server/src/remote/connect.ts`
+- Modificar: `packages/server/src/entry-stdio.ts`
 
 **Interfaces:**
-- Produces: `RemoteAgentOwnerRegistry` with `registerAgent`, `unregisterAgent`, `reapDeadOwners`, and `dispose`.
-- Consumes: `ZCODE_REMOTE_OWNER_ID`, `ZCODE_REMOTE_OWNER_KIND`, and an owner registry root under `$HOME/.zcode/server/owners`.
+- Produz: `RemoteAgentOwnerRegistry` com `registerAgent`, `unregisterAgent`, `reapDeadOwners` e `dispose`.
+- Consome: `ZCODE_REMOTE_OWNER_ID`, `ZCODE_REMOTE_OWNER_KIND` e uma raiz de registro de proprietários em `$HOME/.zcode/server/owners`.
 
-- [ ] **Step 1: Write failing registry tests**
+- [ ] **Etapa 1: Escrever os testes falhos do registro**
 
-Use a temporary directory and injected process inspector/terminator. Cover exact ownerId + PID start-time + executable match, PID reuse, corrupt registry, environment mismatch, normal unregister, and legacy unowned process skip.
+Usar um diretório temporário e um inspetor/terminador de processos injetado. Cobrir correspondência exata de ownerId + PID + horário de início + executável, reuso de PID, registro corrompido, divergência de ambiente, desregistro normal e skip de processo legado sem proprietário.
 
-- [ ] **Step 2: Run test and verify RED**
+- [ ] **Etapa 2: Executar o teste e verificar RED**
 
 ```sh
 pnpm exec vitest run packages/services/test/remoteAgentOwnerRegistry.test.ts
 ```
 
-Expected: FAIL because the registry does not exist.
+Esperado: FAIL porque o registro não existe.
 
-- [ ] **Step 3: Implement strict registry**
+- [ ] **Etapa 3: Implementar o registro estrito**
 
-Persist owner records atomically with schema version, ownerId, server PID/start time, Agent PID/start time, and expected executable root. Reap only when the server owner is dead/reused and every Agent identity check still matches. Never match by process name alone.
+Persistir os registros de proprietário atomicamente com versão de schema, ownerId, PID/horário de início do server, PID/horário de início do Agent e raiz de executável esperada. Fazer o reap somente quando o proprietário do server está morto/reutilizado e todas as verificações de identidade do Agent ainda correspondem. Nunca corresponder apenas pelo nome do processo.
 
-- [ ] **Step 4: Integrate owner environment and process callbacks**
+- [ ] **Etapa 4: Integrar ambiente de proprietário e callbacks de processo**
 
-Generate the ownerId in `connectRemote`, inject it into the remote server command, initialize the registry only for `desktop-attached-remote`, and register/unregister child PIDs in `ZCodeAgentProcessManager`. Normal service disposal removes the owner record.
+Gerar o ownerId em `connectRemote`, injetá-lo no comando do server remoto, inicializar o registro apenas para `desktop-attached-remote` e registrar/desregistrar PIDs filhos em `ZCodeAgentProcessManager`. A disposição normal do serviço remove o registro do proprietário.
 
-- [ ] **Step 5: Run registry and process-manager tests**
+- [ ] **Etapa 5: Executar os testes do registro e do gerenciador de processos**
 
 ```sh
 pnpm exec vitest run packages/services/test/remoteAgentOwnerRegistry.test.ts packages/services/test/zcodeAgentProcessManager.test.ts packages/server/test/remoteConnect.test.ts
 ```
 
-Expected: all tests PASS.
+Esperado: todos os testes PASSAM.
 
-- [ ] **Step 6: Commit**
+- [ ] **Etapa 6: Commitar**
 
 ```sh
 git add packages/services/src/zcode-agent packages/services/src/node.ts packages/services/test packages/server/src/remote/connect.ts packages/server/src/entry-stdio.ts packages/server/test
 git commit -m "fix(remote): reap owned orphan agents safely"
 ```
 
-### Task 5: Documentation and Full Verification
+### Task 5: Documentação e Verificação Completa
 
-**Files:**
-- Modify: `docs/wsl-remote-workspace-design.md`
-- Modify: `docs/architecture/zcode-code-architecture-overview.md`
-- Modify: `docs/web-remote-control/web-remote-control-architecture.md`
-- Modify: `docs/web-remote-control/task-realtime-sync.md`
+**Arquivos:**
+- Modificar: `docs/wsl-remote-workspace-design.md`
+- Modificar: `docs/architecture/zcode-code-architecture-overview.md`
+- Modificar: `docs/web-remote-control/web-remote-control-architecture.md`
+- Modificar: `docs/web-remote-control/task-realtime-sync.md`
 
 **Interfaces:**
-- Documents the final lifecycle and verification evidence; no new runtime interface.
+- Documenta o ciclo de vida final e as evidências de verificação; nenhuma nova interface de runtime.
 
-- [ ] **Step 1: Update current-fact documentation**
+- [ ] **Etapa 1: Atualizar a documentação de fatos atuais**
 
-Document app/update shutdown barriers, WSL child ownership, owner reaping, and explicit non-teardown events. State that mobile attachment disconnect never destroys the shared Host and that distro termination is forbidden.
+Documentar as barreiras de desligamento de app/atualização, a posse de filhos WSL, o reap de proprietários e os eventos explicitamente não-teardown. Declarar que a desconexão do anexo móvel nunca destrói o Host compartilhado e que o encerramento da distribuição é proibido.
 
-- [ ] **Step 2: Run all focused suites**
+- [ ] **Etapa 2: Executar todas as suítes direcionadas**
 
 ```sh
 pnpm exec vitest run packages/desktop/test/desktopRemoteSessions.test.ts packages/desktop/test/desktopHostProcess.test.ts packages/desktop/test/desktopWindowLifecycle.test.ts packages/desktop/test/e2eProcessCleanup.test.ts packages/desktop/test/hostShutdownPhases.test.ts packages/server/test/stdioLifecycle.test.ts packages/server/test/remoteConnect.test.ts packages/server/test/wslBackend.test.ts packages/server/test/dockerBackend.test.ts packages/services/test/remoteAgentOwnerRegistry.test.ts packages/services/test/zcodeAgentProcessManager.test.ts
 ```
 
-Expected: all tests PASS.
+Esperado: todos os testes PASSAM.
 
-- [ ] **Step 3: Run mechanical gates**
+- [ ] **Etapa 3: Executar os portões mecânicos**
 
 ```sh
 pnpm typecheck
 pnpm lint
 ```
 
-Expected: both commands exit 0.
+Esperado: ambos os comandos saem com 0.
 
-- [ ] **Step 4: Perform runtime WSL verification**
+- [ ] **Etapa 4: Realizar a verificação de runtime WSL**
 
-Record before/after PID evidence for tray hide, real window close, app quit, and update preparation. Confirm ZCode Host/server/Agent exit while `wsl.exe -l -v` may continue showing the distro as Running.
+Registrar evidências de PID antes/depois para ocultar na bandeja, fechar a janela de verdade, sair do app e preparar a atualização. Confirmar que o Host/server/Agent do ZCode saem enquanto `wsl.exe -l -v` pode continuar mostrando a distribuição como Running.
 
-- [ ] **Step 5: Commit**
+- [ ] **Etapa 5: Commitar**
 
 ```sh
 git add docs packages
 git commit -m "docs(remote): record deterministic WSL cleanup"
 ```
 
-- [ ] **Step 6: Request code review and address findings**
+- [ ] **Etapa 6: Solicitar revisão de código e tratar os achados**
 
-Review the complete branch diff against the design spec, rerun affected tests after any correction, and leave the worktree clean.
+Revisar o diff completo da branch contra a spec de design, reexecutar os testes afetados após qualquer correção e deixar a árvore de trabalho limpa.

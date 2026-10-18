@@ -1,4 +1,4 @@
-# Todo 61：Página de Seleção de Template de Provider e Consolidação de Metadados de Marca
+# Todo 61: Página de Seleção de Template de Provider e Consolidação de Metadados de Marca
 
 > Status: concluído
 >

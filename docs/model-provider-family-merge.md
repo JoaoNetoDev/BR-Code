@@ -9,7 +9,7 @@
 > entitlement do Start e o atalho de contagem.
 > Adaptações específicas e comportamentos em aberto estão na [tabela de auditoria do Todo 85](working-memory/provider-refactor/plan/staging-conflict-restoration-audit.md).
 
-## Goal
+## Objetivo
 
 Z.ai e BigModel hoje expõem seis ids de model provider built-in:
 
@@ -35,7 +35,7 @@ provider registry, valores de seleção de modelo, credenciais derivadas de OAut
 cota, logs e roteamento do agent runtime. Esta mudança funde apenas o modelo de seleção de
 provider voltado ao usuário.
 
-## Provider Family Mapping
+## Mapeamento de Provider Family
 
 ```txt
 Z.ai
@@ -53,7 +53,7 @@ Cada family tem uma identidade visível e um alvo interno de provider resolvido.
 O alvo interno é selecionado entre os provider ids existentes pelo modo de conexão,
 pelo estado de login OAuth e pelo estado de entitlement.
 
-## Settings Navigation And Connection Menu
+## Navegação de Settings e Menu de Conexão
 
 A navegação lateral de Model Providers é apenas um seletor de provider family. Families
 built-in são mostradas com uma entrada por family, por exemplo `Z.ai` e `BigModel`.
@@ -192,7 +192,7 @@ não hidratou, a reconciliação em segundo plano usa a tupla estável
 `providerId + activeOAuthProvider` e roda no máximo uma vez por página de configurações
 montada. Esta regra se aplica igualmente a Z.ai e BigModel.
 
-### Connectivity Check Credential Boundary
+### Limite de Credencial da Verificação de Conectividade
 
 A verificação de conectividade das configurações de Model Provider precisa usar a credencial
 efetiva da conexão da family selecionada. Para um Team Plan selecionado, o serviço do host
@@ -206,7 +206,7 @@ Plan pessoal pertencente a um sujeito de entitlement diferente. O modelo selecio
 endpoint, o formato de API, o corpo da requisição e o mapeamento de erros de conectividade
 existente permanecem inalterados. Esta regra se aplica igualmente a Z.ai e BigModel.
 
-## Provider Family Domain Boundary
+## Limite do Domínio de Provider Family
 
 Z.ai e BigModel são domínios de runtime de provider family mutuamente exclusivos. O domínio
 de runtime ativo é armazenado em `AppSettings.providerFamilyDomain`, e não derivado
@@ -249,7 +249,7 @@ disponível. Prompts enfileirados locais do Renderer resolvem esses fatos de con
 quando a fila drena, porque o usuário pode trocar de conexão enquanto o turno anterior ainda
 está em execução.
 
-## Resolution Rules
+## Regras de Resolução
 
 A UI mantém um modo de conexão por family:
 
@@ -327,7 +327,7 @@ formulário do provider: definir uma API Key habilitará o provider. Esse banner
 provider de API Key da family e não deve aparecer para Coding Plan, Start Plan, Team Plan nem
 para um provider que já tem key mas foi desativado manualmente.
 
-## Settings Page UI
+## UI da Página de Settings
 
 A navegação de providers predefinidos mostra apenas as provider families:
 
@@ -452,7 +452,7 @@ Z.ai - Coding Plan
 
 Os provider ids podem continuar visíveis apenas em affordances avançadas/de debug.
 
-## Model Menu UI
+## UI do Menu de Modelo
 
 O menu de modelo da caixa de chat não deve apresentar a family built-in ativa como um grupo
 aninhado de providers. Os modelos da family built-in ativa são escolhas planas de primeiro
@@ -523,7 +523,7 @@ Providers customizados mantêm seu comportamento existente de agrupamento ou sub
 Apenas os modelos de family built-in de Z.ai e BigModel são achatados em escolhas de menu de
 primeiro nível.
 
-## Runtime Registry
+## Registry de Runtime
 
 O provider registry enviado ao agent continua usando os provider ids existentes. O registry
 deve incluir no máximo um provider built-in ativo por family visível:
@@ -546,7 +546,7 @@ substituir o alvo de provider resolvido. Se o modelo selecionado atual usa o alv
 deve tentar preservar o mesmo model id no novo alvo resolvido e então cair para o primeiro
 modelo disponível.
 
-## Compatibility
+## Compatibilidade
 
 Nenhuma migração de armazenamento de provider é necessária.
 
@@ -559,9 +559,9 @@ Nenhuma migração de armazenamento de provider é necessária.
 - O controle remoto móvel deve apenas observar o resultado do catálogo de modelos
   sincronizado; ele não pode criar um caminho separado de resolução de provider.
 
-## Implementation Notes
+## Notas de Implementação
 
-### Empty Coding Plan model list
+### Lista de modelos vazia no Coding Plan
 
 A autenticação e o entitlement do Coding Plan não dependem da quantidade de modelos
 configurados. Depois de o usuário apagar todos os modelos, Settings precisa manter os detalhes
@@ -594,7 +594,7 @@ Peças de implementação recomendadas:
 6. Mudar o menu de modelo da caixa de chat para que os modelos da family ativa sejam entradas
    planas de primeiro nível cujo rótulo visível é apenas o nome do modelo.
 
-## Validation
+## Validação
 
 ### Largura do submenu de modelos de segundo nível do Provider
 
@@ -642,20 +642,20 @@ Peças de implementação recomendadas:
   Este caso é uma regressão de interação de componente no navegador pendente de revisão e não
   representa a validação da cadeia completa de conexão de `/remote`.
 
-Automated validation must include:
+A validação automatizada deve incluir:
 
 - `pnpm typecheck`
 - `pnpm lint`
 
-Targeted test coverage:
+Cobertura de testes direcionados:
 
-- No OAuth session shows both provider families in settings.
-- Z.ai OAuth session hides BigModel in settings and model menu.
-- BigModel OAuth session hides Z.ai in settings and model menu.
-- API Key mode resolves to the existing API Key provider id.
-- OAuth + Coding entitlement resolves to the existing Coding Plan provider id.
-- OAuth + no Coding + Start entitlement resolves to the existing Start Plan
-  provider id.
-- OAuth + no Coding + no Start shows Coding Plan as no entitlement.
-- Model menu labels are flat model names without provider prefixes.
-- Model menu option values keep the old provider ids.
+- Sem sessão OAuth, as duas provider families aparecem nas settings.
+- Uma sessão OAuth Z.ai oculta BigModel nas settings e no menu de modelo.
+- Uma sessão OAuth BigModel oculta Z.ai nas settings e no menu de modelo.
+- O modo API Key resolve para o provider id de API Key já existente.
+- OAuth com entitlement de Coding resolve para o provider id de Coding Plan já existente.
+- OAuth sem Coding e com entitlement de Start resolve para o provider id de Start Plan
+  já existente.
+- OAuth sem Coding e sem Start mostra o Coding Plan como sem entitlement.
+- Os rótulos do menu de modelo são nomes de modelo planos, sem prefixos de provider.
+- Os valores das opções do menu de modelo mantêm os provider ids antigos.

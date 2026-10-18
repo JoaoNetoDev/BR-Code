@@ -88,7 +88,7 @@ O primeiro lote seleciona apenas as 10 que mais provam o ciclo completo, sem cob
 
 ### MVP-01 Primeiro disparo entra na página de detalhe
 
-Catalog：A01
+Catalog: A01
 
 | Camada         | Asserção                                                                                            |
 | -------------- | ---------------------------------------------------------------------------------------------------- |
@@ -102,7 +102,7 @@ Catalog：A01
 
 ### MVP-02 Mensagem comum enfileirada durante running
 
-Catalog：A03
+Catalog: A03
 
 | Camada         | Asserção                                                                                     |
 | -------------- | --------------------------------------------------------------------------------------------- |
@@ -116,7 +116,7 @@ Catalog：A03
 
 ### MVP-03 `/compact` enfileirado durante running
 
-Catalog：A08
+Catalog: A08
 
 | Camada         | Asserção                                                                                                                     |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -130,7 +130,7 @@ Catalog：A08
 
 ### MVP-04 `/goal` enfileirado durante running
 
-Catalog：A07、H03、H04
+Catalog: A07, H03, H04
 
 | Camada         | Asserição                                                                                     |
 | -------------- | --------------------------------------------------------------------------------------------- |
@@ -144,7 +144,7 @@ Catalog：A07、H03、H04
 
 ### MVP-05 Fila preservada após Stop e sem consumo automático
 
-Catalog：B02
+Catalog: B02
 
 | Camada         | Asserição                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------ |
@@ -158,7 +158,7 @@ Catalog：B02
 
 ### MVP-06 Continuar digitando e enviar imediatamente com Held Queue
 
-Catalog：B06、B08
+Catalog: B06, B08
 
 | Camada         | Asserição                                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -172,7 +172,7 @@ Catalog：B06、B08
 
 ### MVP-06b Preservação da mensagem de guia no modo Running Guide
 
-Catalog：M06a、M06b、M06c
+Catalog: M06a, M06b, M06c
 
 | Camada         | Asserção                                                                                                                                                                                                     |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -186,7 +186,7 @@ Catalog：M06a、M06b、M06c
 
 ### MVP-06c Matriz de Reprodução de Guia Imediata com Queue em Running
 
-Catalog：M07a、M07b、M07c、M07d、M07e、M07f、M07g、M07h
+Catalog: M07a, M07b, M07c, M07d, M07e, M07f, M07g, M07h
 
 | Case  | Asserção                                                                                                                       |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -201,7 +201,7 @@ Catalog：M07a、M07b、M07c、M07d、M07e、M07f、M07g、M07h
 
 ### MVP-07 Edição de User Query Preserva a Fila
 
-Catalog：D03
+Catalog: D03
 
 | Camada         | Asserição                                                                                                 |
 | -------------- | --------------------------------------------------------------------------------------------------------- |
@@ -215,7 +215,7 @@ Catalog：D03
 
 ### MVP-08 Fork de Assistant Estável não Copia a Fila
 
-Catalog：E07/K08
+Catalog: E07/K08
 
 | Camada         | Asserição                                                                                                                                                  |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -228,7 +228,7 @@ Catalog：E07/K08
 
 ### MVP-09 Compact Manual Coexiste com Held Queue
 
-Catalog：F03、F08
+Catalog: F03, F08
 
 | Camada         | Asserição                                                                                                                                            |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -242,7 +242,7 @@ Catalog：F03、F08
 
 ### MVP-10 Continuar PendingAction após Auto Compact bem-Sucedido
 
-Catalog：G01、G10
+Catalog: G01, G10
 
 | Camada         | Asserição                                                                                                                                         |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -276,4 +276,4 @@ Estas são as capacidades mínimas necessárias para rodar o MVP, e não represe
 
 ## Correções Posteriores ao Início do Todo156
 
-A fronteira de aceitação usa as decisões finais de [Todo156 SF-01～SF-19](working-memory/provider-refactor/steps/todo-156-start-plan-followup-final-decisions.md). `conversation-session-start-plan-independent` aguarda revisão manual de cases complementares em SF-01/02/08/10/13: círculo de Start sob conexão paga, item selecionado no dropdown de equipe, nome do plano, e o primeiro item da sub-tela com parâmetros (fechar/confirmar/não), com asserções de que a requisição real de modelo e o rascunho da caixa de entrada principal não mudam. As demais combinações de estado de cache são cobertas por `startPlanRecommendationFreshness`, `providerFamilyConnectionVisibility` e pelos testes de card de status; viewports desktop/mobile e temas claro/escuro têm seus próprios casos visuais de browser. Este registro não é uma declaração de promoção para CI nem de cobertura E2E de todas as SF.
+A fronteira de aceitação usa as decisões finais de [Todo156 SF-01~SF-19](working-memory/provider-refactor/steps/todo-156-start-plan-followup-final-decisions.md). `conversation-session-start-plan-independent` aguarda revisão manual de cases complementares em SF-01/02/08/10/13: círculo de Start sob conexão paga, item selecionado no dropdown de equipe, nome do plano, e o primeiro item da sub-tela com parâmetros (fechar/confirmar/não), com asserções de que a requisição real de modelo e o rascunho da caixa de entrada principal não mudam. As demais combinações de estado de cache são cobertas por `startPlanRecommendationFreshness`, `providerFamilyConnectionVisibility` e pelos testes de card de status; viewports desktop/mobile e temas claro/escuro têm seus próprios casos visuais de browser. Este registro não é uma declaração de promoção para CI nem de cobertura E2E de todas as SF.
