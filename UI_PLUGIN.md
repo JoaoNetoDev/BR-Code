@@ -1,222 +1,222 @@
-# UI Plugin：能力、开发调试与示例
+# Plugin de UI: capacidades, desenvolvimento, depuração e exemplos
 
-简体中文 | [English](UI_PLUGIN.en.md)
+Português (Brasil) | [English](UI_PLUGIN.en.md)
 
-从 Excalidraw 开始了解 UI Plugin：让 Agent 和用户共同编辑一份可保存的内容。本文覆盖当前源码中的能力、实际可用的 API、安装调试步骤与五个示例，优先按下面的路线阅读。
+Comece a conhecer o Plugin de UI pelo Excalidraw: uma forma de o Agent e o usuário editarem juntos um conteúdo que pode ser salvo. Este documento cobre as capacidades presentes no código-fonte atual, as APIs realmente disponíveis, os passos de instalação e depuração e cinco exemplos — leia preferencialmente na ordem abaixo.
 
-- [先看 Excalidraw 演示](#重点示例excalidraw)
-- [Gen UI：示例、接口与适用场景](#gen-ui按需生成可交互的回答)
-- [开发与调试](#开发与调试)
-- [页面 API 速查](#页面-api-速查)
-- [给自己的插件接入 UI](#给自己的插件接入-ui)
-- [其他示例](#其他示例插件)
+- [Veja primeiro a demonstração do Excalidraw](#exemplo-principal-excalidraw)
+- [Gen UI: exemplos, interfaces e casos de uso](#gen-ui-respostas-interativas-sob-demanda)
+- [Desenvolvimento e depuração](#desenvolvimento-e-depuracao)
+- [Referência rápida da API de página](#referencia-rapida-da-api-de-pagina)
+- [Adicionando UI ao seu plugin](#adicionando-ui-ao-seu-plugin)
+- [Outros plugins de exemplo](#outros-plugins-de-exemplo)
 
-本篇面向主仓库的宿主联调；插件开发与构建在独立的 `zcode-plugins` 仓库完成。
+Este documento trata da integração com o host do repositório principal; o desenvolvimento e o build dos plugins acontecem no repositório separado `zcode-plugins`.
 
-## UI Plugin 能做什么
+## O que o Plugin de UI pode fazer
 
-UI Plugin 给普通插件增加可交互页面。Agent 可以调用工具创建或修改内容，用户可以直接操作画布、表单、文件列表，再把选区或操作结果交回对话。页面通过 MCP Apps 与宿主通信，业务数据由插件的 MCP 服务管理。
+O Plugin de UI adiciona páginas interativas a plugins comuns. O Agent pode chamar ferramentas para criar ou modificar conteúdo, e o usuário pode operar diretamente o canvas, formulários e listas de arquivos, devolvendo seleções ou resultados de operações para a conversa. A página se comunica com o host via MCP Apps, e os dados de negócio são gerenciados pelo serviço MCP do plugin.
 
-注册、安装、启用和更新沿用普通插件流程。页面使用官方 `@modelcontextprotocol/ext-apps`，不需要单独的 ZCode Plugin SDK，也不要求安装开发指引插件。当前插件仓库锁定页面 SDK `2.0.0`、MCP 服务 SDK `1.29.0`；阅读上游示例时注意 SDK 主版本，实际安装以仓库锁文件为准。
+Registro, instalação, ativação e atualização seguem o fluxo comum de plugins. A página usa o pacote oficial `@modelcontextprotocol/ext-apps`; não é preciso um SDK separado do BR Code Plugin, nem instalar o plugin de guias de desenvolvimento. Atualmente o repositório de plugins fixa o SDK de páginas em `2.0.0` e o SDK de serviços MCP em `1.29.0`; ao ler exemplos upstream, atente para a versão principal do SDK — a instalação real segue o lockfile do repositório.
 
-| 能力               | 用户看到的效果                               | 开发入口                                         |
-| ------------------ | -------------------------------------------- | ------------------------------------------------ |
-| 工具结果带交互页面 | 生成画板、展示图表、填写表单                 | MCP 工具 `_meta.ui.resourceUri` + HTML 资源      |
-| 会话侧栏面板       | 手动打开编辑器，后续工具继续操作同一份文档   | 清单 `ui.surfaces`，工具 `_meta.ui.surface`      |
-| 页面调用插件服务   | 点击按钮刷新数据、保存文档、执行操作         | `app.callServerTool()`                           |
-| 页面与主对话协作   | 引用选区，或由用户点击发送下一条消息         | `updateModelContext()` / `sendMessage()`         |
-| App 内模型调用     | 回答留在插件自己的界面                       | `createSamplingMessage()`                        |
-| 模型调用页面工具   | 操作只有活页面才拥有的编辑器状态             | `registerTool()` 或 `onlisttools` + `oncalltool` |
-| 页面状态与资源更新 | 切换位置保留页面，重建恢复视图，订阅服务变化 | 活页面保留、widgetState、资源订阅                |
+| Capacidade                              | Efeito visto pelo usuário                                                      | Ponto de entrada para o dev                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| Resultado de ferramenta com página      | Gera um quadro, exibe gráficos, preenche formulários                           | Ferramenta MCP `_meta.ui.resourceUri` + recurso HTML         |
+| Painel na barra lateral da sessão       | Abre manualmente um editor; ferramentas seguintes operam o mesmo documento     | `ui.surfaces` no manifesto, `_meta.ui.surface` na ferramenta |
+| Página chama o serviço do plugin        | Clique em botão atualiza dados, salva documento, executa operações             | `app.callServerTool()`                                       |
+| Página coopera com a conversa principal | Referencia uma seleção, ou o usuário clica para enviar a próxima mensagem      | `updateModelContext()` / `sendMessage()`                     |
+| Chamada de modelo dentro do App         | A resposta fica na própria interface do plugin                                 | `createSamplingMessage()`                                    |
+| Modelo chama ferramentas da página      | Opera o estado do editor que só a página ativa possui                          | `registerTool()` ou `onlisttools` + `oncalltool`             |
+| Estado da página e atualizações         | Mudar de posição preserva a página; reconstruir recupera a visão; assina mudanças | Página ativa preservada, widgetState, assinatura de recursos |
 
-交互页面目前用于 **ZCode Desktop 的本地工作区**。Web、手机和远程工作区保留普通 MCP 工具记录，不把这些路径视为已经支持交互面板。插件页面与 Gen UI 的加载和通信协议不同，不能混用两者的 API。
+As páginas interativas hoje são destinadas ao **workspace local do BR Code Desktop**. Web, celular e workspaces remotos mantêm o registro comum de ferramentas MCP; esses caminhos não são considerados com suporte a painéis interativos. As páginas de plugin e o Gen UI usam protocolos de carregamento e comunicação diferentes — as APIs dos dois não podem ser misturadas.
 
-## 重点示例：Excalidraw
+## Exemplo principal: Excalidraw
 
-Excalidraw 展示的是一套可继续编辑的绘图工作流：Agent 画初稿，用户调整布局，再让 Agent 按选区做局部修改。画布不是一次性图片。
+O Excalidraw demonstra um fluxo de desenho continuamente editável: o Agent traça o rascunho, o usuário ajusta o layout, e o Agent faz ajustes locais conforme a seleção. O canvas não é uma imagem única e descartável.
 
-### 图解：从画布回到对话
+### Ilustração: do canvas de volta à conversa
 
-下面用微分方程学习场景展示完整流程：生成画布、引用选区，再带着上下文继续提问。
+Abaixo, o cenário de estudo de equações diferenciais mostra o fluxo completo: gerar o canvas, referenciar uma seleção e continuar perguntando com esse contexto.
 
-**1. 从一个问题生成可编辑画布**
+**1. Gerar um canvas editável a partir de uma pergunta**
 
-请求“画一个微分方程，我在学习，让我快速能理解”，Agent 将概念、解题步骤和斜率场绘制到 Excalidraw 画布。对话中的解释和侧栏中的画布并排展示，图形与文字可以继续编辑，也可以保存、导出。
+Peça "desenhe uma equação diferencial, estou estudando, quero entender rápido", e o Agent desenha conceitos, passos de resolução e o campo de direções no canvas do Excalidraw. A explicação na conversa e o canvas na barra lateral aparecem lado a lado; a figura e o texto continuam editáveis, e podem ser salvos e exportados.
 
-![对话与 Excalidraw 画布并排展示微分方程图解，画布中包含概念对照、斜率场和解题步骤](docs/images/ui-plugins/excalidraw-canvas.png)
+![Conversa e canvas do Excalidraw lado a lado mostrando um diagrama de equação diferencial, com comparação de conceitos, campo de direções e passos de resolução](docs/images/ui-plugins/excalidraw-canvas.png)
 
-**2. 引用选区，把关注点交给 Agent**
+**2. Referenciar a seleção e entregar o foco ao Agent**
 
-框选“斜率地图”这一组元素，右键选择 **引用选区到对话**。插件把选中元素的信息加入对话上下文，用户可以针对图中的某一部分继续交流。
+Selecione com um retângulo o grupo de elementos do "campo de direções" e clique com o botão direito em **Referenciar seleção na conversa**. O plugin adiciona as informações dos elementos selecionados ao contexto da conversa, e o usuário pode continuar dialogando sobre uma parte específica da figura.
 
-<img src="docs/images/ui-plugins/excalidraw-reference-selection.png" alt="在 Excalidraw 中框选斜率场，右键菜单显示引用选区到对话，共选中 33 个元素" width="520" />
+<img src="docs/images/ui-plugins/excalidraw-reference-selection.png" alt="Seleção do campo de direções no Excalidraw, com o menu de contexto exibindo 'Referenciar seleção na conversa', 33 elementos selecionados" width="520" />
 
-**3. 带着选区继续提问**
+**3. Continuar perguntando com a seleção**
 
-输入区出现 **插件上下文** 后，补充“箭头方向是指什么？”，再点击发送。引用选区会先添加待发送的上下文；发送问题时，Agent 才会收到问题和选区信息，理解用户问的是画布中的哪一部分。
+Quando surgir **Contexto do plugin** na área de entrada, complemente "o que significam as direções das setas?" e clique em enviar. Referenciar a seleção apenas adiciona o contexto pendente de envio; ao enviar a pergunta, o Agent recebe a pergunta e as informações da seleção e entende a qual parte do canvas o usuário se refere.
 
-<img src="docs/images/ui-plugins/excalidraw-context-question.png" alt="对话输入区包含插件上下文和待发送的问题：箭头方向是指什么？" width="720" />
+<img src="docs/images/ui-plugins/excalidraw-context-question.png" alt="Área de entrada da conversa com contexto do plugin e a pergunta pendente: o que significam as direções das setas?" width="720" />
 
-### 五分钟演示路线
+### Roteiro de demonstração em cinco minutos
 
-安装并启用 `excalidraw` 后，在一个桌面本地工作区的新会话里依次操作：
+Com o `excalidraw` instalado e ativado, em uma nova sessão de um workspace local do desktop:
 
-1. 发送：“用 Excalidraw 画一个 API、缓存和数据库的架构图，标出请求方向。”模型调用 `create_diagram`，侧栏打开可编辑画板。
-2. 拖动节点、改颜色或文字，等待页面显示“已保存”。这表示后端已确认保存。
-3. 选中“缓存”节点，右键选择“引用选区到对话”；发送：“把选中的缓存改成双节点，保留其他布局。”未选中元素时也可以引用整图。
-4. Agent 用 `read_scene` 读取最新版本，再用稳定元素 ID 执行 `apply_operations`，无需重画整个画布。用户编辑和工具编辑共用当前页面的撤销/重做。
-5. 点击画板标题切换或导入文档；通过“导出”保存 `.excalidraw`、PNG、SVG 到工作区，覆盖已有文件需要明确选择覆盖。
+1. Envie: "Desenhe com o Excalidraw um diagrama de arquitetura com API, cache e banco de dados, indicando o sentido das requisições." O modelo chama `create_diagram` e a barra lateral abre um quadro editável.
+2. Arraste nós, mude cores ou textos e aguarde a página mostrar "salvo". Isso indica que o backend confirmou a gravação.
+3. Selecione o nó "cache", clique com o botão direito em "Referenciar seleção na conversa"; envie: "Transforme o cache selecionado em dois nós, mantendo o restante do layout." Sem elementos selecionados, também é possível referenciar a figura inteira.
+4. O Agent lê a versão mais recente com `read_scene` e executa `apply_operations` usando IDs estáveis de elementos, sem redesenhar o canvas inteiro. Edições do usuário e do próprio usuário compartilham o mesmo desfazer/refazer da página ativa.
+5. Clique no título do quadro para trocar ou importar documentos; pelo "Exportar", salve `.excalidraw`, PNG e SVG no workspace — sobrescrever arquivos existentes exige confirmação explícita.
 
 ```mermaid
 sequenceDiagram
-  participant U as 用户 / 画板
+  participant U as Usuário / Quadro
   participant A as Agent
-  participant S as 插件 MCP 服务与文档库
+  participant S as Serviço MCP do plugin e biblioteca de documentos
   A->>S: create_diagram
-  S-->>U: 文档 ID、revision 与页面
-  U->>S: commit_scene（手工编辑）
-  S-->>U: 确认保存、新 revision
-  U->>A: 引用选区 + 修改要求
+  S-->>U: ID do documento, revision e página
+  U->>S: commit_scene (edição manual)
+  S-->>U: confirmação de salvamento, novo revision
+  U->>A: seleção referenciada + pedido de alteração
   A->>S: read_scene → apply_operations
-  S-->>U: 最新文档
-  U->>S: 导出到工作区
+  S-->>U: documento mais recente
+  U->>S: exportar para o workspace
 ```
 
-### Excalidraw 工具表
+### Tabela de ferramentas do Excalidraw
 
-下面是插件自己的 MCP 工具，和后文的通用页面 API 是两个层次。“仅页面”工具不会暴露到模型工具列表。
+A seguir estão as ferramentas MCP do próprio plugin, que formam um nível diferente da API genérica de páginas descrita adiante. Ferramentas "somente página" não são expostas na lista de ferramentas do modelo.
 
-| 工具               | 调用方     | 用途与关键参数                                                       |
-| ------------------ | ---------- | -------------------------------------------------------------------- |
-| `create_diagram`   | 模型、页面 | 用 `title`、`elements` 新建画板；返回文档 ID 和版本                  |
-| `open_diagram`     | 模型、页面 | 用 `id` 打开已保存文档，或用 `path` 导入工作区 `.excalidraw`；二选一 |
-| `read_scene`       | 模型、页面 | 读取当前版本和元素摘要；可用 `elementIds` 限定选区                   |
-| `apply_operations` | 模型、页面 | 按元素 ID 增、改、删；携带 `expectedRevision` 与 `operationId`       |
-| `export_diagram`   | 模型、页面 | 导出原生 `.excalidraw`；检查版本，覆盖需 `overwrite: true`           |
-| `commit_scene`     | 仅页面     | 提交完整编辑草稿，执行版本冲突检查                                   |
-| `list_diagrams`    | 仅页面     | 列出当前工作区文档                                                   |
-| `save_copy`        | 仅页面     | 将草稿或导入内容另存为新文档                                         |
-| `save_image`       | 仅页面     | 将页面渲染的 PNG / SVG 写入工作区                                    |
+| Ferramenta         | Chamador              | Uso e parâmetros principais                                                       |
+| ------------------ | --------------------- | --------------------------------------------------------------------------------- |
+| `create_diagram`   | Modelo, página        | Cria um quadro com `title` e `elements`; retorna ID do documento e versão         |
+| `open_diagram`     | Modelo, página        | Abre documento salvo por `id`, ou importa `.excalidraw` do workspace por `path`; escolha um |
+| `read_scene`       | Modelo, página        | Lê a versão atual e um resumo dos elementos; `elementIds` limita à seleção        |
+| `apply_operations` | Modelo, página        | Adiciona, altera ou remove por ID de elemento; carrega `expectedRevision` e `operationId` |
+| `export_diagram`   | Modelo, página        | Exporta `.excalidraw` nativo; verifica a versão; sobrescrever exige `overwrite: true` |
+| `commit_scene`     | Somente página        | Envia o rascunho completo de edição, com verificação de conflito de versão        |
+| `list_diagrams`    | Somente página        | Lista os documentos do workspace atual                                            |
+| `save_copy`        | Somente página        | Salva o rascunho ou conteúdo importado como novo documento                        |
+| `save_image`       | Somente página        | Grava o PNG / SVG renderizado pela página no workspace                            |
 
-业务文档在插件数据目录内以 SQLite 保存，按工作区隔离。版本冲突会保留本页草稿，可另存副本或重载；相同操作重试复用 `operationId`。`widgetState` 只保存视图信息，不能代替文档库。
+Os documentos de negócio são salvos em SQLite no diretório de dados do plugin, isolados por workspace. Em conflito de versão, o rascunho local da página é preservado — é possível salvar uma cópia ou recarregar; reexecutar a mesma operação reutiliza o `operationId`. O `widgetState` guarda apenas informações de visão e não substitui a biblioteca de documentos.
 
-当前每份文档最多 5000 个元素、6 MiB。编辑器和字体随包提供，不依赖 CDN。撤销历史只属于当前活编辑器，不跨应用重启保存；当前未提供多人实时协作、系统剪贴板权限或云分享。
+Atualmente cada documento admite no máximo 5000 elementos e 6 MiB. O editor e as fontes acompanham o pacote, sem depender de CDN. O histórico de desfazer pertence apenas ao editor ativo atual e não é preservado entre reinícios do aplicativo; hoje não há colaboração em tempo real multiusuário, permissões da área de transferência do sistema ou compartilhamento em nuvem.
 
-## Gen UI：按需生成可交互的回答
+## Gen UI: respostas interativas sob demanda
 
-Gen UI（生成式界面）让 Agent 针对当前问题生成 HTML / JavaScript 页面，直接嵌入对话。你可以拖动滑块、切换条件、勾选项目，观察结果，再带着当前参数继续提问。每个页面按需生成，无需先为它创建和安装插件。
+O Gen UI (interface generativa) permite que o Agent gere páginas HTML / JavaScript para a pergunta atual, incorporadas diretamente na conversa. Você pode arrastar controles deslizantes, alternar condições, marcar itens, observar o resultado e continuar perguntando com os parâmetros atuais. Cada página é gerada sob demanda, sem precisar criar e instalar um plugin antes.
 
-### Gen UI 界面示例
+### Exemplos de interface do Gen UI
 
-下面是一组按需生成的能力演示页面。分组和内容展示了页面可以如何组织，不是应用里的固定界面。点击图片可查看原图。
+Abaixo, um conjunto de páginas de demonstração de capacidades geradas sob demanda. Os agrupamentos e conteúdos mostram como as páginas podem ser organizados — não são telas fixas do aplicativo. Clique nas imagens para ver o original.
 
-| 组件与信息组织                                                                                                                                                       | 控件驱动计算                                                                                                                                               |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a href="docs/images/gen-ui/components.png"><img src="docs/images/gen-ui/components.png" alt="组件演示中的摘要卡片、徽标、进度条、API 表格和图标" width="420" /></a> | <a href="docs/images/gen-ui/controls.png"><img src="docs/images/gen-ui/controls.png" alt="增长率滑块、复利开关、基线选项与对应的柱状图" width="420" /></a> |
-| 用摘要卡片、进度条、表格和图标，把回答组织成可浏览的面板。                                                                                                           | 通过增长率滑块、复利开关和基线选项，对比不同参数下的计算结果。                                                                                             |
+| Componentes e organização de informação                                                                                                                               | Cálculo orientado a controles                                                                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <a href="docs/images/gen-ui/components.png"><img src="docs/images/gen-ui/components.png" alt="Cartões de resumo, badges, barras de progresso, tabela de API e ícones na demonstração de componentes" width="420" /></a> | <a href="docs/images/gen-ui/controls.png"><img src="docs/images/gen-ui/controls.png" alt="Controle deslizante de taxa de crescimento, interruptor de juros compostos, opção de linha de base e gráfico de barras correspondente" width="420" /></a> |
+| Organiza a resposta em painéis navegáveis com cartões de resumo, barras de progresso, tabelas e ícones.                                                               | Compara resultados de cálculo sob diferentes parâmetros, com controle deslizante de taxa de crescimento, interruptor de juros compostos e opção de linha de base.         |
 
-| 图表与数据对比                                                                                                                                                         | 日历与日程                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| <a href="docs/images/gen-ui/charts.png"><img src="docs/images/gen-ui/charts.png" alt="使用示例数据绘制的 P50 和 P95 响应时间折线图，以及分位柱状图" width="420" /></a> | <a href="docs/images/gen-ui/calendar.png"><img src="docs/images/gen-ui/calendar.png" alt="日历组件按时间段展示一天的示例日程和当前时间线" width="420" /></a> |
-| 折线图对比 P50 / P95 趋势，柱状图展示各分位；图中为示例数据。                                                                                                          | `viz-calendar` 按时间段展示日程，并支持查看事件详情；这里是页面内的日程演示。                                                                                |
+| Gráficos e comparação de dados                                                                                                                                         | Calendário e agenda                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <a href="docs/images/gen-ui/charts.png"><img src="docs/images/gen-ui/charts.png" alt="Gráfico de linhas dos tempos de resposta P50 e P95 com dados de exemplo, além de gráfico de barras por percentil" width="420" /></a> | <a href="docs/images/gen-ui/calendar.png"><img src="docs/images/gen-ui/calendar.png" alt="Componente de calendário exibindo a agenda de exemplo de um dia por período e a linha do tempo atual" width="420" /></a> |
+| O gráfico de linhas compara as tendências P50 / P95; o de barras mostra cada percentil; os dados são de exemplo.                                                        | O `viz-calendar` exibe a agenda por período e permite ver detalhes dos eventos; aqui é uma demonstração de agenda dentro da página.                             |
 
-| 状态保存与追问                                                                                                                                                                 | 设计预览与调整                                                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a href="docs/images/gen-ui/state.png"><img src="docs/images/gen-ui/state.png" alt="偏好、参数和恢复开关，以及待保存的 modelContent 和 privateContent 快照" width="420" /></a> | <a href="docs/images/gen-ui/design.png"><img src="docs/images/gen-ui/design.png" alt="轮播展示的音乐播放器设计稿，当前为三个方案中的极简方案" width="420" /></a> |
-| 将偏好和参数组织成 `modelContent` / `privateContent` 快照。画面展示待保存状态；页面可保存参数，再通过按钮发起追问。                                                            | `viz-carousel` 展示多种播放器设计，配合 Tweak 调整样式；这是界面原型。                                                                                           |
+| Persistência de estado e perguntas de acompanhante                                                                                                                              | Pré-visualização e ajuste de design                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <a href="docs/images/gen-ui/state.png"><img src="docs/images/gen-ui/state.png" alt="Preferências, parâmetros e interruptores de restauração, além do snapshot de modelContent e privateContent pendente de salvamento" width="420" /></a> | <a href="docs/images/gen-ui/design.png"><img src="docs/images/gen-ui/design.png" alt="Carrossel apresentando protótipos de design de um reprodutor de música, atualmente no modelo minimalista entre três opções" width="420" /></a> |
+| Organiza preferências e parâmetros em snapshots `modelContent` / `privateContent`. A imagem mostra o estado pendente; a página pode salvar os parâmetros e disparar perguntas de acompanhamento por botão. | O `viz-carousel` apresenta vários designs de reprodutor, com o Tweak para ajustar estilos; este é um protótipo de interface.                                    |
 
-在支持 Gen UI 的 ZCode Desktop 会话中，可以直接提出下面这样的请求。具体控件和交互由 Agent 根据任务生成：
+Em uma sessão do BR Code Desktop com suporte a Gen UI, você pode fazer pedidos como os abaixo. Os controles e interações concretos são gerados pelo Agent conforme a tarefa:
 
-| 场景         | 示例提示词                                                                                    | 可以如何交互                                  |
-| ------------ | --------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| 理解概念     | “用 Gen UI 解释正弦波，让我拖动滑块调整振幅和频率，观察曲线变化。”                            | 调整参数、比较曲线，理解变量之间的关系        |
-| 探索算法     | “用 Gen UI 做一个二分查找演示，能输入目标值、单步执行，并标出当前搜索区间。”                  | 修改输入、前进和重置，观察每一步的状态        |
-| 调整界面方案 | “用 Gen UI 做一张课程卡片，提供 Tweak 控件调整圆角、配色和布局密度，再按我选的参数继续完善。” | 即时预览样式，明确提交调整后让 Agent 继续修改 |
+| Cenário                | Exemplo de prompt                                                                                                                       | Como interagir                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Compreender conceitos  | "Use o Gen UI para explicar a onda senoidal; quero arrastar controles para ajustar amplitude e frequência e observar a curva."         | Ajustar parâmetros, comparar curvas e entender a relação entre variáveis                         |
+| Explorar algoritmos    | "Use o Gen UI para criar uma demonstração de busca binária, permitindo digitar o valor alvo, executar passo a passo e destacar o intervalo de busca atual." | Modificar entradas, avançar e reiniciar, observando o estado de cada passo                       |
+| Ajustar proposta de UI | "Use o Gen UI para criar um cartão de curso, com controles Tweak para ajustar arredondamento, paleta e densidade do layout; depois refine com os parâmetros que eu escolher." | Pré-visualizar estilos em tempo real e deixar o Agent continuar alterando após a submissão explícita |
 
 ```mermaid
 flowchart LR
-  A[用户提出问题] --> B[Agent 生成 HTML 页面]
-  B --> C[桌面端在对话中展示]
-  C --> D[用户操作控件并保存状态]
-  D --> E[用户明确发送后续问题]
-  E --> F[Agent 结合当前参数继续回答]
+  A[O usuário faz uma pergunta] --> B[O Agent gera uma página HTML]
+  B --> C[O desktop exibe na conversa]
+  C --> D[O usuário opera os controles e salva o estado]
+  D --> E[O usuário envia explicitamente a pergunta seguinte]
+  E --> F[O Agent responde com os parâmetros atuais]
 ```
 
-### 能力与页面接口
+### Capacidades e interfaces da página
 
-| 能力       | 当前行为                                                                                   |
-| ---------- | ------------------------------------------------------------------------------------------ |
-| 对话内交互 | 页面随回答完成后展示，可包含图表、表单、模拟器和轻量原型                                   |
-| 展开与分享 | 可以展开预览、收起，并复制当前界面为图片；展开和收起保留同一个活页面                       |
-| 状态与追问 | 页面可保存控件状态，并在用户触发后发送后续问题；仅调整控件或保存状态不会自动启动 Agent     |
-| Tweak 调整 | 页面注册控件后，宿主提供滑块、颜色、开关和选项等调整入口，支持重置、原始效果预览和明确提交 |
+| Capacidade                   | Comportamento atual                                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Interação dentro da conversa | A página é exibida após a resposta, podendo conter gráficos, formulários, simuladores e protótipos leves                 |
+| Expandir e compartilhar      | É possível expandir a pré-visualização, recolher e copiar a interface atual como imagem; expandir e recolher mantêm a mesma página ativa |
+| Estado e acompanhamento      | A página pode salvar o estado dos controles e, após acionamento do usuário, enviar perguntas seguintes; ajustar controles ou salvar estado não inicia o Agent automaticamente |
+| Ajustes com Tweak            | Após a página registrar controles, o host oferece entradas de ajuste como controles deslizantes, cores, interruptores e opções, com reinício, pré-visualização do efeito original e submissão explícita |
 
-生成页面使用宿主注入的 Gen UI 接口：
+As páginas geradas usam as interfaces do Gen UI injetadas pelo host:
 
-| 接口                                                            | 用途                                                                                  |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `window.zcode.widgetState`                                      | 读取已保存的页面状态，初始值可能为 `null`                                             |
-| `window.zcode.setWidgetState({ modelContent, privateContent })` | 替换整个 JSON 状态快照，合计不超过 16 KiB；只有 `modelContent` 会进入下一轮模型上下文 |
-| `window.zcode.sendFollowUpMessage({ prompt, title })`           | 发送后续问题，`title` 可选；没有有效用户操作时需要确认，失效或只读会话不能发送        |
-| `zcode:set_globals`                                             | 监听状态或主题更新，从事件的 `detail.globals` 读取新值                                |
+| Interface                                                       | Uso                                                                                              |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `window.zcode.widgetState`                                      | Lê o estado salvo da página; o valor inicial pode ser `null`                                       |
+| `window.zcode.setWidgetState({ modelContent, privateContent })` | Substitui todo o snapshot de estado JSON, com até 16 KiB no total; apenas o `modelContent` entra no contexto do modelo na próxima rodada |
+| `window.zcode.sendFollowUpMessage({ prompt, title })`           | Envia a pergunta seguinte; `title` é opcional; sem uma ação válida do usuário é preciso confirmar; sessões expiradas ou somente leitura não podem enviar |
+| `zcode:set_globals`                                             | Escuta atualizações de estado ou tema, lendo os novos valores de `detail.globals` do evento         |
 
-桌面端会向 Agent 提供当前会话的专用输出目录。生成的 HTML 保存在该目录，由宿主加载，不写入项目工作区；页面状态按工作区和会话隔离。页面桥接由宿主注入，作者不用再创建 MCP Apps 连接。Gen UI 页面不提供 `callTool`、MCP 资源读取、Node 或任意文件访问；需要插件服务执行操作时使用 UI Plugin。
+O desktop fornece ao Agent um diretório de saída dedicado da sessão atual. O HTML gerado é salvo nesse diretório e carregado pelo host, sem gravar no workspace do projeto; o estado das páginas é isolado por workspace e sessão. A ponte da página é injetada pelo host — o autor não precisa criar uma conexão MCP Apps. As páginas do Gen UI não oferecem `callTool`, leitura de recursos MCP, Node ou acesso arbitrário a arquivos; quando for preciso executar operações por meio de serviços de plugin, use o Plugin de UI.
 
-### Gen UI 与 UI Plugin 怎么选
+### Como escolher entre Gen UI e Plugin de UI
 
-| 对比项   | Gen UI                                           | UI Plugin                                           |
-| -------- | ------------------------------------------------ | --------------------------------------------------- |
-| 来源     | Agent 围绕当前问题即时生成页面                   | 开发者维护和发布插件，用户安装、启用                |
-| 适合什么 | 概念讲解、交互图表、模拟器、临时计算器和界面原型 | 持续使用的编辑器、文件工具和带业务数据的应用        |
-| 页面能力 | Gen UI 状态、追问与 Tweak 接口                   | MCP Apps API、插件 MCP 工具与资源，遵循宿主支持范围 |
-| 数据归属 | 宿主管理生成文件和会话页面状态                   | 插件服务管理业务文件或数据库，页面管理视图          |
+| Critério            | Gen UI                                                            | Plugin de UI                                                        |
+| ------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Origem              | O Agent gera a página na hora para a pergunta atual                | Desenvolvedores mantêm e publicam o plugin; o usuário instala e ativa |
+| Indicado para       | Explicações de conceitos, gráficos interativos, simuladores, calculadoras temporárias e protótipos de interface | Editores de uso contínuo, ferramentas de arquivos e aplicativos com dados de negócio |
+| Capacidades da página | Estado do Gen UI, interfaces de acompanhamento e Tweak            | API MCP Apps, ferramentas e recursos MCP do plugin, dentro do que o host suporta |
+| Propriedade dos dados | O host gerencia arquivos gerados e o estado das páginas da sessão | O serviço do plugin gerencia arquivos ou bancos de negócio; a página gerencia a visão |
 
-上面的 Excalidraw 截图展示的是 **UI Plugin**。如果需要按当前问题生成一个可调参数的小页面，使用 **Gen UI**；如果要分发一个长期使用、带服务和文档管理的工具，开发 UI Plugin。两者虽都可能出现 `window.zcode`，可用方法和状态结构不同，不能混用。UI Plugin 的开发与 API 见[开发与调试](#开发与调试)和[页面 API 速查](#页面-api-速查)。
+As capturas do Excalidraw acima mostram um **Plugin de UI**. Se precisar gerar uma pequena página com parâmetros ajustáveis para a pergunta atual, use o **Gen UI**; se quiser distribuir uma ferramenta de longo prazo, com serviços e gerenciamento de documentos, desenvolva um Plugin de UI. Ambos podem exibir `window.zcode`, mas os métodos disponíveis e as estruturas de estado diferem e não podem ser misturados. O desenvolvimento e as APIs do Plugin de UI estão em [Desenvolvimento e depuração](#desenvolvimento-e-depuracao) e [Referência rápida da API de página](#referencia-rapida-da-api-de-pagina).
 
-实现与页面示例：[Gen UI 契约](packages/ui/src/gen-ui/CONTRACT.md)、[页面 API 示例](apps/zcode-cli/packages/visualize-plugin/skills/visualize/references/api.md)、[Tweak 指南](apps/zcode-cli/packages/visualize-plugin/skills/visualize/tweak.md)。桌面集成验证入口为 `node packages/desktop/scripts/gen-ui-e2e.mjs`。
+Implementação e exemplos de página: [Contrato do Gen UI](packages/ui/src/gen-ui/CONTRACT.md), [Exemplos da API de página](apps/zcode-cli/packages/visualize-plugin/skills/visualize/references/api.md), [Guia do Tweak](apps/zcode-cli/packages/visualize-plugin/skills/visualize/tweak.md). O ponto de entrada para validação da integração no desktop é `node packages/desktop/scripts/gen-ui-e2e.mjs`.
 
-## 其他示例插件
+## Outros plugins de exemplo
 
-| 插件                          | 功能与演示指令                                     | 适合参考什么                                                     | 当前边界                                                                            |
-| ----------------------------- | -------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| **Excalidraw** `excalidraw`   | “画一张系统架构图，再按选区修改”                   | 画布、自动保存、局部编辑、上下文引用和导出，建议作为首个完整示例 | 本地工作区；持久文档与临时视图分开                                                  |
-| **OpenPencil** `openpencil`   | “新建设计稿 designs/landing.fig，放一个 hero 区块” | `.fig` 设计稿、设计工具、选区引用与按稿生成代码                  | 一个工作区一个活编辑器；`.pen` 只读导入；导出到 `exports/`                          |
-| **Blender** `blender`         | “新建一个 Blender 场景，放置物体并渲染预览”        | `.blend` 场景、3D 预览、材质、相机、灯光和渲染资源               | 真实操作需要 Blender 引擎；假引擎仅用于测试                                         |
-| **磁盘清理器** `disk-cleaner` | “看看下载目录里哪些大文件占空间”                   | 只读扫描、分页筛选、候选选择、确认计划与执行反馈                 | 清理工具仅供页面使用；确认后移入回收站，不提供永久删除                              |
-| **Showcase** `showcase`       | “用 Showcase 演示全部 case”                        | SC01–SC53 目录；资源、消息、状态、sampling、页面工具和失败场景   | 目录项分直接操作、配合操作、自动化专用、待实现；53 项不代表 53 项都已实现或自动验收 |
+| Plugin                        | Função e comando de demonstração                          | O que serve de referência                                                          | Limites atuais                                                                             |
+| ----------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Excalidraw** `excalidraw`   | "Desenhe um diagrama de arquitetura e modifique pela seleção" | Canvas, salvamento automático, edição local, referência de contexto e exportação; sugerido como primeiro exemplo completo | Workspace local; documentos persistentes e visões temporárias separados                     |
+| **OpenPencil** `openpencil`   | "Crie um design designs/landing.fig e coloque um bloco hero" | Designs `.fig`, ferramentas de design, referência de seleção e geração de código pelo design | Um editor ativo por workspace; importação de `.pen` somente leitura; exportação para `exports/` |
+| **Blender** `blender`         | "Crie uma cena do Blender, posicione objetos e renderize uma prévia" | Cenas `.blend`, prévia 3D, materiais, câmeras, luzes e recursos de renderização      | Operações reais exigem o motor do Blender; o motor falso serve apenas para testes           |
+| **Limpador de disco** `disk-cleaner` | "Veja quais arquivos grandes na pasta de downloads ocupam espaço" | Varredura somente leitura, filtros paginados, seleção de candidatos, plano de confirmação e retorno da execução | A ferramenta de limpeza é apenas para a página; após confirmação move para a lixeira, sem exclusão permanente |
+| **Showcase** `showcase`       | "Demonstre todos os cases com o Showcase"                 | Diretórios SC01–SC53; recursos, mensagens, estado, sampling, ferramentas de página e cenários de falha | Itens do diretório divididos em: operação direta, operação assistida, automação dedicada e a implementar; 53 itens não significam que os 53 estejam implementados ou validados automaticamente |
 
-## 开发与调试
+## Desenvolvimento e depuração
 
-### 两个仓库分别负责什么
+### O que cada repositório é responsável
 
-| 仓库地址                                                          | 分支             | 修改范围                                       | 运行位置                                                |
-| ----------------------------------------------------------------- | ---------------- | ---------------------------------------------- | ------------------------------------------------------- |
-| [zai-org/ZCode](https://github.com/zai-org/ZCode)                 | `feat/ui-plugin` | 宿主协议、侧栏和内联展示、沙箱、审批与生命周期 | `pnpm dev:desktop`                                      |
-| [zai-org/zcode-plugins](https://github.com/zai-org/zcode-plugins) | `feat/ui-plugin` | 插件清单、MCP 服务、页面、业务数据与资源打包   | `ui-plugins/<name>` 为源码；`plugins/<name>` 为安装产物 |
+| Endereço do repositório                                            | Branch           | Escopo das alterações                                                  | Onde rodar                                                |
+| ------------------------------------------------------------------ | ---------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------- |
+| [zai-org/ZCode](https://github.com/zai-org/ZCode)                  | `feat/ui-plugin` | Protocolo do host, barra lateral e exibição inline, sandbox, aprovações e ciclo de vida | `pnpm dev:desktop`                                         |
+| [zai-org/zcode-plugins](https://github.com/zai-org/zcode-plugins) | `feat/ui-plugin` | Manifesto de plugins, serviços MCP, páginas, dados de negócio e empacotamento de recursos | `ui-plugins/<name>` é o código-fonte; `plugins/<name>` é o artefato instalado |
 
-本文的开发与调试步骤对应两个仓库各自的 `feat/ui-plugin` 分支。**ZCode 公开仓库的该分支目前尚未建好**，待分支准备就绪后再从上述仓库检出并联调。
+Os passos de desenvolvimento e depuração deste documento correspondem aos branches `feat/ui-plugin` de cada repositório. **Esse branch ainda não está disponível nos repositórios públicos do ZCode**; aguarde os branches estarem prontos para clonar dos repositórios acima e fazer a integração.
 
-以下 shell 示例适用于 macOS / Linux，先把两个路径改为自己的检出目录。Node.js 使用 `24.14.0`，pnpm 使用 `10.33.2`。Windows 可在 PowerShell 中设置相同环境变量，再执行各仓库的 `pnpm` / `node` 命令。
+Os exemplos de shell abaixo valem para macOS / Linux; primeiro ajuste os dois caminhos para os seus diretórios de checkout. Use Node.js `24.14.0` e pnpm `10.33.2`. No Windows é possível definir as mesmas variáveis de ambiente no PowerShell e executar os comandos `pnpm` / `node` de cada repositório.
 
-### 首次联调：只安装要测的插件
+### Primeira integração: instale apenas o plugin a testar
 
 ```sh
 ZCODE_REPO=/path/to/z-code
 PLUGINS_REPO=/path/to/zcode-plugins
 
-# 可选隔离开发配置；后续 CLI 和桌面启动保持同一个值。
+# Configuração de desenvolvimento isolada, opcional; CLI e desktop usam o mesmo valor depois.
 export ZCODE_DATA_BASE_DIR="$HOME/.zcode-ui-plugin-dev"
 
-# 主仓库首次初始化；已完成时跳过。
+# Inicialização inicial do repositório principal; pule se já foi feito.
 cd "$ZCODE_REPO"
 pnpm bootstrap
 
-# 插件仓库：编译并生成本地目录，不会自动注册或安装插件。
+# Repositório de plugins: compila e gera o diretório local, sem registrar ou instalar plugins automaticamente.
 cd "$PLUGINS_REPO"
 pnpm install --frozen-lockfile
 pnpm build
 
-# 主仓库：使用刚构建的 CLI，将插件装进同一个开发配置。
+# Repositório principal: usa o CLI recém-compilado e instala o plugin na mesma configuração de desenvolvimento.
 cd "$ZCODE_REPO"
 node apps/zcode-cli/packages/cli/dist/zcode.cjs plugins marketplace add "$PLUGINS_REPO/dist/local-marketplace" --scope user
 node apps/zcode-cli/packages/cli/dist/zcode.cjs plugins install excalidraw@zcode-plugins-local --scope user
@@ -225,11 +225,11 @@ node apps/zcode-cli/packages/cli/dist/zcode.cjs plugins list --json
 pnpm dev:desktop
 ```
 
-也可以在同一桌面实例的 **插件市场 → 新增** 中添加 `dist/local-marketplace` 的绝对路径，再选插件安装和启用。默认本地来源名是 `zcode-plugins-local`；根清单的官方名称是保留名称，不能直接添加仓库根目录。`pnpm dev:desktop` 只启动宿主，不自动注册插件。
+Também é possível adicionar o caminho absoluto de `dist/local-marketplace` na mesma instância do desktop, em **Marketplace de plugins → Adicionar**, e escolher o plugin para instalar e ativar. O nome padrão da fonte local é `zcode-plugins-local`; o nome oficial do manifesto raiz é um nome reservado e não se pode adicionar diretamente a raiz do repositório. O `pnpm dev:desktop` apenas inicia o host, sem registrar plugins automaticamente.
 
-如只用现成桌面客户端，在插件仓库构建后走上述 UI 安装即可；客户端本身需要支持本文功能。使用已安装的 `zcode` CLI 时，确认它和桌面使用同一个数据配置。首次使用隔离配置时，也需在该配置中完成登录或模型设置。
+Se usar apenas o cliente desktop pronto, faça o build no repositório de plugins e siga a instalação pela UI descrita acima; o próprio cliente precisa suportar as funcionalidades deste documento. Ao usar o CLI `zcode` já instalado, confirme que ele e o desktop usam a mesma configuração de dados. Ao usar a configuração isolada pela primeira vez, também é preciso fazer login ou configurar o modelo nela.
 
-### 修改后的更新循环
+### Ciclo de atualização após alterações
 
 ```sh
 cd "$PLUGINS_REPO"
@@ -239,23 +239,23 @@ node apps/zcode-cli/packages/cli/dist/zcode.cjs plugins marketplace update zcode
 node apps/zcode-cli/packages/cli/dist/zcode.cjs plugins install excalidraw@zcode-plugins-local --scope user
 ```
 
-随后重启对应桌面实例，打开新会话验证。源码监听不会把插件仓库的修改自动复制到已安装插件；刷新来源只刷新目录，重新安装才更新代码副本。开发时同版本重装会重新复制；正式分发内容变化仍需升级插件清单、marketplace 和源码包版本。
+Depois, reinicie a instância do desktop correspondente e abra uma nova sessão para validar. O monitoramento de código-fonte não copia automaticamente as alterações do repositório de plugins para o plugin instalado; atualizar a fonte atualiza apenas o diretório, e reinstalar é o que atualiza a cópia do código. Durante o desenvolvimento, reinstalar a mesma versão recopia os arquivos; em distribuições oficiais, mudanças de conteúdo ainda exigem atualizar as versões do manifesto do plugin, do marketplace e do pacote de código.
 
-已有其他本地来源名称时，用 `pnpm marketplace:local --name my-local-plugins --output dist/my-local-plugins` 保持原身份，命令中的市场名也随之调整。不要为了更新同一个本地来源重复创建多个安装身份。`python3 scripts/build_dist.py` 会清空根 `dist/`，之后可执行 `pnpm marketplace:local` 重建本地目录。
+Se já existir outro nome de fonte local, use `pnpm marketplace:local --name my-local-plugins --output dist/my-local-plugins` para manter a identidade original e ajuste o nome do marketplace nos comandos. Não crie múltiplas identidades de instalação para atualizar a mesma fonte local. O `python3 scripts/build_dist.py` limpa o `dist/` raiz; depois é possível executar `pnpm marketplace:local` para reconstruir o diretório local.
 
-### 分层验证
+### Validação em camadas
 
-| 层次                        | 在哪里运行 | 命令                                                         | 能证明什么                                                            |
-| --------------------------- | ---------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
-| 插件静态检查                | 插件仓库   | `pnpm typecheck`、`pnpm lint`、`python3 scripts/validate.py` | 类型、代码规则和清单一致性                                            |
-| 通信与业务单测              | 插件仓库   | `pnpm test`                                                  | 连接顺序、版本冲突、取消等自动化回归                                  |
-| 独立安装产物                | 插件仓库   | `pnpm test:artifacts`                                        | 从仓库外启动构建产物、读取页面/资源，检查运行依赖                     |
-| 官方 App/AppBridge 页面通信 | 插件仓库   | `pnpm test:pages`                                            | Blender、Excalidraw、OpenPencil 的真实 SDK 握手、初始结果、主题和取消 |
-| Excalidraw 冒烟             | 插件仓库   | `pnpm --filter @zcode/plugin-excalidraw smoke`               | 实际 stdio 服务与资源接口                                             |
-| Excalidraw 浏览器交互       | 插件仓库   | `pnpm --filter @zcode/plugin-excalidraw test:e2e`            | 真实画布交互、保存、撤销/重做和冷启动；测试宿主桥不等于 Electron 沙箱 |
-| Showcase 桌面联调           | 主仓库     | 下方 `--showcase-only` 命令                                  | 当前源码的 Agent、沙箱、真实页面与会话通信                            |
+| Camada                                       | Onde rodar          | Comando                                                       | O que comprova                                                            |
+| -------------------------------------------- | -------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Checagem estática dos plugins                | Repositório de plugins | `pnpm typecheck`, `pnpm lint`, `python3 scripts/validate.py` | Tipos, regras de código e consistência do manifesto                         |
+| Testes unitários de comunicação e negócio    | Repositório de plugins | `pnpm test`                                                  | Regressão automatizada de ordem de conexão, conflito de versão, cancelamentos etc. |
+| Artefatos instalados de forma independente   | Repositório de plugins | `pnpm test:artifacts`                                        | Inicia os artefatos de build fora do repositório, lê páginas/recursos e verifica dependências de execução |
+| Comunicação oficial App/AppBridge das páginas | Repositório de plugins | `pnpm test:pages`                                            | Handshake real do SDK, resultado inicial, tema e cancelamento de Blender, Excalidraw e OpenPencil |
+| Smoke do Excalidraw                          | Repositório de plugins | `pnpm --filter @zcode/plugin-excalidraw smoke`               | Serviço stdio real e interface de recursos                                   |
+| Interação no navegador do Excalidraw         | Repositório de plugins | `pnpm --filter @zcode/plugin-excalidraw test:e2e`            | Interação real com o canvas, salvamento, desfazer/refazer e partida fria; a ponte de testes não equivale ao sandbox do Electron |
+| Integração desktop do Showcase               | Repositório principal | comando `--showcase-only` abaixo                             | Agent do código atual, sandbox, páginas reais e comunicação da sessão        |
 
-测试页面前先 `pnpm build`；浏览器测试需要 Chrome，或通过 `CHROME_PATH` 指定 Chromium。Excalidraw 浏览器截图默认在系统临时目录的 `excalidraw-e2e`，可用 `EXCALIDRAW_E2E_ARTIFACTS` 指定输出路径。
+Antes de testar páginas, execute `pnpm build`; os testes no navegador exigem o Chrome, ou um Chromium indicado por `CHROME_PATH`. As capturas de tela do Excalidraw no navegador ficam por padrão em `excalidraw-e2e` no diretório temporário do sistema; use `EXCALIDRAW_E2E_ARTIFACTS` para definir o caminho de saída.
 
 ```sh
 cd "$ZCODE_REPO"
@@ -263,45 +263,45 @@ ZCODE_SHOWCASE_SERVER="$PLUGINS_REPO/plugins/showcase/dist/server.mjs" \
   node packages/desktop/scripts/mcp-apps-host-e2e.mjs --showcase-only
 ```
 
-桌面 fixture 使用临时 profile 与本地模型 fixture，末尾输出结果目录。容量/回收、稳定存储、sampling 可分别运行同脚本的 `--retention-only`、`--storage-only`、`--sampling-only`。运行这些测试不会替代具体插件的真实系统权限、真实 Blender 引擎或跨平台验证。
+O fixture do desktop usa um profile temporário e um fixture de modelo local e imprime ao final o diretório de resultados. Capacidade/lixeira, armazenamento estável e sampling podem ser executados separadamente com `--retention-only`, `--storage-only` e `--sampling-only` do mesmo script. Executar esses testes não substitui a validação de permissões reais do sistema de cada plugin, do motor real do Blender ou entre plataformas.
 
-### 常见问题定位
+### Diagnóstico de problemas comuns
 
-| 现象                        | 先检查                                                                                                                           |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 插件市场找不到插件          | `plugins marketplace list --json` 中是否有生成的本地来源；是否把仓库根目录误当测试源；CLI 与桌面配置是否一致                     |
-| 已登记来源，侧栏仍没有面板  | `plugins list --json` 的安装/启用状态；当前是否是桌面本地工作区；清单的 `ui.surfaces` 是否引用正确 `mcpServers` 键和 `ui://` URI |
-| 修改代码后还是旧页面        | 是否执行根 `pnpm build`、刷新同一来源并重装目标插件；是否仍运行旧实例或旧会话                                                    |
-| 面板打开但资源失败          | 安装目录是否有 `dist`、离线字体/脚本/WASM；用 `test:artifacts` 排除工作区依赖；检查 CSP 与资源读取上限                           |
-| 握手两次或初始画布为空      | 是否创建了两个 App，或官方 App 与 `window.zcode` 混用；是否在连接前安装事件处理器并保留初始结果                                  |
-| 点击“引用”没有立刻发消息    | `updateModelContext` 是给下一轮添加上下文，发消息用 `sendMessage`；检查输入区的插件上下文                                        |
-| sampling 不可用或参数被拒绝 | 检查宿主是否声明 `sampling`，当前任务是否可操作，以及参数是否属于本文支持子集                                                    |
-| 改名后出现两份安装          | 插件 ID 已改变，旧名称和新名称是独立安装；按需处理旧安装，先保留数据，不直接删除插件数据目录                                     |
-| 开发者工具没有页面日志      | 应用“帮助 → 开发者工具”首先检查宿主错误；插件有独立 guest，优先用 `app.sendLog()` 和页面测试采集自己的日志                       |
+| Sintoma                                        | Verifique primeiro                                                                                                                               |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plugin não aparece no marketplace               | Se há uma fonte local gerada em `plugins marketplace list --json`; se a raiz do repositório foi usada por engano como fonte de teste; se CLI e desktop usam a mesma configuração |
+| Fonte registrada, mas sem painel na barra lateral | Estado de instalação/ativação em `plugins list --json`; se é um workspace local do desktop; se o `ui.surfaces` do manifesto referencia as chaves `mcpServers` e URIs `ui://` corretos |
+| Página antiga após alterar o código              | Se o `pnpm build` raiz foi executado, a mesma fonte foi atualizada e o plugin reinstalado; se ainda roda uma instância ou sessão antiga            |
+| Painel abre, mas os recursos falham              | Se o diretório de instalação contém `dist`, fontes/scripts/WASM offline; use `test:artifacts` para descartar dependências do workspace; verifique o CSP e os limites de leitura de recursos |
+| Handshake duplicado ou canvas inicial vazio      | Se dois Apps foram criados, ou o App oficial foi misturado com `window.zcode`; se os handlers de eventos foram instalados antes da conexão e o resultado inicial preservado |
+| Clicar em "Referenciar" não envia mensagem na hora | `updateModelContext` adiciona contexto para a próxima rodada; para enviar mensagens use `sendMessage`; verifique o contexto do plugin na área de entrada |
+| sampling indisponível ou parâmetros rejeitados   | Verifique se o host declara `sampling`, se a tarefa atual está operável e se os parâmetros pertencem ao subconjunto suportado neste documento     |
+| Duas instalações após renomear                   | O ID do plugin mudou; nome antigo e novo são instalações independentes; trate a instalação antiga conforme necessário, preservando antes os dados — não apague diretamente o diretório de dados do plugin |
+| Sem logs da página nas ferramentas de desenvolvedor | Em "Ajuda → Ferramentas de desenvolvedor", verifique primeiro os erros do host; o plugin tem um guest próprio — prefira `app.sendLog()` e os testes de página para coletar os próprios logs |
 
-stdio MCP 服务的 stdout 只输出协议消息，调试日志写 stderr。定位时同时记录插件 ID、来源名、工作区、资源 URI 和复现步骤，不记录凭据或完整用户文档。
+O stdout de serviços MCP stdio deve conter apenas mensagens de protocolo; logs de depuração vão no stderr. Ao investigar, registre ID do plugin, nome da fonte, workspace, URI do recurso e passos de reprodução — nunca credenciais nem documentos completos de usuários.
 
-### 提交 PR 时声明插件类型
+### Declarar o tipo de plugin no PR
 
-**向 `zcode-plugins` 提交 PR 时，必须在 PR 模板中明确声明插件类型，并填写涉及插件的清单 `name`，再发起评审。** 选择且只选择一项：
+**Ao abrir um PR para `zcode-plugins`, é obrigatório declarar explicitamente o tipo de plugin no template do PR e informar o `name` no manifesto dos plugins envolvidos antes de solicitar revisão.** Escolha uma, e apenas uma, das opções:
 
-| 选项                  | 判断标准                                                                                    |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| **UI Plugin**         | 涉及的插件提供 MCP Apps 交互页面，包括 `ui.surfaces` 面板和工具 `_meta.ui.resourceUri` 页面 |
-| **普通插件（非 UI）** | 插件不提供 MCP Apps 交互页面；仅有 MCP 工具或生成 Gen UI 的 skill 不算 UI Plugin            |
-| **不适用**            | 仅仓库级文档、构建或 CI 改动，不涉及可安装插件内容                                          |
+| Opção                          | Critério                                                                                    |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| **Plugin de UI**               | O plugin envolvido fornece páginas interativas MCP Apps, incluindo painéis `ui.surfaces` e páginas de `_meta.ui.resourceUri` de ferramentas |
+| **Plugin comum (não UI)**      | O plugin não fornece páginas interativas MCP Apps; apenas ferramentas MCP ou skills que geram Gen UI não contam como Plugin de UI |
+| **Não aplicável**              | Apenas mudanças de documentação, build ou CI do repositório, sem conteúdo de plugins instaláveis |
 
-即使只改 UI Plugin 的文档或 skill，或者新增、移除交互页面，也选择 UI Plugin。涉及多个插件时分别列出名称与类型，只要包含 UI Plugin 就选择此项。这是 PR 中的类型声明，与市场 `category` 分类独立；评审者批准前必须确认填写完整且准确。
+Mesmo alterando apenas documentação ou skills de um Plugin de UI, ou adicionando/removendo páginas interativas, escolha Plugin de UI. Com múltiplos plugins envolvidos, liste nomes e tipos separadamente; se qualquer um for Plugin de UI, escolha essa opção. É uma declaração de tipo no PR, independente da categoria `category` do marketplace; os revisores devem confirmar antes de aprovar que o preenchimento está completo e correto.
 
-## 给自己的插件接入 UI
+## Adicionando UI ao seu plugin
 
-沿用普通插件的安装目录与市场条目；需要编译的源码包声明自己的 `build`，额外资源使用可选 `stage`。下面是安装清单 `.zcode-plugin/plugin.json` 的最小页面示例：
+Siga o diretório de instalação e a entrada de marketplace dos plugins comuns; pacotes de código que exigem compilação declaram o próprio `build`, e recursos extras usam o `stage` opcional. Abaixo, um exemplo mínimo de página no manifesto de instalação `.zcode-plugin/plugin.json`:
 
 ```json
 {
   "name": "my-panel",
   "version": "0.1.0",
-  "description": "我的交互面板",
+  "description": "Meu painel interativo",
   "mcpServers": {
     "app": {
       "type": "stdio",
@@ -328,73 +328,73 @@ stdio MCP 服务的 stdout 只输出协议消息，调试日志写 stderr。定�
 }
 ```
 
-服务端需要实际注册 `ui://my-panel/editor.html` 资源并返回 `text/html;profile=mcp-app`。让工具结果使用该面板时，在工具定义中设置 `_meta.ui.resourceUri` 和 `_meta.ui.surface: "editor"`；`_meta.ui.visibility: ["model", "app"]` 允许模型与页面调用，仅页面工具使用 `["app"]`。`ui.surfaces` 可省略，此时仍可通过工具元数据提供内联页面。
+O servidor precisa registrar de fato o recurso `ui://my-panel/editor.html` e responder `text/html;profile=mcp-app`. Para que o resultado de uma ferramenta use esse painel, defina na ferramenta `_meta.ui.resourceUri` e `_meta.ui.surface: "editor"`; `_meta.ui.visibility: ["model", "app"]` permite chamadas do modelo e da página, e ferramentas somente de página usam `["app"]`. O `ui.surfaces` pode ser omitido; nesse caso, páginas inline ainda podem ser fornecidas pelos metadados das ferramentas.
 
-插件文件使用 `${ZCODE_PLUGIN_ROOT}` 定位，工作区文件操作使用 `${ZCODE_PROJECT_DIR}`，持久数据使用 `${ZCODE_PLUGIN_DATA}`。用户配置通过清单 `userConfig` 定义，并在服务配置里用 `${user_config.<key>}` 引用。页面通过服务执行文件操作，不直接访问主应用源码或 Node API。
+Os arquivos do plugin são localizados com `${ZCODE_PLUGIN_ROOT}`, operações de arquivos do workspace usam `${ZCODE_PROJECT_DIR}` e dados persistentes usam `${ZCODE_PLUGIN_DATA}`. A configuração do usuário é definida pelo `userConfig` do manifesto e referenciada na configuração do serviço com `${user_config.<key>}`. As páginas executam operações de arquivos por meio do serviço, sem acessar diretamente o código do aplicativo principal ou APIs de Node.
 
-## 页面 API 速查
+## Referência rápida da API de página
 
-以当前宿主实现和锁定的 SDK 类型为准。先注册事件，再 `connect()`；连接后读取 `getHostCapabilities()`，按返回的能力启用功能。官方 API 文档描述 SDK 的完整表面，宿主支持范围还要看下表。
+Considere a implementação atual do host e os tipos do SDK fixados. Registre os eventos antes e chame `connect()`; após conectar, leia `getHostCapabilities()` e habilite funcionalidades conforme as capacidades retornadas. A documentação oficial da API descreve a superfície completa do SDK; o que o host suporta deve ser conferido na tabela abaixo.
 
-### 官方 MCP Apps API
+### API oficial do MCP Apps
 
-| API / 事件                                                      | 用途                                 | ZCode 行为与注意事项                                                                          |
-| --------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `new App(info, capabilities, options)`、`connect()`             | 创建页面连接并完成握手               | 每个活页面只建一个 App；不要同时访问会触发另一连接的 `window.zcode`                           |
-| `getHostVersion()`、`getHostCapabilities()`、`getHostContext()` | 读取宿主、能力、主题、语言和展示模式 | 在连接完成后使用；不要只按宿主版本号猜能力                                                    |
-| `ontoolinput`、`ontoolresult`、`ontoolcancelled`                | 接收完整输入、结果和取消             | 大 UI 延迟加载时，保留初始结果再交给 UI，避免丢通知                                           |
-| `onhostcontextchanged`                                          | 响应主题、语言、尺寸或模式变化       | 更新显示；不要因此重复执行业务操作                                                            |
-| `callServerTool({ name, arguments }, options)`                  | 调用当前插件服务的工具               | 沿用 Agent 的权限和审批；`options.signal` 可取消；返回真实 `CallToolResult`                   |
-| `readServerResource({ uri })`                                   | 读取当前服务的资源                   | 返回 MCP `contents`；二进制是 base64；不能用它访问其他插件或任意本地文件                      |
-| `listServerResources({ cursor })`                               | 分页列出服务资源                     | 资源模板列表用后表中的 `resources/templates/list` 请求                                        |
-| `sendMessage({ role: "user", content })`                        | 发出主对话后续消息                   | 需要 `message` 能力；有用户手势时发送，无手势时进入确认流程                                   |
-| `updateModelContext({ content, structuredContent })`            | 给下一轮对话附加选区等上下文         | 需要 `updateModelContext` 能力；在输入区可见、可删，不立即发消息，不是持久存储                |
-| `createSamplingMessage(params, { signal })`                     | App 内调用当前任务模型               | 需要 `sampling` 能力；支持文本与符合限制的图片输入，返回文本；对话历史由 App 提供             |
-| `registerTool(name, config, handler)`                           | 页面提供可被模型调用的工具           | 握手前登记；声明 App 的 `tools` 能力；随活页面登记/撤销并遵守既有审批                         |
-| `onlisttools`、`oncalltool`、`sendToolListChanged()`            | 手动管理页面工具目录                 | 是另一种页面工具实现方式；取消信号在回调 `extra.mcpReq?.signal` 中；Showcase 提供完整例子     |
-| `requestDisplayMode({ mode })`                                  | 请求切换展示位置                     | `inline` 为内联，`fullscreen` 为侧栏；以返回模式为准；`pip` 当前保持原模式                    |
-| `sendSizeChanged({ height })`                                   | 报告内容高度                         | 可用 SDK 自动测量；手动测量内容容器，避免把视口高度反馈给宿主                                 |
-| `openLink({ url })`                                             | 通过宿主打开外链                     | 仅允许 `http:` / `https:`                                                                     |
-| `downloadFile({ contents })`                                    | 调用原生保存对话框                   | 需要 `downloadFile` 能力；支持嵌入资源或当前服务的资源链接；取消/写入失败返回 `isError: true` |
-| `sendLog({ level, data })`                                      | 发送可观察的页面诊断                 | 不向 stdio 服务的 stdout 写调试日志；不要记录密钥或用户内容                                   |
-| `onteardown`                                                    | 释放页面监听器等资源                 | 宿主做有时限的 teardown，不应把唯一保存操作留到此时                                           |
-| `requestTeardown()`                                             | 请求宿主释放页面                     | 当前 ZCode 只记录请求；实际生命周期跟随卡片/面板，不能把它当关闭按钮                          |
+| API / evento                                                    | Uso                                   | Comportamento e observações no ZCode                                                          |
+| --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `new App(info, capabilities, options)`, `connect()`             | Cria a conexão da página e faz o handshake | Crie apenas um App por página ativa; não acesse ao mesmo tempo o `window.zcode`, que dispara outra conexão |
+| `getHostVersion()`, `getHostCapabilities()`, `getHostContext()` | Lê host, capacidades, tema, idioma e modo de exibição | Use após concluir a conexão; não infira capacidades apenas pela versão do host                   |
+| `ontoolinput`, `ontoolresult`, `ontoolcancelled`                | Recebe entrada completa, resultado e cancelamento | Ao carregar tardiamente UIs grandes, preserve o resultado inicial antes de passá-lo à UI, evitando perder notificações |
+| `onhostcontextchanged`                                          | Reage a mudanças de tema, idioma, tamanho ou modo | Atualize a exibição; não reexecute operações de negócio por causa disso                          |
+| `callServerTool({ name, arguments }, options)`                  | Chama uma ferramenta do serviço do plugin atual | Segue as permissões e aprovações do Agent; `options.signal` cancela; retorna um `CallToolResult` real |
+| `readServerResource({ uri })`                                   | Lê um recurso do serviço atual          | Retorna `contents` do MCP; binários em base64; não serve para acessar outros plugins ou arquivos locais arbitrários |
+| `listServerResources({ cursor })`                               | Lista recursos do serviço com paginação | Para a lista de templates de recursos, use a requisição `resources/templates/list` da tabela abaixo |
+| `sendMessage({ role: "user", content })`                        | Envia mensagem seguinte à conversa principal | Requer a capacidade `message`; com gesto do usuário envia direto, sem gesto entra no fluxo de confirmação |
+| `updateModelContext({ content, structuredContent })`            | Anexa à próxima rodada contexto como a seleção | Requer a capacidade `updateModelContext`; fica visível e removível na área de entrada, não envia mensagem na hora e não é armazenamento persistente |
+| `createSamplingMessage(params, { signal })`                     | Chama o modelo da tarefa atual dentro do App | Requer a capacidade `sampling`; aceita texto e imagens dentro dos limites, retorna texto; o histórico da conversa é fornecido pelo App |
+| `registerTool(name, config, handler)`                           | A página fornece uma ferramenta que o modelo pode chamar | Registre antes do handshake; declara a capacidade `tools` do App; registra/revoga junto com a página ativa e respeita as aprovações existentes |
+| `onlisttools`, `oncalltool`, `sendToolListChanged()`            | Gerenciamento manual do catálogo de ferramentas da página | É outra forma de implementar ferramentas de página; o sinal de cancelamento está em `extra.mcpReq?.signal` do callback; o Showcase tem um exemplo completo |
+| `requestDisplayMode({ mode })`                                  | Pede mudança de posição de exibição     | `inline` é embutido, `fullscreen` é a barra lateral; considere o modo retornado; `pip` atualmente mantém o modo original |
+| `sendSizeChanged({ height })`                                   | Reporta a altura do conteúdo            | O SDK pode medir automaticamente quando disponível; meça manualmente o contêiner de conteúdo, evitando devolver ao host a altura da viewport |
+| `openLink({ url })`                                             | Abre link externo pelo host             | Apenas `http:` / `https:` são permitidos                                                          |
+| `downloadFile({ contents })`                                    | Aciona o diálogo nativo de salvamento   | Requer a capacidade `downloadFile`; aceita recursos embutidos ou links de recursos do serviço atual; cancelamento ou falha de gravação retorna `isError: true` |
+| `sendLog({ level, data })`                                      | Envia diagnósticos observáveis da página | Não escreva logs de depuração no stdout do serviço stdio; não registre chaves nem conteúdo de usuários |
+| `onteardown`                                                    | Libera listeners e demais recursos da página | O host faz o teardown com prazo; não deixe a única operação de salvamento para esse momento       |
+| `requestTeardown()`                                             | Pede ao host para liberar a página      | O ZCode atualmente apenas registra o pedido; o ciclo de vida real segue o cartão/painel — não trate como botão de fechar |
 
-Sampling 使用接纳请求时的任务模型，不读取主聊天历史；只有 App 明确传入的历史进入请求。当前不接受 `temperature`、`tools`、原生 audio 等未实现参数，`includeContext` 只支持 `none`。回答和取消不应被自动追加为主对话回合。
+O sampling usa o modelo da tarefa no momento da aceitação da requisição e não lê o histórico principal do chat; apenas o histórico explicitamente passado pelo App entra na requisição. Parâmetros não implementados como `temperature`, `tools` e áudio nativo não são aceitos atualmente, e `includeContext` só suporta `none`. Respostas e cancelamentos não devem ser adicionados automaticamente como turnos da conversa principal.
 
-### ZCode 扩展与低层 MCP 请求
+### Extensões do ZCode e requisições MCP de baixo nível
 
-下面的 `app.request()` 是官方 App 的低层接口。请求结果应使用 `@modelcontextprotocol/core` 的对应 schema 校验。
+O `app.request()` abaixo é a interface de baixo nível do App oficial. Os resultados das requisições devem ser validados com os schemas correspondentes do `@modelcontextprotocol/core`.
 
-| 接口 / 字段  | 调用或声明方式                                                                            | 适用范围                                                                                                              |
-| ------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 会话视图状态 | `ui/set-widget-state`，参数 `{ widgetState }`，结果 `EmptyResultSchema`                   | 先检查 `experimental["zcode/widgetState"]`；初值来自 hostContext 同名键；仅宿主内存，会话内重建可恢复，应用重启不保证 |
-| 资源模板列表 | `resources/templates/list`，结果 `ListResourceTemplatesResultSchema`                      | 当前服务的 MCP 模板目录；不要假定 App 存在 `listServerResourceTemplates()` 便捷方法                                   |
-| 资源订阅     | `resources/subscribe` / `resources/unsubscribe`，参数 `{ uri }`，结果 `EmptyResultSchema` | 先检查 `experimental["zcode/resourceSubscribe"]`；服务端也须支持订阅                                                  |
-| 资源变更通知 | `notifications/resources/updated` / `notifications/resources/list_changed`                | 先用 `setNotificationHandler()` 注册处理器；收到 URI 后自行重新读取资源                                               |
-| 当前侧栏面板 | `app.getHostCapabilities()?.experimental?.["zcode/surface"]` 返回 `{ id }`                | 清单 `ui.surfaces[].id` 与工具 `_meta.ui.surface` 保持一致                                                            |
-| CSP 放宽     | 资源 `_meta["zcode/csp"]` 中 `unsafeEval`、`wasmUnsafeEval`                               | 检查 `experimental["zcode/csp"]` 返回的支持标记；不等于获得文件或网络权限                                             |
+| Interface / campo   | Forma de chamada ou declaração                                                            | Escopo de aplicação                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Estado de visão da sessão | `ui/set-widget-state`, parâmetro `{ widgetState }`, resultado `EmptyResultSchema`       | Verifique antes `experimental["zcode/widgetState"]`; o valor inicial vem da chave homônima do hostContext; apenas memória do host — restaurável ao reconstruir na sessão, sem garantia após reinício do app |
+| Lista de templates de recursos | `resources/templates/list`, resultado `ListResourceTemplatesResultSchema`           | Diretório de templates MCP do serviço atual; não presuma que o App tenha o método conveniente `listServerResourceTemplates()` |
+| Assinatura de recursos | `resources/subscribe` / `resources/unsubscribe`, parâmetro `{ uri }`, resultado `EmptyResultSchema` | Verifique antes `experimental["zcode/resourceSubscribe"]`; o servidor também precisa suportar assinatura               |
+| Notificações de mudança de recursos | `notifications/resources/updated` / `notifications/resources/list_changed`        | Registre o handler antes com `setNotificationHandler()`; ao receber o URI, releia o recurso por conta própria            |
+| Painel atual da barra lateral | `app.getHostCapabilities()?.experimental?.["zcode/surface"]` retorna `{ id }`         | O `ui.surfaces[].id` do manifesto deve ser consistente com o `_meta.ui.surface` da ferramenta                           |
+| Relaxamento de CSP  | `_meta["zcode/csp"]` do recurso, com `unsafeEval`, `wasmUnsafeEval`                         | Verifique os marcadores de suporte retornados em `experimental["zcode/csp"]`; não equivale a obter permissões de arquivos ou rede |
 
-### 现有 `window.zcode` 页面
+### Páginas existentes com `window.zcode`
 
-已有兼容页面可以继续使用以下别名。新页面优先使用官方 App；这两种连接方式选一种即可。
+Páginas compatíveis já existentes podem continuar usando os aliases abaixo. Em páginas novas, prefira o App oficial; basta escolher uma das duas formas de conexão.
 
-| 类别           | 可用成员                                                                                                                             |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 连接与观察     | `ready()`、`subscribe(listener)`，后者返回取消订阅函数                                                                               |
-| 输入与宿主信息 | `toolInput`、`toolOutput`、`toolResponseMetadata`、`toolCancelled`、`hostInfo`、`hostCapabilities`、`hostContext`、`protocolVersion` |
-| 展示信息       | `theme`、`locale`、`displayMode`、`maxHeight`、`safeArea`、`userAgent`                                                               |
-| 工具与资源     | `callTool(name, args)`、`readResource(uri)`、`listResources()`、`listResourceTemplates()`                                            |
-| 资源订阅       | `subscribeResource(uri)`、`unsubscribeResource(uri)`、`onResourceUpdated(listener)`、`onResourceListChanged(listener)`               |
-| 会话视图状态   | `widgetState`、`setWidgetState(state)`                                                                                               |
-| 对话协作       | `sendFollowUpMessage({ prompt, structuredContent })`、`updateModelContext({ content, structuredContent })`                           |
-| 展示与文件     | `requestDisplayMode({ mode })`、`notifyIntrinsicHeight(height)`、`openExternal({ href })`、`downloadFile(contents)`                  |
+| Categoria              | Membros disponíveis                                                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Conexão e observação   | `ready()`, `subscribe(listener)`; o último retorna a função de cancelamento                                                              |
+| Entrada e infos do host | `toolInput`, `toolOutput`, `toolResponseMetadata`, `toolCancelled`, `hostInfo`, `hostCapabilities`, `hostContext`, `protocolVersion`     |
+| Informações de exibição | `theme`, `locale`, `displayMode`, `maxHeight`, `safeArea`, `userAgent`                                                                   |
+| Ferramentas e recursos | `callTool(name, args)`, `readResource(uri)`, `listResources()`, `listResourceTemplates()`                                                |
+| Assinatura de recursos | `subscribeResource(uri)`, `unsubscribeResource(uri)`, `onResourceUpdated(listener)`, `onResourceListChanged(listener)`                    |
+| Estado de visão da sessão | `widgetState`, `setWidgetState(state)`                                                                                                 |
+| Colaboração na conversa | `sendFollowUpMessage({ prompt, structuredContent })`, `updateModelContext({ content, structuredContent })`                              |
+| Exibição e arquivos    | `requestDisplayMode({ mode })`, `notifyIntrinsicHeight(height)`, `openExternal({ href })`, `downloadFile(contents)`                      |
 
-别名没有 sampling 或页面工具的便捷接口；需要这些能力时使用官方 App。`openExternal` 的参数叫 `href`，官方 `openLink` 的参数叫 `url`，不要混用。
+Os aliases não têm interfaces convenientes para sampling ou ferramentas de página; quando precisar dessas capacidades, use o App oficial. O parâmetro do `openExternal` se chama `href`, e o do `openLink` oficial se chama `url` — não misture.
 
-### 最小页面连接示例
+### Exemplo mínimo de conexão da página
 
-这是需要打包到插件 HTML 中的页面代码，不是可直接在普通浏览器标签页中连接宿主的脚本。
+Este é o código da página que precisa ser empacotado no HTML do plugin, não um script que conecta ao host diretamente em uma aba comum do navegador.
 
 ```ts
 import { App } from "@modelcontextprotocol/ext-apps";
@@ -425,37 +425,37 @@ async function saveViewState(state: unknown) {
 }
 ```
 
-页面 HTML 需提供示例中的 `<pre>`；实际组件应在挂载后消费已经收到的 `latestResult`。这段代码只处理通信，文档保存仍通过插件服务执行。
+O HTML da página precisa fornecer o `<pre>` do exemplo; os componentes reais devem consumir o `latestResult` já recebido após a montagem. Este código trata apenas da comunicação; o salvamento de documentos continua sendo feito pelo serviço do plugin.
 
-## 平台、数据与能力边界
+## Plataforma, dados e limites de capacidades
 
-| 数据 / 能力                      | 应放在哪里或如何使用                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------------------------ |
-| 业务文档、清理计划、场景版本     | 插件服务持有；文件或数据库写入插件数据目录，按业务规则确认和恢复                           |
-| 当前活页面输入、滚动和运行中请求 | 同一活页面切内联/侧栏时保留；不重复连接或重发请求                                          |
-| `widgetState`                    | 临时界面快照；重建、手动重试与进程重启的语义不同，不能用来承诺永久保存                     |
-| localStorage / IndexedDB         | 稳定来源下的浏览器存储，可跨进程；插件身份/工作区/账号隔离，清浏览器数据不等于清插件文档   |
-| 网络、字体、WASM、脚本           | 优先随包提供；外部访问受资源 CSP 限制，页面没有 Node 或任意文件系统访问权                  |
-| 原生权限                         | camera / microphone / geolocation / clipboardWrite 需资源声明及宿主/系统授权；不是默认可用 |
+| Dados / capacidade                                 | Onde colocar ou como usar                                                                 |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Documentos de negócio, planos de limpeza, versões de cena | O serviço do plugin é o dono; arquivos ou bancos são gravados no diretório de dados do plugin, com confirmação e recuperação por regras de negócio |
+| Entrada, rolagem e requisições em andamento da página ativa atual | Preservados quando a mesma página ativa muda entre inline/barra lateral; não reconecte nem reenvie requisições |
+| `widgetState`                                       | Snapshot temporário da interface; os significados de reconstrução, tentativa manual e reinício do processo diferem — não use para prometer persistência eterna |
+| localStorage / IndexedDB                            | Armazenamento do navegador sob origem estável, persiste entre processos; isolado por identidade do plugin/workspace/conta — limpar os dados do navegador não equivale a limpar os documentos do plugin |
+| Rede, fontes, WASM, scripts                         | Prefira incluir no pacote; acesso externo é limitado pelo CSP dos recursos, e as páginas não têm acesso a Node ou ao sistema de arquivos arbitrário |
+| Permissões nativas                                  | camera / microphone / geolocation / clipboardWrite exigem declaração no recurso e autorização do host/sistema; não estão disponíveis por padrão |
 
-当前 HTML 资源上限 **16 MiB**，页面资源读取上限 **8 MiB**；大页面可拆分资源。初始工具结果存在大小限制：`structuredContent` 64 KiB、页面元数据 16 KiB、`content` 32 KiB；超限字段会被省略并标记，页面应从服务重新读取完整数据。
+O limite atual de recursos HTML é **16 MiB**, e o de leitura de recursos pelas páginas é **8 MiB**; páginas grandes podem dividir recursos. O resultado inicial das ferramentas tem limites de tamanho: `structuredContent` 64 KiB, metadados da página 16 KiB, `content` 32 KiB; campos acima do limite são omitidos e marcados, e a página deve reler os dados completos do serviço.
 
-**尚未实现的范围：**纯图片/资源链接的完整消息内容扩展、App 工具双向进度（Showcase SC51/SC52）。已有的文本附图、资源读取、模型工具行进度不能视为这些能力已经齐备。
+**Ainda não implementado:** extensão completa do conteúdo de mensagens com imagens/links de recursos puros e progresso bidirecional das ferramentas do App (Showcase SC51/SC52). As imagens anexadas a texto, a leitura de recursos e o progresso de ferramentas do modelo já existentes não devem ser interpretados como essas capacidades completas.
 
-官方 SDK 的概念与接口入口见 [MCP Apps API](https://apps.extensions.modelcontextprotocol.io/api/) 和 [Quickstart](https://apps.extensions.modelcontextprotocol.io/api/documents/quickstart.html)。宿主行为以本文对应的当前源码和实际能力协商为准，不据此承诺某个已发布版本的兼容范围。
+Para os conceitos e a entrada das interfaces do SDK oficial, veja [MCP Apps API](https://apps.extensions.modelcontextprotocol.io/api/) e [Quickstart](https://apps.extensions.modelcontextprotocol.io/api/documents/quickstart.html). O comportamento do host deve ser considerado conforme o código-fonte atual correspondente a este documento e a negociação real de capacidades, sem prometer escopo de compatibilidade de nenhuma versão já publicada.
 
-## 宿主源码导航
+## Navegação pelo código-fonte do host
 
-| 排查目标                          | 当前源码入口                                                                                                                                                                                    |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 能力声明                          | [buildPluginUiHostCapabilities.ts](packages/ui/src/plugin-ui/domain/buildPluginUiHostCapabilities.ts)                                                                                           |
-| 会话消息、上下文和 widgetState    | [pluginUiInteractionPorts.ts](packages/ui/src/plugin-ui/app/pluginUiInteractionPorts.ts)                                                                                                        |
-| 工具、外链和展示模式              | [pluginUiHostAppHandlers.ts](packages/ui/src/plugin-ui/app/pluginUiHostAppHandlers.ts)                                                                                                          |
-| 资源订阅                          | [pluginUiResourceSubscriptions.ts](packages/ui/src/plugin-ui/app/pluginUiResourceSubscriptions.ts)                                                                                              |
-| 页面保留、回收与恢复规则          | [plugin-ui/CONTRACT.md](packages/ui/src/plugin-ui/CONTRACT.md)                                                                                                                                  |
-| HTML、资源与 Host 边界            | [plugin-ui-bridge/CONTRACT.md](packages/services/src/plugin-ui-bridge/CONTRACT.md)                                                                                                              |
-| Electron 沙箱与浏览器存储         | [pluginSandbox/CONTRACT.md](packages/desktop/src/main/pluginSandbox/CONTRACT.md)                                                                                                                |
-| API 限额、sampling 参数与别名类型 | [MCP Apps 契约](packages/shared/src/mcp-apps/contract.ts)、[sampling.ts](packages/shared/src/mcp-apps/sampling.ts)、[aliasApi.ts](packages/desktop/src/renderer/src/plugin-sandbox/aliasApi.ts) |
-| 实际桌面集成测试                  | [mcp-apps-host-e2e.mjs](packages/desktop/scripts/mcp-apps-host-e2e.mjs)                                                                                                                         |
+| Objetivo de investigação                        | Entrada no código-fonte atual                                                                                                                                                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Declaração de capacidades                        | [buildPluginUiHostCapabilities.ts](packages/ui/src/plugin-ui/domain/buildPluginUiHostCapabilities.ts)                                                                                               |
+| Mensagens da sessão, contexto e widgetState      | [pluginUiInteractionPorts.ts](packages/ui/src/plugin-ui/app/pluginUiInteractionPorts.ts)                                                                                                            |
+| Ferramentas, links externos e modo de exibição   | [pluginUiHostAppHandlers.ts](packages/ui/src/plugin-ui/app/pluginUiHostAppHandlers.ts)                                                                                                              |
+| Assinatura de recursos                           | [pluginUiResourceSubscriptions.ts](packages/ui/src/plugin-ui/app/pluginUiResourceSubscriptions.ts)                                                                                                  |
+| Regras de preservação, coleta e recuperação de páginas | [plugin-ui/CONTRACT.md](packages/ui/src/plugin-ui/CONTRACT.md)                                                                                                                                  |
+| Fronteira de HTML, recursos e Host               | [plugin-ui-bridge/CONTRACT.md](packages/services/src/plugin-ui-bridge/CONTRACT.md)                                                                                                                  |
+| Sandbox do Electron e armazenamento do navegador | [pluginSandbox/CONTRACT.md](packages/desktop/src/main/pluginSandbox/CONTRACT.md)                                                                                                                    |
+| Limites da API, parâmetros de sampling e tipos de alias | [Contrato MCP Apps](packages/shared/src/mcp-apps/contract.ts), [sampling.ts](packages/shared/src/mcp-apps/sampling.ts), [aliasApi.ts](packages/desktop/src/renderer/src/plugin-sandbox/aliasApi.ts) |
+| Testes reais de integração no desktop            | [mcp-apps-host-e2e.mjs](packages/desktop/scripts/mcp-apps-host-e2e.mjs)                                                                                                                             |
 
-五个插件的业务源码位于独立 `zcode-plugins` 仓库，其根目录也提供 `UI_PLUGIN.md`。本仓库负责宿主，不复制插件成品；宿主 API 变化时同步维护两边文档中英文版的能力与 API 表。
+O código de negócio dos cinco plugins fica no repositório separado `zcode-plugins`, que também fornece um `UI_PLUGIN.md` em sua raiz. Este repositório é responsável pelo host e não copia os plugins prontos; quando a API do host mudar, mantenha sincronizadas, em ambos os lados e nas versões em inglês e português, as tabelas de capacidades e APIs.
