@@ -95,7 +95,7 @@ afetados do módulo alvo, sem copiar a implementação completa.
 
 Primeiro estabelecer a política, o grafo de dependências, o baseline e o padrão de relatório; depois ativar as
 regras estruturais de alta confiança; em seguida validar contract, manifest de módulo e pacote de leitura com
-Project/Session como样板 completo; por fim expandir para workspace identity, identity, model, automation,
+Project/Session como exemplo completo; por fim expandir para workspace identity, identity, model, automation,
 plugins/MCP e outros domínios. Não é permitido duplicar um conjunto de portões para um único domínio.
 
 ## Boundaries Explícitas

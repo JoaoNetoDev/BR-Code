@@ -1,10 +1,10 @@
-# V4 跨端权威输入队列
+# Fila de Entrada Autoritativa Cross-Platform do V4
 
-## 结论
+## Conclusão
 
-旧的“桌面 renderer-local queue + 手机 host runtime command queue”双队列语义已经退出 V4。
-所有桌面与手机已提交的 busy/running 输入直接进入同一个 CLI/runtime `CommandInbox`，FIFO 顺序以
-CLI 串行 admission 顺序为准。host 的 owner/lease 只做路由，不再拥有第二份 accepted input queue。
+A semântica de fila dupla antiga ("fila renderer-local do desktop + fila de comandos runtime do host no celular") saiu do V4.
+Todas as entradas busy/running já submetidas pelo desktop e pelo celular entram diretamente no mesmo `CommandInbox` do CLI/runtime, e a ordem FIFO segue a
+ordem de admission serial do CLI. O owner/lease do host apenas faz roteamento e não possui mais uma segunda fila de input aceito.
 
 ```text
 Desktop continuous command ─┐
@@ -16,45 +16,45 @@ Mobile replayable command ──┘                                      |
                                                                     └─ rejected/failed/discarded
 ```
 
-最终不变量：UI 清空已提交 payload 前，权威层必须已经记录其唯一去向；不能出现“UI 已清空，但 CLI
-没有 queue/guided row/transcript/explicit terminal result”。
+Invariante final: antes de a UI limpar um payload já submetido, a camada autoritativa já precisa ter registrado seu único destino; não pode existir "a UI limpou, mas o CLI
+não tem queue/guided row/transcript/resultado terminal explícito".
 
-## 连接与路由边界
+## Limites de Conexão e Roteamento
 
-- Desktop（包含 SSH/WSL/Docker 窗口）由 host 可信标记为 `desktop-continuous`。
-- Mobile `/remote` / Web remote 可信标记为 `web-remote-replayable`。
-- `clientMode` 由 attachment 注入，不能由 UI command 伪造。
-- 手机 V4 绕过 `IZCodeTaskService.enqueueTaskCommand` 的 host runtime command queue。
-- remote workspace、bot/proxy 或跨 host fallback 仍通过 owner/lease/stale-run 把 command 路由到正确 CLI。
-- 远程链路贯穿 `workspaceIdentity` 与 `remoteSessionId`；身份 key 不能只用 `workspacePath`。
-- 每个桌面窗口只有一个 Window Host 和一个 realtime `hostId`；local/remote command 在 Host 内按
-  `workspaceKey + taskId` 路由，`remoteSessionId` 只选择窗口内 source，不能替代 workspace identity。
+- Desktop (incluindo janelas SSH/WSL/Docker) é marcado como confiável pelo host como `desktop-continuous`.
+- `/remote` no celular / Web remote é marcado como confiável como `web-remote-replayable`.
+- `clientMode` é injetado pelo attachment e não pode ser forjado por um UI command.
+- O celular no V4 contorna a fila de comandos runtime do host de `IZCodeTaskService.enqueueTaskCommand`.
+- remote workspace, bot/proxy ou fallback entre hosts continuam roteando o command para o CLI correto via owner/lease/stale-run.
+- O link remoto percorre `workspaceIdentity` e `remoteSessionId`; a chave de identidade não pode usar apenas `workspacePath`.
+- Cada janela do desktop tem apenas um Window Host e um `hostId` realtime; commands local/remote são roteados dentro do Host por
+  `workspaceKey + taskId`, e `remoteSessionId` apenas seleciona a source dentro da janela, não substitui a workspace identity.
 
 ## ConversationInputIntent
 
-每条 admitted input 自包含并沿 queue/runtime/transcript 全字段守恒：
+Cada input admitido é autocontido e conserva todos os campos ao longo de queue/runtime/transcript:
 
-- 原始 `sourceCommandId` 和稳定 `queueItemId`。
-- `clientId`、kind、原文、attachments。
-- delivery requested/admitted 与 fallback reason。
-- CLI admission 顺序和 queue position。
-- steer 与 dispatch 状态。
+- O `sourceCommandId` original e o `queueItemId` estável.
+- `clientId`, kind, texto original, attachments.
+- delivery requested/admitted e o motivo do fallback.
+- Ordem de admission do CLI e posição na queue.
+- Estado de steer e de dispatch.
 
-QueueItem、drain/guided event、user row、message anchor 使用同一个原始 `sourceCommandId`。promotion、
-edit 或 send-now 不能换成操作 command 的 id。
+QueueItem, drain/guided event, user row e message anchor usam o mesmo `sourceCommandId` original. promotion,
+edit ou send-now não podem trocar para o id do command da operação.
 
-持久化时，message metadata 与 session-input ledger 都写完整 `conversationInputIntent`；message anchor
-另写同一个 `sourceCommandId` 供查重索引。旧 `metadata.inputIntent` 仅兼容读取，不是新写入权威格式。
+Na persistência, tanto o message metadata quanto o session-input ledger gravam o `conversationInputIntent` completo; o message anchor
+grava ainda o mesmo `sourceCommandId` para o índice de deduplicação. O antigo `metadata.inputIntent` é apenas leitura de compatibilidade, não o formato autoritativo de escrita.
 
-guide 不适用、带 attachments、compact/verifier busy 或 runtime steer reject 时，完整 intent 回退普通
-queue。empty、超限或 runtime reject 返回显式 `rejected/failed`，UI 保留文本和附件。
+Quando o guide não se aplica, há attachments, compact/verifier está busy ou há runtime steer reject, o intent completo volta para a
+queue normal. empty, limite excedido ou runtime reject retornam `rejected/failed` explícito, e a UI mantém o texto e os attachments.
 
-## Queue 操作
+## Operações de Queue
 
-`editQueueItem` 原地更新，保留 item ID、来源 command、原位置、attachments、client 与 admission 顺序；
-只改变用户明确提交的新字段。reorder/delete 也通过 CLI command 修改同一份权威 queue。
+`editQueueItem` atualiza no lugar, preservando o item ID, o command de origem, a posição original, os attachments, o client e a ordem de admission;
+apenas os novos campos explicitamente submetidos pelo usuário mudam. reorder/delete também modificam a mesma queue autoritativa por CLI command.
 
-`sendQueuedNow` 不先删后发：
+`sendQueuedNow` não remove antes de enviar:
 
 ```text
 reserve(item)
@@ -65,20 +65,20 @@ reserve(item)
 timeout/failure -> release reservation -> 原 item 原位、原字段保留
 ```
 
-同 item 的连续点击或多端竞争只有一个 reservation owner。
-reservation 位于共享 CLI runtime；`reserved/promoting` 经事件流投影给所有 desktop/mobile
-订阅者，并暂停普通 drain。提升读取完整 QueueItem，沿用原 `sourceCommandId` 和 attachments；
-start 成功后才按相同 reservationId remove。该 remove 使用 `promoted` 原因，只摘 queue、不把
-durable ledger 标 cancelled；user message 原子提交后由 `SessionInputPromoted` 解 pin，提交前崩溃则
-恢复为 explicit discarded。
+Cliques consecutivos no mesmo item ou concorrência entre plataformas têm apenas um reservation owner.
+A reservation fica no CLI runtime compartilhado; `reserved/promoting` é projetado pelo fluxo de eventos para todos os subscribers desktop/mobile
+e pausa o drain normal. A promoção lê o QueueItem completo, preservando o `sourceCommandId` e os attachments originais;
+o remove com o mesmo reservationId só acontece após o start bem-sucedido. Esse remove usa o motivo `promoted`, apenas retira da queue e não marca
+o durable ledger como cancelled; após o commit atômico da user message o `SessionInputPromoted` faz o unpin, e um crash antes do commit é
+recuperado como explicit discarded.
 
-## ACK、查询与 UI 对账
+## ACK, Consultas e Reconciliação da UI
 
-UI 建立 24 小时 pending-command registry：普通 text/goal 保存可重发 payload；敏感 interaction 只保存
-digest。QueueItem/guided projection 出现即证明权威层已接收，立即删除对应 registry 记录；该 registry
-不是跨 runtime 的第二份 queue。
+A UI mantém um registry de pending commands de 24 horas: text/goal comuns salvam o payload reenviável; interações sensíveis salvam apenas o
+digest. A aparição de QueueItem/guided projection prova que a camada autoritativa já recebeu, e o registro correspondente do registry é removido imediatamente; esse registry
+não é uma segunda queue entre runtimes.
 
-ACK 丢失或重连时调用 `commands/query`，每次最多 64 个 `{sessionId, commandId}`。CLI 查询顺序固定为：
+Quando o ACK é perdido ou na reconexão, chamar `commands/query`, no máximo 64 `{sessionId, commandId}` por vez. A ordem de consulta do CLI é fixa:
 
 ```text
 memory LRU
@@ -89,21 +89,21 @@ memory LRU
   -> unknown
 ```
 
-同 key 查询与执行 single-flight；查询不能在执行已开始、结果尚未写回的窗口返回 `unknown` 并诱发重复副作用。
-sendText/sendGoal/createSession.firstInput 在 handler 前先保存完整 `conversationInputIntent` 并 pin；
-promotion 事件先失效旧 transcript query seed 再解 pin，因此即使随后发生 512 条 ACK churn，回源也只能
-看到 transcript 或 explicit discarded，不能退化成 unknown。
+Consulta e execução com a mesma key são single-flight; a consulta não pode retornar `unknown` na janela em que a execução já começou e o resultado ainda não foi escrito de volta, provocando efeitos colaterais duplicados.
+sendText/sendGoal/createSession.firstInput salvam o `conversationInputIntent` completo e fazem pin antes do handler;
+o evento de promotion invalida primeiro o antigo transcript query seed e só depois faz o unpin, portanto mesmo com um churn posterior de 512 ACKs o retorno à origem só pode
+ver transcript ou explicit discarded, nunca degradar para unknown.
 
-## 恢复与进程边界
+## Recuperação e Limites de Processo
 
-queue 只保证当前 CLI 进程内可靠，覆盖 UI 重建、手机网络断线和 attachment 重连，但不承诺 CLI
-restart 后继续执行。CLI restart 时，尚未进入 transcript/显式终态的 admitted input 写入 discarded ledger；
-`commands/query` 返回失败原因 `fault.command.inputDiscardedOnRestart` 及持久 `delivery`。
+A queue só garante confiabilidade dentro do processo CLI atual, cobrindo reconstrução da UI, queda de rede do celular e reconexão de attachments, mas não promete continuar a execução após
+um restart do CLI. No restart do CLI, todo input admitido que ainda não entrou no transcript nem atingiu um estado terminal explícito é gravado no discarded ledger;
+`commands/query` retorna o motivo de falha `fault.command.inputDiscardedOnRestart` e o `delivery` persistente.
 
-若任务尚未 resume，首次 `commands/query` 也会把上个 CLI 进程遗留的 admitted ledger 收口为
-discarded，因此不会出现“先 unknown、订阅后才 discarded”的竞态。timeline/child 这类无 user message
-的成功副作用写 `v4/command_fact`，重启查询仍返回原 ACK/result。
+Se a tarefa ainda não foi retomada, o primeiro `commands/query` também encerra o admitted ledger remanescente do processo CLI anterior como
+discarded, portanto não ocorre a corrida "primeiro unknown, e só depois discarded na assinatura". Efeitos colaterais bem-sucedidos sem user message,
+como timeline/child, gravam `v4/command_fact`, e a consulta após restart ainda devolve o ACK/resultado original.
 
-`queue/guide` 属于旧 runtime，客户端静默清账；只有未进入 transcript 的 `startNow` 或 `unknown`
-显示“确认重发”入口，绝不自动重放。普通手机断线仍由当前 runtime 的 replayable snapshot 恢复权威
-queue；relay、desktop main 和 host 不能通过私有持久队列绕过该产品边界。
+`queue/guide` pertence ao runtime antigo, e o cliente faz a conciliação silenciosamente; apenas `startNow` que não entrou no transcript ou `unknown`
+exibe a entrada "confirmar reenvio", nunca com replay automático. Uma queda comum de conexão do celular continua sendo recuperada pelo replayable snapshot do runtime atual para a queue autoritativa;
+relay, desktop main e host não podem contornar esse limite de produto por meio de uma fila persistente privada.

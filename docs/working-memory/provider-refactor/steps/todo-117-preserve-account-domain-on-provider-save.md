@@ -1,25 +1,25 @@
-# Todo117：保存 Provider 保留账号域，补齐套餐选择并取消账号禁用
+# Todo117：Ao Salvar um Provider, Preservar o Domínio da Conta, Completar a Seleção de Plano e Remover a Desativação de Conta
 
-> 状态：2026-09-11 实现、局部 review、相关单测及共享浏览器验证通过；整批最终验收与推送待执行。真实手机 shared-host / Pro 联调未执行，不计入本轮已测。
+> Estado: em 2026-09-11 a implementação, o review parcial, os testes unitários relacionados e a validação no navegador compartilhado passaram; a aceitação final do lote e o push ainda estão pendentes. A integração real com shared-host / Pro no celular não foi executada e não conta como testada nesta rodada.
 
-> 最新裁决（2026-09-11）：内置账号 Provider 全部不允许禁用，取代原“只隐藏入口、已有 enabled=false 继续生效”。手动 Key Provider（包括预设模板创建的实例）仍允许启停。
+> Decisão mais recente (2026-09-11): todos os Built-in Account Provider passam a não permitir desativação, substituindo a regra anterior de "apenas esconder a entrada e manter em vigor um `enabled=false` já existente". Os Provider com Key manual (incluindo as instâncias criadas a partir de templates de preset) continuam permitindo ativar e desativar.
 
-## 背景与根因
+## Contexto e Causa Raiz
 
-Air 日志显示 15:12:34 保存 Provider Overlay 后，`providerFamilyDomain` 从 `bigmodel` 被清空；随后选择团队，权益为 true，但账号域仍缺失，Account State 的 `current=false` 导致套餐模型不可选。日志未记录该次保存的完整参数，不能断言用户具体点了哪个控件。
+O log do Air mostra que, em 15:12:34, depois de salvar um Provider Overlay, `providerFamilyDomain` foi esvaziado a partir de `bigmodel`; em seguida, ao escolher um time, o entitlement era true, mas o domínio da conta continuava ausente e o `current=false` do Account State tornava os modelos do plano não selecionáveis. O log não registrou os parâmetros completos daquele salvamento, portanto não é possível afirmar qual controle o usuário apertou especificamente.
 
-`ModelProviderSection.handleSave()` 根据保存后的 `executable` 主动清空账号域，混淆了配置执行资格与用户连接选择。套餐切换仅写套餐选择，无法补回账号域；设置页从登录身份兜底显示正常，也不代表 Host 的持久化选择完整。
+`ModelProviderSection.handleSave()` esvaziava ativamente o domínio da conta com base no `executable` após o salvamento, confundindo a elegibilidade de execução da configuração com a escolha de conexão do usuário. A troca de plano escrevia apenas a seleção de plano, sem conseguir recuperar o domínio da conta; a página de configurações exibia corretamente por meio do fallback da identidade de login, o que também não significa que a escolha persistida no Host esteja completa.
 
-## 已裁决改动
+## Mudanças Já Decididas
 
-### 1. 删除保存后的自动清空
+### 1. Remover a limpeza automática após o salvamento
 
-- Provider 保存仅保存配置、更新既有视图与必要刷新；删除因当前域没有可执行 Provider 而清空账号域的分支。
-- 清理仅供该分支使用的 `hasUsableProviderInFamilyDomain` 及无用依赖。
-- 禁用、缺 Key、无权益或配置不完整只影响执行资格，不改账号选择、时间戳或迁移标记。
-- 正常退出登录、解绑的清空逻辑保留。不修改 Overlay 合并机制。
+- O salvamento de Provider apenas salva a configuração, atualiza a visualização existente e faz os refrescamentos necessários; remover o branch que esvaziava o domínio da conta porque o domínio atual não tem Provider executável.
+- Limpar o `hasUsableProviderInFamilyDomain`, usado apenas por esse branch, e as dependências inúteis.
+- Desativação, ausência de Key, falta de entitlement ou configuração incompleta afetam apenas a elegibilidade de execução, e não alteram a escolha da conta, o timestamp ou a marca de migração.
+- A lógica de limpeza da saída normal de login e do desvinculamento é mantida. O mecanismo de merge do Overlay não é modificado.
 
-### 2. 用户主动切套餐时保存完整选择
+### 2. Ao trocar de plano ativamente, salvar a escolha completa
 
 ```text
 用户主动选择 BigModel 团队（包括再次选择当前项）
@@ -30,41 +30,41 @@ Air 日志显示 15:12:34 保存 Provider Overlay 后，`providerFamilyDomain` �
   → 复用既有 Provider 刷新与公共执行资格判断
 ```
 
-- 套餐身份保留 kind、组织、项目、产品等现有字段；保留另一账号域的选择，不新造身份结构。
-- “选择未变化”必须同时检查账号域与套餐；同项重选可补回缺失账号域。两者均相同时沿用已有重试／去重语义。
-- 账号域写入沿用既有设置时间戳与迁移标记约定，不新增状态字段。
-- 只由主动选择触发；打开页面、自动水合、后台刷新、权益变化不得自动选域或套餐。
-- 实施审计补充：当前页面在团队订阅刷新后会自动把失效团队写成个人。该 effect 与上一条直接冲突，本项一并删除自动改选及其专用判断函数；权益失效仍由公共资格判定反馈，不借此切换套餐。
-- 目标不可用时由公共判断呈现不可用，不放宽 Resolver、不偷偷替换模型或开启 Provider。
+- A identidade do plano mantém os campos existentes como kind, organização, projeto e produto; a escolha do outro domínio de conta é preservada e nenhuma estrutura de identidade nova é criada.
+- "Seleção inalterada" precisa verificar ao mesmo tempo o domínio da conta e o plano; reselecionar o mesmo item pode recuperar o domínio ausente. Quando os dois forem iguais, vale a semântica existente de retry/deduplicação.
+- A escrita do domínio da conta segue a convenção existente de timestamp de configuração e marca de migração, sem novos campos de estado.
+- É disparado apenas pela escolha ativa; abrir a página, a hidratação automática, o refrescamento em segundo plano e a mudança de entitlement não podem selecionar domínio ou plano automaticamente.
+- Complemento da auditoria de implementação: a página atual grava automaticamente um time inválido como pessoal depois que a assinatura de equipe é atualizada. Esse effect conflita diretamente com o item acima, portanto a troca automática e sua função de verificação exclusiva também são removidas; a invalidade de entitlement continua sendo retornada pela verificação pública de elegibilidade, sem usá-la para trocar de plano.
+- Quando o alvo está indisponível, a verificação pública apresenta-o como indisponível, sem afrouxar o Resolver, substituir modelos sorrateiramente ou habilitar o Provider.
 
-### 3. Account Provider 取消总禁用能力
+### 3. Remover a capacidade de desativação total dos Account Provider
 
-- 以 `access.type === "zhipu-account"` 判断，所有使用该类型的账号 Provider 在设置界面不展示 Provider 总启停入口；不按名称或硬编码 Provider ID 判断。
-- `api-key`、`zhipu-coding-plan-api-key` 保留总开关；手动 Coding Plan Key 不等于账号连接。
-- 内置账号 Provider 不允许总禁用：UI 不展示入口，公共配置写入边界拒绝新的禁用操作，公共解析将已有账号 `enabled=false` 视为不再有效，不能仅隐藏开关却留下无法恢复的禁用状态。设置视图与执行资格读取同一结果，不在 UI 单独伪装为启用。
-- 保留通用 Provider 外层 `enabled` Schema，手动 Key Provider 的启停语义不变；不新增 Family 开关、状态缓存或数据迁移。已有账号禁用值不需要批量删文件／改真实用户数据即可失去禁用效果，具体实现复用公共配置与解析边界。
-- “不能禁用”不等于可执行：当前连接、entitled、凭据、配置完整性与可用模型等公共判断继续生效，不为账号直接强制 `executable=true`。
-- 模型行各自启停开关不变；不影响已固定的运行中执行。
-- 此裁决取代原来的账号类启停展示及禁用生效要求；与 Todo118 配套，首次迁移不导入旧内置账号禁用值。本轮不顺带实施 Todo115 的标题栏、菜单和手动 Key 开关布局调整。
+- A verificação usa `access.type === "zhipu-account"`, e todos os Account Provider que usam esse tipo não exibem a entrada de ativar/desativar total do Provider na interface de configurações; não se decide por nome nem por hardcode de Provider ID.
+- `api-key` e `zhipu-coding-plan-api-key` mantêm o interruptor geral; uma Coding Plan Key manual não equivale a uma conexão de conta.
+- O Built-in Account Provider não permite desativação total: a UI não exibe a entrada, a fronteira pública de escrita de configuração rejeita novas operações de desativação, e a resolução pública passa a tratar um `enabled=false` de conta já existente como não mais válido; não se pode apenas esconder o interruptor e deixar um estado de desativação sem como se recuperar. A visualização de configurações e a elegibilidade de execução leem o mesmo resultado, sem fingir na UI que está habilitado.
+- Manter o Schema `enabled` na camada externa do Provider genérico; a semântica de ativar/desativar dos Provider com Key manual permanece a mesma; sem novos interruptores de Family, cache de estado ou migração de dados. Os valores de desativação de conta já existentes deixam de ter efeito sem precisar apagar arquivos em massa nem alterar os dados reais de usuários, e a implementação concreta reutiliza as fronteiras públicas de configuração e resolução.
+- "Não pode desativar" não significa executável: as verificações públicas de conexão atual, entitled, credenciais, completude da configuração e modelos disponíveis continuam valendo, e `executable=true` não é forçado diretamente para a conta.
+- Os interruptores de ativar/desativar de cada linha de modelo permanecem; isso não afeta a execução já fixada em andamento.
+- Esta decisão substitui os requisitos anteriores de exibição e de efeito da desativação de contas; ela acompanha o Todo118, e a primeira migração não importa valores antigos de desativação de contas embutidas. Esta rodada também não implementa incidentalmente os ajustes de layout de barra de título, menu e interruptor de Key manual do Todo115.
 
-## 范围与验收
+## Escopo e Aceitação
 
-- 不重构单连接、账号同步、鉴权、Registry、Model Selection 或首次迁移；公共写入／解析仅增加上述账号不可禁用约束，首次迁移由 Todo118 承接，不借此新增自动推断机制。
-- 桌面与手机 Web 复用共享组件及设置服务，不新增 Host/Agent 或改变 continuous/replayable 边界。未实测端明确记录。
-- [ ] 先补测试：保存当前域 Provider，在禁用／无权益／不完整且无可执行 Provider 时，不额外清空账号域或改套餐。
-- [ ] 补套餐交互测试：两家账号域、同项重选补缺失域、切换套餐／团队身份、完全相同选择沿用去重；后台刷新不写选择。
-- [ ] 验证从缺失域恢复后，满足原公共资格的团队模型可选；无权益或非当前连接仍不可执行，手动 Key Provider 已禁用时仍不可执行。
-- [ ] 已有账号 enabled=false 不再禁用该 Provider；经正式写入入口新提交账号禁用被拒绝，账号设置视图／公共执行结果一致，不能靠 UI 假显示通过。分别覆盖个人、团队、Start、闲时账号及两家 family；模型自身 disabled 保持有效。
-- [ ] 补共享 UI 交互测试：账号类无总开关，两类手动 Key 有总开关且正常保存；模型开关保持原有行为；覆盖中英文及桌面／手机宽度。
-- [ ] 实施三项局部修复并清理失效分支、依赖；不扩修其他既有问题。
-- [ ] 批量运行相关单测、交互 E2E、typecheck、lint 和架构检查；结合运行时证据复审，不为每个小项重复大规模回归。
-- [ ] 完整 review 本 Todo 的所有要求，记录证据、未测限制并提交后再标记完成。真实用户配置调整须另获授权。
+- Não refatorar conexão única, sincronização de conta, autenticação, Registry, Model Selection ou primeira migração; a escrita/resolução pública ganha apenas a restrição acima de conta não desativável, a primeira migração fica a cargo do Todo118 e nenhum mecanismo de inferência automática novo é adicionado.
+- Desktop e Web no celular reutilizam componentes compartilhados e o serviço de configurações, sem novos Host/Agent e sem mudar a fronteira continuous/replayable. Os itens sem teste real ficam registrados explicitamente.
+- [ ] Cobrir primeiro com testes: ao salvar um Provider do domínio atual, nos casos de desativação/sem entitlement/incompleto e sem Provider executável, o domínio da conta não é esvaziado automaticamente nem o plano é alterado.
+- [ ] Complementar com testes de interação de plano: os dois domínios de conta, reseleção do mesmo item recuperando o domínio ausente, troca de plano/identidade de time, seleção idêntica mantendo a deduplicação; o refrescamento em segundo plano não escreve a escolha.
+- [ ] Verificar que, após recuperar a partir do domínio ausente, os modelos de equipe que satisfazem a elegibilidade pública original ficam selecionáveis; sem entitlement ou fora da conexão atual continuam não executáveis, e Provider com Key manual desativado continuam não executáveis.
+- [ ] Um `enabled=false` de conta existente não desativa mais o Provider; novas submissões de desativação de conta pela entrada de escrita oficial são rejeitadas, e a visualização de configurações da conta / o resultado público de execução são consistentes, sem passar por uma falsa exibição da UI. Cobrir separadamente pessoal, equipe, Start, conta ociosa e as duas families; `disabled` do próprio modelo permanece válido.
+- [ ] Complementar com testes de interação da UI compartilhada: contas sem interruptor geral, os dois tipos de Key manual com interruptor geral e salvamento normal; interruptores de modelo mantendo o comportamento original; cobrir chinês e inglês e as larguras desktop/celular.
+- [ ] Implementar as três correções parciais, limpando branches inválidos e dependências; não ampliar a correção para outros problemas existentes.
+- [ ] Executar em lote os testes unitários relacionados, o E2E de interação, typecheck, lint e a verificação de arquitetura; revisar novamente com evidências de runtime, sem repetir regressões de grande escala para cada item pequeno.
+- [ ] Fazer um review completo de todos os requisitos deste Todo, registrar evidências, limitações não testadas e, somente depois da submissão, marcar como concluído. Ajustes reais na configuração de usuários exigem autorização à parte.
 
-## 实现与逐项复审（2026-09-11）
+## Implementação e Revisão Item a Item (2026-09-11)
 
-- 保存只写 Provider；删掉按 executable 清域及专用辅助函数。主动切套餐同一次 update 写完整账号域/时间/迁移标记/原套餐身份；对持久域而非显示兜底去重。原退出登录路径保留。
-- mounted React 回归额外复现“后台团队空列表 → 自动存个人”，移除该 effect 及专用函数/过时测试。dep:refs 全域只发现该业务调用；测试引用另用 rg 核对。团队列表仍正常展示、资格仍由公共结果提供，未新增账号查询或自动改选。
-- 公共 Resolver 忽略账号旧 false，公共 save 拒绝新账号 false；不删除原数据。设置 Facade 与 Registry 用同一解析结果。两 family × 四模式、无权益/非当前、模型 disabled 及手动 Key 禁用均覆盖。
-- 503 项合批单测通过；之后补充系统禁用原因/缺 Key 与团队项目变更断言，18 项重跑通过（有重合，不累加）。四项真实浏览器卡片用例通过，中英文/浅深/390与1200尺寸，账号无总开关而模型开关保留，手动 Key 启停/Key 保留/单链接及错误重试不回退。
-- 根 typecheck 通过，lint 0 errors / 41 warnings，架构 0 violations。首次浏览器启动缺 libatk，使用已有 `/tmp/zcode-xvfb-LMxR8B/root/usr/lib/x86_64-linux-gnu` 隔离依赖后运行通过；没有修改系统或用户配置。
-- 范围 review：没有改 Model Selection、执行对象、账号同步、Overlay 合并或远控协议。整页回调/挂载测试与共享卡片浏览器覆盖不冒充真实 Host/手机链路；最终批次仍补交付复审。
+- O salvamento escreve apenas o Provider; a limpeza de domínio por `executable` e os helpers exclusivos foram removidos. A troca ativa de plano escreve, na mesma atualização, o domínio da conta completo / timestamp / marca de migração / identidade original do plano, deduplicando pelo domínio persistido e não pelo fallback de exibição. O caminho original de saída de login foi preservado.
+- A regressão em React montado reproduziu adicionalmente "lista de equipes vazia em segundo plano → gravar automaticamente o pessoal"; o effect e as funções exclusivas/testes obsoletos foram removidos. Uma busca em `dep:refs` por todo o domínio encontrou apenas essa chamada de negócio; as referências em teste foram conferidas separadamente com rg. A lista de equipes continua sendo exibida normalmente e a elegibilidade continua vindo do resultado público, sem nova consulta de conta nem troca automática.
+- O Resolver público ignora o `false` antigo da conta e o save público rejeita novos `false` de conta; os dados originais não são apagados. A Facade de configurações e o Registry usam o mesmo resultado de resolução. Foram cobertas duas families × quatro modos, sem entitlement / fora da conexão atual, modelo `disabled` e desativação de Key manual.
+- 503 testes unitários em lote passaram; em seguida foram complementadas as asserções de motivo de desativação do sistema / ausência de Key e de alteração de projeto de equipe, e 18 testes reexecutados passaram (com sobreposição, não somados). Quatro casos reais de navegador com cards passaram, em chinês/inglês, claro/escuro e tamanhos 390 e 1200: conta sem interruptor geral com os interruptores de modelo preservados, ativar/desativar de Key manual, preservação da Key, link único e retry de erro sem rollback.
+- O typecheck da raiz passou, com lint em 0 errors / 41 warnings e arquitetura em 0 violations. Na primeira inicialização do navegador faltou a libatk; executou-se com o uso das dependências isoladas já existentes em `/tmp/zcode-xvfb-LMxR8B/root/usr/lib/x86_64-linux-gnu`; nenhuma configuração de sistema ou de usuário foi modificada.
+- Revisão de escopo: não foram alterados Model Selection, objetos de execução, sincronização de conta, merge de Overlay nem o protocolo de controle remoto. Callbacks de página inteira / testes de montagem e a cobertura de navegador dos cards compartilhados não se passa por um链路 real de Host/celular; o lote final ainda exige revisão de entrega.

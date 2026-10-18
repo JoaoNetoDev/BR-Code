@@ -1,87 +1,70 @@
-# ZCode Official Server MCP 鉴权与额度状态规格
+# Especificação de autenticação MCP e status de cota do Official Server do ZCode
 
-> 状态：当前实现事实（2026-08-22）
+> Status: fatos da implementação atual (2026-08-22)
 >
-> 本文是官方 Server MCP 客户端鉴权、HTTP/stdio 投递与额度状态的当前事实入口。
-> 历史阶段设计保留在 phase-1 / phase-2 文档中，仅作 Decision Log，不再作为实现依据。
+> Este documento é o ponto de entrada atual dos fatos sobre a autenticação do cliente MCP do Official Server, a entrega HTTP/stdio e o status de cota.
+> Os designs históricos das fases phase-1 / phase-2 permanecem nos documentos correspondentes, apenas como Decision Log, e não servem mais como base de implementação.
 
-## 1. 身份与职责
+## 1. Identidade e responsabilidades
 
-- Host/service 是用户凭证 authority；Renderer、relay、desktop main 不持有凭证。
-- Agent 通过 `interaction/requestOfficialMcpAuthHeaders` 向 Host 请求本次身份头。
-- HTTP MCP 由 adapter fetch wrapper 逐请求校验 origin；`server/discover`、`initialize`、notification、
-  `ping`、`tools/list`、GET probe 与 `tools/call` 都向 Host 解析并注入当前身份头。解析失败时仍发送
-  匿名请求，由服务端按请求方法权威判定；用户 entitlement 不应决定工具目录可见性。
-- stdio MCP 在 `server/discover`、`initialize`、notification、`ping`、`tools/list` 与 `tools/call`
-  的 `_meta["com.zcode/official-mcp-auth"]` 中取得当前身份载荷；凭证不得进入进程 env。
-- `Authorization` 携带 ZCode JWT；`X-Bigmodel-Authorization` 携带当前 family 的 MaaS JWT。
-- `X-Coding-Plan-Api-Key` 只属于服务端存量兼容通道，客户端不得发送或允许插件静态注入。
+- Host/service é a autoridade das credenciais do usuário; Renderer, relay e desktop main não possuem credenciais.
+- O Agent solicita ao Host os cabeçalhos de identidade desta execução por `interaction/requestOfficialMcpAuthHeaders`.
+- O MCP HTTP é validado request a request pelo fetch wrapper do adapter quanto à origin; `server/discover`, `initialize`, notification, `ping`, `tools/list`, o GET probe e `tools/call` resolvem junto ao Host e injetam os cabeçalhos de identidade atuais. Quando a resolução falha, a requisição ainda é enviada de forma anônima, e o servidor decide de forma autoritativa pelo método da requisição; o entitlement do usuário não deve determinar a visibilidade do catálogo de ferramentas.
+- O MCP stdio obtém o payload de identidade atual em `_meta["com.zcode/official-mcp-auth"]` de `server/discover`, `initialize`, notification, `ping`, `tools/list` e `tools/call`; as credenciais não podem entrar no env do processo.
+- `Authorization` carrega o JWT do ZCode; `X-Bigmodel-Authorization` carrega o JWT MaaS da família atual.
+- `X-Coding-Plan-Api-Key` pertence apenas ao canal de compatibilidade legado do lado do servidor; o cliente não deve enviá-lo nem permitir injeção estática por plugin.
 
-## 2. 产品 Scope 与 Wire Scope
+## 2. Scope de produto e scope de wire
 
-套餐归属和实际请求头是两套语义，禁止用 wire 字段反推产品连接类型：
+A atribuição de plano e os cabeçalhos de requisição reais são dois conjuntos de semântica distintos; é proibido inferir o tipo de conexão de produto a partir de campos de wire:
 
-| 连接                    | planScope（额度归属）           | wireScope（身份头）             |
+| Conexão                  | planScope (atribuição de cota)   | wireScope (cabeçalho de identidade) |
 | ----------------------- | ------------------------------- | ------------------------------- |
 | ZAI / BigModel Personal | `PERSONAL`                      | `PERSONAL`                      |
 | BigModel Team           | `TEAM + organization + project` | `TEAM + organization + project` |
 | ZAI Team                | `TEAM + organization + project` | `null`                          |
 
-ZAI Team 的 wire 行为与 Off-Peak 保持一致：不发送 `Bigmodel-Target-Type`、
-`Bigmodel-Organization`、`Bigmodel-Project`，由服务端 fallback 识别；但本地额度归属必须保持 TEAM，
-否则 entitlement 的 Team request scope 会被错误判为 Personal 而跳过 `/api/v1/mcp/usage`。
+O comportamento de wire do ZAI Team é o mesmo do Off-Peak: não envia `Bigmodel-Target-Type`, `Bigmodel-Organization` nem `Bigmodel-Project`, sendo identificado pelo fallback do servidor; mas a atribuição local de cota precisa continuar TEAM, caso contrário o Team request scope do entitlement seria julgado erroneamente como Personal e o `/api/v1/mcp/usage` seria ignorado.
 
-缺少 organization/project 的旧或畸形 Team key 不得回退 Personal。工具调用可继续既有 fallback，
-但不生成可精确归属的 quota scope。
+Team keys antigas ou malformadas sem organization/project não devem regredir para Personal. A chamada de ferramenta pode manter o fallback existente, mas não gera um quota scope atribuível com precisão.
 
-## 3. 额度与 Banner
+## 3. Cota e banner
 
-- HTTP 官方 MCP 服务端在请求进入路由时校验 ZCode 身份和 Coding Plan；客户端为连接、发现和
-  调用请求统一携带可用身份头。已登录但无 Coding Plan 时只携带 ZCode JWT，不携带 MaaS JWT，
-  由服务端返回协议层错误码；工具调用层的配额失败仍返回 `isError=true` 的结构化结果。
-- HTTP adapter 若在任一请求发送前解析不到身份头，会以不含身份头的请求交给服务端做权威判定；
-  不得把 `official_auth_unavailable` / `official_auth_plan_required` 提升为连接失败。
-- `/api/v1/mcp/usage` 是 entitlement 的可选数据面，失败只清空 `mcpQuota`。
-- 服务端 `total_usage` 映射为一条 `MCP_USAGE_LIMIT`；百分比保持“已使用占比”口径。
-- quota scope 按 family、Personal/Team、organization/project 精确匹配。
-- HTTP 官方 MCP 的结构化 `quota_exceeded` / `coding_plan_required` 可投影为 Composer banner；
-  stdio 结果由插件进程产出，不作为可信 UI 事实。
-- banner dismissal 以 `(sessionId, dismissKey)` 保存在当前 renderer 内存中，最多 256 条；
-  不写 localStorage、Host、snapshot 或 relay，应用重启后允许再次提示。
-- 同一 `(serverName, toolName)` 的新成功调用覆盖旧失败；新失败 rowId 形成新提示实例。
+- O servidor HTTP do MCP oficial valida a identidade ZCode e o Coding Plan quando a requisição entra no roteamento; o cliente carrega de forma unificada cabeçalhos de identidade disponíveis nas requisições de conexão, descoberta e chamada. Quando há login mas não há Coding Plan, carrega apenas o JWT do ZCode, sem o JWT MaaS, e o servidor devolve um código de erro da camada de protocolo; falhas de cota na camada de chamada de ferramenta ainda retornam um resultado estruturado com `isError=true`.
+- Se o adapter HTTP não conseguir resolver os cabeçalhos de identidade antes de enviar alguma requisição, ele entrega a requisição sem cabeçalhos ao servidor para decisão autoritativa; não deve promover `official_auth_unavailable` / `official_auth_plan_required` a falha de conexão.
+- `/api/v1/mcp/usage` é um data plane opcional do entitlement; a falha apenas limpa `mcpQuota`.
+- O `total_usage` do servidor é mapeado para uma única `MCP_USAGE_LIMIT`; o percentual mantém o critério de "proporção já usada".
+- O quota scope casa com precisão por family, Personal/Team e organization/project.
+- O `quota_exceeded` / `coding_plan_required` estruturado do MCP oficial HTTP pode ser projetado como banner no Composer; o resultado stdio é produzido pelo processo do plugin e não é um fato de UI confiável.
+- O descarte de banner é mantido em memória no renderer atual por `(sessionId, dismissKey)`, no máximo 256 entradas; não é gravado em localStorage, Host, snapshot ou relay, e um novo aviso é permitido após reiniciar o app.
+- Uma nova chamada bem-sucedida para o mesmo `(serverName, toolName)` sobrescreve a falha anterior; um novo rowId de falha forma uma nova instância do aviso.
 
-## 4. Remote 与审计
+## 4. Remoto e auditoria
 
-- workspace identity 使用 `workspaceIdentity?.trim() || workspacePath`；workspacePath 只用于执行/展示。
-- Host 为每个 `(pluginId, mcpKey, workspaceKey)` 的首次身份头发放记录一条 info，后续走 debug。
-- 凭证解析成功必须以 info 记录 MaaS JWT 剩余有效期（只记秒数，绝不记 token）：MaaS JWT 无刷新
-  链路，过期后服务端把上游 401 折叠成 `coding plan is required`，该数值是客户端唯一可自证的
-  区分线索；生产构建 debug 不落盘，故必须 info。解析与官方 MCP 请求数同数量级，须以
-  `(providerFamily, planTargetType, 有效期小时分桶 | expired | unparsable)` 为键去重——同键
-  不重复记录；换 token、切换 PERSONAL/TEAM、跨桶（含跨过零点）必然产生新键。
-- 审计集合必须有界；同路径不同 SSH/WSL/Docker identity 不得互相抑制。
-- Host 校验只保证凭证流向当前 ZCode API origin；stdio 身份头进入插件进程是已知边界。
+- A workspace identity usa `workspaceIdentity?.trim() || workspacePath`; o workspacePath é usado apenas para execução/exibição.
+- O Host registra em info a emissão da primeira identidade de cada `(pluginId, mcpKey, workspaceKey)` e usa debug nas seguintes.
+- Uma resolução de credenciais bem-sucedida precisa registrar em info o tempo de validade restante do JWT MaaS (apenas os segundos, nunca o token): o JWT MaaS não tem cadeia de refresh e, após expirar, o servidor colapsa o 401 upstream em `coding plan is required`, e esse número é a única pista de distinção que o cliente consegue provar por si mesmo; em builds de produção o debug não é persistido, então precisa ser info. A contagem é da mesma ordem de grandeza das requisições de MCP oficial e precisa ser deduplicada com a chave `(providerFamily, planTargetType, bucket de validade em horas | expired | unparsable)` — a mesma chave não gera registro repetido; trocar o token, alternar PERSONAL/TEAM ou cruzar de bucket (inclusive cruzando a meia-noite) necessariamente produz uma nova chave.
+- O conjunto de auditoria precisa ser limitado; identities diferentes de SSH/WSL/Docker no mesmo caminho não podem se suprimir mutuamente.
+- A validação do Host apenas garante que o fluxo de credenciais vá para a origin da API atual do ZCode; a entrada dos cabeçalhos de identidade stdio no processo do plugin é uma fronteira conhecida.
 
-## 5. 验收不变量
+## 5. Invariantes de aceitação
 
-- 未登录或登录态不完整时，HTTP MCP 控制面仍按现有匿名降级语义请求；已登录但无 Coding Plan
-  时必须发送 ZCode JWT、不得发送 MaaS JWT，让服务端能够区分 `1006` 与 `3101`。
-- 每次 HTTP 请求和官方 stdio 出站协议消息都重新解析身份；连接后登录、升级或退出无需重连即可
-  在下一次请求生效。
-- 匿名或无权益调用不得到达 gateway/upstream，不检查或扣减 quota，不写 usage。
-- Origin 不可信仍在任何网络请求和凭证读取之前失败，不属于匿名降级范围。
-- ZAI Team quota 可见，但 wire headers 与 Off-Peak 保持不变。
-- Personal/Team/family/project 之间不串额度。
-- 关闭同一 banner 后切换 session/pane 再返回仍隐藏；新失败重新显示。
-- 最终 401 保存 server request id 后释放响应 body。
-- Desktop continuous 与 Web remote replayable 交付语义不变。
+- Quando não há login ou o estado de login está incompleto, o plano de controle do MCP HTTP continua fazendo requisições com a semântica existente de degradação anônima; com login mas sem Coding Plan, é obrigatório enviar o JWT do ZCode e não enviar o JWT MaaS, para que o servidor consiga distinguir `1006` de `3101`.
+- Cada requisição HTTP e cada mensagem de saída do protocolo stdio oficial re-resolve a identidade; login, upgrade ou logout após a conexão passam a valer na próxima requisição sem necessidade de reconectar.
+- Chamadas anônimas ou sem entitlement não podem chegar ao gateway/upstream, não verificam nem debitam quota e não escrevem usage.
+- Uma origin não confiável continua falhando antes de qualquer requisição de rede e de qualquer leitura de credenciais, e não faz parte do escopo de degradação anônima.
+- A quota do ZAI Team é visível, mas os wire headers permanecem inalterados em relação ao Off-Peak.
+- Não há vazamento de cota entre Personal/Team/family/project.
+- Depois de fechar o mesmo banner, trocar de session/pane e voltar continua oculto; uma nova falha é exibida novamente.
+- O 401 final salva o request id do servidor e só então libera o body da resposta.
+- As semânticas de entrega desktop continuous e web remote replayable não mudam.
 
-核心用例：
+Casos principais:
 
-| ID            | 场景                   | 断言                                                                    |
+| ID            | Cenário                 | Asserção                                                                   |
 | ------------- | ---------------------- | ----------------------------------------------------------------------- |
-| OMCP-CALL-001 | 有有效 Coding Plan     | 连接、发现、GET probe 与 `tools/call` 都注入最新身份并成功              |
-| OMCP-CALL-002 | 未登录或无 auth port   | 按匿名降级请求；服务端返回未认证错误时记录对应 request id |
-| OMCP-CALL-003 | 已登录但无 Coding Plan | 连接请求携带 ZCode JWT、不带 MaaS JWT；服务端错误可区分登录态与套餐态 |
-| OMCP-CALL-004 | 连接后登录或升级       | 不重连；下一次调用重新解析身份并成功                                    |
-| OMCP-STDIO-01 | 官方 stdio 已登录      | initialize、tools/list 与 tools/call 的 `_meta` 都携带当前身份载荷      |
+| OMCP-CALL-001 | Coding Plan válido      | Conexão, descoberta, GET probe e `tools/call` injetam a identidade mais recente e têm sucesso |
+| OMCP-CALL-002 | Sem login ou sem auth port | Requisição com degradação anônima; quando o servidor retorna erro de não autenticado, o request id correspondente é registrado |
+| OMCP-CALL-003 | Com login mas sem Coding Plan | A requisição de conexão carrega o JWT do ZCode e não o JWT MaaS; o erro do servidor distingue estado de login de estado de plano |
+| OMCP-CALL-004 | Login ou upgrade após a conexão | Sem reconexão; a próxima chamada re-resolve a identidade e tem sucesso |
+| OMCP-STDIO-01 | stdio oficial com login | O `_meta` de initialize, tools/list e tools/call carrega o payload de identidade atual |

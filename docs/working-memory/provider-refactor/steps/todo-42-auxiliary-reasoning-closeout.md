@@ -1,27 +1,27 @@
-# Todo 42：辅助模型 Reasoning 与输出预算语义收尾
+# Todo 42: Encerramento da Semântica de Reasoning e Orçamento de Saída dos Modelos Auxiliares
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-28
+> Data: 2026-08-28
 >
-> 来源：Bugfix 08 完成后 Review
+> Origem: Review após a conclusão do Bugfix 08
 >
-> 前置：[`Bugfix 08：辅助模型调用统一使用最低 Reasoning 档位`](./bugfix-08-auxiliary-model-lowest-reasoning.md)
+> Anterior: [`Bugfix 08: chamadas de modelo auxiliar usam uniformemente a menor faixa de Reasoning`](./bugfix-08-auxiliary-model-lowest-reasoning.md)
 
-## 1. 背景
+## 1. Contexto
 
-Bugfix 08 已将 Session Title、Goal Title、Git Commit Message 和 Memory Recall 从“猜测关闭 Reasoning”改为
-使用当前 Model 公开 Reasoning 档位的首项。该方向已经确认，但完成后 Review 仍发现三类残留：
+O Bugfix 08 já mudou Session Title, Goal Title, Git Commit Message e Memory Recall de "adivinhar que o Reasoning está desligado" para
+usar o primeiro item das faixas de Reasoning expostas pelo Model atual. Essa direção já foi confirmada, mas o Review após a conclusão ainda encontrou três resíduos:
 
-1. Git Commit Message 上游仍声明 `maxOutputTokens: 256`，下游却因最低 Reasoning 可能需要生成预算而主动忽略；
-2. Adapter 的 Telemetry 仍扫描 `disabled`、`off`、`nothink`、`none` 等字符串，猜测档位是否代表关闭；
-3. 缺少模型完全没有 Reasoning Option Spec 时的直接行为证明。
+1. O upstream de Git Commit Message ainda declara `maxOutputTokens: 256`, mas o downstream o ignora ativamente porque a menor faixa de Reasoning pode exigir um orçamento de geração;
+2. A Telemetry do Adapter ainda varre strings como `disabled`, `off`, `nothink`, `none`, adivinhando se a faixa representa desligamento;
+3. Falta uma prova direta de comportamento quando o modelo não tem nenhuma Reasoning Option Spec.
 
-这些残留不会改变已经确认的“最低公开档位”主链，但会留下无效参数、隐式名称语义和测试缝隙，需要单独收口。
+Esses resíduos não alteram a cadeia principal já confirmada de "menor faixa exposta", mas deixam parâmetros inválidos, semântica implícita de nomes e lacunas de teste, e precisam ser fechados separadamente.
 
-## 2. 已裁决语义
+## 2. Semântica Decidida
 
-### 2.1 辅助调用 Reasoning
+### 2.1 Reasoning em chamadas auxiliares
 
 ```text
 Model.optionSpecs.reasoningLevel
@@ -31,12 +31,12 @@ Model.optionSpecs.reasoningLevel
         `-- 不存在 -> 不合成、不发送 reasoningLevel
 ```
 
-- `values` 按语义强度从低到高排列；
-- 首项可能是 `off`、`nothink`、`low` 或其他公开档位；
-- Runtime 与 Adapter 不根据档位名称推断“启用”或“关闭”；
-- 普通请求继续使用用户显式选择或 Model Config 的 `default`。
+- `values` é ordenado do menor para o maior pela força semântica;
+- O primeiro item pode ser `off`, `nothink`, `low` ou outra faixa exposta;
+- Runtime e Adapter não inferem "habilitado" ou "desabilitado" a partir do nome da faixa;
+- Requisições normais continuam usando a escolha explícita do usuário ou o `default` do Model Config.
 
-### 2.2 辅助调用输出预算
+### 2.2 Orçamento de saída em chamadas auxiliares
 
 ```text
 辅助调用
@@ -44,63 +44,63 @@ Model.optionSpecs.reasoningLevel
 └─ Max Output：继承当前 Model 的有效预算
 ```
 
-不再承诺 Recall 或 Git Commit Message 的总生成预算不超过 256。部分模型的最低公开档位仍要求 Reasoning，固定 256
-可能不足以构成合法请求，因此本轮接受辅助调用继承当前 Model 的有效输出预算。
+Não se promete mais que o orçamento total de geração de Recall ou Git Commit Message fique abaixo de 256. A menor faixa exposta de alguns modelos ainda exige Reasoning, e um 256 fixo
+pode ser insuficiente para compor uma requisição válida, portanto nesta rodada aceitamos que a chamada auxiliar herde o orçamento de saída válido do Model atual.
 
-上游不得继续声明一个下游必然忽略的 256 Token 限制；接口、常量、测试和文档必须表达同一真实语义。
+O upstream não pode continuar declarando um limite de 256 Tokens que o downstream necessariamente ignora; interfaces, constantes, testes e documentação precisam expressar a mesma semântica real.
 
 ### 2.3 Telemetry
 
-Telemetry 只记录请求实际选择的公开 `reasoningLevel`。不扫描档位名称，不额外推断统一的 enabled/disabled 状态。
-如未来确实需要跨 Provider 的开关语义，必须由显式 Config 事实表达，不能恢复字符串猜测。
+A Telemetry registra apenas a `reasoningLevel` pública realmente escolhida na requisição. Não varre nomes de faixas nem infere um estado unificado enabled/disabled.
+Se no futuro for realmente necessária uma semântica de liga/desliga entre Providers, ela deve ser expressa por um fato explícito de Config, sem restaurar a adivinhação por strings.
 
-## 3. 目标
+## 3. Objetivos
 
-1. 删除 Git Commit Message 链路中已经失效的 256 Token 参数、常量、特殊忽略逻辑和对应旧断言；
-2. 让通用 Workspace Generate Text 继续按其正式契约处理调用方真正提供的预算，不为 Git Commit Message 保留假参数；
-3. 删除 `resolveReasoningDisabledMappingKey` 及其全部导出、引用和测试；
-4. 删除 Adapter Telemetry 对 `disabled`、`off`、`nothink`、`none` 的名称推断，只记录准确的请求档位；
-5. 清理“隐藏关闭 Mapping 会被辅助调用消费”的设计表述；Reasoning Mapping 只按实际选择的公开档位精确读取；
-6. 证明没有 Reasoning Option Spec 时，Title、Git Commit Message 和 Recall 均不合成档位、不改变 Active Model；
-7. 保持 Model Selection、Active Model 冻结、Account/Personal Overlay、队列与持久化语义不变。
+1. Remover da cadeia de Git Commit Message o parâmetro de 256 Tokens já inválido, as constantes, a lógica de ignore especial e as asserções antigas correspondentes;
+2. Manter o Workspace Generate Text genérico processando, conforme seu contrato formal, o orçamento realmente fornecido pelo chamador, sem reservar parâmetros falsos para Git Commit Message;
+3. Remover `resolveReasoningDisabledMappingKey` e todas as suas exportações, referências e testes;
+4. Remover a inferência de nomes `disabled`, `off`, `nothink`, `none` da Telemetry do Adapter, registrando apenas a faixa exata da requisição;
+5. Limpar a formulação de design de que "mapping de desligamento oculto é consumido por chamadas auxiliares"; o Reasoning Mapping só é lido de forma precisa conforme a faixa pública realmente escolhida;
+6. Provar que, sem Reasoning Option Spec, Title, Git Commit Message e Recall não sintetizam faixa e não alteram o Active Model;
+7. Manter inalteradas a Model Selection, o congelamento do Active Model, o Account/Personal Overlay e a semântica de fila e persistência.
 
-## 4. 明确不做
+## 4. Fora de Escopo
 
-- 不恢复辅助调用固定 256 Token 的限制；
-- 不新增 Reasoning Policy、Resolver、DTO、Factory Input 或请求专用 Option；
-- 不按 Provider、Model ID、API Type 或模型名推断 Reasoning；
-- 不改变普通对话、Compact、Subagent、Repo Wiki 或 Dream 的模型参数；
-- 不开启 Semantic Recall，也不改变 Off-Peak 跳过 Extraction 的现有裁决。
+- Não restaurar o limite fixo de 256 Tokens para chamadas auxiliares;
+- Não adicionar Reasoning Policy, Resolver, DTO, Factory Input ou Option específica de requisição;
+- Não inferir Reasoning por Provider, Model ID, API Type ou nome do modelo;
+- Não alterar os parâmetros de modelo da conversa normal, Compact, Subagent, Repo Wiki ou Dream;
+- Não habilitar Semantic Recall nem alterar a decisão existente de Off-Peak pulando Extraction.
 
-## 5. 测试目标
+## 5. Objetivos de Teste
 
-- Git Commit Message 不再发送已经失效的 256 Token 假约束，并继承 Model 有效预算；
-- 通用 Workspace Generate Text 在调用方真实提供 `maxOutputTokens` 时仍按正式契约处理；
-- 有 Reasoning Spec 时，四类辅助调用继续使用 `values[0]`；
-- 无 Reasoning Spec 时，Title、Git Commit Message 和 Recall 不产生 `reasoningLevel`；
-- Active Model 与 Session Selection 在所有辅助调用后保持不变；
-- Adapter Provider Options 只由精确的 `reasoningMapping[reasoningLevel]` 产生；
-- Telemetry 不再通过字符串别名判断 enabled/disabled；
-- Built-in Reasoning values 顺序完整性测试继续通过；
-- 相关 Contracts、Adapters、Core、Services、Provider 测试和 typecheck、根 lint 通过。
+- Git Commit Message não envia mais a falsa restrição de 256 Tokens já inválida e herda o orçamento válido do Model;
+- O Workspace Generate Text genérico continua tratando `maxOutputTokens` conforme o contrato formal quando o chamador realmente o fornece;
+- Com Reasoning Spec, as quatro categorias de chamada auxiliar continuam usando `values[0]`;
+- Sem Reasoning Spec, Title, Git Commit Message e Recall não geram `reasoningLevel`;
+- Active Model e Session Selection permanecem inalterados após todas as chamadas auxiliares;
+- As Provider Options do Adapter são produzidas apenas pelo `reasoningMapping[reasoningLevel]` exato;
+- A Telemetry não julga mais enabled/disabled por apelidos de string;
+- O teste de integridade da ordem dos values de Reasoning do Built-in continua passando;
+- Os testes relevantes de Contracts, Adapters, Core, Services e Provider, além do typecheck e do lint raiz, passam.
 
-## 6. 完成标准
+## 6. Critérios de Conclusão
 
-- 生产代码与当前 Design 中不存在 `resolveReasoningDisabledMappingKey`；
-- Git Commit Message 链路不存在“上游传 256、下游忽略”的虚假契约；
-- 三类无 Reasoning Spec 辅助调用都有直接回归证据；
-- 辅助调用只表达两个真实事实：最低公开 Reasoning 档位，以及继承当前 Model 的输出预算；
-- Bugfix 08 的实施记录与最终代码一致，不再把残留或行为漂移标记为已完成。
+- Não existe `resolveReasoningDisabledMappingKey` no código de produção nem no Design atual;
+- Não existe contrato falso de "upstream passa 256, downstream ignora" na cadeia de Git Commit Message;
+- As três categorias de chamada auxiliar sem Reasoning Spec têm evidência de regressão direta;
+- As chamadas auxiliares expressam apenas dois fatos reais: a menor faixa pública de Reasoning e o orçamento de saída herdado do Model atual;
+- O registro de implementação do Bugfix 08 está consistente com o código final e não marca mais resíduos ou drift de comportamento como concluídos.
 
-## 7. 实施记录
+## 7. Registro de Implementação
 
-- Git Commit Message Services 不再声明固定 `maxOutputTokens: 256`；通用 Workspace Generate Text 删除
-  querySource 特判，调用方明确提供预算时照常执行，未提供时由当前 Model 的有效 Options 承担预算事实；
-- 删除 `resolveReasoningDisabledMappingKey`，Adapter Provider Options 只读取
-  `reasoningMapping[reasoningLevel]`；Telemetry 只记录实际请求档位，不再合成 enabled/disabled；
-- Test Model Factory 增加“无 Reasoning Spec”测试能力，Session/Goal Title 共用链路、Git Commit Message
-  与 Memory Recall 均证明不合成 Reasoning，且 Active Model/Selection 不被修改；
-- Services、Core、Adapters 定向测试共 93 条通过；Provider 全量 151 条通过；根 typecheck 与 CLI
-  Contracts/Adapters/Core typecheck 通过；根 lint 为 0 error（保留 33 条与本次无关的既有 warning）；
-- Core 全量有 2109 条通过，剩余失败来自既有绝对路径 conformance fixture、CUA、I/O/模块边界和
-  stream-recovery 基线；Adapters 全量有 1370 条通过，唯一失败为与本次无关且单独复现的进程组清理测试。
+- O Service de Git Commit Message não declara mais `maxOutputTokens: 256` fixo; o Workspace Generate Text genérico removeu o
+  caso especial de querySource, executa normalmente quando o chamador fornece explicitamente um orçamento e, quando não fornecido, deixa o fato do orçamento a cargo das Options válidas do Model atual;
+- `resolveReasoningDisabledMappingKey` foi removido, e as Provider Options do Adapter leem apenas
+  `reasoningMapping[reasoningLevel]`; a Telemetry registra apenas a faixa realmente solicitada e não sintetiza mais enabled/disabled;
+- O Test Model Factory ganhou a capacidade de testar "sem Reasoning Spec", e a cadeia compartilhada de Session/Goal Title, Git Commit Message
+  e Memory Recall provam que não sintetizam Reasoning e que Active Model/Selection não são modificados;
+- 93 testes direcionados de Services, Core e Adapters passaram; o total de Provider, 151, passou; o typecheck raiz e os typechecks de CLI
+  Contracts/Adapters/Core passaram; o lint raiz ficou com 0 erros (mantendo 33 warnings preexistentes e não relacionados a esta mudança);
+- No total do Core, 2109 testes passaram, e as falhas restantes vêm de fixtures de conformance de caminho absoluto, CUA, limites de I/O/módulo e
+  baselines de stream-recovery já existentes; no total dos Adapters, 1370 testes passaram, com a única falha sendo um teste de limpeza de grupo de processos não relacionado a esta mudança e reproduzido separadamente.

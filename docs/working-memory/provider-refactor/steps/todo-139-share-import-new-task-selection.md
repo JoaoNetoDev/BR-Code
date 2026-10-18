@@ -1,31 +1,31 @@
-# Todo139：分享导入复用普通新任务的模型与模式初始化
+# Todo139: reutilização da inicialização de modelo e modo de uma nova tarefa comum na importação de compartilhamento
 
-状态：已实现，本地单测、浏览器交互与 review 完成（2026-09-12）；完整分享服务端／原生首条 RPC 联合验收尚未完成。
+Status: implementado, com testes unitários locais, interação no browser e review concluídos (2026-09-12); a aceitação conjunta completa do servidor de compartilhamento / primeira RPC nativa ainda não foi concluída.
 
-## 目标与根因
+## Objetivo e causa raiz
 
-分享导入创建的新任务，应与接收方普通新建任务保持相同的选择行为，包括 Provider、模型、思考档位及模式／权限；不继承分享者的执行设置。
+A nova tarefa criada pela importação de compartilhamento deve manter o mesmo comportamento de escolha de uma tarefa nova comum no lado do receptor, incluindo Provider, modelo, nível de raciocínio e modo/permissões; não deve herdar as configurações de execução de quem compartilhou.
 
-调查基线：本地 `9ea22ec1f0`；已 fetch 的 `origin/staging` 为 `eb71ba51c2`。相关新任务初始化代码一致，已包含 `baef1544c5`、`18a963c078` 的最近提交模式继承修复。没有为本次调查合并新的 staging。
+Baseline da investigação: `9ea22ec1f0` local; `origin/staging` já buscado está em `eb71ba51c2`. O código relevante de inicialização de novas tarefas é idêntico e já contém a correção recente de herança de modo dos commits `baef1544c5` e `18a963c078`. Nenhum staging novo foi mergeado para esta investigação.
 
-当前缺口：`ConversationShareService.importShare()` 调用 `createSession()` 时未传模型／模式选择；导入后直接激活真实 Session。Composer 仅在 `sessionId === null` 时读取新任务偏好，已有 Session 则读取会话选择并保留明确空态。首次分享导入因而跳过新任务初始化，不会自动获得普通新建任务的选择。
+Lacuna atual: `ConversationShareService.importShare()` chama `createSession()` sem passar a escolha de modelo/modo; após a importação ele ativa diretamente a Session real. O Composer só lê as preferências de nova tarefa quando `sessionId === null`; quando já existe Session, lê a escolha da sessão e preserva o estado vazio explícito. A primeira importação de compartilhamento, por isso, salta a inicialização de nova tarefa e não recebe automaticamente a escolha de uma nova tarefa comum.
 
-## 已确认规则
+## Regras confirmadas
 
-| 项目                     | 优先顺序                                                                            |
+| Item                     | Ordem de prioridade                                                                            |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| Provider、模型、思考档位 | 目标工作区已初始化的新任务草稿 → 最近已接纳提交的完整 ModelSelection → 公共默认选择 |
-| 模式／权限               | 目标工作区已初始化的新任务草稿 → 最近已接纳提交的模式 → 产品默认 build              |
+| Provider, modelo, nível de raciocínio | Rascunho de nova tarefa já inicializado no workspace de destino → ModelSelection completo da submissão aceita mais recente → escolha pública padrão |
+| Modo/permissões               | Rascunho de nova tarefa já inicializado no workspace de destino → modo da submissão aceita mais recente → build padrão do produto |
 
-- 提取或复用普通新任务的初始化入口，两种入口共用规则，不在分享服务内复制默认模型算法。
-- “已有草稿优先”包含其明确空选择；不能把用户清空或失效的选择误当成不存在，自动换成默认模型。沿用当前公共 effective selection 解析与校验，不另建 fallback。
-- 只复制选择配置，不复制正文、编辑器内容、提及、附件；不删除或迁走普通新任务草稿。
-- 按导入实际落地的 `workspaceIdentity?.trim() || workspacePath` 读取偏好。远程 workspace 回退本地时，使用最终本地工作区，不沿用远程来源偏好。
-- 只初始化首次创建的导入任务。重复导入复用 Session、再次打开或恢复历史，不覆盖该会话已保存的选择与草稿。
-- 初始化只准备本会话的 Composer 草稿；后续完整 Submission 仍是执行配置提交边界。导入成功不等于消息已提交，不能因此刷新 Recent。
-- 无模型、Registry 暂未就绪或选择不可执行时，分享内容仍可导入和打开；待公共读取就绪后完成必要初始化，发送前按已有门禁要求选择有效模型。不使模型请求成为导入前置条件。
+- Extrair ou reutilizar o ponto de entrada de inicialização de uma nova tarefa comum, com as duas entradas compartilhando a regra, sem duplicar o algoritmo de modelo padrão dentro do serviço de compartilhamento.
+- "Rascunho existente tem prioridade" inclui a escolha explicitamente vazia dele; não se pode tratar uma escolha que o usuário limpou ou que ficou inválida como inexistente e trocar automaticamente para o modelo padrão. Reutilizar a resolução e validação de effective selection pública atual, sem criar outro fallback.
+- Copiar apenas a configuração de escolha, nunca o corpo, o conteúdo do editor, as menções ou os anexos; não apagar nem mover o rascunho de nova tarefa comum.
+- Ler as preferências pelo `workspaceIdentity?.trim() || workspacePath` realmente usado na importação. Quando um workspace remoto recua para o local, usar o workspace local final e não as preferências da origem remota.
+- Inicializar apenas a tarefa importada na primeira criação. Importações repetidas reutilizam a Session, e reabrir ou restaurar o histórico não sobrescreve as escolhas e o rascunho já salvos daquela sessão.
+- A inicialização prepara apenas o rascunho do Composer desta sessão; a Submission completa posterior continua sendo a fronteira de confirmação da configuração de execução. Importar com sucesso não significa que a mensagem foi submetida, e isso não pode atualizar Recent.
+- Quando não há modelo, o Registry ainda não está pronto ou a escolha não é executável, o conteúdo compartilhado ainda pode ser importado e aberto; a inicialização necessária é concluída assim que a leitura pública estiver pronta, e um modelo válido é exigido pelas travas existentes antes do envio. A requisição de modelo não pode se tornar pré-requisito da importação.
 
-## 所有权与时序
+## Propriedade e ordem temporal
 
 ```text
 普通新建 ───────────────────┐
@@ -37,33 +37,33 @@
 重复导入／恢复已有会话 → 保留已有 Session 选择和草稿
 ```
 
-- Renderer 持有草稿与 Recent；Host 提供公共默认及有效选择 View；导入服务继续负责内容／产物／Session 的原子导入，不直接访问 Renderer 存储。
-- 初始化只发生一次；Registry 回包、导入重试、迟到结果不得覆盖用户已编辑的草稿，不能串到后来切换的工作区／Session。沿用现有 scope 与初始化机制，不加超时补丁或第二套同步状态。
-- 导入与初始化可分离；初始化延后不能因已有空 Session snapshot 先到而永久封住。具体接线在实施前写清，不能只靠“Session 没模型”判断这是首次导入。
-- 不更改 shared-host、desktop continuous／mobile replayable、CommandInbox、账号同步或执行中模型绑定；不做历史数据迁移，不批量补写旧导入会话。
+- O Renderer detém o rascunho e o Recent; o Host fornece os valores padrão públicos e a View de escolha válida; o serviço de importação continua responsável pela importação atômica de conteúdo/produtos/Session e não acessa diretamente o armazenamento do Renderer.
+- A inicialização acontece apenas uma vez; respostas do Registry, retries de importação e resultados atrasados não podem sobrescrever um rascunho já editado pelo usuário nem vazar para um workspace/Session trocado depois. Reutilizar os mecanismos atuais de scope e inicialização, sem patches de timeout nem um segundo estado de sincronização.
+- Importação e inicialização podem ser separadas; o adiamento da inicialização não pode ficar permanentemente bloqueado pela chegada antecipada de um snapshot de Session vazia. O接线 específico deve ser escrito antes da implementação, e não se pode decidir "é a primeira importação" apenas com base em "a Session não tem modelo".
+- Não alterar shared-host, desktop continuous/mobile replayable, CommandInbox, sincronização de conta nem vínculo de modelo em execução; não fazer migração de dados históricos nem preencher em massa sessões importadas antigas.
 
-## 主要定位
+## Principais pontos de localização
 
-- `packages/services/src/conversation-share/conversationShareService.ts`：导入与 Session 创建。
-- `packages/ui/src/root/useRootPlatformEffects.ts`：导入完成后的工作区／Session 激活。
-- `packages/ui/src/v4/composer/useDraftConfigControl.ts`：普通新任务与已有 Session 的初始化分支。
-- `packages/ui/src/lib/composerRecent.ts`、`packages/ui/src/v4/composer/composerDraftStore.ts`：最近已接纳偏好、草稿存储与隔离。
-- [分享功能规范](../../../conversation-share-v1.md)、[Todo71](todo-71-persistent-composer-draft-and-submission-state.md)：实施前同步首次分享导入边界，不推翻已有历史空选择保护。
+- `packages/services/src/conversation-share/conversationShareService.ts`: importação e criação de Session.
+- `packages/ui/src/root/useRootPlatformEffects.ts`: ativação de workspace/Session após a conclusão da importação.
+- `packages/ui/src/v4/composer/useDraftConfigControl.ts`: branches de inicialização para nova tarefa comum e Session existente.
+- `packages/ui/src/lib/composerRecent.ts`, `packages/ui/src/v4/composer/composerDraftStore.ts`: preferências da submissão aceita mais recente, armazenamento de rascunho e isolamento.
+- [Especificação da functionality de compartilhamento](../../../conversation-share-v1.md), [Todo71](todo-71-persistent-composer-draft-and-submission-state.md): sincronizar antes da implementação a fronteira da primeira importação de compartilhamento, sem derrubar a proteção existente contra o estado vazio do histórico.
 
-## 执行与验收
+## Execução e aceitação
 
-- [x] 更新相关 spec，确定共用初始化入口、首次导入标识与激活时序；先测试再实现。
-- [x] 同一工作区对照普通新任务／分享导入：已有草稿、仅 Recent、仅公共默认三种情况，模型身份、思考档位和模式一致；空草稿意图不被默认填满。
-- [x] 覆盖无可用模型、Registry 延迟就绪、失效选择、用户先编辑后回包；内容可打开，初始化不覆盖用户意图。
-- [x] 覆盖实际目标工作区、远程回退本地、同路径不同 identity；原普通草稿正文及配置均保留。
-- [x] 覆盖重复导入和重新打开：保留 Session 草稿／保存选择，不重置已继续对话的任务，不在导入时更新 Recent。
-- [ ] 交互用例验证导入打开后工具栏的模型／档位／模式，以及首条提交的完整 modelSelection/mode 和分享 context_refs，不仅检查菜单文案；保持现有 E2E pending／晋级规则。
-- [x] 批量运行相关单测、浏览器或可运行 E2E、类型、lint、架构检查；复审全部要求及普通新任务／历史恢复回归，记录多端验证限制后提交。
+- [x] Atualizar as specs relevantes, definindo o ponto de entrada comum de inicialização, a identificação de primeira importação e a ordem de ativação; testar antes de implementar.
+- [x] No mesmo workspace, comparar tarefa nova comum / importação de compartilhamento: nos três casos de rascunho existente, apenas Recent e apenas padrão público, a identidade do modelo, o nível de raciocínio e o modo são iguais; a intenção de rascunho vazio não é preenchida pelo padrão.
+- [x] Cobrir ausência de modelo disponível, Registry com prontidão atrasada, escolha inválida e usuário que edita antes da resposta; o conteúdo abre e a inicialização não sobrescreve a intenção do usuário.
+- [x] Cobrir o workspace de destino real, o recuo de remoto para local e o mesmo caminho com identity diferente; o corpo e a configuração do rascunho comum original são preservados.
+- [x] Cobrir importação repetida e reabertura: preservar o rascunho da Session e as escolhas salvas, não resetar tarefas já continuadas e não atualizar Recent na importação.
+- [ ] Casos de interação verificam na barra de ferramentas, após abrir a importação, o modelo/nível/modo, além do modelSelection/mode completos da primeira submissão e dos context_refs do compartilhamento, e não apenas o texto dos menus; manter as regras existentes de E2E pending/promoção.
+- [x] Executar em lote os testes unitários relevantes, browser ou E2E executável, tipos, lint e verificação de arquitetura; revisar todos os requisitos e as regressões de nova tarefa comum/restauração de histórico, registrar as limitações de validação multi-cliente e então fazer commit.
 
-调查中现有导入服务与 Composer 初始化测试共 27 项通过；它们证明现状相关边界，不代表本 Todo 已实现或新行为已验收。
+Na investigação, 27 dos testes existentes do serviço de importação e da inicialização do Composer passaram; eles comprovam as fronteiras relevantes do estado atual e não significam que este Todo está implementado nem que o novo comportamento foi aceito.
 
-## 2026-09-12 实施与复审
+## Implementação e review de 2026-09-12
 
-真实 Hook 与浏览器 10 组通过，Root／Recent／默认、明确空选择、延迟与用户抢先改选、实际 identity、重复导入不覆盖均验证。首条 modelSelection/mode 使用真实冻结函数验证；context_refs 保留通过代码复审与既有单测核对，完整分享服务端→原生 RPC 未实跑，该验收项仍保留。
+10 grupos com hooks reais e browser passaram, validando Root/Recent/padrão, escolha explicitamente vazia, atraso e usuário que muda a escolha antes, identity real e o fato de a importação repetida não sobrescrever. O modelSelection/mode da primeira mensagem foi validado com a função real congelada; a preservação de context_refs foi conferida por revisão de código e pelos testes unitários existentes; o caminho completo servidor de compartilhamento → RPC nativa não foi executado de fato, então esse item de aceitação continua em aberto.
 
-合批证据、既有失败分类及多端限制见[本轮复审记录](../research/todos-136-139-140-review-20260912.md)。不把未测范围写成通过；未自动 push。
+As evidências do lote, a classificação das falhas existentes e as limitações multi-cliente estão no [registro de review desta rodada](../research/todos-136-139-140-review-20260912.md). Não se descreve como aprovado o que não foi testado; não houve push automático.

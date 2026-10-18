@@ -1,14 +1,14 @@
-# Todo 146：无待执行迁移时静默启动
+# Todo 146: inicialização silenciosa quando não há migração pendente
 
-日期：2026-09-15；承接 Todo 145 与用户确认的启动展示。状态：实现与代码复审完成；Electron GUI / 目标平台验收待补。
+Data: 2026-09-15; dá continuidade ao Todo 145 e à exibição de inicialização confirmada pelo usuário. Status: implementação e revisão de código concluídas; aceite do Electron GUI / plataforma-alvo ainda pendente.
 
-## 目标与展示合同
+## Objetivo e contrato de exibição
 
-- 正常重启且无待执行 migration：原有 Logo → 主界面，全程无标题、说明、计时、文字按钮；不人为延迟。
-- 确认待迁移后：升级本地数据 → 保存更新 → 完成启动 → 主界面。空库用初始化文案，不称升级历史记录。
-- 仅确认迁移需求后等锁才显示等待文字；未确认或无需迁移的等锁保持 Logo。错误始终显示，适用时手动重试；不自动重跑迁移。
-- 跨库准备期间保持初始化/升级总提示；只在 Host 标明最后一个数据库的真实提交阶段显示保存，最后库就绪/服务装配显示完成启动。中间库的提交和维护不提前宣布收尾。
-- 展示一旦由本次迁移需求触发，保留至本次启动结束；跨数据库、维护、服务装配不倒退为升级。刷新从同代 Host 快照恢复，新 attempt 重置事实。
+- Reinício normal e sem migration pendente: Logo original → interface principal, sem título, explicação, cronômetro ou botão de texto ao longo de todo o percurso; sem atraso artificial.
+- Depois de confirmar que há migração: atualizar dados locais → salvar as atualizações → concluir a inicialização → interface principal. Banco vazio usa texto de inicialização, e não se fala em atualizar histórico.
+- O texto de espera só aparece depois de confirmada a necessidade de migração e enquanto se aguarda o lock; sem confirmação ou sem necessidade de migração, a espera pelo lock mantém o Logo. Erros são sempre exibidos, com retry manual quando aplicável; migração não é reexecutada automaticamente.
+- Durante a preparação entre bancos, mantém-se o aviso geral de inicialização/atualização; o texto de salvar só aparece quando o Host indica a fase real de commit do último banco, e o de concluir a inicialização quando o último banco fica pronto ou a montagem do serviço termina. Commits e manutenção de bancos intermediários não anunciam o encerramento antecipadamente.
+- Uma vez disparada a exibição por esta necessidade de migração, ela é mantida até o fim desta inicialização; bancos, manutenção e montagem de serviço não regridem para "atualização". O refresh é restaurado a partir do snapshot do Host da mesma geração e um novo attempt reseta os fatos.
 
 ```text
 SQLite 执行端检查账本 → Host 聚合本次迁移事实 → Renderer 派生静默/迁移/错误
@@ -18,50 +18,50 @@ SQLite 执行端检查账本 → Host 聚合本次迁移事实 → Renderer 派�
 有待执行项 → 显示提示/拿锁后复查 → 原 SQL/COMMIT → 维护/服务装配 → 主界面
 ```
 
-## 实现边界
+## Limites de implementação
 
-- 保留现有全局 phase；维护独立为 maintaining。新增结构化 migration 事实：kind（none/initialize/upgrade）、实际执行数量、已提交数量；字段未知时不推断无需迁移。
-- 迁移执行端在拿锁前读取账本作展示预检；遇 BUSY 保持未知并沿既有等锁路径等待。拿锁后再次读真实账本再执行。预检不授权执行，不改变冻结 SQL、checksum、迁移 ID、单库事务边界。
-- Host 按内部数据库 ID 聚合：需求 kind 在一次 attempt 内保持，执行/提交数量按每库最新快照求和，不因重复阶段通知累计；服务装配、失败和刷新保留事实。重试清空上次事实。
-- CLI 新事实为可选协议字段，旧通知仍可解析；不向旧远端发送新的存储专用控制命令。手机仍 shared-host，desktop-continuous 与 web-remote-replayable 不变。
-- 同一 Host attempt 内按 CLI 报告、规范化的真实数据库路径复用成功准备；只有成功关闭并退出的 Worker 可登记。失败、重试、新 Host 都不复用旧完成集合。重复路径在专用握手回复 reuse 后不再打开/迁移，仍需退出确认；不承诺完全消除 CLI bundle 启动开销。
-- 正常启动不挂计时器/正文，RootStartupLoading 复用 Logo 与主题；中文英文同步。错误页面保持恢复能力。
-- ARMS 保留总准备耗时和既定磁盘统计范围，新增迁移种类及实际执行/提交数量，区分无迁移和其他进程已完成。不增加周期网络请求或磁盘扫描。
-- 不通过永久 migrated 标记跳过数据库检查，不移除原有维护，不改变 SQLite 锁策略；不声称没有迁移即零 IO 或保证毫秒启动。
+- Mantém-se a phase global existente; a manutenção passa a ser independente, como `maintaining`. Novos fatos estruturados de migration: kind (none/initialize/upgrade), quantidade realmente executada e quantidade já commitada; quando o campo é desconhecido, não se infere que não há migração.
+- O executor de migração lê o ledger antes de adquirir o lock, como pré-verificação de exibição; ao encontrar BUSY, mantém desconhecido e segue esperando pelo lock pelo caminho já existente. Depois de adquirir o lock, lê o ledger real novamente antes de executar. A pré-verificação não autoriza execução e não altera SQL congelado, checksum, ID de migração nem o limite transacional por banco.
+- O Host agrega por ID interno de banco: o kind de necessidade se mantém dentro de um attempt, e as quantidades de execução/commit são somadas a partir do snapshot mais recente de cada banco, sem acumular por causa de notificações repetidas de fase; a montagem do serviço, as falhas e o refresh preservam os fatos. O retry limpa os fatos da tentativa anterior.
+- No CLI o novo fato é um campo de protocolo opcional, e as notificações antigas continuam parseáveis; não se enviam novos comandos de controle específicos de armazenamento para remotos antigos. O celular continua shared-host, e desktop-continuous e web-remote-replayable ficam inalterados.
+- Dentro do mesmo attempt do Host, o reaproveitamento da preparação bem-sucedida usa o caminho real de banco normalizado conforme reportado pelo CLI; apenas Workers fechados com sucesso podem ser registrados. Falha, retry ou novo Host não reaproveitam o conjunto concluído anterior. Caminhos duplicados, depois da resposta de handshake `reuse`, deixam de ser abertos/migrados, mas ainda exigem confirmação de saída; não se promete eliminar totalmente o custo de inicialização do bundle da CLI.
+- A inicialização normal não monta cronômetro/corpo de texto; o RootStartupLoading reaproveita Logo e tema; chinês e inglês ficam sincronizados. A página de erro mantém a capacidade de recuperação.
+- O ARMS mantém o tempo total de preparação e o escopo de estatísticas de disco já definidos, acrescentando o tipo de migração e as quantidades realmente executadas/commitadas, distinguindo "sem migração" de "outro processo já concluiu". Não são adicionadas requisições de rede periódicas nem varreduras de disco.
+- Não se pula a verificação do banco por meio de uma marca permanente `migrated`, não se remove a manutenção existente e não se muda a estratégia de lock do SQLite; não se afirma que ausência de migração significa zero IO nem se garante inicialização em milissegundos.
 
-## 执行清单
+## Checklist de execução
 
-- [x] 更新 spec、catalog、coverage matrix。
-- [x] 测试先行：无迁移重启、初始化、升级、锁竞争、回滚提交事实、Host 聚合/刷新/重试、同库复用、无文字和错误展示、ARMS。
-- [x] 执行端及严格协议新增事实；维护状态独立。
-- [x] Host 聚合与本次成功路径复用。
-- [x] 静默 UI、按事实显示迁移、双语言及遥测。
-- [x] 类型检查、lint、架构门禁、冻结迁移回归、构建、隔离运行探针、开发后复审。
-- [ ] Electron GUI / 目标平台验收：E2E 已更新并执行，但创建会话前环境失败，不能计通过。
-- [x] 记录结果并提交；GUI 环境失败如实记录，不晋级 pending、不声称通过。
+- [x] Atualizar spec, catalog e coverage matrix.
+- [x] Teste primeiro: reinício sem migração, inicialização, atualização, disputa de lock, rollback do fato de commit, agregação/refresh/retry do Host, reaproveitamento do mesmo banco, exibição sem texto e de erro, ARMS.
+- [x] Novos fatos no executor e no protocolo estrito; estado de manutenção independente.
+- [x] Agregação do Host e reaproveitamento do caminho de sucesso atual.
+- [x] UI silenciosa, exibição de migração por fatos, dois idiomas e telemetria.
+- [x] Verificação de tipos, lint, gate de arquitetura, regressão de migração congelada, build, probe de execução isolada, revisão pós-desenvolvimento.
+- [ ] Aceite do Electron GUI / plataforma-alvo: o E2E foi atualizado e executado, mas falhou por ambiente antes da criação da sessão, portanto não conta como aprovado.
+- [x] Registrar os resultados e commitar; a falha de ambiente do GUI é registrada como está, sem promover de pending e sem alegar aprovação.
 
-## 验收用例
+## Casos de aceite
 
-| ID | 场景 | 断言 |
+| ID | Cenário | Asserções |
 | --- | --- | --- |
-| SILENTDB-01 | 已完成迁移，重启并持有写锁 | Logo 可见、无任何正文/按钮，Root 不提前挂载；释放后进入 |
-| SILENTDB-02 | 空库/旧库 | 初始化/升级区分；只在需求确认后显示；ready 在 COMMIT/关闭之后 |
-| SILENTDB-03 | 对方持锁并完成剩余迁移 | 本连接不重跑；需求曾存在，执行/提交为 0 |
-| SILENTDB-04 | SQL 中途失败 | 显示错误；实际执行计数可非零、已提交为 0；手动重试新 attempt |
-| SILENTDB-05 | 多库混合及 reload | 仅一个库需升级也能显示，维护/下一个库不会倒序提示；同代快照恢复 |
-| SILENTDB-06 | 同一实际会话库、不同 cwd | 仅首次成功执行准备；相对路径指向不同库不合并；失败不复用 |
-| SILENTDB-07 | ARMS | kind/执行/提交与 Host 同源；原有总耗时和磁盘统计保留 |
-| SILENTDB-08 | 中英文与主题 | 正常启动无可见文字；错误和迁移文案可见且对应真实事实 |
+| SILENTDB-01 | Migração concluída, reinício mantendo lock de escrita | Logo visível, sem corpo/botão algum, Root não montado antecipadamente; após liberar, entra |
+| SILENTDB-02 | Banco vazio/antigo | Distinção inicialização/atualização; exibição só após a necessidade ser confirmada; ready só depois de COMMIT/fechamento |
+| SILENTDB-03 | A outra conexão segura o lock e conclui as migrações restantes | Esta conexão não reexecuta; a necessidade já existiu, execução/commit = 0 |
+| SILENTDB-04 | Falha no meio do SQL | Mostra erro; a contagem de execução real pode ser diferente de zero e a de commit é 0; retry manual cria novo attempt |
+| SILENTDB-05 | Bancos mistos e reload | Mesmo que só um banco precise de atualização a exibição funciona; manutenção/próximo banco não invertem a ordem dos avisos; snapshot da mesma geração é restaurado |
+| SILENTDB-06 | Mesmo banco de sessão real, cwd diferentes | Apenas a primeira preparação bem-sucedida; caminhos relativos apontando para bancos diferentes não são mesclados; falha não é reaproveitada |
+| SILENTDB-07 | ARMS | kind/execução/commit com a mesma origem do Host; tempo total e estatísticas de disco existentes preservados |
+| SILENTDB-08 | Chinês/inglês e tema | Inicialização normal sem texto visível; textos de erro e migração visíveis e correspondentes aos fatos reais |
 
-E2E 继续使用 conversation-session-database-startup pending spec；无真实用户 DB、无 20 GB 性能测试。
+O E2E continua usando o pending spec conversation-session-database-startup; sem DB real de usuário e sem teste de performance de 20 GB.
 
-## 实施与验证记录
+## Registro de implementação e verificação
 
-- 应用侧最终集中回归 11 文件 144 项通过；随后增加预检前后重复等锁回归，tasks 准备 6 项通过。早先包含 relay、磁盘、服务等待的扩展回归 12 文件 54 项通过，Repo 扩展回归 4 文件 110 项通过。
-- CLI 异步迁移与 session-store 回归 2 文件 52 项通过；冻结 SQL 与崩溃恢复 2 文件 7 项通过。只改变预检/通知；任务库迁移定义与会话库全部迁移 SQL 相对 HEAD 保持原文，checksum 计算和锁内账本复查保留。
-- 根 typecheck、lint（45 warnings / 0 errors）、architecture（0 violations）；desktop E2E 类型检查；CLI adapters/bootstrap 的 tsc 构建通过。桌面 tsup、Vite 与 CLI bundle 构建通过。
-- 真实内置 Worker 隔离探针：空任务库 3/3、空会话库 22/22；再次打开均 none + 0/0、账本不变；reuse 只发路径/完成帧。未触碰用户数据库，不做 20 GB 性能测试。
-- React 实际挂载测试：静默期间无正文、无计时器；确认迁移后开启计时器；失败清理计时器，重试清空显示。多库中间提交/维护不显示全局保存/收尾。
-- 复审修正：成功 COMMIT 立即发布已提交事实，后续关闭失败不把提交数丢为 0；预检前后每个拿锁阶段独立发布等待，未知等待不会吞掉确认迁移后的提示；异步 realpath 完成时检查 Worker 是否已退出，避免迟到写回。
-- E2E 用例已更新（静默锁等待、刷新、Host 重建、释放锁后 DOM 全程无文字），执行在创建浏览器会话前失败：`session not created: Chrome instance exited`。报告：`packages/desktop/.e2e-artifacts/desktop-e2e-20260915073633586-p297237-e0c4161e03b58901/summary.json`。pending 不晋级；Windows/macOS、手机远控、ARMS 后台入库尚未实测。
-- 日志：本机 `/tmp/zcode-silent-startup-*.log`。静默仅是展示合同，数据库检查/原维护仍会执行；缓存限同次成功准备，不提供跨启动永久跳过。迁移总耗时/内存不作下降承诺，磁盘采样频率不变。
+- regressão final concentrada no app: 11 arquivos, 144 testes passando; depois, regressões de espera de lock duplicada antes/depois da pré-verificação: 6 testes de preparação de tasks passando. A regressão estendida anterior, com relay, disco e espera de serviço: 12 arquivos, 54 testes; a regressão estendida de Repo: 4 arquivos, 110 testes.
+- regressões de migração assíncrona e session-store do CLI: 2 arquivos, 52 testes; SQL congelado e recuperação de crash: 2 arquivos, 7 testes. Apenas a pré-verificação/notificação mudaram; as definições de migração do banco de tasks e todo o SQL de migração do banco de sessão permanecem textualmente iguais ao HEAD, e o cálculo de checksum e a releitura do ledger dentro do lock foram preservados.
+- passam o typecheck da raiz, o lint (45 warnings / 0 errors), o architecture (0 violations), a verificação de tipos do E2E de desktop e o build tsc de adapters/bootstrap da CLI. Passam os builds de tsup e Vite do desktop e o bundle da CLI.
+- probe isolado com Worker embutido real: banco de tasks vazio 3/3, banco de sessão vazio 22/22; ao reabrir, novamente none + 0/0 e ledger inalterado; o reuse só envia caminho/quadro de conclusão. Nenhum banco de usuário foi tocado e não foi feito teste de performance de 20 GB.
+- teste de montagem real do React: sem corpo nem cronômetro durante o período silencioso; cronômetro ligado depois de confirmada a migração; falha limpa o cronômetro e o retry limpa a exibição. Commits/manutenção de bancos intermediários não exibem salvamento global nem encerramento.
+- correções da revisão: um COMMIT bem-sucedido publica imediatamente o fato de commit, e uma falha de fechamento posterior não zera a contagem de commits; cada fase de aquisição de lock, antes e depois da pré-verificação, publica a espera de forma independente, e uma espera desconhecida não engole o aviso posterior à confirmação da migração; quando o realpath assíncrono termina, verifica-se se o Worker já saiu, evitando escrita tardia.
+- Os casos E2E foram atualizados (espera silenciosa de lock, refresh, reconstrução do Host, DOM sem texto ao longo de tudo após liberar o lock) e a execução falhou antes da criação da sessão do navegador: `session not created: Chrome instance exited`. Relatório: `packages/desktop/.e2e-artifacts/desktop-e2e-20260915073633586-p297237-e0c4161e03b58901/summary.json`. O pending não é promovido; Windows/macOS, controle remoto do celular e a ingestão de fundo do ARMS ainda não foram medidos.
+- Logs: `/tmp/zcode-silent-startup-*.log` na máquina local. O silent é apenas um contrato de exibição, e a verificação do banco/a manutenção original continuam sendo executadas; o cache vale apenas para a preparação bem-sucedida da mesma tentativa e não oferece salto permanente entre inicializações. Não há promessa de queda no tempo total de migração nem de memória, e a frequência de amostragem de disco não muda.

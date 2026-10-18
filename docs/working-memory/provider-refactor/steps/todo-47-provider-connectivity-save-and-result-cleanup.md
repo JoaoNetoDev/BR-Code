@@ -1,15 +1,15 @@
-# Todo 47：Provider 连接测试保存时序与结果契约清理
+# Todo 47: limpeza da temporização de salvamento e do contrato de resultado do teste de conexão de Provider
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-31
+> Data: 2026-08-31
 >
-> 来源：Provider 设置页连接测试链路 Review
+> Origem: Review da cadeia de teste de conexão da página de configurações de Provider
 
-## 1. 问题
+## 1. Problema
 
-Provider 设置页在连接测试前主动保存当前 Provider 草稿，用来避免 idle/blur 自动保存与测试并发。这个产品意图
-正确，但当前实现同时使用 `savePersonalModelConfig` / `deletePersonalModelConfig` 重写模型 Personal Rule：
+A página de configurações de Provider salva ativamente o rascunho de Provider atual antes do teste de conexão, para evitar que o autosave por idle/blur concorra com o teste. Essa intenção de produto é
+correta, mas a implementação atual também usa `savePersonalModelConfig` / `deletePersonalModelConfig` para reescrever a Personal Rule do modelo:
 
 ```text
 测试连接
@@ -19,23 +19,21 @@ Provider 设置页在连接测试前主动保存当前 Provider 草稿，用来�
    `--> 刷新 Worker Registry 后测试正式 Model
 ```
 
-正式模型编辑已经使用带 Settings revision 校验的原子 `savePersonalModelDraft`。旧的两条 Model Config 写接口绕过
-revision 校验，可能用过期 Renderer 快照覆盖较新的 Personal Rule，也形成第二套模型保存协议。
+A edição oficial de modelo já usa o `savePersonalModelDraft` atômico com verificação de revision de Settings. As duas interfaces antigas de escrita de Model Config contornam a
+verificação de revision, podem sobrescrever uma Personal Rule mais nova com um snapshot antigo do Renderer e ainda formam um segundo protocolo de salvamento de modelo.
 
-连接测试结果还保留两层无效抽象：
+O resultado do teste de conexão ainda mantém duas camadas de abstração inválidas:
 
-- Services 根据 HTTP 状态、错误文案和嵌套 `cause/data` 维护第二套错误分类，但 UI 只消费错误消息；
-- UI 把单次正式 Model 测试再次投影成 `ModelConnectivitySummary`，并保留已删除的多 Endpoint
-  `noEndpointResult` 分支。
+- Services mantém uma segunda classificação de erros com base no status HTTP, no texto do erro e em `cause/data` aninhados, mas a UI consome apenas a mensagem de erro;
+- a UI projeta de novo o teste único do Model oficial em um `ModelConnectivitySummary` e mantém o branch `noEndpointResult` de múltiplos Endpoints, já removido.
 
-## 2. 已确认边界
+## 2. Limites confirmados
 
-### 2.1 测试前仍然主动完成保存
+### 2.1 O salvamento ativo antes do teste é mantido
 
-不能把修复简化成“直接测试”。Provider 输入框可能仍停留在 UI debounce 中，尚未进入 Service 的 Provider
-operation queue；只等待已有 operation 不能覆盖这段窗口。
+A correção não pode ser simplificada para "testar direto". Os campos de entrada de Provider podem ainda estar no debounce da UI e não ter entrado na fila de operações de Provider do Service; esperar apenas as operações existentes não cobre essa janela.
 
-目标时序：
+Temporização-alvo:
 
 ```text
 当前 Provider 输入草稿
@@ -56,86 +54,81 @@ Worker 刷新正式 Registry
 按 providerId/modelId 创建并测试正式 Model
 ```
 
-- 只有确实存在未提交 Provider 草稿时才新增一次保存；
-- 连接测试不得自行重写 Model Config；
-- 如果未来从模型编辑弹窗发起测试，弹窗必须先完成自己的原子 `savePersonalModelDraft`，不能恢复旧接口；
-- Personal Config、Registry 与正式 Model 继续是唯一配置及执行权威，不创建测试专用 Provider/Model。
+- só se adiciona um novo salvamento quando realmente existe um rascunho de Provider não commitado;
+- o teste de conexão não pode reescrever Model Config por conta própria;
+- se no futuro o teste for iniciado a partir do modal de edição de modelo, o modal precisa antes concluir seu próprio `savePersonalModelDraft` atômico, sem restaurar as interfaces antigas;
+- Personal Config, Registry e o Model oficial continuam sendo a única autoridade de configuração e execução, e não se cria Provider/Model específico para teste.
 
-### 2.2 旧 Model Config 写接口彻底退出
+### 2.2 As interfaces antigas de escrita de Model Config saem por completo
 
-删除 `savePersonalModelConfig` 和 `deletePersonalModelConfig` 的上层公共入口与转发，包括：
+Remover os pontos de entrada públicos e os forwards de `savePersonalModelConfig` e `deletePersonalModelConfig`, incluindo:
 
-- `IProviderSettingsService`；
-- `ProviderSettingsFacade`；
-- `ProviderSettingsMutationTarget`；
-- Provider Runtime / Config Runtime 的公共转发；
-- UI hook、连接测试 helper、mock 与旧接口测试。
+- `IProviderSettingsService`;
+- `ProviderSettingsFacade`;
+- `ProviderSettingsMutationTarget`;
+- os forwards públicos do Provider Runtime / Config Runtime;
+- hook de UI, helper de teste de conexão, mocks e testes das interfaces antigas.
 
-模型编辑统一使用 `savePersonalModelDraft`。底层 exact Personal Rule 的增删改只作为该原子操作内部实现，不再暴露
-为可被 UI/Services 任意调用的第二套协议。
+A edição de modelo passa a usar uniformemente `savePersonalModelDraft`. As operações internas de criação/alteração/exclusão da Personal Rule exata deixam de ser expostas como um
+segundo protocolo que a UI/Services possa chamar livremente.
 
-### 2.3 连接结果只保留真实消息
+### 2.3 O resultado da conexão mantém apenas a mensagem real
 
-当前 UI 没有错误类别交互，本轮删除 Services 的 `auth`、`model_not_found`、`rate_limit`、`network`、
-`server`、`unknown` 猜测与 HTTP status 深层搜索。结果契约收口为：
+A UI hoje não tem interação por categoria de erro, então nesta rodada removem-se as adivinhações `auth`, `model_not_found`, `rate_limit`, `network`,
+`server` e `unknown` dos Services e a busca profunda por status HTTP. O contrato de resultado é reduzido a:
 
 ```ts
 type ModelConnectivityResult = { success: true } | { success: false; error: { message: string } };
 ```
 
-未来若产品需要按错误类型展示不同操作，必须复用正式 Model/Adapter 的结构化错误，不在 Provider Settings 中再次
-根据字符串分类。
+Se no futuro o produto precisar exibir ações diferentes por tipo de erro, é preciso reutilizar os erros estruturados do Model/Adapter oficiais, sem classificar por string mais uma vez em Provider Settings.
 
-### 2.4 删除旧多 Endpoint UI 投影
+### 2.4 Remover a projeção de UI multi-Endpoint antiga
 
-删除 `ModelConnectivitySummary`、`resolveModelConnectivitySummary`、`noEndpointResult` 与相应旧测试。组件直接消费
-`ModelConnectivityResult`，成功显示模型身份，失败显示正式执行链返回的错误消息。
+Remover `ModelConnectivitySummary`, `resolveModelConnectivitySummary`, `noEndpointResult` e os testes antigos correspondentes. O componente consome
+`ModelConnectivityResult` diretamente, exibindo a identidade do modelo em caso de sucesso e a mensagem de erro devolvida pela cadeia de execução oficial em caso de falha.
 
-### 2.5 本 Todo 不改变请求归因 Header
+### 2.5 Este Todo não altera o header de atribuição de requisição
 
-`x-zcode-session-type` 是 Coding Plan 服务端消费的模型请求来源归因 Header。所有正式模型请求继续发送，并按来源
-使用 `main`、`subagent` 或 `other`；Provider 连接测试属于无主 Agent/Subagent 的辅助调用，继续发送 `other`。
-该 Header 不属于 Provider Config，也不在本 Todo 增加 Provider 特判。
+`x-zcode-session-type` é o header de atribuição da origem da requisição de modelo consumido pelo servidor do Coding Plan. Todas as requisições de modelo oficiais continuam sendo enviadas, usando
+`main`, `subagent` ou `other` conforme a origem; o teste de conexão de Provider é uma chamada auxiliar sem Agent/Subagent dono e continua enviando `other`.
+Esse header não faz parte do Provider Config e este Todo não adiciona caso especial por Provider.
 
-## 3. 实施顺序
+## 3. Ordem de implementação
 
-1. 先补失败测试，证明连接测试会 flush 尚未进入 Service 队列的 Provider debounce，并等待保存完成后才测试；
-2. 让 idle、blur 与连接测试复用一个可等待的 Provider Draft Commit；
-3. 删除连接测试中的 Model Config 保存/删除分支；
-4. 从 UI、Services、Facade、Runtime 与 Config Service 公共面彻底删除旧 Model Config 写接口；
-5. 简化 `ModelConnectivityResult`，删除 Services 重复错误分类；
-6. 删除 UI Summary 和多 Endpoint 残余，直接渲染正式结果；
-7. 清理过期注释、重复 input 类型、mock、测试 fixture 与无引用 export；
-8. 更新 Provider Settings Design 与 Feature Graph，记录唯一保存/测试链路。
+1. adicionar primeiro os testes que falham, provando que o teste de conexão faz flush do debounce de Provider que ainda não entrou na fila do Service e só testa depois de o salvamento terminar;
+2. fazer idle, blur e teste de conexão reutilizarem um Provider Draft Commit aguardável;
+3. remover os branches de salvamento/exclusão de Model Config do teste de conexão;
+4. remover de vez as interfaces antigas de escrita de Model Config da superfície pública de UI, Services, Facade, Runtime e Config Service;
+5. simplificar `ModelConnectivityResult`, removendo a classificação duplicada de erros dos Services;
+6. remover o Summary de UI e o resíduo multi-Endpoint, renderizando o resultado oficial diretamente;
+7. limpar comentários obsoletos, tipos de input duplicados, mocks, fixtures de teste e exports sem referência;
+8. atualizar o Provider Settings Design e o Feature Graph, registrando a única cadeia de salvamento/teste.
 
-## 4. 测试
+## 4. Testes
 
-- UI 单测：idle 未触发时点击测试、blur 与测试并发、重复点击、保存失败、测试失败；
-- Services 单测：Provider operation 串行、真实错误消息透传、不再分类；
-- Provider 单测：所有模型编辑只经过 revision-guarded `savePersonalModelDraft`，旧接口机械归零；
-- Bootstrap/Core 定向测试：Worker 刷新后精确创建正式 Model，最低 reasoning 继续取 `values[0]`；
-- Desktop E2E：输入 Provider 字段后不失焦立即测试，确认请求使用最新配置且只产生一次有效草稿提交；
-- `rg`/`dep:refs` 证明旧接口、Summary 和 `noEndpointResult` 零残留；
-- `pnpm typecheck`、`pnpm lint`、相关格式检查与 `git diff --check`。
+- teste unitário de UI: clicar em teste sem o idle ter disparado, blur concorrente com o teste, cliques repetidos, falha de salvamento, falha de teste;
+- teste unitário de Services: operações de Provider em série, passagem da mensagem de erro real, sem classificação;
+- teste unitário de Provider: toda edição de modelo passa apenas pelo `savePersonalModelDraft` protegido por revision, e as interfaces antigas caem mecanicamente a zero;
+- testes direcionados de Bootstrap/Core: criação exata do Model oficial após o refresh do Worker, com o reasoning mínimo continuando em `values[0]`;
+- Desktop E2E: depois de preencher os campos de Provider, testar imediatamente sem tirar o foco, confirmando que a requisição usa a configuração mais recente e gera apenas um commit de rascunho válido;
+- `rg`/`dep:refs` provando resíduo zero das interfaces antigas, do Summary e de `noEndpointResult`;
+- `pnpm typecheck`, `pnpm lint`, verificação de formatação relacionada e `git diff --check`.
 
-## 5. 完成标准
+## 5. Critérios de conclusão
 
-- 测试前保存与普通 Provider 自动保存共享一个提交原语；
-- 连接测试不会用 Renderer 模型快照写入 Personal Model Rule；
-- `savePersonalModelConfig`、`deletePersonalModelConfig`、`ModelConnectivitySummary`、
-  `noEndpointResult` 与重复错误分类从生产代码及公共类型中消失；
-- 正式 Registry/Model、Account 动态凭据、`x-zcode-session-type` 与最低 reasoning 行为保持不变；
-- 交互、单测、类型检查和 lint 均通过后提交 Conventional Commit。
+- o salvamento antes do teste compartilha uma única primitiva de commit com o autosave normal de Provider;
+- o teste de conexão não grava Personal Model Rule a partir do snapshot de modelo do Renderer;
+- `savePersonalModelConfig`, `deletePersonalModelConfig`, `ModelConnectivitySummary`,
+  `noEndpointResult` e a classificação duplicada de erros desaparecem do código de produção e dos tipos públicos;
+- Registry/Model oficiais, credenciais dinâmicas de Account, `x-zcode-session-type` e o comportamento do reasoning mínimo permanecem inalterados;
+- depois de interação, testes unitários, verificação de tipos e lint passarem, commitar um Conventional Commit.
 
-## 6. 实施结果与验证
+## 6. Resultado da implementação e verificação
 
-- Provider idle、blur、切换 cleanup 与连接测试已经共用 `commitPendingDraft`；测试会先等待同一份 Provider
-  草稿提交完成，再调用正式 `providerId/modelId` Model 测试入口。
-- 连接测试不再接收 Renderer Model Config，也不再保存或删除 Personal Model Rule；
-  `savePersonalModelConfig` / `deletePersonalModelConfig` 公共入口已从 UI、Facade、Runtime 和协议转发中删除。
-- 结果契约已缩成成功或真实错误消息；`ModelConnectivitySummary`、`noEndpointResult` 和设置页字符串错误分类已删除。
-- `x-zcode-session-type` 未进入 Provider Config；正式请求继续由统一执行链按 `main`、`subagent`、`other`
-  写入，连接测试使用 `other`。
-- UI、Services、Provider、CLI Adapter/Bootstrap/Core 定向单测通过；Desktop E2E 类型检查通过。桌面 case
-  `coding-plan-team-usage` 已完成构建，但当前 Linux 环境缺少 `xvfb-run`，Chrome 无显示会话启动失败，因此运行态
-  E2E 保持为环境阻塞，不记作业务断言失败。
+- o idle, o blur, o cleanup de troca e o teste de conexão de Provider já compartilham `commitPendingDraft`; o teste espera a conclusão do commit do mesmo rascunho de Provider antes de chamar a entrada oficial de teste de Model por `providerId/modelId`.
+- o teste de conexão não recebe mais Model Config do Renderer nem salva ou exclui Personal Model Rule;
+  os pontos de entrada públicos `savePersonalModelConfig` / `deletePersonalModelConfig` foram removidos da UI, do Facade, do Runtime e dos forwards de protocolo.
+- o contrato de resultado foi reduzido a sucesso ou mensagem de erro real; `ModelConnectivitySummary`, `noEndpointResult` e a classificação de erros por string na página de configurações foram removidos.
+- `x-zcode-session-type` não entrou no Provider Config; as requisições oficiais continuam sendo escritas pela cadeia unificada de execução como `main`, `subagent` e `other`, e o teste de conexão usa `other`.
+- passam os testes unitários direcionados de UI, Services, Provider e CLI Adapter/Bootstrap/Core; a verificação de tipos do Desktop E2E passa. O case de desktop `coding-plan-team-usage` já foi construído, mas o ambiente Linux atual não tem `xvfb-run` e o Chrome falhou ao iniciar sem sessão de display, portanto o E2E de runtime permanece bloqueado por ambiente e não é contabilizado como falha de asserção de negócio.

@@ -1,61 +1,61 @@
-# Skills 产品文档（对标 z-work）
+# Documento de produto de Skills (alinhado ao z-work)
 
-## 1. 文档目的
+## 1. Finalidade do documento
 
-本文定义 ZCode 中 `Skills` 能力的产品设计，目标是复用并本地化同级 `z-work` 项目里已验证的技能体系，形成可实现、可运营、可扩展的技能产品方案。
+Este documento define o design de produto da capacidade `Skills` no ZCode, com o objetivo de reutilizar e localizar o sistema de skills já validado no projeto de mesmo nível `z-work`, formando uma proposta de produto de skills implementável, operável e extensível.
 
-## 2. 背景与问题
+## 2. Contexto e problemas
 
-当前 Agent 在复杂任务中已具备大量能力，但存在三个核心问题：
+Atualmente o Agent já possui muitas capacidades em tarefas complexas, mas existem três problemas centrais:
 
-- 能力散落：用户不知道“现在能做什么”；
-- 经验不可复用：团队流程难以沉淀为可调用能力；
-- 上下文拥塞：所有说明一次性注入会增加 token 成本并降低稳定性。
+- capacidades dispersas: o usuário não sabe “o que dá para fazer agora”;
+- experiência não reutilizável: os processos da equipe têm dificuldade de cristalizar em capacidades invocáveis;
+- congestão de contexto: injetar todas as explicações de uma vez aumenta o custo de tokens e reduz a estabilidade.
 
-`Skills` 的核心价值是把“专业能力 + 流程 + 资源”打包成可发现、可按需激活的能力单元，减少提示词负担，提升任务完成率与一致性。
+O valor central de `Skills` é empacotar “capacidade profissional + processo + recursos” em unidades de capacidade descobríveis e ativáveis sob demanda, reduzindo a carga de prompts e elevando a taxa de conclusão de tarefas e a consistência.
 
-## 3. 产品目标
+## 3. Objetivos de produto
 
-- 建立统一的技能发现与激活机制，支持按需加载；
-- 支持个人技能与团队技能共存，并具备明确优先级；
-- 让技能能够绑定脚本、模板、参考资料，形成完整工作流；
-- 在 UI 中提供低成本入口（如输入框 `$` 触发）与可管理面板；
-- 确保激活过程可审计、可授权、可回滚。
+- Estabelecer um mecanismo unificado de descoberta e ativação de skills, com carregamento sob demanda;
+- Support skills pessoais e de equipe coexistindo, com prioridade explícita;
+- Permitir que skills se vinculem a scripts, templates e materiais de referência, formando fluxos de trabalho completos;
+- Oferecer na UI uma entrada de baixo custo (como disparo por `$` na caixa de entrada) e um painel gerenciável;
+- Garantir que o processo de ativação seja auditável, autorizável e reversível.
 
-## 4. 非目标（当前阶段）
+## 4. Não objetivos (nesta fase)
 
-- 不在 v1 实现跨平台在线技能市场；
-- 不在 v1 做复杂计费体系；
-- 不在 v1 自动执行高风险外部操作（默认仍需用户确认）。
+- Não implementar um mercado de skills online multiplataforma na v1;
+- Não construir um sistema de cobrança complexo na v1;
+- Não executar automaticamente operações externas de alto risco na v1 (por padrão continua exigindo confirmação do usuário).
 
-## 5. 目标用户与核心场景
+## 5. Usuários-alvo e cenários centrais
 
-- **个人开发者**：安装并复用“代码审查 / 文档生成 / 发版检查”等技能；
-- **团队研发**：把团队 SOP 沉淀为共享技能目录；
-- **平台维护者**：通过技能治理能力（启用/禁用/版本）控制质量与风险。
+- **Desenvolvedores individuais**: instalam e reutilizam skills como “revisão de código / geração de documentação / verificação de release”;
+- **Desenvolvimento em equipe**: cristalizam os SOPs da equipe em um catálogo de skills compartilhado;
+- **Mantenedores da plataforma**: controlam qualidade e risco por meio da governança de skills (habilitar/desabilitar/versão).
 
-典型场景：
+Cenários típicos:
 
-- 新成员接手仓库后，通过技能快速执行标准流程；
-- 处理重复任务时，直接调用已有技能模板；
-- 复杂多步骤任务中，Agent 自动判断并激活匹配技能。
+- um novo membro, após assumir o repositório, executa fluxos padrão rapidamente por meio das skills;
+- ao lidar com tarefas repetitivas, invoca diretamente templates de skill já existentes;
+- em tarefas complexas de várias etapas, o Agent julga e ativa automaticamente a skill correspondente.
 
-## 6. 术语定义
+## 6. Definição de termos
 
-- **Skill**：一个以 `SKILL.md` 为核心的目录，包含元数据、执行说明与可选资源；
-- **Skill Catalog**：当前会话可见的技能清单；
-- **Skill Activation**：从“可见”进入“已加载并可执行”的过程；
-- **Skill Scope**：技能生效范围，包含 workspace 与 user 两级。
+- **Skill**: um diretório com `SKILL.md` como núcleo, contendo metadados, instruções de execução e recursos opcionais;
+- **Skill Catalog**: a lista de skills visível na sessão atual;
+- **Skill Activation**: o processo de passar de “visível” para “carregada e executável”;
+- **Skill Scope**: o escopo de validade da skill, com os níveis workspace e user.
 
-## 7. 信息架构与目录约定
+## 7. Arquitetura de informação e convenção de diretórios
 
-参考 z-work，采用以下目录约定：
+Tomando z-work como referência, adota-se a seguinte convenção de diretórios:
 
-- `workspace skills`：`<repo>/.agents/skills/`（兼容别名目录）
-- `user skills`：`~/.agents/skills/`
-- `extension skills`：由扩展包内置（后续版本）
+- `workspace skills`: `<repo>/.agents/skills/` (diretório alias compatível)
+- `user skills`: `~/.agents/skills/`
+- `extension skills`: embutidos em pacotes de extensão (versões posteriores)
 
-每个 skill 推荐结构：
+Estrutura recomendada para cada skill:
 
 ```text
 my-skill/
@@ -65,86 +65,85 @@ my-skill/
 └── assets/
 ```
 
-其中 `SKILL.md` 为必选项，至少包含：
+Onde `SKILL.md` é obrigatório e contém no mínimo:
 
-- `name`：技能唯一标识（建议与目录名一致）；
-- `description`：触发场景与能力描述（用于发现和匹配）；
-- `body`：激活后的执行规则、流程与边界约束。
+- `name`: identificador único da skill (recomenda-se que seja igual ao nome do diretório);
+- `description`: descrição dos cenários de disparo e da capacidade (usada na descoberta e no casamento);
+- `body`: regras de execução, processo e restrições de fronteira após a ativação.
 
-## 8. 技能发现与优先级
+## 8. Descoberta e prioridade das skills
 
-会话启动时系统仅加载轻量元数据（name + description），不加载完整正文。
+Na inicialização da sessão o sistema carrega apenas metadados leves (name + description), sem carregar o corpo completo.
 
-发现优先级：
+Prioridade de descoberta:
 
 1. Workspace
 2. User
 3. Extension
 
-同名技能按高优先级覆盖低优先级，确保团队规则可覆盖个人默认能力。
+Skills com o mesmo nome são sobrescritas pela prioridade mais alta, garantindo que as regras da equipe possam sobrescrever as capacidades padrão pessoais.
 
-## 9. 激活机制（核心流程）
+## 9. Mecanismo de ativação (fluxo central)
 
-1. 用户发起任务；
-2. Agent 根据任务语义匹配技能描述；
-3. 命中后发起激活请求（展示技能名称、用途、路径、权限范围）；
-4. 用户确认后加载 `SKILL.md` 正文及目录资源；
-5. 技能进入会话激活态，执行时优先遵循技能流程；
-6. 会话结束后激活态失效（下一次按需重新激活）。
+1. O usuário inicia uma tarefa;
+2. O Agent casa a descrição da skill com a semântica da tarefa;
+3. Em caso de casamento, é emitida uma solicitação de ativação (exibindo nome da skill, finalidade, caminho e escopo de permissões);
+4. Após a confirmação do usuário, o corpo de `SKILL.md` e os recursos do diretório são carregados;
+5. A skill entra no estado ativado da sessão e, durante a execução, seu processo é priorizado;
+6. Ao fim da sessão o estado ativado expira (na próxima vez ela é reativada sob demanda).
 
-设计原则：
+Princípios de design:
 
-- **渐进披露**：先元数据，后正文；
-- **显式授权**：激活前给用户确认点；
-- **最小权限**：仅开放技能目录所需访问范围。
+- **Divulgação progressiva**: primeiro os metadados, depois o corpo;
+- **Autorização explícita**: um ponto de confirmação para o usuário antes da ativação;
+- **Privilégio mínimo**: só é aberto o escopo de acesso necessário ao diretório da skill.
 
-## 10. 交互设计（MVP）
+## 10. Design de interação (MVP)
 
-### 10.1 输入入口
+### 10.1 Entrada
 
-在聊天输入框中保留技能入口提示（如 `$ for skills` / `$ 使用技能`），降低学习成本。
+Na caixa de entrada do chat mantém-se a dica de entrada de skills (como `$ for skills` / `$ 使用技能`), reduzindo o custo de aprendizado.
 
-### 10.2 技能面板
+### 10.2 Painel de skills
 
-提供 `Skills` 面板，至少支持：
+Fornece um painel `Skills` com suporte no mínimo a:
 
-- 列表查看（名称、描述、来源、状态）；
-- 启用/禁用；
-- 作用域切换（workspace / user）；
-- 手动刷新发现结果。
+- visualização em lista (nome, descrição, origem, estado);
+- habilitar/desabilitar;
+- troca de escopo (workspace / user);
+- atualização manual do resultado da descoberta.
 
-### 10.3 命令入口（可选）
+### 10.3 Entrada por comando (opcional)
 
-保留命令式管理能力（对标 z-work 的 `/skills` 交互），用于高级用户批量操作。
+Mantém-se a capacidade de gerenciamento por comando (alinhada à interação `/skills` do z-work), para operações em lote de usuários avançados.
 
-## 11. 安全与治理
+## 11. Segurança e governança
 
-- 激活审计：记录技能名、来源、激活时间、发起任务；
-- 风险隔离：高风险技能需二次确认；
-- 版本治理：同名技能覆盖时展示来源与版本信息；
-- 回退策略：激活失败时自动降级到无技能模式，保障任务可继续。
+- auditoria de ativação: registrar nome da skill, origem, horário de ativação e tarefa de origem;
+- isolamento de risco: skills de alto risco exigem confirmação secundária;
+- governança de versão: ao sobrescrever uma skill de mesmo nome, exibir origem e informação de versão;
+- estratégia de fallback: em caso de falha na ativação, degradar automaticamente para o modo sem skill, garantindo que a tarefa possa continuar.
 
-## 12. 成功指标
+## 12. Métricas de sucesso
 
-上线后重点观测：
+Após o lançamento, observar principalmente:
 
-- `技能触发率`：有技能参与的任务占比；
-- `技能任务成功率`：激活技能后任务一次完成率；
-- `平均执行时长`：同类任务时间是否下降；
-- `重复操作减少率`：标准流程手工步骤减少情况；
-- `用户满意度`：对技能可用性与可控性的反馈。
+- `taxa de disparo de skills`: proporção de tarefas com participação de skills;
+- `taxa de sucesso de tarefas com skill`: taxa de conclusão de primeira vez após ativar a skill;
+- `tempo médio de execução`: se o tempo de tarefas do mesmo tipo diminuiu;
+- `taxa de redução de operações repetidas`: quanto os passos manuais de fluxos padrão foram reduzidos;
+- `satisfação do usuário`: feedback sobre a usabilidade e a controlabilidade das skills.
 
-## 13. 里程碑建议
+## 13. Sugestão de marcos
 
-- **M1（基础能力）**：目录发现、元数据注入、手动激活；
-- **M2（可管理）**：列表页 + 启用禁用 + 作用域管理；
-- **M3（智能化）**：自动匹配激活、激活审计、风险分级；
-- **M4（生态化）**：扩展来源、导入导出、团队模板市场化。
+- **M1 (capacidade básica)**: descoberta por diretório, injeção de metadados, ativação manual;
+- **M2 (gerenciável)**: página de lista + habilitar/desabilitar + gestão de escopo;
+- **M3 (inteligente)**: ativação por casamento automático, auditoria de ativação, classificação de risco;
+- **M4 (ecossistema)**: fontes de extensão, importar/exportar, marketplace de templates de equipe.
 
-## 14. 开放问题
+## 14. Questões em aberto
 
-- 技能冲突时是否支持“合并策略”而非简单覆盖；
-- 多会话并发下技能状态是否需要会话级隔离展示；
-- 远程模式下技能目录同步与权限策略如何定义；
-- 是否需要对技能执行效果做自动评估与排序。
-
+- Em caso de conflito entre skills, há suporte a uma “estratégia de merge” em vez de sobrescrita simples;
+- Em concorrência de múltiplas sessões, o estado das skills precisa de isolamento e exibição em nível de sessão;
+- Como definir a sincronização do diretório de skills e a estratégia de permissões no modo remoto;
+- Se é necessária uma avaliação e ordenação automática do efeito da execução das skills.

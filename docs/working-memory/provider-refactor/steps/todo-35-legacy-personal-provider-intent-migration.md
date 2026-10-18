@@ -1,12 +1,12 @@
 # Todo 35：Fechamento da Migração de Intenção do Usuário do Legacy Personal Provider
 
-> 状态：Concluído
+> Estado: Concluído
 >
-> 日期：2026-08-28
+> Data: 2026-08-28
 >
-> 来源：Revisão do Legacy Importer antes do lançamento do Todo 33
+> Origem: Revisão do Legacy Importer antes do lançamento do Todo 33
 >
-> 关联任务：[`Todo 33`](./todo-33-personal-provider-config-file-cutover.md)
+> Tarefas relacionadas: [`Todo 33`](./todo-33-personal-provider-config-file-cutover.md)
 
 ## 1. Problema
 

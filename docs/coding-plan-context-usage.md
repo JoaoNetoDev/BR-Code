@@ -1,18 +1,18 @@
-# Coding Plan Context 面板展示规范
+# Especificação de Exibição do Painel de Context do Coding Plan
 
-## 背景
+## Contexto
 
-输入区 context 面板会聚合 Context window、Coding Plan 和 Start Plan 的轻量状态。这里是窄浮层，不承载完整 usage 明细。
+O painel de context da área de entrada agrega os estados leves de Context window, Coding Plan e Start Plan. Este é um popover estreito, e não hospeda o detalhamento completo de usage.
 
-## V4 输入区展示边界
+## Limite de Exibição da Área de Entrada no V4
 
-- V4 composer 的 context 小圆圈与旧输入栏使用同一个 `ChatContextUsage` 展示组件，hover 面板需要同时聚合当前上下文容量、Coding Plan 剩余额度、Start Plan 今日余额和缓存命中率。
-- 首轮模型请求完成前，面板可展示 `0 / 当前模型上下文容量`。该值只由 UI 根据当前有效模型 metadata 派生，用于帮助用户确认模型容量；不得写回 session usage 权威状态。
-- 首轮模型请求完成后，面板使用 v4 session snapshot/delta 的 `usage.contextWindow` 作为上下文容量权威。`usedTokens` 与 `maxTokens` 来自 Agent runtime projection，缓存命中率和 breakdown 也随 `usage.contextWindow` 投影。
-- 缓存命中率只展示主会话轮次的累计命中率；标题、压缩、prompt enhance、target completion 等 sidecar 请求即使带 usage 或 contextWindow，也不得覆盖输入栏 context meter。
-- 冷启动恢复时，transcript 合成历史事件与 usage seed 共用按恢复模型身份精确查询的 Registry 容量。缺思考档位不阻断元数据查询；无对应模型/有效容量则投影 contextWindow=null，内部仍保留真实历史用量，不伪造 20 万分母。最终水位来自 runtime / 持久化消息（含 Compact 边界），不能覆盖恢复期间的新事件。
+- O pequeno círculo de context do composer V4 e a antiga barra de entrada usam o mesmo componente de exibição `ChatContextUsage`; o painel de hover precisa agregar a capacidade de contexto atual, a cota restante do Coding Plan, o saldo de hoje do Start Plan e a taxa de acerto de cache.
+- Antes de a primeira requisição ao modelo terminar, o painel pode exibir `0 / capacidade de contexto do modelo atual`. Esse valor é derivado apenas pela UI a partir da metadata do modelo efetivo atual e serve para ajudar o usuário a confirmar a capacidade do modelo; ele não pode ser gravado de volta no estado autoritativo de usage da sessão.
+- Depois que a primeira requisição ao modelo termina, o painel usa `usage.contextWindow` do snapshot/delta da sessão v4 como autoridade da capacidade de contexto. `usedTokens` e `maxTokens` vêm da projection do Agent runtime, e a taxa de acerto de cache e o breakdown também são projetados junto com `usage.contextWindow`.
+- A taxa de acerto de cache exibe apenas a taxa acumulada dos turnos da sessão principal; requisições sidecar como título, compact, prompt enhance e target completion, mesmo trazendo usage ou contextWindow, não podem sobrescrever o medidor de context da barra de entrada.
+- Na recuperação de cold start, o transcript sintetiza eventos históricos e o seed de usage compartilham a capacidade do Registry consultada com precisão pela identidade do modelo em recuperação. A ausência do nível de pensamento não bloqueia a consulta de metadata; sem modelo correspondente/capacidade válida, projeta-se contextWindow=null e internamente se preserva o uso histórico real, sem forjar um denominador de 200 mil. O nível d'água final vem do runtime / mensagens persistidas (incluindo os limites de Compact) e não pode sobrescrever eventos novos ocorridos durante a recuperação.
 
-## V4 状态链路
+## Cadeia de Estado no V4
 
 ```text
 ModelComplete(main_turn)
@@ -27,38 +27,38 @@ Renderer modelProviders / settings / entitlements
   -> ChatContextUsage quota sections
 ```
 
-- Desktop continuous 和 Web remote replayable 都只消费同一份 v4 session snapshot/delta；desktop main、external relay 不持有 context、quota、cache、breakdown 业务状态。
-- 手机 `/remote` 通过 shared-host attachment 复用既有 host/session，恢复时只读取 replayable snapshot/delta，不为 context 面板另起独立 runtime 或独立额度查询权威。
-- BigModel Team Plan 复用 BigModel Coding Plan provider id，但额度绑定团队项目来源。输入区如果当前连接方式是 Team Plan，必须按 sourceId 展示对应团队项目 quota，不得回退成个人 Coding Plan quota。
+- Desktop continuous e Web remote replayable consomem apenas a mesma cópia do snapshot/delta da sessão v4; desktop main e external relay não carregam estado de negócio de context, quota, cache ou breakdown.
+- O `/remote` do celular reutiliza o host/session existente via shared-host attachment e, na recuperação, lê apenas snapshot/delta replayable, sem iniciar um runtime separado nem uma autoridade separada de consulta de cota para o painel de context.
+- O BigModel Team Plan reutiliza o provider id do BigModel Coding Plan, mas a cota é vinculada à origem do projeto de equipe. Se a conexão atual na área de entrada for Team Plan, a quota do projeto de equipe correspondente deve ser exibida por sourceId, sem voltar à quota pessoal do Coding Plan.
 
-## Start Plan 今日余额
+## Saldo de Hoje do Start Plan
 
-- Start Plan 的 `Today's balance` 与设置页 Plan Card 使用同一份 `UsageEntitlementSnapshot`。
-- 剩余百分比和进度条使用 `quota.limits[].remaining / quota.limits[].number`，其中 `remaining` 来自后端 `remaining_units`。
-- 余额进度条宽度过渡与 Coding Plan 额度条一致：`transition-[width] 500ms ease-out`，并保留 `motion-reduce:transition-none` 无障碍降级。
-- 设置页 Plan Card 的 `Today's balance` 标题右侧显示套餐到期时间，来源是 `snapshot.subscription.details[0].expireTime`；该时间只表达套餐到期日，不参与额度计算。
-- 设置页 Plan Card 的余额小卡按“模型名、剩余百分比 + renew 时间、进度条、剩余/总量”的顺序展示，底部剩余/总量使用千位逗号完整数值，不使用 K/M 缩写；输入区 context 面板保持只展示百分比、renew 时间和进度条，不显示套餐到期时间。
-- `available_units` 只表示扣除进行中预占后的当前可用量，不用于 `Today's balance` 的剩余展示。
+- O `Today's balance` do Start Plan e o Plan Card da página de Settings usam o mesmo `UsageEntitlementSnapshot`.
+- O percentual restante e a barra de progresso usam `quota.limits[].remaining / quota.limits[].number`, em que `remaining` vem do backend `remaining_units`.
+- A transição de largura da barra de saldo é igual à barra de cota do Coding Plan: `transition-[width] 500ms ease-out`, mantendo também o downgrade de acessibilidade `motion-reduce:transition-none`.
+- À direita do título `Today's balance` no Plan Card de Settings é exibida a data de expiração do plano, vinda de `snapshot.subscription.details[0].expireTime`; esse horário expressa apenas a data de expiração do plano e não participa do cálculo de cota.
+- O mini-card de saldo do Plan Card em Settings exibe na ordem "nome do modelo, percentual restante + horário de renovação, barra de progresso, restante/total", com restante/total no rodapé em número completo com separador de milhar, sem abreviação K/M; o painel de context da área de entrada continua exibindo apenas o percentual, o horário de renovação e a barra de progresso, sem mostrar a data de expiração do plano.
+- `available_units` representa somente a quantidade disponível atual após descontar as reservas em andamento e não é usado na exibição do restante de `Today's balance`.
 
-### Context hover 刷新与 loading（Start Plan 与 Coding Plan 对称）
+### Refresh e loading do context hover (simetria entre Start Plan e Coding Plan)
 
-- Start Plan 与 Coding Plan 的连接方式互斥；context hover 打开的静默 access 刷新入口必须两段都覆盖：`codingPlanUsageRemaining.onAccess ?? startPlanBalance.onAccess`，任一存在即触发 `refreshCodingPlanEntitlements({ silent: true, reason: "access" })`。Start Plan 不得只依赖设置页/侧栏刷新后被动同步。
-- 静默刷新有缓存快照时不把 entitlement.loading 置 true；Start Plan 标题旁 spinner 的判定是 `loading || refreshing`，其中 `refreshing` 跟随本次 hover 触发的 promise（seq 防串），与 Coding Plan 段 header 刷新图标语义一致。
-- `onAccess` 存在时即使还没有快照也保留 context 触发器，保证首次 hover 可以发起第一次余额请求（对齐 Coding Plan 段 `onAccess && entitlements.length > 0` 的兜底语义）。
-- 60 秒 access 共享窗口与 in-flight 合并对 Start Plan 同样生效，反复 hover 不得放大 billing/balance 请求量。
+- Os modos de conexão de Start Plan e Coding Plan são mutuamente exclusivos; o gatilho de refresh silencioso de access aberto pelo hover de context precisa cobrir os dois trechos: `codingPlanUsageRemaining.onAccess ?? startPlanBalance.onAccess`, e a existência de qualquer um deles dispara `refreshCodingPlanEntitlements({ silent: true, reason: "access" })`. O Start Plan não pode depender apenas da sincronização passiva após o refresh da página de Settings/sidebar.
+- No refresh silencioso, quando há snapshot em cache, não se define `entitlement.loading` como true; o spinner ao lado do título do Start Plan é decidido por `loading || refreshing`, em que `refreshing` acompanha a promise disparada por este hover (seq evita cruzamento), com a mesma semântica do ícone de refresh no header do trecho do Coding Plan.
+- Quando `onAccess` existe, o gatilho de context é mantido mesmo sem snapshot ainda, garantindo que o primeiro hover possa disparar a primeira requisição de saldo (alinhado à semântica de fallback `onAccess && entitlements.length > 0` do trecho do Coding Plan).
+- A janela compartilhada de access de 60 segundos e a mescla de requests in-flight valem igualmente para o Start Plan; hovers repetidos não podem ampliar a quantidade de requests de billing/balance.
 
-## 5 小时额度 reset 时间
+## Horário de Reset da Cota de 5 Horas
 
-- Coding Plan 的 5 小时额度在 context 面板中只显示重置时间，不显示日期。
-- 即使重置时间不是今天，也保持只显示 `HH:mm`。
-- 日期维度留给 Usage 页面和更完整的用量面板展示，避免 context 面板在三列额度布局里变得拥挤。
-- 周额度、月工具额度仍按日期展示。
+- A cota de 5 horas do Coding Plan aparece no painel de context apenas com o horário de reset, sem a data.
+- Mesmo que o horário de reset não seja hoje, continua exibindo apenas `HH:mm`.
+- A dimensão de data fica reservada para a página de Usage e para painéis de uso mais completos, evitando que o painel de context fique congestionado no layout de três colunas de cota.
+- A cota semanal e a cota mensal de ferramentas continuam exibidas com data.
 
-## Start Plan 共享 balance 快照（2026-09-17）
+## Snapshot de Balance Compartilhado do Start Plan (2026-09-17)
 
-账号可用性检查与用量查询共用 `zaiStartPlanBilling`，按 ApiClient、凭据和 URL 隔离。
-请求发出后 1 秒内复用同一完整响应（失败也复用）；未完成请求继续合并。
-购买/领取成功后的查询显式使对应记录失效，旧请求完成不能覆盖新记录。
+A verificação de disponibilidade da conta e a consulta de uso compartilham `zaiStartPlanBilling`, isolados por ApiClient, credenciais e URL.
+A resposta completa é reutilizada por 1 segundo depois que a requisição é enviada (inclusive quando falha); requisições em andamento continuam sendo mescladas.
+A consulta após uma compra/resgate bem-sucedido invalida explicitamente o registro correspondente, e requisições antigas que terminam não podem sobrescrever o novo registro.
 
 ```text
 账号检查 ─┐
@@ -67,17 +67,17 @@ Renderer modelProviders / settings / entitlements
                                         └─ 页面套餐与用量
 ```
 
-桌面与手机共用 Host 服务；不改变 continuous/replayable 会话边界。
-429 等传输失败必须保留错误并触发前端退避；同一身份已确认的订阅在刷新失败时保留，显示刷新失败。
-无历史结果时 Start Plan 仍使用自身标题，并提供重试，不显示重复错误卡片或要求重新登录。
-验收：先后/并发调用只发一次请求，一秒后可刷新；凭据隔离；失败复用；失效后重查；失败不覆盖已确认订阅。
+Desktop e celular compartilham o serviço do Host; isso não altera os limites de sessão continuous/replayable.
+Falhas de transporte como 429 devem preservar o erro e disparar backoff no front-end; assinaturas já confirmadas para a mesma identidade são preservadas quando o refresh falha, exibindo falha de refresh.
+Sem resultados históricos, o Start Plan continua usando seu próprio título e oferece retry, sem mostrar cards de erro duplicados nem exigir novo login.
+Aceitação: chamadas sequenciais ou concorrentes emitem apenas uma requisição, e é possível refrescar após um segundo; isolamento de credenciais; reutilização em caso de falha; nova consulta após invalidação; falha não sobrescreve assinatura já confirmada.
 
-## 购买入口刷新失败时复用快照
+## Reutilização de Snapshot Quando o Refresh do Ponto de Entrada de Compra Falha
 
-购买入口判断是否具备完整可用数据，不以最近一次刷新错误否定历史成功结果。
-个人/Start 的已认证快照及成功确认的 `no_plan` 可继续使用；没有有效快照时才显示加载或重试。
-团队结果按 family、登录身份和业务凭据隔离；Provider view 更新后重新核对凭据；同一来源刷新失败保留成功结果（包括空列表），成功返回空列表则覆盖旧套餐。
-身份变化立即停止使用旧结果，过期异步请求不得写回。错误继续记录在日志和原权益状态中。
+O ponto de entrada de compra decide se possui dados completos disponíveis, sem negar resultados históricos bem-sucedidos por causa do erro do refresh mais recente.
+Snapshots autenticados pessoais/Start e o `no_plan` confirmado com sucesso podem continuar em uso; a exibição de loading ou retry só ocorre quando não há snapshot válido.
+Resultados de equipe são isolados por family, identidade de login e credenciais de negócio; após a atualização da Provider view as credenciais são verificadas de novo; um refresh falho da mesma origem preserva o resultado bem-sucedido (inclusive lista vazia), enquanto um retorno bem-sucedido com lista vazia sobrescreve o plano antigo.
+Mudança de identidade interrompe imediatamente o uso dos resultados antigos, e requisições assíncronas expiradas não podem escrever de volta. O erro continua registrado em log e no estado de entitlement original.
 
 ```text
 个人/Start 权益 hook ─ 有效快照 ─┐
@@ -86,12 +86,12 @@ Renderer modelProviders / settings / entitlements
            成功：替换；失败：同身份保留；身份变化：失效
 ```
 
-验收覆盖首次失败、快照存在时刷新中/失败、no_plan、团队空结果、凭据变化和账号切换。
-桌面与手机共用此 hook，不改变服务或会话恢复协议。
+A aceitação cobre a primeira falha, refresh em andamento/falho com snapshot existente, `no_plan`, resultado vazio de equipe, mudança de credenciais e troca de conta.
+Desktop e celular compartilham este hook, sem alterar o serviço ou o protocolo de recuperação de sessão.
 
-### 购买刷新与旧请求的顺序
+### Ordenação entre o Refresh de Compra e Requisições Antigas
 
-共享权益策略按服务实例和 freshness identity 持有请求代次。购买/领取刷新先推进代次，再请求服务并使 balance 缓存失效。旧代次的成功和失败均不得更新组件、共享快照、持久缓存或退避状态；新代次普通请求不得复用旧代次 in-flight。不同身份互不影响。桌面与手机使用同一 hook 规则，不改变远控恢复边界。
+A estratégia compartilhada de entitlement mantém request generations por instância de serviço e freshness identity. O refresh de compra/resgate avança a generation primeiro e só então chama o serviço e invalida o cache de balance. Sucessos e falhas de generations antigas não podem atualizar componente, snapshot compartilhado, cache persistente ou estado de backoff; requisições normais da nova generation não podem reutilizar requests in-flight da generation antiga. Identidades diferentes não se afetam. Desktop e celular usam as mesmas regras de hook, sem alterar o limite de recuperação remota.
 
 ```mermaid
 sequenceDiagram
@@ -104,4 +104,4 @@ sequenceDiagram
     S-->>A: 代次 0 晚到结果/错误，丢弃
 ```
 
-验收：两个 hook 共用身份，购买结果先返回后，旧 no_plan 或旧失败均不能覆盖新结果；另一身份的待完成请求仍正常生效；购买后普通刷新不复用购买前的请求。
+Aceitação: os dois hooks compartilham a identidade; depois que o resultado de compra retorna primeiro, um `no_plan` antigo ou uma falha antiga não podem sobrescrever o novo resultado; requests pendentes de outra identidade continuam valendo normalmente; após a compra, um refresh normal não reutiliza o request anterior à compra.

@@ -1,42 +1,36 @@
-# CUA Helper 恢复期 Agent 启动准入规范（历史方案，已废弃）
+# Especificação do Gate de Admissão de Início de Agent durante a Recuperação do CUA Helper (solução histórica, obsoleta)
 
-> 本文记录的 `beginRecovery -> recycleUntilStable -> disposeWorkspace` 方案已被
-> `2026-09-02-helper-lifecycle-agent-runtime-isolation-spec.md` 的 P0/P2 取代。当前默认装配不再把
-> Helper recovery gate 注入 Agent process manager，Helper ready/recovery 不得阻塞、回收或重启 Agent。
-> 文中流程仅供事故复盘，不得作为新实现依据。
+> O esquema `beginRecovery -> recycleUntilStable -> disposeWorkspace` registrado neste documento foi substituído
+> pelos P0/P2 de `2026-09-02-helper-lifecycle-agent-runtime-isolation-spec.md`. A montagem padrão atual não injeta mais
+> o Helper recovery gate no Agent process manager, e Helper ready/recovery não pode bloquear, reciclar ou reiniciar o Agent.
+> O fluxo descrito aqui serve apenas para análise de incidente e não deve ser usado como base para novas implementações.
 
-## 背景与问题定义
+## Contexto e Definição do Problema
 
-3.9.1 在 Windows 上出现“升级后无法对话/历史会话全部打不开”。工单
-`ZCT-2092090611952312320` 与 `ZCT-2092131182991814656` 的共同特征是：Helper 冷启动或恢复期间，
-Agent 已经被拉起但拿到 `BROKER_UNAVAILABLE`，随后 Helper ready 触发回收；UI、warmup 和恢复回收又同时
-申请新的 Agent，导致旧 client 被 dispose 后仍有启动中的 promise 写回进程池。结果是同一 workspace
-短时间内反复 spawn/`workspace-dispose`，conversation protocol client 处于 disposed 状态，中央内容区和输入框都无法使用。
+Na 3.9.1 apareceu no Windows o problema "não é possível conversar após a atualização / nenhuma sessão histórica abre". Os tickets
+`ZCT-2092090611952320` e `ZCT-2092131182991814656` têm em comum: durante o cold start ou a recuperação do Helper,
+o Agent já havia sido levantado mas recebeu `BROKER_UNAVAILABLE`, e em seguida o Helper ready desencadeou a reciclagem; a UI, o warmup e a reciclagem de recuperação solicitaram um novo Agent ao mesmo tempo, fazendo com que o client antigo, já disposed, ainda tivesse promessas de start em andamento gravando de volta no pool de processos. O resultado é spawn/`workspace-dispose` repetidos no mesmo workspace em pouco tempo, com o conversation protocol client em estado disposed, deixando a área central de conteúdo e o campo de entrada inutilizáveis.
 
-这不是 Windows 专属的协议问题。Windows 没有 POSIX `.pending` rendezvous，Helper 与 Agent 的启动窗口更
-容易暴露；macOS 仍可能在 Helper 首次 ready、凭据轮换和 workspace dispose 同时发生时触发同一竞态。因此准入
-屏障放在 Host/Agent 共用层，不能放在某个平台的 Helper transport 实现里。
+Não é um problema de protocolo exclusivo do Windows. O Windows não tem o rendezvous POSIX `.pending`, o que torna a janela de início de Helper e Agent mais facilmente exposta; o macOS ainda pode disparar a mesma corrida quando o Helper fica ready pela primeira vez, a rotação de credenciais e o dispose de workspace ocorrem simultaneamente. Portanto a barreira de admissão fica na camada compartilhada Host/Agent, e não na implementação de Helper transport de alguma plataforma.
 
-## 目标与非目标
+## Objetivos e Não Objetivos
 
-目标：
+Objetivos:
 
-- Helper 恢复/凭据轮换开始后，禁止新的 Agent child process spawn；已经在解析 command/env 的启动请求必须在真正 `spawn()` 前重新检查准入。
-- 同一 workspace 的并发启动继续合并为一个 promise；workspace dispose 不能把尚未完成的启动 promise 从追踪表中遗失。
-- 恢复回收完成并提交当前 generation 后，准入一次性打开，后续 Agent 从新的 Helper 凭据启动。
-- 保持 fail-closed：恢复失败时不放行带有旧 broker 状态的 Agent；请求返回可重试错误，由现有 UI 有界重试兜底。
-- desktop 使用 `continuous` 实时链路，web remote 使用 `replayable` 恢复链路；本规范不改变两者的消息投递边界。
+- Depois que a recuperação do Helper ou a rotação de credenciais começa, proibir o spawn de novos child processes do Agent; requisições de início que já estão resolvendo command/env devem checar a admissão novamente antes do `spawn()` real.
+- Inícios concorrentes do mesmo workspace continuam fundidos em uma única promessa; o dispose de workspace não pode perder da tabela de rastreamento as promessas de início ainda incompletas.
+- Depois que a reciclagem de recuperação termina e a generation atual é submetida, a admissão abre uma única vez e os Agents subsequentes partem com as novas credenciais do Helper.
+- Manter fail-closed: quando a recuperação falha, Agents com estado antigo de broker não passam; a requisição retorna um erro re-tentável, e o retry limitado já existente na UI serve como rede de segurança.
+- O desktop usa a cadeia realtime `continuous`, e o web remote usa a cadeia de recuperação `replayable`; esta especificação não altera o limite de entrega de mensagens de nenhum dos dois.
 
-非目标：
+Não objetivos:
 
-- 不在 UI 增加新的无限重试循环，也不把 task/session 状态下沉到 relay 或 Main。
-- 不通过延长 Helper cold-start grace 掩盖竞态；Helper ready 仍由现有 watchdog/reconcile 触发回收。
-- 不改变 Windows named pipe 或 macOS POSIX rendezvous 的协议格式。
+- Não adicionar novos loops de retry infinitos na UI nem deslocar estado de task/session para o relay ou o Main.
+- Não mascarar a corrida ampliando o grace period de cold start do Helper; o Helper ready continua sendo desencadeado pela reciclagem feita pelos watchdog/reconcile já existentes.
 
-## 状态与事件顺序
+## Estado e Ordem de Eventos
 
-Host 内每个共享 CUA Helper 对应一个 admission gate。Gate 只保护 Agent child process 的 spawn，
-不阻塞 Helper 自身的启动/停止。
+Cada CUA Helper compartilhado dentro do Host corresponde a um admission gate. O gate protege apenas o spawn do child process do Agent, e não bloqueia o próprio início/parada do Helper.
 
 ```text
                   beginRecovery(epoch)
@@ -54,7 +48,7 @@ Host 内每个共享 CUA Helper 对应一个 admission gate。Gate 只保护 Age
        - stale generation/dispose: reject      |
 ```
 
-恢复与启动的正确顺序为：
+A ordem correta entre recuperação e início é:
 
 ```text
 Helper unavailable/credentials rotated
@@ -74,49 +68,49 @@ registry.recycleUntilStable(dispose, guardedCommit)
 gate.commitRecovery() ---> queued starts re-check generation/env, then spawn once
 ```
 
-## 实现契约
+## Contrato de Implementação
 
-### 1. Host admission gate
+### 1. Admission gate do Host
 
-- `beginRecovery()` 返回递增 epoch；重复 begin 不打开或重置已有恢复期。
-- `waitForSpawnAdmission()` 是 Agent process manager 的可选 hook，在 `spawn()` 前调用。
-- `commitRecovery(epoch)` 只对当前 epoch 生效，并释放等待者。
-- `failRecovery(epoch, error)` 释放等待者为失败；下一次请求仍需经过 `resolveSpawnEnv` 的 fail-closed 检查。
-- gate 不持有 workspace/session/task 数据，不参与 desktop continuous 或 web replayable 的 snapshot/queue 逻辑。
+- `beginRecovery()` retorna um epoch incremental; um begin repetido não abre nem reseta um período de recuperação já existente.
+- `waitForSpawnAdmission()` é um hook opcional do Agent process manager, chamado antes de `spawn()`.
+- `commitRecovery(epoch)` só tem efeito para o epoch atual e libera os esperadores.
+- `failRecovery(epoch, error)` libera os esperadores com falha; a próxima requisição ainda precisa passar pela verificação fail-closed de `resolveSpawnEnv`.
+- O gate não mantém dados de workspace/session/task e não participa da lógica de snapshot/queue do desktop continuous nem do web replayable.
 
-### 2. Pending start 与代际 fence
+### 2. Pending start e cerca de geração
 
-- `startingByWorkspaceKey` 是 workspace 级单航道；dispose 只能使 generation +1，并保留正在进行的 promise 直到其 finally 清理。
-- start promise 在 command/env resolve 后、真正 `spawn()` 前依次检查：manager 未 dispose、workspace generation 未变化、admission gate 已打开。
-- 任何检查失败都不得创建 child process，也不得把旧 promise/client 写入 `processesByWorkspaceKey`。
-- dispose 后的新请求在旧 promise 结束前继续复用该 promise，避免第二条 spawn 航道；旧 promise 退出后，下一次请求才建立新的 start promise，且 finally 只能按 promise identity 清理 map entry。
+- `startingByWorkspaceKey` é uma via única por workspace; o dispose só pode incrementar a generation em +1 e manter a promessa em andamento até a limpeza no finally.
+- A promessa de início, depois de resolver command/env e antes do `spawn()` real, verifica nesta ordem: o manager não está disposed, a generation do workspace não mudou e o admission gate já está aberto.
+- Qualquer verificação falha não pode criar child process nem gravar promessa/client antigo em `processesByWorkspaceKey`.
+- Novas requisições após o dispose continuam reutilizando a promessa antiga até que ela termine, evitando um segundo corredor de spawn; depois que a promessa antiga sai, a próxima requisição é que estabelece uma nova promessa de início, e o finally só pode limpar a entrada do map por identidade da promessa.
 
-### 3. Recovery 收口
+### 3. Fechamento da recuperação
 
-- `recycleUntilStable` 仍以 workspace registry revision 作为稳定条件；consumer 用 guarded commit 同时打开 gate 和提交 Helper marker。
-- gate 关闭后新的 `getClient` 会在 command/env resolve 前等待，因此不会继续制造 registry revision；只有已经进入 resolve 的旧请求可能贡献一次额外 pass，随后在 stable revision 上提交。
-- registry 的重复 admission 语义由 producer 继续维护；本修复不改 Windows named pipe 或 producer 包版本，避免把消费端恢复修复和 CUA producer 发布耦合。
-- producer 的 `commitRecovery` 当前是 `void` 回调，且 spawn-env 的 Healthy⇒clear 可能在 producer 下一轮读取前清掉 marker。因此 gate 不能等待“producer 一定再次 callback”作为开门条件，否则会形成永久 active 的死锁；当前 gate 仍在 consumer 侧按 commit/fail 路径收口。
-- stale generation 的 commit 可能让 gate 比 producer 最终收口早一个短窗口打开。该窗口不会下发旧 socket/token，但可能产生额外 `BROKER_UNAVAILABLE` Agent；这是 P2 观测项，不在本修复中引入新的跨仓契约。
-- 若 recovery 抛错，gate fail-closed，记录一次 warning/error，交由下一次请求和现有 UI bounded retry 恢复；不得在 Host 内启动后台无限重试。
+- `recycleUntilStable` continua usando a revision do workspace registry como condição de estabilidade; o consumer faz o commit guardado abrindo o gate e submetendo o Helper marker ao mesmo tempo.
+- Depois que o gate é fechado, um novo `getClient` espera antes de resolver command/env e portanto não gera novas revisions no registry; apenas requisições antigas que já entraram no resolve podem contribuir com um pass extra, submetendo em seguida sobre uma revision estável.
+- A semântica de admissão duplicada do registry continua mantida pelo producer; esta correção não altera o named pipe do Windows nem a versão do pacote do producer, evitando acoplar a correção de recuperação do consumer ao lançamento do producer de CUA.
+- O `commitRecovery` do producer é hoje um callback `void`, e o Healthy⇒clear do spawn-env pode limpar o marker antes da próxima leitura do producer. Portanto o gate não pode esperar "o producer necessariamente chamará de novo" como condição de abertura, senão haveria um deadlock permanentemente active; hoje o gate ainda é fechado no lado do consumer pelos caminhos de commit/fail.
+- Um commit de generation obsoleta pode fazer o gate abrir uma curta janela antes do fechamento final do producer. Essa janela não entrega socket/token antigos, mas pode gerar Agents extras com `BROKER_UNAVAILABLE`; é um item de observação de P2 e esta correção não introduz um novo contrato entre repositórios.
+- Se a recuperação lançar erro, o gate fica fail-closed, registra um warning/error uma vez e a recuperação fica a cargo da próxima requisição e do retry limitado já existente na UI; não se pode iniciar retry infinito em segundo plano dentro do Host.
 
-### 4. 跨平台与消息链路
+### 4. Cross-platform e cadeia de mensagens
 
-- Windows：named pipe 没有 `.pending` rendezvous，必须依赖 Host admission gate 防止 Agent 早于 Helper ready spawn。
-- macOS：POSIX rendezvous 仍保留，用于减少 cold-start 竞态；gate 作为共享恢复屏障，覆盖 Helper 重启/凭据轮换窗口。
-- desktop `desktop-continuous` 不拼接 web replayable 的恢复消息；web `web-remote-replayable` 继续通过 snapshot/gap 恢复。
+- Windows: o named pipe não tem rendezvous `.pending`, então é obrigatório depender do admission gate do Host para impedir que o Agent faça spawn antes do Helper ready.
+- macOS: o rendezvous POSIX é mantido, para reduzir a corrida de cold start; o gate funciona como barreira de recuperação compartilhada, cobrindo as janelas de restart do Helper/rotação de credenciais.
+- O `desktop-continuous` não concatena as mensagens de recuperação do web replayable; o `web-remote-replayable` continua recuperando por snapshot/gap.
 
-## 验收与观测
+## Aceitação e Observação
 
-至少覆盖以下回归场景：
+Cobrir pelo menos os seguintes cenários de regressão:
 
-1. gate 关闭时并发 `getClient` 只能保留一个 pending start，Helper commit 后只 spawn 一个 Agent。
-2. command/env resolve 挂起期间执行 `disposeWorkspace`，恢复后旧 start 不 spawn；随后新请求可以成功 spawn。
-3. recovery commit 失败时等待者收到错误，且不会 spawn 带旧凭据的 Agent。
-4. Windows 与 macOS 使用同一 gate 行为；平台差异只在 Helper transport/rendezvous 层。
-5. 已有 desktop continuous 与 web remote replayable 的 session realtime 测试保持通过。
+1. Com o gate fechado, chamadas concorrentes a `getClient` só podem manter um pending start, e apenas um Agent é spawneado depois do commit do Helper.
+2. Executar `disposeWorkspace` enquanto o resolve de command/env está pendente; após a recuperação, o start antigo não faz spawn; em seguida novas requisições conseguem fazer spawn com sucesso.
+3. Quando o commit da recuperação falha, os esperadores recebem o erro e nenhum Agent com credenciais antigas é spawneado.
+4. Windows e macOS usam o mesmo comportamento do gate; as diferenças de plataforma ficam apenas na camada de Helper transport/rendezvous.
+5. Os testes de session realtime já existentes de desktop continuous e web remote replayable continuam passando.
 
-生产日志应能按 workspaceKey/epoch 关联以下一次性生命周期事件：`recovery_begin`、`spawn_admission_wait`、
-`recovery_commit`/`recovery_fail`、`spawn_blocked_by_generation`；commit 日志同时记录 admission 是否确实释放。
-不要仅用两次 admission 日志之间的 spawn 数量判定 stale generation，必须结合 generation 或 marker 证据。
-逐条 stream/chunk 仍使用 debug，避免日志量级膨胀。
+Os logs de produção devem conseguir correlacionar, por workspaceKey/epoch, os seguintes eventos de ciclo de vida de ocorrência única: `recovery_begin`, `spawn_admission_wait`,
+`recovery_commit`/`recovery_fail`, `spawn_blocked_by_generation`; o log de commit também registra se a admissão foi de fato liberada.
+Não se deve determinar generation obsoleta apenas pela contagem de spawns entre dois logs de admissão; é preciso combinar evidence de generation ou de marker.
+O stream/chunk item a item continua em debug, para evitar inflação do volume de logs.

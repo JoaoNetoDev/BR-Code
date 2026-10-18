@@ -1,107 +1,107 @@
-# Bot State/Cache V2 迁移设计
+# Design de migração do Bot State/Cache V2
 
-## 背景
+## Contexto
 
-Bot 当前使用 `bot-state.json` 保存运行态和 draft 选择，使用 `bots-model-cache.json` 保存模型供应商缓存。模型供应商配置已经迁移到 `config.json` 后，Bot 仍可能从旧 state/cache 中读到历史 provider id 或旧模型快照，导致 `/model` 展示当前模型时能看到旧的 `providerId/modelId`，但选择供应商时提示未找到模型供应商。
+O Bot atualmente usa `bot-state.json` para guardar o estado de execução e a seleção de draft, e `bots-model-cache.json` para guardar o cache de provedores de modelos. Depois que a configuração de provedores de modelos já foi migrada para `config.json`, o Bot ainda pode ler do state/cache antigo um provider id histórico ou um snapshot de modelo antigo, o que faz `/model` exibir um `providerId/modelId` antigo ao mostrar o modelo atual, mas ao escolher o provedor informar que o provedor de modelos não foi encontrado.
 
-`model-providers.json` 已有到 `config.json` 的迁移逻辑。Bot 的 state/cache 不应重新实现 provider 配置迁移，而应复用 `modelProviderService.getAll()` 获取迁移后的权威 provider 数据，再把 Bot 自己的运行态和缓存升级到新文件。
+`model-providers.json` já tem a lógica de migração para `config.json`. O state/cache do Bot não deve reimplementar a migração de configuração de providers; deve reutilizar `modelProviderService.getAll()` para obter os dados autoritativos de providers já migrados e então elevar o próprio estado de execução e cache do Bot para os novos arquivos.
 
-## 目标
+## Objetivos
 
-- 新增 `bot-state.v2.json` 和 `bots-model-cache.v2.json`。
-- 新版本 Bot 优先读写 v2 文件。
-- v2 文件不存在时，只读旧 `bot-state.json` 和 `bots-model-cache.json` 作为迁移输入。
-- 迁移后不修改、不删除旧文件，老版本应用继续按旧逻辑工作。
-- Bot provider/model 快照以 `config.json` 迁移后的 provider 数据为准。
-- 避免继续保留无法在新 provider 结构中解析的 draft model。
+- Adicionar `bot-state.v2.json` e `bots-model-cache.v2.json`.
+- A nova versão do Bot lê e escreve prioritariamente os arquivos v2.
+- Quando os arquivos v2 não existem, ler apenas os antigos `bot-state.json` e `bots-model-cache.json` como entrada de migração.
+- Após a migração, os arquivos antigos não são modificados nem excluídos, e as aplicações de versão antiga continuam funcionando pela lógica antiga.
+- O snapshot de provider/model do Bot segue os dados de providers já migrados em `config.json`.
+- Evitar continuar preservando um draft model que não pode ser resolvido na nova estrutura de providers.
 
-## 非目标
+## Não objetivos
 
-- 不把 Bot 运行态合并进 `config.json`。
-- 不修改旧 `bot-state.json`、`bots-model-cache.json` 或 `model-providers.json` 的写入逻辑。
-- 不改变 Bot 指令语义、授权模型、workspace 选择规则或第三方平台适配器协议。
-- 不迁移或暴露 provider API key；Bot model cache 仍只保存可用于选择展示的非敏感字段。
+- Não mesclar o estado de execução do Bot dentro do `config.json`.
+- Não modificar a lógica de escrita do `bot-state.json`, do `bots-model-cache.json` ou do `model-providers.json` antigos.
+- Não alterar a semântica dos comandos do Bot, os modelos autorizados, as regras de seleção de workspace ou o protocolo dos adaptadores de plataformas de terceiros.
+- Não migrar nem expor a API key do provider; o model cache do Bot continua guardando apenas campos não sensíveis usados para exibição de seleção.
 
-## 文件与版本
+## Arquivos e versões
 
-`bot-state.v2.json` 的顶层结构包含：
+A estrutura de nível superior de `bot-state.v2.json` contém:
 
 - `version: 2`
 - `migratedAt`
 - `source?: { stateUpdatedAt?: number }`
-- `bots`: 现有 bot state 的 v2 形态
+- `bots`: o bot state existente na forma v2
 
-`bots-model-cache.v2.json` 的顶层结构包含：
+A estrutura de nível superior de `bots-model-cache.v2.json` contém:
 
 - `version: 2`
 - `updatedAt`
 - `migratedAt?`
 - `source?: { cacheUpdatedAt?: number }`
-- `providers`: 来自 `modelProviderService.getAll()` 的脱敏 provider/model 快照
-- `modelIdRemaps?`: 仅保存迁移时可证明唯一的旧模型到新模型映射，便于 state 迁移复用
+- `providers`: snapshot sem dados sensíveis de provider/model vindo de `modelProviderService.getAll()`
+- `modelIdRemaps?`: guarda apenas o mapeamento de modelo antigo para modelo novo que possa ser provado como único durante a migração, para facilitar o reuso pela migração do state
 
-v2 cache 的 provider 列表不是旧 cache 的直接拷贝。旧 cache 只作为辅助输入，用于理解旧 draft model 或旧缓存项是否还能映射到新 provider。
+A lista de providers do cache v2 não é uma cópia direta do cache antigo. O cache antigo serve apenas como entrada auxiliar, para entender se um draft model antigo ou um item de cache antigo ainda pode ser mapeado para o novo provider.
 
-## 迁移流程
+## Fluxo de migração
 
-Bot service 初始化时按顺序加载：
+Na inicialização do Bot service, a carga ocorre nesta ordem:
 
-1. 如果 v2 state/cache 都存在且 schema 合法，直接使用 v2 文件。
-2. 如果任一 v2 文件不存在，读取对应旧文件作为只读迁移输入。
-3. 调用 `modelProviderService.getAll()` 获取当前权威 provider 列表。该调用继续复用 `model-providers.json -> config.json` 的既有迁移逻辑。
-4. 生成 `bots-model-cache.v2.json`：
-   - provider 快照来自当前权威 provider 列表；
-   - 过滤敏感字段；
-   - 记录迁移来源时间；
-   - 对旧 provider/model 生成可验证的唯一映射。
-5. 生成 `bot-state.v2.json`：
-   - 保留 workspace、active task、pending permission、平台 offset、reply mode、mode、thoughtLevel 等非 provider 字段；
-   - 对 `draftOptions.model` 执行 provider/model 校验和迁移；
-   - 匹配失败或存在歧义时清空该 draft model，让 Bot 回到未选择模型的安全状态。
-6. 后续运行只读写 v2 文件，不再写旧 state/cache。
+1. Se ambos o state e o cache v2 existirem e o schema for válido, usar diretamente os arquivos v2.
+2. Se algum dos arquivos v2 não existir, ler o arquivo antigo correspondente como entrada de migração somente leitura.
+3. Chamar `modelProviderService.getAll()` para obter a lista autoritativa atual de providers. Essa chamada continua reutilizando a lógica de migração existente de `model-providers.json -> config.json`.
+4. Gerar `bots-model-cache.v2.json`:
+   - o snapshot de providers vem da lista autoritativa atual de providers;
+   - campos sensíveis são filtrados;
+   - o tempo de origem da migração é registrado;
+   - para providers/modelos antigos, gerar mapeamentos únicos verificáveis.
+5. Gerar `bot-state.v2.json`:
+   - preservar campos não relacionados a provider, como workspace, active task, pending permission, platform offset, reply mode, mode, thoughtLevel;
+   - executar validação e migração de provider/model em `draftOptions.model`;
+   - quando o casamento falhar ou houver ambiguidade, limpar esse draft model, para que o Bot volte ao estado seguro de modelo não selecionado.
+6. Nas execuções seguintes, ler e escrever apenas os arquivos v2, sem mais escrever o state/cache antigo.
 
-## 模型迁移规则
+## Regras de migração de modelo
 
-迁移 draft model 时按保守顺序处理：
+Ao migrar o draft model, o processamento segue uma ordem conservadora:
 
-1. 如果旧值的 `providerId` 在权威 provider 列表中存在，且 `modelId` 仍属于该 provider，直接保留。
-2. 如果 `providerId` 不存在，但旧 cache 能提供 provider name，且 `(provider name, modelId)` 在权威 provider 列表中只匹配到一个 provider，则迁移到该 provider id。
-3. 如果旧值只包含 modelId，且该 modelId 在权威 provider 列表中只出现一次，可以迁移到该 provider。
-4. 其他情况视为无法安全迁移，清空 draft model，并记录一次 `warn` 日志。
+1. Se o `providerId` do valor antigo existe na lista autoritativa de providers e o `modelId` ainda pertence a esse provider, manter como está.
+2. Se o `providerId` não existe, mas o cache antigo puder fornecer o nome do provider e `(nome do provider, modelId)` corresponder a apenas um provider na lista autoritativa, migrar para aquele provider id.
+3. Se o valor antigo contiver apenas o modelId e esse modelId aparecer apenas uma vez na lista autoritativa de providers, é possível migrar para aquele provider.
+4. Nos demais casos, considerar que não é possível migrar com segurança, limpar o draft model e registrar um log `warn`.
 
-这里不做模糊匹配，不按相似名称猜测 provider，也不因为 modelId 相同但多 provider 命中而随机选择。
+Aqui não se faz correspondência difusa, não se adivinha o provider por nomes semelhantes e não se escolhe aleatoriamente só porque o modelId é igual e vários providers casam.
 
-## 兼容与回滚
+## Compatibilidade e rollback
 
-- 新版本写 v2 文件后，旧版本仍可继续使用旧文件；因为新版本不会修改旧文件，所以不会破坏旧版本的读取。
-- 如果用户回滚到旧版本，旧版本看不到 v2 文件，会继续读旧 state/cache。
-- 如果 v2 文件损坏，新版本可以重新从旧文件和当前 provider 配置生成 v2 文件；若旧文件也损坏，则按空 state/cache 启动。
-- 删除 v2 文件可触发重新迁移，但不会恢复旧文件中已经失效的 provider/model。
+- Depois que a nova versão escreve os arquivos v2, a versão antiga ainda pode continuar usando os arquivos antigos; como a nova versão não modifica os arquivos antigos, a leitura da versão antiga não é quebrada.
+- Se o usuário fizer rollback para a versão antiga, ela não vê os arquivos v2 e continua lendo o state/cache antigo.
+- Se os arquivos v2 estiverem corrompidos, a nova versão pode regenerá-los a partir dos arquivos antigos e da configuração atual de providers; se os arquivos antigos também estiverem corrompidos, a inicialização ocorre com state/cache vazios.
+- Excluir os arquivos v2 pode disparar uma nova migração, mas não restaura providers/modelos já inválidos nos arquivos antigos.
 
-## 日志
+## Logs
 
-迁移只记录低频生命周期日志：
+A migração registra apenas logs de ciclo de vida de baixa frequência:
 
-- `info`: v2 文件缺失并开始迁移、迁移完成。
-- `warn`: 旧 state/cache 读取失败、v2 schema 无效、draft model 无法安全迁移。
-- `error`: v2 文件写入失败且 Bot 无法继续加载状态。
+- `info`: arquivos v2 ausentes e início da migração, migração concluída.
+- `warn`: falha na leitura do state/cache antigo, schema v2 inválido, draft model que não pôde ser migrado com segurança.
+- `error`: falha ao escrever os arquivos v2 e o Bot não consegue continuar carregando o estado.
 
-日志使用服务层 `createServiceLogger(scope)`，不记录 API key 或完整 provider secret。
+Os logs usam o `createServiceLogger(scope)` da camada de serviço e não registram API key nem o provider secret completo.
 
-## 验证
+## Verificação
 
-添加 Bot service 存储/迁移单测覆盖：
+Adicionar testes unitários de armazenamento/migração do Bot service cobrindo:
 
-- v2 文件存在时优先使用 v2，不读取旧文件作为权威数据。
-- v2 文件不存在时从旧 state/cache 迁移，并只写 v2 文件。
-- providerId/modelId 仍有效时保留 draft model。
-- providerId 变化但 provider name + modelId 唯一匹配时迁移 draft model。
-- 多 provider 匹配或无法匹配时清空 draft model。
-- 生成的 model cache provider 快照来自 `modelProviderService.getAll()`，不是旧 cache 直拷贝。
-- 迁移输出不包含 provider API key。
+- quando os arquivos v2 existem, eles têm prioridade e os arquivos antigos não são lidos como dados autoritativos.
+- quando os arquivos v2 não existem, a migração vem do state/cache antigo e apenas os arquivos v2 são escritos.
+- quando providerId/modelId continuam válidos, o draft model é mantido.
+- quando o providerId mudou, mas nome do provider + modelId têm correspondência única, o draft model é migrado.
+- quando há correspondência de vários providers ou nenhuma correspondência, o draft model é limpo.
+- o snapshot de providers do model cache gerado vem de `modelProviderService.getAll()`, e não de uma cópia direta do cache antigo.
+- a saída da migração não contém a API key do provider.
 
-完成实现后执行：
+Após concluir a implementação, executar:
 
-- 相关 Bot migration 单测
+- testes unitários de migração do Bot relacionados
 - `pnpm typecheck`
 - `pnpm lint`
