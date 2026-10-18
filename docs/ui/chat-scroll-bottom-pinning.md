@@ -1,4 +1,4 @@
-# Chat scroll bottom pinning
+# Fixação da rolagem ao fundo no chat
 
 > **Fato atual do V4**: `ConversationTimeline` detém a fiação de acompanhamento de fundo e de memória de rolagem; o módulo de memória é
 > `packages/ui/src/lib/chatSessionScrollMemory.ts`.
@@ -9,7 +9,7 @@ A timeline do V4 mantém uma máquina de estados explícita de fixação ao fund
 - `isPinnedToBottom=false` indica que o usuário já saiu da parte inferior, e a saída em streaming não pode sobrescrever a posição de leitura atual do usuário.
 
 ```text
-                         usuário volta ao fundo / clica em “回到底部”
+                         usuário volta ao fundo / clica em “回到底部” (voltar ao fundo)
                     ┌──────────────────────────────────┐
                     │                                  v
 ┌──────────────────────────┐  usuário rola para cima e pode sair do fundo  ┌──────────────────────────┐
@@ -19,13 +19,13 @@ A timeline do V4 mantém uma máquina de estados explícita de fixação ao fund
 └──────────────────────────┘                        └──────────────────────────┘
           │                                                     │
           │ running -> terminal: virtualização da live tail,     │ colapso em terminal, medição de
-          │ colapso automático do histórico “工作中”,             │ altura, compensação do
+          │ colapso automático do histórico “工作中” (trabalhando),│ altura, compensação do
           │ medição dinâmica de altura                          │ virtualizer
           └────────────── permanece FOLLOWING ────────────────────┴─ permanece DETACHED
 ```
 
 `FOLLOWING / DETACHED` expressa a intenção de rolagem do usuário, e não o resultado geométrico instantâneo obtido a cada leitura de
-`scrollHeight - clientHeight - scrollTop`. A mudança para o estado terminal faz a live tail migrar para o histórico virtual ao mesmo tempo em que o histórico "工作中" é recolhido como "已工作"; a estimativa do virtualizer, a medição real de altura e a animação de recolhimento alteram o `scrollTop` ao longo de várias fases de layout consecutivas. Essas mudanças não são rolagem do usuário para cima e não podem fazer `FOLLOWING` ser julgado erroneamente como
+`scrollHeight - clientHeight - scrollTop`. A mudança para o estado terminal faz a live tail migrar para o histórico virtual ao mesmo tempo em que o histórico "工作中" (trabalhando) é recolhido como "已工作" (trabalhado); a estimativa do virtualizer, a medição real de altura e a animação de recolhimento alteram o `scrollTop` ao longo de várias fases de layout consecutivas. Essas mudanças não são rolagem do usuário para cima e não podem fazer `FOLLOWING` ser julgado erroneamente como
 `DETACHED`.
 
 ## Comportamento
@@ -41,10 +41,10 @@ A timeline do V4 mantém uma máquina de estados explícita de fixação ao fund
 ## Prioridade dos Eventos de Rolagem
 
 ```text
-no mesmo quadro: intenção de rolagem do usuário > ação de定位 explícita > mudança de layout de conteúdo/medição/colapso
+no mesmo quadro: intenção de rolagem do usuário > ação de posicionamento explícita > mudança de layout de conteúdo/medição/colapso
 ```
 
-| 事件来源                                        | Quando FOLLOWING           | Quando DETACHED                |
+| Origem do evento                                      | Quando FOLLOWING           | Quando DETACHED                |
 | ----------------------------------------------- | -------------------------- | ------------------------------ |
 | wheel/touch/teclado/barra de rolagem subindo e saindo do fundo | transiciona imediatamente para DETACHED | mantém DETACHED             |
 | Usuário volta para perto do fundo                | mantém FOLLOWING           | transiciona para FOLLOWING     |

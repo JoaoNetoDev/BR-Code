@@ -36,7 +36,7 @@ Esta funcionalidade não usa `Catalog` como nome de domínio. O antigo Model Cat
 A nomenclatura unificada é:
 
 ```text
-Interface do usuário: 添加供应商
+Interface do usuário: 添加供应商 (Adicionar fornecedor)
 Componente de código: ProviderTemplatePicker
 Estado da página: template-picker
 Fonte de dados: ProviderSettingsView.providerTemplates
@@ -169,7 +169,7 @@ Restrições:
 - uma renomeação posterior do usuário continua gravando no mesmo `label` Personal;
 - atualizações de configuração do Template não sobrescrevem o `label` do Provider já criado.
 
-Um Provider puramente personalizado continua usando a semente de nome localizada “新供应商” e passa pelo mesmo ponto de entrada atômico de desduplicação.
+Um Provider puramente personalizado continua usando a semente de nome localizada “新供应商” (Novo fornecedor) e passa pelo mesmo ponto de entrada atômico de desduplicação.
 
 ## 5. Interação da Página de Seleção de Template
 

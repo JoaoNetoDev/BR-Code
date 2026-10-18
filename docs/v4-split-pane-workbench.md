@@ -57,7 +57,7 @@ Pontos principais:
 LayoutNode = Leaf { paneId }
            | Split { id, direction: "row"|"column", ratio, first, second }
 
-ratio = proporção de first, clamp [0.25, 0.75]（沿用一期 splitRatio 语义，每个 Split 节点独立一份）
+ratio = proporção de first, clamp [0.25, 0.75]（mantém a semântica de splitRatio da fase um, cada nó Split tem a sua própria cópia）
 
 pane único:         leaf(main)
 divisão esquerda/direita: split(row){ leaf(main), leaf(pane-1) }
