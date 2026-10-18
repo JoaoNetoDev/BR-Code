@@ -181,16 +181,16 @@ informação. Essa restrição tem testes unitários correspondentes (ver «Test
 
 | Arquivo                                                      | Responsabilidade                                                                                                                                                                                              |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/ui/src/lib/cuaComposerEntryState.ts`（novo）        | Função pura `resolveCuaComposerEntryView(inputs)` → `{ visible: false }` ou `{ visible: true, uiState, tone, spinning, tooltipMessageId, clickAction, interactionDisabled }`. Zero dependências de React / de store |
-| `packages/ui/src/hooks/useCuaComposerEntry.ts`（novo）        | Hook de orquestração: agrega as três fontes de dados, condiciona a consulta de permissão pelo enabled e chama a função pura acima                                                                          |
-| `packages/ui/src/v4/composer/V4ComposerCuaEntry.tsx`（novo）  | Componente de duas camadas: camada externa com o gate de plataforma + camada interna de exibição (ver abaixo)                                                                                             |
-| `packages/ui/src/lib/cuaPlatform.ts`（alterado）              | A determinação de plataforma muda de constante de módulo para função preguiçosa, e o novo gate de Windows                                                                                                |
-| `packages/ui/src/v4/ConversationComposer.tsx`（alterado）     | Inserção dentro de `leadingActionsNode`, depois de `V4ComposerModeSwitch`                                                                                                                                     |
-| `packages/ui/src/settings/ComputerUseSection.tsx`（alterado） | Adiciona a linha «在输入框显示电脑操作按钮» dentro do cartão do interruptor geral                                                                                                                              |
-| `packages/shared/src/protocol.ts`（alterado）                 | `AppSettings` ganha `computerUseComposerEntryHidden?: boolean`                                                                                                                                              |
-| `packages/shared/src/validationAppSettings.ts`（alterado）    | Validação sincronizada                                                                                                                                                                                       |
-| `packages/shared/src/test-ids.ts`（alterado）                  | Adiciona `TID_V4_COMPOSER_CUA_ENTRY`                                                                                                                                                                          |
-| `packages/ui/src/i18n/locales/{zh-CN,en-US}.ts`（alterado）   | Novos textos                                                                                                                                                                                                  |
+| `packages/ui/src/lib/cuaComposerEntryState.ts`(novo)        | Função pura `resolveCuaComposerEntryView(inputs)` → `{ visible: false }` ou `{ visible: true, uiState, tone, spinning, tooltipMessageId, clickAction, interactionDisabled }`. Zero dependências de React / de store |
+| `packages/ui/src/hooks/useCuaComposerEntry.ts`(novo)        | Hook de orquestração: agrega as três fontes de dados, condiciona a consulta de permissão pelo enabled e chama a função pura acima                                                                          |
+| `packages/ui/src/v4/composer/V4ComposerCuaEntry.tsx`(novo)  | Componente de duas camadas: camada externa com o gate de plataforma + camada interna de exibição (ver abaixo)                                                                                             |
+| `packages/ui/src/lib/cuaPlatform.ts`(alterado)              | A determinação de plataforma muda de constante de módulo para função preguiçosa, e o novo gate de Windows                                                                                                |
+| `packages/ui/src/v4/ConversationComposer.tsx`(alterado)     | Inserção dentro de `leadingActionsNode`, depois de `V4ComposerModeSwitch`                                                                                                                                     |
+| `packages/ui/src/settings/ComputerUseSection.tsx`(alterado) | Adiciona a linha «在输入框显示电脑操作按钮» dentro do cartão do interruptor geral                                                                                                                              |
+| `packages/shared/src/protocol.ts`(alterado)                 | `AppSettings` ganha `computerUseComposerEntryHidden?: boolean`                                                                                                                                              |
+| `packages/shared/src/validationAppSettings.ts`(alterado)    | Validação sincronizada                                                                                                                                                                                       |
+| `packages/shared/src/test-ids.ts`(alterado)                  | Adiciona `TID_V4_COMPOSER_CUA_ENTRY`                                                                                                                                                                          |
+| `packages/ui/src/i18n/locales/{zh-CN,en-US}.ts`(alterado)   | Novos textos                                                                                                                                                                                                  |
 
 Extrair a derivação de estado para uma função pura sem dependências é o núcleo deste design: o espaço de combinação de estados é grande
 (plataforma × interruptor de ocultação × estado do plugin × estado de permissão × busy), e só uma função pura permite medir essa matriz
@@ -285,7 +285,7 @@ também não era clicável; desde 2026-08-20 ele vai para a página de configura
 
 Seguindo o AGENTS.md «escreva os testes antes do código»:
 
-1. **`cuaComposerEntryState.test.ts`（principal, 23 casos）**: matriz de derivação de estado. Plataforma (mac/win/outros) ×
+1. **`cuaComposerEntryState.test.ts`(principal, 23 casos)**: matriz de derivação de estado. Plataforma (mac/win/outros) ×
    interruptor de ocultação × estado do plugin (disabled/toggling/enabled/error) × estado de permissão (granted/denied/stale/sonda não aprovada/
    unavailable/não retornado) × busy, com asserção por combinação de `{visible, uiState, tone, spinning, tooltipMessageId,
    clickAction, interactionDisabled}`; um dos casos percorre todos os 5 estados para travar «tudo é clicável exceto session-busy»,
@@ -293,10 +293,10 @@ Seguindo o AGENTS.md «escreva os testes antes do código»:
 2. **`useCuaComposerEntry.test.ts`**: fatos de integração. O núcleo é a restrição de custo «nenhuma consulta de permissão quando o plugin está desabilitado / a lista ainda não carregou / está oculto pela página de
    configurações», além de workspace remoto e sessão remota não renderizando, clique navegando, e o travamento
   respectivamente de canStop, active input do runtime e task index running, bem como o destravamento por task index terminal
-3. **`v4ComposerCuaEntry.test.ts`（7 casos）**: mapeamento fiel da camada de exibição ao view — não renderizar quando invisível, atributos data,
+3. **`v4ComposerCuaEntry.test.ts`(7 casos)**: mapeamento fiel da camada de exibição ao view — não renderizar quando invisível, atributos data,
    tooltip acompanhando, `clickAction` decidindo se dispara onActivate, estado desabilitado sem responder ao clique mas preservando DOM com hover,
    e a fronteira responsiva `@2xl/composer` de Computer Use
-4. **`computerUseComposerEntrySetting.test.ts`（5 casos）**: exibição padrão do interruptor da página de configurações, gravação de true/false e
+4. **`computerUseComposerEntrySetting.test.ts`(5 casos)**: exibição padrão do interruptor da página de configurações, gravação de true/false e
    rollback em caso de falha de gravação
 
 **sem E2E**: a verdade do botão depende do TCC do macOS e do estado do processo do Helper, e não é possível extrair asserções significativas em contêineres de CI; só seria

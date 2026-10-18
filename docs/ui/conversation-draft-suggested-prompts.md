@@ -203,7 +203,7 @@ A janela de desduplicação do cache é de 10 minutos; quando a página realment
 
 | Campo           | Conclusão                                                                                                                                                                                                                    |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Change layers  | `option-source`, `presentation`, `draft-default`, `validation`, `commit-effect`                                                                                                                                         |
+| Change layers  | `option-source`、`presentation`、`draft-default`、`validation`、`commit-effect`                                                                                                                                         |
 | UI surface     | `ConversationDraftSuggestedPrompts` da página de rascunho de New Task                                                                                                                                                     |
 | Draft owner    | renderer-local Composer draft / workspace-scoped insert request                                                                                                                                                         |
 | Option source  | `clientScenesService.list()` → `draft-suggestion.options.prompts.items`                                                                                                                                                 |

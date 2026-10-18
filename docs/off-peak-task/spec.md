@@ -80,7 +80,7 @@ interface ZCodeOffPeakTask {
   serverTicketId?: string; // server Snowflake ticket_id; atualizado ao tirar novo número (D26)
   title: string; // Task title do formulário (D28)
   conversationId?: string; // taskId da conversa hospedeira; D30-8 não pré-cria conversa, preenchido após o primeiro despacho (também serve como sinal de "já despachado")
-  sessionId?: string; // preenchido após a primeira execução; usado para resume em续跑/recuperação de interrupção (semântica de "existe = já tem sessão real" em que vários pontos dependem; proibido pré-preencher)
+  sessionId?: string; // preenchido após a primeira execução; usado para o resume em 续跑/recuperação de interrupção (semântica de "existe = já tem sessão real" em que vários pontos dependem; proibido pré-preencher)
   prompt: string; // Instructions do formulário
   permissionMode: ZCodeTaskMode; // quatro níveis de permissão, todos abertos (D29-4); glossário atual do produto build/edit/plan/yolo, padrão "build" (Ask before changes)
   model?: string;
@@ -129,7 +129,7 @@ Invariantes:
 
 - Estados terminais são irreversíveis; modificações de arquivo nunca são revertidas.
 - Uma tarefa pode executar várias instâncias concorrentes; a cota de concorrência é determinada pelo agendamento do servidor (D20); o despacho de uma única tarefa é single-flight para evitar duplicidade. O risco de conflito de arquivos em execuções concorrentes no mesmo workspace é o mesmo de conversas manuais concorrentes; não se adiciona isolamento.
-- ~~trava do composer~~ (abolida por D28/D30): run session é uma conversa comum, e prompts enviados durante running passam pela busy queue existente; depois que o turno automático termina em estado terminal, a fila é drenada, e as mensagens enfileiradas criam o modelo do usuário conforme Session Selection. As operações da tarefa ficam no menu do cartão: queued「Pause / Delete」, paused「Continue / Delete」, running「取消」.
+- ~~trava do composer~~ (abolida por D28/D30): run session é uma conversa comum, e prompts enviados durante running passam pela busy queue existente; depois que o turno automático termina em estado terminal, a fila é drenada, e as mensagens enfileiradas criam o modelo do usuário conforme Session Selection. As operações da tarefa ficam no menu do cartão: queued「Pause / Delete」、paused「Continue / Delete」、running「取消」。
 - O modo de permissão `build` / elicitation reutiliza a cadeia de interação da session comum: o Agent espera a resposta do usuário dentro da sessão, mas o estado agregado do Off-Peak permanece `running`, e o cartão não oferece estado de Review separado nem notificação dedicada. Aprovação/rejeição continuam no mesmo turno automático e ainda usam o idle Active Model daquele turno; não se promete a troca para o provider do usuário após aprovação prevista em D11/D27.
 - failed não faz retry automático; o usuário pode reenfileirar manualmente = nova tentativa de submissão.
 
