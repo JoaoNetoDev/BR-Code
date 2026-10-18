@@ -9,47 +9,47 @@ Apenas a versão Desktop (Electron) é implementada; a versão Web não é supor
 ## Fluxo completo
 
 ```
-用户点击右上角「登录」按钮
+O usuário clica no botão «Login» do canto superior direito
         │
         ▼
-  弹出 LoginDialog
-  点击「通过 BigModel 登录」
+  Abre o LoginDialog
+  Clica em «Login com BigModel»
         │
         ▼
-  useOAuth hook:
-        │ RPC 调用 oauthService.startOAuth() → 返回 { authorizeUrl, state }
-        │ IPC 上报 state 给 Main（用于 deep link 路由）
-        │ 调用 platform.openExternal(authorizeUrl)
+  hook useOAuth:
+        │ chama o RPC oauthService.startOAuth() → retorna { authorizeUrl, state }
+        │ reporta o state ao Main via IPC (usado no roteamento do deep link)
+        │ chama platform.openExternal(authorizeUrl)
         │
         ▼
-  Main Process（调度层）
-        │ 记录 state → webContents.id 映射
+  Main Process (camada de agendamento)
+        │ registra o mapeamento state → webContents.id
         │ shell.openExternal(authorizeUrl)
         │
         ▼
-  浏览器打开 BigModel 登录页
-  用户完成认证（手机号验证码等）
+  O navegador abre a página de login da BigModel
+  O usuário conclui a autenticação (código por SMS etc.)
         │
         ▼
-  BigModel 重定向 zcode://bigmodel-auth/callback?code=xxx&state=xxx
+  A BigModel redireciona para zcode://bigmodel-auth/callback?code=xxx&state=xxx
         │
         ▼
-  Main Process 捕获 deep link（仅提取 URL）
-        │ 从 URL 解析 state → 查 state→windowId 映射 → 找到目标窗口
-        │ 转发 URL 给目标窗口的 renderer
+  O Main Process captura o deep link (extrai apenas a URL)
+        │ faz o parse do state na URL → consulta o mapeamento state→windowId → encontra a janela alvo
+        │ encaminha a URL para o renderer da janela alvo
         │ targetWindow.webContents.send(PlatformChannels.OAuthCallback, url)
         │
         ▼
-  Renderer 收到 OAuthCallback 事件（Root/App 常驻监听）
-        │ RPC 调用 oauthService.handleCallback(url)
-        │   ├ 校验 state（匹配后立即删除，防重放）
-        │   ├ POST tokenUrl 用 code + code_verifier 换 access_token
-        │   ├ 存 token 到 credentialService
-        │   └ (可选) GET userinfoUrl 获取用户信息
-        │ 返回 userInfo
+  O Renderer recebe o evento OAuthCallback (Root/App fica sempre escutando)
+        │ chama o RPC oauthService.handleCallback(url)
+        │   ├ valida o state (remove logo após o match, para impedir replay)
+        │   ├ faz POST em tokenUrl trocando code + code_verifier por access_token
+        │   ├ guarda o token no credentialService
+        │   └ (opcional) GET em userinfoUrl para obter os dados do usuário
+        │ retorna userInfo
         │
         ▼
-  更新 Zustand store（唯一数据源）→ 关闭 LoginDialog
+  Atualiza o store do Zustand (única fonte de dados) → fecha o LoginDialog
 ```
 
 ## Registro do Custom Protocol e tratamento de Deep Link
@@ -434,21 +434,21 @@ Internamente usa o hook `useOAuth()` para conduzir toda a lógica OAuth.
 Máquina de estados:
 
 ```
-┌─────────────┐    点击按钮    ┌──────────────┐    回调成功    ┌──────────┐
-│   idle      │ ─────────────▶ │  waiting     │ ─────────────▶ │ success  │
-│ 显示登录按钮  │               │ 等待浏览器认证 │               │ 关闭 dialog│
-└─────────────┘               └──────────────┘               └──────────┘
-                                     │
-                              超时/失败/取消
-                                     │
-                                     ▼
-                              ┌──────────────┐
-                              │   error      │
-                              │ 显示错误信息   │
-                              └──────┬───────┘
-                                     │ 重试
-                                     ▼
-                              回到 idle
+┌─────────────┐   clica no botão   ┌──────────────┐callback com sucesso┌────────────┐
+│ idle        │ ──────────────────▶ │ waiting      │ ──────────────────▶ │ success    │
+│ exibe o login│                    │ espera browser│                    │ fecha dialog│
+└─────────────┘                    └──────────────┘                    └────────────┘
+                                           │
+                             timeout / falha / cancelamento
+                                           ▼
+                                          ┌──────────────┐
+                                          │ error        │
+                                          │ mostra o erro│
+                                          └──────┬───────┘
+                                           │ retry
+                                           ▼
+                           volta para o idle
+
 ```
 
 - O log usa `packages/ui/src/logger.ts`

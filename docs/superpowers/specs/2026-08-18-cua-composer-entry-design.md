@@ -65,34 +65,34 @@ sem ainda ter as ferramentas de CUA nas mãos do Agent. Essa é a consequência 
 
 ```
                     ┌──────────────────────────────────────────────┐
-  可见性门（2026-09-11 起四层，任一不过 → 不渲染 DOM，不是渲染成 disabled）│
-  ├ 平台门 : macOS desktop || Windows desktop 且本地 workspace       │
-  │          remote / linux / web / 手机远控 → unsupported          │
-  ├ 设置门 : AppSettings.computerUseComposerEntryHidden === true     │
+  Porta de visibilidade (4 camadas desde 09-11; falhou → sem render de DOM)│
+  ├ Porta de plataforma : macOS/Windows desktop + workspace local    │
+  │          remote / linux / web / remoto via celular → unsupported│
+  ├ Porta de config : AppSettings.computerUseComposerEntryHidden     │
   │          → hidden                                              │
-  ├ 服务门 : mac 下 services.cuaPermissionService 缺失 → 不渲染      │
-  └ 插件门 : cuaPlugin.enabled !== true 且不在 toggling 中 → 不渲染   │
-             （2026-09-11 新增，见文末变更节）                        │
+  ├ Porta de serviço : mac sem services.cuaPermissionService → nada  │
+  └ Porta de plugin : cuaPlugin.enabled !== true e sem toggling → nada│
+             (adicionado em 2026-09-11, ver mudanças no fim)          │
                     └──────────────────────────────────────────────┘
-                                    ↓ 全部通过
-  ┌──────────────── 底层状态（三路数据源汇聚） ────────────────┐
+                                    ↓ todas passaram
+  ┌──────────────── Estado interno (3 fontes) ──────────────── ┐
   │ ① pluginManagementStore : cuaPlugin.enabled / togglingPluginId
   │ ② useCuaPermissionStatus: accessibility / screenRecording + probes
-  │                           （仅 mac 且 ①enabled 为真时才查询）
-  │ ③ session 运行事实      : 当前 pane snapshot.control.canStop
+  │                           (consultado só no mac e quando ①enabled é verdadeiro)
+  │ ③ Fatos da session em   : snapshot do pane atual, control.canStop
   │                           || workspace runtime running/activeInputId
   │                           || visible task index status=running
   └──────────────────────────────────────────────────────────┘
                                     ↓
-   内部态                →  UI 态       状态点     点击行为
+   Estado interno        →  UI           Status      Ação de clique
    ────────────────────────────────────────────────────────────────
-   plugin-disabled       →  （2026-09-11 删除：改为不渲染，见插件门）
-   starting (toggling)   →  启用中      subtle spin  跳设置页 computerUse
-   permission-required   →  权限缺失    amber      跳设置页 computerUse
-   ready                 →  已启用      green      跳设置页 computerUse
-   error                 →  错误        red        跳设置页 computerUse
+   plugin-disabled       →  (removido em 2026-09-11: agora não renderiza, ver a porta de plugin)
+   starting (toggling)   →  ativando     subtle spin  vai às configs computerUse
+   permission-required   →  sem permiss. amber      vai às configs computerUse
+   ready                 →  habilitado   green      vai às configs computerUse
+   error                 →  erro        red        vai às configs computerUse
    ────────────────────────────────────────────────────────────────
-   session-busy ── 可交互性覆盖，不改底层态 ──→ 置灰 + 禁用 tooltip + 不响应点击
+   session-busy ── override de interatividade, não muda o estado interno ──→ esmaece + tooltip desabilitado + não responde ao clique
 ```
 
 ### Comportamento de clique (alteração de 2026-08-20)

@@ -31,7 +31,7 @@ Os detalhes do plano são apenas uma visão somente leitura da projeção da mes
 provider tool_input_start / delta / end
                   |
                   v
- shared partial JSON preview（识别 plan 字段）
+ shared partial JSON preview (reconhece os campos de plan)
                   |
                   v
  parent conversation projection
@@ -42,10 +42,10 @@ provider tool_input_start / delta / end
           |                               + toolCallId
           v
  main timeline plan card
-   - 原 tool row 位置
-   - 计划
-   - 复制 / 展开
-   - 裁切预览
+   - posição original da tool row
+   - plano
+   - copiar / expandir
+   - pré-visualização recortada
 
 ExitPlanMode terminal / row.removed / snapshot
                   |
@@ -53,24 +53,24 @@ ExitPlanMode terminal / row.removed / snapshot
  renderer plan-directory revision
                   |
                   v
- v4/conversation/plans（CLI 全量有效投影）
+ v4/conversation/plans (projeção válida completa da CLI)
                   |
                   v
- status panel「计划」目录（最新优先）
+ status panel「plano」diretório (mais recente primeiro)
 
-卡片点击 / 展开点击
-   ---> 激活或创建稳定 tab
-   ---> 展开 Side Pane
-   ---> tab 继续订阅 parent projection
+Clique no cartão / clique em expandir
+   ---> ativa ou cria um tab estável
+   ---> expande o Side Pane
+   ---> o tab continua assinando a projection do pai
 
-轮尾 assistant 复制
-   ---> assistant text segments（原顺序）
-   ---> ExitPlanMode markdown（同轮原顺序）
-   ---> 以空行拼接后写入剪贴板
+Cópia do fim do turno do assistant
+   ---> assistant text segments (na ordem original)
+   ---> ExitPlanMode markdown (na ordem original do turno)
+   ---> junta com linha em branco e escreve na área de transferência
 
-切换父任务
-   ---> 按 parentSessionId 隐藏 / 恢复对应计划 tab
-   ---> 不新建 runtime，不改 owner / queue / deliveryKind
+Trocar de tarefa pai
+   ---> oculta / restaura o tab de plano pelo parentSessionId
+   ---> não cria runtime, não muda owner / queue / deliveryKind
 ```
 
 ## Propriedade do estado

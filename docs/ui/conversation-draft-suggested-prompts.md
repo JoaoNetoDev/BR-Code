@@ -50,63 +50,63 @@ A nova homepage de New task adiciona a entrada 「推荐提示词」 logo abaixo
 - O rascunho continua sendo mantido pelo Composer draft renderer-local; o envio continua passando pelas cadeias existentes de `desktop-continuous` no desktop ou `web-remote-replayable` no celular, sem novos estados de negócio de relay/main/Host.
 
 ```text
-点击推荐项
+Clicar numa sugestão
   -> clientScenesService.list()
-  -> 找到 scene == "draft-suggestion" 的 options.prompts.items
-  -> 将 item.labels / item.contents 按当前 locale 解析为 label / prompt
-  -> item.on_finish 按 "," 拆分、trim、去重
-     -> 命中 NAVIGATE:AUTOMATIONS
-        -> 使更早的异步 Plugin 查询失效
-        -> 复用 onOpenAutomationsMain
-        -> 写入 workspace 导航历史并打开 Automations
-        -> 结束，不改写 Composer
-     -> 命中 NAVIGATE:AUTOMATIONS:OFFPEAK
-        -> 使更早的异步 Plugin 查询失效
-        -> 将 automationTab=idle 写入 renderer-local workspace 导航历史
-        -> 打开 Automations，等待 scheduled / idle tab 数据就绪
-        -> visibleTabs 包含 idle ------> 切换到 Idle-time 并消费 intent
-        -> visibleTabs 不包含 idle ---> 保持默认 tab 并消费 intent
-        -> 结束，不改写 Composer
-     -> 没有受支持 action
-        -> 继续 prompt 预填链路
-  -> 根据 item.defaults 的 option key + item id 反查 optional Plugin
-  -> 读取 prompt / optional pluginStableId
-  -> 无 Plugin -------------------------------> 立即一次性写入纯 prompt
-  -> 有 Plugin -> 记录 Composer revision -> 订阅 operationId 进度 -> Agent 可信解析
-                  -> 解析期间 revision 变化 ---> 静默放弃，不覆盖当前草稿
-                  -> enabled 且无冲突 --------> 一次性写入 Plugin chip（含可选 display-only icon）
+  -> Encontrar options.prompts.items onde scene == "draft-suggestion"
+  -> Resolver item.labels / item.contents pelo locale atual em label / prompt
+  -> item.on_finish: dividir por ",", aplicar trim e remover duplicados
+     -> Casa NAVIGATE:AUTOMATIONS
+        -> Invalidar consultas assíncronas anteriores de Plugin
+        -> Reusar onOpenAutomationsMain
+        -> Gravar o histórico de navegação do workspace e abrir Automations
+        -> Terminar, sem reescrever o Composer
+     -> Casa NAVIGATE:AUTOMATIONS:OFFPEAK
+        -> Invalidar consultas assíncronas anteriores de Plugin
+        -> Gravar automationTab=idle no histórico de navegação renderer-local do workspace
+        -> Abrir Automations e esperar os dados das tabs scheduled / idle ficarem prontos
+        -> visibleTabs contém idle ------> alternar para Idle-time e consumir o intent
+        -> visibleTabs não contém idle ---> manter a tab padrão e consumir o intent
+        -> Terminar, sem reescrever o Composer
+     -> Nenhuma action suportada
+        -> Seguir a cadeia de pré-preenchimento do prompt
+  -> Localizar o Plugin opcional pelo option key + item id de item.defaults
+  -> Ler prompt / optional pluginStableId
+  -> Sem Plugin -------------------------------> escrever de imediato, em uma única vez, o prompt puro
+  -> Com Plugin -> registrar a revision do Composer -> assinar o progresso de operationId -> resolução confiável pelo Agent
+                  -> a revision muda durante a resolução ---> descartar em silêncio, sem sobrescrever o rascunho atual
+                  -> enabled e sem conflito --------> escrever em uma única vez o Plugin chip (com ícone display-only opcional)
                                                  + canonical text + prompt
-                                                 -> 不读取 workspace catalog
-                                                 -> 不失效 Runtime、不二次解析
-                  -> disabled ----------------> 唯一 Popover 进入 loading -> 一次性写入纯 prompt
-                                                 + Composer 消费后同一 Popover 原地切换为「开启 {Plugin label} 插件」+「确认」
-                  -> 本地不存在 -> 发出 refreshing(operationId) -> 唯一 Popover 进入 loading
-                  -> missing -> 刷新 zcode-plugins-official（10000ms timeout）
-                               -> 超时 --------> marketplace_refresh_failed；中止刷新并拒绝旧快照
-                               -> 失败 --------> unavailable，禁止旧快照安装；一次性写入纯 prompt
-                               -> 成功且候选可信 -> 一次性写入纯 prompt
-                                                    + Composer 消费后同一 Popover 原地切换为「安装 {Plugin label} 插件」+「确认」
-                                                    -> 点击 Popover 外部：静默取消，只保留纯 prompt
-                                                    -> 点击：User-scope 安装
-                                                       -> 达到 10000ms -> 取消并判定失败，只保留纯 prompt
-                  -> conflict/unavailable ----> 一次性写入纯 prompt
-  -> 安装/启用中 Popover 在原锚点常驻
-  -> 安装/启用完成后失效延迟草稿 Runtime，并由目标 Host 重新可信解析
-  -> 再把 Plugin chip 前置到当前最新草稿
-  -> Composer 更新后，同一个 Popover 收敛为成功态
-  -> 安装失败恢复确认态并允许重试；启用失败显示失败结果
-  -> 替换 Composer + 持久化草稿 + 聚焦
-  -> 用户手动发送
+                                                 -> não lê o workspace catalog
+                                                 -> não invalida o Runtime e não resolve de novo
+                  -> disabled ----------------> o único Popover entra em loading -> escrever em uma única vez o prompt puro
+                                                 + após o Composer consumir, o mesmo Popover muda no lugar para «Ativar o plugin {Plugin label}» + «Confirmar»
+                  -> inexistente localmente -> emitir refreshing(operationId) -> o único Popover entra em loading
+                  -> missing -> atualizar zcode-plugins-official (timeout de 10000ms)
+                               -> timeout --------> marketplace_refresh_failed; abortar a atualização e rejeitar o snapshot antigo
+                               -> falha --------> unavailable, proibir a instalação do snapshot antigo; escrever em uma única vez o prompt puro
+                               -> sucesso e candidato confiável -> escrever em uma única vez o prompt puro
+                                                    + após o Composer consumir, o mesmo Popover muda no lugar para «Instalar o plugin {Plugin label}» + «Confirmar»
+                                                    -> clique fora do Popover: cancela em silêncio e mantém apenas o prompt puro
+                                                    -> clique: instalação no User-scope
+                                                       -> atinge 10000ms -> cancelar e registrar como falha, mantendo apenas o prompt puro
+                  -> conflict/unavailable ----> escrever em uma única vez o prompt puro
+  -> Enquanto instala/ativa, o Popover fica persistente na âncora original
+  -> Após concluir a instalação/ativação, invalidar o Runtime de rascunho atrasado e deixar o Host de destino resolver de novo com confiança
+  -> Em seguida, mover o Plugin chip para o início do rascunho mais recente
+  -> Após o Composer atualizar, o mesmo Popover converge para o estado de sucesso
+  -> Se a instalação falhar, voltar ao estado de confirmação e permitir nova tentativa; se a ativação falhar, exibir o resultado de falha
+  -> Substituir o Composer + persistir o rascunho + focar
+  -> O usuário envia manualmente
 ```
 
 ```text
 operation A active
         |
-点击推荐 B
+Clique na sugestão B
         v
-关闭 A 已存在的 Plugin action Popover（若有） -> abort A -> plugins/cancelOperation(A) -> 清理 A 结果
-        -> B 立即成为 active；A 的迟到结果全部丢弃
-        -> 不显示取消或中断反馈
+Fecha o Plugin action Popover já existente de A (se houver) -> abort A -> plugins/cancelOperation(A) -> limpar os resultados de A
+        -> B se torna active imediatamente; todos os resultados tardios de A são descartados
+        -> não exibe feedback de cancelamento ou interrupção
 ```
 
 ## Componente

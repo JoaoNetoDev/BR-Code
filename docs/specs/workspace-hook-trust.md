@@ -291,28 +291,28 @@ admissão é uma dimensão diferente da permissão comum de ferramentas e do est
 
 ```mermaid
 flowchart TD
-    A["发现 workspace/project 配置"] --> B{"是否存在 project Hook candidates?"}
-    B -- "否" --> N["无需 Trust；继续 Runtime"]
-    B -- "是" --> C["冻结 HookBundleSnapshot Bn"]
-    C --> D["解析真实 enabled gates，计算 bundle/declaration digests"]
-    D --> E{"Managed policy mode?"}
+    A["Descobre a configuração de workspace/project"] --> B{"Existem project Hook candidates?"}
+    B -- "não" --> N["Sem necessidade de Trust; o Runtime continua"]
+    B -- "sim" --> C["Congela o HookBundleSnapshot Bn"]
+    C --> D["Resolve os enabled gates reais e calcula os digests de bundle/declaration"]
+    D --> E{"Modo de managed policy?"}
     E -- "deny" --> P["blocked_policy"]
-    E -- "允许评估" --> F["查询 persistent Trust"]
-    F --> G{"即将 dispatch 的 enabled Hook 是否全部 admitted?"}
-    G -- "是" --> R["激活同一 snapshot 中 admitted Hook"]
-    G -- "否" --> H{"是否到达真实 dispatch 入口?"}
-    H -- "否：draft/discovery" --> W["pending_trust；不自动打开"]
-    H -- "是" --> Q["产生 HookRunBlocked；跳过 pending Hook；turn 继续"]
-    Q --> K["投影 pendingCount；会话提示可按需进入 Hooks 设置"]
-    K --> L{"用户是否逐条点击 Trust?"}
-    L -- "是" --> J["创建/复用 immutable review generation，或走无 session pretrust RPC"]
-    J --> M["重验 identity + bundle + declaration，写 persistent record"]
-    L -- "否/关闭/断连/超时" --> V["不写 Trust；pending admission 保持"]
-    L -- "修改 editable toggle" --> U["原子写配置；generation n superseded"]
-    U --> C2["重新 discovery，构建 Bn+1 与 generation n+1"]
+    E -- "permite avaliação" --> F["Consulta o Trust persistente"]
+    F --> G{"Todos os enabled Hook que vão ser despachados estão admitted?"}
+    G -- "sim" --> R["Ativa os Hook admitted do mesmo snapshot"]
+    G -- "não" --> H{"Chegou à entrada real de dispatch?"}
+    H -- "não: draft/discovery" --> W["pending_trust; não abre automaticamente"]
+    H -- "sim" --> Q["Gera HookRunBlocked; pula os Hook pending; o turno continua"]
+    Q --> K["Projeta pendingCount; o aviso da sessão pode levar às configurações de Hooks sob demanda"]
+    K --> L{"O usuário clicou em Trust item a item?"}
+    L -- "sim" --> J["Cria/reaproveita a immutable review generation, ou usa o pretrust RPC sem session"]
+    J --> M["Reverifica identity + bundle + declaration e grava o persistent record"]
+    L -- "não/fecha/desconexão/timeout" --> V["Não grava Trust; a admission pending permanece"]
+    L -- "altera um toggle editable" --> U["Grava a configuração de forma atômica; generation n superseded"]
+    U --> C2["Refaz o discovery e constrói Bn+1 e generation n+1"]
     C2 --> F
     M --> G
-    R --> Z["与 user/plugin/internal Hook 按 provenance 顺序执行"]
+    R --> Z["Executa em ordem de provenance junto com os Hook de user/plugin/internal"]
     P --> Z
     Q --> Z
 ```

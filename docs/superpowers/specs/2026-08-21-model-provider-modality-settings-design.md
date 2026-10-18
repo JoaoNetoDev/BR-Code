@@ -125,45 +125,45 @@ O rascunho precisa rastrear separadamente se as modalidades foram tocadas pelo u
 ## Estado e cadeia de sincronização
 
 ```text
-模型设置弹窗
-  local draft
-  ├─ inputModalities
-  ├─ outputModalities=[text]
-  └─ modalitiesTouched
+modal de configurações de modelo
+  rascunho local
+  +-- inputModalities
+  +-- outputModalities=[text]
+  +-- modalitiesTouched
           |
-          | 保存 + 校验
+          | salvar + validar
           v
-本地 modelProviderService（唯一权威）
+modelProviderService local (única autoridade)
   ~/.zcode/v2/config.json
-  ├─ model.modalities.input/output
-  └─ model.zcode.modalitiesConfigured
+  +-- model.modalities.input/output
+  +-- model.zcode.modalitiesConfigured
           |
-          | provider registry revision
+          | revisão do provider registry
           +-------------------------------+
           |                               |
           v                               v
-桌面本地 runtime                    desktop-attached 远端 runtime
-workspace/updateProviderRegistry     本地快照显式下发，不写远端配置
+runtime local do desktop                  runtime remoto desktop-attached
+workspace/updateProviderRegistry          o snapshot local é enviado explicitamente, sem escrever a configuração remota
           |                               |
           +---------------+---------------+
                           v
-协议模型能力投影
-  catalog-backed 或 modalitiesConfigured=true
-    ├─ input 包含 image -> supportsImages=true
-    ├─ input 不含 image -> supportsImages=false
-    ├─ input 包含 pdf   -> supportsPdf=true
-    ├─ input 不含 pdf   -> supportsPdf=false
-    ├─ input 包含 video -> supportsVideo=true
-    └─ input 不含 video -> supportsVideo=false
+projeção de capacidades do modelo via protocolo
+  catalog-backed ou modalitiesConfigured=true
+    +-- input contém image -> supportsImages=true
+    +-- input sem image -> supportsImages=false
+    +-- input contém pdf   -> supportsPdf=true
+    +-- input sem pdf   -> supportsPdf=false
+    +-- input contém video -> supportsVideo=true
+    +-- input sem video -> supportsVideo=false
 
-  legacy custom 且未显式配置
-    └─ 不下发 supportsImages/supportsPdf/supportsVideo，保持 unknown
+  legacy custom e sem configuração explícita
+    +-- não envia supportsImages/supportsPdf/supportsVideo, mantém unknown
                           |
                           v
-当前 session 热更新 modelInputMediaCapabilities
+atualização a quente de modelInputMediaCapabilities na session atual
                           |
                           v
-provider-visible request 媒体保留或文本化
+mídia preservada ou transformada em texto na request visível ao provider
 ```
 
 ### Fronteira do cliente

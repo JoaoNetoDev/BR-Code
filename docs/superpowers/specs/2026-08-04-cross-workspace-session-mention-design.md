@@ -28,33 +28,33 @@ O usuário exige que `#` permita escolher conversas de todos os workspaces. Esta
 ```text
 Composer trigger
         |
-        +-- @ ----------------------------> 当前 workspace sessions-index（保持原行为）
+        +-- @ ----------------------------> sessions-index do workspace atual (mantém o comportamento original)
         |
         +-- #
              |
              v
-当前 composer workspace
+workspace atual do composer
         |
         v
-解析 conversation storage authority
+resolver a autoridade do armazenamento de conversas
         |
-        +-- Local Host / base service
-        |      └-- 当前窗口全部 local workspace sessions-index
+        +-- Local Host / serviço base
+        |      +-- todos os sessions-index de workspaces locais da janela atual
         |
         +-- Remote Host / remoteSessionId
-               └-- 同一 remote authority 下全部 workspace sessions-index
+               +-- todos os sessions-index de workspaces sob a mesma autoridade remote
 
-其他 Host / 未连接 remote
-        └-- 剪枝：不展示，不回退到 base service
+outros Hosts / remote não conectado
+        +-- poda: não exibe e não faz fallback para o serviço base
 
-聚合结果
-  -> workspaceKey = workspaceIdentity?.trim() || workspacePath 去重 scope
-  -> session id 去重
-  -> 当前 workspace 优先
-  -> 其余按最近更新时间
-  -> 全量 query 匹配
-  -> 每个 workspaceKey 最多保留 20 条
-  -> 仍插入 [#Title](#sess_id)
+resultado agregado
+  -> deduplica o escopo por workspaceKey = workspaceIdentity?.trim() || workspacePath
+  -> deduplica os ids de session
+  -> workspace atual tem prioridade
+  -> os restantes por última atualização
+  -> correspondência em toda a base (query completo)
+  -> no máximo 20 itens por workspaceKey
+  -> ainda insere [#Title](#sess_id)
 ```
 
 ## Matriz de Superfícies de UI

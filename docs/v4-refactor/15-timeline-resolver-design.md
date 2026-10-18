@@ -18,16 +18,16 @@ As 4 ordens que hoje se confundem mais facilmente:
 
 ```text
 eventSeq
-  事件到达 / 持久化顺序
+  ordem de chegada do evento / de persistência
 
 runtimeTurnId
-  runtime loop、trace、provider roundtrip 归属
+  atribuição do runtime loop, do trace e do roundtrip do provider
 
 productTurnId
-  用户可见的逻辑轮次，queue drain、model-only continuation、background wake 都可能创建新轮次
+  rodada lógica visível ao usuário; queue drain, model-only continuation e background wake podem criar novas rodadas
 
 visualPlacement
-  UI timeline 上应该出现的位置，例如 assistant work 内部、turn tail boundary、下一轮之前的 light boundary
+  posição em que deve aparecer no timeline da UI, por exemplo dentro do assistant work, no turn tail boundary ou no light boundary antes da próxima rodada
 ```
 
 Essas 4 ordens não podem compartilhar um mesmo `turnId`, `rowId` ou append order. `event.turnId` é um fato de runtime e não equivale ao container de turn da UI; `row.appended` é uma otimização de transporte e não equivale à autoridade de ordenação visual.
@@ -49,44 +49,44 @@ Esses arbitramentos apontam para uma estrutura: é preciso primeiro estabelecer 
 A maioria dos casos de “mensagem engolida” não é o fato subjacente realmente inexistente, mas rows da UI após a projeção sofrendo de agrupamento errado, sobrescrita ou ocultação.
 
 ```text
-Case A: queue drain 仍落在同一个 runtime turn
+Case A: o queue drain ainda cai no mesmo runtime turn
 
 T1 user Q1
 T1 assistant A1
 T1 drained user Q2
 T1 assistant A2
 
-如果 UI 只把同 turn 最后一条 assistant 当正文，A1 会被折进 history，
-用户感觉上一轮 assistant 没渲染。
+Se a UI tratar só a última assistant do mesmo turn como corpo, A1 será dobrada dentro do history,
+e o usuário sente que a assistant da rodada anterior não renderizou.
 ```
 
 ```text
-Case B: queue item 被移除，但没有稳定 userInput entity 承接
+Case B: o queue item é removido, mas nenhuma entidade userInput estável o recebe
 
 Q[Q2] -> remove queue item
-没有 userInput(sourceCommandId=Q2)
+não há userInput(sourceCommandId=Q2)
 
-用户看到 queue 消失，transcript 也没有。
+O usuário ve o queue sumir, e o transcript também não tem nada.
 ```
 
 ```text
-Case C: boundary marker 没有 anchor/placement
+Case C: o boundary marker não tem anchor/placement
 
 assistant A1 final
-goalVerify started event 晚到或 trace turnId 不等于 A1 turnId
+o goalVerify started event chega tarde ou o trace turnId é diferente do turnId de A1
 
-如果只能 append 到尾部，marker 会落到错误轮次后面。
+Se só der para fazer append no fim, o marker cai depois da rodada errada.
 ```
 
 ```text
-Case D: 多个 assistant segment 被当作一个 latest assistant 模板
+Case D: vários assistant segments são tratados como um único template de latest assistant
 
 assistant A1.1 before tool
 tool result
 assistant A1.2 final
 
-如果投影只保留 latest，或 fork target 绑定早段 raw assistant，
-就会丢最终回复、工具结果或文件引用。
+Se a projeção só mantiver o latest, ou se o fork target se ligar ao raw assistant do segmento inicial,
+a resposta final, o resultado da ferramenta ou a referência a arquivo se perdem.
 ```
 
 A causa raiz não é a UI faltar um `if`, e sim a projeção do CLI não ter concluído antes a conservação semântica e a ordenação autoritativa.
@@ -118,27 +118,27 @@ Raw Event Journal / Persisted Facts
         |
         v
 Event Normalizer
-  把 provider/runtime/legacy 数据归一为语义事件
+  normaliza os dados de provider/runtime/legacy em eventos semânticos
         |
         v
 Semantic Ledger
-  维护 typed entities，不直接输出 UI row
+  mantém typed entities, sem emitir UI row diretamente
         |
         v
 Timeline Constraint Graph
-  用 cause / anchor / lifecycle / copy / wake 建边
+  cria as arestas com cause / anchor / lifecycle / copy / wake
         |
         v
 Timeline Resolver
-  计算 productTurnId、lane、placement、orderKey、visibility
+  calcula productTurnId, lane, placement, orderKey, visibility
         |
         v
 Materializer
-  生成 ResolvedTimelineSnapshot，兼容期可再降级为 rows.window
+  gera o ResolvedTimelineSnapshot, que na fase de compatibilidade pode degradar para rows.window
         |
         v
 UI
-  无脑渲染 resolved snapshot，不再猜 turn tail 或 hidden message
+  renderiza o resolved snapshot sem pensar, sem adivinhar de novo turn tail ou hidden message
 ```
 
 ## Campos físicos mínimos e semântica de domínio
@@ -179,28 +179,28 @@ Não é possível comprimir essa semântica em um único `pid`. O `pid` só cons
 
 ```text
 id
-  我是谁
+  quem sou eu
 
 sequence
-  我在当前 session 事实流里的权威顺序
+  minha ordem autoritativa no fluxo de fatos da session atual
 
 parent / response-to
-  assistant 回应哪个 user message
+  a qual user message o assistant responde
 
 cause
-  我由哪个 command / queue item / background wake 触发
+  qual command / queue item / background wake me disparou
 
 anchor
-  marker 显示上应该锚到哪个 message 或 turn 附近
+  perto de qual message ou turn o marker deve ser ancorado na exibição
 
 lifecycle
-  command 是 admitted、promoted、completed 还是 failed
+  se o command esta admitted, promoted, completed ou failed
 
 origin
-  fork/copy 后来自哪个原 session / 原 message
+  de qual session / message original o fork/copy veio
 
 visibility
-  UI 可见、仅 provider 可见，还是只影响状态
+  visível na UI, visível apenas para o provider, ou afeta somente o estado
 ```
 
 Se se tentar reutilizar à força um único `pid`, o campo passa a significar `response-to`, `display-after`, `caused-by`, `fork-from` ou `compact-before` conforme o cenário. O número de campos diminui, mas a semântica é contaminada e o resolver continua obrigado a adivinhar.
@@ -243,25 +243,25 @@ O timeline não tem mais apenas duas categorias, “mensagem do usuário” e �
 
 ```text
 queue
-  QueueItem，只显示在 queue UI，不进入 transcript
+  QueueItem, exibido apenas na UI de queue e sem entrar no transcript
 
 trigger
-  visible UserIntent 或 modelOnly UserIntent，创建 product turn
+  visible UserIntent ou modelOnly UserIntent, cria o product turn
 
 assistantWork
-  assistant text / reasoning / tool / subagent / compact activity
+  atividade de assistant text / reasoning / tool / subagent / compact
 
 turnTailBoundary
-  goalVerify / fork，锚定某个 logical turn 的结尾
+  goalVerify / fork, ancorado no fim de um logical turn
 
 lightBoundary
-  modelChange，作为轻量轮次边界
+  modelChange, como fronteira leve de rodada
 
 detachedState
-  BackgroundWork 状态，通常由 summary/control surface 展示
+  estado de BackgroundWork, exibido normalmente pela summary/control surface
 
 stateOnly
-  只影响状态，不进入 timeline rows
+  afeta apenas o estado, sem entrar nas timeline rows
 ```
 
 Ranks de lane típicos:
@@ -470,12 +470,12 @@ Portanto, depois do fork, cada message copiada tem duas identidades:
 
 ```text
 local identity
-  child session 内的新 id / 新 sequence
-  用于排序、渲染、继续对话、anchor 解析
+  novo id / nova sequence dentro da child session
+  usado para ordenar, renderizar, continuar a conversa e resolver o anchor
 
 origin provenance
   parent session / parent message / parent sequence
-  只用于追溯来源、展示来源、debug，不参与 child 的 UI placement
+  usado apenas para rastrear a origem, exibi-la e depurar; não participa do UI placement da child
 ```
 
 Todas as referências locais copiadas precisam ser remapeadas para os ids locais da child session:
@@ -488,7 +488,7 @@ child:
   S2.A2'.parentMessageId = S2.U2'
   S2.A2'.originMessageId = S1.A2
 
-错误:
+errado:
   S2.A2'.parentMessageId = S1.U2
 ```
 
@@ -572,19 +572,19 @@ A UI pode reutilizar temporariamente os componentes existentes, mas deixa de inf
 O delta append-only existente pode ser mantido, mas a semântica precisa ser apertada:
 
 ```text
-尾部新增
+Novo no fim
   row.appended
 
-生命周期状态更新
+Atualização de estado de lifecycle
   row.upserted
 
-分支删除
+Remoção de branch
   row.removed
 
-文本增量
+Delta de texto
   row.delta
 
-非尾部插入 / 重排 / late placement 修正
+Inserção fora do fim / reordenação / correção de late placement
   snapshot.resync
 ```
 
@@ -595,34 +595,34 @@ Não se deve deixar o cliente simular movimentação com `row.upserted`, porque 
 Depois de gerar cada snapshot, o resolver precisa rodar as verificações de conservação. Em caso de falha, não se deve enviar um snapshot quebrado para a UI: é preciso registrar o error e expor o diagnóstico em ambiente de desenvolvimento.
 
 ```text
-输入守恒
-  每个 visible inputId 必须在 QueueItem 或 UserIntent row 中二选一。
-  不能两边都没有，不能两边都有。
+Conservação da entrada
+  Cada visible inputId precisa estar em uma linha QueueItem ou em uma linha UserIntent.
+  Não pode não estar em nenhuma, nem estar nas duas.
 
-assistant 守恒
-  每个 assistantMessageId 必须对应一个 AssistantSegment。
-  后来的 assistant 不能覆盖前一个 assistant。
+Conservação do assistant
+  Cada assistantMessageId precisa corresponder a um AssistantSegment.
+  Um assistant posterior não pode sobrescrever o assistant anterior.
 
-compact 守恒
-  每个 compact operationId/inputId 对应一个 WorkActivity。
-  started/success/failed/interrupted 更新同一实体。
+Conservação do compact
+  Cada compact operationId/inputId corresponde a um WorkActivity.
+  started/success/failed/interrupted atualizam a mesma entidade.
 
-goal verify 守恒
-  同一 targetId + iteration 只有一个 boundary entity。
-  verificationId 是 alias，不是 UI 主身份。
+Conservação do goal verify
+  Há apenas uma boundary entity para o mesmo targetId + iteration.
+  verificationId é um alias, não a identidade principal da UI.
 
-fork 守恒
-  fork source 必须是稳定 assistant segment。
-  child 不能包含 parent queue、live background work、pending background result、continuation inbox、active run fields。
+Conservação do fork
+  A origem do fork precisa ser um assistant segment estável.
+  A child não pode conter a queue do parent, live background work, pending background result, continuation inbox nem active run fields.
 
-background 守恒
-  每个 completed background notification 要么 pending wake，要么已生成 modelOnly wake turn。
-  不生成 visible user bubble。
+Conservação do background
+  Cada completed background notification ou fica como pending wake, ou já gerou o modelOnly wake turn.
+  Não gera visible user bubble.
 
-渲染守恒
-  visible entity 必须有 renderer。
-  stateOnly entity 不得进入 timeline rows。
-  hidden/modelOnly trigger 不得影响 visible user turn count。
+Conservação da renderização
+  Toda visible entity precisa ter renderer.
+  Uma stateOnly entity não pode entrar nas timeline rows.
+  Um hidden/modelOnly trigger não pode afetar o visible user turn count.
 ```
 
 ## Estrutura real de persistência
@@ -640,11 +640,11 @@ UI v4 virtual projection
 
 App metadata store: ~/Library/Application Support/ai.z.zcode/zcode.db
   - sessions / workspaces / follow_up_queue / session_notifications
-  - 不存完整 transcript
+  - não guarda o transcript completo
 
 Task list/search index: ~/.zcode/v2/tasks-index.sqlite
   - tasks / task_groups / searchable_text
-  - 只服务列表、分组、搜索，不应作为消息顺序真相源
+  - serve apenas a lista, o agrupamento e a busca, e não deve ser a fonte de verdade da ordem das mensagens
 ```
 
 O DB real do CLI é o banco autoritativo do corpo da sessão. A escala observada nesta inspeção:
@@ -724,29 +724,29 @@ Este documento não exige que todos os campos do resolver virem diretamente colu
 A questão de o banco precisar de novas colunas físicas precisa ser tratada com camadas de risco:
 
 ```text
-必须先修
-  所有未来 message / part 写入都带 sequence。
-  没有 sequence 的历史/异常数据在读取时必须可推导，不得丢弃。
+Corrigir primeiro obrigatoriamente
+  Toda escrita futura de message / part carrega sequence.
+  Dados históricos ou anômalos sem sequence precisam ser derivados na leitura, sem serem descartados.
 
-建议新增或等价实现
-  session_command / session_input 账本。
-  至少表达 command/input admitted -> promoted -> cancelled/failed 的 durable 生命周期。
-  可以是独立表，也可以是 session_event 里的 command.* events；
-  但不能只存在 renderer-local queue 或 runtime 内存里。
+Recomendado adicionar ou implementar de forma equivalente
+  um ledger de session_command / session_input.
+  No mínimo expressar o lifecycle durável command/input admitted -> promoted -> cancelled/failed.
+  Pode ser uma tabela separada ou command.* events dentro de session_event;
+  mas não pode existir apenas na queue renderer-local ou na memória do runtime.
 
-建议补强 JSON contract
-  semantics / anchor / sourceCommandId / cause / visibility / lifecycleKey。
-  这些字段是 resolver 语义锚点，适合增量写入 JSON，保持老数据兼容。
+Recomendado reforçar o JSON contract
+  semantics / anchor / sourceCommandId / cause / visibility / lifecycleKey.
+  Esses campos são âncoras semânticas do resolver, adequados para escrita incremental em JSON, mantendo a compatibilidade dos dados antigos.
 
-暂不优先加物理列
-  productTurnId / orderKey / lane / placement。
-  这些是 resolver 输出，不是原始事实。可以缓存，但不应成为唯一事实。
+Baixa prioridade para colunas físicas agora
+  productTurnId / orderKey / lane / placement.
+  São saída do resolver, não fatos brutos. Podem ser cacheados, mas não devem ser o único fato.
 ```
 
 Fronteira mínima de persistência recomendada:
 
 ```text
-event_sequence 或 session_sequence
+event_sequence ou session_sequence
   session_id
   next_sequence
 
@@ -765,8 +765,8 @@ session_command / session_input
   time_updated
 
 message / part
-  sequence 非空
-  data JSON 带 typed refs / semantics
+  sequence não nulo
+  data JSON com typed refs / semantics
 ```
 
 Se já existir um allocator unificado capaz de garantir que todos os transcript facts usem a mesma sequência monotônica dentro da sessão, a tabela `session_sequence` pode ser dispensada; caso contrário, um allocator novo ou equivalente deve ser adicionado, para evitar que message, part, session_entry e command gerem ordens incomparáveis entre si.
@@ -779,23 +779,23 @@ Primeiro estabilize o resolver com L1/L2 e então escolha E2E representativos. O
 
 ```text
 L1: Semantic Ledger / Resolver golden
-  输入事件序列 -> typed entities -> resolved orderKey/nodes
+  sequência de eventos de entrada -> typed entities -> orderKey/nodes resolvidos
 
 L2: Materializer / profile convergence
-  continuous/replayable 最终 snapshot 一致
-  late placement 触发 resync
+  o snapshot final de continuous/replayable e idêntico
+  late placement dispara resync
 
 L3: UI render unit
-  UI 只按 resolved nodes 渲染，不重新猜 turn tail
+  a UI renderiza apenas pelos resolved nodes, sem adivinhar turn tail de novo
 
 L4: E2E representative
-  queue drain 两轮 assistant 都可见
-  compact 不产生用户气泡，不切碎 assistant work
-  goal verify 按 anchor 落 turn tail
-  modelChange 不污染首轮和草稿切换
-  fork graph cut 不复制 queue/background
-  merged assistant fork 只允许最后稳定 segment
-  background completion model-only wake 不显示用户气泡
+  com queue drain, as duas rodadas de assistant ficam visíveis
+  compact não gera bolha de usuário nem fragmenta o assistant work
+  goal verify cai no turn tail pelo anchor
+  modelChange não contamina a primeira rodada nem a troca de rascunho
+  o graph cut do fork não copia queue/background
+  o fork de assistant mesclado só permite o último segment estável
+  o modelOnly wake de background completion não mostra bolha de usuário
 ```
 
 ## Recomendações de migração
@@ -825,17 +825,17 @@ L4: E2E representative
 Para resolver de fato o problema de ordem de mensagens e de mensagens engolidas, não se pode continuar tratando a projeção do CLI como um “row append reducer”. O CLI precisa se tornar uma verdadeira autoridade de timeline:
 
 ```text
-事实归一
+Normalização dos fatos
   raw events -> typed semantic entities
 
-顺序归一
+Normalização da ordem
   constraint graph -> productTurnId / lane / orderKey
 
-显示归一
-  resolved snapshot -> UI 无脑渲染
+Normalização da exibição
+  resolved snapshot -> a UI renderiza sem pensar
 
-守恒归一
-  输入、assistant、compact、goal、fork、background 全部有 invariant
+Normalização da conservação
+  entrada, assistant, compact, goal, fork e background têm todos invariant
 ```
 
 Só ao chegar nesse nível a UI poderá de fato parar de adivinhar, complementar e engolir.

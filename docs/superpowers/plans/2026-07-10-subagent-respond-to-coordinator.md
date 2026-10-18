@@ -659,11 +659,11 @@ Em `permission-service.test.ts`, defina uma capability de resposta com `allowedI
 
 ```text
 plan + explicit session capability -> allow / mode.plan.explicitSessionCapability
-plan + 同一 capability + global disallow -> deny / rule.disallowedTools
-plan + 同一 capability + project deny -> deny / rule.project.deny
-plan + 同一 capability + project ask -> ask / rule.project.ask
-plan + 非只读 session capability 但没有 allowedInPlanMode -> deny / mode.plan.nonReadOnly
-plan + allowedInPlanMode 但 destructive/needsApproval/非 session -> deny / mode.plan.nonReadOnly
+plan + a mesma capability + global disallow -> deny / rule.disallowedTools
+plan + a mesma capability + project deny -> deny / rule.project.deny
+plan + a mesma capability + project ask -> ask / rule.project.ask
+plan + capability de sessão não somente leitura mas sem allowedInPlanMode -> deny / mode.plan.nonReadOnly
+plan + allowedInPlanMode mas destructive/needsApproval/não session -> deny / mode.plan.nonReadOnly
 ```
 
 Essas asserções fixam a prioridade: a nova capability não pode contornar políticas explícitas já existentes.
@@ -964,7 +964,7 @@ Adicione um teste em `runtime-tool-loop.test.ts`:
 ```text
 parent model request #1 -> NotifyWithSubagentMessage tool
 tool handler -> runtime.enqueueSubagentMessage(...)
-parent model request #2 -> 必须同时看见 tool result 和 <subagent-message>
+parent model request #2 -> precisa ver o tool result e o <subagent-message> ao mesmo tempo
 ```
 
 Asserte:
@@ -1249,7 +1249,7 @@ Cubra ainda quatro superfícies negativas:
 child config + missing coordinator port -> tool absent
 child config + global toolDisallowlist -> tool absent
 main config + accidentally injected coordinator port -> tool absent
-tool absent -> provider tool descriptions/common system notes 均不包含 RespondToCoordinator
+tool absent -> as tool descriptions do provider e as notas de sistema comuns não contêm RespondToCoordinator
 ```
 
 No novo `runtime-tool-allowlist.test.ts`, teste `resolveBuiltInToolAllowlist()` diretamente: o Explore child ainda contém a tool de resposta depois da interseção com `EXPLORE_AGENT_ALLOWED_TOOLS`; o Explore main não é adicionado; o allowlist explícito `Read` do custom child vira `Read + RespondToCoordinator`; e o `undefined` do child geral continua `undefined` (o que significa não aplicar filtro de allowlist built-in).

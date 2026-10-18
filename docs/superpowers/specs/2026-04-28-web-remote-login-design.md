@@ -54,55 +54,55 @@ Quando a interface de lista de dispositivos do backend estiver completa, o novo 
 ### Produção (caminho padrão)
 
 ```
-用户访问 https://zcode.z.ai/web-remote?remoteControlToken=xxx&relayOrigin=https%3A%2F%2Frelay.example
-   ↓ 检测缓存会话不完整
-全屏登录页
-   ↓ 点击"用 ZAI 登录"
-跳转 https://chat.z.ai/api/oauth/authorize
+usuário acessa https://zcode.z.ai/web-remote?remoteControlToken=xxx&relayOrigin=https%3A%2F%2Frelay.example
+   ↓ detecta sessão em cache incompleta
+página de login em tela cheia
+   ↓ clica em "Entrar com ZAI"
+redireciona para https://chat.z.ai/api/oauth/authorize
   ?redirect_uri=https%3A%2F%2Fzcode.z.ai%2Fweb-remote%2Fcallback
   &response_type=code
   &client_id=xxx
   &state=<base64url({nonce, app_return_to: "https://zcode.z.ai/web-remote?remoteControlToken=xxx&relayOrigin=..."})>
-   ↓ 用户在 ZAI 授权页同意
-回到 https://zcode.z.ai/web-remote/callback?code=xxx&state=yyy
-   ↓ 检测 return_to 不存在或等于 self.origin，直接换 token
+   ↓ o usuário concorda na página de autorização da ZAI
+volta para https://zcode.z.ai/web-remote/callback?code=xxx&state=yyy
+   ↓ detecta que return_to não existe ou é igual a self.origin e troca o token direto
 POST https://zcode.z.ai/api/v1/oauth/token
   {code, redirect_uri, state}
    ↓
-返回 {code: 0, data: {token: "eyJ...", zai: {access_token: "zai_..."}, user: {...}}}
-   ↓ 存入 localStorage['zcodejwttoken'] = "eyJ..."
-   ↓ 存入 localStorage['oauth:zai:access_token'] = "zai_..."
-   ↓ 存入 localStorage['oauth:zai:user_info'] = data.user 原始结构，并在恢复展示态时映射为 UserInfo
-   ↓ 存入 localStorage['oauth:active_provider'] = "zai"
-   ↓ replace 到 app_return_to，保留 remoteControlToken / relayOrigin
-全屏登录页 → 继续现有 remoteControlToken relay bootstrap
+retorna {code: 0, data: {token: "eyJ...", zai: {access_token: "zai_..."}, user: {...}}}
+   ↓ grava em localStorage['zcodejwttoken'] = "eyJ..."
+   ↓ grava em localStorage['oauth:zai:access_token'] = "zai_..."
+   ↓ grava em localStorage['oauth:zai:user_info'] = data.user na estrutura original e mapeia para UserInfo ao restaurar o estado de exibição
+   ↓ grava em localStorage['oauth:active_provider'] = "zai"
+   ↓ replace para app_return_to, preservando remoteControlToken / relayOrigin
+página de login em tela cheia → segue o bootstrap de relay do remoteControlToken já existente
 ```
 
 ### Desenvolvimento (caminho de encaminhamento por `return_to`)
 
 ```
-开发者电脑本地启动: VITE_DEV_ORIGIN=http://192.168.x.x:5173 pnpm dev
-手机浏览器访问: http://192.168.x.x:5173/web-remote?remoteControlToken=xxx&relayOrigin=...
-   ↓ 检测缓存会话不完整
-全屏登录页
-   ↓ 点击"用 ZAI 登录"
-跳转 https://chat.z.ai/api/oauth/authorize
+computador do desenvolvedor em execução local: VITE_DEV_ORIGIN=http://192.168.x.x:5173 pnpm dev
+navegador do celular acessa: http://192.168.x.x:5173/web-remote?remoteControlToken=xxx&relayOrigin=...
+   ↓ detecta sessão em cache incompleta
+página de login em tela cheia
+   ↓ clica em "Entrar com ZAI"
+redireciona para https://chat.z.ai/api/oauth/authorize
   ?redirect_uri=https%3A%2F%2Fzcode.z.ai%2Fweb-remote%2Fcallback
   &state=<base64url({
     nonce,
     return_to: "http://192.168.x.x:5173/web-remote/callback",
     app_return_to: "http://192.168.x.x:5173/web-remote?remoteControlToken=xxx&relayOrigin=..."
   })>
-   ↓ 用户在 ZAI 授权页同意
-回到 https://zcode.z.ai/web-remote/callback?code=xxx&state=yyy
-   ↓ 解 state，检测 return_to 存在且 ≠ self.origin
-   ↓ 生产中转页不校验本地 nonce、不换 token，只负责白名单校验和转发
+   ↓ o usuário concorda na página de autorização da ZAI
+volta para https://zcode.z.ai/web-remote/callback?code=xxx&state=yyy
+   ↓ decodifica state e detecta que return_to existe e é ≠ self.origin
+   ↓ em produção a página de desvio não valida o nonce local nem troca o token; ela só faz a validação de whitelist e o encaminhamento
 302 Location: http://192.168.x.x:5173/web-remote/callback?code=xxx&state=yyy
-   ↓ 手机浏览器访问局域网 IP
+   ↓ o navegador do celular acessa o IP da rede local
 http://192.168.x.x:5173/web-remote/callback?code=xxx&state=yyy
-   ↓ 最终本地页验证 nonce
-   ↓ 通过 Vite proxy 或后端 CORS 白名单 POST https://zcode.z.ai/api/v1/oauth/token 换 token
-存入 localStorage → replace 到 app_return_to，保留 remoteControlToken / relayOrigin
+   ↓ a página local final valida o nonce
+   ↓ via Vite proxy ou pela whitelist de CORS do backend faz POST https://zcode.z.ai/api/v1/oauth/token para trocar o token
+grava em localStorage → replace para app_return_to, preservando remoteControlToken / relayOrigin
 ```
 
 ## Design da estrutura de `state`

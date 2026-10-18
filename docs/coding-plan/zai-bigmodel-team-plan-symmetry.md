@@ -33,39 +33,39 @@ Este spec descreve a mudança que alinha zai e bigmodel em toda a cadeia do Team
 ## Situação atual: tabela de assimetria dos 5 elos
 
 ```text
-环节                  bigmodel                          zai
+elo                        bigmodel                                        zai
 ──────────────────────────────────────────────────────────────────────
-① service 路由       createCodingPlanSubscriptionService
-                      └─ new BigModelCodingPlanSubscriptionProvider
-                         enterprise 读方法 hardcode bigmodelCodingPlan   ❌ 无 zai 路由
-                         + bigmodel host + bigmodel token                 所有调用直达 bigmodel provider
+① roteamento service       createCodingPlanSubscriptionService
+                           └─ new BigModelCodingPlanSubscriptionProvider
+                           enterprise: leitura hardcoded bigmodelCodingPlan ❌ sem roteamento para zai
+                           + bigmodel host + bigmodel token                todas as chamadas vão direto ao provider bigmodel
 
-② request 类型       EnterpriseCodingPlanPricingRequest
-                      └─ { authenticated?: boolean }                   ❌ 无 family 字段
+② tipo request             EnterpriseCodingPlanPricingRequest
+                           └─ { authenticated?: boolean }                  ❌ sem campo family
 
-③ 数据获取 hook      useEnterpriseCodingPlanProducts
-                      ├─ getStaticTeamProducts 读 bigmodelCodingPlan    ❌ 无 family 参数
-                      └─ getEnterprisePricing({ authenticated })          单实例只服务 bigmodel
+③ hook de dados            useEnterpriseCodingPlanProducts
+                           ├─ getStaticTeamProducts lê bigmodelCodingPlan  ❌ sem parâmetro family
+                           └─ getEnterprisePricing({ authenticated })      uma instância só serve bigmodel
 
-④ connection key     plan-identity.ts
-                      createBigModelTeamPlanConnectionKey               ⚠️ dispatcher 对 zai 走通用拼接
-                      prefix = "team-plan:builtin:bigmodel-coding-plan:"   但 parse/matches 只认 bigmodel 前缀
-                                                                       zai key 永远匹配失败（死代码）
+④ connection key           plan-identity.ts
+                           createBigModelTeamPlanConnectionKey             ⚠️ o dispatcher usa concatenação genérica para zai
+                           prefix = "team-plan:builtin:bigmodel-coding-plan:" mas parse/matches só aceitam o prefixo bigmodel
+                                                                           a key zai nunca casa (código morto)
 
-⑤ UI 可见性          providerFamilyConnectionVisibility.ts
+⑤ visibilidade na UI       providerFamilyConnectionVisibility.ts
                       ├─ filterStartPlanItems:
                       │  hasTeamPlanEntitlement =
-                      │    familySpec.id === "bigmodel" && ...           ❌ zai 永远 false
+                      │    familySpec.id === "bigmodel" && ...             ❌ zai sempre false
                       ├─ appendSubscribedTeamPlanItems:
-                      │  codingPlanItem = items.find(bigmodelCodingPlan) ❌ 只从 bigmodel 派生
+                      │    codingPlanItem = items.find(bigmodelCodingPlan) ❌ derivado só de bigmodel
                       └─ buildEntitlementTeamPlanItems:
-                         entitlements[bigmodelCodingPlan]                ❌ 只读 bigmodel entitlement
+                           entitlements[bigmodelCodingPlan]                ❌ lê só entitlement bigmodel
 
-登录后选 key          resolveLatestModelProviderFamilyConnectionSelection
-                      familySpec.id === "bigmodel" 守卫                  ❌ zai 有订阅也不识别
+seleção de key pós-login   resolveLatestModelProviderFamilyConnectionSelection
+                           guarda familySpec.id === "bigmodel"             ❌ zai com assinatura também não é reconhecido
 
-失效清理              ModelProviderSection 清理 useEffect（重复两份）
-                      只读 selectedKeys.bigmodel                        ❌ zai 不清理
+limpeza de expiração       ModelProviderSection: useEffect de limpeza (duplicado)
+                           lê apenas selectedKeys.bigmodel                 ❌ zai não é limpo
 ```
 
 **Fatos-chave (verificados diretamente na fonte)**:
@@ -84,13 +84,13 @@ Este spec descreve a mudança que alinha zai e bigmodel em toda a cadeia do Team
 ## Objetivo: simetria nos 5 elos + key gerada por family
 
 ```text
-环节① service:    按 request.family 路由 to separate ZaiCodingPlanSubscriptionProvider
-环节② request:    EnterpriseCodingPlanPricingRequest 加 family?: ProviderFamilyDomain
-环节③ hook:       useEnterpriseCodingPlanProducts 加 family 参数
-环节④ key:        新增 family-aware create/parse/matches
-                  zai 前缀 = "team-plan:builtin:zai-coding-plan:"
-环节⑤ UI 可见性:  appendSubscribed/buildEntitlement/filterStartPlan 去掉 bigmodel hardcode
-                  登录恢复/失效清理对 zai 开放
+elo① service:      roteia para um ZaiCodingPlanSubscriptionProvider separado conforme request.family
+elo② request:      EnterpriseCodingPlanPricingRequest ganha family?: ProviderFamilyDomain
+elo③ hook:         useEnterpriseCodingPlanProducts ganha o parâmetro family
+elo④ key:          novos create/parse/matches cientes de family
+                  prefixo zai = "team-plan:builtin:zai-coding-plan:"
+elo⑤ na UI:        appendSubscribed/buildEntitlement/filterStartPlan sem hardcode bigmodel
+                  recuperação pós-login / limpeza de expiração abertas para zai
 ```
 
 ## Contrato de backend (confirmado pelo usuário)
@@ -410,31 +410,31 @@ simétricos (geram dados team zai), mas os componentes de UI que consomem esses 
 escrita antiga de family única bigmodel, bloqueando os dados team zai:
 
 ```text
-区域                        断裂点
+Área                         Ponto de ruptura
 ─────────────────────────────────────────────────────────────────────
-sidebar badge               WorkspaceSidebarFooterUsageSummary.tsx
-  ├─ 只拉 bigmodel enterprise products（无 zai hook）
-  ├─ resolveSidebarCurrentCodingPlanUsageSource 只传 bigmodel selectedKey
-  ├─ teamEntitlement.enabled 硬绑 providerId === bigmodelCodingPlan
-  ├─ teamEntitlement.preferredProviderId 硬编码 bigmodelCodingPlan
-  ├─ profilePlanBadge.hasTeamPlanEntitlement 带 bigmodelFamilyAllowed 前置守卫
-  └─ providerEntitlements team 分支硬判 bigmodelCodingPlan providerId
+sidebar badge                WorkspaceSidebarFooterUsageSummary.tsx
+  ├─ só busca bigmodel enterprise products (sem hook zai)
+  ├─ resolveSidebarCurrentCodingPlanUsageSource só passa o selectedKey bigmodel
+  ├─ teamEntitlement.enabled preso a providerId === bigmodelCodingPlan
+  ├─ teamEntitlement.preferredProviderId codifica bigmodelCodingPlan
+  ├─ profilePlanBadge.hasTeamPlanEntitlement com guarda prévia bigmodelFamilyAllowed
+  └─ o branch team de providerEntitlements fixa bigmodelCodingPlan como providerId
 
-聊天框模型选择器             V4ComposerToolbar.tsx
-  ├─ resolveV4ContextPlanConnection 只识别 bigmodel team-plan 前缀
-  │  （zai team selectedKey 落到 personalCoding 判断后 return none）
-  ├─ V4ContextPlanConnection.teamCoding 类型硬绑 family: "bigmodel"
-  ├─ resolveContextCodingPlanUsageSource providerId 类型/守卫硬绑 bigmodel
-  ├─ contextCodingPlanUsageTeamSource 读 entitlements[bigmodelCodingPlan]
-  ├─ enterpriseProducts hook 不传 family（默认只拉 bigmodel pricing）
-  └─ buildModelSelectGroups 第 8/9 参数传 [] 和 false（team 分组永远建不出）
+Seletor de modelo do chat    V4ComposerToolbar.tsx
+  ├─ resolveV4ContextPlanConnection só reconhece o prefixo team-plan bigmodel
+  │  (o selectedKey team do zai cai no teste personalCoding e retorna none)
+  ├─ V4ContextPlanConnection.teamCoding com o tipo preso a family: "bigmodel"
+  ├─ resolveContextCodingPlanUsageSource com tipo/guarda de providerId preso a bigmodel
+  ├─ contextCodingPlanUsageTeamSource lê entitlements[bigmodelCodingPlan]
+  ├─ o hook enterpriseProducts não passa family (padrão: só bigmodel pricing)
+  └─ buildModelSelectGroups recebe [] e false nos 8º/9º argumentos (o grupo team nunca sai)
 
-使用统计页                  SettingsPage.tsx + CodingPlanUsagePanel.tsx
-  ├─ SettingsPage 只拉 bigmodel enterprise products（无 zai hook）
-  ├─ checkingUsageCodingPlanTab 只等 bigmodel loading
-  ├─ CodingPlanUsagePanel.zaiEntitlement 不排除 team（team 被当个人查询）
-  ├─ CodingPlanUsagePanel.teamEntitlement 硬绑 bigmodelCodingPlan providerId
-  └─ CodingPlanUsagePanel.effectiveEntitlement zai providerId 一律走个人分支
+Página de estatísticas       SettingsPage.tsx + CodingPlanUsagePanel.tsx
+  ├─ SettingsPage só busca bigmodel enterprise products (sem hook zai)
+  ├─ checkingUsageCodingPlanTab só espera o loading bigmodel
+  ├─ CodingPlanUsagePanel.zaiEntitlement não exclui team (team é consultado como pessoal)
+  ├─ CodingPlanUsagePanel.teamEntitlement preso a bigmodelCodingPlan como providerId
+  └─ CodingPlanUsagePanel.effectiveEntitlement sempre usa o branch pessoal para o providerId zai
 ```
 
 ### Estratégia de correção
@@ -595,11 +595,11 @@ zai**:
 
 ```text
 buildZCodeProviderRegistrySnapshot
-  ├─ bigmodelTeamRuntimeApiKey = resolveSelectedBigModelTeamPlanRuntimeApiKey(...)  ✅
-  ├─ zaiTeamRuntimeApiKey     = （不存在）                                          ❌
+  ├─ bigmodelTeamRuntimeApiKey = resolveSelectedBigModelTeamPlanRuntimeApiKey(...)                              ✅
+  ├─ zaiTeamRuntimeApiKey     = (não existe)                                                                    ❌
   └─ filter.map(provider):
-       bigmodel team 选中 → 覆盖 apiKey = team-ak.team-secret + enabled:true          ✅
-       zai team 选中     → 不覆盖 → 仍是个人 coding plan 的空 apiKey / start plan JWT ❌
+       bigmodel team selecionado → sobrescreve apiKey = team-ak.team-secret + enabled:true                      ✅
+       zai team selecionado → não sobrescreve → ainda é a apiKey vazia / start plan JWT do coding plan pessoal  ❌
 ```
 
 Ao mesmo tempo, em `filterResolvedProviderFamiliesForRegistry` apenas o bigmodel passa
@@ -674,14 +674,14 @@ As estatísticas de uso são uma visão de múltiplas origens no nível da conta
 resolvidas de forma independente conforme a origem clicada pelo usuário:
 
 ```text
-个人来源（无 organizationId / projectId）
-  -> provider apiKey 缺失时刷新该 family 的个人 Coding Plan apiKey
-  -> customerInfo 中只从 projectType != 2 的项目解析个人 key
-  -> 重新读取 provider 后查询个人用量
+Origem pessoal (sem organizationId / projectId)
+  -> quando falta a apiKey do provider, atualiza a apiKey do Coding Plan pessoal daquela family
+  -> em customerInfo, resolve a key pessoal só a partir de projetos com projectType != 2
+  -> relê o provider e consulta o uso pessoal
 
-团队来源（有 organizationId / projectId）
-  -> 继续复制对应组织 + 项目的 Team Plan API Key
-  -> 禁止回退个人 provider apiKey
+Origem de equipe (com organizationId / projectId)
+  -> continua copiando a Team Plan API Key da organização + projeto correspondentes
+  -> proíbe o fallback para a apiKey do provider pessoal
 ```
 
 A recuperação da credencial individual reutiliza `IModelProviderService.refreshCodingPlanApiKey`, sem
@@ -696,13 +696,13 @@ provider individual é marcado como `enabled=false`, mas ele continua sendo o co
 origem individual das estatísticas. Portanto:
 
 ```text
-明确点击个人统计来源
-  -> 精确匹配 preferredProviderId
-  -> 允许读取 enabled=false 的个人 provider API Key
-  -> 不修改当前 Team Plan 运行连接
+Clique explícito na origem pessoal das estatísticas
+  -> casa exatamente por preferredProviderId
+  -> permite ler a API Key do provider pessoal com enabled=false
+  -> não altera a conexão de execução Team Plan atual
 
-模型运行时选择 provider
-  -> 继续要求 enabled=true
+O runtime do modelo escolhendo provider
+  -> continua exigindo enabled=true
 ```
 
 O relaxamento vale apenas para consultas de Coding Plan com origem explicitamente indicada e não pode
@@ -726,19 +726,19 @@ uso de quota / monitor) tem 4 pontos que só reconhecem `bigmodelCodingPlan`, e 
 plan não entra:
 
 ```text
-① shouldUseBigModelTeamContext(provider) — 只对 bigmodelCodingPlan 返回 true
-   zai coding plan 即使带 org/project 也不进 team 分支
-   → teamContext = null → 走个人分支用 provider.apiKey（zai coding plan team 模式下为空）
-   → resolveAuthorization 返回 null → throw "zai_coding_plan_api_key_required"
+① shouldUseBigModelTeamContext(provider) — só devolve true para bigmodelCodingPlan
+   o zai coding plan, mesmo com org/project, não entra no branch team
+   → teamContext = null → vai para o branch pessoal usando provider.apiKey (vazio no modo team do zai coding plan)
+   → resolveAuthorization devolve null → throw "zai_coding_plan_api_key_required"
 
-② isProviderSelectableForQuota — 只为 bigmodel team 放宽「apiKey 为空」拦截
-   zai team provider 的 apiKey 是运行时投影（不落盘到 provider config），被这里直接过滤掉
+② isProviderSelectableForQuota — só afrouxa o bloqueio de "apiKey vazio" para o bigmodel team
+   a apiKey do provider zai team é uma projeção de runtime (não vai para o provider config) e é filtrada aqui
 
-③ shouldAllowDisabledBigModelTeamProvider — 同样只认 bigmodel
-   zai team 的 disabled provider 不被允许 → pickQuotaProvider 选不到
+③ shouldAllowDisabledBigModelTeamProvider — também só reconhece bigmodel
+   o provider zai team desabilitado não é permitido → pickQuotaProvider não acha nenhum
 
-④ resolveBigModelTeamProjectApiKey — 硬编码 BIGMODEL_OAUTH_ACCESS_TOKEN_KEY + resolveBigModelApiOrigin
-   zai team 即使进入此分支也读不到 token（key 名不对）
+④ resolveBigModelTeamProjectApiKey — BIGMODEL_OAUTH_ACCESS_TOKEN_KEY + resolveBigModelApiOrigin hardcoded
+   o zai team não acha o token mesmo entrando neste branch (o nome da key está errado)
 ```
 
 Cadeia: qualquer uma dessas interceptações → `pickQuotaProvider` retorna null, ou a autorização de
@@ -873,8 +873,8 @@ A resolução de endpoint em `loadSinglePresetProvider`
 
 ```text
 oauthProvider === BIGMODEL_PROVIDER_ID
-  ? buildBigModelCodingPlanAnthropicEndpoints(matchedProviders)  // ✅ 内部带兜底域名
-  : collectSchemaEndpoints(matchedProviders)                     // ❌ 无兜底
+  ? buildBigModelCodingPlanAnthropicEndpoints(matchedProviders) // ✅ traz um domínio de fallback interno
+  : collectSchemaEndpoints(matchedProviders)                    // ❌ sem fallback
 ```
 
 - bigmodel: `buildBigModelCodingPlanAnthropicEndpoints` →

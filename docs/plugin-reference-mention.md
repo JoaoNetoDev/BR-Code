@@ -48,30 +48,30 @@ O namespace de runtime de Skill / MCP / Subagent se baseia em `manifest.name` e 
 ## 4. Estado e sequência
 
 ```text
-新建草稿 Picker ──→ workspace 当前 catalog（plugins/referenceCatalog, authority=workspace）
-                                                │ 首条消息
+novo rascunho Picker ──→ catalog atual do workspace (plugins/referenceCatalog, authority=workspace)
+                             │ primeira mensagem
                                                 ▼
-                                创建 Session S1（App 创建时 resolveStartupPlugins）
+                                cria a Session S1 (resolveStartupPlugins no momento da criação pelo App)
                                                 │
                                                 ▼
-                                  冻结 S1 identity catalog（runtimeConfig.pluginReferenceCatalog）
+                                  congela o identity catalog da S1 (runtimeConfig.pluginReferenceCatalog)
 
-已有 S1 Picker ────→ S1 identity catalog（plugins/referenceCatalog + sessionId, authority=session）
+Picker da S1 existente ────→ identity catalog da S1 (plugins/referenceCatalog + sessionId, authority=session)
 
-用户消息 canonical text
-  └─→ turn start 严格解析 plugin://stable-id（首现顺序去重，≤8）
-       └─→ S1 identity catalog 精确匹配（unknown / ambiguous / disabled_in_session 跳过）
-            └─→ 与当前 live inventory 取交集
-                 ├─ Skill：skillLoadOutcome 中 source=plugin、pluginName 匹配、
-                 │         rootPath 位于该 Plugin rootPath 下（provenance 精确回溯）
-                 ├─ MCP：属于冻结 catalog 的 server name、当前 status=connected、
-                 │       且注册表中存在 ≥1 个 provider-visible tool（allow/disallow 过滤后）
-                 └─ Subagent：冻结 catalog 声明过 canonical name、当前 Session runtime
-                              已成功加载 profile、profile path 位于该 Plugin rootPath 下
-                 └─→ 生成本轮 model-only reminder（全部为空则整条省略）
+mensagem canonical do usuário
+  └─→ turn start faz o parse estrito de plugin://stable-id (dedup por ordem de primeira aparição, ≤8)
+       └─→ correspondência exata no identity catalog da S1 (unknown / ambiguous / disabled_in_session são ignorados)
+            └─→ interseção com o live inventory atual
+                 ├─ Skill: source=plugin em skillLoadOutcome, pluginName correspondente,
+                 │         rootPath dentro do rootPath daquele Plugin (rastreio exato de provenance)
+                 ├─ MCP: server name pertencente ao catalog congelado, status=connected agora,
+                 │       e com ≥1 tool provider-visible no registro (após o filtro allow/disallow)
+                 └─ Subagent: canonical name declarado no catalog congelado, runtime da Session atual
+                              já carregou o profile com sucesso, profile path dentro do rootPath daquele Plugin
+                 └─→ gera o model-only reminder do turno (se tudo estiver vazio, omite a linha inteira)
 
-设置启停 / 安装更新
-  └─→ 只影响新建草稿、新 Session、冷恢复；不向已有 Session 热加载
+habilitar/desabilitar nas configurações / instalar atualizações
+  └─→ afeta apenas novos rascunhos, novas Sessions e recuperação a frio; não faz hot load em Sessions existentes
 ```
 
 ## 5. Protocolo e pontos de aplicação por camada
@@ -158,9 +158,9 @@ O breakpoint de cache é definido por `finalizeLatestNonSystemMessageCacheContro
 Linha de base medida (sonda na camada de projeção, comparação de `JSON.stringify` item a item; após a persistência, o lado do resume deve ser idêntico ao da sessão quente):
 
 ```text
-热会话   [0] user U1 / [1] system plugin_reference / [2] assistant A1 / [3] user U2   共 4 条
-resume   [0] user U1 / [1] assistant A1            / [2] user U2                      共 3 条  ← 修复前
-断裂点 index=1 → 修复前 resume 仅首条 user 命中，其后整段 miss（消息条数与对齐均变化）
+sessão quente  [0] user U1 / [1] system plugin_reference / [2] assistant A1 / [3] user U2 total de 4 mensagens
+resume         [0] user U1 / [1] assistant A1            / [2] user U2                    total de 3 mensagens  ← antes da correção
+ponto de quebra index=1 → antes da correção o resume acertava só a primeira user, e todo o resto era miss (a contagem de mensagens e o alinhamento mudam)
 ```
 
 Resultados de implementação e verificação:

@@ -109,23 +109,23 @@ A aplicação apenas reporta com precisão, completude e representatividade; "o 
 A árvore de processos do desktop em execução (verificado no código-fonte, modo local):
 
 ```text
-Electron App（instância única）
-├─ main（Browser）                        常驻 ×1
-│   ├─ GPU                                 Chromium 托管 ×0~1
-│   ├─ Chromium utility（network 等）      Chromium 托管，按需
-│   ├─ renderer 主窗口                     ×1/主窗口
-│   │    └─ <webview> guest renderer       ×N/内置浏览器 tab
-│   ├─ 辅助 renderer                       按需短命：update-status / 资源管理器 / about / DevTools 等
-│   ├─ Host（utilityProcess）              ×1/主窗口
+Electron App (instância única)
+├─ main (Browser)                          residente ×1
+│   ├─ GPU                                 Chromium hospedeado ×0~1
+│   ├─ Chromium utility (network etc.)     Chromium hospedeado, sob demanda
+│   ├─ renderer da janela principal        ×1/janela principal
+│   │    └─ <webview> guest renderer       ×N/aba do navegador embutido
+│   ├─ renderer auxiliar                   curto, sob demanda: update-status / gerenciador de arquivos / about / DevTools etc.
+│   ├─ Host (utilityProcess)               ×1/janela principal
 │   │    ├─ zcode-cli chat lane            ×1/workspaceKey
-│   │    │    ├─ MCP stdio 子进程          ×1/已连接 MCP
-│   │    │    └─ Bash 工具子进程            ×N，短命
+│   │    │    ├─ subprocesso MCP stdio     ×1/MCP conectado
+│   │    │    └─ subproc. ferramenta Bash  ×N, curto
 │   │    ├─ zcode-cli plugin / mcp-status lane
-│   │    ├─ node-pty shell、git 等短命子进程
-│   │    ├─ Windows CUA Helper             Windows，×1/Host
-│   │    └─ wsl.exe / docker exec          ×1/远端连接
-│   └─ cron scheduler（utilityProcess）    常驻 ×1
-└─ macOS CUA Helper.app                    由 launchd 拉起，故意不是子进程
+│   │    ├─ subprocessos curtos: shell node-pty, git etc.
+│   │    ├─ Windows CUA Helper             Windows, ×1/Host
+│   │    └─ wsl.exe / docker exec          ×1/conexão remota
+│   └─ cron scheduler (utilityProcess)     residente ×1
+└─ macOS CUA Helper.app                    iniciado pelo launchd, de propósito não é subprocesso
 ```
 
 No modo remote o desktop não cria processos novos; o zcode-server remoto e seus CLI / MCP / pty ficam todos na máquina remota. O desktop controlado remotamente pelo celular também não cria processos novos e não participa desta spec.
@@ -154,16 +154,16 @@ Comandos Bash curtos (ver plano de comandos lentos), git, shells node-pty, worke
 ## Arquitetura de Coleta
 
 ```text
-renderer_main ──60s heap，preload 桥 IPC─────────────┐
-host ──60s 自采（cpuUsage + memoryUsage），parentPort─┤
-scheduler ──60s 自采，parentPort─────────────────────┤
-CLI ──60s 自采 + 5min MCP 样本，protocol 通知──► Host ──转发──┤   local 与 remote 同一路径
-CLI ──Bash 慢命令完成事件，protocol 通知────────► Host ──转发──┤
+renderer_main ──60s heap, bridge IPC do preload────┐
+host ──60s autocoleção (cpu+memory), parentPort──┤
+scheduler ──60s autocoleção, parentPort───────────┤
+CLI ──60s auto + amostra MCP 5min───────► Host ──────┤   local e remote o mesmo caminho
+CLI ──evento de Bash lento, protocol──► Host ──────┤
                                                             ▼
-                           main：10s getAppMetrics + os 整机指标 + 有界聚合窗口
-                                                            │ 每 5 分钟（开发构建 1 分钟）
+                           main: getAppMetrics 10s + métricas da máquina (os) + janela de agregação limitada
+                                                            │ a cada 5 minutos (1 minuto em build de dev)
                                                             ▼
-                                       ARMS sendCustom（只有 main 持有凭据）
+                                       ARMS sendCustom (só o main tem as credenciais)
 ```
 
 ### Detalhes por origem
@@ -238,8 +238,8 @@ Convenção de implementação de 09: o adaptador de execução cria o amostrado
 Exit normal (incluindo code diferente de zero) é completed, timeout é timeout, cancel / kill da árvore / saída por signal é killed, spawn error é error; spawn error abaixo do limiar também não envia notificação.
 
 ```text
-adapter spawn → 每命令 owner → 15s / 30s / …（最多 20 次）
-                    └→ root exit / stop → 同步封口 → process/toolExecResource
+adapter spawn → owner por comando → 15s / 30s / … (no máximo 20 vezes)
+                    └→ root exit / stop → fechamento síncrono → process/toolExecResource
                          → services strict schema → trusted Host → main sendCustom
 ```
 
@@ -591,21 +591,21 @@ O Host atual verifica o campo opcional de capacidade de `/api/server-info` antes
 ## Registro de Decisões de Governança de Arquitetura
 
 ```text
-owner:            main 进程资源遥测模块（角色窗口、系统窗口、Bash 即时事件的唯一聚合与 ARMS 出口）；
-                  各进程的自采瞬时事实由各自 sampler 持有；MCP pid ↔ mcp_id 映射只由 CLI tracker 持有
-command path:     main 10s tick（getAppMetrics + os）→ 有界窗口 → 5min flush → sendCustom
-                  renderer / host / scheduler 60s 自采 → IPC / parentPort → main ingest
-                  CLI 60s 自采、5min MCP、Bash 完成 → protocol 通知 → Host 转发 → main ingest
-derived views:    perf_process_window / perf_system_window / perf_tool_exec_resource；本地 [memory] 日志
-                  与 ARMS 样本来自同一次读数
-ordering:         窗口按 main 的 flush 时钟切分；晚到的自采样本进入当前窗口；退出 flush 不触发新采样
-idempotency:      样本无副作用，丢失即丢失；无 outbox、无重试、无持久化
-delivery:         desktop-only；不进入 session/event、V4 conversation frame、task realtime bus、
-                  snapshot、queue、continuous 或 replayable 恢复链路；手机 /remote 不参与
-performance:      main 零外部进程；全链路禁止 PowerShell/WMI/CIM/wmic；白名单探针仅 CLI 内 macOS ps
-                  与 Windows tasklist，1s 超时，3 次失败停用；每进程一个 unref 定时器
-reuse decision:   复用 getAppMetrics、进程角色 pid 注册表（collectChromiumProcessRolePids）、内存诊断日志定时器、CLI sampler、
-                  Host 转发模块、FinalArmsCustomEvent E2E 控制器、PERF-RES-01 门禁；
-                  资源管理器的 Host 侧 ps 采样器不复用（按需 UI 采样，职责不同）
-contracts/spec:   本文；shared 协议 schema 与 host 响应 schema；performance-telemetry-catalog.md 事件字典
+owner:            módulo de telemetria de recursos de processo do main (único agregador das janelas de papel, da janela de sistema e dos eventos instantâneos do Bash, e única saída ARMS);
+                  os fatos instantâneos de autocoleção de cada processo ficam com seu próprio sampler; o mapeamento MCP pid ↔ mcp_id fica só com o tracker da CLI
+command path:     tick de 10s do main (getAppMetrics + os) → janela limitada → flush de 5min → sendCustom
+                  renderer / host / scheduler autocoleção de 60s → IPC / parentPort → ingest do main
+                  CLI autocoleção de 60s, MCP de 5min, conclusão de Bash → notificação protocol → encaminhamento pelo Host → ingest do main
+derived views:    perf_process_window / perf_system_window / perf_tool_exec_resource; log local [memory]
+                  e amostras ARMS vêm da mesma leitura
+ordering:         as janelas são cortadas pelo relógio de flush do main; amostras de autocoleção atrasadas entram na janela atual; o flush de saída não dispara nova amostragem
+idempotency:      as amostras não têm efeito colateral, se caem é assim; sem outbox, sem retry, sem persistência
+delivery:         desktop-only; não entra em session/event, frame de conversation V4, task realtime bus,
+                  snapshot, queue, continuous nem cadeia de recuperação replayable; celular /remote não participa
+performance:      zero processo externo no main; PowerShell/WMI/CIM/wmic proibidos em toda a cadeia; sondas da whitelist só dentro da CLI: macOS ps
+                  e Windows tasklist, timeout de 1s, desativa após 3 falhas; um timer unref por processo
+reuse decision:   reusar getAppMetrics, registro de pids de papéis de processo (collectChromiumProcessRolePids), timer do log de diagnóstico de memória, sampler da CLI,
+                  módulo de encaminhamento do Host, controlador E2E FinalArmsCustomEvent, portão PERF-RES-01;
+                  o sampler de ps do Host do gerenciador de recursos não é reusado (amostragem de UI sob demanda, responsabilidade diferente)
+contracts/spec:   este documento; schema do protocolo shared e schema de resposta do host; dicionário de eventos performance-telemetry-catalog.md
 ```

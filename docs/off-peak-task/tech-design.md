@@ -109,50 +109,50 @@ O usuário envia tarefas sem urgência para a "fila fora do pico", e o servidor 
 
 ```mermaid
 flowchart LR
-  subgraph Client["z.code 桌面客户端"]
+  subgraph Client["z.code cliente desktop"]
     subgraph Renderer["renderer (packages/ui)"]
-      Automations["AutomationsSection<br/>Idle-time tab + 创建表单 + 模板卡<br/>（灰度门控 D31）"]
-      TurnCard["ConversationTurnGroup<br/>会话内创建轮尾静态卡（D49）"]
-      Sidebar["侧栏 Group 分组<br/>Idle-time task（跨项目 + 计数徽章）"]
-      Detail["任务详情页 / run session 对话"]
+      Automations["AutomationsSection<br/>Aba Idle-time + formulário de criação + cartões de modelo<br/>（portão de gradualização D31）"]
+      TurnCard["ConversationTurnGroup<br/>Cartão estático no fim do turno de criação na conversa（D49）"]
+      Sidebar["Agrupamento por Group na barra lateral<br/>Idle-time task（entre projetos + emblema com contador）"]
+      Detail["Página de detalhes da tarefa / conversa da run session"]
       Store["offPeakStore (zustand)"]
     end
-    subgraph Main["main 进程"]
-      OPRouter["desktopCronScheduler<br/>OffPeakRun/Result 路由"]
-      Notif["renderer notification hook<br/>系统通知"]
+    subgraph Main["processo main"]
+      OPRouter["desktopCronScheduler<br/>Roteamento OffPeakRun/Result"]
+      Notif["renderer notification hook<br/>Notificação do sistema"]
     end
-    subgraph Sched["scheduler utilityProcess（常驻，已有）"]
-      OPTick["offPeak tick：认领 schedulable 任务"]
+    subgraph Sched["scheduler utilityProcess（permanente, já existente）"]
+      OPTick["offPeak tick: reivindica tarefas schedulable"]
     end
-    subgraph Host["window Local Host utilityProcess<br/>按 workspaceKey 路由"]
+    subgraph Host["window Local Host utilityProcess<br/>Roteia por workspaceKey"]
       TaskSvc["IOffPeakTaskService<br/>create/pause/continue/cancel/list"]
-      OPTool["offPeak/create · offPeak/list handler（D49）<br/>缺省解析 + 白名单预校 + workspace 注入"]
+      OPTool["handler offPeak/create · offPeak/list（D49）<br/>Resolução de padrões + pré-validação de lista branca + injeção de workspace"]
       RunSvc["IZCodeTaskService<br/>createTask / resume / sendPrompt"]
-      Adapter["idle plan provider 适配层<br/>HTTP 429/3105 + Retry-After"]
-      PollSync["OffPeakTaskService sync<br/>批量 POST /ticket/status → 写 sqlite"]
+      Adapter["Camada adaptadora do idle plan provider<br/>HTTP 429/3105 + Retry-After"]
+      PollSync["Sincronização do OffPeakTaskService<br/>POST /ticket/status em lote → grava no sqlite"]
     end
-    DB[("tasks-index.sqlite<br/>off_peak_tasks（含 schedulable 列）")]
+    DB[("tasks-index.sqlite<br/>off_peak_tasks (com a coluna schedulable)")]
   end
 
-  subgraph Server["Off-Peak 服务端"]
-    PollAPI["任务生命周期 API<br/>availability / ticket / ticket/status / settle"]
-    Gateway["idle plan 网关<br/>全局 FIFO 排队 + 准入<br/>HTTP 429/3105 + Retry-After"]
-    Pool["LLM 闲时资源池"]
+  subgraph Server["Servidor Off-Peak"]
+    PollAPI["API do ciclo de vida da tarefa<br/>availability / ticket / ticket/status / settle"]
+    Gateway["Gateway do idle plan<br/>Fila FIFO global + admissão<br/>HTTP 429/3105 + Retry-After"]
+    Pool["Pool de recursos LLM em tempo ocioso"]
   end
 
   Automations -->|IOffPeakTaskService RPC| TaskSvc
   TurnCard -->|onOpenAutomationsMain(id,"idle")| Automations
-  Store <-->|broadcast/订阅| TaskSvc
-  Sched <-->|读写| DB
-  Host <-->|读写| DB
+  Store <-->|broadcast/assinatura| TaskSvc
+  Sched <-->|leitura/escrita| DB
+  Host <-->|leitura/escrita| DB
   Sched -->|offpeak-dispatch-request| OPRouter
   OPRouter -->|HostMessageTypes.OffPeakRun| Host
   Host -->|OffPeakRunResult| OPRouter --> Sched
   TaskSvc --> RunSvc
-  OPTool -->|复用同一取号链路| TaskSvc
+  OPTool -->|reaproveita a mesma cadeia de retirada de número| TaskSvc
   Adapter -->|POST /messages| Gateway --> Pool
-  PollSync -->|availability / 取号 / 批量状态 / settle| PollAPI
-  Store -->|任务状态边沿| Notif
+  PollSync -->|availability / retirada de número / status em lote / settle| PollAPI
+  Store -->|transição de estado da tarefa| Notif
 ```
 
 Pontos principais:
@@ -291,25 +291,25 @@ Principais métodos do `OffPeakTaskRepo`: `create` / `claimDue(now)` (reivindica
 
 ```mermaid
 sequenceDiagram
-  participant U as 用户
-  participant UI as Automations 创建表单 (renderer)
+  participant U as Usuário
+  participant UI as Formulário de criação do Automations (renderer)
   participant Svc as IOffPeakTaskService (host)
   participant Repo as OffPeakTaskRepo
-  U->>UI: 入口（Automations 按钮 / 模板卡预填）
-  UI->>Svc: GET /ticket/availability（进入页面时）
+  U->>UI: Ponto de entrada (botão Automations / cartão de modelo pré-preenchido)
+  UI->>Svc: GET /ticket/availability (ao abrir a página)
   alt can_take_number=false
-    Svc-->>UI: 创建按钮置灰 + next_take_at Tooltip；到点重查
-  else loading / 查询失败
-    Svc-->>UI: 创建入口禁用；等待手动或自动刷新
+    Svc-->>UI: Botão de criação desabilitado + Tooltip de next_take_at; nova consulta no horário
+  else loading / falha na consulta
+    Svc-->>UI: Entrada de criação desabilitada; aguarde refresh manual ou automático
   else can_take_number=true
-  U->>UI: 填 title/instructions/项目/权限/模型 → Create Idle-time task
+  U->>UI: Preencher title/instructions/projeto/permissão/modelo → Create Idle-time task
   UI->>Svc: offPeakCreate({title, instructions, permissionMode, model, workspace...})
-  Svc->>Svc: POST /ticket 取号（task_id=offPeakTaskId）
-  alt 429/3103 超限（D39：查询后的并发竞态兜底）
-    Svc-->>UI: 展示 "Free tier limit reached"；不落 task；刷新 availability
-  else 取号成功
+  Svc->>Svc: POST /ticket retirada de número (task_id=offPeakTaskId)
+  alt 429/3103 limite excedido (D39: salvaguarda contra corrida de concorrência após a consulta)
+    Svc-->>UI: Exibe "Free tier limit reached"; não grava a task; atualiza availability
+  else retirada de número bem-sucedida
     Svc->>Repo: create(status=queued, server_ticket_id, position)
-    Svc-->>UI: 列表新卡片 #N in queue，侧栏 Group 分组 +1
+    Svc-->>UI: Novo cartão #N na fila na lista, agrupamento Group da barra lateral +1
   end
   end
 end
@@ -323,32 +323,32 @@ Decisão-chave (D30-8, revisando a decisão antiga D25): **a criação grava ape
 sequenceDiagram
   participant S as scheduler (utilityProcess)
   participant DB as tasks-index.sqlite
-  participant M as main (desktopCronScheduler Off-Peak route)
+  participant M as main (rota Off-Peak do desktopCronScheduler)
   participant H as host (IZCodeTaskService)
-  participant A as idle plan 适配层
-  participant G as 服务端网关
-  loop 有非终态任务时，共享 timer 按 next_poll_after
+  participant A as camada adaptadora do idle plan
+  participant G as gateway do servidor
+  loop Quando há tarefas não terminais, timer compartilhado conforme next_poll_after
     H->>G: POST /api/v1/off-peak/ticket/status {ticket_ids≤100}
     G-->>H: queued/ready/active/expired/settled/not_found + position
-    H->>DB: 写 schedulable / queue_position / next_poll_at
+    H->>DB: grava schedulable / queue_position / next_poll_at
   end
   loop scheduler tick
-    S->>DB: 认领 schedulable=1 的任务（single-flight）
+    S->>DB: reivindica as tarefas com schedulable=1 (single-flight)
   end
   S->>M: offpeak-dispatch-request {offPeakTaskId, conversationId, sessionId?, prompt, permissionMode, ...}
   M->>H: HostMessageTypes.OffPeakRun
-  Note over H: 首次 createTask(user Session Selection)，续段 resume 同 session<br/>sendPrompt 带 idle Model Selection + modelExecution.requestAuth
+  Note over H: Na primeira vez createTask(user Session Selection); na continuação resume a mesma session<br/>sendPrompt com idle Model Selection + modelExecution.requestAuth
   H->>H: sendPrompt(taskId, prompt, modelSelection, modelExecution)
-  H->>M: OffPeakRunResult {ok, sessionId}（sendPrompt ACK）
+  H->>M: OffPeakRunResult {ok, sessionId} (ACK do sendPrompt)
   M->>S: offpeak-dispatch-result
-  S->>DB: markRunning（早于 messages 真正准入）
-  H->>A: agent loop 首次模型请求
-  A->>G: POST /api/v1/off-peak/anthropic/v1/messages（ticket + 双凭证）
-  alt 限流（细阀 D19）
+  S->>DB: markRunning (antes da admissão efetiva de messages)
+  H->>A: primeira requisição de modelo do agent loop
+  A->>G: POST /api/v1/off-peak/anthropic/v1/messages (ticket + credenciais duplas)
+  alt Limite de taxa (válvula fina D19)
     G-->>A: HTTP 429 / code 3105 + Retry-After
-    A->>A: min(Retry-After,5min) 探测（保号·豁免预算·不计失败，D24）
-  else 准入
-    G-->>A: 流式响应
+    A->>A: sondagem min(Retry-After,5min) (preserva o número, orçamento isento, não conta como falha, D24)
+  else Admissão
+    G-->>A: resposta em streaming
   end
 ```
 
@@ -361,15 +361,15 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant L as agent loop (runtime)
-  participant A as idle plan 适配层
-  participant G as 服务端网关
-  L->>A: 第 N 次模型请求
+  participant A as camada adaptadora do idle plan
+  participant G as gateway do servidor
+  L->>A: N-ésima requisição de modelo
   A->>G: POST /api/v1/off-peak/anthropic/v1/messages
-  G-->>A: HTTP 429 / code 3105 + Retry-After（资源紧张）
-  Note over A: abort-aware 退避；不消耗普通 retry budget；<br/>本地状态仍是 running（没有独立等待态）
-  A->>G: 重试
-  G-->>A: admitted + 响应
-  A-->>L: 正常返回（loop 只感知"慢"）
+  G-->>A: HTTP 429 / code 3105 + Retry-After (recursos escassos)
+  Note over A: backoff ciente de abort; não consome o retry budget normal;<br/>o estado local continua running (não há estado de espera separado)
+  A->>G: Nova tentativa
+  G-->>A: admitted + resposta
+  A-->>L: Retorno normal (o loop só percebe "lento")
 ```
 
 Regras da camada adaptadora (implementadas em `apps/zcode-cli/packages/adapters/src/model/offpeak-retry.ts` e chamadas pelo
@@ -390,16 +390,16 @@ D11/D27 jácravaram "pausar operação sensível → estado de espera dedicado �
 reutiliza a confirmação da session comum, sem criar um segundo conjunto de estados e notificações do Off-Peak.
 
 ```text
-自动 turn（active turn model = builtin:offpeak-idle-plan）
-  └─ permission_request（走既有通用 permission 链路）
-       ├─ 普通 session 展示并收集批准/拒绝
-       ├─ 本地 Off-Peak task 保持 running
-       └─ 响应后：同一个 turn 继续
-            ├─ 仍使用 builtin:offpeak-idle-plan
-            └─ 不触发 Off-Peak 专用通知或配额提示
+Turn automático (modelo ativo = builtin:offpeak-idle-plan)
+  └─ permission_request (pela cadeia de permission já existente)
+       ├─ session normal exibe e coleta aprovação/recusa
+       ├─ task Off-Peak local continua running
+       └─ após a resposta: o mesmo turn continua
+            ├─ segue usando builtin:offpeak-idle-plan
+            └─ não dispara aviso exclusivo de Off-Peak nem alerta de cota
 
-自动 turn terminal
-  └─ 结束 idle Active Model/Request Auth → ready / drain 用户排队消息
+Turn automático terminal
+  └─ encerra o Active Model/Request Auth ocioso → ready / drena as mensagens enfileiradas do usuário
 ```
 
 A run session é uma conversa comum, e um prompt enviado pelo usuário durante running passa pela busy queue existente. Cada despacho automático envia uma idle
@@ -419,14 +419,14 @@ O servidor tem um teto rígido de 3h para active, e tarefas longas precisam ser 
 
 ```mermaid
 flowchart TD
-  A["active 运行中（本段 ticket，3h 窗口）"] --> N{"下一次 /messages"}
+  A["active em execução (ticket deste segmento, janela de 3h)"] --> N{"Próximo /messages"}
   N -->|admitted| A
-  N -->|"agent loop 自然完成"| Done["settle 本 ticket → completed"]
-  N -->|"400/3102 ticket 不可用（active 3h 到期）"| Re["同 task_id 重新取号 POST /ticket<br/>拿新 ticket_id，本地状态回 queued"]
-  Re --> W["批量轮询等 ready（下一个低峰窗口 + 排到）"]
-  W -->|ready| Dispatch["resume 同一 session → 发首个 /messages → active"]
+  N -->|"agent loop conclui naturalmente"| Done["settle deste ticket → completed"]
+  N -->|"400/3102 ticket indisponível (active de 3h expirado)"| Re["Nova retirada de número com o mesmo task_id via POST /ticket<br/> obtém um novo ticket_id, estado local volta a queued"]
+  Re --> W["Espera o ready por polling em lote (próxima janela de baixo consumo + vez na fila)"]
+  W -->|ready| Dispatch["resume da mesma session → envia o primeiro /messages → active"]
   Dispatch --> A
-  Re -.->|"用户取消 / 达全局约束"| Cancel["cancelled / failed"]
+  Re -.->|"usuário cancela / atinge a restrição global"| Cancel["cancelled / failed"]
 ```
 
 Pontos principais:
@@ -446,13 +446,13 @@ Os fatos de modelo passam a vir do `OffPeakClientConfig.modelSelectionView` atua
 `allowedModelConfigs`, `reasoning.levels/defaultLevel` nem os ramos que adivinham o nível pelo modelo.
 
 ```text
-工具创建请求
-  -> 已有 getCodingPlanSupport 确认当前账号 Family
-  -> 当前闲时 Selection View 中该 Family 的精确 Off-Peak Provider
-  -> 解析模型（显式：大小写匹配；缺省：名单末位）
-  -> 缺省档位复用 completeNewModelSelection（values 从低到高，取末位）
-  -> 结构化 ModelSelection + workspace + boundSessionId
-  -> 原有 createTask 取号和持久化
+Requisição de criação pela ferramenta
+  -> o getCodingPlanSupport existente confirma a Family da conta
+  -> o Provider Off-Peak exato daquela Family na Selection View ociosa atual
+  -> resolve o modelo (explícito: case-sensitive; padrão: último da lista)
+  -> no nível padrão reutiliza completeNewModelSelection (values do menor ao maior, pega o último)
+  -> ModelSelection estruturado + workspace + boundSessionId
+  -> o createTask existente faz a numeração e a persistência
 ```
 
 Não é possível completar o modelo a partir dos candidatos de outra Family; sem conta suportada/sem modelo nesse domínio, retorna-se de forma estável a classificação de "cliente não pode criar",
@@ -465,80 +465,81 @@ O formulário mantém a interação do Selection View atual e o envio da seleç�
 
 ```mermaid
 sequenceDiagram
-  participant M as 模型（用户交互 turn）
-  participant H as CLI tool handler (off-peak.ts)
+  participant M as Modelo (turn de interação do usuário)
+  participant H as handler de CLI tool (off-peak.ts)
   participant P as offpeak-port (bootstrap)
   participant S as zcodeAgentService (host)
   participant Svc as OffPeakTaskService
-  participant G as 服务端 ticket API
+  participant G as API de ticket do servidor
   participant UI as ConversationTurnGroup
   M->>H: tool_use OffPeakCreate {title, prompt, ...}
-  H->>H: assertNotOffPeakTurn（闲时轮拒；automation 轮放行 D49-3）
+  H->>H: assertNotOffPeakTurn (rejeita no turno ocioso; libera no turno de automation, D49-3)
   H->>P: offPeakPort.create(input, {sessionId})
-  P->>P: activeOffPeakTaskId 命中即拒（第三层纵深）
-  P->>S: requestClient(offPeak/list)（D50 绑定守卫：本会话已有未终态任务即拒，查询失败 fail-closed）
+  P->>P: rejeita na hora se activeOffPeakTaskId corresponder (terceira camada de defesa)
+  P->>S: requestClient(offPeak/list) (guarda de vínculo D50: rejeita se esta sessão já tiver tarefa não terminal; falha de consulta fecha em fail-closed)
   P->>S: requestClient(offPeak/create {…, boundSessionId})
-  S->>S: 缺省解析 + model 白名单预校 + workspace 闭包注入
-  alt 灰度关闭 / 配置缺失 / 白名单为空
+  S->>S: resolução de padrões + pré-validação da lista branca de model + injeção do closure de workspace
+  alt Gradualização desligada / configuração ausente / lista branca vazia
     S-->>P: {ok:false, client_validation/offpeak_disabled}
-  else model 不在 allowed_models（trim + 大小写不敏感匹配）
+  else model não está em allowed_models (trim + comparação sem diferenciar maiúsculas/minúsculas)
     S-->>P: {ok:false, client_validation/model_not_allowed}
   else
-    S->>Svc: createTask(...)（与表单同一入口）
-    Svc->>G: POST /ticket 取号
-    alt 429/3103 额度耗尽
-      G-->>Svc: 额度错误
+    S->>Svc: createTask(...) (mesma entrada que o formulário)
+    Svc->>G: POST /ticket retirada de número
+    alt 429/3103 cota esgotada
+      G-->>Svc: erro de cota
       Svc-->>S: {ok:false, quota_3103}
-    else 取号成功
-      Svc->>Svc: repo.create(queued, session_id=boundSessionId) + 唤醒 scheduler
+    else retirada de número bem-sucedida
+      Svc->>Svc: repo.create(queued, session_id=boundSessionId) + acorda o scheduler
       Svc-->>S: {ok:true, task}
     end
   end
-  S-->>P: 判别联合原样回传（不 respondError，分类保真）
+  S-->>P: devolve a união discriminada tal e qual (sem respondError, fidelidade da classificação)
   P-->>H: outcome
   alt ok:false
-    H-->>M: CoreError（按分类给可行动文案，recoverable:false）
+    H-->>M: CoreError (texto acionável conforme a classificação, recoverable:false)
   else ok:true
     H-->>M: {task, message}
-    Note over UI: 回复完成后渲染轮尾静态卡<br/>月亮 + 标题 + 创建时位次快照
-    UI->>UI: 点击 → onOpenAutomationsMain(offPeakTaskId,"idle")<br/>→ offpeak- 前缀分流 → offpeak-edit 视图
+    Note over UI: Renderiza o cartão estático no fim do turno após a resposta<br/>lua + título + snapshot da posição no momento da criação
+    UI->>UI: clique → onOpenAutomationsMain(offPeakTaskId,"idle")<br/>→ roteamento pelo prefixo offpeak- → visão offpeak-edit
   end
 ```
 
 **Três camadas de profundidade no limite de turno** (a direção é oposta à do cron e é a maior armadilha de cópia):
 
 ```text
-                        ┌─ 普通用户 turn ──────── OffPeakCreate ✅  OffPeakList ✅
-本轮身份判定 ───────────┼─ cron automation turn ─ OffPeakCreate ✅（D49-3 组合玩法） ✅
-                        └─ 闲时派发 turn ──────── OffPeakCreate ❌            ✅
+                        ┌─ turno normal do usuário ──── OffPeakCreate ✅  OffPeakList ✅
+Identidade do turno ─────┼─ cron automation turn ────── OffPeakCreate ✅ (combinação D49-3) ✅
+                        └─ turno de despacho ocioso ─── OffPeakCreate ❌            ✅
 
-闲时轮的三层拦截（任一层独立成立）：
-  L1 provider 请求边界   buildTurnDisallowedTools / buildTurnToolDisallowlist
-                         ← host 派发 toolDenylist:["CronCreate","OffPeakCreate"]（D45+D49-2）
-                         ← isOffPeakCreateRestrictedTurn 三信号：
-                            显式 offPeakTaskId（主）∥ queryId "offpeak-" 前缀（resume 兜底）
-                            ∥ denylist 已含 OffPeakCreate（busy 合并路径）
-  L2 handler 执行边界    assertNotOffPeakTurn(context.offPeakTurn) → PermissionDenied
-                         同一 offPeakTurn 还关闭 Bash 后台面（D51）：run_in_background → recoverable
-                         ToolExecutionFailed；超时自动转后台禁用；Agent 后台由 runner BACKGROUND_UNAVAILABLE 拒
-  L3 协议端口边界        offpeak-port 读 record.activeOffPeakTaskId → 拒绝，不发协议请求
-  （D50 绑定守卫三级：端口读 offPeak/list top-20 快速拒绝 → service createTask 取号前
-    repo.hasActiveBoundTask 精确预检 → 部分唯一索引 idx_off_peak_bound_active 在 INSERT 关闭 TOCTOU，
-    后两级均回 session_bound，机审 CR-02）
+Três camadas de bloqueio do turno ocioso (cada uma vale sozinha):
+  L1 limite do provider    buildTurnDisallowedTools / buildTurnToolDisallowlist
+                         ← o host despacha toolDenylist:["CronCreate","OffPeakCreate"] (D45+D49-2)
+                         ← isOffPeakCreateRestrictedTurn, três sinais:
+                            offPeakTaskId explícito (principal) ∥ prefixo "offpeak-" no queryId (fallback do resume)
+                            ∥ denylist já contém OffPeakCreate (caminho de merge busy)
+  L2 limite do handler     assertNotOffPeakTurn(context.offPeakTurn) → PermissionDenied
+                         o mesmo offPeakTurn também fecha o painel em background do Bash (D51): run_in_background → recoverable
+                         ToolExecutionFailed; timeout vira desativação em background; background do Agent recusado pelo runner BACKGROUND_UNAVAILABLE
+  L3 limite do protocolo   offpeak-port lê record.activeOffPeakTaskId → recusa, sem enviar requisição de protocolo
+  (Guardas de vínculo D50 em três níveis: a leitura de porta em offPeak/list top-20 recusa rápido
+    → antes de createTask retirar o número, repo.hasActiveBoundTask faz a pré-verificação exata
+    → o índice único parcial idx_off_peak_bound_active fecha o TOCTOU no INSERT;
+    os dois últimos níveis retornam session_bound, revisão CR-02)
 
-⚠ OFF_PEAK_MUTATION_TOOL_NAMES 必须独立于 AUTOMATION_MUTATION_TOOL_NAMES（共 4 份副本：
-  services/automationToolPolicy、core/turn-loop-state、bootstrap/prompt-turn、adapter 内联）。
-  混入任何一份都会让 cron automation 轮误 deny OffPeakCreate，违反 D49-3。
+⚠ OFF_PEAK_MUTATION_TOOL_NAMES precisa ser independente de AUTOMATION_MUTATION_TOOL_NAMES (4 cópias:
+  services/automationToolPolicy, core/turn-loop-state, bootstrap/prompt-turn, adapter inline).
+  misturar qualquer uma delas faz o turno de cron automation negar OffPeakCreate por engano, violando D49-3.
 ```
 
 **Separação entre registro de ferramentas e admissão de criação (3.12.2)**:
 
 ```text
-Host 服务装配 + 本地 workspace（不联网）
-  -> workspace 策略 / legacy create-resume / V4 createSession flag
-  -> createRecord 注入 OffPeakPort -> 主 Runtime 注册工具
-工具 OffPeakCreate -> 审批/调用守卫 -> Host 读取灰度/套餐/模型 -> createTask/取号
-工具 OffPeakList -> Host 本地列表，按 workspaceKey 过滤
+Montagem de serviços no Host + workspace local (sem rede)
+  -> política do workspace / create-resume legado / flag createSession do V4
+  -> createRecord injeta o OffPeakPort -> o Runtime principal registra a ferramenta
+Ferramenta OffPeakCreate -> guarda de aprovação/chamada -> Host lê gray/plano/modelo -> createTask/numeração
+Ferramenta OffPeakList -> lista local no Host, filtrada por workspaceKey
 ```
 
 As condições de capacidade local verificam apenas a montagem de dependências, remoteSessionId e a workspaceIdentity remota; não usam o client config.
@@ -550,21 +551,21 @@ o method-not-found do CLI antigo continua degradando. Runtimes já ativos não r
 
 ```mermaid
 flowchart TD
-  A[scheduler 认领 → host OffPeakRun] --> K{conversation_id?}
-  K -- 非空 --> R[resume：resumeTask 同 session<br/>setMode → 续跑提示词 + 单次执行完整 Selection]
-  K -- 空 --> B{session_id?}
-  B -- 空 --> I[init（表单）：createTask 新 session<br/>盖章 offPeakTaskId → 任务 prompt]
-  B -- 非空 --> P[bound-first-run（会话内创建）]
-  P --> D{listDeletedTaskIds 含该会话?}
-  D -- 是 --> PERM[OffPeakBoundSessionDeletedError<br/>permanent → failed]
-  D -- 否 --> S{tasks-index status === running?}
-  S -- 是 --> BUSY[OffPeakBoundSessionBusyError<br/>transient → releaseClaim + 退避<br/>⚠ 未写任何会话配置]
-  S -- 否 --> RES[resumeTask（盖章 offPeakTaskId → 侧栏闲时组）<br/>setMode(yolo 缺省)<br/>sendPrompt 任务原 prompt + 单次执行完整 Selection, toolDenylist]
+  A[scheduler reivindica → host OffPeakRun] --> K{conversation_id?}
+  K -- não vazio --> R[resume: resumeTask na mesma session<br/>setMode → prompt de continuação + Selection completo de execução única]
+  K -- vazio --> B{session_id?}
+  B -- vazio --> I[init (formulário): createTask cria a session<br/>carimba offPeakTaskId → prompt da tarefa]
+  B -- não vazio --> P[bound-first-run (criação dentro da sessão)]
+  P --> D{listDeletedTaskIds contém esta sessão?}
+  D -- sim --> PERM[OffPeakBoundSessionDeletedError<br/>permanent → failed]
+  D -- não --> S{tasks-index status === running?}
+  S -- sim --> BUSY[OffPeakBoundSessionBusyError<br/>transient → releaseClaim + backoff<br/>⚠ não grava nenhuma configuração de sessão]
+  S -- não --> RES[resumeTask (carimba offPeakTaskId → grupo ocioso da barra lateral)<br/>setMode(yolo como padrão)<br/>sendPrompt com o prompt original da tarefa + Selection completo de execução única, toolDenylist]
   RES --> MR[markRunning: conversation_id = session_id]
-  MR -.任务轮结束.-> T{outcome}
+  MR -.fim do turno da tarefa.-> T{outcome}
   T -- succeeded --> C[completed]
-  T -- stopped（用户点 Stop）--> X[cancelled，票作废]
-  T -- 其他 --> F[failed]
+  T -- stopped (usuário clicou em Stop) --> X[cancelled, ticket invalidado]
+  T -- outro --> F[failed]
 ```
 
 Detalhes da colisão com sessão ocupada: o CLI `session/send` só olha `record.activeAbortController`, e se houver devolve -32010 imediatamente (a entrada de usuário pela interface passa pela fila v4 e não colide com isso);
@@ -583,16 +584,16 @@ o effect de navegação de tab não consome preventivamente quando existe navega
 
 ```mermaid
 stateDiagram-v2
-  [*] --> queued: offPeakCreate（表单创建+取号）
-  queued --> paused: 用户 Pause（停止派发，票留队）
-  paused --> queued: Continue（票活着恢复 / 票废手动重取号）
-  paused --> cancelled: 删除任务
-  queued --> running: 服务端 ready + 认领派发 + sendPrompt ACK
-  queued --> cancelled: 用户取消 / 删除对话
-  running --> completed: agent loop 正常终结
-  running --> failed: 不可恢复错误
-  running --> cancelled: 用户取消
-  running --> queued: app 重启回收 / 400/3102 自动续跑
+  [*] --> queued: offPeakCreate (criação pelo formulário + retirada de número)
+  queued --> paused: Pause do usuário (interrompe o despacho, o ticket fica na fila)
+  paused --> queued: Continue (retoma com o ticket vivo / retirada manual de novo número se o ticket morreu)
+  paused --> cancelled: exclusão da tarefa
+  queued --> running: ready do servidor + reivindicação e despacho + ACK do sendPrompt
+  queued --> cancelled: cancelamento pelo usuário / exclusão da conversa
+  running --> completed: término normal do agent loop
+  running --> failed: erro irrecuperável
+  running --> cancelled: cancelamento pelo usuário
+  running --> queued: recuperação por reinício do app / continuação automática em 400/3102
   completed --> [*]
   failed --> [*]
   cancelled --> [*]
@@ -698,14 +699,14 @@ POST /api/v1/off-peak/ticket/:ticket_id/settle
 
 ```mermaid
 flowchart TD
-  R[收到 idle plan 模型请求] --> A{任务已在活跃 loop 集合?}
-  A -->|是：在跑任务的续请求| P[优先放行]
-  P --> C{资源水位允许?}
-  C -->|是| OK[admitted，处理请求]
-  C -->|否，极端情况| W1[HTTP 429/3105 + Retry-After]
-  A -->|否：新任务首请求| F{该用户并发额度有空位 且 FIFO 轮到它?}
-  F -->|是| J[加入活跃 loop 集合] --> OK
-  F -->|否| W2[HTTP 429/3105 + Retry-After]
+  R[Recebe uma requisição de modelo do idle plan] --> A{A tarefa já está no conjunto de loops ativos?}
+  A -->|sim: requisição de continuação de uma tarefa em execução| P[Passagem com prioridade]
+  P --> C{O nível de água dos recursos permite?}
+  C -->|sim| OK[admitted, processa a requisição]
+  C -->|não, caso extremo| W1[HTTP 429/3105 + Retry-After]
+  A -->|não: primeira requisição de uma nova tarefa| F{Há vaga na cota de concorrência do usuário e a FIFO já chegou nela?}
+  F -->|sim| J[Entra no conjunto de loops ativos] --> OK
+  F -->|não| W2[HTTP 429/3105 + Retry-After]
 ```
 
 ### 7.5 Matriz de coordenação (quem faz o quê em cada fase do ciclo de vida)
@@ -727,18 +728,18 @@ o estado `ready` do ticket decide se o scheduler despacha; e o HTTP 429/3105 de 
 ```mermaid
 flowchart TD
   A{"GET /ticket/availability"}
-  A -->|"false + next_take_at"| A0["创建按钮置灰；到点重查"]
-  A -->|"加载中 / 查询失败"| A1["创建入口禁用；等待刷新"]
+  A -->|"false + next_take_at"| A0["Botão de criação desabilitado; nova consulta no horário"]
+  A -->|"carregando / falha na consulta"| A1["Entrada de criação desabilitada; aguardar refresh"]
   A -->|"true"| T{"POST /ticket"}
-  T -->|"429/3103"| T0["不落 task；展示错误并刷新 availability"]
-  T -->|"queued"| Q["批量 /ticket/status；等待 ready"]
+  T -->|"429/3103"| T0["Não grava a task; exibe o erro e atualiza availability"]
+  T -->|"queued"| Q["/ticket/status em lote; espera o ready"]
   T -->|"ready"| D
-  Q -->|"ready"| D["scheduler claim → host sendPrompt ACK<br/>本地 markRunning"]
+  Q -->|"ready"| D["scheduler claim → ACK do sendPrompt no host<br/>markRunning local"]
   D --> G{"POST /anthropic/v1/messages"}
-  G -->|"HTTP 429/3105 + Retry-After"| G0["abort-aware 等待；单次 ≤5min<br/>豁免普通 retry budget；本地仍 running"] --> G
-  G -->|"2xx/SSE"| R["loop 继续"]
-  G -->|"400/3102"| X["同 task_id 重取号；resume 同 session"] --> Q
-  R -->|"自然完成"| E["终态 → settle outbox"]
+  G -->|"HTTP 429/3105 + Retry-After"| G0["Espera ciente de abort; uma vez ≤5min<br/>isenta do retry budget normal; localmente ainda running"] --> G
+  G -->|"2xx/SSE"| R["loop continua"]
+  G -->|"400/3102"| X["Nova retirada de número com o mesmo task_id; resume da mesma session"] --> Q
+  R -->|"conclusão natural"| E["estado terminal → settle outbox"]
 ```
 
 **Limite de exibição de estado**: o `running` é gravado após o ACK de `sendPrompt`, antes de messages passar de fato pela válvula fina. Portanto, quando
@@ -762,19 +763,19 @@ POST /api/v1/off-peak/ticket/{ticket_id}/settle   # 无 body
 sequenceDiagram
   participant H as host (offPeakTaskService)
   participant DB as off_peak_tasks
-  participant G as 服务端
-  Note over H: 任务进入终态（completed/failed/cancelled）
+  participant G as servidor
+  Note over H: A tarefa entra em estado terminal (completed/failed/cancelled)
   H->>G: POST /api/v1/off-peak/ticket/{ticket_id}/settle
-  alt 成功
-    G-->>H: 200 acked（幂等）
-    H->>DB: 回填 settled_at
-    Note over G: 移出等待队列/活跃集合<br/>释放该用户并发额度
-  else 网络 / 5xx
-    Note over H: 不新增重试计时器
-    H->>DB: settled_at 保持 NULL
-    H->>G: 下个 poll 周期捎带补报（listUnsettledTerminal）
+  alt sucesso
+    G-->>H: 200 acked (idempotente)
+    H->>DB: preenche settled_at
+    Note over G: Remove da fila de espera / do conjunto de loops ativos<br/>libera a cota de concorrência desse usuário
+  else rede / 5xx
+    Note over H: não cria um novo timer de retry
+    H->>DB: settled_at permanece NULL
+    H->>G: reenvia junto no próximo ciclo de poll (listUnsettledTerminal)
   end
-  Note over H,G: host 启动时扫描一次未核销终态；<br/>永远失败也无害——服务端静默超时回收兜底
+  Note over H,G: o host faz uma varredura dos terminais não liquidados na inicialização;<br/>falhar para sempre é inofensivo — a recuperação do servidor por timeout silencioso cobre
 ```
 
 Semântica do cliente (outbox com dupla segurança):
