@@ -1,47 +1,45 @@
-# ZCode Protocol v4：字段级规范
+# ZCode Protocol v4: especificação em nível de campo
 
-新增只读查询 `v4/conversation/backgroundBashOutput`：sessionId/workId 定位当前 runtime
-的后台 Bash，只返回 kind/workId/status/output/truncated/outputPath，其中 output 是固定最多
-8 KiB 原始字节的尾窗；不传命令、时间、退出码或文件大小，不生成 topic event 或恢复会话。
-字段、错误与生命周期合同见 [后台 Bash 输出详情](../background-bash-output-details.md)。
+Nova query somente leitura `v4/conversation/backgroundBashOutput`: `sessionId`/`workId` localizam o Bash em segundo plano do runtime atual e retornam apenas `kind`/`workId`/`status`/`output`/`truncated`/`outputPath`, onde `output` é uma janela final fixa de no máximo 8 KiB de bytes brutos; não transmite comando, horário, código de saída nem tamanho do arquivo, e não gera topic event nem recupera sessão.
+Os campos, erros e o contrato de ciclo de vida estão em [Detalhes da saída do Bash em segundo plano](../background-bash-output-details.md).
 
-- 状态：**当前事实（2026-07-11 target/action/edit/retry 闭环）**。本版在既有 projection schema 上把 wire 升至 v3，接通可信连接订阅、物理分片/有界 resync、CLI 权威输入与 `commands/query`、复合 row target 和 running stable assistant fork。细化 [09-protocol-schema.md](./09-protocol-schema.md)；订阅/恢复/背压语义分别以 [04](./04-sync-and-recovery.md)/[05](./05-transport-and-backpressure.md) 为准。
-- 已吸收 [design-review.md](./design-review.md) 的全部 R/G/D 结论与两项裁决（queue 不持久化、inbox 内存化）。
-- §9.2 已采用**方案 B**：事件日志是进程内有界日志，`logEpoch` 随 CLI runtime 代际变化；跨重启通过持久 transcript/input facts hydration 生成新 snapshot，不恢复旧 epoch。
-- 文中的 ⚠ 是设计期决策标记；§10 已记录最终裁决，不能再把它解释为当前待拍板项。
-- 类型以 TypeScript 记法为讨论基准，落地时以 zod schema 实现；`?` = 可缺省，缺省语义在注释里。
+- Estado: **fato atual (2026-07-11, ciclo fechado de target/action/edit/retry)**. Esta versão eleva o wire para v3 sobre o schema de projection existente, conectando assinatura de conexão confiável, fragmentação física/resync limitado, entrada autoritativa do CLI e `commands/query`, row target composto e fork estável de assistant em execução. Detalha [09-protocol-schema.md](./09-protocol-schema.md); a semântica de assinatura/recuperação/contra-pressão segue [04](./04-sync-and-recovery.md)/[05](./05-transport-and-backpressure.md).
+- Absorve todas as conclusões R/G/D e as duas decisões de [design-review.md](./design-review.md) (queue não persistida, inbox em memória).
+- §9.2 já adota a **Opção B**: o log de eventos é um log limitado em memória do processo, e `logEpoch` muda a cada geração do runtime do CLI; entre reinícios, um novo snapshot é gerado por hydration do transcript/fatos de entrada persistidos, sem restaurar a epoch antiga.
+- O ⚠ no texto é um marcador de decisão da fase de design; §10 registra as decisões finais e não pode mais ser interpretado como item pendente de decisão.
+- Os tipos usam a notação TypeScript como base de discussão; na implementação são realizados com zod schema; `?` = opcional, e a semântica do padrão está nos comentários.
 
-范围：连接/订阅通用层 + conversation topic + sessions-index topic + command/query 层。terminal/git/workspace 等其他域不在本文范围内；不得据此推断它们已经迁移到同一 topic schema。
+Escopo: camada comum de conexão/assinatura + topic conversation + topic sessions-index + camada command/query. Outros domínios como terminal/git/workspace não estão no escopo deste documento; não se deve inferir que eles já migraram para o mesmo schema de topic.
 
 ---
 
-## 1. 标识与时钟
+## 1. Identidade e relógio
 
-| 标识                                       | 类型                                          | 生成方                         | 生命周期                                                     | 用途                                                                |
-| ------------------------------------------ | --------------------------------------------- | ------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `sessionId`                                | `string`                                      | CLI（createSession 时）        | 永久                                                         | 会话身份                                                            |
-| `workspaceId`                              | `string`                                      | host                           | 永久                                                         | workspace identity 键（R-16：**不是裸 path**，含 SSH/WSL/容器身份） |
-| `clientId`                                 | `string`                                      | 客户端首装生成，localStorage   | 跨连接持久                                                   | command 归属展示、遥测。**不参与路由**                              |
-| `connectionId`                             | `string`                                      | host（attachment 建立时分配）  | 单连接                                                       | 信封路由、订阅归属（R-08：与 clientId 分离）                        |
-| `clientMode`                               | `desktop-continuous \| web-remote-replayable` | host（按 attachment 类型注入） | 单连接                                                       | 可信 desktop/mobile 边界；客户端不可覆盖                            |
-| `subscriptionId`                           | `string`                                      | host（subscribe 受理时分配）   | 单订阅                                                       | 帧代际，防旧流交错（R-01）                                          |
-| `logicalFrameId`                           | `string`                                      | publisher/wire encoder         | 单 logical frame                                             | physical fragment assembly 与校验                                   |
-| `logicalFrameOrdinal`                      | `positive safe integer`                       | publisher（每 subscription）   | 单 subscription 内单调、从 1 开始                            | 淘汰迟到 logical replay；同 ordinal 换 id = 协议冲突                |
-| `logEpoch`                                 | `string`                                      | CLI（进程启动时生成，如 ULID） | CLI 进程生命周期                                             | `base` 有效性判定：epoch 不匹配 → 只能 snapshot                     |
-| `seq`                                      | `number`                                      | CLI 事件日志                   | session 内单调，epoch 内有效                                 | 帧区间记账、断点续传                                                |
-| `revision`                                 | `number`                                      | CLI reducer 派生（§4.5）       | session 内单调，**跨重启稳定**                               | command CAS                                                         |
-| `rowId`                                    | `number`                                      | CLI reducer 派生               | session 内单调、永不复用、**事件日志的确定性纯函数**（R-04） | 行身份、虚拟滚动 key、游标分页                                      |
-| `turnId`                                   | `string`                                      | CLI                            | 永久（落盘于 message）                                       | 行分组标签                                                          |
-| `commandId`                                | `string` (uuid v7)                            | 客户端                         | 重试期间不变                                                 | 幂等身份                                                            |
-| `interactionId` / `queueItemId` / `workId` | `string`                                      | CLI                            | 对象生命周期                                                 | `queueItemId` 在 admission 分配，edit/reserve/drain 不变            |
+| Identidade                                   | Tipo                                            | Produtor                                | Ciclo de vida                                                 | Uso                                                                              |
+| -------------------------------------------- | ----------------------------------------------- | --------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `sessionId`                                  | `string`                                        | CLI (ao criar a sessão)                 | permanente                                                     | identidade da sessão                                                             |
+| `workspaceId`                                | `string`                                        | host                                    | permanente                                                     | chave de identidade do workspace (R-16: **não é o path cru**, inclui identidade SSH/WSL/container) |
+| `clientId`                                   | `string`                                        | gerado na primeira instalação do cliente, localStorage | persistente entre conexões                       | exibição de atribuição de command, telemetria. **Não participa do roteamento**   |
+| `connectionId`                               | `string`                                        | host (atribuído ao criar o attachment) | uma conexão                                                    | roteamento de envelope, atribuição de assinatura (R-08: separado do clientId)   |
+| `clientMode`                                 | `desktop-continuous \| web-remote-replayable`   | host (injetado conforme o tipo de attachment) | uma conexão                                          | fronteira confiável desktop/mobile; o cliente não pode sobrescrever               |
+| `subscriptionId`                             | `string`                                        | host (atribuído ao aceitar o subscribe) | uma assinatura                                                 | geração de quadros, evita intercalação de fluxos antigos (R-01)                 |
+| `logicalFrameId`                             | `string`                                        | publisher/encoder de wire               | um quadro lógico                                               | montagem e verificação de fragmentos físicos                                   |
+| `logicalFrameOrdinal`                        | `positive safe integer`                        | publisher (por assinatura)              | monótona dentro da assinatura, começando em 1                 | descarta replay lógico atrasado; mesmo ordinal com id diferente = conflito de protocolo |
+| `logEpoch`                                   | `string`                                        | CLI (gerado na inicialização do processo, ex.: ULID) | ciclo de vida do processo do CLI                   | validade de `base`: epoch diferente → apenas snapshot                            |
+| `seq`                                        | `number`                                        | log de eventos do CLI                   | monótona na sessão, válida dentro da epoch                     | contabilidade de intervalos de quadro, retomada                                 |
+| `revision`                                   | `number`                                        | derivado pelo reducer do CLI (§4.5)     | monótona na sessão, **estável entre reinícios**                | CAS de command                                                                |
+| `rowId`                                      | `number`                                        | derivado pelo reducer do CLI             | monótona na sessão, nunca reutilizada, **função pura determinística do log de eventos** (R-04) | identidade da linha, chave de scroll virtual, paginação por cursor |
+| `turnId`                                     | `string`                                        | CLI                                    | permanente (persistido na mensagem)                             | rótulo de agrupamento de linhas                                                  |
+| `commandId`                                  | `string` (uuid v7)                              | cliente                                 | imutável durante as retentativas                               | identidade idempotente                                                          |
+| `interactionId` / `queueItemId` / `workId`   | `string`                                        | CLI                                    | ciclo de vida do objeto                                        | `queueItemId` é atribuído no admission e não muda em edit/reserve/drain          |
 
-时钟规则（消灭 P1-11 类时钟补丁）：
+Regras de relógio (eliminam os remendos de relógio do tipo P1-11):
 
-- `type Timestamp = number`（Unix ms，**一律 CLI 时钟**）。客户端禁止拿本地时钟与协议 Timestamp 相减。
-- 每帧信封携带 `sentAt`（§3.2），客户端据此维护 `clockOffset ≈ sentAt - localNow`，「已工作 N 秒」等实时跳动 = `localNow + clockOffset - startedAt`。
-- 权威工时（`turnHeader.activeMs`，§4.4）由 CLI 在完成时下发，客户端跳动值仅是过渡展示，终值以权威为准。
+- `type Timestamp = number` (Unix ms, **sempre o relógio do CLI**). O cliente está proibido de subtrair o relógio local de um Timestamp do protocolo.
+- Cada envelope de quadro carrega `sentAt` (§3.2); o cliente mantém com isso `clockOffset ≈ sentAt - localNow`, e um valor animado em tempo real como "trabalhando há N segundos" = `localNow + clockOffset - startedAt`.
+- O tempo de trabalho autoritativo (`turnHeader.activeMs`, §4.4) é enviado pelo CLI na conclusão; o valor animado do cliente é apenas exibição transitória e o valor final segue o autoritativo.
 
-`revision` 与 `seq` 的关系：`revision` 是「结构性事件」计数（§4.5 定义），`seq` 是全部事件计数；两者都由日志确定性派生，`revision ≤ seq`。
+Relação entre `revision` e `seq`: `revision` é a contagem de "eventos estruturais" (definida em §4.5) e `seq` é a contagem de todos os eventos; ambos são derivados deterministicamente do log, com `revision ≤ seq`.
 
 ---
 

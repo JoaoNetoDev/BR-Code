@@ -59,7 +59,7 @@ relações indiretas não verificadas não foram tratadas como fatos de produto.
 - **direito de chamada de ferramentas do usuário do Start Plan**. A chamada de ferramentas do Server MCP oficial continua sendo direito exclusivo do Coding Plan;
   o Start Plan tem apenas o JWT do ZCode, sem Coding Plan Provider utilizável. O modo API Key ou a ausência de um Coding Plan Provider válido no Registry também seguem a mesma semântica identity-only: as requisições de conexão/descoberta carregam apenas o JWT do ZCode, sem JWT MaaS, deixando o servidor distinguir erro de sessão de login e de erro de plano (`1006` / `3101`);
 - implementação de ferramentas do backend MCP oficial, cobrança, limitação de taxa e design das interfaces de negócio;
-- lógica de灰度 (rollout gradual) de `/api/v1/client/configs`; na Fase 1 apenas se mantém inalterada a capacidade de rollout existente;
+- lógica de rollout gradual (灰度) de `/api/v1/client/configs`; na Fase 1 apenas se mantém inalterada a capacidade de rollout existente;
 - alterações de UI como página de configurações do MCP, página de configurações de Plugin, exibição de status e guias de login;
 - novos registros de usage ou interfaces de capabilities (os endpoints em si já foram implementados pelo backend, ver §12.3);
 - emissão de Token de curto prazo. Na Fase 1 `jwt_token` usa o JWT de usuário existente, sem gerar novo Token no cliente;

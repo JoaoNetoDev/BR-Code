@@ -1,41 +1,43 @@
-# 应用用量改造：数据源迁移到 zcode agent 数据库
+# Reformulação do Uso do App: migração da fonte de dados para o banco de dados do zcode agent
 
-日期：2026-06-02
-分支：feat/new-agent
+Data: 2026-06-02
+Branch: feat/new-agent
 
-## 背景与目标
+## Contexto e objetivo
 
-「应用用量」（App Usage）面板当前的数据全部来自**本地 session JSON 文件**
-（`~/.zcode/sessions/*.json`），经宿主进程的 `usageStatsAggregator.ts` 用
-「字符数 / 3」**估算** token 后聚合成三个区块：概要、热力图、趋势，支持
-全部 / 7d / 30d 时间筛选。
+O painel "Uso do App" (App Usage) tem hoje todos os seus dados vindo de **arquivos JSON locais de sessão**
+(`~/.zcode/sessions/*.json`), agregados pelo `usageStatsAggregator.ts` do processo do host, que **estima** tokens
+por "número de caracteres / 3" e depois os agrega em três blocos: resumo, mapa de calor e tendência, com filtros de
+tempo de Todos / 7d / 30d.
 
-zcode agent 新增了可观测性数据库（迁移 `0010_usage_observability`），三张表记录
-**真实**用量数据：
+O zcode agent passou a ter um banco de dados de observabilidade (migração `0010_usage_observability`), em que três
+tabelas registram dados de uso **reais**:
 
-- `model_usage` — 真实 token（input / output / reasoning / cache 读写）、provider/model、
-  query_source、状态、延迟（duration、TTFT）、重试、错误
-- `turn_usage` — 按用户轮次聚合，含工具调用数/错误数、token、延迟
-- `tool_usage` — 每次工具调用：工具名、审批状态、只读/破坏性、耗时、输出字节、错误
-- 保留期 30 天（`USAGE_RETENTION_DAYS = 30`，超期自动删）
+- `model_usage` — tokens reais (input / output / reasoning / cache leitura e escrita), provider/model,
+  query_source, status, latência (duration, TTFT), retries, erros
+- `turn_usage` — agregado por turno do usuário, com contagem de chamadas de ferramenta/erros, tokens e latência
+- `tool_usage` — cada chamada de ferramenta: nome da ferramenta, status de aprovação, somente leitura/destrutiva, tempo decorrido, bytes de saída, erro
+- retenção de 30 dias (`USAGE_RETENTION_DAYS = 30`, remoção automática ao expirar)
 
-**目标**：把应用用量面板的数据源**全部替换**为 agent 数据库统计，去掉字符估算管线，
-并利用新数据补充真实 token 拆分、工具使用统计、可靠性指标。
+**Objetivo**: substituir **integralmente** a fonte de dados do painel de Uso do App pelas estatísticas do banco do
+agent, removendo o pipeline de estimativa por caracteres e usando os novos dados para acrescentar o detalhamento
+real de tokens, estatísticas de uso de ferramentas e indicadores de confiabilidade.
 
-## 关键决策（已与用户确认）
+## Decisões-chave (já confirmadas com o usuário)
 
-1. **保留期冲突 → 界面适配 30 天**：时间筛选从 `全部 / 7d / 30d` 改为 `7d / 30d`
-   （去掉「全部」）；热力图从 52 周收缩为 30 天。不改数据库保留期。
-2. **新增指标范围**：真实 Token 拆分 + 工具使用统计 + 质量/可靠性指标。
-   **不做**按 query_source 拆分（主对话/压缩/子 agent/workflow）。
-3. **热力图形态 → 30 天日历格**（约 5 列，GitHub 式），每格 = 当天真实 token 总量。
-4. **取数路径 → ZCode Protocol**：新增协议方法，由 agent 侧 SQL 聚合后回传。
+1. **Conflito de retenção → interface adaptada a 30 dias**: o filtro de tempo muda de `Todos / 7d / 30d` para `7d / 30d`
+   (removendo "Todos"); o mapa de calor encurta de 52 semanas para 30 dias. A retenção do banco não é alterada.
+2. **Escopo de novas métricas**: detalhamento real de tokens + estatísticas de uso de ferramentas + métricas de qualidade/confiabilidade.
+   **Não** fazer quebra por `query_source` (conversa principal/compactação/subagente/workflow).
+3. **Formato do mapa de calor → grade de calendário de 30 dias** (cerca de 5 colunas, estilo GitHub), cada célula = total real de tokens do dia.
+4. **Caminho de leitura → ZCode Protocol**: novo método de protocolo, com agregação em SQL do lado do agent devolvendo o resultado.
 
-## 架构与数据流
+## Arquitetura e fluxo de dados
 
-宿主进程**不直接持有** agent 的 SQLite；agent 是独立子进程，宿主只能通过
-ZCode Protocol（stdio JSON-RPC）请求数据（现有 `session/list`、`session/messages` 即此模式）。
-聚合放在 **agent 侧（SQL）**，而非把原始行拉回宿主再算 —— 省 stdio 传输、天然带 30 天窗口。
+O processo do host **não mantém diretamente** o SQLite do agent; o agent é um subprocesso separado e o host só pode
+pedir dados pelo ZCode Protocol (stdio JSON-RPC, como no `session/list` e `session/messages` já existentes).
+A agregação fica do **lado do agent (SQL)**, em vez de trazer as linhas brutas para o host e calcular lá — economiza
+transporte por stdio e já vem com a janela de 30 dias.
 
 ```
 旧:  useAppUsageStats → usageStatsService.getAppUsageSnapshot()
@@ -49,94 +51,96 @@ ZCode Protocol（stdio JSON-RPC）请求数据（现有 `session/list`、`sessio
         → 回传 AppUsageSnapshot
 ```
 
-**备选方案（不采用）**：宿主进程直接只读打开同一个 `default.db` 文件。否决原因：
-与 agent 并发访问同一 DB、schema 双份耦合、违反「新代码走 ZCode Protocol」约定。
+**Alternativa (não adotada)**: o processo do host abrir o mesmo arquivo `default.db` diretamente em modo somente
+leitura. Motivo da rejeição: acesso concorrente ao mesmo DB pelo agent, schema duplicado e acoplado, e violação do
+acordo de que "código novo passa pelo ZCode Protocol".
 
-## 指标变更
+## Mudanças nas métricas
 
-### 概要（Summary）
+### Resumo (Summary)
 
-固定 8 张卡。映射如下：
+Oito cards fixos. O mapeamento é:
 
-| 旧卡片 | 处理 | 新卡片 | 数据来源 |
+| Card antigo | Tratamento | Card novo | Fonte dos dados |
 |---|---|---|---|
-| Token 用量（字符/3 估算） | 换真实 | **真实 Token**（总量，副标拆 输入/输出/缓存） | `model_usage.computed_total_tokens` 等 |
-| 消息数 | 删，替换 | **对话轮次** | `turn_usage` 行数 |
-| 会话数 | 保留 | 会话数 | distinct `session_id` |
-| 活跃天数 | 保留 | 活跃天数 | distinct day(`started_at`) |
-| 当前/最长连续 | 合并 | **连续活跃天数**（30 天内） | day(`started_at`) |
-| 峰值时段 | 删（移到热力图） | **缓存命中率** | `cache_read / (input + cache_creation + cache_read)` |
-| 最常用模型 | 保留 | 最常用模型（按真实 token） | `model_usage` GROUP BY model |
-| — | 新增 | **工具调用**（总数 + 错误率） | `tool_usage` |
-| — | 新增 | **可靠性**（模型错误率 / 平均 TTFT） | `model_usage.status`、`time_to_first_token_ms` |
+| Uso de tokens (estimativa caracteres/3) | troca por real | **Tokens reais** (total, subtítulo com input/output/cache) | `model_usage.computed_total_tokens` etc. |
+| Número de mensagens | removido, substituído | **Turnos de conversa** | número de linhas de `turn_usage` |
+| Número de sessões | mantido | Número de sessões | `session_id` distinto |
+| Dias ativos | mantido | Dias ativos | `day(started_at)` distinto |
+| Atual/maior sequência | fundidos | **Dias ativos consecutivos** (em 30 dias) | `day(started_at)` |
+| Horário de pico | removido (vai para o mapa de calor) | **Taxa de acerto de cache** | `cache_read / (input + cache_creation + cache_read)` |
+| Modelo mais usado | mantido | Modelo mais usado (por tokens reais) | `model_usage` GROUP BY model |
+| — | novo | **Chamadas de ferramenta** (total + taxa de erro) | `tool_usage` |
+| — | novo | **Confiabilidade** (taxa de erro do modelo / TTFT médio) | `model_usage.status`, `time_to_first_token_ms` |
 
-> 候选 9 项取 8。默认取舍：保留「连续活跃天数」与「可靠性」，因「工具调用」已在第 4 区块
-> 充分展开，概要中可省其一以控制在 8 张；实现时可微调，不影响架构。
+> Das 9 candidatas, ficam 8. Corte padrão: manter "Dias ativos consecutivos" e "Confiabilidade", já que
+> "Chamadas de ferramenta" está bem expandida no 4º bloco; pode-se omitir uma no resumo para controlar em 8 cards;
+> a implementação pode ajustar levemente, sem afetar a arquitetura.
 
-### 热力图（Heatmap）
+### Mapa de calor (Heatmap)
 
-- **删**：52 周日历、基于字符数的 `activityScore`。
-- **换**：30 天日历格（约 5 列），每格颜色深浅 = 当天 `computed_total_tokens`；
-  tooltip 显示 token / 轮次 / 工具调用数。
+- **Remove**: calendário de 52 semanas e o `activityScore` baseado em número de caracteres.
+- **Troca**: grade de calendário de 30 dias (cerca de 5 colunas), em que a intensidade da cor de cada célula = `computed_total_tokens` do dia;
+  o tooltip mostra tokens / turnos / número de chamadas de ferramenta.
 
-### 趋势（Trend）
+### Tendência (Trend)
 
-- **保留**结构（按模型堆叠的每日柱状图），数据换为真实 token（`computed_total_tokens`）。
-- 时间筛选去掉「全部」，改 `7d / 30d`；分桶简化（7d 按天，30d 按天）。
+- **Mantém** a estrutura (barras diárias empilhadas por modelo), com os dados trocados por tokens reais (`computed_total_tokens`).
+- O filtro de tempo perde "Todos" e passa a `7d / 30d`; o bucket é simplificado (7d por dia, 30d por dia).
 
-### 新增第 4 区块：工具使用（Tool Usage）
+### Novo 4º bloco: Uso de ferramentas (Tool Usage)
 
-- 来自 `tool_usage`，Top 工具排行：调用次数、错误率、平均耗时。
-- 横向条形 + 小表格。
+- Vem de `tool_usage`, ranking das principais ferramentas: número de chamadas, taxa de erro, tempo médio.
+- Barras horizontais + uma tabela pequena.
 
-## 涉及文件
+## Arquivos envolvidos
 
-### Agent 侧（取数 + 聚合）
+### Lado do agent (leitura + agregação)
 
 - `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts`
-  — `UsageStorePort` 增加只读聚合方法（当前仅有写方法）及结果类型。
+  — `UsageStorePort` ganha métodos de agregação somente leitura (hoje só tem métodos de escrita) e os tipos de resultado.
 - `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts`
-  — 新增 SQL 聚合查询（GROUP BY day / model / tool，带 30 天 + range 过滤）。
+  — novas consultas SQL de agregação (GROUP BY day / model / tool, com filtro de 30 dias + range).
 - `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts`
-  — 代理新读方法。
+  — faz proxy dos novos métodos de leitura.
 - `packages/shared/src/zcode-protocol/index.ts`
-  — 新协议方法 `usage/stats` + zod 入参/结果 schema，登记到 `zcodeProtocolMethods`。
-- agent server 侧 handler（与 `session/list` 同位置）— 处理 `usage/stats`。
+  — novo método de protocolo `usage/stats` + schemas zod de entrada/resultado, registrados em `zcodeProtocolMethods`.
+- handler do lado do agent server (na mesma posição de `session/list`) — trata `usage/stats`.
 
-### 宿主服务侧（换数据源）
+### Lado dos serviços do host (troca da fonte de dados)
 
 - `packages/services/src/usage-stats/usageStatsService.ts`
-  — `getAppUsageSnapshot()` 改走 `zcodeProtocolClient` / `zcodeAgentService`。
-- **删除**：`usageStatsAggregator.ts`、`repo/sessionUsageRepo.ts`、`usageStatsSeries.ts`、
-  字符估算常量（`ESTIMATED_TOKEN_CHAR_DIVISOR`、`estimateTokensFromCharacterCount` 等）。
+  — `getAppUsageSnapshot()` passa a usar `zcodeProtocolClient` / `zcodeAgentService`.
+- **Remover**: `usageStatsAggregator.ts`, `repo/sessionUsageRepo.ts`, `usageStatsSeries.ts`,
+  as constantes de estimativa por caracteres (`ESTIMATED_TOKEN_CHAR_DIVISOR`, `estimateTokensFromCharacterCount` etc.).
 - `packages/shared/src/usage-stats.ts`
-  — 更新类型：移除字符/估算字段，新增 token 拆分 / 缓存命中 / 工具 / 可靠性字段。
+  — atualizar os tipos: remover campos de caracteres/estimativa e adicionar detalhamento de tokens / acerto de cache / ferramentas / confiabilidade.
 
-### UI 侧
+### Lado da UI
 
 - `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`
-  — 新概要卡集合；range tabs 去掉「全部」（`UsageStatsRange` 改为 `"7d" | "30d"`）。
+  — novo conjunto de cards de resumo; as tabs de range perdem "Todos" (`UsageStatsRange` passa a ser `"7d" | "30d"`).
 - `packages/ui/src/settings/usage-stats/usageStatsUiParts.tsx`
-  — 热力图改 30 天；新增工具使用区块组件。
+  — mapa de calor passa para 30 dias; novo componente do bloco de uso de ferramentas.
 - `packages/ui/src/settings/usage-stats/AppUsageDailyModelBarChart.tsx`
-  — 真实 token。
-- i18n keys 增删（`settings.usage.range.all` 移除等）。
+  — tokens reais.
+- adições/remoções de i18n keys (por exemplo, remover `settings.usage.range.all`).
 
-### 不动
+### Sem alterações
 
-- 编程套餐（Coding Plan）整个 tab、BigModel monitor API 那条线保持原样。
+- o tab inteiro de Coding Plan e a linha da BigModel monitor API permanecem como estão.
 
-## 测试
+## Testes
 
-- **Agent SQL 聚合**：内存 SQLite 灌入已知 `model_usage` / `turn_usage` / `tool_usage` 行，
-  断言聚合结果（仿 `repositories/usage.ts` 现有测试）。
-- **协议层**：`usage/stats` schema 入参/结果往返校验。
-- **宿主服务**：mock 协议客户端，断言 `getAppUsageSnapshot` 字段映射正确。
-- **UI**：snapshot 渲染（概要卡 / 30 天热力图 / 趋势 / 工具表）。
+- **Agregação SQL do agent**: inserir linhas conhecidas de `model_usage` / `turn_usage` / `tool_usage` em SQLite em memória e
+  afirmar o resultado da agregação (a partir dos testes existentes em `repositories/usage.ts`).
+- **Camada de protocolo**: validação de ida e volta dos schemas de entrada/resultado de `usage/stats`.
+- **Serviços do host**: mock do cliente de protocolo e assert de que o mapeamento de campos de `getAppUsageSnapshot` está correto.
+- **UI**: renderização do snapshot (cards de resumo / mapa de calor de 30 dias / tendência / tabela de ferramentas).
 
-## 风险与注意
+## Riscos e cuidados
 
-- 30 天保留期意味着面板永远看不到更早数据；UI 文案应明示「近 30 天」。
-- 真实 token 与旧的字符估算不可比，迁移后历史数字会出现「断层」，属预期。
-- `turn_usage` 的「轮次」语义与旧「消息数」不同，文案需相应调整。
-- agent 未运行 / DB 为空时，面板需有空态与错误态（复用 `UsageStatsErrorNotice`）。
+- a retenção de 30 dias significa que o painel nunca enxerga dados mais antigos; o texto da UI deve deixar explícito "últimos 30 dias".
+- os tokens reais não são comparáveis com a antiga estimativa por caracteres, então os números históricos vão apresentar um "salto" após a migração, o que é esperado.
+- a semântica de "turno" de `turn_usage` é diferente do antigo "número de mensagens", então os textos precisam ser ajustados.
+- quando o agent não está em execução ou o DB está vazio, o painel precisa de um estado vazio e de um estado de erro (reaproveitando `UsageStatsErrorNotice`).

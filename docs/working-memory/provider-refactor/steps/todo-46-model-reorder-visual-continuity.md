@@ -76,9 +76,9 @@ Last model row  -> no bottom divider
 - Testes unitários de UI: atraso controlado, reprojeção por View antiga, rollback em caso de falha, reordenações consecutivas, mudança de membros;
 - E2E das configurações de Provider: após um pointer drag real, a ordem do DOM não pisca de volta;
 - Testes de estrutura de bordas: uma moldura externa, sem divider na última linha;
-- `typecheck` e testes direcionados de `@zcode/ui`;
-- `typecheck` do E2E de Desktop;
-- `pnpm typecheck`, `pnpm lint`, verificação de formatação e `git diff --check` na raiz.
+- `@zcode/ui`: `typecheck` e testes direcionados;
+- E2E de Desktop: `typecheck`;
+- Na raiz: `pnpm typecheck`, `pnpm lint`, verificação de formatação e `git diff --check`.
 
 ## 6. 实施结果
 

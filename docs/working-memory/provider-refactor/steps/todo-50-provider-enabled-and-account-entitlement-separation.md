@@ -4,7 +4,7 @@
 >
 > Data: 2026-08-31
 >
-> Pré-requisito: o Todo 49 remove primeiro o fictício Account API Provider e restaura a identidade real da Family 按量 API.
+> Pré-requisito: o Todo 49 remove primeiro o fictício Account API Provider e restaura a identidade real da Family pay-as-you-go API.
 
 ## 1. Problema
 
@@ -73,7 +73,7 @@ const modelExecutable = providerExecutable && model.enabled && modelComplete;
 
 - Built-in comum: Built-in `enabled=false`; “Adicionar provedor” grava Personal `enabled=true`; remover o Overlay faz voltar para false;
 - Somente Personal: na criação `enabled=true`; na remoção a definição inteira desaparece;
-- Family 按量 API: Built-in `enabled=true`, exibição fixa, sem botão de ligar/desligar; Key ausente apenas gera incompletude;
+- Family pay-as-you-go API: Built-in `enabled=true`, exibição fixa, sem botão de ligar/desligar; Key ausente apenas gera incompletude;
 - Account Provider: Built-in `enabled=true`, exibição fixa; o Account Overlay apenas atualiza `access.entitled` e os fatos de modelo da conta;
 - Off-Peak: Built-in `enabled=true`, `visibility=hidden`, e o Account Overlay atualiza `access.entitled`.
 

@@ -1,89 +1,89 @@
-# Plugin MCP Skill Case Catalog
+# Catálogo de Cases de Plugin MCP Skill
 
-目标：把 ZCode 桌面端"插件提供的 MCP skill"从导入到关闭的产品语义展开成 e2e case，供产品、QA、开发 review。本目录 v1 只覆盖三个最基础的 happy-path 状态（未安装 / 安装并启用 / 安装但禁用）；后续导入动作的多步路径、per-skill 关闭、跨工作区继承、卸载后清状态等行为单独维护 catalog 增量。
+Objetivo: expandir a semântica de produto do "MCP skill fornecido por plugin" no desktop do ZCode, da importação ao fechamento, em cases e2e para review de produto, QA e desenvolvimento. Este diretório v1 cobre apenas os três estados de happy path mais básicos (não instalado / instalado e habilitado / instalado mas desabilitado); os caminhos de múltiplas etapas das ações de importação, o desligamento por skill, a herança entre workspaces e a limpeza de estado após desinstalação são mantidos como incrementos separados do catálogo.
 
-## 命名与固定标记
+## Nomenclatura e Marcadores Fixos
 
-- 工具命名空间（runtime）：agent 加载 plugin MCP server 后通过 `apps/zcode-cli/packages/adapters/src/mcp/descriptor.ts` 把 `plugin:<plugin-name>:<server>` 重写为 anthropic 兼容的 `mcp__plugin_<plugin-name>_<server>__<tool>`，这是真正发给模型的 tool name。本目录用例固定使用：
-  - 插件：`e2e-plugin-mcp-ping`（fixture 路径 `packages/desktop/test/e2e/fixtures/plugin-mcp-skill/e2e-plugin-mcp-ping/`）
-  - server：`ping`
-  - plugin 命名空间（plugin 内部）：`plugin:e2e-plugin-mcp-ping:ping`（仅用于 debug 日志 / `getEnabledMcpServers`）
-  - 模型 tools 数组实际名：`mcp__plugin_e2e-plugin-mcp-ping_ping__ping`
-  - plugin id（installed_plugins.json 内的 id）：`e2e-plugin-mcp-ping@e2e-fixture`
-- e2e marker 前缀：`E2E_PLUGIN_MCP_PING_<STATE>_<runId>`
-- 状态 A：`not-installed`；状态 B：`installed-enabled`；状态 C：`installed-disabled`
+- Namespace de ferramenta (runtime): depois que o agent carrega o plugin MCP server, `apps/zcode-cli/packages/adapters/src/mcp/descriptor.ts` reescreve `plugin:<plugin-name>:<server>` como o nome compatível com anthropic `mcp__plugin_<plugin-name>_<server>__<tool>`, que é o tool name realmente enviado ao modelo. Os cases deste diretório usam sempre:
+  - Plugin: `e2e-plugin-mcp-ping` (caminho do fixture `packages/desktop/test/e2e/fixtures/plugin-mcp-skill/e2e-plugin-mcp-ping/`)
+  - server: `ping`
+  - namespace do plugin (interno ao plugin): `plugin:e2e-plugin-mcp-ping:ping` (usado apenas em log de debug / `getEnabledMcpServers`)
+  - Nome real no array tools do modelo: `mcp__plugin_e2e-plugin-mcp-ping_ping__ping`
+  - plugin id (id dentro de installed_plugins.json): `e2e-plugin-mcp-ping@e2e-fixture`
+- Prefixo dos marcadores e2e: `E2E_PLUGIN_MCP_PING_<STATE>_<runId>`
+- Estado A: `not-installed`; estado B: `installed-enabled`; estado C: `installed-disabled`
 
-## 枚举边界
+## Limites de Enumeração
 
-| 维度              | 等价类                                                                                          |
-| ----------------- | ----------------------------------------------------------------------------------------------- |
-| 安装状态          | `not-installed`、`installed-enabled`、`installed-disabled`                                       |
-| 触发面            | `installed_plugins.json` 存在/缺失、`config.json#plugins.enabledPlugins[id]` 真/假/缺           |
-| MCP server 启动   | `lazy`（仅在 listTools 时 spawn）；`eager`（plugin 启用即 spawn）                               |
-| 对话层 tool 暴露  | `tools[]` 数组里包含 namespaced 工具名 / 不包含                                                  |
-| 软证据            | chat 出现 `chat-tool-call-block-<toolName>` block / 不出现                                       |
-| fixture 复用      | `fixtures/upstream/plugin-mcp-skill/conversation-session-plugin-mcp-skill-{baselines,installed-enabled}.json` |
+| Dimensão                  | Classe de equivalência                                                                                          |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Estado de instalação      | `not-installed`、`installed-enabled`、`installed-disabled`                                                          |
+| Superfície de gatilho     | `installed_plugins.json` presente/ausente、`config.json#plugins.enabledPlugins[id]` verdadeiro/falso/ausente          |
+| Inicialização do MCP server | `lazy` (spawn apenas no listTools); `eager` (spawn assim que o plugin é habilitado)                                |
+| Exposição de tool na camada de conversa | o array `tools[]` contém o nome de ferramenta com namespace / não contém                       |
+| Evidência fraca           | o chat exibe o block `chat-tool-call-block-<toolName>` / não exibe                                                 |
+| Reuso de fixture          | `fixtures/upstream/plugin-mcp-skill/conversation-session-plugin-mcp-skill-{baselines,installed-enabled}.json`        |
 
-## Review 状态
+## Status de Review
 
-| 状态          | 含义                                  |
-| ------------- | ------------------------------------- |
-| accepted      | 产品预期明确，可以生成测试            |
-| undefined     | 产品预期未定义，待补                  |
-| bug-candidate | 当前实现与 case 冲突，未必是协议问题  |
+| Status          | Significado                                              |
+| --------------- | -------------------------------------------------------- |
+| accepted        | A expectativa de produto está clara, já pode gerar teste |
+| undefined       | A expectativa de produto não está definida, pendente    |
+| bug-candidate   | A implementação atual conflita com o case, e nem sempre é um problema de protocolo |
 
-## Case 列表
+## Lista de Cases
 
-| ID  | 前置状态                                | 用户/系统事件                     | 规则命中                                                       | 期望结果                                                                                              | Review   |
-| --- | --------------------------------------- | --------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------- |
-| P01 | `installed_plugins.json` 不含本插件     | 用户在 chat 里发普通文本          | `not-installed` baseline                                        | 请求 `tools[]` 不含 `mcp__plugin_e2e-plugin-mcp-ping_ping__ping`；chat 无对应 tool-call block                  | accepted |
-| P02 | `installed_plugins.json` 含本插件，`enabledPlugins[id] = true` | 用户发"调工具"prompt | `installed-enabled` 强证据 | 请求 `tools[]` 含 `mcp__plugin_e2e-plugin-mcp-ping_ping__ping`；chat 出现该工具的 tool-call block                | accepted |
-| P03 | `installed_plugins.json` 含本插件，`enabledPlugins[id] = false` | 用户发普通文本     | `installed-disabled`                                            | 请求 `tools[]` 不含 `mcp__plugin_e2e-plugin-mcp-ping_ping__ping`；chat 无对应 tool-call block                    | accepted |
+| ID  | Pré-condição                                        | Evento do usuário/sistema                        | Regra atingida                                                       | Resultado esperado                                                                                    | Review   |
+| --- | --------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------- |
+| P01 | `installed_plugins.json` não contém este plugin      | O usuário envia texto comum no chat               | baseline `not-installed`                                             | A requisição `tools[]` não contém `mcp__plugin_e2e-plugin-mcp-ping_ping__ping`; o chat não tem o tool-call block correspondente | accepted |
+| P02 | `installed_plugins.json` contém este plugin, `enabledPlugins[id] = true` | O usuário envia um prompt "chamar ferramenta" | evidência forte `installed-enabled` | A requisição `tools[]` contém `mcp__plugin_e2e-plugin-mcp-ping_ping__ping`; o chat exibe o tool-call block dessa ferramenta | accepted |
+| P03 | `installed_plugins.json` contém este plugin, `enabledPlugins[id] = false` | O usuário envia texto comum      | `installed-disabled`                                                 | A requisição `tools[]` não contém `mcp__plugin_e2e-plugin-mcp-ping_ping__ping`; o chat não tem o tool-call block correspondente | accepted |
 
-## v1 验证记录
+## Registro de Validação v1
 
-- 2026-07-05：在本地 macOS (Apple M4 Pro) + Electron desktop 真实启动下，三个 spec 全部通过：
-  - P01 未安装基线（marker `E2E_PLUGIN_MCP_PING_NOT_INSTALLED_*`，deepseek replay 回纯文本）→ 9s 通过。
-  - P02 已安装并启用（marker `E2E_PLUGIN_MCP_PING_INSTALLED_ENABLED_*`，deepseek replay 回 `toolUse.name="mcp__plugin_e2e-plugin-mcp-ping_ping__ping"`）→ 9s 通过；chat 端成功渲染对应 tool-call block。
-  - P03 已安装但禁用（marker `E2E_PLUGIN_MCP_PING_DISABLED_*`）→ 7s 通过；`enabledPlugins[id] = false` 生效，请求 `tools[]` 0 个 plugin MCP。
-- 关键 fix（v1 → 跑通）：
-  1. `installed_plugins.json` 必须落到 `<E2E_HOME>/.zcode/cli/plugins/` 而不是 `cli/`（bootstrap 的 `pluginStorageRoot = cli/plugins`，`listInstalledPluginRecords(pluginStorageRoot)` 读 `<pluginStorageRoot>/installed_plugins.json`）。
-  2. 安装型 plugin `defaultEnabled = false`，必须显式 `config.plugins.enabledPlugins[id] = true`；delete 字段会被当成默认 false。
-  3. agent 注入模型的工具名是 `mcp__plugin_<plugin-name>_<server>__<tool>`，不是 `plugin:<plugin-name>:<server>`（后者只在 plugin 内部命名空间用）。replay fixture 与 chat 断言都要用前者。
+- 2026-07-05: em macOS local (Apple M4 Pro) + Electron desktop com start real, os três specs passaram:
+  - P01 baseline não instalado (marcador `E2E_PLUGIN_MCP_PING_NOT_INSTALLED_*`, replay deepseek retornando texto puro) → passou em 9s.
+  - P02 instalado e habilitado (marcador `E2E_PLUGIN_MCP_PING_INSTALLED_ENABLED_*`, replay deepseek retornando `toolUse.name="mcp__plugin_e2e-plugin-mcp-ping_ping__ping"`) → passou em 9s; o lado do chat renderizou com sucesso o tool-call block correspondente.
+  - P03 instalado mas desabilitado (marcador `E2E_PLUGIN_MCP_PING_DISABLED_*`) → passou em 7s; `enabledPlugins[id] = false` surtiu efeito, com a requisição `tools[]` contendo 0 plugin MCP.
+- Fixes principais (v1 → passou):
+  1. `installed_plugins.json` precisa cair em `<E2E_HOME>/.zcode/cli/plugins/` e não em `cli/` (o bootstrap define `pluginStorageRoot = cli/plugins`, e `listInstalledPluginRecords(pluginStorageRoot)` lê `<pluginStorageRoot>/installed_plugins.json`).
+  2. Plugins do tipo instalação têm `defaultEnabled = false`; é preciso definir explicitamente `config.plugins.enabledPlugins[id] = true`; o campo delete é tratado como false por padrão.
+  3. O nome de ferramenta que o agent injeta no modelo é `mcp__plugin_<plugin-name>_<server>__<tool>`, e não `plugin:<plugin-name>:<server>` (o último só é usado no namespace interno do plugin). O fixture de replay e as asserções do chat devem usar o primeiro.
 
-## Fixture 合约
+## Contrato de Fixtures
 
-### e2e 启动前由 wdio.conf.ts 写入
+### Escrito por wdio.conf.ts antes do start do e2e
 
-- `<E2E_HOME>/.zcode/cli/plugins/installed_plugins.json`：
-  - A 状态：`resetE2EHome()` 已清空 E2E home，不写 plugin 安装记录
-  - B/C 状态：从 `fixtures/plugin-mcp-skill/installed-plugins.{enabled,disabled}.template.json` 渲染（占位 `__INSTALL_PATH__` 替换为绝对路径），name=`e2e-plugin-mcp-ping`，marketplace=`e2e-fixture`，scope=`user`
-- `<E2E_HOME>/.zcode/cli/config.json`（必须在 `seedUpstreamE2EModelConfig` 之后再 patch）：
-  - B 状态：`plugins.enabledPlugins["e2e-plugin-mcp-ping@e2e-fixture"] = true`（必须显式 true，因为安装型 plugin 在 `NodePluginAdapter.resolveCandidates` 里 `defaultEnabled = false`）
-  - C 状态：`plugins.enabledPlugins["e2e-plugin-mcp-ping@e2e-fixture"] = false`
+- `<E2E_HOME>/.zcode/cli/plugins/installed_plugins.json`:
+  - Estado A: `resetE2EHome()` já limpou o E2E home, sem gravar registro de instalação de plugin
+  - Estados B/C: renderizado a partir de `fixtures/plugin-mcp-skill/installed-plugins.{enabled,disabled}.template.json` (placeholder `__INSTALL_PATH__` substituído por caminho absoluto), name=`e2e-plugin-mcp-ping`, marketplace=`e2e-fixture`, scope=`user`
+- `<E2E_HOME>/.zcode/cli/config.json` (precisa ser patcheado depois de `seedUpstreamE2EModelConfig`):
+  - Estado B: `plugins.enabledPlugins["e2e-plugin-mcp-ping@e2e-fixture"] = true` (tem que ser explicitamente true, porque plugins do tipo instalação têm `defaultEnabled = false` em `NodePluginAdapter.resolveCandidates`)
+  - Estado C: `plugins.enabledPlugins["e2e-plugin-mcp-ping@e2e-fixture"] = false`
 
-### deepseek replay fixture
+### Fixture de replay do deepseek
 
-- `fixtures/upstream/plugin-mcp-skill/conversation-session-plugin-mcp-skill-baselines.json`：A 与 C 共享，匹配 `E2E_PLUGIN_MCP_PING_{NOT_INSTALLED,DISABLED}`，回纯文本 `deepseek-e2e-ok`
-- `fixtures/upstream/plugin-mcp-skill/conversation-session-plugin-mcp-skill-installed-enabled.json`：B 专用，匹配 `E2E_PLUGIN_MCP_PING_INSTALLED_ENABLED`，先回 `toolUse.name="mcp__plugin_e2e-plugin-mcp-ping_ping__ping"`，再在工具结果轮回纯文本 `deepseek-e2e-ok`
+- `fixtures/upstream/plugin-mcp-skill/conversation-session-plugin-mcp-skill-baselines.json`: compartilhado por A e C, casa com `E2E_PLUGIN_MCP_PING_{NOT_INSTALLED,DISABLED}` e retorna texto puro `deepseek-e2e-ok`
+- `fixtures/upstream/plugin-mcp-skill/conversation-session-plugin-mcp-skill-installed-enabled.json`: exclusivo de B, casa com `E2E_PLUGIN_MCP_PING_INSTALLED_ENABLED`, retorna primeiro `toolUse.name="mcp__plugin_e2e-plugin-mcp-ping_ping__ping"` e depois, no turno de resultado da ferramenta, texto puro `deepseek-e2e-ok`
 
-## 复用现有 helper
+## Reuso de Helpers Existentes
 
-- `prepareConversationE2E()` / `startNewTask()` / `sendPrompt()` / `waitForUserMessageContaining()` / `waitForUpstreamRequestContaining()` / `waitForAssistantMessageContaining()` / `waitForChatState()` —— `helpers/conversation-session.ts`
-- `ensureToolCrossProductFullAccessMode()` / `respondToToolCrossProductBlockers()` —— `helpers/conversation-session-tool-cross-product.ts`（仅 B 状态使用，避免 Full access / permission 弹窗把 tool-call 拦截）
-- `getToolCallBlockByToolName()` —— 同上
-- 新增 `helpers/plugin-mcp-skill.ts`：`PLUGIN_MCP_TOOL_NAME`、`captureArtifactAdvertisesToolName`、`findUpstreamRequestContaining`
+- `prepareConversationE2E()` / `startNewTask()` / `sendPrompt()` / `waitForUserMessageContaining()` / `waitForUpstreamRequestContaining()` / `waitForAssistantMessageContaining()` / `waitForChatState()` — `helpers/conversation-session.ts`
+- `ensureToolCrossProductFullAccessMode()` / `respondToToolCrossProductBlockers()` — `helpers/conversation-session-tool-cross-product.ts` (usado apenas no estado B, para evitar que os popups de Full access / permission interceptem a tool-call)
+- `getToolCallBlockByToolName()` — o mesmo helper acima
+- Novo `helpers/plugin-mcp-skill.ts`: `PLUGIN_MCP_TOOL_NAME`, `captureArtifactAdvertisesToolName`, `findUpstreamRequestContaining`
 
-## 不复用 / 暂不做
+## Não Reutilizado / Fora do Que É Feito Agora
 
-- 真实 MCP server `tools/call` 响应回路（v1 信任 deepseek replay 伪造；fixture `server.mjs` 仅保证 agent 在 enabled 状态下能成功启动做 listTools）
-- per-skill 关闭（plugin 内多个 skill 单独关闭）
-- marketplace 拉取真实插件的端到端测试（不属于本目录，仅"插件已落地后"的 skill 生命周期）
-- 卸载后清缓存 / data dir / skillRoot 重扫
-- 跨工作区 workspace identity 切换时的 MCP 工具继承
+- O回路 de resposta `tools/call` de um MCP server real (no v1 confiamos no replay forjado do deepseek; o fixture `server.mjs` só garante que o agent consegue subir com sucesso e fazer listTools no estado enabled)
+- Desligamento por skill (desligar individualmente vários skills dentro de um plugin)
+- Teste end-to-end de buscar plugins reais no marketplace (não pertence a este diretório, apenas ao ciclo de vida da skill "depois que o plugin foi instalado")
+- Limpar cache / data dir / re-scan de skillRoot após a desinstalação
+- Herança das ferramentas MCP na troca de workspace identity entre workspaces
 
-## 失败定位速查
+## Guia Rápido de Localização de Falhas
 
-- `installed_plugins.json` 在 wdio 启动时如果被 agent 忽略（路径错位）→ 看 `apps/zcode-cli/packages/adapters/src/exec/index.ts:78` 的 `ZCODE_STORAGE_DIR` / `homedir()`，确认 agent 进程实际读的是 `<E2E_HOME>/.zcode/cli/`
-- `tools[]` 命名空间不是 `plugin:<name>:<server>` → 直接 grep `toNamespacedServerName` 确认实现
-- deepseek capture artifact 拿不到 `requestJson` → fallback 走 `record.requestBody` 的文本扫描（弱证据，仅证明 marker 进入请求体）
+- Se o `installed_plugins.json` for ignorado pelo agent no start do wdio (caminho deslocado) → veja o `ZCODE_STORAGE_DIR` / `homedir()` em `apps/zcode-cli/packages/adapters/src/exec/index.ts:78` e confirme que o processo do agent realmente lê `<E2E_HOME>/.zcode/cli/`
+- Se o namespace de `tools[]` não for `plugin:<name>:<server>` → faça grep direto de `toNamespacedServerName` para confirmar a implementação
+- Se o capture artifact do deepseek não pegar o `requestJson` → use o fallback de varredura textual em `record.requestBody` (evidência fraca, apenas prova que o marcador entrou no body da requisição)
