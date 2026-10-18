@@ -1,4 +1,4 @@
-# Todo128：contrato de start de Provider e correção da atualização de elegibilidade off-peak
+# Todo 128: contrato de start de Provider e correção da atualização de elegibilidade off-peak
 
 > Estado: **implementação local e review aprovados, aceitação em máquina real pendente para o lote completo**. Em 2026-09-11 foram unificados o contrato de start/leitura e a atualização da elegibilidade off-peak; a verificação de serviços controlados no navegador não equivale à aceitação do pacote Air real.
 >

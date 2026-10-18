@@ -1,4 +1,4 @@
-# Todo 82：A configuração de modelo seguir as recomendações e a materialização do Draft
+# Todo 82: A configuração de modelo seguir as recomendações e a materialização do Draft
 
 > Status: concluído
 >

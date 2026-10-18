@@ -1,47 +1,47 @@
-# @ Mention Panel Virtual Scroll Implementation Plan
+# Plano de Implementação de Virtual Scroll no Painel de Menções @
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Replace the hard limit (`FILE_MENTION_RESULT_LIMIT = 100`) in the @ mention panel with virtual scrolling, so users can browse and search all workspace files without performance degradation.
+**Objetivo:** Substituir o limite rígido (`FILE_MENTION_RESULT_LIMIT = 100`) no painel de menções @ por virtual scrolling, para que os usuários possam navegar e buscar em todos os arquivos do workspace sem degradação de performance.
 
-**Architecture:** Use `@tanstack/react-virtual` to virtualize the `MentionPanel` list rendering — only visible rows get mounted to the DOM. Remove the hard cap in `fileMentionProvider` and let the virtualizer handle arbitrarily large filtered result sets. The fuzzy search pipeline (`mentionSearch.ts`) stays unchanged; only the rendering layer and the artificial limit change.
+**Arquitetura:** Usar `@tanstack/react-virtual` para virtualizar a renderização da lista de `MentionPanel` — apenas as linhas visíveis são montadas no DOM. Remover o teto rígido em `fileMentionProvider` e deixar o virtualizador lidar com conjuntos de resultados filtrados arbitrariamente grandes. O pipeline de busca fuzzy (`mentionSearch.ts`) permanece inalterado; apenas a camada de renderização e o limite artificial mudam.
 
-**Tech Stack:** React 19, `@tanstack/react-virtual`, Vitest, Tailwind CSS
+**Stack técnico:** React 19, `@tanstack/react-virtual`, Vitest, Tailwind CSS
 
 ---
 
-## File Structure
+## Estrutura de Arquivos
 
-| Action | File | Responsibility |
+| Ação | Arquivo | Responsabilidade |
 |--------|------|----------------|
-| Modify | `packages/ui/src/mentions/components/MentionPanel.tsx` | Add virtual scrolling to option list |
-| Modify | `packages/ui/src/mentions/providers/fileMentionProvider.ts` | Remove hard limit of 100 |
-| Modify | `packages/ui/src/mentions/mentionSearch.ts` | Add soft display cap constant (1000) as safety net |
-| Create | `packages/ui/test/mentionPanel.test.ts` | Unit tests for virtual scroll behavior |
-| Modify | `packages/ui/test/mentionSearch.test.ts` | Add test for large result set handling |
+| Modificar | `packages/ui/src/mentions/components/MentionPanel.tsx` | Adicionar virtual scrolling à lista de opções |
+| Modificar | `packages/ui/src/mentions/providers/fileMentionProvider.ts` | Remover o limite rígido de 100 |
+| Modificar | `packages/ui/src/mentions/mentionSearch.ts` | Adicionar constante de teto suave de exibição (1000) como rede de segurança |
+| Criar | `packages/ui/test/mentionPanel.test.ts` | Testes unitários do comportamento de virtual scroll |
+| Modificar | `packages/ui/test/mentionSearch.test.ts` | Adicionar teste para tratamento de conjuntos grandes de resultados |
 
 ---
 
-### Task 1: Add `@tanstack/react-virtual` dependency
+### Tarefa 1: Adicionar a dependência `@tanstack/react-virtual`
 
-**Files:**
-- Modify: `packages/ui/package.json`
+**Arquivos:**
+- Modificar: `packages/ui/package.json`
 
-- [ ] **Step 1: Install the dependency**
+- [ ] **Passo 1: Instalar a dependência**
 
 ```bash
 cd packages/ui && npm install @tanstack/react-virtual
 ```
 
-- [ ] **Step 2: Verify installation**
+- [ ] **Passo 2: Verificar a instalação**
 
 ```bash
 node -e "require('@tanstack/react-virtual')" 2>/dev/null && echo OK || echo FAIL
 ```
 
-Expected: OK
+Esperado: OK
 
-- [ ] **Step 3: Commit**
+- [ ] **Passo 3: Commitar**
 
 ```bash
 git add packages/ui/package.json package-lock.json
@@ -50,16 +50,16 @@ git commit -m "chore: add @tanstack/react-virtual for mention panel virtualizati
 
 ---
 
-### Task 2: Remove hard limit in fileMentionProvider
+### Tarefa 2: Remover o limite rígido em fileMentionProvider
 
-**Files:**
-- Modify: `packages/ui/src/mentions/providers/fileMentionProvider.ts:8,85-91`
-- Modify: `packages/ui/src/mentions/mentionSearch.ts`
-- Modify: `packages/ui/test/mentionSearch.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/mentions/providers/fileMentionProvider.ts:8,85-91`
+- Modificar: `packages/ui/src/mentions/mentionSearch.ts`
+- Modificar: `packages/ui/test/mentionSearch.test.ts`
 
-- [ ] **Step 1: Write the failing test — large result set is not truncated**
+- [ ] **Passo 1: Escrever o teste que falha — conjunto grande de resultados não é truncado**
 
-In `packages/ui/test/mentionSearch.test.ts`, add:
+Em `packages/ui/test/mentionSearch.test.ts`, adicionar:
 
 ```typescript
 describe("filterMentionItemsWithOptions – no hard cap", () => {
@@ -85,27 +85,27 @@ describe("filterMentionItemsWithOptions – no hard cap", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Passo 2: Executar o teste para verificar que ele falha**
 
 ```bash
 cd /Users/dev/workspace/z-code && npx vitest run packages/ui/test/mentionSearch.test.ts
 ```
 
-Expected: first assertion FAILS — `filterMentionItemsWithOptions` without explicit limit still gets capped somewhere if called from within the provider path.
+Esperado: a primeira asserção FALHA — `filterMentionItemsWithOptions` sem limite explícito ainda é limitado em algum lugar, se for chamado de dentro do caminho do provider.
 
-(Note: `filterMentionItemsWithOptions` itself does not cap by default — the limit is only passed by `fileMentionProvider`. The test should actually pass already since the function without `options.limit` returns all items. If it passes, that confirms the function layer is fine and the cap is purely in the provider. Proceed to Step 3 regardless.)
+(Observação: `filterMentionItemsWithOptions` em si não limita por padrão — o limite só é passado por `fileMentionProvider`. O teste na verdade já deve passar, já que a função sem `options.limit` retorna todos os itens. Se passar, isso confirma que a camada da função está correta e que o teto está puramente no provider. Prossiga para o Passo 3 de qualquer forma.)
 
-- [ ] **Step 3: Remove the hard limit constant from fileMentionProvider**
+- [ ] **Passo 3: Remover a constante de limite rígido de fileMentionProvider**
 
-In `packages/ui/src/mentions/providers/fileMentionProvider.ts`, make these changes:
+Em `packages/ui/src/mentions/providers/fileMentionProvider.ts`, faça estas alterações:
 
-Remove the constant:
+Remova a constante:
 ```typescript
 // DELETE this line:
 const FILE_MENTION_RESULT_LIMIT = 100;
 ```
 
-Update the `useMemo` that calls `filterMentionItemsWithOptions` — remove the `limit` option:
+Atualize o `useMemo` que chama `filterMentionItemsWithOptions` — remova a opção `limit`:
 
 ```typescript
   const items = useMemo(
@@ -114,9 +114,9 @@ Update the `useMemo` that calls `filterMentionItemsWithOptions` — remove the `
   );
 ```
 
-- [ ] **Step 4: Add a safety-net display cap constant in mentionSearch.ts**
+- [ ] **Passo 4: Adicionar uma constante de teto de exibição de rede de segurança em mentionSearch.ts**
 
-In `packages/ui/src/mentions/mentionSearch.ts`, add a default max display constant and apply it in `filterMentionItemsWithOptions` only when no explicit limit is provided, to prevent accidentally rendering 50k+ items even with virtualization:
+Em `packages/ui/src/mentions/mentionSearch.ts`, adicione uma constante de exibição máxima padrão e aplique-a em `filterMentionItemsWithOptions` apenas quando nenhum limite explícito for fornecido, para evitar renderizar acidentalmente 50 mil ou mais itens mesmo com virtualização:
 
 ```typescript
 /**
@@ -127,7 +127,7 @@ In `packages/ui/src/mentions/mentionSearch.ts`, add a default max display consta
 export const MENTION_DISPLAY_CAP = 1000;
 ```
 
-Update `filterMentionItemsWithOptions`:
+Atualize `filterMentionItemsWithOptions`:
 
 ```typescript
 export function filterMentionItemsWithOptions(
@@ -171,15 +171,15 @@ export function filterMentionItemsWithOptions(
 }
 ```
 
-- [ ] **Step 5: Run the test again**
+- [ ] **Passo 5: Executar o teste novamente**
 
 ```bash
 cd /Users/dev/workspace/z-code && npx vitest run packages/ui/test/mentionSearch.test.ts
 ```
 
-Expected: ALL PASS. The 500-item test passes (under the 1000 cap); the limit-10 test passes.
+Esperado: TODOS PASSAM. O teste de 500 itens passa (abaixo do teto de 1000); o teste de limite 10 passa.
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commitar**
 
 ```bash
 git add packages/ui/src/mentions/providers/fileMentionProvider.ts packages/ui/src/mentions/mentionSearch.ts packages/ui/test/mentionSearch.test.ts
@@ -188,18 +188,18 @@ git commit -m "feat: remove hard 100-item cap from mention panel, add 1000-item 
 
 ---
 
-### Task 3: Virtualize MentionPanel rendering
+### Tarefa 3: Virtualizar a renderização do MentionPanel
 
-This is the core task. Replace the naive `section.options.map(...)` DOM render with `@tanstack/react-virtual`'s `useVirtualizer`.
+Esta é a tarefa central. Substituir a renderização ingênua no DOM `section.options.map(...)` pelo `useVirtualizer` de `@tanstack/react-virtual`.
 
-**Files:**
-- Modify: `packages/ui/src/mentions/components/MentionPanel.tsx`
+**Arquivos:**
+- Modificar: `packages/ui/src/mentions/components/MentionPanel.tsx`
 
-- [ ] **Step 1: Flatten sections into a single virtual list with section headers**
+- [ ] **Passo 1: Achatar as seções em uma única lista virtual com cabeçalhos de seção**
 
-The current MentionPanel renders sections → options. For virtualization, we need a single flat list where some rows are "section headers" and most are "option rows". This lets us use a single virtualizer.
+O MentionPanel atual renderiza seções → opções. Para a virtualização, precisamos de uma única lista plana em que algumas linhas são "cabeçalhos de seção" e a maioria são "linhas de opção". Isso nos permite usar um único virtualizador.
 
-Replace the entire content of `packages/ui/src/mentions/components/MentionPanel.tsx` with:
+Substitua todo o conteúdo de `packages/ui/src/mentions/components/MentionPanel.tsx` por:
 
 ```tsx
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
@@ -445,24 +445,24 @@ function OptionRow({
 }
 ```
 
-- [ ] **Step 2: Verify the app builds**
+- [ ] **Passo 2: Verificar que o app compila**
 
 ```bash
 cd /Users/dev/workspace/z-code && npm run build
 ```
 
-Expected: No TypeScript or build errors.
+Esperado: nenhum erro de TypeScript ou de build.
 
-- [ ] **Step 3: Manual smoke test**
+- [ ] **Passo 3: Teste manual de fumaça**
 
-Open the app, type `@` in the chat input. Verify:
-- Panel opens with file list
-- Arrow keys navigate and scroll correctly
-- Typing a query filters the list
-- Selecting an item inserts the mention
-- Scrolling is smooth with no visible jank
+Abra o app, digite `@` no campo de chat. Verifique:
+- O painel abre com a lista de arquivos
+- As setas navegam e rolam corretamente
+- Digitar uma query filtra a lista
+- Selecionar um item insere a menção
+- A rolagem é fluida, sem travamentos visíveis
 
-- [ ] **Step 4: Commit**
+- [ ] **Passo 4: Commitar**
 
 ```bash
 git add packages/ui/src/mentions/components/MentionPanel.tsx
@@ -471,28 +471,28 @@ git commit -m "feat: virtualize mention panel list with @tanstack/react-virtual"
 
 ---
 
-### Task 4: Unit tests for virtualized MentionPanel
+### Tarefa 4: Testes unitários do MentionPanel virtualizado
 
-**Files:**
-- Create: `packages/ui/test/mentionPanel.test.ts`
+**Arquivos:**
+- Criar: `packages/ui/test/mentionPanel.test.ts`
 
-- [ ] **Step 1: Write tests for buildVirtualRows helper**
+- [ ] **Passo 1: Escrever testes para o helper buildVirtualRows**
 
-Since `buildVirtualRows` is the key logic that flattens sections into virtual rows, extract it as a named export for testing (or test it indirectly). The simplest approach: export it from `MentionPanel.tsx` and test the flattening logic directly.
+Como `buildVirtualRows` é a lógica central que achata seções em linhas virtuais, extraia-a como um export nomeado para teste (ou teste-a indiretamente). A abordagem mais simples: exportá-la de `MentionPanel.tsx` e testar a lógica de achatamento diretamente.
 
-In `packages/ui/src/mentions/components/MentionPanel.tsx`, add `export` to the `buildVirtualRows` function:
+Em `packages/ui/src/mentions/components/MentionPanel.tsx`, adicione `export` à função `buildVirtualRows`:
 
 ```typescript
 export function buildVirtualRows(sections: MentionPanelSection[]): VirtualRow[] {
 ```
 
-Also export the `VirtualRow` type:
+Exporte também o tipo `VirtualRow`:
 
 ```typescript
 export type VirtualRow =
 ```
 
-Create `packages/ui/test/mentionPanel.test.ts`:
+Crie `packages/ui/test/mentionPanel.test.ts`:
 
 ```typescript
 import { describe, expect, it } from "vitest";
@@ -581,15 +581,15 @@ describe("buildVirtualRows", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests**
+- [ ] **Passo 2: Executar os testes**
 
 ```bash
 cd /Users/dev/workspace/z-code && npx vitest run packages/ui/test/mentionPanel.test.ts
 ```
 
-Expected: ALL PASS
+Esperado: TODOS PASSAM
 
-- [ ] **Step 3: Commit**
+- [ ] **Passo 3: Commitar**
 
 ```bash
 git add packages/ui/test/mentionPanel.test.ts packages/ui/src/mentions/components/MentionPanel.tsx
@@ -598,50 +598,50 @@ git commit -m "test: add unit tests for MentionPanel virtual row building"
 
 ---
 
-### Task 5: Final integration verification
+### Tarefa 5: Verificação final de integração
 
-- [ ] **Step 1: Run all existing mention-related tests**
+- [ ] **Passo 1: Executar todos os testes existentes relacionados a menções**
 
 ```bash
 cd /Users/dev/workspace/z-code && npx vitest run packages/ui/test/mentionSearch.test.ts packages/ui/test/mentionPanel.test.ts
 ```
 
-Expected: ALL PASS
+Esperado: TODOS PASSAM
 
-- [ ] **Step 2: Run the full UI package test suite**
+- [ ] **Passo 2: Executar a suíte completa de testes do pacote UI**
 
 ```bash
 cd /Users/dev/workspace/z-code && npx vitest run packages/ui/test/
 ```
 
-Expected: ALL PASS, no regressions.
+Esperado: TODOS PASSAM, sem regressões.
 
-- [ ] **Step 3: Build check**
+- [ ] **Passo 3: Verificação de build**
 
 ```bash
 cd /Users/dev/workspace/z-code && npm run build
 ```
 
-Expected: Clean build, no errors.
+Esperado: build limpo, sem erros.
 
-- [ ] **Step 4: Manual E2E smoke test**
+- [ ] **Passo 4: Teste manual E2E de fumaça**
 
-Open the app and verify:
-1. Type `@` — panel opens, shows files (loading indicator → list)
-2. Scroll down — smooth virtual scrolling, no blank gaps
-3. Type a query (e.g., `pack`) — list filters instantly
-4. Arrow down 20+ times — scrolling follows selection smoothly
-5. Press Enter — mention inserted correctly
-6. Open `@` on a large workspace (1000+ files) — no visible lag
+Abra o app e verifique:
+1. Digite `@` — o painel abre e mostra os arquivos (indicador de loading → lista)
+2. Role para baixo — virtual scrolling fluido, sem lacunas em branco
+3. Digite uma query (por exemplo, `pack`) — a lista filtra instantaneamente
+4. Aperte a seta para baixo 20+ vezes — a rolagem acompanha a seleção suavemente
+5. Pressione Enter — a menção é inserida corretamente
+6. Abra `@` em um workspace grande (1000+ arquivos) — sem lag visível
 
-- [ ] **Step 5: Commit (if any adjustments were needed)**
+- [ ] **Passo 5: Commitar (se algum ajuste foi necessário)**
 
 ```bash
 git add -A
 git commit -m "fix: address integration issues from virtual scroll migration"
 ```
 
-## 2026-04-03 补充
+## Complemento de 2026-04-03
 
-- 文件 mention 面板的每个候选项统一复用 `packages/ui/src/lib/fileDisplay.tsx`。
-- 这样 `@` 面板里的文件图标、文件名、目录路径会和输入框中的 mention token 保持一致，减少同一路径在不同位置展示不一致的问题。
+- Cada item candidato do painel de menções de arquivos reutiliza uniformemente `packages/ui/src/lib/fileDisplay.tsx`.
+- Assim, o ícone de arquivo, o nome do arquivo e o caminho do diretório no painel `@` ficam consistentes com o mention token no campo de entrada, reduzindo o problema de um mesmo caminho aparecer de forma inconsistente em locais diferentes.

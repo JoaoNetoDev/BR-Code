@@ -1,28 +1,28 @@
 # ZCode Agent Remote Deployment
 
-## Scope
+## Escopo
 
-For Desktop-attached SSH/Docker/WSL workspaces, Desktop Main starts or reuses a local Electron
-Remote Host utility process. That Remote Host connects to `zcode-server` and the ZCode Agent runtime
-on the remote machine, where file, git, terminal, and agent execution observe the remote filesystem
-and process environment. The window-scoped Local Host remains a separate process; a remote workspace
-does not replace it or receive a second Local Host.
+Para workspaces SSH/Docker/WSL anexados ao Desktop, o Desktop Main inicia ou reutiliza um processo
+utilitário local Electron Remote Host. Esse Remote Host conecta ao `zcode-server` e ao runtime do
+ZCode Agent na máquina remota, onde arquivo, git, terminal e execução de agente observam o sistema
+de arquivos e o ambiente de processos remotos. O Local Host de escopo de janela permanece como um
+processo separado; um workspace remoto não o substitui nem recebe um segundo Local Host.
 
-Current remote deployment only prepares the default ZCode resource set:
+A implantação remota atual apenas prepara o conjunto padrão de recursos do ZCode:
 
 - `server-bundle`
 - `node-runtime`
 - `node-pty`
-- `glm` / ZCode Agent runtime
+- `glm` / runtime do ZCode Agent
 - `bfs`
 - `ripgrep`
 - `ugrep`
 
-Retired third-party agent and proxy runtimes are not deployed.
+Runtimes de agentes e proxies de terceiros aposentados não são implantados.
 
-## Runtime Layout
+## Layout do Runtime
 
-Remote server base path:
+Caminho base do servidor remoto:
 
 ```text
 ~/.zcode/server/
@@ -48,41 +48,39 @@ Remote server base path:
         └── ugrep
 ```
 
-Linux SSH、Docker 与 WSL 部署 `bfs 4.1.1-2`、`ugrep 7.8.4-1` 和 Microsoft
-`ripgrep 14.1.1-1` component。Darwin remote 继续只部署历史 `ripgrep 13.0.0-10`
-component；remote producer 按目标平台选择依赖链，不能删除历史 rg13 release 资产。
+Linux SSH, Docker e WSL implantam os componentes `bfs 4.1.1-2`, `ugrep 7.8.4-1` e
+`ripgrep 14.1.1-1` da Microsoft. O remote em Darwin continua implantando apenas o componente
+histórico `ripgrep 13.0.0-10`; o remote producer escolhe a cadeia de dependências conforme a
+plataforma de destino e não pode remover os assets de release históricos do rg13.
 
-`deployZCodeAgentRuntime()` treats the `glm` manifest artifact SHA-256 as the
-production deployment identity while the desktop App version is unchanged. It
-skips deployment only when `.asset-components/glm.json` records the same SHA and
-platform and the wrapper, bundle, and official plugin assets still exist. The
-GLM semantic runtime version does not participate in this decision: the same
-version with new artifact bytes must be deployed, while a version-label change
-with identical artifact SHA does not trigger deployment by itself. A legacy
-marker without SHA is migrated by one deployment that writes the current SHA.
+`deployZCodeAgentRuntime()` trata o SHA-256 do artefato do manifesto `glm` como identidade de
+implantação em produção, enquanto a versão do App desktop permanece inalterada. Ele só pula a
+implantação quando `.asset-components/glm.json` registra o mesmo SHA e plataforma e os assets de
+wrapper, bundle e plugin oficial ainda existem. A versão semântica do runtime GLM não participa
+dessa decisão: a mesma versão com novos bytes de artefato precisa ser implantada, enquanto uma
+mudança no rótulo de versão com SHA de artefato idêntico, por si só, não dispara implantação. Um
+marcador legado sem SHA é migrado por uma implantação que grava o SHA atual.
 
-When the installed remote server reports an App version different from the
-current desktop App, the desktop must force-refresh `glm` after updating the
-server. The marker is not trustworthy across App versions because an older App
-can overwrite `agents/glm` through its legacy deployment path without updating
-the newer `.asset-components/glm.json` marker. Both local-upload and
-remote-download modes therefore bypass the SHA skip decision and their existing
-component cache, then fetch the artifact selected by the current App manifest
-again. A forced refresh is scoped to one component per deployment: the GLM
-bundle and official plugin installation must reuse the same freshly downloaded
-component, rather than deleting and downloading that component once for each
-mounted path. In local-upload mode, that single fresh component is uploaded to
-replace both the remote bundle and official plugin directory.
+Quando o servidor remoto instalado reporta uma versão de App diferente da do App desktop atual, o
+desktop precisa forçar a atualização de `glm` depois de atualizar o servidor. O marcador não é
+confiável entre versões de App porque um App mais antigo pode sobrescrever `agents/glm` pelo seu
+caminho legado de implantação sem atualizar o marcador mais novo
+`.asset-components/glm.json`. Por isso, tanto o modo local-upload quanto o modo remote-download
+contornam a decisão de skip por SHA e o cache de componentes já existente, e então buscam novamente
+o artefato selecionado pelo manifesto do App atual. A atualização forçada tem escopo de um
+componente por implantação: o bundle GLM e a instalação de plugins oficiais precisam reutilizar o
+mesmo componente recém-baixado, em vez de apagar e baixar esse componente uma vez para cada caminho
+montado. No modo local-upload, esse único componente novo é enviado para substituir tanto o bundle
+remoto quanto o diretório de plugins oficiais.
 
-The App-version refresh is retry-safe. Before replacing the remote server, the
-desktop replaces the existing GLM live marker with a persistent
-`pendingRefreshAppVersion` marker. If server replacement or any later
-node-pty/GLM download, upload, plugin replacement, or wrapper installation fails,
-the next connection still observes that pending marker after the server version
-has already advanced. It must continue bypassing the same-SHA component cache
-until GLM deployment succeeds and overwrites the pending marker with the current
-artifact SHA. The already completed forced `server-bundle` installation remains
-valid across that retry.
+A atualização por versão de App é segura quanto a retentativas. Antes de substituir o servidor
+remoto, o desktop substitui o marcador GLM ativo existente por um marcador persistente
+`pendingRefreshAppVersion`. Se a substituição do servidor ou qualquer download/upload posterior de
+node-pty/GLM, substituição de plugin ou instalação do wrapper falhar, a próxima conexão ainda
+observa esse marcador pendente depois que a versão do servidor já avançou. Ela deve continuar
+contornando o cache de componentes com o mesmo SHA até que a implantação do GLM tenha sucesso e
+sobrescreva o marcador pendente com o SHA do artefato atual. A instalação forçada de
+`server-bundle` já concluída permanece válida ao longo dessa retentativa.
 
 ```text
 remote App version differs
@@ -102,50 +100,45 @@ keep pending marker                              write GLM SHA marker
 next connection forces GLM again                    pending cleared
 ```
 
-Each deployment pins one fresh manifest snapshot: the SHA used for the skip
-decision, the component artifact materialized locally, and the SHA written to
-the remote marker all come from that same snapshot. Concurrent local release
-assembly is isolated by GLM SHA, so sessions observing different republished
-artifacts cannot reuse each other's release directory. The pinned snapshot also
-retains the CDN origin that supplied the manifest, so component downloads prefer
-that same origin before falling back to other candidates.
+Cada implantação fixa um único snapshot novo do manifesto: o SHA usado para a decisão de skip, o
+artefato de componente materializado localmente e o SHA gravado no marcador remoto vêm todos desse
+mesmo snapshot. A montagem concorrente de releases locais é isolada por SHA do GLM, de modo que
+sessões que observam artefatos republicados diferentes não reutilizam o diretório de release uma
+da outra. O snapshot fixado também retém a origem CDN que forneceu o manifesto, de modo que os
+downloads de componentes preferem essa mesma origem antes de recorrer a outros candidatos.
 
-Every manifest candidate request has a finite application-level timeout
-(10 seconds by default) that
-covers both response headers and the response body. A timed-out candidate is
-aborted before the next CDN candidate is attempted. If no candidate completes,
-the fresh identity lookup records an observable warning and aborts that
-deployment. It must not continue through an installer request that could observe
-a different manifest snapshot. This keeps remote initialization and later
-connection attempts from sharing a permanently pending manifest request.
+Toda requisição a candidato de manifesto tem um timeout finito no nível da aplicação (10 segundos
+por padrão) que cobre tanto os cabeçalhos de resposta quanto o corpo da resposta. Um candidato que
+estoure o tempo é abortado antes de tentar o próximo candidato CDN. Se nenhum candidato completar, a
+busca da identidade nova registra um aviso observável e aborta aquela implantação. Ela não deve
+seguir adiante por uma requisição de instalador que pudesse observar um snapshot de manifesto
+diferente. Isso evita que a inicialização remota e as tentativas de conexão posteriores compartilhem
+uma requisição de manifesto permanentemente pendente.
 
-`server-bundle` also uses the manifest artifact SHA-256 as its production
-deployment identity. The App must compare `.asset-components/server-bundle.json`
-with the fresh manifest before deciding that an equal App version can skip the
-server upload. A missing legacy marker or a different SHA triggers one server
-deployment and writes the current SHA only after installation succeeds. This
-allows a server bundle to be republished under the same App/component semantic
-version without reusing the previous bytes.
+`server-bundle` também usa o SHA-256 do artefato do manifesto como identidade de implantação em
+produção. O App precisa comparar `.asset-components/server-bundle.json` com o manifesto novo antes
+de decidir que uma versão de App igual pode pular o upload do servidor. Um marcador legado ausente
+ou um SHA diferente dispara uma implantação de servidor e grava o SHA atual somente depois que a
+instalação tem sucesso. Isso permite republicar um bundle de servidor sob a mesma versão semântica
+de App/componente sem reutilizar os bytes anteriores.
 
-When the installed remote server reports an App version different from the
-current desktop App, `server-bundle` follows the same forced-refresh boundary as
-`glm`: both local-upload and remote-download modes must bypass an existing
-same-SHA component cache, download and verify the artifact selected by the
-current App manifest again, and deploy that freshly materialized component.
-The App-version boundary therefore never trusts a historical `.ready` cache
-marker for either component. Equal App versions continue to use SHA-addressed
-caches and only redeploy when the fresh manifest SHA differs from the live
-marker or required runtime files are missing.
+Quando o servidor remoto instalado reporta uma versão de App diferente da do App desktop atual,
+`server-bundle` segue o mesmo limite de atualização forçada de `glm`: tanto o modo local-upload
+quanto o modo remote-download devem contornar um cache de componente existente com o mesmo SHA,
+baixar e verificar novamente o artefato selecionado pelo manifesto do App atual, e implantar esse
+componente recém-materializado. Portanto, o limite por versão de App nunca confia em um marcador de
+cache `.ready` histórico para nenhum dos dois componentes. Versões de App iguais continuam usando
+caches endereçados por SHA e só reimplantam quando o SHA novo do manifesto difere do marcador
+ativo ou quando arquivos de runtime exigidos estão ausentes.
 
-The fresh manifest used by the server skip decision must be the same pinned
-snapshot used to resolve and install `server-bundle`. In both local-download-
-upload and remote-download modes, the server component cache key is the manifest
-SHA rather than the semantic component version. Legacy semantic-version cache
-directories must not be migrated into a SHA-keyed server cache because their
-contents cannot prove the requested artifact identity. `node-runtime`,
-`node-pty`, and `ripgrep` keep their existing deployment and component-cache
-decisions. Development-mode local bundles continue to use the separate
-`.dev-version` content hash flow.
+O manifesto novo usado na decisão de skip do servidor precisa ser o mesmo snapshot fixado usado para
+resolver e instalar `server-bundle`. Tanto no modo local-download-upload quanto no remote-download, a
+chave do cache de componentes do servidor é o SHA do manifesto, e não a versão semântica do
+componente. Diretórios legados de cache por versão semântica não devem ser migrados para um cache
+de servidor chaveado por SHA, porque seu conteúdo não consegue provar a identidade do artefato
+solicitado. `node-runtime`, `node-pty` e `ripgrep` mantêm suas decisões atuais de implantação e de
+cache de componentes. Bundles locais em modo de desenvolvimento continuam usando o fluxo separado
+de hash de conteúdo `.dev-version`.
 
 ```text
 remote App version vs current App version
@@ -179,26 +172,27 @@ remote .asset-components/server-bundle.json
                                                          write current sha256
 ```
 
-## Service Registration
+## Registro de Serviços
 
-The renderer-facing host collection is mixed:
+A coleção de hosts expostos ao renderer é mista:
 
-- Remote proxy: file, git, system, terminal, file watcher, ZCode task/session/agent services,
-  workspace-scoped Provider Settings, and workspace-scoped Model Selection.
-- Local implementation: Desktop app-global settings, OAuth UI integration, usage/coding-plan
-  presentation, and other window-global state.
+- Proxy remoto: serviços de arquivo, git, sistema, terminal, file watcher, task/session/agent do
+  ZCode, Provider Settings de escopo de workspace e Model Selection de escopo de workspace.
+- Implementação local: settings globais do App desktop, integração de UI do OAuth, apresentação de
+  uso/coding-plan e outros estados globais de janela.
 
-This keeps workspace and model-execution facts in the target Environment while retaining Desktop
-app-global UI state locally. The mixed collection must not be interpreted as one process owning all
-facts: remote runtime Provider Settings and Model Selection are always forwarded from the target
-Environment. The Desktop Settings page is an app-global local editor and intentionally does not use
-the remote Provider Settings facade.
+Isso mantém fatos de workspace e de execução de modelo no Environment de destino, mantendo o estado
+de UI global do App desktop local. A coleção mista não deve ser interpretada como um único processo
+que possui todos os fatos: Provider Settings e Model Selection do runtime remoto são sempre
+encaminhados a partir do Environment de destino. A página de Settings do Desktop é um editor local
+global do App e, intencionalmente, não usa a facade de Provider Settings remota.
 
-## Provider Runtime Ownership
+## Propriedade do Runtime de Providers
 
-Each remote Environment owns its Provider Config, Credential Store, Registry, and ModelFactory. Its
-Host and Core Worker independently construct Registry instances from that Environment's sources;
-they do not consume a materialized Desktop Registry snapshot.
+Cada Environment remoto possui seu próprio Provider Config, Credential Store, Registry e
+ModelFactory. Seu Host e seu Core Worker constroem instâncias de Registry de forma independente a
+partir das fontes desse Environment; eles não consomem um snapshot materializado do Registry do
+Desktop.
 
 ```text
 Desktop Entry
@@ -212,71 +206,72 @@ Remote Environment
 └─ Core Worker Registry -> ModelFactory -> model request
 ```
 
-The remote Host may send its own no-secret Account Provider Config Overlay to its own Core Worker via
-`provider/updateAccountConfig`. This is an intra-Environment process boundary, not a Desktop-to-remote
-configuration sync. API keys, JWTs, Team runtime keys, and dynamic headers are not part of that
-Overlay.
+O Host remoto pode enviar seu próprio Account Provider Config Overlay sem segredos ao seu próprio
+Core Worker via `provider/updateAccountConfig`. Isso é um limite de processo interno ao Environment,
+e não uma sincronização de configuração do Desktop para o remoto. API keys, JWTs, chaves de runtime
+de Team e headers dinâmicos não fazem parte desse Overlay.
 
-The retired `workspace/updateProviderRegistry` protocol must remain unavailable. Desktop does not
-inject a complete Registry, Runtime Model, Account Overlay, or request credential into a remote
-Worker. A remote runtime that is not ready waits for its own Provider Runtime startup; it is not
-bootstrapped from Desktop state.
+O protocolo aposentado `workspace/updateProviderRegistry` deve permanecer indisponível. O Desktop não
+injeta um Registry completo, Runtime Model, Account Overlay ou credencial de requisição em um Worker
+remoto. Um runtime remoto que não está pronto aguarda sua própria inicialização de Provider Runtime;
+ele não é inicializado a partir do estado do Desktop.
 
-Configuration or credential synchronization is a separate provisioning feature. The current
-Environment-level automatic Local → Remote flow is specified in `docs/remote/provider-provisioning.md`;
-it writes the target Environment's Config/Credential stores and lets that Environment rebuild its
-Registry. Desktop Main only coordinates Environment identity and generations; it never carries Config
-or Secret. This flow must not revive runtime Registry injection.
+A sincronização de configuração ou de credenciais é uma funcionalidade separada de provisionamento.
+O fluxo automático Local → Remote de nível de Environment está especificado em
+`docs/remote/provider-provisioning.md`; ele escreve as stores de Config/Credential do Environment de
+destino e deixa que esse Environment reconstrua seu Registry. O Desktop Main apenas coordena a
+identidade e as generations do Environment; ele nunca transporta Config ou Secret. Esse fluxo não
+deve ressuscitar a injeção de Registry em runtime.
 
-This ownership boundary does not change desktop `continuous` or mobile Web `replayable` task delivery
-semantics. Workspace identity isolation continues to use
-`workspaceIdentity?.trim() || workspacePath`; filesystem operations continue to use `workspacePath`.
+Esse limite de propriedade não altera as semânticas de entrega de tarefas `continuous` do desktop nem
+`replayable` da Web mobile. O isolamento de identidade de workspace continua usando
+`workspaceIdentity?.trim() || workspacePath`; as operações de sistema de arquivos continuam usando
+`workspacePath`.
 
-## Deployment Modes
+## Modos de Implantação
 
-Desktop can either download component artifacts locally and upload them over SSH, or ask the remote server to download from CDN.
+O Desktop pode baixar os artefatos de componente localmente e enviá-los por SSH, ou pedir ao servidor
+remoto que baixe da CDN.
 
-Remote deployment commands require a POSIX `sh`; they must not assume that
-`bash` is installed. This keeps Docker/SSH targets based on Alpine or BusyBox
-supported. The deploy lock holder is written to a temporary remote script and
-executed by `sh`, while the existing caller-serialized Desktop SSH path still
-skips the remote lock as documented below.
+Os comandos de implantação remota exigem um `sh` POSIX; eles não podem assumir que `bash` está
+instalado. Isso mantém alvos Docker/SSH baseados em Alpine ou BusyBox suportados. O detentor do lock
+de implantação é escrito em um script remoto temporário e executado por `sh`, enquanto o caminho de
+SSH do Desktop já serializado pelo chamador continua pulando o lock remoto como documentado abaixo.
 
-In local-download-upload mode, Docker files are written through the container's
-current user (`docker exec` + stdin) rather than `docker cp`. This preserves the
-owner needed by later `chmod`/replace commands when the container runs as a
-non-root user. Failed non-cancelled file replacements must remove only their
-own temporary `.new-*` path; cancellation must not reuse a released backend.
+No modo local-download-upload, os arquivos no Docker são escritos pelo usuário atual do container
+(`docker exec` + stdin), e não por `docker cp`. Isso preserva o owner necessário para os comandos
+posteriores de `chmod`/substituição quando o container roda como usuário não-root. Substituições de
+arquivo falhas e não canceladas devem remover apenas seu próprio caminho temporário `.new-*`; o
+cancelamento não pode reutilizar um backend já liberado.
 
-Remote asset build preparation must provide a SHA-256 for every prebuilt archive,
-including the legacy Darwin ripgrep release. A missing digest is a preparation
-error and must fail before any network download.
+O preparo dos assets de build remotos precisa fornecer um SHA-256 para cada arquivo pré-compilado,
+incluindo o release legado do ripgrep para Darwin. Um digest ausente é um erro de preparo e precisa
+falhar antes de qualquer download de rede.
 
-### Desktop-side network policy
+### Política de rede do lado desktop
 
-All HTTP(S) requests issued by the Desktop Window Host while resolving remote
-assets must use the same immutable Host network transport as app-managed API
-requests. This includes fresh manifest reads, component archive downloads, and
-the optional `HEAD` request used to estimate remote-download progress.
+Todas as requisições HTTP(S) emitidas pelo Desktop Window Host ao resolver assets remotos precisam
+usar o mesmo transporte de rede imutável do Host que as requisições de API gerenciadas pelo App. Isso
+inclui leituras do manifesto novo, downloads de arquivos de componente e a requisição `HEAD` opcional
+usada para estimar o progresso do download remoto.
 
-- `AppSettings.httpProxy`, `httpProxyNoProxy`, and `httpProxyCaCertPath` remain
-  the only Desktop authority for this transport. Ambient shell proxy and CA
-  variables are not an implicit source.
-- An explicit proxy or CA failure is fail-closed for mandatory manifest and
-  component requests; they must not retry through `globalThis.fetch`. The
-  optional remote-download progress `HEAD` keeps its existing best-effort
-  failure behavior, but it must not fall back to a direct request.
-- Remote-asset requests reuse the lifecycle snapshot and dispatcher pool owned
-  by the Window Host's base local service collection. They must not create an
-  additional download-specific proxy-policy source or dispatcher pool; the
-  existing desktop-attached remote service collections keep their own API
-  transport ownership unchanged.
-- Standalone server callers that do not receive the Desktop-owned transport keep
-  their existing direct behavior.
-- In `remote-download` mode only the Desktop-side manifest and progress metadata
-  requests use this policy. The component archive itself is still downloaded by
-  the remote machine's `curl` or `wget` and therefore follows the remote
-  machine's network configuration.
+- `AppSettings.httpProxy`, `httpProxyNoProxy` e `httpProxyCaCertPath` permanecem como a única
+  autoridade do Desktop para esse transporte. Variáveis de proxy e CA do shell ambiente não são uma
+  fonte implícita.
+- Uma falha explícita de proxy ou de CA é fail-closed para requisições obrigatórias de manifesto e
+  de componente; elas não devem tentar novamente por `globalThis.fetch`. O `HEAD` opcional de
+  progresso do download remoto mantém seu comportamento de falha best-effort atual, mas não pode
+  recorrer a uma requisição direta.
+- Requisições de assets remotos reutilizam o snapshot de ciclo de vida e o pool de dispatchers
+  pertencentes à coleção de serviços locais base do Window Host. Elas não podem criar uma fonte
+  extra de política de proxy específica para download nem um pool de dispatchers extra; as coleções
+  de serviços remotos anexados ao desktop existentes mantêm sua propriedade de transporte de API
+  inalterada.
+- Chamadores de servidor standalone que não recebem o transporte pertencente ao Desktop mantêm seu
+  comportamento direto atual.
+- No modo `remote-download`, apenas as requisições de manifesto e de metadados de progresso do lado
+  desktop usam essa política. O arquivo de componente em si continua sendo baixado pelo `curl` ou
+  `wget` da máquina remota e, portanto, segue a configuração de rede da máquina remota.
 
 ```text
 setting.json
@@ -295,23 +290,23 @@ NodeApiClient             RemoteAssetNetworkPort
                     local cache -> SSH upload
 ```
 
-## Deployment Serialization
+## Serialização da Implantação
 
-Desktop SSH workspaces reuse one shared SSH host per window and SSH target. The
-shared host readiness promise serializes initial connection and deployment, so
-the `InitRemoteSshHost` path must declare caller-side serialization and skip the
-remote install-root deploy lock. This avoids keeping a dedicated SSH lock-holder
-channel alive after deployment. Dedicated SSH runtime paths do not share this
-readiness boundary and continue to use the remote lock.
+Os workspaces SSH do Desktop reutilizam um host SSH compartilhado por janela e por alvo SSH. A
+promise de prontidão do host compartilhado serializa a conexão inicial e a implantação, portanto o
+caminho `InitRemoteSshHost` precisa declarar serialização do lado do chamador e pular o lock de
+implantação da install-root remota. Isso evita manter um canal dedicado de detentor do lock SSH vivo
+após a implantação. Caminhos de runtime SSH dedicados não compartilham esse limite de prontidão e
+continuam usando o lock remoto.
 
-This exception accepts the product constraint that the desktop has one window
-and that multiple clients do not deploy to the same SSH install root. It also
-accepts the residual risk that a remote command from a disconnected SSH
-deployment could briefly overlap the next reconnect.
+Essa exceção aceita a restrição de produto de que o desktop tem uma janela e de que múltiplos
+clientes não implantam na mesma install-root SSH. Ela também aceita o risco residual de que um
+comando remoto de uma implantação SSH desconectada possa sobrepor-se brevemente ao próximo
+reconexão.
 
-WSL and Docker deployment continue to use the remote install-root lock. Callers
-that do not explicitly declare caller-side serialization also default to the
-remote lock, including the standalone Web server connection API.
+A implantação em WSL e Docker continua usando o lock da install-root remota. Chamadores que não
+declaram explicitamente a serialização do lado do chamador também passam a usar o lock remoto por
+padrão, incluindo a API de conexão do servidor Web standalone.
 
 ```text
 Desktop SSH target
@@ -328,25 +323,31 @@ WSL / Docker / unspecified caller
 remote install-root deploy lock ----------> deployServer transaction
 ```
 
-Local-download-upload mode uses the desktop host's Node runtime to create and extract local `.tar.gz` archives. It must not depend on a local system `tar` binary, because Windows clients may not expose `C:\Windows\System32\tar.exe` to the Electron host process.
+O modo local-download-upload usa o runtime Node do host desktop para criar e extrair arquivos `.tar.gz`
+locais. Ele não pode depender de um binário `tar` do sistema local, porque clientes Windows podem não
+expor `C:\Windows\System32\tar.exe` ao processo host do Electron.
 
-Remote-server download mode requires:
+O modo de download pelo servidor remoto requer:
 
-- `curl` or `wget`
+- `curl` ou `wget`
 - `tar`
-- `sha256sum`, `shasum`, or `openssl`
+- `sha256sum`, `shasum` ou `openssl`
 
-Downloaded component artifacts are verified by manifest `sha256` before installation.
-For `glm` and `server-bundle`, local and remote component-cache paths also
-include that SHA so a hash-triggered deployment cannot accidentally copy bytes
-cached under an older artifact with the same semantic version. Other
-component-cache key semantics are unchanged.
+Os artefatos de componente baixados são verificados pelo `sha256` do manifesto antes da instalação.
+Para `glm` e `server-bundle`, os caminhos locais e remotos de cache de componentes também incluem
+esse SHA, de modo que uma implantação disparada por hash não copie acidentalmente bytes cacheados sob
+um artefato mais antigo com a mesma versão semântica. Outras semânticas de chave de cache de
+componentes permanecem inalteradas.
 
-## Resource Package Compatibility
+## Compatibilidade de Pacotes de Recursos
 
-`SSHConnectOptions.resourcePackages.selectedPackageIds` is still accepted as historical input, but current connections ignore retired package choices and use the default ZCode resource set. Linux remote runtime includes `bfs`, `ripgrep`, and `ugrep`; Darwin remote only deploys its supported `ripgrep` component. Old configs cannot disable active runtime tools or re-enable third-party agent runtimes.
+`SSHConnectOptions.resourcePackages.selectedPackageIds` ainda é aceito como entrada histórica, mas as
+conexões atuais ignoram escolhas de pacotes aposentados e usam o conjunto padrão de recursos do
+ZCode. O runtime remoto em Linux inclui `bfs`, `ripgrep` e `ugrep`; o remoto em Darwin implanta
+apenas seu componente `ripgrep` suportado. Configurações antigas não podem desabilitar ferramentas de
+runtime ativas nem reabilitar runtimes de agentes de terceiros.
 
-## Key Files
+## Arquivos-Chave
 
 - `packages/server/src/remote/deploy.ts`
 - `packages/server/src/remote/zcodeAgentDeploy.ts`

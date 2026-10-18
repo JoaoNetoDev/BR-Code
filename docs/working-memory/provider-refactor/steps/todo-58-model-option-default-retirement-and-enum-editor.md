@@ -182,7 +182,7 @@ o modelo não oferece capacidade de raciocínio
 └─ usar a Spec completa com values=["disabled"], map="{}"
 ```
 
-O preenchimento comum do default acontece uma única vez, no limite de resolução da Model Selection padrão. Depois de preenchido, o `preferredSelection`, a seleção recente, a Session Selection e o Active Model carregam um reasoning concreto; não é permitido que UI, Service, Model ou Adapter façem各自的 fallback próprios.
+O preenchimento comum do default acontece uma única vez, no limite de resolução da Model Selection padrão. Depois de preenchido, o `preferredSelection`, a seleção recente, a Session Selection e o Active Model carregam um reasoning concreto; não é permitido que UI, Service, Model ou Adapter façam seus próprios fallbacks.
 
 O comportamento de `resolveInitialModelSelection` é consolidado em:
 

@@ -1,4 +1,4 @@
-# Todo 44：Repo Wiki Agent Runtime Headers e cadeia de cancelamento
+# Todo 44: Repo Wiki Agent Runtime Headers e cadeia de cancelamento
 
 > Status: concluído
 >
@@ -9,7 +9,7 @@
 ## 1. Sintoma do problema
 
 Após disparar a geração do Repo Wiki para vários repositórios no MacBook Air, a interface permanecia em execução por muito tempo, sem Catalog, rascunhos de página ou Wiki final.
-A tarefa podia falhar接近 de uma hora depois, registrando:
+A tarefa podia falhar perto de uma hora depois, registrando:
 
 ```text
 Timeout da requisição de modelo do Wiki (900000ms)
@@ -134,7 +134,7 @@ AbortSignal espera o handler de cancelamento
 handler de cancelamento espera generateText retornar
 ```
 
-O cancel RPC no lado do Host expira em 5 segundos, mas esse timeout best-effort é explicitamente isento do回收 de processo pelo Process Manager; o `AbortController` interno do Agent não é acionado, e a Promise de Runtime Headers e a antiga requisição física continuam vivas.
+O cancel RPC no lado do Host expira em 5 segundos, mas esse timeout best-effort é explicitamente isento da reciclagem de processo pelo Process Manager; o `AbortController` interno do Agent não é acionado, e a Promise de Runtime Headers e a antiga requisição física continuam vivas.
 
 ### 3.4 A retry amplia uma falha determinística para cerca de uma hora
 
@@ -169,11 +169,11 @@ Todo Client produzido por `ZCodeAgentProcessManager` e que tenha permissão de e
 
 ### 4.2 A mensagem de cancelamento pertence ao plano de controle
 
-`workspace/cancelGenerateText`, assim como `session/stop`, precisa ultrapassar a espera assíncrona da requisição anterior, entrando no handler e建立起 o AbortController. A requisição de cancelamento não pode ficar enfileirada atrás da conclusão da operação que está sendo cancelada.
+`workspace/cancelGenerateText`, assim como `session/stop`, precisa ultrapassar a espera assíncrona da requisição anterior, entrando no handler estabelecendo o AbortController. A requisição de cancelamento não pode ficar enfileirada atrás da conclusão da operação que está sendo cancelada.
 
 ### 4.3 O cancelamento do pai é o principal limite de prazo deste ciclo
 
-Este ciclo não mascara o problema 增加ando um timeout fixo arbitrário para Runtime Headers. A resposta automática do Host para Team/Individual e a interação em tempo de execução que o Start Plan pode exigir não têm a mesma semântica de duração; Runtime Headers pode continuar herdando o `AbortSignal` da requisição de modelo pai, desde que o cancelamento do pai realmente chegue ao Agent.
+Este ciclo não mascara o problema adicionando um timeout fixo arbitrário para Runtime Headers. A resposta automática do Host para Team/Individual e a interação em tempo de execução que o Start Plan pode exigir não têm a mesma semântica de duração; Runtime Headers pode continuar herdando o `AbortSignal` da requisição de modelo pai, desde que o cancelamento do pai realmente chegue ao Agent.
 
 Se futuramente for necessário um prazo curto independente para Headers automáticos de conta, isso deve ser definido como um contrato separado, distinguindo por comportamento de Account Access, e não ser incluído aqui por conveniência.
 
@@ -199,7 +199,7 @@ Estender os testes da Lane do Repo Wiki, sem se limitar a um Mock retornado com 
 - `getRepoWikiClient()` executa o `wireClient(client, params)` idempotente antes de `markReady` e do retorno;
 - manter a semântica de instalação única de `wiredClients`;
 - atualizar `repo-wiki-agent-lane.md`, removendo a conclusão incorreta "Repo Wiki não wireia";
-- a Lane continua fora do `activeClientsByWorkspaceKey` do Chat, sem alterar o isolamento de processo e o回收 de estado terminal.
+- a Lane continua fora do `activeClientsByWorkspaceKey` do Chat, sem alterar o isolamento de processo e a reciclagem do estado terminal.
 
 ### 5.3 Testes primeiro: cancelamento via Transport real
 
@@ -271,7 +271,7 @@ Cada chunk SSE e conteúdo de alto volume continuam em debug, sem aumentar a enx
 1. testes direcionados de Services da Lane do Repo Wiki;
 2. testes direcionados de Services de Account Runtime Headers;
 3. testes de requisições bidirecionais do ZCode Protocol no Bootstrap e de cancelamento via Transport real;
-4. testes direcionados de Deadline, Retry e回收 de estado terminal do Repo Wiki;
+4. testes direcionados de Deadline, Retry e a reciclagem do estado terminal do Repo Wiki;
 5. uma validação vertical local do Repo Wiki cada para API Key Provider e Account Provider;
 6. confirmação em runtime da ocorrência de Runtime Headers applied, TCP/HTTP com o serviço de modelo e o primeiro pacote SSE no Account Provider;
 7. após parada ou Deadline, confirmar que não há operation remanescente no Agent e que a próxima geração pode começar imediatamente;

@@ -1,4 +1,4 @@
-# Todo131：Posição da configuração inteligente na página de configurações de modelos e botão "Restaurar"
+# Todo 131: Posição da configuração inteligente na página de configurações de modelos e botão "Restaurar"
 
 > Decisão posterior de 2026-09-12: [Todo134](todo-134-model-editor-basic-advanced-draft.md) devolve a configuração inteligente ao canto inferior esquerdo fixo e transforma a restauração em um botão outline, colocado à esquerda de Salvar. A semântica de restauração e as proteções assíncronas deste documento são mantidas; o layout antigo não se aplica mais.
 

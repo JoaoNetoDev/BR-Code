@@ -97,7 +97,7 @@ autoriza o fallback.
 - A era de uma conexão de client fica imutável após a conclusão do connect; um reconexo renegocia.
 - Falha na negociação da sonda (`SdkError(EraNegotiationFailed)` / `UnsupportedProtocolVersionError`) é
   mapeada em `McpServerStatus.failureKind` como `protocol_negotiation_failed` (o adapter identifica pelo tipo estruturado do
-  erro, sem casar texto de erro); a UI de settings usa isso para exibir aorientação de falha “将协议版本切换为「兼容旧版」”, em vez da
+  erro, sem casar texto de erro); a UI de settings usa isso para exibir a orientação de falha “将协议版本切换为「兼容旧版」”, em vez da
   mensagem enganosa de “网络不可达”. A versão de protocolo pode ser definida manualmente no formulário de edição de MCP server
   (dropdown `protocolVersion`, oculto no formato sse) ou na configuração JSON.
 - O ZCode não adiciona persistência de era entre sessões. O SDK/transport pode cachear o resultado da conexão atual, mas não pode reaproveitar o resultado de um server para

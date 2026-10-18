@@ -162,7 +162,7 @@ o lint teve 43 warnings já existentes e 0 erros. Esta rodada não executou o UI
 não havia codegraph disponível, e a superfície de impacto foi conferida pela cadeia de chamadas direta e pelos seeds de código registrados.
 
 Verificação do fade no topo e na base: BDO07 e BGV03 de `desktop-e2e-20260910-142038-231`, 2/2 aprovados.
-A janela real confirmou a有效性 da CSS mask, sem overflow e com a direção correta no início, meio e fim; a atualização de saída e a
+A janela real confirmou a eficácia da máscara CSS, sem overflow e com a direção correta no início, meio e fim; a atualização de saída e a
 pausa/retomada permaneceram iguais; o primeiro segmento continua com 1 linha e os seguintes com no máximo 5. O viewport compartilhado, o seguimento em
 foreground/background e os formulários de feedback tiveram 23 testes unitários aprovados, e typecheck, E2E typecheck,
 lint (43 warnings já existentes, 0 erros) e architecture passaram.

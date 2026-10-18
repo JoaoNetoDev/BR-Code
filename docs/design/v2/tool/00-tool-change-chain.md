@@ -45,7 +45,7 @@ O plano de salvamento e compatibilidade está em `docs/plan-mode-independent-sta
 
 2026-09-08 Bash shutdown: o close do adapter mantém vivo o encerramento assíncrono da árvore de processos existente; a regressão do Node independente cobre a limpeza dos Posteriores antes da conclusão. A saída normal da raiz, os eventos de ferramenta e o limite continuous/replayable permanecem inalterados; veja `docs/bash-background-parity.md`.
 
-2026-09-08 Bash 进度调度: interval compartilhado por processo Node/ciclo de polling interno, com assinatura independente por tarefa e leitura de cauda; liberado quando a última assinatura sai. Mantém-se o watchdog de 5 GiB por tarefa; protocolo/exibição inalterados; os testes cobrem compartilhamento, handover, leitura concorrente e resultado atrasado, com reverificação do BG14 no Desktop.
+2026-09-08 Bash, agendamento de progresso: interval compartilhado por processo Node/ciclo de polling interno, com assinatura independente por tarefa e leitura de cauda; liberado quando a última assinatura sai. Mantém-se o watchdog de 5 GiB por tarefa; protocolo/exibição inalterados; os testes cobrem compartilhamento, handover, leitura concorrente e resultado atrasado, com reverificação do BG14 no Desktop.
 
 2026-09-08 Desktop: o estado final do Bash transmite cabeçalho limitado, flag de truncamento e caminho do arquivo preservado por meio do display estrito `bash_output`; a interface mostra aviso de saída parcial e entrada de arquivo, ocultando linhas/bytes no estado de execução. Conteúdo do Provider e TUI inalterados; aceitação em `docs/bash-background-parity.md`.
 
@@ -154,7 +154,7 @@ Os testes cobrem em sequência o schema da ferramenta, a resolução da fonte co
 a gravação do artifact de runtime, a resposta real do modelo com base no valor interno do arquivo e a entrega no tópico de origem. Sucesso do teste unitário de download do Host
 ou de download pela API nativa não significa que esta cadeia E2E de ferramenta está completa.
 
-### 真实回查连接关闭（2026-09-08）
+### Fechamento real da conexão de rechecagem (2026-09-08)
 
 ### Fechamento da Conexão na Verificação Real de Tópico (2026-09-08)
 

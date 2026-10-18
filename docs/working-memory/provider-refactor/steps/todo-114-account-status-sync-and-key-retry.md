@@ -11,7 +11,7 @@
 
 O branch original corrigiu «está logado, o servidor diz explicitamente que não há plano pessoal, mas aparece como não conectado»: o Host passa `unavailableReason` junto do Account State, e a UI distingue não contratado de falha na obtenção. Isso está de acordo com a fonte única de verdade do refactor de Provider e não restaura a segunda sondagem de entitlement da UI.
 
-A revisão encontrou dois pontos a completar: o Host envia o novo campo, mas o schema de sincronização estrito usado pela CLI não o aceita e rejeita o snapshot inteiro da Account; e, quando a obtenção da Key do Coding Plan pessoal falha, o Z.ai classifica conforme a informação de login local, enquanto o BigModel reporta固定的「não conectado».
+A revisão encontrou dois pontos a completar: o Host envia o novo campo, mas o schema de sincronização estrito usado pela CLI não o aceita e rejeita o snapshot inteiro da Account; e, quando a obtenção da Key do Coding Plan pessoal falha, o Z.ai classifica conforme a informação de login local, enquanto o BigModel reporta de forma fixa「não conectado».
 
 O usuário confirmou:
 

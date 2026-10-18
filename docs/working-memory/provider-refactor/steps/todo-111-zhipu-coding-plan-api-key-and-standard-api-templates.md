@@ -1,4 +1,4 @@
-# Todo 111：Quatro modelos de API da Zhipu e validação segura de requisições com Key manual do Coding Plan
+# Todo 111: Quatro modelos de API da Zhipu e validação segura de requisições com Key manual do Coding Plan
 
 > Atualização de nomenclatura em 2026-09-14: os nomes em chinês e inglês dos dois modelos da linha superior foram unificados como `BigModel Coding Plan` e `Z.AI Coding Plan`, removendo o `API` final; `BigModel API` e `Z.AI API`, na linha inferior, permanecem inalterados. Este item substitui a nomenclatura histórica abaixo. Os nomes continuam sendo fornecidos de forma unificada pelo `templateNameMap` do Built-in; a configuração de produção gera a configuração de teste após a modificação, sem adicionar casos especiais no frontend. Não modificam-se IDs de modelo, Access, URL, capacidades de modelo nem nomes de Personal Provider já existentes, e não há migração de dados.
 
@@ -6,7 +6,7 @@
 >
 > Atualização de Goal em 2026-09-11: o Todo120 concluiu 32 grupos de testes pareados e de testes de camada compartilhada (147 no total); para os dois endereços oficiais e os dois tipos de Access, a validação segura de requisições foi executada de fato, com HTTP200 e retorno normal de texto. A limitação abaixo “o novo caminho de Key comum do Z.ai não foi testado” é substituída por esta evidência; as limitações de instalação independente de Air/celular/SSH continuam válidas,veja a última seção do Todo120 (o documento do Todo120 é mantido apenas na versão oficial).
 
-> A decisão posterior de 2026-09-11 já implementada, aguardando validação completa: complementa a validação segura de requisições com a admissão de uma Key comum `api-key` quando ela corresponder exatamente às URLs Anthropic oficiais do Coding Plan dos dois fornecedores. Este item substitata a limitação antiga abaixo “uma Key comum não entra na validação segura de requisições independentemente do endereço”; o Access persistido não é modificado e nenhuma migração de instâncias antigas é adicionada. Os limites atuais estão em [protocolo de requisição §5.2](../design/registry/request-compatibility-and-access-protocols.md#52-官方版本请求安全校验); as evidências existentes estão no fim do documento; a verificação completa de equivalência solicitada pelo usuário e a revisão são assumidas pelo Todo120 (documento mantido apenas na versão oficial) e não se pode afirmar que este complemento foi totalmente validado antes da sua conclusão.
+> A decisão posterior de 2026-09-11 já implementada, aguardando validação completa: complementa a validação segura de requisições com a admissão de uma Key comum `api-key` quando ela corresponder exatamente às URLs Anthropic oficiais do Coding Plan dos dois fornecedores. Este item substitui a limitação antiga abaixo “uma Key comum não entra na validação segura de requisições independentemente do endereço”; o Access persistido não é modificado e nenhuma migração de instâncias antigas é adicionada. Os limites atuais estão em [protocolo de requisição §5.2](../design/registry/request-compatibility-and-access-protocols.md#52-官方版本请求安全校验); as evidências existentes estão no fim do documento; a verificação completa de equivalência solicitada pelo usuário e a revisão são assumidas pelo Todo120 (documento mantido apenas na versão oficial) e não se pode afirmar que este complemento foi totalmente validado antes da sua conclusão.
 
 ## 1. Objetivo e escopo já decidido
 
@@ -150,10 +150,10 @@ os modelos comuns mantêm o catálogo original de modelos comuns e normalizam os
 
 Materiais oficiais (data de verificação 2026-09-10):
 
-- [Início rápido do Coding Plan da Zhipu](https://docs.bigmodel.cn/cn/coding-plan/quick-start)、[início rápido da API comum](https://docs.bigmodel.cn/cn/guide/start/quick-start)、[HTTP API](https://docs.bigmodel.cn/cn/guide/develop/http/introduction)：endpoints de plano/comum, caminhos de obtenção de Key pessoal/equipe.
-- [Início rápido do Coding Plan do Z.ai](https://docs.z.ai/devpack/quick-start)、[descrição da API comum](https://docs.z.ai/api-reference/introduction)：endpoints, entrada de Key e autenticação.
-- [GLM-5.3](https://docs.z.ai/guides/llm/glm-5.3)、[GLM-5.3-Flash](https://docs.z.ai/guides/vlm/glm-5.3-flash)：diferença entre texto e multimodal nativo.
-- [Busca da Zhipu](https://docs.bigmodel.cn/cn/guide/tools/web-search)、[busca do Z.ai](https://docs.z.ai/guides/tools/web-search)：diferença entre busca independente e busca na conversa; não servem como base para afirmar que todos os modelos foram testados.
+- [Início rápido do Coding Plan da Zhipu](https://docs.bigmodel.cn/cn/coding-plan/quick-start), [início rápido da API comum](https://docs.bigmodel.cn/cn/guide/start/quick-start), [HTTP API](https://docs.bigmodel.cn/cn/guide/develop/http/introduction)：endpoints de plano/comum, caminhos de obtenção de Key pessoal/equipe.
+- [Início rápido do Coding Plan do Z.ai](https://docs.z.ai/devpack/quick-start), [descrição da API comum](https://docs.z.ai/api-reference/introduction)：endpoints, entrada de Key e autenticação.
+- [GLM-5.3](https://docs.z.ai/guides/llm/glm-5.3), [GLM-5.3-Flash](https://docs.z.ai/guides/vlm/glm-5.3-flash)：diferença entre texto e multimodal nativo.
+- [Busca da Zhipu](https://docs.bigmodel.cn/cn/guide/tools/web-search), [busca do Z.ai](https://docs.z.ai/guides/tools/web-search)：diferença entre busca independente e busca na conversa; não servem como base para afirmar que todos os modelos foram testados.
 
 Código principal: `config/provider/zcode-builtin.json`; `packages/provider/src/config/provider-data-schema.ts`, `provider-config.ts`, `schema.ts` e `packages/provider/src/resolver.ts`; `packages/ui/src/settings/model-provider-section/ProviderDraftSave.ts`, `InlineEditableProviderCard.tsx`; `apps/zcode-cli/packages/adapters/src/model/model-execution.ts`, `tool-transform.ts`; a implementação de validação segura de requisições da versão oficial; `packages/services/src/model-provider/accountProviderRequestAuthService.ts`.
 

@@ -1,6 +1,6 @@
 # Declaração do Protocolo de Comportamento de Conversa
 
-Objetivo: primeiro deixar清楚 o "protocolo de comportamento de produto de conversa" declarado, e só depois discutir as ferramentas de entrada e geração. A declaração do protocolo precisa fazer com que produto, QA e desenvolvimento alinhem a mesma semântica: como um case nasce, o que cada nó da árvore representa, quais caminhos são podados por regra de produto e quais caminhos ainda não estão bem definidos.
+Objetivo: primeiro deixar claro o "protocolo de comportamento de produto de conversa" declarado, e só depois discutir as ferramentas de entrada e geração. A declaração do protocolo precisa fazer com que produto, QA e desenvolvimento alinhem a mesma semântica: como um case nasce, o que cada nó da árvore representa, quais caminhos são podados por regra de produto e quais caminhos ainda não estão bem definidos.
 
 ## Camadas do protocolo
 
@@ -51,8 +51,8 @@ Cada evento de entrada deve declarar no mínimo:
 - `id`: identificador estável, como `slashCompact`.
 - `actor`: `user` ou `system`.
 - `surface`: em qual entrada do produto acontece, como composer, toolbar, turn actions.
-- `target`: objeto sobre o qual incide, como latest turn、old turn、current session.
-- `payload class`: categoria do conteúdo de entrada, como normal text、slash command、goal text.
+- `target`: objeto sobre o qual incide, como latest turn, old turn, current session.
+- `payload class`: categoria do conteúdo de entrada, como normal text, slash command, goal text.
 - `applicability`: em quais contextos este evento deve ser enumerado.
 
 ## Tipos de decision
@@ -186,7 +186,7 @@ Primeiro lote de invariantes de conversa:
 | guideFallbackPreservesIntent | Quando o turn atual chega a um estado final sem tool batch utilizável, ou o guide não se aplica/é recusado, o mesmo intent é redirecionado no lugar para a queue comum; payload, client, IDs, admissionSeq e FIFO permanecem |
 | incompleteGoalBlocksQueueDrain | O consumo automático da queue comum exige simultaneamente session ready e target inexistente ou com `target.status=complete`; target active/paused/budget_limited bloqueia todas as kinds: text, goal, compact |
 | verifierFailOpenCompletesTarget | Exceções de infraestrutura do verifier, de formato de saída ou de uso indevido de tool adotam fail-open com `passed=true` e liberam a queue pelo caminho normal de target complete; é proibido adicionar um ramo de drain que contorne a atualização do target |
-| verifierCancelDoesNotPass | Stop/abort manual do verifier é cancelled/failed + target paused, a queue é mantida com `autoDrain=false`; não pode ser tratado como fail-open nem como pass. Mesmo que um model provider não respondig及时 ao `AbortSignal`, o adapter precisa encerrar imediatamente a espera local de `generateText` via corrida de abort; é proibido esperar o retorno natural do upstream para só então fechar o verifier |
+| verifierCancelDoesNotPass | Stop/abort manual do verifier é cancelled/failed + target paused, a queue é mantida com `autoDrain=false`; não pode ser tratado como fail-open nem como pass. Mesmo que um model provider não responda imediatamente ao `AbortSignal`, o adapter precisa encerrar imediatamente a espera local de `generateText` via corrida de abort; é proibido esperar o retorno natural do upstream para só então fechar o verifier |
 | restartDiscardRespectsDeliveryLifetime | Após restart do CLI, a entrada admitted que não chegou a um estado terminal é marcada discarded; `queue/guide` pertencem ao ciclo de vida do runtime antigo e são liquidados silenciosamente conforme o delivery persistido, sem manter cópia de reenvio no renderer; `unknown` também limpa a conta em silêncio e não mostra erro na UI; apenas `startNow` que não entrou no transcript pede confirmação ao usuário, e o replay automático é proibido |
 | runningCompactQueues | Durante running, `/compact` é anexado como intenção de manutenção com `kind=compact` ao FIFO do CLI; não interrompe o active work atual e não pode virar mensagem comum |
 | stopEndsAsInterruptedCompleted | Depois de parar a geração não existe "estado pausado"; o turno atual termina como `completed(interrupted)` |
@@ -215,7 +215,7 @@ Primeiro lote de invariantes de conversa:
 | sessionResidencyTargetIsSoft | Cada CLI pode manter, com LRU, um alvo suave de sessions resident; sessions active/queued/background/pending/subscribed/operation-leased devem ter prioridade de manter viva, é permitido exceder o alvo quando há sessions protegidas, e é proibido cancelar trabalho para acomodar capacidade |
 | deactivatedSessionEqualsColdSession | A evicção de uma session resident remove apenas o record/publisher/runtime da memória do CLI, sem remover a session persistente ou o índice de tasks e sem emitir `session.removed`; acessos posteriores e sessions não carregadas após o restart do CLI compartilham o cold-resume, e o renderer não recebe notificação de negócio de desativação |
 | sessionContextFollowsActiveSession | Depois que o usuário troca para uma session histórica, a sidebar direita, as tasks e o contexto devem acompanhar a active session |
-| autoCompactIsSystemTurnPrefix | O compact automático é um passo de manutenção prefixal inserido pelo sistema, não ocupa a queue do usuário e, após o sucesso, continua a ação que本来 seria executada |
+| autoCompactIsSystemTurnPrefix | O compact automático é um passo de manutenção prefixal inserido pelo sistema, não ocupa a queue do usuário e, após o sucesso, continua a ação que normalmente seria executada |
 | cliOwnsConversationProjection | A conversation product projection é produzida pelo CLI/runtime a partir dos CLI facts; o owner host apenas mantém cache, roteia e recupera a projeção, e a UI não inventa fatos de produto com um array local de mensagens |
 | productRowsRequireCompleteConsumerContract | O CLI só pode materializar um runtime fact como conversation product row quando a identidade da row, sua colocação em session/turn/tool, a posição de recuperação cold e o Renderer já formam um contrato completo. `HookRun*` projeta apenas o resumo client-safe `hookInvocation`: entra na ação de fim de turno pelo `turnId` autoritativo, e um `SessionStart` sem turnId durante o resume espera a próxima real user-intent turn; é proibido construir synthetic turn `session-hooks:*`, e um admission-only blocked não pode ser exibido como "executou". live/cold, desktop continuous, mobile replayable e Renderer precisam fechar o ciclo na mesma mudança; não basta mesclar apenas os tipos de protocolo ou o producer |
 | v4ColdResumeSeparatesActivationFromProjection | A cold subscription de sessão histórica na V4 reutiliza apenas a activation do session runtime; rows/goal/plan/queue/interaction históricas e o primeiro frame vêm da materialization durável da V4 e da ProductProjection. É proibido construir um legacy snapshot completo que ninguém consome só para ativar o runtime ou ler uso; o legacy `session/resume` continua usando activation + legacy snapshot para manter a compatibilidade de resposta |

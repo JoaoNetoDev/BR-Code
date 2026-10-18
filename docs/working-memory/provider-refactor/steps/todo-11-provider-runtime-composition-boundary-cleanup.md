@@ -144,7 +144,7 @@ outer result.runtime.dispose()
 `- 只执行最内层 Registry/Config 清理
 ```
 
-Prompt e TUI chamam o `dispose()` externo; o entrypoint do Protocol atualmente chama `providerRegistryRuntime?.runtime.dispose()`. Portanto a limpeza do Protocol contorna o Model Selection Repository pertencente à camada externa. Se alguma entrada standalone que possua uma subscription de credenciais também chamar o dispose interno, essa subscription vazará do mesmo modo. Este é um bug candidate concretoOMP都是由 owners aninhados expostos, e não apenas uma preferência de nomenclatura.
+Prompt e TUI chamam o `dispose()` externo; o entrypoint do Protocol atualmente chama `providerRegistryRuntime?.runtime.dispose()`. Portanto a limpeza do Protocol contorna o Model Selection Repository pertencente à camada externa. Se alguma entrada standalone que possua uma subscription de credenciais também chamar o dispose interno, essa subscription vazará do mesmo modo. Este é um bug candidate concreto exposto por owners aninhados, e não apenas uma preferência de nomenclatura.
 
 Esse defeito funcional não espera pela decisão de arquitetura deste documento; a semântica completa de liberação é restaurada separadamente por [`Todo 11A`](./todo-11a-provider-runtime-disposal-functional-fix.md). Este documento continua discutindo apenas os limites de composição e não implementa as refatorações candidadas por ocasião dessa correção.
 

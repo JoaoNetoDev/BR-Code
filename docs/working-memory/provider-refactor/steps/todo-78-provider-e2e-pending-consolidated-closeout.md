@@ -53,7 +53,7 @@ MacBook Air:
   de valores padrão; nenhum código de produto foi modificado.
 - Configurações e geração do Repo Wiki: os 2 specs passaram.
 - Tarefas ociosas, 3 specs: todos pararam no pré-requisito de entrada de criação / troca de workspace,
-  ainda sem entrar nas asserções de negócio; especificamente, a entrada de灰度 não apareceu e o
+  ainda sem entrar nas asserções de negócio; especificamente, a entrada de 灰度 não apareceu e o
   workspace não foi trocado.
 - Configurações de Subagent: entraram nas asserções de negócio, mas 3 itens falharam, envolvendo
   snapshot de campos do Markdown e se o effort padrão sem operação é gravado no estado; é preciso
@@ -77,7 +77,7 @@ Execução complementar de QR e Subagent em 2026-09-05, após remover os process
   entrada de remoção de modelo não encontra o modelo alvo; é preciso adicionar diagnóstico de UI
   antes de decidir se é problema de localizador.
 - Tarefas ociosas, 3 specs: mesmo executados isoladamente, param no pré-requisito da entrada de
-  criação de灰度 e não entram nas asserções de negócio; o registro atual é bloqueio de fixture E2E /
+  criação de 灰度 e não entram nas asserções de negócio; o registro atual é bloqueio de fixture E2E /
   disponibilidade de Account Provider, sem alteração do código de negócio ocioso.
 
 A evidência de runtime do bloqueio de Off-Peak (log da primeira rodada no Air) foi confirmada
@@ -134,7 +134,7 @@ Nova execução de `coding-plan-team-usage.test.ts` no Air em 2026-09-05 (após 
 - Todo 73: coberto de forma independente pelo CTP-02B e aprovado no Air; deixa de ser reprogramado
   como item pendente.
 - Todo 09 e o encerramento relacionado a tarefas ociosas: três specs não entraram nas asserções de
-  negócio porque a entrada de灰度/mock não foi atingida; permanecem registrados conforme a tabela
+  negócio porque a entrada de 灰度/mock não foi atingida; permanecem registrados conforme a tabela
   acima como bloqueio de fixture/Account entitlement.
 - Persistência das configurações de Subagent: SE-01～03 passaram no Air; deixam de ser reprogramados
   como itens pendentes.

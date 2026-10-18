@@ -34,7 +34,7 @@ Relacionado: [spec do controle de nível de pensamento](../../../ui/chat-thought
 
 Removem-se do front-end o mapeamento fixo de texto e a ordenação por inferência de nome para os seguintes valores:
 
-`light`、`shallow`、`balanced`、`default`、`normal`、`standard`、`deep`、`maximum`、`very-high`、`very_high`。
+`light`、`shallow`、`balanced`、`default`、`normal`、`standard`、`deep`、`maximum`、`very-high`、`very_high`.
 
 Esses valores continuam podendo existir como níveis personalizados válidos; exibe-se o `entry.name` fornecido pela origem, mantendo o caminho de fallback genérico existente. Valores desconhecidos são tratados do mesmo modo, sem filtrar as opções e sem substituí-las pela opção conhecida mais próxima. Em particular, default deixa de ser interpretado como medium.
 
