@@ -2,9 +2,9 @@
 
 - Data: 2026-08-18
 - Status: design confirmado, aguardando implementação
-- PRD upstream: 《ZCode CUA 输入框常驻按钮&免费体验 PRD v0.2》（wiki do Feishu EEE7wZ06Ti7Gx5kGWU8cthX9nOg）
+- PRD upstream: 《PRD do ZCode CUA — botão permanente no campo de entrada e experiência gratuita v0.2》(título original: 《ZCode CUA 输入框常驻按钮&免费体验 PRD v0.2》, wiki do Feishu EEE7wZ06Ti7Gx5kGWU8cthX9nOg)
 - Branch: `feat/cua-composer-entry`
-- Alterações posteriores: ver «2026-09-11 变更：电脑控制默认关闭» no fim deste documento — essa alteração removeu o estado de UI
+- Alterações posteriores: ver «Alteração de 2026-09-11: Controle de Computador Desligado por Padrão» no fim deste documento — essa alteração removeu o estado de UI
   «未启用» (`plugin-disabled`) descrito em vários pontos deste texto; ao ler a tabela de estados e o diagrama ASCII abaixo,
   consulte também essa seção final.
 
@@ -33,7 +33,7 @@ estar definida só produziria retrabalho.
 4. Cobertura de interatividade `session-busy`: qualquer turn em execução dentro do workspace → desabilita tudo
 5. Gate de plataforma: remote / linux / Web comum / controle remoto do celular não renderiza
 6. Comportamento de clique: todos os estados visíveis → vai para a seção `computerUse` da página de configurações; não responde apenas quando há cobertura de session-busy
-   (alteração de 2026-08-20; antes era «未启用 e 权限缺失 clicáveis, demais estados apenas com hover de tooltip», ver a seção «点击行为» abaixo)
+   (alteração de 2026-08-20; antes era «não habilitado e permissão ausente clicáveis, demais estados apenas com hover de tooltip», ver a seção «Comportamento de clique» abaixo)
 7. Interruptor «在输入框显示电脑操作按钮» na página de configurações (exibido por padrão, ocultado de forma persistente quando desligado)
    (2026-08-21 passou a ser ocultado por padrão; a partir de 2026-09-11 esse interruptor fica esmaecido quando o Controle de Computador está desligado e o texto de dica muda)
 
@@ -175,7 +175,7 @@ como estado de erro de forma fidedigna e o reject mantém lastKnown até o próx
 
 Os gates que permanecem: **consultar apenas quando `cuaPlugin.enabled === true` e na plataforma mac**. O motivo é que a apresentação
 de UI do estado não habilitado é independente de permissão (antes era sempre o ponto cinza «未启用»; a partir de 2026-09-11 simplesmente não renderiza), e puxar permissão não traz ganho de
-informação. Essa restrição tem testes unitários correspondentes (ver «测试»), para impedir que uma refatoração posterior coloque a consulta fora do gate sem querer.
+informação. Essa restrição tem testes unitários correspondentes (ver «Testes»), para impedir que uma refatoração posterior coloque a consulta fora do gate sem querer.
 
 ## Divisão de Componentes e Arquivos
 
@@ -221,7 +221,7 @@ desktop), e não `openCuaPermissionOnboarding` — o Windows não tem TCC e nunc
 
 Segue `DESIGN.md`:
 
-- o trigger usa o mesmo conjunto de determinação em Draft e em sessões existentes, no desktop e no Web mobile: o owner único de layout da barra de_tools aplica cumulativamente as sete faixas de compactação a seguir conforme a largura realmente disponível, parando em cada faixa assim que o espaço for suficiente e pulando controles inexistentes:
+- o trigger usa o mesmo conjunto de determinação em Draft e em sessões existentes, no desktop e no Web mobile: o owner único de layout da barra de ferramentas aplica cumulativamente as sete faixas de compactação a seguir conforme a largura realmente disponível, parando em cada faixa assim que o espaço for suficiente e pulando controles inexistentes:
   1. Computer Use encolhe para um botão de ícone quadrado de 28px.
   2. mode encolhe para 28px quadrados, mantendo o texto de Plan, think e do provedor.
   3. Plan encolhe para 28px quadrados, com think e provedor continuando com texto.

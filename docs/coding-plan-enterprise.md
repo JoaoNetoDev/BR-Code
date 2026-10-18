@@ -57,7 +57,7 @@ Fluxo de compra:
 11. `SUCCESS` é considerado pagamento bem-sucedido; `FAIL`, `CLOSED` e `CANCELLED` são considerados falha ou fechamento.
 12. Após o sucesso, o preço enterprise e o snapshot de benefícios do Coding Plan pessoal são atualizados.
 
-## Valores nos eventos de埋点 da compra
+## Valores nos eventos de rastreamento da compra
 
 Os eventos `purchase_pay_ck` e `purchase_result` da compra de equipe usam o mesmo snapshot de valores
 vindo da simulação.

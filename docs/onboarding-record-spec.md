@@ -83,7 +83,7 @@ Responder uma vez sem estar conectado e depois conectar não pode ser tratado co
 
 - a reivindicação cobre simultaneamente a entry de respostas e a decision de elegibilidade, e ocorre somente quando o próprio usuário conectado não tem nenhuma das duas; no estado [A, null], conectar com A é uma operação vazia idempotente.
 - após perder o registro no estado anônimo, o onboarding disparar novamente é o comportamento esperado (esse estado realmente não tem registro próprio).
-- no lado da UI é obrigatório aguardar a reivindicação terminar antes de shouldOnboard, caso contrário a leitura do arquivo anterior à reivindicação pode 判断 incorretamente que o onboarding é necessário.
+- no lado da UI é obrigatório aguardar a reivindicação terminar antes de shouldOnboard, caso contrário a leitura do arquivo anterior à reivindicação pode concluir incorretamente que o onboarding é necessário.
 
 ## 4. Regras de disparo (shouldOnboard)
 
@@ -109,7 +109,7 @@ Responder uma vez sem estar conectado e depois conectar não pode ser tratado co
 
 ## 5. Interface de serviço (IOnboardingRecordService)
 
-| Método                             | 说明                                                                                |
+| Método                             | Descrição                                                                           |
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `appendRecord(deviceMid, entry)` | Cria o arquivo e fixa o deviceMid se não existir; acrescenta se existir; em caso de corrupção, emite warn e reconstrói; o userId é completado pelo serviço |
 | `shouldOnboard(deviceMid)`       | Avaliação de disparo; grava existing_local_user quando já há Task (ver §4)        |

@@ -1,59 +1,72 @@
-# Model Switch Context Window Guard Implementation Plan
+# Plano de Implementação do Guard de Janela de Contexto na Troca de Modelo
 
-> 状态（2026-07-15）：历史方案，已被 V4 composer 迁移裁决取代，当前尚未恢复“切换模型前自动压缩”守卫。
-> 待实施的 V4 产品语义以
-> `docs/superpowers/specs/2026-06-10-model-switch-context-window-guard-design.md` 为准；迁移事实见
-> `docs/v4-refactor/m5-composer-parity.md` 与 `docs/v4-refactor/m6-model-selection-parity.md`。
-> 下文旧 `ChatView` / `ChatInputToolbar` 路径仅供追溯。
+> Status (2026-07-15):方案 histórico, substituído pelas decisões da migração do composer
+> V4; o guard de "compressão automática antes de trocar de modelo" ainda não foi restaurado.
+> A semântica de produto V4 ainda a implementar está em
+> `docs/superpowers/specs/2026-06-10-model-switch-context-window-guard-design.md`; os fatos
+> da migração estão em `docs/v4-refactor/m5-composer-parity.md` e
+> `docs/v4-refactor/m6-model-selection-parity.md`.
+> O caminho antigo `ChatView` / `ChatInputToolbar` abaixo serve apenas para rastreabilidade.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use
+> superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para
+> implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`)
+> para acompanhamento.
 
-**Goal:** Prevent active-task model switches when the target model context window is smaller than the current session context, offering compression first and switching only if compression brings usage under the target window.
+**Objetivo:** Impedir trocas de modelo em tarefa ativa quando a janela de contexto do modelo
+alvo é menor que o contexto atual da sessão, oferecendo compressão primeiro e só trocando
+se a compressão trouxer o uso para dentro da janela alvo.
 
-**Architecture:** Add a pure context-window guard helper under the chat input toolbar domain, test it first, then wire it into `useToolbarModelChange` before the existing native/custom/local selection branches. Reuse the existing `/compact` send path so desktop continuous and mobile replayable semantics stay unchanged.
+**Arquitetura:** Adicionar um helper puro de guard de janela de contexto sob o domínio da
+barra de ferramentas de input do chat, testá-lo primeiro e então ligá-lo a
+`useToolbarModelChange` antes dos ramos existentes de seleção native/custom/local. Reaproveitar
+o caminho de envio `/compact` já existente para que as semânticas desktop continuous e
+mobile replayable permaneçam inalteradas.
 
-**Tech Stack:** React 19, Zustand, Vitest, TypeScript, existing ZCode UI components, existing model provider metadata helpers.
-
----
-
-### File Structure
-
-- Create: `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`
-  - Pure helpers for resolving target model context windows and executing the compress-before-switch decision.
-- Create: `packages/ui/test/modelSwitchContextWindowGuard.test.ts`
-  - Unit tests for resolver and guard decision flow.
-- Modify: `packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts`
-  - Invoke the guard before dispatching to existing model switch branches.
-- Modify: `packages/ui/src/chat-input-toolbar/modelChangeActions.ts`
-  - Extend `ToolbarModelChangeDependencies` with an optional compression callback.
-- Modify: `packages/ui/src/ChatInputToolbar.tsx`
-  - Accept and pass the model-switch compression callback.
-- Modify: `packages/ui/src/ChatView/ChatViewComposer.tsx`
-  - Accept and pass the model-switch compression callback into `ChatInputToolbar`.
-- Modify: `packages/ui/src/hooks/useChatComposer.ts`
-  - Expose a Promise-returning `/compact` callback that reuses `sendPrompt("/compact", [])`.
-- Modify: `packages/ui/src/ChatView.tsx`
-  - Pull the new callback from the composer bridge and pass it to `ChatViewComposer`.
-- Modify: `packages/ui/src/ConfirmDialog.tsx`
-  - Render `warning` confirm dialogs with a warning-styled action.
-- Modify: `packages/ui/src/components/ui/button.tsx`
-  - Add a `warning` button variant using semantic warning tokens.
-- Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
-  - Add Chinese context-window guard messages.
-- Modify: `packages/ui/src/i18n/locales/en-US.ts`
-  - Add English context-window guard messages.
+**Stack técnico:** React 19, Zustand, Vitest, TypeScript, componentes de UI existentes do
+ZCode, helpers existentes de metadados de model provider.
 
 ---
 
-### Task 1: Add Context Window Resolver
+### Estrutura de arquivos
 
-**Files:**
-- Create: `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`
-- Test: `packages/ui/test/modelSwitchContextWindowGuard.test.ts`
+- Criar: `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`
+  - Helpers puros para resolver a janela de contexto do modelo alvo e executar a decisão de
+    comprimir antes de trocar.
+- Criar: `packages/ui/test/modelSwitchContextWindowGuard.test.ts`
+  - Testes unitários do resolver e do fluxo de decisão do guard.
+- Modificar: `packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts`
+  - Invocar o guard antes de despachar para os ramos existentes de troca de modelo.
+- Modificar: `packages/ui/src/chat-input-toolbar/modelChangeActions.ts`
+  - Estender `ToolbarModelChangeDependencies` com um callback de compressão opcional.
+- Modificar: `packages/ui/src/ChatInputToolbar.tsx`
+  - Aceitar e repassar o callback de compressão da troca de modelo.
+- Modificar: `packages/ui/src/ChatView/ChatViewComposer.tsx`
+  - Aceitar e repassar o callback de compressão da troca de modelo para `ChatInputToolbar`.
+- Modificar: `packages/ui/src/hooks/useChatComposer.ts`
+  - Expor um callback `/compact` que retorna Promise reutilizando `sendPrompt("/compact", [])`.
+- Modificar: `packages/ui/src/ChatView.tsx`
+  - Obter o novo callback da ponte do composer e repassá-lo a `ChatViewComposer`.
+- Modificar: `packages/ui/src/ConfirmDialog.tsx`
+  - Renderizar diálogos de confirmação `warning` com uma ação com estilo de warning.
+- Modificar: `packages/ui/src/components/ui/button.tsx`
+  - Adicionar uma variant de botão `warning` usando tokens semânticos de warning.
+- Modificar: `packages/ui/src/i18n/locales/zh-CN.ts`
+  - Adicionar mensagens chinesas do guard de janela de contexto.
+- Modificar: `packages/ui/src/i18n/locales/en-US.ts`
+  - Adicionar mensagens em inglês do guard de janela de contexto.
 
-- [ ] **Step 1: Write the failing resolver tests**
+---
 
-Create `packages/ui/test/modelSwitchContextWindowGuard.test.ts` with:
+### Tarefa 1: Adicionar o Resolver de Janela de Contexto
+
+**Arquivos:**
+- Criar: `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`
+- Teste: `packages/ui/test/modelSwitchContextWindowGuard.test.ts`
+
+- [ ] **Passo 1: Escrever os testes do resolver que devem falhar**
+
+Crie `packages/ui/test/modelSwitchContextWindowGuard.test.ts` com:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -195,19 +208,19 @@ describe("resolveTargetModelContextWindow", () => {
 });
 ```
 
-- [ ] **Step 2: Run resolver tests to verify RED**
+- [ ] **Passo 2: Rodar os testes do resolver para verificar o RED**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: FAIL because `@/chat-input-toolbar/modelSwitchContextWindowGuard.js` does not exist.
+Esperado: FAIL porque `@/chat-input-toolbar/modelSwitchContextWindowGuard.js` não existe.
 
-- [ ] **Step 3: Implement resolver helper**
+- [ ] **Passo 3: Implementar o helper do resolver**
 
-Create `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`:
+Crie `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`:
 
 ```ts
 import {
@@ -363,17 +376,17 @@ export function resolveTargetModelContextWindow(
 }
 ```
 
-- [ ] **Step 4: Run resolver tests to verify GREEN**
+- [ ] **Passo 4: Rodar os testes do resolver para verificar o GREEN**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: PASS for all resolver tests.
+Esperado: PASS em todos os testes do resolver.
 
-- [ ] **Step 5: Commit resolver helper**
+- [ ] **Passo 5: Commitar o helper do resolver**
 
 ```bash
 git add packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts packages/ui/test/modelSwitchContextWindowGuard.test.ts
@@ -382,15 +395,15 @@ git commit -m "test: add model switch context window resolver"
 
 ---
 
-### Task 2: Add Guard Decision Runner
+### Tarefa 2: Adicionar o Executor da Decisão do Guard
 
-**Files:**
-- Modify: `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`
-- Test: `packages/ui/test/modelSwitchContextWindowGuard.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`
+- Teste: `packages/ui/test/modelSwitchContextWindowGuard.test.ts`
 
-- [ ] **Step 1: Add failing guard decision tests**
+- [ ] **Passo 1: Adicionar os testes que devem falhar da decisão do guard**
 
-Append to `packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
+Acrescente a `packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
 
 ```ts
 import { runModelSwitchContextWindowGuard } from "@/chat-input-toolbar/modelSwitchContextWindowGuard.js";
@@ -522,19 +535,19 @@ describe("runModelSwitchContextWindowGuard", () => {
 });
 ```
 
-- [ ] **Step 2: Run guard tests to verify RED**
+- [ ] **Passo 2: Rodar os testes do guard para verificar o RED**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: FAIL because `runModelSwitchContextWindowGuard` is not exported.
+Esperado: FAIL porque `runModelSwitchContextWindowGuard` não é exportado.
 
-- [ ] **Step 3: Implement guard runner**
+- [ ] **Passo 3: Implementar o executor do guard**
 
-Append to `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`:
+Acrescente a `packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts`:
 
 ```ts
 export type ModelSwitchContextWindowGuardResult = "proceed" | "cancel";
@@ -584,17 +597,17 @@ export async function runModelSwitchContextWindowGuard(
 }
 ```
 
-- [ ] **Step 4: Run guard tests to verify GREEN**
+- [ ] **Passo 4: Rodar os testes do guard para verificar o GREEN**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: PASS for resolver and guard runner tests.
+Esperado: PASS nos testes do resolver e do executor do guard.
 
-- [ ] **Step 5: Commit guard runner**
+- [ ] **Passo 5: Commitar o executor do guard**
 
 ```bash
 git add packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts packages/ui/test/modelSwitchContextWindowGuard.test.ts
@@ -603,18 +616,19 @@ git commit -m "test: add model switch context guard runner"
 
 ---
 
-### Task 3: Expose a Promise-Based Compact Callback
+### Tarefa 3: Expor um Callback `/compact` Baseado em Promise
 
-**Files:**
-- Modify: `packages/ui/src/hooks/useChatComposer.ts`
-- Modify: `packages/ui/src/ChatView.tsx`
-- Modify: `packages/ui/src/ChatView/ChatViewComposer.tsx`
-- Modify: `packages/ui/src/ChatInputToolbar.tsx`
-- Modify: `packages/ui/src/chat-input-toolbar/modelChangeActions.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/hooks/useChatComposer.ts`
+- Modificar: `packages/ui/src/ChatView.tsx`
+- Modificar: `packages/ui/src/ChatView/ChatViewComposer.tsx`
+- Modificar: `packages/ui/src/ChatInputToolbar.tsx`
+- Modificar: `packages/ui/src/chat-input-toolbar/modelChangeActions.ts`
 
-- [ ] **Step 1: Write the failing type-oriented callback test**
+- [ ] **Passo 1: Escrever o teste de callback orientado a tipos que deve falhar**
 
-Append this compile-time usage test to `packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
+Acrescente este teste de uso em tempo de compilação a
+`packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
 
 ```ts
 import type { ToolbarModelChangeDependencies } from "@/chat-input-toolbar/modelChangeActions.js";
@@ -630,27 +644,30 @@ describe("ToolbarModelChangeDependencies compression callback", () => {
 });
 ```
 
-- [ ] **Step 2: Run callback type test to verify RED**
+- [ ] **Passo 2: Rodar o teste de tipo do callback para verificar o RED**
 
-Run:
+Execute:
 
 ```bash
 pnpm typecheck
 ```
 
-Expected: FAIL because `onRequestContextCompressionForModelSwitch` is not part of `ToolbarModelChangeDependencies`.
+Esperado: FAIL porque `onRequestContextCompressionForModelSwitch` não faz parte de
+`ToolbarModelChangeDependencies`.
 
-- [ ] **Step 3: Extend model change dependencies**
+- [ ] **Passo 3: Estender as dependências de troca de modelo**
 
-Modify `packages/ui/src/chat-input-toolbar/modelChangeActions.ts` inside `ToolbarModelChangeDependencies`:
+Modifique `packages/ui/src/chat-input-toolbar/modelChangeActions.ts`, dentro de
+`ToolbarModelChangeDependencies`:
 
 ```ts
   onRequestContextCompressionForModelSwitch?: () => Promise<boolean>;
 ```
 
-- [ ] **Step 4: Expose callback from composer hook**
+- [ ] **Passo 4: Expor o callback a partir do hook do composer**
 
-In `packages/ui/src/hooks/useChatComposer.ts`, add beside `handleSendContextCompressionCommand`:
+Em `packages/ui/src/hooks/useChatComposer.ts`, adicione ao lado de
+`handleSendContextCompressionCommand`:
 
 ```ts
   const handleRequestContextCompressionForModelSwitch = useCallback(async () => {
@@ -660,21 +677,22 @@ In `packages/ui/src/hooks/useChatComposer.ts`, add beside `handleSendContextComp
   }, [sendPrompt]);
 ```
 
-Return it from the hook result near `handleSendContextCompressionCommand`:
+Retorne-o do resultado do hook, perto de `handleSendContextCompressionCommand`:
 
 ```ts
     handleRequestContextCompressionForModelSwitch,
 ```
 
-- [ ] **Step 5: Thread callback through ChatView and composer**
+- [ ] **Passo 5: Passar o callback pelo ChatView e pelo composer**
 
-In `packages/ui/src/ChatView.tsx`, destructure the new callback from `useChatViewComposerBridge`:
+Em `packages/ui/src/ChatView.tsx`, desestruture o novo callback de
+`useChatViewComposerBridge`:
 
 ```ts
     handleRequestContextCompressionForModelSwitch,
 ```
 
-Pass it into `ChatViewComposer`:
+Passe-o para `ChatViewComposer`:
 
 ```tsx
             handleRequestContextCompressionForModelSwitch={
@@ -682,7 +700,8 @@ Pass it into `ChatViewComposer`:
             }
 ```
 
-In `packages/ui/src/ChatView/ChatViewComposer.tsx`, add the prop to destructuring and type:
+Em `packages/ui/src/ChatView/ChatViewComposer.tsx`, adicione a prop à desestruturação e ao
+tipo:
 
 ```ts
   handleRequestContextCompressionForModelSwitch,
@@ -692,7 +711,7 @@ In `packages/ui/src/ChatView/ChatViewComposer.tsx`, add the prop to destructurin
   handleRequestContextCompressionForModelSwitch: () => Promise<boolean>;
 ```
 
-Pass it to `ChatInputToolbar`:
+Passe-o para `ChatInputToolbar`:
 
 ```tsx
           onRequestContextCompressionForModelSwitch={
@@ -700,30 +719,30 @@ Pass it to `ChatInputToolbar`:
           }
 ```
 
-In `packages/ui/src/ChatInputToolbar.tsx`, add the prop type:
+Em `packages/ui/src/ChatInputToolbar.tsx`, adicione o tipo da prop:
 
 ```ts
   onRequestContextCompressionForModelSwitch?: () => Promise<boolean>;
 ```
 
-Destructure it and pass it into `useToolbarModelChange`:
+Desestruture-a e passe-a para `useToolbarModelChange`:
 
 ```ts
     onRequestContextCompressionForModelSwitch,
 ```
 
-- [ ] **Step 6: Run callback test to verify GREEN**
+- [ ] **Passo 6: Rodar o teste do callback para verificar o GREEN**
 
-Run:
+Execute:
 
 ```bash
 pnpm typecheck
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: both commands PASS.
+Esperado: os dois comandos passam.
 
-- [ ] **Step 7: Commit callback plumbing**
+- [ ] **Passo 7: Commitar a passagem do callback**
 
 ```bash
 git add packages/ui/src/hooks/useChatComposer.ts packages/ui/src/ChatView.tsx packages/ui/src/ChatView/ChatViewComposer.tsx packages/ui/src/ChatInputToolbar.tsx packages/ui/src/chat-input-toolbar/modelChangeActions.ts packages/ui/test/modelSwitchContextWindowGuard.test.ts
@@ -732,17 +751,17 @@ git commit -m "feat: expose compact callback for guarded model switch"
 
 ---
 
-### Task 4: Add UI Messages and Warning Dialog Styling
+### Tarefa 4: Adicionar Mensagens de UI e Estilo do Diálogo de Warning
 
-**Files:**
-- Modify: `packages/ui/src/components/ui/button.tsx`
-- Modify: `packages/ui/src/ConfirmDialog.tsx`
-- Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
-- Modify: `packages/ui/src/i18n/locales/en-US.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/components/ui/button.tsx`
+- Modificar: `packages/ui/src/ConfirmDialog.tsx`
+- Modificar: `packages/ui/src/i18n/locales/zh-CN.ts`
+- Modificar: `packages/ui/src/i18n/locales/en-US.ts`
 
-- [ ] **Step 1: Add failing i18n key test**
+- [ ] **Passo 1: Adicionar o teste de chaves i18n que deve falhar**
 
-Append to `packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
+Acrescente a `packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
 
 ```ts
 import zhCN from "@/i18n/locales/zh-CN.js";
@@ -761,41 +780,41 @@ describe("model switch context window guard i18n", () => {
 });
 ```
 
-- [ ] **Step 2: Run i18n test to verify RED**
+- [ ] **Passo 2: Rodar o teste i18n para verificar o RED**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: FAIL because the new i18n keys are missing.
+Esperado: FAIL porque as novas chaves i18n estão faltando.
 
-- [ ] **Step 3: Add warning button variant**
+- [ ] **Passo 3: Adicionar a variant de botão warning**
 
-In `packages/ui/src/components/ui/button.tsx`, add this `variant` entry:
+Em `packages/ui/src/components/ui/button.tsx`, adicione esta entrada de `variant`:
 
 ```ts
         warning:
           "bg-warning text-warning-foreground hover:bg-warning/90 focus-visible:border-warning/40 focus-visible:ring-warning/20 aria-expanded:bg-warning aria-expanded:text-warning-foreground",
 ```
 
-- [ ] **Step 4: Use warning variant in ConfirmDialogHost**
+- [ ] **Passo 4: Usar a variant warning no ConfirmDialogHost**
 
-In `packages/ui/src/ConfirmDialog.tsx`, add:
+Em `packages/ui/src/ConfirmDialog.tsx`, adicione:
 
 ```ts
   const confirmVariant =
     variant === "danger" ? "destructive" : variant === "warning" ? "warning" : "default";
 ```
 
-Replace the confirm button variant:
+Substitua a variant do botão de confirmação:
 
 ```tsx
             variant={confirmVariant}
 ```
 
-Replace the keyboard hint color branch with:
+Substitua o ramo de cor da dica de teclado por:
 
 ```tsx
                 variant === "danger" || variant === "warning"
@@ -803,9 +822,10 @@ Replace the keyboard hint color branch with:
                   : "text-primary-foreground/60",
 ```
 
-- [ ] **Step 5: Add localized messages**
+- [ ] **Passo 5: Adicionar as mensagens localizadas**
 
-In `packages/ui/src/i18n/locales/zh-CN.ts`, add near the existing `chat.toolbar.modelSwitch.*` keys:
+Em `packages/ui/src/i18n/locales/zh-CN.ts`, adicione perto das chaves existentes
+`chat.toolbar.modelSwitch.*`:
 
 ```ts
   "chat.modelSwitch.contextWindowGuard.title": "需要压缩上下文后再切换模型",
@@ -818,7 +838,7 @@ In `packages/ui/src/i18n/locales/zh-CN.ts`, add near the existing `chat.toolbar.
     "压缩完成后，当前会话已使用的上下文仍大于目标模型的上下文窗口，模型切换已取消。",
 ```
 
-In `packages/ui/src/i18n/locales/en-US.ts`, add:
+Em `packages/ui/src/i18n/locales/en-US.ts`, adicione:
 
 ```ts
   "chat.modelSwitch.contextWindowGuard.title": "Compress context before switching models",
@@ -831,17 +851,17 @@ In `packages/ui/src/i18n/locales/en-US.ts`, add:
     "After compression, the context used by this conversation is still larger than the target model's context window. Model switching was canceled.",
 ```
 
-- [ ] **Step 6: Run i18n test to verify GREEN**
+- [ ] **Passo 6: Rodar o teste i18n para verificar o GREEN**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 7: Commit UI message support**
+- [ ] **Passo 7: Commitar o suporte de mensagens de UI**
 
 ```bash
 git add packages/ui/src/components/ui/button.tsx packages/ui/src/ConfirmDialog.tsx packages/ui/src/i18n/locales/zh-CN.ts packages/ui/src/i18n/locales/en-US.ts packages/ui/test/modelSwitchContextWindowGuard.test.ts
@@ -850,14 +870,14 @@ git commit -m "feat(ui): add model switch context guard messages"
 
 ---
 
-### Task 5: Wire Guard into Model Selection
+### Tarefa 5: Ligar o Guard à Seleção de Modelo
 
-**Files:**
-- Modify: `packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts`
 
-- [ ] **Step 1: Add failing integration-oriented guard test**
+- [ ] **Passo 1: Adicionar o teste de integração do guard que deve passar/falhar**
 
-Append to `packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
+Acrescente a `packages/ui/test/modelSwitchContextWindowGuard.test.ts`:
 
 ```ts
 import { runModelSwitchContextWindowGuard } from "@/chat-input-toolbar/modelSwitchContextWindowGuard.js";
@@ -880,17 +900,19 @@ describe("model switch guard integration contract", () => {
 });
 ```
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts
 ```
 
-Expected: PASS already, because Task 2 implemented this contract. This is an intentional characterization test before wiring.
+Esperado: já PASS, porque a Tarefa 2 implementou este contrato. Este é um teste de
+caracterização intencional antes da ligação.
 
-- [ ] **Step 2: Extract the existing branch dispatch into a local helper**
+- [ ] **Passo 2: Extrair o despacho dos ramos existentes para um helper local**
 
-In `packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts`, inside the returned callback create this local function before any guard awaits:
+Em `packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts`, dentro do callback
+retornado, crie esta função local antes de qualquer await do guard:
 
 ```ts
       const runExistingModelSelection = () => {
@@ -931,15 +953,15 @@ In `packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts`, inside the ret
       };
 ```
 
-Replace the existing duplicated branch calls at the end of the callback with:
+Substitua as chamadas de ramos duplicados existentes no fim do callback por:
 
 ```ts
       runExistingModelSelection();
 ```
 
-- [ ] **Step 3: Import guard dependencies**
+- [ ] **Passo 3: Importar as dependências do guard**
 
-At the top of `useToolbarModelChange.ts`, add:
+No topo de `useToolbarModelChange.ts`, adicione:
 
 ```ts
 import { toast } from "@/components/ui/toast.js";
@@ -953,11 +975,12 @@ import {
 } from "./modelSwitchContextWindowGuard.js";
 ```
 
-Remove the existing duplicate `useZCodeSessionStore` import line if needed so the file imports it only once.
+Remova a linha de import duplicada existente de `useZCodeSessionStore`, se necessário, para
+que o arquivo o importe apenas uma vez.
 
-- [ ] **Step 4: Initialize dialog and formatter hooks**
+- [ ] **Passo 4: Inicializar os hooks de diálogo e de formatação**
 
-Inside `useToolbarModelChange`, before the returned `useCallback`, add:
+Dentro de `useToolbarModelChange`, antes do `useCallback` retornado, adicione:
 
 ```ts
   const { intl, locale } = useZCodeIntl();
@@ -965,9 +988,10 @@ Inside `useToolbarModelChange`, before the returned `useCallback`, add:
   const numberFormatter = new Intl.NumberFormat(locale);
 ```
 
-- [ ] **Step 5: Run the guard before existing selection dispatch**
+- [ ] **Passo 5: Rodar o guard antes do despacho da seleção existente**
 
-Inside the returned callback, after `modelChangeNotice` and `runExistingModelSelection` are available, add:
+Dentro do callback retornado, depois que `modelChangeNotice` e `runExistingModelSelection`
+estiverem disponíveis, adicione:
 
 ```ts
       const targetContext = resolveTargetModelContextWindow({
@@ -1053,19 +1077,19 @@ Inside the returned callback, after `modelChangeNotice` and `runExistingModelSel
       }
 ```
 
-Keep the existing final `runExistingModelSelection();` for non-guarded cases.
+Mantenha o `runExistingModelSelection();` final existente para os casos sem guard.
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **Passo 6: Rodar os testes focados**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts packages/ui/test/modelChangeActions.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 7: Commit guard wiring**
+- [ ] **Passo 7: Commitar a ligação do guard**
 
 ```bash
 git add packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts packages/ui/test/modelSwitchContextWindowGuard.test.ts
@@ -1074,59 +1098,60 @@ git commit -m "feat(ui): guard model switch by context window"
 
 ---
 
-### Task 6: Full Verification
+### Tarefa 6: Verificação Completa
 
-**Files:**
-- No production files expected unless verification exposes a bug.
+**Arquivos:**
+- Nenhum arquivo de produção esperado, a menos que a verificação exponha um bug.
 
-- [ ] **Step 1: Run focused UI tests**
+- [ ] **Passo 1: Rodar os testes de UI focados**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/modelSwitchContextWindowGuard.test.ts packages/ui/test/modelChangeActions.test.ts packages/ui/test/chatInputToolbarModelGroups.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 2: Run required typecheck**
+- [ ] **Passo 2: Rodar o typecheck obrigatório**
 
-Run:
+Execute:
 
 ```bash
 pnpm typecheck
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 3: Run required lint**
+- [ ] **Passo 3: Rodar o lint obrigatório**
 
-Run:
+Execute:
 
 ```bash
 pnpm lint
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 4: Inspect git diff**
+- [ ] **Passo 4: Inspecionar o git diff**
 
-Run:
+Execute:
 
 ```bash
 git diff --stat
 git diff -- packages/ui/src/chat-input-toolbar/modelSwitchContextWindowGuard.ts packages/ui/src/chat-input-toolbar/useToolbarModelChange.ts packages/ui/src/hooks/useChatComposer.ts packages/ui/src/ChatInputToolbar.tsx packages/ui/src/ChatView.tsx packages/ui/src/ChatView/ChatViewComposer.tsx
 ```
 
-Expected: Diff is limited to the context-window guard, callback plumbing, dialog style, i18n, and tests.
+Esperado: o diff se limita ao guard de janela de contexto, à passagem do callback, ao estilo
+do diálogo, aos i18n e aos testes.
 
-- [ ] **Step 5: Commit verification fixes if any**
+- [ ] **Passo 5: Commitar correções de verificação, se houver**
 
-If verification required fixes, commit them:
+Se a verificação exigir correções, commite-as:
 
 ```bash
 git add <fixed-files>
 git commit -m "fix(ui): stabilize model switch context guard"
 ```
 
-If no fixes were required, do not create an empty commit.
+Se nenhuma correção foi necessária, não crie um commit vazio.

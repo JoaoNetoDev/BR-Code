@@ -89,7 +89,7 @@ Regras de layout:
 
 ## Semântica dos Logs
 
-Os logs são material opcional de diagnóstico, habilitados por padrão e consistentes em todas as entradas. Mantendo a marcação e enviando, são enviados apenas logs de diagnóstico da allowlist; veja [日志上传边界](feedback-log-export-alignment.md). Abrir o formulário não tira captura de tela automaticamente; o usuário adiciona e pré-visualiza imagens por colagem, arrastar ou seletor de arquivos.
+Os logs são material opcional de diagnóstico, habilitados por padrão e consistentes em todas as entradas. Mantendo a marcação e enviando, são enviados apenas logs de diagnóstico da allowlist; veja [Limites do upload de logs](feedback-log-export-alignment.md). Abrir o formulário não tira captura de tela automaticamente; o usuário adiciona e pré-visualiza imagens por colagem, arrastar ou seletor de arquivos.
 
 Se o usuário mantiver os logs habilitados mas o upload falhar, nesta fase continua valendo a semântica de falha da atual máquina de estados de envio em segundo plano: o envio do feedback aparece como falho e o chamado recebe um aviso do sistema explicando que o upload automático do log completo falhou. Mais adiante, se for necessário mudar para "chamado criado com sucesso e log com retry", será preciso novo desenho de retomada e reenvio da tarefa de envio.
 

@@ -17,7 +17,7 @@ Consulta de conta + seleção de Family
 A consulta de saldo do Start é independente da consulta do Coding Plan pessoal; o Team exige uma identidade concreta de organização/projeto e não se pode adivinhar um time.
 Quando ainda vai entrar em vigor, fica pending/entitled=false, preservando `effectiveAt` em segundos Unix; quando já está em vigor mas sem modelos, continua entitled=true,
 com a lista de membros de modelo vazia e sem reaproveitar a whitelist antiga. Quando a consulta é desconhecida, apenas se preserva o último resultado bem-sucedido da mesma conta/Time.
-Conexão inválida apenas exibe um aviso e volta ao entrada de configurações acionável, sem reescrever a seleção de Family salva nem substituir o modelo da sessão.
+Conexão inválida apenas exibe um aviso e volta à entrada de configurações acionável, sem reescrever a seleção de Family salva nem substituir o modelo da sessão.
 O resultado do resgate por padrão apenas abre as configurações de modelo, sem trocar para o Start; o antigo automático "experimente agora" não faz parte do comportamento padrão do staging fixo.
 
 O Start acompanha o login atual do App e não exige conexão separada. `current` significa que o contexto de acesso da conta corresponde: o Start da mesma marca e o pessoal/time atual podem ser true ao mesmo tempo; o connectionKey do Start não inclui a escolha do plano pago. Expiração, desconhecido, modelo desabilitado etc. continuam validados pelas regras originais de entitlement e Registry; login não significa resgate automático.
@@ -323,7 +323,7 @@ idle -> checking-auth -> verifying -> claiming -> success-dialog -> refreshing -
   descrição e ação cresce naturalmente conforme conteúdo, espaçamento e padding; a largura total do diálogo no desktop é `480px`, a altura total não é mais
   fixa e encolhe até a área segura da viewport em telas estreitas.
   A descrição de conteúdo do Hero é gerada por `createWeekendPlanResultDialogMock()` conforme o futuro protocolo de nuvem; o starfield, o ticket,
-  a entrada, opressive de repouso, a inclinação do ponteiro, a iluminação dinâmica, o flip no clique e o Replay já foram migrados para um recurso
+  a entrada, o efeito opressivo de repouso, a inclinação do ponteiro, a iluminação dinâmica, o flip no clique e o Replay já foram migrados para um recurso
   `weekend-plan-hero.html` independente, carregado via `CloudDialogHero` num iframe sandbox com apenas `allow-scripts`. O recurso recebe apenas tema, idioma, redução de movimento e os dados de entitlement
   desta claims via `postMessage` com ID de instância, e não pode acessar o DOM do Renderer, Node, preload nem Services de negócio. Nesta fase não se pede conteúdo real à nuvem;
   a URL do recurso de mock é gerada pelo bundle do Vite. A integração real com a nuvem, a assinatura de recursos e o contrato de cache estão em
@@ -408,7 +408,7 @@ idle -> checking-auth -> verifying -> claiming -> success-dialog -> refreshing -
   da animação para o flip por clique, evitando que as duas responsabilidades se interfiram.
   O flip precisa usar uma curva de velocidade contínua e de segmento único, evitando pausas em quadros-chave intermediários. A pressão automática dos quatro cantos só deve começar após a entrada terminar,
   evitando que dois conjuntos de transformações 3D e cálculos de sombra rodem juntos na primeira tela e causem travamento.
-  O fundo do Hero usa uma galáxia de espaço profundo com núcleo brilhante, disco de nebulosa elíptico e braços espirais, sobrepostos por pontos estelares radiais de baixa densidade no centro e trilhos de luz curtos em循环; a camada de animação não recebe eventos de ponteiro, não
+  O fundo do Hero usa uma galáxia de espaço profundo com núcleo brilhante, disco de nebulosa elíptico e braços espirais, sobrepostos por pontos estelares radiais de baixa densidade no centro e trilhos de luz curtos em ciclos; a camada de animação não recebe eventos de ponteiro, não
   pode encobrir o conteúdo do ticket e é ocultada quando há redução de movimento.
   A área de resultado inferior mantém as cores semânticas temáticas originais e ajusta apenas o layout do conteúdo: título e descrição com composição centralizada, sem ícone de sucesso adicional. O título de sucesso
   usa a construção "You now have access to {plan}", e em chinês usa o mais conciso "{plan} 领取成功", onde `{plan}`

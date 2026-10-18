@@ -1,36 +1,36 @@
 # Dynamic Workflow (spec)
 
-Status: implemented. This document is the entry point to the feature: what it is, the
-pieces it is made of, how a workflow moves through them, and the words and principles
-every component shares. Seven component documents, listed under "The pieces", own the
-details; this one points at them and repeats as little as it can.
+Status: implementado. Este documento é o ponto de entrada da feature: o que ela é, de
+quais peças é feita, como um workflow percorre essas peças e quais palavras e princípios
+todo componente compartilha. Sete documentos de componente, listados em "The pieces",
+detalham cada parte; este apenas aponta para eles e repete o mínimo possível.
 
-## What it is and why it exists
+## O que é e por que existe
 
-A dynamic workflow lets the main agent direct many subagents by **writing a program**
-instead of a conversation. The model writes an ordinary TypeScript script against a small
-facade: `agent()` creates a subagent, `.ask<T>()` gives it a task and returns a typed
-result, `files.*`, `git.*` and `world.run` read and probe the workspace, `report` streams
-findings, `artifact.*` publishes deliverables, `phase()` names a stage, `log` narrates.
-Everything else is plain TypeScript: `await`, `Promise.all`, `for`, `while`, `if`,
-`try/catch`, helper functions, `.map`.
+Um workflow dinâmico permite que o agente principal dirija muitos subagentes **escrevendo
+um programa** em vez de uma conversa. O modelo escreve um script TypeScript comum contra
+uma pequena fachada: `agent()` cria um subagente, `.ask<T>()` lhe entrega uma tarefa e
+devolve um resultado tipado, `files.*`, `git.*` e `world.run` leem e sondam o workspace,
+`report` transmite as descobertas, `artifact.*` publica entregáveis, `phase()` nomeia uma
+etapa e `log` narra. Todo o resto é TypeScript puro: `await`, `Promise.all`, `for`, `while`,
+`if`, `try/catch`, funções auxiliares, `.map`.
 
-The harness, not the model, supplies the rigor. From that one script it recovers:
+É o harness, e não o modelo, que fornece o rigor. Desse único script ele recupera:
 
-| Recovered | How |
+| Recuperado | Como |
 |---|---|
-| types | the script is typechecked by the TypeScript compiler against the facade's `.d.ts` |
-| schemas | every `ask<T>` gets a JSON schema synthesized from `T`; the subagent's answer is validated against it |
-| the dependency graph | a static analysis reads the script once and draws who feeds whom, what runs after what, and where control can go |
-| identity | every facade call is a **site** with a stable id; every execution of it is an **instance** |
-| durability | every instance is journaled; a run resumes by running the same script again with the journal answering for what already happened |
+| tipos | o script é verificado pelo compilador TypeScript contra o `.d.ts` da fachada |
+| schemas | cada `ask<T>` recebe um schema JSON sintetizado a partir de `T`; a resposta do subagente é validada contra ele |
+| o grafo de dependências | uma análise estática lê o script uma vez e desenha quem alimenta quem, o que roda depois do quê e por onde o controle pode passar |
+| identidade | cada chamada de fachada é um **site** com id estável; cada execução dele é uma **instance** |
+| durabilidade | cada instância é registrada no journal; uma execução retoma rodando o mesmo script de novo, com o journal respondendo pelo que já aconteceu |
 
-Two kinds of task gain the most. The first is wide, structured work: "find the bugs in
-every TypeScript file" is one `files.glob` and one `.map` over it, where the conversational
-alternative is a glob, a long list, and one hand-launched subagent per file. The second is a
-fixed procedure the model must not drift from: a Programmer and a Prover alternate until a
-proof is accepted or a round limit is hit, and that rule is code, not a sentence in a
-prompt.
+Dois tipos de tarefa ganham mais. O primeiro é trabalho largo e estruturado: "encontrar os
+bugs em cada arquivo TypeScript" é um `files.glob` e um `.map` sobre ele, enquanto a
+alternativa conversacional seria um glob, uma lista longa e um subagente lançado à mão por
+arquivo. O segundo é um procedimento fixo do qual o modelo não pode se desviar: um
+Programmer e um Prover alternam até uma prova ser aceita ou o limite de rodadas ser
+atingido, e essa regra é código, não uma frase em um prompt.
 
 ```ts
 const programmer = agent("Programmer", { system: "You are a Lean 4 engineer…" });
@@ -50,204 +50,219 @@ while (!verdict.pass && round < MAX_ROUNDS) {
 return { proved: verdict.pass, rounds: round, verdict };
 ```
 
-The two subagents keep their own memory across rounds because the script holds one
-reference to each; `agent()` called inside the loop would make a fresh subagent every
-round. The `while` is a loop the analyzer sees, the user sees as a back arrow on the
-confirmation graph, and the journal replays.
+Os dois subagentes mantêm sua própria memória entre as rodadas porque o script mantém uma
+referência a cada um; chamar `agent()` dentro do loop criaria um subagente novo a cada
+rodada. O `while` é um loop que o analisador enxerga, que o usuário vê como uma seta de
+volta no grafo de confirmação e que o journal reproduz.
 
-The feature is independent of the older `Workflow` tool and its `.workflow.js` scripts,
-which still exist under the same word; the model-facing tool here is `CreateWorkflow`.
+A feature é independente da ferramenta `Workflow` mais antiga e de seus scripts
+`.workflow.js`, que ainda existem sob a mesma palavra; a ferramenta voltada ao modelo aqui
+é `CreateWorkflow`.
 
 ## The pieces
 
-**Authoring.** The facade is one `.d.ts` string the compiler is fed and the tool
-descriptions embed, so what the model reads and what typechecks cannot drift apart. The
-`/workflow <instructions>` command loads the `dynamic-workflows` skill, which carries the
-judgment: how to choose a topology, when a result deserves a verification step, what to do
-after submitting. Prompts tell each subagent what a workflow is, that its ask has a typed
-answer to submit, and that it writes for the user. The same document owns `world.run`, the
-artifact channel and `EvalWorkflowSnippet`, a scratch tool that runs a script fragment
-through the real compiler and sandbox with no subagents.
+**Autoração.** A fachada é uma única string `.d.ts` com a qual o compilador é alimentado e
+que as descrições de ferramenta embutem, de modo que o que o modelo lê e o que é
+verificado não podem divergir. O comando `/workflow <instructions>` carrega a skill
+`dynamic-workflows`, que carrega o julgamento: como escolher uma topologia, quando um
+resultado merece um passo de verificação, o que fazer após submeter. Os prompts dizem a
+cada subagente o que é um workflow, que seu ask tem uma resposta tipada a submeter e que
+ele escreve para o usuário. O mesmo documento responde por `world.run`, pelo canal de
+artifacts e por `EvalWorkflowSnippet`, uma ferramenta de rascunho que roda um fragmento de
+script pelo compilador e sandbox reais, sem subagentes.
 
-**Analysis.** Before anything runs, the analyzer compiles the script, collects its sites,
-runs the authoring checks, and interprets the script once to produce a single **analysis
-core**. From the core it projects four graphs: the site graph (what feeds what), the
-causality graph (what runs after what, and why), the control-flow graph (where execution
-can go) and the hand-off graph (who hands work to whom in each phase). Imprecision widens
-an edge set; only one rule, that a facade call must be a direct call, rejects a script.
+**Análise.** Antes de qualquer coisa rodar, o analisador compila o script, coleta seus
+sites, executa as verificações de autoria e interpreta o script uma vez para produzir um
+único **analysis core**. Desse núcleo ele projeta quatro grafos: o grafo de sites (o que
+alimenta o quê), o grafo de causalidade (o que roda depois do quê, e por quê), o grafo de
+fluxo de controle (por onde a execução pode passar) e o grafo de hand-off (quem entrega
+trabalho a quem em cada fase). A imprecisão amplia um conjunto de arestas; apenas uma
+regra — uma chamada de fachada precisa ser uma chamada direta — rejeita um script.
 
-**Launch.** `CreateWorkflow` takes an inline script or a saved workflow by name, compiles
-it, and raises the confirmation window in every permission mode. The window shows the
-name, the phase timeline and the collapsed script, and offers Allow, Always allow in this
-session, Deny and Refine (deny with feedback the model reads). Saved workflows are
-`<name>.dwf.ts` files in a project or global directory, listed by `ListSavedWorkflows`,
-written by `SaveWorkflow`, and shown on the hub page, where 「运行」 (Run) starts one in a new
-session with no model turn. `ListWorkflowRuns` and `GetWorkflowRun` let the model look at
-runs; the CLI and TUI have their own card and `/dwf`.
+**Lançamento.** `CreateWorkflow` recebe um script inline ou um workflow salvo pelo nome,
+compila-o e abre a janela de confirmação em todos os modos de permissão. A janela mostra o
+nome, a linha do tempo de fases e o script recolhido, e oferece Allow, Always allow in this
+session, Deny e Refine (negar com um feedback que o modelo lê). Workflows salvos são
+arquivos `<name>.dwf.ts` em um diretório de projeto ou global, listados por
+`ListSavedWorkflows`, escritos por `SaveWorkflow` e exibidos na página hub, onde 「运行」
+(Run) inicia um em uma nova sessão, sem turno de modelo. `ListWorkflowRuns` e
+`GetWorkflowRun` deixam o modelo olhar execuções; a CLI e a TUI têm seu próprio card e
+`/dwf`.
 
-**The engine.** Lowering turns the accepted script into a JavaScript function body whose
-facade calls carry their site ids. A child process runs it in a `vm` cell and speaks to the
-harness over a wire protocol; the harness calls the pure engine core, which owns state and
-decisions and does no I/O except through the journal. The driver behind it opens a session
-per subagent, dispatches asks, records every instance as a journal row and every event as
-a journal line, and ends the run `completed`, `errored` or `stopped`. Resume replays;
-amend (`AmendWorkflow`) starts a new run seeded with a predecessor's results, stopping the
-predecessor first if it is still running; `escalate`
-lets a subagent ask the main agent a question.
+**O motor.** O lowering transforma o script aceito em um corpo de função JavaScript cujas
+chamadas de fachada carregam seus site ids. Um processo filho o executa em uma célula `vm`
+e fala com o harness por um protocolo de fio; o harness chama o núcleo puro do motor, que
+possui o estado e as decisões e não faz I/O além do journal. O driver atrás dele abre uma
+sessão por subagente, despacha asks, registra cada instância como uma linha de journal e
+cada evento como uma linha de journal, e encerra a execução como `completed`, `errored` ou
+`stopped`. Resume reproduz; amend (`AmendWorkflow`) inicia uma nova execução semeada com os
+resultados de uma predecessora, parando a predecessora primeiro se ela ainda estiver
+rodando; `escalate` deixa um subagente fazer uma pergunta ao agente principal.
 
-**Concurrency.** A run has a fixed bound on asks in flight, and every model request in the
-process passes through a shared governor that learns the provider's real limit from its
-refusals and adapts. Transient model errors are retried inside the run without limit;
-deterministic ones stop the run as `stopped(provider)`.
+**Concorrência.** Uma execução tem um limite fixo de asks em voo, e toda requisição de
+modelo no processo passa por um governador compartilhado que aprende o limite real do
+provider a partir de suas recusas e se adapta. Erros transitórios do modelo são repetidos
+dentro da execução sem limite; os determinísticos encerram a execução como
+`stopped(provider)`.
 
-**Presentation.** The GUI never sees the analyzer's graphs. A bounding layer folds them
-into one display payload, and one pure function builds a horizontal timeline from it:
-phases as stations, subagents as pills, skips and loops as arcs. The same timeline is drawn
-in the tool row while the model writes, in the confirmation window, live under the turn as
-the run card, and vertically in the run pane as a spine.
+**Apresentação.** A GUI nunca vê os grafos do analisador. Uma camada de delimitação os
+condensa em um único payload de exibição, e uma função pura constrói uma linha do tempo
+horizontal a partir dele: fases como estações, subagentes como pílulas, skips e loops como
+arcos. A mesma linha do tempo é desenhada na fileira de ferramentas enquanto o modelo
+escreve, na janela de confirmação, ao vivo sob o turno como card da execução e
+verticalmente no painel de execuções como uma espinha.
 
-**Transcript and notifications.** The main agent learns about a run through
-`<task-notification>` texts; the GUI draws the structured payload minted with each one.
-A completed run's digest ends in a completion card: artifact tiles and four engine-counted
-figures. A per-run side tab replays the script's own steps as tool cards, and every
-subagent transcript ends in a folded engine epilogue.
+**Transcrição e notificações.** O agente principal fica sabendo de uma execução por textos
+`<task-notification>`; a GUI desenha o payload estruturado emitido com cada um. O resumo
+de uma execução concluída termina em um card de conclusão: tiles de artifacts e quatro
+números contados pelo motor. Uma aba lateral por execução reproduz os passos do próprio
+script como cards de ferramenta, e cada transcrição de subagente termina em um epílogo do
+motor, recolhido.
 
-| Document | Scope |
+| Documento | Escopo |
 |---|---|
-| `docs/dynamic-workflow/authoring.md` | the facade, `/workflow` and the skill, subagent prompts, compile-time rules, artifacts, `world.run`, the snippet tool, usage accounting |
-| `apps/zcode-cli/packages/dynamic-workflow/docs/analysis.md` | sites, diagnostics, the interpreter, the four graphs, joining runtime instances |
-| `docs/dynamic-workflow/launch.md` | `CreateWorkflow`, the confirmation window, saved workflows and scopes, the hub page, direct launch, CLI/TUI, run introspection tools |
-| `apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md` | lowering, the sandbox, the engine core, ask lifecycle, the journal, resume, amend, terminal states, escalation, the fault-matrix test bed |
-| `docs/dynamic-workflow/concurrency.md` | the two bounds, request tickets, the adaptive controller, the model-error policy, tool-side requests |
-| `docs/dynamic-workflow/presentation.md` | the display contract, the timeline model, the live overlay, the run card and run pane |
-| `docs/dynamic-workflow/transcript-and-notifications.md` | notifications, the completion card, the script transcript, the epilogue fold |
+| `docs/dynamic-workflow/authoring.md` | a fachada, `/workflow` e a skill, prompts de subagente, regras de tempo de compilação, artifacts, `world.run`, a ferramenta de snippet, contabilização de uso |
+| `apps/zcode-cli/packages/dynamic-workflow/docs/analysis.md` | sites, diagnósticos, o interpretador, os quatro grafos, junção de instâncias de runtime |
+| `docs/dynamic-workflow/launch.md` | `CreateWorkflow`, a janela de confirmação, workflows salvos e escopos, a página hub, lançamento direto, CLI/TUI, ferramentas de introspecção de execuções |
+| `apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md` | lowering, o sandbox, o núcleo do motor, ciclo de vida do ask, o journal, resume, amend, estados terminais, escalonamento, o leito de testes da matriz de falhas |
+| `docs/dynamic-workflow/concurrency.md` | os dois limites, tickets de requisição, o controlador adaptativo, a política de erros de modelo, requisições do lado da ferramenta |
+| `docs/dynamic-workflow/presentation.md` | o contrato de exibição, o modelo de linha do tempo, o overlay ao vivo, o card de execução e o painel de execuções |
+| `docs/dynamic-workflow/transcript-and-notifications.md` | notificações, o card de conclusão, a transcrição do script, o dobra do epílogo |
 
-## The life of a workflow
+## A vida de um workflow
 
-1. **The user opts in.** The model calls `CreateWorkflow` only when the user asked for a
-   workflow: through `/workflow <instructions>`, in their own words, or by naming a saved
-   one. The command loads the skill; the model settles the topology, then writes the
-   script. `EvalWorkflowSnippet` can try a `files.*` or `world.run` fragment first.
-2. **Compile and analyze.** The tool compiles the script and runs the analyzer. A script
-   with diagnostics never reaches the user: the model gets `L{line}:C{column} {message}`
-   lines and resubmits. A clean script yields the display payload.
-3. **Confirm.** The confirmation window appears in every permission mode with the phase
-   timeline and the script. Allow runs once; Always allow stops asking for this tool in
-   this session; Deny refuses; Refine refuses with feedback. An amendment of a run this
-   session started skips the window. 「运行」 on the hub page is its own consent.
-4. **Run.** The tool returns the run id at once; the main agent goes on with its turn. The
-   sandbox executes the script; each `ask` becomes a subagent session turn, queued FIFO on
-   its subagent and admitted under the run's bound and the governor's shared cap; each
-   world read runs in the harness. Every instance and event is journaled before anyone
-   sees it. The run card's lamps and pills follow the events; the run pane shows the same
-   run as a spine with subagent transcripts one click away.
-5. **Questions.** A blocked subagent calls `escalate`; the main agent receives a question
-   notification and answers with `ResolveWorkflowQuestion`. The subagent waits, without
-   timeout, until then.
-6. **End.** The script returns (`completed`), throws (`errored`), or something outside
-   it ends the run (`stopped`: the user, the main agent, the provider, or an interrupted
-   process). In-flight asks are aborted, the subagent sessions are closed, and a
-   notification carries the result, the reported items and the published artifacts,
-   including for runs that did not complete.
-7. **After.** The main agent digests the notification; a completed run ends that reply
-   with the completion card. A stopped run resumes with `ResumeWorkflowRun` or the run
-   pane's Resume, under the byte-identical script; a revised script goes through
-   `AmendWorkflow`, a new run that imports the finished work as a cache and, when the
-   predecessor is still running, stops it first. A change of settings alone (concurrency,
-   subagent model, name) goes through the same tool with the script left out. A workflow worth keeping is
-   saved with `SaveWorkflow` and appears on the hub page, where the user runs it again
-   without the model.
+1. **O usuário opta.** O modelo chama `CreateWorkflow` apenas quando o usuário pediu um
+   workflow: por `/workflow <instructions>`, com as próprias palavras, ou nomeando um que
+   já está salvo. O comando carrega a skill; o modelo decide a topologia e então escreve o
+   script. `EvalWorkflowSnippet` pode experimentar antes um fragmento `files.*` ou
+   `world.run`.
+2. **Compilar e analisar.** A ferramenta compila o script e roda o analisador. Um script
+   com diagnósticos nunca chega ao usuário: o modelo recebe linhas
+   `L{linha}:C{coluna} {mensagem}` e resubmete. Um script limpo produz o payload de
+   exibição.
+3. **Confirmar.** A janela de confirmação aparece em todos os modos de permissão com a
+   linha do tempo de fases e o script. Allow roda uma vez; Always allow para de perguntar
+   por esta ferramenta nesta sessão; Deny recusa; Refine recusa com feedback. Uma emenda de
+   uma execução iniciada nesta sessão pula a janela. 「运行」 na página hub é seu próprio
+   consentimento.
+4. **Executar.** A ferramenta devolve o id da execução de imediato; o agente principal segue
+   com seu turno. O sandbox executa o script; cada `ask` se torna um turno de sessão de
+   subagente, enfileirado FIFO em seu subagente e admitido sob o limite da execução e o
+   teto compartilhado do governador; cada leitura de world roda no harness. Toda instância
+   e todo evento é registrado no journal antes que alguém o veja. As lâmpadas e pílulas do
+   card de execução acompanham os eventos; o painel de execuções mostra a mesma execução
+   como uma espinha com as transcrições de subagente a um clique.
+5. **Perguntas.** Um subagente bloqueado chama `escalate`; o agente principal recebe uma
+   notificação de pergunta e responde com `ResolveWorkflowQuestion`. O subagente espera,
+   sem timeout, até então.
+6. **Encerrar.** O script retorna (`completed`), lança (`errored`), ou algo fora dele
+   encerra a execução (`stopped`: o usuário, o agente principal, o provider ou um processo
+   interrompido). As asks em voo são abortadas, as sessões de subagente são fechadas, e uma
+   notificação carrega o resultado, os itens relatados e os artifacts publicados, inclusive
+   para execuções que não concluíram.
+7. **Depois.** O agente principal digere a notificação; uma execução concluída encerra
+   aquela resposta com o card de conclusão. Uma execução parada retoma com
+   `ResumeWorkflowRun` ou com o Resume do painel de execuções, sob o script byte a byte
+   idêntico; um script revisado passa por `AmendWorkflow`, uma nova execução que importa o
+   trabalho finalizado como cache e, quando a predecessora ainda está rodando, a para
+   primeiro. Uma mudança apenas de configurações (concorrência, modelo de subagente, nome)
+   passa pela mesma ferramenta, com o script de fora. Um workflow que vale a pena guardar é
+   salvo com `SaveWorkflow` e aparece na página hub, onde o usuário o executa de novo sem o
+   modelo.
 
-## Vocabulary
+## Vocabulário
 
-Prose uses these words in every component document and in the GUI. Code identifiers,
-protocol fields, event names and site ids keep their older spellings where the table says
-so.
+A prosa usa estas palavras em todos os documentos de componente e na GUI. Identificadores
+de código, campos de protocolo, nomes de evento e site ids mantêm suas grafias anteriores
+onde a tabela diz isso.
 
-| Word | Meaning | In code / Chinese UI |
+| Palavra | Significado | Em código / UI em chinês |
 |---|---|---|
-| **workflow** | the thing the model writes and the user approves: one script and its name | 工作流 |
-| **script** | the TypeScript source; also the timeline lane for the steps the script runs itself (`files.*`, `git.*`, `world.run`) | lane id `workspace`; pill 「脚本」, tab 「脚本步骤」 (Script steps) |
-| **site** | one facade call in the script, the unit of identity: `ask#3`, `actor#1`, `world-read#2`, `report#1`, `artifact#1` | `siteId` |
-| **instance** | one execution of a site, `siteId@ordinal` | `{siteId, ordinal}`; a journal **node** |
-| **step** | an `ask` or world-read site as the graphs draw it | `Step` |
-| **subagent** | the session behind an `agent()` value; it keeps its transcript across asks and answers them one at a time | identifiers `actor*`, `actor#N`, `actor-created`; 子代理. The generic Agent tool's 子智能体 is a different thing |
-| **ask** | one `.ask()` instance: a message to a subagent and the typed result it settles with. Script and engine vocabulary only; every user surface calls it a **task** (任务), so that **question** (问题) stays reserved for an escalation | `ask#N`; display "{n} tasks" / 「{n} 个任务」 |
-| **run** | one execution of one script under one run id | `dwfrun-<uuid>`; noun 实例 (工作流实例, N 个实例), verbs stay 运行 (停止运行, 恢复运行) |
-| **phase** | a named stage the script declares with `phase("…")`; a station on the timeline | 阶段 |
-| **artifact** | on the facade and every user surface: what the script publishes for the user to keep (`artifact.file`, `.markdown`, or a `chart`/`table`/`metrics`/`board` fed by tagged `report` items). At most one is the **primary**, the deliverable the surfaces lead with (`primary: true`; a lone artifact counts). In engine identifiers only: a site's typed output or the script's return value | 产物; the primary is never labelled in the UI |
-| **saved workflow** | a `<name>.dwf.ts` file: a `/* zcode-workflow */` metadata block, then the script | 已保存的工作流 |
-| **scope** | where a saved workflow lives: `project` (`<cwd>/.zcode/workflows/`) or `global` (`~/.zcode/workflows/`); a project workflow hides a global one of the same name | 「项目」 / 「全局」 |
-| **world read** | a journaled call into the workspace: `files.*`, `git.*`, `world.run` | `world-read#N` |
-| **journal** | the durable record of a run: run, subagents, nodes, events | `dwf_run`, `dwf_actor`, `dwf_node`, `dwf_event` |
-| **question** | a subagent's `escalate` call waiting for the main agent | `dwfq-…`; 询问主代理 |
+| **workflow** | a coisa que o modelo escreve e o usuário aprova: um script e seu nome | 工作流 |
+| **script** | o código-fonte TypeScript; também a faixa da linha do tempo para os passos que o script executa sozinho (`files.*`, `git.*`, `world.run`) | lane id `workspace`; pill 「脚本」, tab 「脚本步骤」 (Script steps) |
+| **site** | uma chamada de fachada no script, a unidade de identidade: `ask#3`, `actor#1`, `world-read#2`, `report#1`, `artifact#1` | `siteId` |
+| **instance** | uma execução de um site, `siteId@ordinal` | `{siteId, ordinal}`; um **node** do journal |
+| **step** | um site de ask ou de world-read como os grafos o desenham | `Step` |
+| **subagent** | a sessão por trás de um valor `agent()`; mantém sua transcrição entre asks e responde a eles um de cada vez | identificadores `actor*`, `actor#N`, `actor-created`; 子代理. O 子智能体 da ferramenta Agent genérica é outra coisa |
+| **ask** | uma instância de `.ask()`: uma mensagem a um subagente e o resultado tipado com que ele encerra. Vocabulário apenas de script e motor; toda superfície de usuário chama isso de **task** (任务), para que **question** (问题) fique reservado a um escalonamento | `ask#N`; exibição "{n} tasks" / 「{n} 个任务」 |
+| **run** | uma execução de um script sob um id de execução | `dwfrun-<uuid>`; substantivo 实例 (工作流实例, N 个实例), verbos permanecem 运行 (停止运行, 恢复运行) |
+| **phase** | uma etapa nomeada que o script declara com `phase("…")`; uma estação na linha do tempo | 阶段 |
+| **artifact** | na fachada e em toda superfície de usuário: o que o script publica para o usuário guardar (`artifact.file`, `.markdown`, ou um `chart`/`table`/`metrics`/`board` alimentado por itens `report` marcados). No máximo um é o **primary**, o entregável com que as superfícies abrem (`primary: true`; um artifact solto conta). apenas em identificadores do motor: a saída tipada de um site ou o valor de retorno do script | 产物; o primary nunca recebe rótulo na UI |
+| **saved workflow** | um arquivo `<name>.dwf.ts`: um bloco de metadados `/* zcode-workflow */`, depois o script | 已保存的工作流 |
+| **scope** | onde um workflow salvo vive: `project` (`<cwd>/.zcode/workflows/`) ou `global` (`~/.zcode/workflows/`); um workflow de projeto esconde um global com o mesmo nome | 「项目」 / 「全局」 |
+| **world read** | uma chamada registrada no journal para dentro do workspace: `files.*`, `git.*`, `world.run` | `world-read#N` |
+| **journal** | o registro durável de uma execução: run, subagentes, nodes, events | `dwf_run`, `dwf_actor`, `dwf_node`, `dwf_event` |
+| **question** | a chamada `escalate` de um subagente aguardando o agente principal | `dwfq-…`; 询问主代理 |
 
-## Principles that hold across components
+## Princípios que valem entre componentes
 
-**Recover rigor rather than demand it.** The model writes the most natural program it
-can; types, schemas, edges, identity and durability are derived from it. Where something
-cannot be recovered, a compile-time diagnostic names what to change; the facade is never
-narrowed to make analysis easier.
+**Recuperar o rigor em vez de exigi-lo.** O modelo escreve o programa mais natural que
+consegue; tipos, schemas, arestas, identidade e durabilidade são derivados dele. Onde algo
+não pode ser recuperado, um diagnóstico de tempo de compilação diz o que mudar; a fachada
+nunca é estreitada para facilitar a análise.
 
-**Imprecision widens and never rejects.** An edge the analysis cannot prove exact is still
-drawn. The one hard rule is that a facade call must be a direct call, because a call
-reached through an escaped function value has no site and therefore no identity.
+**A imprecisão amplia e nunca rejeita.** Uma aresta que a análise não consegue provar exata
+ainda é desenhada. A única regra dura é que uma chamada de fachada precisa ser uma chamada
+direta, porque uma chamada alcançada através de um valor de função escapado não tem site e
+portanto não tem identidade.
 
-**The static graph is complete before any node runs.** Nothing is learned from
-execution; a run only decorates the picture, joined to it by site id. The confirmation
-window therefore shows the whole shape of what will happen.
+**O grafo estático é completo antes de qualquer node rodar.** Nada é aprendido da
+execução; uma execução apenas decora o quadro, unido a ele pelo site id. A janela de
+confirmação portanto mostra a forma inteira do que vai acontecer.
 
-**The journal is the truth.** Every node and event is written before it is shown. Resume
-is the same script run again against the journal; the transcript, the completion card and
-every notification are built from engine records, never from what the model said about
-them.
+**O journal é a verdade.** Todo node e todo evento é escrito antes de ser exibido. Resume é
+o mesmo script rodado de novo contra o journal; a transcrição, o card de conclusão e cada
+notificação são construídos a partir de registros do motor, nunca do que o modelo disse
+sobre eles.
 
-**Plain semantics, no hidden retries for logic.** `Node<T>` is a thenable, so waiting is
-`await`, a join is `Promise.all`, and not awaiting is concurrency. A failed ask rejects its
-promise and the script decides; a retry loop is code and appears in the graph. Only
-provider transients are retried invisibly, and only inside the run.
+**Semântica simples, sem retentativas ocultas de lógica.** `Node<T>` é um thenable, então
+esperar é `await`, um join é `Promise.all`, e não aguardar é concorrência. Um ask que
+falha rejeita sua promise e o script decide; um laço de retentativa é código e aparece no
+grafo. Só transientes do provider são repetidos invisivelmente, e só dentro da execução.
 
-**Caps fail loudly.** A world read over its cap rejects that node
-(`WorldReadCapExceeded`); a run over the report caps fails (`ReportCapExceeded`). Nothing is
-truncated, because a silently partial view of the workspace fanned out over is worse than a
-failure the script can catch.
+**Os limites falham alto.** Uma world read acima do limite rejeita aquele node
+(`WorldReadCapExceeded`); uma execução acima dos limites de report falha
+(`ReportCapExceeded`). Nada é truncado, porque uma visão silenciosamente parcial de um
+workspace espalhado é pior que uma falha que o script pode capturar.
 
-**Cancellation and confirmation are the controls.** The harness enforces no token budget
-and no node cap and the script can read neither; token usage is accounted as an
-observation. The user approves the script once, in the window; there is no prompt inside a
-run.
+**Cancelamento e confirmação são os controles.** O harness não impõe orçamento de tokens
+nem teto de nodes, e o script não lê nenhum dos dois; o uso de tokens é contabilizado como
+observação. O usuário aprova o script uma vez, na janela; não há prompt dentro de uma
+execução.
 
-**One arrow style.** Every ordering on screen is one kind of arrow; the analyzer's typed
-reduction decides which arrows survive, and rendering carries no kinds.
+**Um só estilo de seta.** Toda ordenação na tela é um tipo único de seta; a redução
+tipada do analisador decide quais setas sobrevivem, e a renderização não carrega tipos.
 
-**Write for the user.** Subagent names, phase names, `log` lines, reports and artifacts
-are read by the person, in the session's language; the model is taught to name and write
-accordingly.
+**Escreva para o usuário.** Nomes de subagente, nomes de fase, linhas de `log`, reports e
+artifacts são lidos pela pessoa, no idioma da sessão; o modelo é ensinado a nomear e escrever
+de acordo.
 
-## Alternatives not taken
+## Alternativas não adotadas
 
-- **A step or loop DSL** (`step()`, `task()`, `.then` chains, a fan-out helper): plain
-  `await`, `Promise.all`, `for` and `.map` are recognized statically, so the DSL would only
-  add ceremony.
-- **Get-or-create subagents by name**: two parallel branches would silently converge on
-  one serialized context with no shared variable to show it. Every `agent()` is a fresh
-  subagent; sharing a subagent is sharing a reference.
-- **A persistent REPL as the venue**: a one-shot script submitted through a tool call is
-  what can be typechecked, drawn, confirmed and replayed as a whole.
-- **A token budget and a node cap**: no caller ever set a budget, the cap fenced in normal
-  large fan-outs, and a script optimising against a limit is worse than a person cancelling.
-- **Model tier and tool profile on the persona**: every subagent runs on the parent
-  session's model with the regular working tools; what it may do is said in the ask.
-- **Runtime tracing as a dependency source**: the static graph is complete before the run;
-  a graph that grew while running could not be confirmed.
-- **Reusing the legacy `Workflow` / expert-workflow machinery**: fresh contracts and a
-  fresh UI surface, so neither feature constrains the other.
+- **Uma DSL de step ou loop** (`step()`, `task()`, cadeias `.then`, um auxiliar de
+  fan-out): `await`, `Promise.all`, `for` e `.map` puro são reconhecidos estaticamente, então
+  a DSL só adicionaria cerimônia.
+- **Obter-ou-criar subagentes por nome**: dois ramos paralelos convergiriam silenciosamente
+  para um contexto serializado, sem variável compartilhada que o mostrasse. Todo `agent()`
+  é um subagente novo; compartilhar um subagente é compartilhar uma referência.
+- **Um REPL persistente como venue**: um script de uso único submetido por uma chamada de
+  ferramenta é o que pode ser verificado, desenhado, confirmado e reproduzido por inteiro.
+- **Um orçamento de tokens e um teto de nodes**: nenhum chamador nunca definiu um
+  orçamento, o teto cercava fan-outs grandes normais, e um script otimizando contra um limite
+  é pior que uma pessoa cancelando.
+- **Tier de modelo e perfil de ferramentas na persona**: todo subagente roda no modelo da
+  sessão-pai com as ferramentas de trabalho regulares; o que ele pode fazer está dito no
+  ask.
+- **Tracing de runtime como fonte de dependências**: o grafo estático é completo antes da
+  execução; um grafo que crescesse enquanto roda não poderia ser confirmado.
+- **Reaproveitar a máquina legada `Workflow` / expert-workflow**: contratos novos e uma
+  superfície de UI nova, para que nenhuma feature limite a outra.
 
-## Open questions
+## Perguntas em aberto
 
-Each component document ends with its own. Two cross-cutting ones remain:
+Cada documento de componente termina com as suas. Duas que atravessam tudo permanecem:
 
-- Whether a run interrupted by a process exit should resume on its own when the owning
-  session returns, rather than waiting for the user or the model.
-- Guidance for large values in prompts: when a script should interpolate
-  `JSON.stringify(bigThing)` and when it should hand subagents a path instead.
+- Se uma execução interrompida por saída de processo deve retomar sozinha quando a sessão
+  proprietária retorna, em vez de esperar pelo usuário ou pelo modelo.
+- Orientação para valores grandes em prompts: quando um script deve interpolar
+  `JSON.stringify(bigThing)` e quando deve entregar aos subagentes um caminho.

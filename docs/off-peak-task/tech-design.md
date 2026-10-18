@@ -159,7 +159,7 @@ Pontos principais:
 
 - **O scheduler só toca no tasks-index** (mantendo o esquema de proprietary do automation): o `OffPeakTaskService` do domínio do host é responsável por
   `POST /ticket` de retirada de número e pela sincronização em lote `POST /ticket/status`, gravando `schedulable`/`queue_position` de volta na linha da tarefa;
-  o scheduler reivindica tasks schedulable do banco, sem enviar HTTP e sem持有的 credenciais. A sincronização usa um timer compartilhado, e
+  o scheduler reivindica tasks schedulable do banco, sem enviar HTTP e sem deter as credenciais. A sincronização usa um timer compartilhado, e
   `next_poll_at` é um snapshot, e não um timer por tarefa.
 - **O retry de fila é tratado de forma especial apenas na camada adaptadora do provider**: apenas o HTTP `429/3105` de `providerId=builtin:offpeak-idle-plan`
   é isento do orçamento comum de retry; o 429 de providers comuns mantém sua semântica.
@@ -382,11 +382,11 @@ runner de generate/stream; só valem para `providerId=builtin:offpeak-idle-plan`
 - **Limite seguro do stream**: só retenta antes de haver saída visível do provider; depois de cruzar o limite visível, não há replay.
 - **Abandono no primeiro despacho (regra 1, a decisão final de implementação passou a usar o TTL do ticket)**: a lógica de abandono não é implementada separadamente na camada adaptadora — quando o primeiro request do estado queued fica pendurado no gateway, o TTL de 5min do ready expira naturalmente, dispara `400/3102` → retoma a execução e volta para a fila (§4.6), e o limite superior da espera é ≈ TTL + uma sondagem com clamp de 5min ≤ 10min, o que atende à intenção da regra (não deixar o agent loop pendurado) com menos uma máquina de estados; o novo despacho reutiliza a semântica de resume da recuperação de interrupção.
 - Cancelamento da tarefa pelo usuário → aborta os timers em espera e as requisições em trânsito.
-- A injeção de headers acompanha a configuração do provider de escopo do run: `X-Off-Peak-Ticket-ID` / credenciais duplas (JWT + `X-Coding-Plan-Api-Key`, pontos de injeção D23/D26 feitos顺手).
+- A injeção de headers acompanha a configuração do provider de escopo do run: `X-Off-Peak-Ticket-ID` / credenciais duplas (JWT + `X-Coding-Plan-Api-Key`, pontos de injeção D23/D26 feitos naturalmente).
 
 ### 4.4 Limite de Permission / elicitation (D44)
 
-D11/D27 jácravaram "pausar operação sensível → estado de espera dedicado → trocar para o provider do usuário após aprovação e avisar de cota". No runtime atual, o idle Active Model cobre todo o turno automático, e permission/elicitation não encerram o turno; por isso o código final apenas
+D11/D27 já cravaram "pausar operação sensível → estado de espera dedicado → trocar para o provider do usuário após aprovação e avisar de cota". No runtime atual, o idle Active Model cobre todo o turno automático, e permission/elicitation não encerram o turno; por isso o código final apenas
 reutiliza a confirmação da session comum, sem criar um segundo conjunto de estados e notificações do Off-Peak.
 
 ```text
@@ -460,8 +460,8 @@ sem retirar número e sem gravar seleção vazia. O nível explícito é entregu
 Essa regra vale apenas para novas tarefas pela ferramenta, não religa Tickets existentes e não modifica a seleção de execução já fixada.
 O gate continua sendo enviado pela entrada existente de prontidão/criação do cliente, sem refazer o sistema de sincronização por causa da consolidação.
 
-A chamada de ferramenta e a criação pelo formulário **compartilham a mesma cadeia de retirada de número** (`OffPeakTaskService.createTask`), e a diferença está apenas na entrada e na resolução do padrão: a ferramenta mantém o padrão yolo/o último modelo da lista do domínio da conta/o nível mais alto (D49-4,，面向 "falar e sair" na semântica sem supervisão).
-O formulário mantém a interação do Selection View atual e o envio da seleção completa, sem restaurar o nível padrão histórico do workspace por causa da introduction da interface de ferramenta.
+A chamada de ferramenta e a criação pelo formulário **compartilham a mesma cadeia de retirada de número** (`OffPeakTaskService.createTask`), e a diferença está apenas na entrada e na resolução do padrão: a ferramenta mantém o padrão yolo/o último modelo da lista do domínio da conta/o nível mais alto (D49-4, voltada a "falar e sair" na semântica sem supervisão).
+O formulário mantém a interação do Selection View atual e o envio da seleção completa, sem restaurar o nível padrão histórico do workspace por causa da introdução da interface de ferramenta.
 
 ```mermaid
 sequenceDiagram
@@ -542,7 +542,7 @@ Host 服务装配 + 本地 workspace（不联网）
 ```
 
 As condições de capacidade local verificam apenas a montagem de dependências, remoteSessionId e a workspaceIdentity remota; não usam o client config.
-A política por workspace é mantida para cobrir a recuperação a froid do V4 subscribe, sem novos Host ou canais de recuperação.
+A política por workspace é mantida para cobrir a recuperação a frio do V4 subscribe, sem novos Host ou canais de recuperação.
 Rollout desligado/falha de leitura afeta apenas a chamada real de criação; a entrada de página continua controlada pelo rollout. Quando o Host antigo não fornece a flag, continua sem registro, e
 o method-not-found do CLI antigo continua degradando. Runtimes já ativos não reconstroem dinamicamente o conjunto de ferramentas.
 
@@ -577,7 +577,7 @@ Restrições de integração: nem a primeira execução vinculada nem a continua
 `loading` do store tem valor inicial false ("não carregado" e "carregado" são indistinguíveis). Ao receber uma navegação com prefixo `offpeak-`, `AutomationsSection` força primeiro um `refresh()`, usando "o refresh deste id de navegação terminou" como único sinal de prontidão e só então resolvendo found/missing;
 `refresh()` com falha não faz reject e apenas escreve `store.error`; nesse caso a lista não é confiável → resolve como `unavailable`: cai na tab de fora do pico e exibe
 「列表加载失败」, sem reportar targetNotFound indevidamente (review CR-01);
-o effect de navegação de tab não consome de抢先 quando existe navegação de detalhe offpeak (`onOpenAutomationConsumed` limpa o id e a tab ao mesmo tempo).
+o effect de navegação de tab não consome de forma preventiva quando existe navegação de detalhe offpeak (`onOpenAutomationConsumed` limpa o id e a tab ao mesmo tempo).
 
 ## 5. Máquina de estados
 
@@ -606,7 +606,7 @@ Tabela de transições (quem dispara, quem persiste, efeitos colaterais):
 | queued→paused              | Pause do usuário (D29-3)                                                 | Repo.setPaused                                  | interrompe o despacho; o ticket continua na fila do servidor |
 | paused→queued              | Continue do usuário (restaura com ticket vivo / retirada manual se o ticket morreu) | Repo.setPaused                      | retoma a busca e o despacho                                |
 | queued→running             | ready do servidor + despacho por scheduler/host, `sendPrompt` retorna ACK | Repo.markRunning + preenchimento de conversation/session | a barra de status muda para "运行中"; nesse ponto messages ainda pode estar esperando 429/3105 |
-| queued→cancelled           | cancelamento/exclusão do usuário (diálogo de confirmação)                | Repo.markTerminal                               | remove do agrupamento da barra lateral (~~立即执行出队~~ removido pelo D32) |
+| queued→cancelled           | cancelamento/exclusão do usuário (diálogo de confirmação)                | Repo.markTerminal                               | remove do agrupamento da barra lateral (~~execução imediata da fila~~ removido pelo D32) |
 | running→completed/failed   | host observa o evento de estado terminal da task                        | Repo.markTerminal                               | notificação + remoção do agrupamento + preenchimento de files_changed |
 | running→queued             | recoverInterrupted ou o host reconhece `off-peak-ticket-expired`        | recuperação pelo Repo / `requeueForContinuation` | preserva a mesma session e retira um novo número           |
 
@@ -627,7 +627,7 @@ e as mensagens são drenadas depois que o turno automático restaura o modelo do
 | `packages/desktop/src/main/desktopCronScheduler.ts`      | Já integrado ao roteamento existente: encaminha OffPeakRun/Result e o wake do scheduler                                                                                                                                                                    | Roteamento CronRun                                                     |
 | `packages/desktop/src/host/index.ts`                     | Montagem preguiçosa do runtime Off-Peak; na primeira execução cria a task com a seleção exata salva na tarefa (resume se for sessão vinculada), na continuação faz resume; envia idle Model Selection + `modelExecution.requestAuth`, assina o outcome terminal e reconhece o marker 3102                                   | Bloco de tratamento CronRun                                            |
 | idle plan provider                                       | Config Built-in oculta guarda Endpoint/models/access; o despacho só constrói o Request Auth com JWT + Coding Plan Key + header de Ticket, vinculado ao Model de escopo de execução atual, sem gravar em Config/Registry View/session/workspace catalog; a camada adaptadora implementa o protocolo de retry 429/3105 (§4.3) | Provider Config + `offpeak-retry.ts` + runner de generate/stream      |
-| `packages/ui`                                            | Extensão do AutomationsSection: tab/formulário/cartões de lista/History de Idle-time; barra de induce + cartões de template na página New task; agrupamento de sistema Group na barra lateral; switch de manter acordado (três entradas espelhadas); `offPeakStore`                          | `AutomationsSection` / `automationManagementStore` (extensão direta)  |
+| `packages/ui`                                            | Extensão do AutomationsSection: tab/formulário/cartões de lista/History de Idle-time; barra de manter acordado + cartões de template na página New task; agrupamento de sistema Group na barra lateral; switch de manter acordado (três entradas espelhadas); `offPeakStore`                          | `AutomationsSection` / `automationManagementStore` (extensão direta)  |
 | Notificações                                             | `useOffPeakTaskNotifications.ts` faz polling das tarefas e emite notificação de desktop nas bordas completed/failed/awaiting; a variante awaiting não dispara por enquanto, pois o estado é inalcançável em produção                                                                        | —                                                                      |
 | i18n                                                     | A tabela de textos do PRD §8 vai para `en-US.ts` / `zh-CN.ts` (removendo entradas de campos já cortados)                                                                                                                                                  | —                                                                      |
 | **Ferramenta dentro da sessão (D49)**                   | `contracts/src/tools/off-peak.ts` + `interfaces/off-peak.port.ts` (espelho zod v3, proibido importar shared); `core/src/tool/handlers/off-peak.ts` (handler + tool entry, `needsApproval:true`); `isOffPeakCreateRestrictedTurn` e a constante independente em `core/runtime/methods/turn-loop-state.ts`; o gate `includeOffPeak` em `registerBuiltInTools` | `tools/automation.ts` / `handlers/cron.ts` (**direção defensiva oposta, não copie inteiro**) |
@@ -747,7 +747,7 @@ a primeira requisição já recebe 429/3105, a tarefa também é exibida como ru
 **Limite de cota**: o `client/configs.limit.max_tasks/sliding_window` do D36 e a contagem local por createdAt foram removidos.
 O cliente só consome o snapshot de availability do D39; a corrida entre o snapshot e a retirada de número é coberta pelo 3103 do `POST /ticket`.
 
-**Limite (de propósito)**: na v1 não há mecanismo de timeout de fila/expiração de tarefa, e com sobrecarga contínua a tarefa espera indefinidamente, com saída apenas pelo「取消」ou「Pause」 manual do usuário (~~立即执行~~ removido pelo D32). Se depois do lançamento a espera longa se tornar um fenômeno comum, pode-se adicionar a notificação "a fila está há mais de X horas" (é só uma notificação, não se faz agora).
+**Limite (de propósito)**: na v1 não há mecanismo de timeout de fila/expiração de tarefa, e com sobrecarga contínua a tarefa espera indefinidamente, com saída apenas pelo「取消」ou「Pause」 manual do usuário (~~execução imediata~~ removido pelo D32). Se depois do lançamento a espera longa se tornar um fenômeno comum, pode-se adicionar a notificação "a fila está há mais de X horas" (é só uma notificação, não se faz agora).
 
 ### 7.7 Liquidação de estado terminal (D22)
 
@@ -893,7 +893,7 @@ validação ponta a ponta, e não basta restaurar campos de estado e UI.
 
 Os pontos abaixo preservam as restrições levantadas na investigação pré-início, mas formulações do tipo "é preciso adicionar/não existe hoje" já foram reescritas conforme o código final; eles não são uma lista de trabalho pendente.
 
-**① Mecanismo de底层 de `session/resume` para continuação entre tickets + troca de provider no meio — ✅ confirmado.**
+**① Mecanismo subjacente de `session/resume` para continuação entre tickets + troca de provider no meio — ✅ confirmado.**
 O mecanismo de recuperação a frio e de resume está disponível, e os segmentos de continuação do Off-Peak o usam para reutilizar a mesma session; a gravação única é garantida pelo despacho single-flight.
 O runtime genérico tem a capacidade de troca de provider entre turnos, mas o D44 não troca o provider do turno atual durante a espera de permissão;
 se isso for reaberto no futuro, é preciso provar primeiro que a ordem de eventos do mid-turn handoff e a limpeza de credenciais são seguras.

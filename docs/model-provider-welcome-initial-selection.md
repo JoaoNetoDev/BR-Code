@@ -54,7 +54,7 @@ Matriz de estados completa:
 
 Quando vários planos de equipe estão disponíveis ao mesmo tempo, usa-se o primeiro `subscribed === true` na ordem retornada pelo backend; quando esse time tem vários projetos, usa-se `teamProjects[0]` e, sem ID de projeto, o fallback sucessivo para o `projectId` de nível de product e depois para `"0"`, garantindo uma selected key estável.
 
-A consulta do 体验套餐（Start Plan） depende do resultado do 个人套餐（Coding Plan）. Só se considera que o plano de experiência é decidível depois de confirmar que o plano pessoal não tem benefício e que o plano de equipe está indisponível ou já decidido, e depois que a consulta de fallback do plano de experiência terminar.
+A consulta do Start Plan (体验套餐) depende do resultado do Coding Plan (个人套餐). Só se considera que o plano de experiência é decidível depois de confirmar que o plano pessoal não tem benefício e que o plano de equipe está indisponível ou já decidido, e depois que a consulta de fallback do plano de experiência terminar.
 
 A página de configurações não possui mais uma lógica própria de escrita de inicialização do modo de conexão. Ao reabrir a página de configurações ou quando o Team Plan retorna de forma assíncrona, é obrigatório restaurar primeiro o `modelProviderFamilySelectedKeys[family]` histórico; somente quando o usuário troca manualmente o modo de conexão na página de configurações é que a página escreve novos `modelProviderFamilyModes[family]` e `modelProviderFamilySelectedKeys[family]`.
 

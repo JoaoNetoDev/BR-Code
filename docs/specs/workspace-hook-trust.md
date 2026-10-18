@@ -2388,7 +2388,7 @@ Todas as métricas devem usar campos anônimos/agregados, sem enviar o comando c
 
 ## 25. Plano de implementação por fases
 
-### Fase 0：Contracts e testes de segurança primeiro
+### Fase 0: Contracts e testes de segurança primeiro
 
 - fixar source kind, snapshot, digest em duas camadas e o mapeamento state/admission/reason;
 - fixar reviewFlow/generation/supersede, capability de Host/Client, projeção continuous/replayable e o schema de owner response;
@@ -2418,7 +2418,7 @@ Conclusões de segurança da Fase 0:
 - Host/Client antigos, capability ausente, generation desconhecida e remote identity incompleta resultam em fail closed;
 - esta fase não pode ser interpretada como "o usuário já pode confiar em workspace Hooks"; o discovery real de candidates, o Trust store, a UI de Settings, o Runtime admission e o response handler continuam pertencendo às fases seguintes.
 
-### Fase 1：Discovery Snapshot, Digest e Alinhamento de Settings
+### Fase 1: Discovery Snapshot, Digest e Alinhamento de Settings
 
 - preservar os project Hook candidates;
 - implementar digests versionados e provenance imutável;
@@ -2453,7 +2453,7 @@ Conclusões de segurança da Fase 1:
 - a capability de Host/UI continua false; Trust store, managed policy, security revision, Runtime admission, review flow e response handler ainda não foram implementados;
 - portanto, a Fase 1 não pode ser interpretada como Trust de workspace Hook em produção habilitado; o hard block é mantido até entrar nas Fases 2/3.
 
-### Fase 2：Domínio de Trust, Policy e Security Revision
+### Fase 2: Domínio de Trust, Policy e Security Revision
 
 #### Decisões de implementação da Fase 2 (congeladas em 2026-08-06)
 
@@ -2497,7 +2497,7 @@ Conclusões de segurança da Fase 2:
 - o Runtime admission, o handler de review response e as capability de Host/UI continuam não habilitados, então project Hook segue em hard block;
 - a Fase 3 seguinte precisa construir admitted callbacks apenas a partir do snapshot imutável atual e validar a revision do coordinator antes de cada dispatch.
 
-### Fase 3：Runtime Admission e Hook Lifecycle
+### Fase 3: Runtime Admission e Hook Lifecycle
 
 - activation admission no `runSessionStartHooks(source)` compartilhado;
 - security revision gate por dispatch;
@@ -2582,7 +2582,7 @@ Conclusões de segurança da Fase 3:
 - cada dispatch de projeto passa por um gate de snapshot identity + security revision, e o fast path não tem I/O externo;
 - na entrega isolada da Fase 3, itens pendentes usam blocked-and-continue; a Fase 4 conectou um Review Flow dedicado no Host Desktop capaz, enquanto Hosts antigos ou sem capacidade mantêm esse comportamento fail-closed.
 
-### Fase 4：Review Flow, Toggle Atômico e UI Desktop
+### Fase 4: Review Flow, Toggle Atômico e UI Desktop
 
 #### Decisões de implementação congeladas da Fase 4 (2026-08-06)
 
@@ -2679,7 +2679,7 @@ Conclusões de segurança da Fase 4:
 - configured gate e Trust gate continuam independentes, e uma declaration desabilitada não executa mesmo já confiável; o revoke eleva a security revision, afeta apenas dispatches futuros e não mata processos já iniciados;
 - o caminho Desktop capaz suporta Trust item a item fora de banda; Host/client antigos, capability de UI ausente e disconnect transitório não autorizam automaticamente nem bloqueiam o turno.
 
-### Fase 5：Mobile Replayable / Remote / CLI
+### Fase 5: Mobile Replayable / Remote / CLI
 
 - projeção de review no conversation snapshot/delta;
 - Hooks Settings responsivas no mobile;
@@ -2718,7 +2718,7 @@ Conclusões de segurança da Fase 5:
 - CLI/Headless só pode confiar precisamente na declaration atual ou no bundle exato, sem wildcard de caminho, `--yes`, variáveis de ambiente ou autoautorização pelo conteúdo do repositório;
 - a origem da managed policy continua sendo a trusted bootstrap/embedder port; arquivos do projeto não conseguem mudar o policy mode nem o policy revision.
 
-### Fase 6：Docs, Telemetria e Rollout
+### Fase 6: Docs, Telemetria e Rollout
 
 - atualizar a documentação de segurança, de arquitetura de controle remoto e do usuário;
 - metrics/reason codes/diagnostics de generation;

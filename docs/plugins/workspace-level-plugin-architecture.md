@@ -475,7 +475,7 @@ Esta é uma exceção explícita no domínio de Plugin. Um `.zcode/config.json` 
 
 | Boundary                               | Decision                                            |
 | -------------------------------------- | --------------------------------------------------- |
-| Workspace Plugin enable、dirs、options | sem Workspace trust, entra direto na resolução de um novo App |
+| Workspace Plugin enable, dirs, options | sem Workspace trust, entra direto na resolução de um novo App |
 | Plugin Hook/Skill/Command/Agent        | ativados junto com o Plugin habilitado              |
 | Plugin MCP                             | entra direto no runtime, sem approval separado     |
 | Hooks/MCP/Agent de projeto de topo     | mantém o contrato de segurança já existente       |

@@ -154,7 +154,7 @@ plan.ends_at      → expireTime          → 整份套餐到期日期
 
 Os itens de equipe são construídos copiando os dados do plano pessoal, e os três branches podem herdar campos de provider, entitlement, assinatura e cota. Este é um problema estrutural já identificado, mas o usuário decidiu **deixar para uma governança posterior**.
 
-Nesta rodada não se reconstrói explicitamente todos os itens de equipe, não se extrai um construtor único de equipe e não se substituem por completo os campos herdados; apenas corta-se a dependência incorreta do julgamento de seleção do dropdown em relação a esse objeto. Não se pode continuar tratando o «governar顺手 enquanto se faz isso» levantado no meio do caminho como escopo desta rodada.
+Nesta rodada não se reconstrói explicitamente todos os itens de equipe, não se extrai um construtor único de equipe e não se substituem por completo os campos herdados; apenas corta-se a dependência incorreta do julgamento de seleção do dropdown em relação a esse objeto. Não se pode continuar tratando o «governar de passagem enquanto se faz isso» levantado no meio do caminho como escopo desta rodada.
 
 ## 8. F07：O aviso de modelo da sessão ganha identificação do plano
 
