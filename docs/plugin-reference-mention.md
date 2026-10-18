@@ -216,7 +216,7 @@ O「Try now」no topo da loja de Plugins e o prompt de exemplo já foram incorpo
 
 ## Ordenação da caixa de entrada (2026-09-15)
 
-A ordem oficial de plugins para `@` e `+` reutiliza `pluginStoreOrder.code/work`, e a categoria serve apenas como chave de ordenação de exibição, com a interface permanecendo em uma coluna. O catálogo de identidade continua sendo determinado pela autoridade de workspace/session. O protocolo mantém a resposta original `plugins/referenceCatalog` e adiciona `plugins/referenceCatalogWithCategory`; o cliente só faz fallback para a consulta antiga em caso de -32601. As regras completas, a sequência e a cobertura de PSO-10-14 estão em [spec de ordenação por modo](plugins/plugin-store-mode-order.md).
+A ordem oficial de plugins para `@` e `+` reutiliza `pluginStoreOrder.code/work`, e a categoria serve apenas como chave de ordenação de exibição, com a interface permanecendo em uma coluna. O catálogo de identidade continua sendo determinado pela autoridade de workspace/session. O protocolo mantém a resposta original `plugins/referenceCatalog` e adiciona `plugins/referenceCatalogWithCategory`; o cliente só faz fallback para a consulta antiga em caso de -32601. As regras completas, a sequência e a cobertura de PSO-10～14 estão em [spec de ordenação por modo](plugins/plugin-store-mode-order.md).
 
 ### Ícones locais embutidos oficiais (2026-09-17)
 

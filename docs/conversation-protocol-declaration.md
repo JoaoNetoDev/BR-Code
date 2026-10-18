@@ -8,11 +8,11 @@ O protocolo não é um JSON, nem um fluxograma. É uma composição de algumas c
 
 | Camada           | O que declara                            | Exemplo                                                                                                    |
 | ---------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Dimensão de estado | O contexto observável do produto em um dado momento | `runPhase=running`, `queue=empty`, `goal=active`                                            |
+| Dimensão de estado | O contexto observável do produto em um dado momento | `runPhase=running`、`queue=empty`、`goal=active`                                            |
 | Evento de entrada | O que o usuário ou o sistema pode fazer a seguir | Usuário digita `/compact`, o sistema retorna `assistantComplete`                                  |
-| Objeto alvo      | Em qual objeto a ação incide             | latest turn, old turn, composer, goal control                                                          |
+| Objeto alvo      | Em qual objeto a ação incide             | latest turn、old turn、composer、goal control                                                          |
 | Regra guard      | Se determinada combinação pode prosseguir | Não é possível compactar enquanto running; fork de assistant target estável enquanto running pode ser permitido |
-| effect           | O resultado de produto após permitido ou recusado | enqueue, reject toast, entrar em compacting                                                          |
+| effect           | O resultado de produto após permitido ou recusado | enqueue、reject toast、entrar em compacting                                                          |
 | Invariante       | Princípios de produto que nunca podem ser violados | Um edit durante running precisa passar antes pelo stop barrier; fork só copia histórico assistant estável, não queue/background work |
 | trace case       | Um caminho revisável e conversível em teste | Given running, when `/compact`, then reject                                             |
 
@@ -43,8 +43,8 @@ Os eventos de entrada se dividem em duas categorias; não as misture.
 
 | Tipo            | Significado                                | Exemplos                                                                                        |
 | --------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `user-action`   | Comportamento de GUI disparado pelo usuário | sendText, slashCompact, setGoal, forkOld, editLatest                                          |
-| `system-event`  | Eventos assíncronos de avanço do sistema   | assistantComplete, compactComplete, autoCompactNeeded                                          |
+| `user-action`   | Comportamento de GUI disparado pelo usuário | sendText、slashCompact、setGoal、forkOld、editLatest                                          |
+| `system-event`  | Eventos assíncronos de avanço do sistema   | assistantComplete、compactComplete、autoCompactNeeded                                          |
 
 Cada evento de entrada deve declarar no mínimo:
 
@@ -93,10 +93,10 @@ user action
 | ACK         | Significado                                                            | Efeitos colaterais que precisam ser declarados             |
 | ----------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `accepted`  | O command foi aceito pela camada autoritativa, já pode ter executado ou entrado na command queue | O command state pode ser recuperado; a UI espera o fechamento pela projection |
-| `rejected`  | O guard recusou explicitamente o command                              | reason, feedback ao usuário, efeitos proibidos                 |
+| `rejected`  | O guard recusou explicitamente o command                              | reason、feedback ao usuário、efeitos proibidos                 |
 | `stale`     | `baseRevision` está atrasado, o estado atual pode ter mudado            | A UI deve atualizar a projection antes; ações não idempotentes não podem ser reaplicadas silenciosamente |
 | `duplicate` | O mesmo `commandId` já foi processado                                 | Retorna o resultado existente, não pode executar de novo      |
-| `failed`    | O command foi aceito mas falhou na execução                           | fault catalog, entrada de recuperação, se queue/command state são mantidos |
+| `failed`    | O command foi aceito mas falhou na execução                           | fault catalog、entrada de recuperação、se queue/command state são mantidos |
 
 `@zcode/rpc` carrega apenas call/listen, conexão, timeout, logs e telemetria; `commandId`, `baseRevision`, `projectionRevision`, `eventSeq`, `deliveryKind`, `accepted/rejected/stale/duplicate` são semântica do conversation protocol.
 

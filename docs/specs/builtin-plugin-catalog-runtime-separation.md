@@ -172,7 +172,7 @@ A leitura de detalhe após a desinstalação deve ser uma operação somente lei
 
 `PLM-LC-006 builtin-suppress-restore` continua sendo o case de lifecycle, mas suas asserções mudam:
 
-- remover as asserções de "cache清理" e "重启不 reseed";
+- remover as asserções de "cache cleanup" e "restart sem reseed";
 - exigir a preservação de Catalog/cache e a legibilidade do detalhe;
 - continuar exigindo limpeza de config/data, persistência da supressão, ausência em runtime e restore limpo.
 

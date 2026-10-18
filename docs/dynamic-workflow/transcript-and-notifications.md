@@ -507,7 +507,7 @@ envia, e é o que o caminho literal escreve.
 | 作用域 | 「项目」 ou 「全局 · 对所有项目可见」, com padrão projeto. Um projeto remoto oferece apenas projeto, com 「远程项目只能保存到项目里。」: `~` na máquina do agente não é um lugar que este hub leia. |
 | 说明 | preenchido com o nome da execução, que é como o modelo chamou esta execução na língua do usuário e se lê como uma descrição de uma linha no hub. Auxiliar: 「「何时使用」和参数可以之后在工作流中枢里补。」 |
 
-Abaixo dos campos, uma linha de consequência em texto sutil: 「将写入 {path}；之后可在「自动化 ›
+Abaixo dos campos, uma linha de consequência em texto sutil: 「将写入 {path};之后可在「自动化 ›
 工作流」按名字再次运行。」 Ela é substituída pelo aviso de sobrescrita — 「本项目已有同名工作流，保存
 会覆盖它；已有的运行记录保留。」 em `border-warning/40 bg-warning/10`, com o botão lendo
 「覆盖并直接保存」 — assim que um `workflows/get` com debounce diz que o nome está tomado. A mesma

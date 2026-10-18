@@ -1496,7 +1496,7 @@ seu estado; um spinner cobre a página até o primeiro grupo ter carregado.
 **O grupo global** vem primeiro, sempre, mesmo vazio. Seu cabeçalho: 「全局」 (Global), um selo
 「对所有项目可见」 (visível de todo projeto), a contagem, e um botão 「通过对话创建」
 (Criar no chat). Um grupo vazio mostra 「还没有全局工作流。适合放不依赖某个项目的
-流程，例如深度调研。」 Um agente muito antigo para entender o parâmetro `scope` mostra 「当前
+流程, 例如深度调研。」 Um agente muito antigo para entender o parâmetro `scope` mostra 「当前
 agent 不支持全局工作流。」; uma máquina sem agente local alcançável mostra 「无法连接本地
 agent，全局工作流暂不可用。」 O botão de criar fica desabilitado com a dica 「打开一个本地项目
 以运行」 quando nenhum projeto local está aberto.
@@ -1601,7 +1601,7 @@ nova naquele projeto cuja primeira mensagem de usuário é enviada imediatamente
 A GUI então muda para a nova sessão. Apenas o nome e o caminho são enviados; o modelo lê o arquivo
 ele mesmo. O salvamento ainda passa pela janela de `SaveWorkflow`, onde um workflow de projeto de
 mesmo nome aparece como `hidden_by_project`. Uma criação de sessão recusada mostra 「提升失
-败：{reason}」 e não deixa nada para trás.
+败:{reason}」 e não deixa nada para trás.
 
 ### Movendo para um projeto
 

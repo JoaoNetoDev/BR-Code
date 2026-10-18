@@ -78,7 +78,7 @@
 - Modify: arquivos de teste inválidos no Windows listados no mapa de arquivos
 - Modify: `C:\Users\dev\zcode-cua\docs\KNOWN-ISSUES.md`
 
-**Passo 1: Registrar a linha de base de falhas atual**
+**Step 1: Registrar a linha de base de falhas atual**
 
 Executar:
 
@@ -99,7 +99,7 @@ Esperado antes da correção:
 
 Reter o erro exato de build nativo nas notas da task. Não deixar o script `install` best-effort contar como evidência de build nativo.
 
-**Passo 2: Tornar a toolchain nativa um pré-requisito explícito**
+**Step 2: Tornar a toolchain nativa um pré-requisito explícito**
 
 Usar `vswhere.exe` para detectar uma instalação que contenha:
 
@@ -117,7 +117,7 @@ Test-Path .\build\Release\ax_native.node
 
 Esperado: o rebuild nativo sai com `0`; o comando final imprime `True`.
 
-**Passo 3: Corrigir a dependência de lint**
+**Step 3: Corrigir a dependência de lint**
 
 Adicionar `oxlint` às `devDependencies` na versão usada pelo ZCode (`^1.57.0`), rodar `pnpm install` e verificar:
 
@@ -127,7 +127,7 @@ pnpm lint
 
 Esperado: sai com `0`.
 
-**Passo 4: Escrever primeiro o helper de teste portátil para Windows**
+**Step 4: Escrever primeiro o helper de teste portátil para Windows**
 
 Alterar `test/broker/helpers/tempSocket.ts` para que os testes de broker ao vivo usem:
 
@@ -152,7 +152,7 @@ pnpm exec vitest run test/broker-client.claim.test.ts test/standalone/helper-lau
 
 Esperado: sem `listen EACCES` e sem timeout causado por fake broker sem bind.
 
-**Passo 5: Separar contratos POSIX de contratos cross-platform**
+**Step 5: Separar contratos POSIX de contratos cross-platform**
 
 Aplicar estas regras:
 
@@ -170,7 +170,7 @@ pnpm exec vitest run test/standalone/helper-launch/discovery.test.ts test/standa
 
 Esperado: passa, com apenas os casos POSIX-only explicitamente nomeados pulados no Windows.
 
-**Passo 6: Rodar o gate completo do repositório**
+**Step 6: Rodar o gate completo do repositório**
 
 Executar:
 
@@ -183,7 +183,7 @@ pnpm build
 
 Esperado: todos os comandos saem com `0`. `pnpm test` pode conter skips intencionais de plataforma, mas sem falhas nem erros não tratados.
 
-**Passo 7: Documentar a linha de base corrigida**
+**Step 7: Documentar a linha de base corrigida**
 
 Atualizar `docs/KNOWN-ISSUES.md` com:
 
@@ -192,7 +192,7 @@ Atualizar `docs/KNOWN-ISSUES.md` com:
 - distinção entre testes de named pipe e testes de permissão de socket POSIX;
 - contagens atuais da suíte completa vindas da execução bem-sucedida.
 
-**Passo 8: Commit**
+**Step 8: Commit**
 
 ```powershell
 git add package.json pnpm-lock.yaml test docs/KNOWN-ISSUES.md
@@ -211,7 +211,7 @@ git commit -m "test(windows): establish CUA development baseline"
 - Modify: `C:\Users\dev\zcode-cua\src\broker\server\index.ts`
 - Add: `C:\Users\dev\zcode-cua\test\broker\windowsSystemSurface.test.ts`
 
-**Passo 1: Escrever testes que falham**
+**Step 1: Escrever testes que falham**
 
 Cobrir:
 
@@ -230,7 +230,7 @@ pnpm exec vitest run test/broker/windowsSystemSurface.test.ts
 
 Esperado: falha porque a fábrica Windows não existe e `win32` hoje cai no branch do macOS.
 
-**Passo 2: Implementar a superfície mínima**
+**Step 2: Implementar a superfície mínima**
 
 Criar `createWindowsNodeSystemSurface()` com um `openRunner` injetado. O runner padrão usa `child_process.spawn()` sem shell, retorna o PID do filho, chama `unref()` e nunca invoca PowerShell.
 
@@ -244,7 +244,7 @@ win32 -> createWindowsNodeSystemSurface
 darwin -> existing macOS implementation
 ```
 
-**Passo 3: Verificar**
+**Step 3: Verificar**
 
 Executar:
 
@@ -256,7 +256,7 @@ pnpm lint
 
 Esperado: passa.
 
-**Passo 4: Commit**
+**Step 4: Commit**
 
 ```powershell
 git add src/broker/server/windowsSystemSurface.ts src/broker/server/nodeSystemSurface.ts src/broker/server/index.ts test/broker/windowsSystemSurface.test.ts
@@ -277,7 +277,7 @@ git commit -m "feat(windows): add CUA system surface"
 - Add: `C:\Users\dev\zcode-cua\test\windowsDevHelperMain.test.ts`
 - Modify: `C:\Users\dev\zcode-cua\docs\platforms.md`
 
-**Passo 1: Escrever testes de parser e lifecycle que falham**
+**Step 1: Escrever testes de parser e lifecycle que falham**
 
 O protocolo de controle versionado Host/Helper é:
 
@@ -307,7 +307,7 @@ pnpm exec vitest run test/windowsDevHelperMain.test.ts
 
 Esperado: falha porque a entrada não existe.
 
-**Passo 2: Implementar o composition root específico de plataforma**
+**Step 2: Implementar o composition root específico de plataforma**
 
 `windowsDevHelperMain.ts` deve:
 
@@ -322,7 +322,7 @@ Esperado: falha porque a entrada não existe.
 
 Não chamar `helperMain.main()` do macOS: esse caminho exige arquivos de token, verificações de assinatura de código, modos de permissão TCC e `/usr/bin/ps`.
 
-**Passo 3: Adicionar o bundle executável**
+**Step 3: Adicionar o bundle executável**
 
 Adicionar uma entrada esbuild:
 
@@ -346,7 +346,7 @@ Esperado:
 - o arquivo existe;
 - pipe inválido sai com código diferente de zero e um diagnóstico sanitizado.
 
-**Passo 4: Executar um smoke nativo somente leitura**
+**Step 4: Executar um smoke nativo somente leitura**
 
 Iniciar a entrada com pipe/token aleatórios, conectar usando `probeHelperHealth`, chamar `broker_info` e então interrompê-la pela mensagem de shutdown v1. Verificar:
 
@@ -363,7 +363,7 @@ process.platform === "win32" && build/Release/ax_native.node exists
 
 O gate da Phase 0 garante que a guarda é verdadeira na máquina de desenvolvimento.
 
-**Passo 5: Documentar e verificar**
+**Step 5: Documentar e verificar**
 
 Atualizar `docs/platforms.md` para distinguir:
 
@@ -382,7 +382,7 @@ pnpm build
 
 Esperado: todos saem com `0`.
 
-**Passo 6: Commit**
+**Step 6: Commit**
 
 ```powershell
 git add src scripts/build.mjs test/windowsDevHelperMain.test.ts docs/platforms.md
@@ -401,7 +401,7 @@ git commit -m "feat(windows): add source Computer Use Helper entry"
 - Add: `C:\Users\dev\z-code\packages\services\src\cua-permission-broker\windowsCuaDevRuntime.ts`
 - Add: `C:\Users\dev\z-code\packages\services\test\windowsCuaDevRuntime.test.ts`
 
-**Passo 1: Encerrar o item aberto aceito pela spec**
+**Step 1: Encerrar o item aberto aceito pela spec**
 
 Atualizar o status do design para "confirmado" (original em chinês: "已确认") e resolver a escolha do Node:
 
@@ -414,7 +414,7 @@ Motivo: o Host desktop já usa esse padrão para o zcode-agent; hosts de CLI/tes
 
 Atualizar a cadeia de mudança de tools antes da implementação. Registrar que as 30 tools existentes, schemas, anotações de efeito colateral e semântica de delivery-state permanecem inalteradas; apenas a rota de admissão/execução do backend Windows passa a existir.
 
-**Passo 2: Escrever testes de resolver que falham**
+**Step 2: Escrever testes de resolver que falham**
 
 Cobrir:
 
@@ -435,7 +435,7 @@ pnpm exec vitest run packages/services/test/windowsCuaDevRuntime.test.ts
 
 Esperado: falha porque o resolver não existe.
 
-**Passo 3: Implementar o resolver**
+**Step 3: Implementar o resolver**
 
 Expor:
 
@@ -455,7 +455,7 @@ export async function resolveWindowsCuaDevRuntime(
 
 A raiz padrão vem somente de `ZCODE_CUA_DEV_ROOT`. Não procurar diretórios irmãos nem cair silenciosamente em um caminho de Helper do macOS.
 
-**Passo 4: Verificar e commitar**
+**Step 4: Verificar e commitar**
 
 Executar:
 
@@ -483,7 +483,7 @@ git commit -m "docs(cua): finalize Windows runtime contract"
 - Modify: `C:\Users\dev\z-code\packages\services\src\cua-permission-broker\index.ts`
 - Add: `C:\Users\dev\z-code\packages\services\test\windowsCuaDevHelperHost.test.ts`
 
-**Passo 1: Escrever testes de lifecycle que falham**
+**Step 1: Escrever testes de lifecycle que falham**
 
 Usar um adapter de subprocesso e um health probe injetados. Cobrir:
 
@@ -510,7 +510,7 @@ pnpm exec vitest run packages/services/test/windowsCuaDevHelperHost.test.ts
 
 Esperado: falha porque o host não existe.
 
-**Passo 2: Definir o contrato comum mínimo de Host**
+**Step 2: Definir o contrato comum mínimo de Host**
 
 Usar o contrato de resolver `CuaProductHelperHost` existente e adicionar as duas capacidades de lifecycle que o ZCode possui:
 
@@ -523,7 +523,7 @@ export type ManagedCuaProductHelperHost = CuaProductHelperHost & {
 
 Não exigir `queryPermissionStatus()` ou `queryScreenCaptureProbe()` exclusivos do macOS na classe do Windows.
 
-**Passo 3: Implementar lifecycle e posse de credenciais**
+**Step 3: Implementar lifecycle e posse de credenciais**
 
 Requisitos de implementação:
 
@@ -537,7 +537,7 @@ Requisitos de implementação:
 - stop/restart impede que uma conclusão assíncrona tardia escreva um novo handle;
 - logs de serviço usam `createServiceLogger`, nunca `console`.
 
-**Passo 4: Verificar**
+**Step 4: Verificar**
 
 Executar:
 
@@ -549,7 +549,7 @@ pnpm lint
 
 Esperado: passa.
 
-**Passo 5: Commit**
+**Step 5: Commit**
 
 ```powershell
 git add packages/services/src/cua-permission-broker/windowsCuaDevHelperHost.ts packages/services/src/cua-permission-broker/index.ts packages/services/test/windowsCuaDevHelperHost.test.ts
@@ -567,7 +567,7 @@ git commit -m "feat(cua): manage Windows development Helper"
 - Modify: `C:\Users\dev\z-code\packages\services\test\cuaPermissionBrokerProductAgentEnv.test.ts`
 - Modify: `C:\Users\dev\z-code\packages\services\test\cuaPermissionBrokerServiceDispose.test.ts`
 
-**Passo 1: Escrever testes de admissão que falham**
+**Step 1: Escrever testes de admissão que falham**
 
 Adicionar casos provando que:
 
@@ -589,7 +589,7 @@ pnpm exec vitest run packages/services/test/cuaPermissionBrokerProductAgentEnv.t
 
 Esperado: falha nos casos de admissão/fábrica de host do Windows.
 
-**Passo 2: Generalizar o tipo de helper padrão sem enfraquecer o macOS**
+**Step 2: Generalizar o tipo de helper padrão sem enfraquecer o macOS**
 
 Alterar o registro de helper padrão para conter:
 
@@ -608,13 +608,13 @@ other -> undefined
 
 Rodar `reapOrphanedHelpers()` somente no darwin. A limpeza no Windows é posse do filho + watchdog do PID do pai.
 
-**Passo 3: Preservar as fronteiras do serviço de permissões do macOS**
+**Step 3: Preservar as fronteiras do serviço de permissões do macOS**
 
 `getStatus()` e o onboarding de permissões continuam usando `macPermissionHost` e permanecem indisponíveis no Windows. `getHelperStatus()` pode reportar o estado em execução do Helper de desenvolvimento do Windows, mas não pode afirmar que permissões do macOS estão disponíveis.
 
 Nenhuma mudança de UI faz parte desta task.
 
-**Passo 4: Verificar suítes focadas e de regressão**
+**Step 4: Verificar suítes focadas e de regressão**
 
 Executar:
 
@@ -626,7 +626,7 @@ pnpm lint
 
 Esperado: passa.
 
-**Passo 5: Commit**
+**Step 5: Commit**
 
 ```powershell
 git add packages/services/src/node.ts packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts packages/services/test/cuaPermissionBrokerServiceDispose.test.ts
@@ -643,7 +643,7 @@ git commit -m "feat(cua): enable Windows source Helper"
 - Add: `C:\Users\dev\z-code\packages\services\test\windowsCuaDevHelper.integration.test.ts`
 - Add: `C:\Users\dev\z-code\docs\cua\windows-source-development.md`
 
-**Passo 1: Escrever o teste de integração real opt-in**
+**Step 1: Escrever o teste de integração real opt-in**
 
 O teste roda somente quando tudo for verdadeiro:
 
@@ -673,7 +673,7 @@ pnpm exec vitest run packages/services/test/windowsCuaDevHelper.integration.test
 
 Esperado: passa com o named pipe e o addon reais.
 
-**Passo 2: Verificar o comportamento fail-closed do plugin oficial**
+**Step 2: Verificar o comportamento fail-closed do plugin oficial**
 
 Rodar os testes existentes do plugin com:
 
@@ -689,7 +689,7 @@ Esperado:
 
 Não atualizar a dependência do plugin nem a superfície de tools neste milestone, a menos que uma incompatibilidade real e comprovada de protocolo prove que é necessário.
 
-**Passo 3: Escrever o runbook de desenvolvimento**
+**Step 3: Escrever o runbook de desenvolvimento**
 
 `docs/cua/windows-source-development.md` deve incluir:
 
@@ -716,7 +716,7 @@ Documentar também:
 - limitação da Phase 1: árvore AX presente, screenshots ausentes;
 - verificação de shutdown limpo.
 
-**Passo 4: Verificar e commitar**
+**Step 4: Verificar e commitar**
 
 Executar:
 
@@ -743,7 +743,7 @@ git commit -m "test(cua): verify Windows source runtime"
 - Nenhum novo arquivo de implementação por padrão.
 - Se a evidência de runtime expor um bug, primeiro adicionar um teste focado que falhe no repositório dono, depois fazer a correção mínima e adicionar um comentário em chinês explicando a causa raiz.
 
-**Passo 1: Começar a partir de builds limpos**
+**Step 1: Começar a partir de builds limpos**
 
 Executar:
 
@@ -763,7 +763,7 @@ pnpm exec vitest run packages/services/test/windowsCuaDevRuntime.test.ts package
 
 Esperado: todos os comandos saem com `0`.
 
-**Passo 2: Iniciar o desenvolvimento do ZCode a partir do código-fonte**
+**Step 2: Iniciar o desenvolvimento do ZCode a partir do código-fonte**
 
 ```powershell
 $env:ZCODE_CUA_DEV_MODE='1'
@@ -778,7 +778,7 @@ Confirmar antes de invocar uma task de CUA:
 - a linha de comando do processo tem entry/pipe/parent PID e nenhum token;
 - o pipe é aleatório sob `\\.\pipe\zcode-cua-helper-*`.
 
-**Passo 3: Executar o cenário no Bloco de Notas**
+**Step 3: Executar o cenário no Bloco de Notas**
 
 Usar uma task do ZCode para:
 
@@ -798,7 +798,7 @@ Aceitação:
 - nenhum screenshot é necessário na Phase 1;
 - nenhuma ação é reproduzida automaticamente após uma falha ambígua no pós-envio.
 
-**Passo 4: Exercitar recuperação e teardown**
+**Step 4: Exercitar recuperação e teardown**
 
 Com o ZCode aberto:
 
@@ -810,7 +810,7 @@ Com o ZCode aberto:
 
 Esperado: nenhum Helper órfão e nenhum reuso de credencial obsoleta.
 
-**Passo 5: Inspecionar a evidência de runtime**
+**Step 5: Inspecionar a evidência de runtime**
 
 Checar os logs de serviço e o rollout da task:
 
@@ -821,7 +821,7 @@ Checar os logs de serviço e o rollout da task:
 
 Se a primeira tentativa ao vivo falhar, coletar o log de serviço real, o stderr do filho, a árvore de processos e o erro do broker antes de mudar código.
 
-**Passo 6: Rodar os gates obrigatórios de todo o repositório**
+**Step 6: Rodar os gates obrigatórios de todo o repositório**
 
 Em `C:\Users\dev\z-code`:
 
@@ -842,7 +842,7 @@ pnpm build
 
 Esperado: todos saem com `0`.
 
-**Passo 7: Revisar o histórico de commits e as working trees**
+**Step 7: Revisar o histórico de commits e as working trees**
 
 Executar:
 

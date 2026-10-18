@@ -4,7 +4,7 @@ Status: ready-for-agent
 
 Issue-Tracker: local-markdown
 
-## Problema
+## Problem Statement
 
 O usuário precisa analisar em profundidade quais etapas de encadeamento ocorreu entre clicar em enviar uma mensagem e o cliente receber a primeira saída válida, quanto tempo cada etapa levou, e usar P50, P95 de cada etapa mais o waterfall de uma mensagem lenta para localizar gargalos.
 
@@ -12,7 +12,7 @@ Atualmente o TTFT geral está espalhado por eventos de negócio e ARMS RUM; o fu
 
 Em especial, a espera antes do aceite pelo CLI, a fila de execução, os hooks, a preparação de contexto, a compactação e o retorno do primeiro conteúdo ao cliente ainda não podem ser contabilizados como fases contínuas da mesma mensagem. O `first_content` atual do modelo ainda pode aceitar o evento de início de um bloco de conteúdo, portanto não pode ser equiparado diretamente a uma saída não vazia e exibível. Subtrair diretamente os P95 de métricas diferentes não permite recuperar o P95 de uma certa fase.
 
-## Solução
+## Solution
 
 Adicionar telemetria de TTFT dedicada ao workspace local do desktop, reutilizando a capacidade de exportação OpenTelemetry/OTLP existente e a integração ARMS, oferecendo duas formas de observação relacionadas entre si:
 
@@ -38,7 +38,7 @@ flowchart TD
 
 O diagrama representa as principais fronteiras que precisam ser observadas; preparação e retentativas podem se entrelaçar e suboperações podem ser paralelas. A implementação deve registrar pela linha do tempo real, sem forçar concorrência real ou operações repetidas a uma execução serial única do diagrama.
 
-## Histórias de usuário
+## User Stories
 
 1. As a analista de performance, I want ver o tempo total do clique até a primeira saída válida, so that eu possajudicar quanto tempo o usuário realmente esperou.
 2. As a analista de performance, I want ver o P50 e o P95 de cada fase principal, so that eu possa identificar gargalos geralizados e de cauda longa.
@@ -76,7 +76,7 @@ O diagrama representa as principais fronteiras que precisam ser observadas; prep
 34. Como pessoa de testagem, I want verificar desordem, duplicação, saída anterior ao ACK e concorrência de múltiplas sessões, so que os registros não sejam ligados errado nem contados em duplicidade.
 35. Como pessoa de manutenção, I want que os novos pontos de instrumentação não alterem os eventos de negócio e a métrica RUM existentes, so que dashboards históricos e outros clientes continuem compatíveis.
 
-## Decisões de implementação
+## Implementation Decisions
 
 ### Cobertura e limites de compatibilidade
 
@@ -146,7 +146,7 @@ O diagrama representa as principais fronteiras que precisam ser observadas; prep
 - Retenção de 7 dias para os detalhes e pelo menos 30 dias para as métricas agregadas são metas de requisito; antes do lançamento, verificar a integração real, permissões, capacidade, configuração de retenção e custos no ARMS. Onde a configuração existente já atende à meta, reutilizá-la, e itens não verificados devem ser marcados como pendentes de validação no lançamento.
 - A telemetria registra apenas duração, nome de fase controlado, resultado, versões e informações de correlação necessárias; não coleta prompt, corpo de resposta, conteúdo de arquivos, caminho bruto, credenciais ou Header/Body de requisição. Reutilizar as restrições de privacidade e autenticação existentes do projeto, sem assumir que hoje existe um interruptor geral de privacidade que controle todos os exportadores.
 
-## Decisões de teste
+## Testing Decisions
 
 ### Principais fronteiras de teste
 
@@ -174,7 +174,7 @@ Na camada baixa, só complementar testes de fronteira de relógio, desordem, ded
 | Falha após a primeira saída, fim sem corpo de texto | O TTFT principal mantém o fato da primeira saída bem-sucedida; o estado do primeiro corpo de texto está correto e independente           |
 | Saída do processo, encerramento forçado ou estado final ausente | Os checkpoints exportados são consultáveis; sem evidência de fim, o registro permanece não fechado, sem fabricar timeout ou fases restantes |
 | Ir a segundo plano e voltar, pausa da máquina ou anomalia de relógio | A determinação de primeiro plano contínuo é precisa; amostras anômalas de qualidade podem ser filtradas, sem criar duração negativa nem forçar clamping em zero |
-| Paralelismo, preparação duplicada e fases ausentes | O waterfall apresenta os intervals reais; a união é reconciliada, sem soma duplicada e sem atribuir rigidamente as lacunas                |
+| Paralelismo, preparação duplicada e fases ausentes | O waterfall apresenta os intervals reais; a união é reconciliada, sem soma duplicada e sem atribuir Rigidamente as lacunas                |
 | Canário desligado, habilitado e amostragem por correlação | Desligado não há nova coleta; na população habilitada a cadeia é consistente e a amostragem de 10% do Trace antigo não cria trechos faltantes de TTFT |
 | Timeout, rejeição ou fila cheia do exporter | Envio e saída continuam; memória/fila são limitadas, o descarte é observável e o fechamento normal não depende do sucesso da exportação |
 | Contrato final de dados                    | Schema estrito, unidades, versões, labels de baixa cardinalidade e regras de mascaramento corretos, com Trace/Metric reconciliáveis conforme definido |
@@ -184,7 +184,7 @@ Na implementação é obrigatório escrever primeiro os testes apropriados e dep
 
 Antes do lançamento, fazer uma verificação forense em uma execução real do desktop, alinhando o envio pelo usuário, o recebimento real do conteúdo, os registros de fase e o resultado final da exportação; e medir a latência de mensagem, a carga na thread principal, a memória e o volume de eventos causados pela coleta. No ambiente ARMS é preciso validar consultas de quantis, correlação de registros, exibição de waterfall e latência de visibilidade dos dados. O status de conclusão da aceitação no lado da plataforma e o dos testes locais são registrados separadamente.
 
-## Fora de escopo
+## Out of Scope
 
 - Coleta de TTFT para workspace remoto do desktop, controle remoto por celular/Web e implementação de sincronização de relógio entre máquinas.
 - Criar um Host ou Agent separado para o celular, ou alterar a semântica de entrega de negócio continuous/replayable.
@@ -195,7 +195,7 @@ Antes do lançamento, fazer uma verificação forense em uma execução real do 
 - Criar novas páginas de diagnóstico dentro do produto ZCode, ou migrar/substituir a instrumentação de negócio/RUM existente.
 - Precisão de temporização de submissegundos, telemetria com zero perda em encerramento forçado e lançamento em volume total para todos os usuários sem validação de capacidade.
 
-## Observações adicionais
+## Further Notes
 
 - Os requisitos e o escopo acima foram confirmados nesta discussão; este documento é uma spec a implementar e não representa instrumentação, E2E, consultas no ARMS ou configuração de armazenamento já em vigor.
 - A ordem de entrega é spec e contrato de protocolo/fases, testes, implementação, verificação em execução real, aceitação no ARMS e avaliação de capacidade do canário. Antes de implementar, conferir a especificação de telemetria existente; novos contratos dedicados não podem reescrever silenciosamente as fronteiras das especificações antigas de ui_action ou Agent Trace.

@@ -1135,12 +1135,12 @@ Expected:
 
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`
 - Modify: `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`
-- Optional Modify: documento de auditoria de diferenças históricas (excluído)
+- Optional Modify: documento de auditoria de diferenças históricas (já removido)
 
 **Interfaces:**
 
 - Consumes: service-written markdown shape from Task 2.
-- Produces: confidence that GUI-created profiles are runtime-loadable and disabled profiles are provider-invisible.
+- Produces: confiança de que os perfis criados pela GUI são carregáveis em runtime e de que os perfis desabilitados são invisíveis para o provider.
 
 - [ ] **Passo 1: Adicionar um teste de compatibilidade de Markdown da GUI no bootstrap**
 
@@ -1193,7 +1193,7 @@ expect(result.profiles[0]).toMatchObject({
 
 - [ ] **Passo 3: Atualização opcional de documentação**
 
-Se a implementação mudar os fatos atuais de diff, atualizar o documento de auditoria de diferenças históricas (excluído):
+Se a implementação mudar os fatos atuais de diff, atualizar o documento de auditoria de diferenças históricas (já removido):
 
 - O Service/UI agora grava no user root alinhado ao runtime.
 - A GUI do P0 exclui de propósito a edição de workspace.

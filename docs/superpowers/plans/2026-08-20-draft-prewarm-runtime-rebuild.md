@@ -411,7 +411,7 @@ git commit -m "feat(ui): 新增草稿预热会话换代重建门禁 hook"
 
 ---
 
-### Tarefa 3: Integrar ao SessionPane e aos textos
+### Tarefa 3: Integrar ao SessionPane e e aos textos
 
 Conectar o hook da Tarefa 2 ao SessionPane e incluir `rebuilding` no `disabled` do composer.
 

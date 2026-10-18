@@ -51,7 +51,7 @@ O bundle deve conter `format:"zip"`, `url`, `entry`, `sha256` (64 caracteres hex
 
 data é um objeto JSON sem credenciais, serializado com no máximo 64.000 caracteres; events é um mapa de eventos de exibição com no máximo 16 itens. URLs só podem ser HTTP(S) absolutos sem usuário/senha; origens de desenvolvimento podem usar HTTP de loopback, mas recursos de produção precisam corresponder à URL/hash verificados e concedidos pelo host.
 
-### Descrição
+### Description
 
 - `plain_text`: exibido como texto puro.
 - `html`: HTML simples; suporta p/br/b/strong/i/em/u/s/ul/ol/li/code/a/span/time, além de h1–h6/blockquote/pre/hr/del/table/thead/tbody/tr/th/td.
@@ -62,7 +62,7 @@ data é um objeto JSON sem credenciais, serializado com no máximo 64.000 caract
 - Links mantêm apenas href/title HTTP(S) e são abertos pelo handler open_external do host; sem essa capacidade, degradam para texto.
 - A formatação padrão usa o tema do cliente; class/style permitidos podem sobrescrever. Os benefícios dinâmicos e o tempo de Weekend são escapados antes de compor o HTML.
 
-### Ações
+### Actions
 
 close fecha a instância atual; dismiss_content é entregue ao handler injetado e, em caso de sucesso, fecha — a limitação de frequência para conta oficial/revision ainda não foi implementada. navigate aceita apenas model_settings/plugin_store/settings; copy_text, open_external e claim_plan exigem capacidades injetadas pelo host, e o componente público não acessa diretamente a plataforma nem serviços de negócio.
 

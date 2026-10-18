@@ -77,15 +77,15 @@ A ordem física de `builtinModelIds` segue "default enabled primeiro, default di
 
 ## 5. Material oficial
 
-- GLM: [模型总览](https://docs.bigmodel.cn/cn/guide/start/model-overview)
-- Kimi: [API 模型选择](https://www.kimi.ai/help/kimi-api/api-model-selection)、[K3 发布说明](https://www.kimi.com/news/kimi-k3)、[K2.7 Code 模型说明](https://www.kimi.ai/resources/kimi-k2-7-code)、[Kimi Code 模型表](https://www.kimi.com/code/docs/en/kimi-code/models.html)
-- MiniMax: [模型调用](https://platform.minimaxi.com/docs/guides/text-generation)、[Anthropic Models API](https://platform.minimaxi.com/docs/api-reference/models/anthropic/list-models)、[OpenAI Models API](https://platform.minimaxi.com/docs/api-reference/models/openai/list-models)
-- DeepSeek: [模型与价格](https://api-docs.deepseek.com/quick_start/pricing/)、[更新日志](https://api-docs.deepseek.com/updates/)、[Responses API](https://api-docs.deepseek.com/api/create-response/)
-- Qwen: [Qwen3.8 Max](https://help.aliyun.com/en/model-studio/qwen3-8-max)、[Qwen3.8 Flash](https://help.aliyun.com/en/model-studio/qwen3-8-flash)、[Structured Output](https://help.aliyun.com/en/model-studio/qwen-structured-output)
-- MiMo: [模型总览](https://mimo.mi.com/docs/en-US/quick-start/model)、[Audio Understanding](https://mimo.mi.com/docs/en-US/usage-guide/multimodal-understanding/audio-understanding)
-- OpenAI: [Models](https://developers.openai.com/api/docs/models)
-- Anthropic: [Models Overview](https://platform.claude.com/docs/en/models/overview)
-- xAI: [Grok 4.6](https://docs.x.ai/developers/models/grok-4.6)、[Structured Outputs](https://docs.x.ai/developers/model-capabilities/text/structured-outputs)
+- GLM:[模型总览](https://docs.bigmodel.cn/cn/guide/start/model-overview)
+- Kimi：[API 模型选择](https://www.kimi.ai/help/kimi-api/api-model-selection)、[K3 发布说明](https://www.kimi.com/news/kimi-k3)、[K2.7 Code 模型说明](https://www.kimi.ai/resources/kimi-k2-7-code)、[Kimi Code 模型表](https://www.kimi.com/code/docs/en/kimi-code/models.html)
+- MiniMax:[模型调用](https://platform.minimaxi.com/docs/guides/text-generation)、[Anthropic Models API](https://platform.minimaxi.com/docs/api-reference/models/anthropic/list-models)、[OpenAI Models API](https://platform.minimaxi.com/docs/api-reference/models/openai/list-models)
+- DeepSeek:[模型与价格](https://api-docs.deepseek.com/quick_start/pricing/)、[更新日志](https://api-docs.deepseek.com/updates/)、[Responses API](https://api-docs.deepseek.com/api/create-response/)
+- Qwen:[Qwen3.8 Max](https://help.aliyun.com/en/model-studio/qwen3-8-max)、[Qwen3.8 Flash](https://help.aliyun.com/en/model-studio/qwen3-8-flash)、[Structured Output](https://help.aliyun.com/en/model-studio/qwen-structured-output)
+- MiMo:[模型总览](https://mimo.mi.com/docs/en-US/quick-start/model)、[Audio Understanding](https://mimo.mi.com/docs/en-US/usage-guide/multimodal-understanding/audio-understanding)
+- OpenAI:[Models](https://developers.openai.com/api/docs/models)
+- Anthropic:[Models Overview](https://platform.claude.com/docs/en/models/overview)
+- xAI:[Grok 4.6](https://docs.x.ai/developers/models/grok-4.6)、[Structured Outputs](https://docs.x.ai/developers/model-capabilities/text/structured-outputs)
 
 ## 6. Imperfeições conhecidas e validação da próxima rodada
 

@@ -4,7 +4,7 @@
 > `docs/monitoring/performance-monitoring.md`, `docs/monitoring/performance-telemetry-catalog.md`
 > e `packages/ui/src/lib/uiPerfArmsTelemetry.ts`; os caminhos de integração como `useZCodeChat` abaixo são um registro do momento da implementação.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
 **Goal:** Adicionar quatro eventos de rastreamento de performance no renderer (UI) do Electron (primeira tela, primeiro token, duração da mensagem, pausa no streaming), reportados a `group=ui_perf` pelo encadeamento ARMS `sendCustom` já existente.
 

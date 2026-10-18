@@ -4,7 +4,7 @@ Hooks mantêm uma entrada própria nas configurações, sem serem incorporados �
 página reaproveita a arquitetura de informação de Scope, busca, títulos de grupo, contêiner de
 lista e estado vazio de Plugins, MCPs, Skills e Commands.
 
-## Escopo e origem
+## Scope e origem
 
 - No topo, `<Scope> | Hooks {count}`, com a caixa de busca à direita.
 - O Scope usa o `PluginScopeMenu` compartilhado: User exibe a configuração de usuário e os Hooks
