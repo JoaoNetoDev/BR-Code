@@ -1,6 +1,6 @@
 # Arquitetura em Camadas Inicial do ZCode (histórico)
 
-Este documento registra o contexto de camadas de quando o projeto partiu de uma UI compartilhada + Channel RPC + service interface. Ele não descreve mais a quantidade atual de Hosts, a topologia remota, as Root props ou o fluxo de dados de conversation; para os fatos atuais, leia o [Z Code 代码架构总览](./zcode-code-architecture-overview.md).
+Este documento registra o contexto de camadas de quando o projeto partiu de uma UI compartilhada + Channel RPC + service interface. Ele não descreve mais a quantidade atual de Hosts, a topologia remota, as Root props ou o fluxo de dados de conversation; para os fatos atuais, leia o [Visão geral da arquitetura de código do Z Code](./zcode-code-architecture-overview.md).
 
 ## Princípios de design ainda válidos
 
@@ -47,7 +47,7 @@ Código entre domínios só pode depender dos Types/contratos públicos um do ou
 
 ## Entradas atuais
 
-- [代码架构总览](./zcode-code-architecture-overview.md)
+- [Visão geral da arquitetura de código](./zcode-code-architecture-overview.md)
 - [Message Flow](./message-flow.md)
-- [RPC 架构](./rpc.md)
+- [Arquitetura RPC](./rpc.md)
 - [ZCode Protocol](../zcode-protocol.md)

@@ -109,7 +109,7 @@ Os dois pontos de mudança restauram o mesmo invariante, e ambos são indispens�
 
 | Ponto de chamada                                                    | Cenário                                                                                                      |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `packages/server/src/remote/connect.ts:247`（`beginDisposal`）        | encerramento da conexão host↔remoto (às 09:57:44 deste incidente foi exatamente este caminho) → resolve de quebra a suspensão dos handlers proxy no lado host |
+| `packages/server/src/remote/connect.ts:247` (`beginDisposal`)         | encerramento da conexão host↔remoto (às 09:57:44 deste incidente foi exatamente este caminho) → resolve de quebra a suspensão dos handlers proxy no lado host |
 | `packages/rpc/src/ipc.ts:138-139`                                     | IPCServer detecta desconexão do client                                                                       |
 | `packages/rpc/src/ipc.ts:259-260`, `305-306`                          | destruição completa de IPCServer / IPCClient                                                                   |
 | `packages/rpc/src/remote.ts:325`                                      | destruição final do client reconectado (atenção: uma reconexão no meio do caminho usa `replaceSocket` e reaproveita o mesmo ChannelClient, sem disparar dispose; a semântica de replay permanece inalterada) |
@@ -161,7 +161,7 @@ Commit da correção `a30f1f453a` (fix(remote): settle pending RPCs on workspace
 - **Testes implementados**: §5.1–5.3 correspondem a `packages/ui/test/remoteWorkspaceProviderSync.test.ts` (regressão de envenenamento, race de 250ms), `packages/rpc/test/channels.test.ts` (dispose rejeita in-flight / pre-Initialize / assinaturas de evento não feridas), `packages/ui/test/useWorkspaceServices.test.ts` (encerramento no unregister, troca de generation só encerra a antiga), `packages/client/test/rendererLogging.test.ts` (idempotência do disposer); §5.4 corresponde a `packages/ui/test/sshDialogDirectorySelection.test.ts` (reset de selecting após reject + erro visível + retorno ao passo de settings quando a session é reciclada).
 - **Verificação vermelho-verde**: restaurando temporariamente o store pré-correção → 3 casos falham; restaurando o channelClient pré-correção → 2 casos falham e estouram o timeout de 60s (isto é, o comportamento do incidente); todos passam no estado corrigido.
 - **Portões**: `pnpm typecheck` passou; `pnpm lint` com 0 error (nenhum aviso novo nos arquivos alterados); `pnpm test:unit:affected` com 3536/3540 passando, sendo a única falha um flaky de temporização do `vi.waitFor` em `repoWikiService.test.ts` (sem relação com esta mudança; passa ao reexecutar e também em execução isolada).
-- **Candidato a E2E**: registrado como `SSH-P0-LIFE-03`（candidate, spec ainda não escrita）, em `docs/testing/ssh-remote-p0-e2e-plan.md`。
+- **Candidato a E2E**: registrado como `SSH-P0-LIFE-03` (candidate, spec ainda não escrita), em `docs/testing/ssh-remote-p0-e2e-plan.md`.
 
 ## 6. Riscos residuais
 

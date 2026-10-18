@@ -442,7 +442,7 @@ export async function prepareCuaHelperPermissionDrag(
 }
 ```
 
-Remover também o comentário de auditoria obsoleto no fim do arquivo(o comentário `// 2026-08 审计：openCuaAccessibilitySettings / prepareCuaHelperPermissionDrag 已删除…`), e substituí-lo por um registro do motivo desta restauração.
+Remover também o comentário de auditoria obsoleto no fim do arquivo (o comentário `// 2026-08 审计：openCuaAccessibilitySettings / prepareCuaHelperPermissionDrag 已删除…`), e substituí-lo por um registro do motivo desta restauração.
 
 - [ ] **Step 4: executar o teste e confirmar a passagem**
 

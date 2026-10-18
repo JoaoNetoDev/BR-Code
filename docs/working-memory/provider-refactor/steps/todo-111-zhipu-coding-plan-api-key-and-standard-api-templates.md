@@ -82,7 +82,7 @@ Outros
 | Elemento                             | Estilo decidido                                                            |
 | ------------------------------------ | -------------------------------------------------------------------------- |
 | Título da página “Adicionar provedor” | manter `text-ui-lg font-semibold text-foreground`, padrão 16px              |
-| Título de grupo “Zhipu／Outros”      | `text-ui-base font-medium text-foreground-subtle`, padrão 14px              |
+| Título de grupo “Zhipu/Outros”       | `text-ui-base font-medium text-foreground-subtle`, padrão 14px              |
 | Da barra de título da página ao título do primeiro grupo | 20px                                        |
 | Do título do grupo aos cartões do grupo | 12px                                                                       |
 | Espaçamento horizontal/vertical dos cartões | manter 8px                                                            |
@@ -150,10 +150,10 @@ os modelos comuns mantêm o catálogo original de modelos comuns e normalizam os
 
 Materiais oficiais (data de verificação 2026-09-10):
 
-- [Início rápido do Coding Plan da Zhipu](https://docs.bigmodel.cn/cn/coding-plan/quick-start), [início rápido da API comum](https://docs.bigmodel.cn/cn/guide/start/quick-start), [HTTP API](https://docs.bigmodel.cn/cn/guide/develop/http/introduction)：endpoints de plano/comum, caminhos de obtenção de Key pessoal/equipe.
-- [Início rápido do Coding Plan do Z.ai](https://docs.z.ai/devpack/quick-start), [descrição da API comum](https://docs.z.ai/api-reference/introduction)：endpoints, entrada de Key e autenticação.
-- [GLM-5.3](https://docs.z.ai/guides/llm/glm-5.3), [GLM-5.3-Flash](https://docs.z.ai/guides/vlm/glm-5.3-flash)：diferença entre texto e multimodal nativo.
-- [Busca da Zhipu](https://docs.bigmodel.cn/cn/guide/tools/web-search), [busca do Z.ai](https://docs.z.ai/guides/tools/web-search)：diferença entre busca independente e busca na conversa; não servem como base para afirmar que todos os modelos foram testados.
+- [Início rápido do Coding Plan da Zhipu](https://docs.bigmodel.cn/cn/coding-plan/quick-start), [início rápido da API comum](https://docs.bigmodel.cn/cn/guide/start/quick-start), [HTTP API](https://docs.bigmodel.cn/cn/guide/develop/http/introduction): endpoints de plano/comum, caminhos de obtenção de Key pessoal/equipe.
+- [Início rápido do Coding Plan do Z.ai](https://docs.z.ai/devpack/quick-start), [descrição da API comum](https://docs.z.ai/api-reference/introduction): endpoints, entrada de Key e autenticação.
+- [GLM-5.3](https://docs.z.ai/guides/llm/glm-5.3), [GLM-5.3-Flash](https://docs.z.ai/guides/vlm/glm-5.3-flash): diferença entre texto e multimodal nativo.
+- [Busca da Zhipu](https://docs.bigmodel.cn/cn/guide/tools/web-search), [busca do Z.ai](https://docs.z.ai/guides/tools/web-search): diferença entre busca independente e busca na conversa; não servem como base para afirmar que todos os modelos foram testados.
 
 Código principal: `config/provider/zcode-builtin.json`; `packages/provider/src/config/provider-data-schema.ts`, `provider-config.ts`, `schema.ts` e `packages/provider/src/resolver.ts`; `packages/ui/src/settings/model-provider-section/ProviderDraftSave.ts`, `InlineEditableProviderCard.tsx`; `apps/zcode-cli/packages/adapters/src/model/model-execution.ts`, `tool-transform.ts`; a implementação de validação segura de requisições da versão oficial; `packages/services/src/model-provider/accountProviderRequestAuthService.ts`.
 

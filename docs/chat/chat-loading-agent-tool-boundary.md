@@ -105,11 +105,11 @@ timeline scroll viewport
 | Estado candidato                                                       | Decisão                       | Razão                                                         |
 | ------------------------------------------------------------------ | -------------------------- | ---------------------------------------------------------- |
 | running + primary/foreground subagent/goal continuation/turn steer | accepted（显示 imediato）       | O turno principal ainda está avançando, o loading segue o fato de running |
-| chegada de qualquer revision de projection durante running          | accepted（manter visibilidade atual） | A atualização do conteúdo de projection não muda o fato de running do turno principal |
+| chegada de qualquer revision de projection durante running          | accepted(manter visibilidade atual) | A atualização do conteúdo de projection não muda o fato de running do turno principal |
 | permission / AskUserQuestion / pendingApproval                     | pruned                     | A UI está aguardando ação do usuário, não expressa "正在思考"                      |
 | active work contendo compact / goalVerifier                              | pruned                     | Já existe feedback dedicado de manutenção/verificação                                  |
 | turno terminal ou trabalho somente em background                              | pruned                     | O turno principal já terminou, não se pode manter o loading do chat com fatos de background               |
-| desktop continuous / web remote replayable                         | accepted（mesma regra de UI）   | Consome apenas o mesmo snapshot V4 após a convergência da sua cadeia de entrega, sem mudar o protocolo de recuperação |
+| desktop continuous / web remote replayable                         | accepted(mesma regra de UI)   | Consome apenas o mesmo snapshot V4 após a convergência da sua cadeia de entrega, sem mudar o protocolo de recuperação |
 
 ## Limites multiplataforma
 

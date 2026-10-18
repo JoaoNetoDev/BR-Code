@@ -200,7 +200,7 @@ O comportamento formal já foi sincronizado na [especificação do Start](../../
 
 ## 8. Entrega e evidências desta rodada (2026-09-16)
 
-P1～P4 foram implementados e a especificação formal do Start foi atualizada conforme a solução final. O Start mantém os dois IDs reais, reaproveitando o Account Source e a facade de Host/Worker; não foi adicionada migration de banco, versão de Schema nem reescrita em massa de configurações. A revision estática de release do Built-in foi de 28→29 apenas para identificar a atualização do nome de exibição, e a configuração de teste foi derivada pelo script original, e não é uma migração de dados do usuário.
+P1-P4 foram implementados e a especificação formal do Start foi atualizada conforme a solução final. O Start mantém os dois IDs reais, reaproveitando o Account Source e a facade de Host/Worker; não foi adicionada migration de banco, versão de Schema nem reescrita em massa de configurações. A revisão estática de release do Built-in foi de 28→29 apenas para identificar a atualização do nome de exibição, e a configuração de teste foi derivada pelo script original, e não é uma migração de dados do usuário.
 
 ### 8.1 Testes e verificações
 
@@ -246,13 +246,13 @@ Foi concluída a revisão do diff de produção completo, dos componentes compar
 
 | SIP            | Evidências desta rodada                                                                                                                                              |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 01～03, 05～08 | Resolver das duas marcas, seleção sem benefit/paga/legacy, connectionKey estável, LKG/logout; node facade real com mapeamento preciso Start/pago; reinicialização no Pro e preservação da escolha antiga do Start e troca explícita para pessoal |
-| 04, 10～11     | Testes unitários de navegação/cartão de estado/observer/sugestão de perda; navegação independente e refresh de resgate no Pro                                                                                       |
+| 01-03, 05-08 | Resolver das duas marcas, seleção sem benefit/paga/legacy, connectionKey estável, LKG/logout; node facade real com mapeamento preciso Start/pago; reinicialização no Pro e preservação da escolha antiga do Start e troca explícita para pessoal |
+| 04, 10-11     | Testes unitários de navegação/cartão de estado/observer/sugestão de perda; navegação independente e refresh de resgate no Pro                                                                                       |
 | 09, 12, 21     | Reuso dos owners originais de cota/autenticação e de cada armazenamento, com regressões de resolução e fronteiras afetadas; sem novo caminho de aviso em segundo plano nem reescrita total                                    |
 | 13             | E2E com Host/Worker reais no desktop; testes de envio de Session no desktop/`compactForRemoteControl` e regressões de lifecycle/failures do Web; cota e preferência ainda vêm do serviço base Host                     |
-| 14～15         | Testes de julgamento de mesmo modelo, marca, raciocínio, inexecutável, desconhecido/falha/expirado/múltiplos buckets; confirmação real da requisição no Pro                                                                             |
+| 14-15         | Testes de julgamento de mesmo modelo, marca, raciocínio, inexecutável, desconhecido/falha/expirado/múltiplos buckets; confirmação real da requisição no Pro                                                                             |
 | 16             | Primeiro envio/envio seguinte e requisição única no Pro, fechamento com rascunho preservado, escrita de volta do accepted; ramo de envio de Session no desktop/celular e testes afetados existentes de anexo/comando                          |
-| 17～19         | Criação de tarefa e edição de texto, geração/regeneração do Wiki e salvamento imediato de Subagent embutido no Pro; regressões dos formulários originais de Automation/Subagent customizado e do julgamento de recomendação compartilhado              |
+| 17-19         | Criação de tarefa e edição de texto, geração/regeneração do Wiki e salvamento imediato de Subagent embutido no Pro; regressões dos formulários originais de Automation/Subagent customizado e do julgamento de recomendação compartilhado              |
 | 20             | Os dois botões do hook e a preferência de supressão, entre instâncias e tratamento de erros; no Pro, após marcar Não, a reinicialização continua usando o pago e os modelos das outras entradas não são reescritos                     |
 
 Não foram executados de fato o Safari em aparelho físico com celular/Web completo, a cadeia conjunta de shared-host do Web, nem o Electron de Windows/Linux, e nenhuma API paga de conta real foi acessada. 390px é apenas a verificação de tela estreita do mesmo diálogo real e não substitui as conclusões ponta a ponta dessas plataformas; cada combinação de formulário de Subagent customizado e de plugin não teve E2E individual, reaproveitando a entrada de salvamento comum e as evidências de regressão. Os limites das evidências são listados aqui, e não se marca cada combinação de dimensão dos SIP como cobertura total em aparelho real.

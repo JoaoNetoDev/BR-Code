@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Atualmente os skills do ZCode são lidos pelo sistema de arquivos em tempo de execução. Um workspace local lê os skills de usuário e de projeto da própria máquina; workspaces remotos via SSH / Docker / WSL leem os skills do sistema de arquivos remoto. Um workspace remoto pode usar skills, mas的前提 é que os diretórios com `SKILL.md` correspondentes já existam na máquina remota.
+Atualmente os skills do ZCode são lidos pelo sistema de arquivos em tempo de execução. Um workspace local lê os skills de usuário e de projeto da própria máquina; workspaces remotos via SSH / Docker / WSL leem os skills do sistema de arquivos remoto. Um workspace remoto pode usar skills, com a condição de que os diretórios com `SKILL.md` correspondentes já existam na máquina remota.
 
 O `SettingsSyncService` existente resolve o problema de "importar de um Agente externo para o ZCode" dentro do mesmo runtime; ele não grava um diretório local em uma máquina remota via SSH. A camada de conexão remota existente tem `IRemoteBackend.upload()` internamente, mas `RemoteConnection` só expõe `services` para as camadas superiores, e não se deve expor a capacidade genérica de upload diretamente ao renderer só por causa da sincronização de skills.
 

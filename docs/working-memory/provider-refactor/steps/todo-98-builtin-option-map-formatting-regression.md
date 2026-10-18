@@ -2,7 +2,7 @@
 
 > Status: concluído e revisado; 2026-09-09. Inclui achado de execução real e a pequena correção de isolamento de arraste por teclado aprovada pelo usuário.
 > Encerramento: a entrada de desenvolvimento foi fechada; a verificação multicliente restante vai para [Todo102](todo-102-verification-debt-closeout.md) V102-04, e a promoção manual pendente de cases, bem como a lacuna da ferramenta de validação de fixtures de settings, vão para V102-05, sem conta pendente própria neste documento.
-> Norma de estilo: [Option Map 写作风格](../design/model/option-map-writing-style.md).
+> Norma de estilo: [Option Map — estilo de escrita](../design/model/option-map-writing-style.md).
 
 ## 1. Problema e objetivo
 

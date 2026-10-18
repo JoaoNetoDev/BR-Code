@@ -1135,7 +1135,7 @@ Expected:
 
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`
 - Modify: `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`
-- Optional Modify: 历史差异审计文档(已删除)
+- Optional Modify: documento de auditoria de diferenças históricas (excluído)
 
 **Interfaces:**
 
@@ -1193,7 +1193,7 @@ expect(result.profiles[0]).toMatchObject({
 
 - [ ] **Passo 3: Atualização opcional de documentação**
 
-Se a implementação mudar os fatos atuais de diff, atualizar 历史差异审计文档(已删除):
+Se a implementação mudar os fatos atuais de diff, atualizar o documento de auditoria de diferenças históricas (excluído):
 
 - O Service/UI agora grava no user root alinhado ao runtime.
 - A GUI do P0 exclui de propósito a edição de workspace.

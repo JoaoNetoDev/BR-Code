@@ -8,7 +8,7 @@
 >
 > Nome final: **Restaurar**. Não é "Redefinir", "Restaurar recomendação" nem "Restaurar recomendação e salvar". Modifica apenas o rascunho atual, valendo após o salvamento; também pode ser acionado com ID vazio, sendo desabilitado somente durante o salvamento.
 >
-> Relacionados: [Todo125 文案 de ajuda e texto final](./todo-125-model-settings-help-copy.md)、[Todo130 Limite de campos de configuração manual](./todo-130-manual-model-config-editable-field-boundary.md)。Este Todo é responsável pelo layout e pela ação de restauração; reaproveita a atribuição de campos e a conversão de modo do Todo130, sem redefinir configuração de sistema/pessoal. Substitui a disposição anterior que colocava a configuração inteligente no rodapé; o texto de ajuda e a interação do ponto de interrogação do Todo125 continuam válidos.
+> Relacionados: [Todo125 — texto de ajuda e texto final](./todo-125-model-settings-help-copy.md), [Todo130 Limite de campos de configuração manual](./todo-130-manual-model-config-editable-field-boundary.md). Este Todo é responsável pelo layout e pela ação de restauração; reaproveita a atribuição de campos e a conversão de modo do Todo130, sem redefinir configuração de sistema/pessoal. Substitui a disposição anterior que colocava a configuração inteligente no rodapé; o texto de ajuda e a interação do ponto de interrogação do Todo125 continuam válidos.
 
 ## 1. Contexto e decisão final
 

@@ -105,7 +105,7 @@ Entrada local de verificação do Share: `pnpm dev:web-share:test` inicia a entr
 manualmente `http://localhost:5173/cn/share/<share_code>` ou `http://localhost:5173/share/<share_code>`, e o
 share code é lido apenas do path da URL, sem necessidade de variáveis de ambiente; a primeira exibe
 chinês e a segunda inglês. `pnpm dev:web-share:mock` usa os fixtures de desenvolvimento
-`/cn/share/mock-private`、`/cn/share/mock-readonly`、`/cn/share/mock-importable`、`/cn/share/mock-expired`
+`/cn/share/mock-private`, `/cn/share/mock-readonly`, `/cn/share/mock-importable`, `/cn/share/mock-expired`
 e `/cn/share/mock-not-found`. Ambos iniciam apenas o Vite, sem Desktop, relay ou Agente independente.
 Há ainda dois fixtures de compatibilidade entre versões: `/cn/share/mock-partial-unsupported` (linhas não
 reconhecidas são puladas, com um aviso suave no topo) e `/cn/share/mock-outdated-client` (versão do payload
@@ -119,7 +119,7 @@ acessíveis de outro processo.
 A exibição do corpo da página pública reutiliza a camada de apresentação somente-leitura de
 `packages/ui`: por meio de `buildConversationTurnRenderUnits` mantém a ordem de turnos e blocos de
 trabalho do Desktop, usando o mesmo conjunto de `ConversationUserInputBody`,
-`ConversationUserInputContent`、`MessageResponse`、`Reasoning`、`ToolLayout` e `ToolSummaryRow`. O Share
+`ConversationUserInputContent`, `MessageResponse`, `Reasoning`, `ToolLayout` e `ToolSummaryRow`. O Share
 apenas injeta locale, theme e code preview defaults, e não injeta Host, workspace nem file service; as
 ações de Desktop, abertura de arquivo, edição, retry e feedback continuam existindo apenas no Desktop.
 Ferramentas contínuas como Explore/Execute/CUA também passam antes pelo agrupamento
@@ -153,7 +153,7 @@ O "número de resultados" nos metadados públicos conta apenas linhas `kind: "ar
 públicos, ou seja, os cartões de resultados do Assistant realmente exibidos no timeline.
 `preview.artifacts` é o manifest completo de downloads, compartilhado entre resultados e
 `userInput.attachments`, e não pode ser usado diretamente como contagem de resultados; anexos de entrada
-do usuário continuam三餐icipando do mapeamento de URL/nome e do download, mas não contam como "resultados".
+do usuário continuam participando do mapeamento de URL/nome e do download, mas não contam como "resultados".
 
 ## Prioridade de protocolo
 
@@ -203,7 +203,7 @@ troca de dados entre versões**. As disciplinas abaixo não são sugestões:
    `unsupported_schema_version`（「请升级 ZCode」), sem misturar em `invalid_contract`（「分享格式无效」).
 6. **O switch exaustivo de `projectRow` (`conversationSharePublicProjection.ts`) é uma barreira de
    compilação proposital; não adicione um `default` a ele.** Um novo row kind precisa fazer o build falhar,
-   forçando o desenvolvedor a tomar a decisão do item 4 em vez de começar悄悄 a emitir na projeção pública
+   forçando o desenvolvedor a tomar a decisão do item 4 em vez de começar silenciosamente a emitir na projeção pública
    algo que clientes antigos não conseguem ler.
 
 A cobertura de regressão está na seção "cross-version forward compatibility" de
@@ -281,7 +281,7 @@ endurecimento de `img-src`.
 A projeção pública é construída a partir de `ConversationRow[]` oficiais, nunca por inferência a partir do
 DOM, de MessageWithParts legados ou de DTOs Web.
 
-- Permitidos: `turnHeader`、`userInput`、`assistantText`、`reasoning`、`toolCall`、`timelineMarker`、`artifact`.
+- Permitidos: `turnHeader`, `userInput`, `assistantText`, `reasoning`, `toolCall`, `timelineMarker`, `artifact`.
 - Detalhes de `subagent` são filtrados, mas o toolCall do Agente correspondente e os demais Rows públicos do
   mesmo turno são mantidos.
 - Cada classe de Row cria um objeto novo por allow-list, removendo actions, source/root command ID,
@@ -331,7 +331,7 @@ mesmo canonical path é enviado apenas uma vez.
 
 Os arquivos passam por realpath containment, arquivo comum, tipo, tamanho e mtime no lado de execução
 dono. Arquivos remotos entram em staging temporário no Desktop por `readFileRange` em blocos, com cálculo
-de SHA-256 durante a escrita; mudanças de size/mtime, chunk vazio, desconexão ou越界 falham de forma
+de SHA-256 durante a escrita; mudanças de size/mtime, chunk vazio, desconexão ou escrita fora dos limites falham de forma
 fail closed. Depois do prepare só são enviados os bytes imutáveis do staging. O upload é serial na ordem
 de um manifest estável; qualquer falha impede o confirm, e o finally limpa o staging.
 
@@ -394,7 +394,7 @@ Os resultados do preflight são divididos em quatro categorias:
   determinação de tamanho — um tipo não suportado nunca será enviado, seu tamanho é irrelevante para o
   compartilhamento e não deve ser elevado a bloqueio.
 
-- **Remoção silenciosa**: `forkNotice`、`forkCreated`、`checkpointRestored` e outros markers internos
+- **Remoção silenciosa**: `forkNotice`, `forkCreated`, `checkpointRestored` e outros markers internos
   concluídos mas impossíveis de expressar em um timeline público linear são removidos diretamente da
   projeção pública, sem gerar warning, sem contar como ignorados e sem exigir que o usuário cancele o turno.
   Se, após a remoção silenciosa, a seleção inteira não tiver outro conteúdo compartilhável, aí sim ela é
@@ -635,7 +635,7 @@ uma sugestão de retry segura, sem exibir o texto original do servidor.
 A classificação de erros HTTP parte da fonte da falha: páginas de erro 5xx não-JSON devolvidas por
 gateway/load balancer (502/504 em HTML) são falhas de infraestrutura e precisam ser classificadas como
 `network`, e não como `invalid_contract` só porque o body não pôde ser interpretado (a semântica de
-`invalid_contract` é o servidor violando o contrato da API, o que迷 misleadaria o troubleshooting e a
+`invalid_contract` é o servidor violando o contrato da API, o que enganaria o troubleshooting e a
 mensagem ao usuário). O upload de artifact é uma transmissão grande que o usuário espera ativamente, e o
 timeout de requisição única é ampliado dinamicamente conforme os bytes do artifact (com uma estimativa de
 bandwidth mínima); ele não pode reutilizar o timeout padrão das requisições JSON comuns. As regras de
@@ -665,16 +665,16 @@ consistente, usando `p-2` menor e estreitando o espaçamento entre o cartão e a
 com múltiplas issues, o espaçamento extra exigido pela lista é restaurado, evitando que um aviso de erro de
 linha única deixe espaço desnecessário na base.
 
-O usuário precisa confirmar explicitamente que o sistema não识别 automaticamente informações sensíveis.
+O usuário precisa confirmar explicitamente que o sistema não identifica automaticamente informações sensíveis.
 Durante a publicação o painel não pode ser fechado. O `share_url` real só aparece após o confirm bem-sucedido;
 é proibido usar URL de demo ou loading simulado. Retentativas com o mesmo título, permissão, seleção e
 conteúdo reutilizam o clientRequestId, e uma nova ID é gerada após mudanças na entrada.
 
 A falha de publicação precisa exibir uma dica acionável por kind de erro estável, sem degradar tudo para
 "请重试". O Desktop Host registra `operationId`, fase, kind, HTTP status/code e contagens seguras; Server
-Remote e outras rejeições主动 registram um reason explícito. Logs não podem conter JWT, Signed URL, corpo
+Remote e outras rejeições ativas registram um reason explícito. Logs não podem conter JWT, Signed URL, corpo
 de Rows, nomes de arquivo ou caminhos absolutos. Falhas na projeção pública e no staging de produtos
-registram ainda um `reasonCode` estável (como `input_attachment`、`running_turn`、`artifact_changed`、`unsafe_url`)
+registram ainda um `reasonCode` estável (como `input_attachment`, `running_turn`, `artifact_changed`, `unsafe_url`)
 e campos de diagnóstico seguros `rowKind/rowId/artifactType/phase`; a UI usa o reasonCode para sugerir a
 próxima ação e não exibe o texto de erro bruto da camada inferior.
 
@@ -763,7 +763,7 @@ então funciona offline mesmo com o compartilhamento expirado ou ainda não publ
 `timelineMarker`, não entra na exportação de transcript e não participa de um novo compartilhamento.
 
 Os cartões de artifact no bloco de importação do Desktop só oferecem ação de abrir quando a cópia local tem
-um `workspaceRelativePath` legal: o botão principal reaproveita o `OpenSplitButton` da正常 visualização para
+um `workspaceRelativePath` legal: o botão principal reaproveita o `OpenSplitButton` da visualização normal para
 abrir o PreviewPane, e o menu suspenso reaproveita o mesmo conjunto de escolha de editor e de cópia de
 caminho absoluto/relativo. O caminho precisa continuar dentro de `.zcode-share/<share-id>/shared-artifacts/`;
 a validação no lado de renderização é uma allowlist de forma (`.zcode-share/<dir>/shared-artifacts/<file>`
@@ -843,7 +843,7 @@ importação, o isolamento por `workspaceIdentity` nem a fronteira Desktop `desk
 - A primeira entrada de Share URL mantém a semântica de queue/guide: depois de aceita pela queue/guide ela
   entra em `reserved` e, no consumo real, é anexada atomicamente à user message; ao remover a entrada
   enfileirada, volta para `pending`.
-- Restrição de接线 da mesclagem: os `context_refs` do compartilhamento são enviados junto com a Submission
+- Restrição de integração da mesclagem: os `context_refs` do compartilhamento são enviados junto com a Submission
   completa atual; nenhum dos três caminhos — Session existente, primeiro envio com pré-aquecimento e criar
   Session antes de enviar sem pré-aquecimento — pode perder modelSelection/mode. O contexto compartilhado
   não escolhe outro Provider e não restaura a espera pelo Registry antes do envio.

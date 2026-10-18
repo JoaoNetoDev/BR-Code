@@ -8,11 +8,11 @@
 - Escopo de aplicação: Host local do Desktop, Computer Use Helper, runtime do ZCode Agent, broker MCP `zcode-cua`
 - Problemas relacionados: `ZCT-2094300783841067008`, `ZCT-2095050283542110208`
 - Relação de substituição: depois de confirmada esta especificação, ela substitui a convenção antiga de que "Helper ready/recovery precisa reciclar o Agent persistente";
-  a parte de Agent recycle de [CUA Helper 恢复期 Agent 启动准入规范](./cua-agent-recovery-admission-gate.md) precisa ser
+  a parte de Agent recycle de [CUA Helper — norma de admissão de inicialização do Agent na recuperação](./cua-agent-recovery-admission-gate.md) precisa ser
   consolidada conforme esta especificação. O fail-closed, a verificação de identidade de processo e o fence de geração do spawn da especificação antiga continuam mantidos.
-- Cláusulas substituídas (2026-09-21): o §3.1 desta especificação, "2026-09-10 spawn 快路", e a entrada de sonda limitada de §3.3, "Agent spawn env
+- Cláusulas substituídas (2026-09-21): o §3.1 desta especificação, "atalho de spawn de 2026-09-10", e a entrada de sonda limitada de §3.3, "o spawn env do Agent
   precisa decidir se pode injetar o tuple atual do broker", foram substituídas por
-  [CUA Helper 懒启动规范](./2026-09-21-cua-helper-lazy-startup-spec.md) — a injeção de credenciais no spawn env
+  [CUA Helper — norma de inicialização preguiçosa](./2026-09-21-cua-helper-lazy-startup-spec.md) — a injeção de credenciais no spawn env
   não faz mais nenhuma verificação de saúde; as demais cláusulas desta especificação continuam válidas.
 
 ## I. Invariantes de produto

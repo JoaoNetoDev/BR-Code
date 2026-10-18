@@ -22,8 +22,8 @@ Este Todo consolida as duas interações em um único interruptor de modo de con
 
 O diálogo passa a manter apenas um interruptor de modo de configuração, com o texto recomendado:
 
-- Chinês：`跟随推荐配置`
-- Inglês：`Follow recommended settings`
+- Chinês: `跟随推荐配置`
+- Inglês: `Follow recommended settings`
 
 Com o interruptor ligado, continua-se usando a lógica atual de Overlay esparso; desligado, a configuração pessoal do modelo atual fica fixada. O botão 「全部恢复默认」 na base e sua interação duplicada são removidos, sem criar um segundo ponto de entrada de reset.
 

@@ -131,18 +131,18 @@ De cima para baixo:
 ### 1. Barra superior
 
 - Esquerda: nada (a tab「插件/技能」não é feita). À direita, o grupo de ações, nesta ordem:
-  - **Refresh**（Manual Refresh）：dispara `plugins/marketplace/update(null)`（todos os mercados), reutilizando o estado de loading existente; não é afetado pelo throttling do refresh automático.
-  - **Catalog Auto-Refresh**（refresh automático de catálogo）：após entrar na página da loja, atualiza apenas `zcode-plugins-official`,
+  - **Refresh**(Manual Refresh): dispara `plugins/marketplace/update(null)`（todos os mercados), reutilizando o estado de loading existente; não é afetado pelo throttling do refresh automático.
+  - **Catalog Auto-Refresh**(refresh automático de catálogo): após entrar na página da loja, atualiza apenas `zcode-plugins-official`,
     com o critério `now - max(lastUpdated, lastAttemptAt) >= 10 minutos`. `lastUpdated` vem da persistência de catálogo em nível de usuário do Host;
     `lastAttemptAt` é o horário de tentativa dentro do módulo do Renderer, com placeholder ao iniciar, preservado ao remontar a página entre navegações
     e zerado ao reiniciar o processo. Falhas dentro da janela e requisições em voo não são reiniciadas ao reentrar na página; um refresh manual bem-sucedido atualiza o tempo persistido.
     Não se adiciona polling por timer, nem busca automática de `claude-plugins-official` ou de origens pessoais, evitando que mercados Git ainda não carregados executem requisições com timeout longo a cada entrada. O refresh automático não mostra toast de atualização disponível e mantém o feedback de loading/erro existente.
     Desktop e Web compartilham esta UI e este serviço, sem alterar user inventory, workspaceIdentity ou o roteamento de requisições.
-  - **Engrenagem**：entra em **gerenciamento de fontes de mercado** — a capacidade existente de gerenciamento de marketplace source muda de lugar (lista origens existentes:
+  - **Engrenagem**: entra em **gerenciamento de fontes de mercado** — a capacidade existente de gerenciamento de marketplace source muda de lugar (lista origens existentes:
     atualizar/validar/remover/diagnosticar).「Adicionar」não fica aqui.
     As linhas de origem de mercado são ordenadas pelas regras a seguir: `zcode-plugins-official` e `claude-plugins-official` ficam fixos no topo;
     as demais origens customizadas são ordenadas por `lastUpdated` decrescente; origens customizadas sem `lastUpdated` vão para o fim; em caso de empate de horário, ordenação estável pelo nome de exibição localizado.
-  - **New**：botão de icon com texto usando `default`, `size="lg"`, que abre diretamente「添加市场源」, recolhendo as capacidades existentes do AddMarketplacePopover de
+  - **New**: botão de icon com texto usando `default`, `size="lg"`, que abre diretamente「添加市场源」, recolhendo as capacidades existentes do AddMarketplacePopover de
     github / git / URL / caminho local (incluindo arrastar e soltar). Zero adição de backend.
 
 O diálogo「添加插件市场」e o diálogo「市场源」usam uniformemente título `text-ui-lg`, corpo `text-ui-base` e informação auxiliar.
@@ -161,8 +161,8 @@ O grupo de ações é alinhado verticalmente ao centro e os cartões da lista co
 ### 3. Caixa de busca
 
 - Largura total, bordas arredondadas, prefixo de lupa, placeholder「搜索插件」.
-- Nomes em chinês suportam pinyin sem tom e iniciais (feishu、fei shu、fs), e a interface em inglês também usa o nome em chinês presente no listing. Compartilha o matcher com a página de gerenciamento, sem correspondência aproximada de erros de digitação nem alteração de ordenação.
-- **O escopo da busca atravessa público + pessoal**（mantendo a lógica de busca total existente）. Quando a entrada não está vazia, o layout de segmentação/Featured/categoria
+- Nomes em chinês suportam pinyin sem tom e iniciais (feishu, fei shu, fs), e a interface em inglês também usa o nome em chinês presente no listing. Compartilha o matcher com a página de gerenciamento, sem correspondência aproximada de erros de digitação nem alteração de ordenação.
+- **O escopo da busca atravessa público + pessoal**(mantendo a lógica de busca total existente). Quando a entrada não está vazia, o layout de segmentação/Featured/categoria
   cede lugar a um fluxo unificado de cartões de resultado (duas colunas, o mesmo estilo de cartão); limpar restaura.
 
 ### 4. Faixa de instalados (Installed Strip)
@@ -189,11 +189,11 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
 
 ### 6. Conteúdo da segmentação pública
 
-- **Grande seção Featured**：a lista vem do `featured: string[]` de nível superior do catálogo do CDN (na ordem). O título da seção é
+- **Grande seção Featured**: a lista vem do `featured: string[]` de nível superior do catálogo do CDN (na ordem). O título da seção é
   "Featured" (i18n). Cartões em duas colunas.
 - **Blocos de categoria**: os demais plugins são agregados por `category`, todos expandidos por padrão. Acima de 6 cartões, a entrada "recolher" é mantida;
   depois que o usuário recolhe manualmente, apenas os 6 primeiros são exibidos e o restante é recolhido em uma linha no rodapé: `[小 icon do 前 3 个] 查看 A、B，以及另外 N 个`,
-  e o clique expande novamente. Nesta rodada não há recolhimento automático por quantidade, e os grupos recém-criados também aparecem expandidos por padrão; a escolha manual do usuário é preservada na página atual. Plugins sem `category` vão para a seção「其他」（por padrão no final）.
+  e o clique expande novamente. Nesta rodada não há recolhimento automático por quantidade, e os grupos recém-criados também aparecem expandidos por padrão; a escolha manual do usuário é preservada na página atual. Plugins sem `category` vão para a seção「其他」(por padrão no final).
 - Categorias e plugins dentro de cada categoria suportam ordenação enviada pelo servidor conforme o modo de interface; veja
   [contrato de ordenação por modo](plugins/plugin-store-mode-order.md). O modo de programação usa `code` e o modo geral usa
   `work`; itens não configurados são adicionados na ordem original, e a configuração explícita permite reposicionar「其他」. Destaques e as demais listas não são afetados.
@@ -217,14 +217,14 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
 ### 8. Cartões
 
 - Estrutura: ícone (40px, cantos arredondados) · nome de exibição (negrito) · descrição truncada em uma linha · ações à direita.
-- Ações à direita: não instalado → botão de cápsula「安装」（virando spinner durante a instalação, cancelável, mantendo o fluxo de operações existente）；
-  instalado → menu「…」: habilitar/desabilitar, atualizar（somente quando há atualização e a origem ainda existe）, remover
-  （a remoção passa pelo diálogo de confirmação existente）。
+- Ações à direita: não instalado → botão de cápsula「安装」(virando spinner durante a instalação, cancelável, mantendo o fluxo de operações existente);
+  instalado → menu「…」: habilitar/desabilitar, atualizar(somente quando há atualização e a origem ainda existe), remover
+  (a remoção passa pelo diálogo de confirmação existente).
   > Revisão de 2026-07-17: os cartões da loja em duas colunas permanecem compactos e não repetem o Switch de nível de plugin; ligar/desligar continua possível pelo
   > menu「…」. Quando for necessário ver explicitamente o estado atual de habilitação, o cabeçalho da página de detalhe e a visão「管理已安装」continuam
   > oferecendo um Switch de nível de plugin visível (o interruptor individual de componentes continua fora do escopo desta rodada, ver os limites do ADR).
 - Quando instalado e com atualização disponível: o canto「可更新」é acrescentado à direita do título (ícone `Download` `size-3` +
-  `settings.plugins.list.updateAvailable`, cápsula com cor semântica success, `text-ui-sm`, lado a lado com a especificação do badge de plano); a área de ações à direita ganha um botão de cápsula「更新」antes do menu「…」（virando spinner durante a atualização）,
+  `settings.plugins.list.updateAvailable`, cápsula com cor semântica success, `text-ui-sm`, lado a lado com a especificação do badge de plano); a área de ações à direita ganha um botão de cápsula「更新」antes do menu「…」(virando spinner durante a atualização),
   e o item de atualizar do menu「…」é mantido. A condição de exibição do canto e do botão é exatamente a mesma da entrada de atualização da página de detalhe.
 - Clicar no corpo do cartão (fora da área de botões) → página de detalhe.
 
@@ -232,17 +232,17 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
 
 De cima para baixo, coluna única centralizada (max-width conforme o design):
 
-1. **Cabeçalho**：após o ícone grande (64px), o nome de exibição e as ações permanecem na mesma linha horizontal:
+1. **Cabeçalho**: após o ícone grande (64px), o nome de exibição e as ações permanecem na mesma linha horizontal:
    `显示名 | 插件级启停 Switch | 「…」菜单 | Try now / 安装`. O nome de exibição pode encolher e truncar,
    a área de ações não encolhe; a descrição de uma linha e o aviso de origem ausente ocupam a linha seguinte sozinhos e não podem ficar entre o nome e as ações.
-   - **Switch de ligar/desligar do plugin**（quando instalado e há runtime info, explicitando o estado）。
-   - Menu「…」：igual ao menu do cartão (habilitar/desabilitar, atualizar, remover); plugins órfãos não exibem o item de atualizar antes de a origem ser reassociada.
+   - **Switch de ligar/desligar do plugin**(quando instalado e há runtime info, explicitando o estado).
+   - Menu「…」: igual ao menu do cartão (habilitar/desabilitar, atualizar, remover); plugins órfãos não exibem o item de atualizar antes de a origem ser reassociada.
    - Botão principal: instalado →「立即试用 / Try now」; não instalado →「安装」.
      Clicar em「立即试用」reaproveita a ação padrão de nova tarefa do Root, preenchendo apenas
      a mention estruturada `[@Plugin](plugin://stable-id)`, sem anexar texto de exemplo e sem enviar automaticamente.
-2. **Área do Hero**（renderizada apenas se houver `heroImage`）：imagem de banner arredondada, sobre a qual são empilhadas verticalmente as **cápsulas de prompt de exemplo**
+2. **Área do Hero**(renderizada apenas se houver `heroImage`): imagem de banner arredondada, sobre a qual são empilhadas verticalmente as **cápsulas de prompt de exemplo**
    (de `examplePrompts`, cada uma: ícone do produto de documentos + prefixo com o nome do plugin + prompt + botão →). Os exemplos de Document Skills
-   usam `documents@2x.png`、`pdf@2x.png`、`spreadsheets@2x.png` empacotados com a UI: DOCX/Word mapeia para documents, PDF mapeia para pdf e XLSX/Excel/CSV mapeia para spreadsheets; quando não reconhecido, há fallback para documents,
+   usam `documents@2x.png`, `pdf@2x.png`, `spreadsheets@2x.png` empacotados com a UI: DOCX/Word mapeia para documents, PDF mapeia para pdf e XLSX/Excel/CSV mapeia para spreadsheets; quando não reconhecido, há fallback para documents,
    sem exibir novamente o avatar do plugin.
    O banner no desktop adota uma proporção baixa e larga de cerca de `3:1` com cantos muito arredondados, e no celular mantém uma altura mínima; por baixo, reaproveita o gradiente colorido com pontos de luz, sensível ao tema, do `ThemeHeroVisual` do diálogo de onboarding, com a imagem sobreposta de forma semitransparente e uma máscara escura leve.
    Sem imagem, com imagem transparente ou em caso de falha de carregamento, o fundo colorido é mantido e não degrada para uma lista comum de botões.
@@ -254,10 +254,10 @@ De cima para baixo, coluna única centralizada (max-width conforme o design):
    sem criar um segundo estado de referência de Plugin. Quando o plugin não está instalado, clicar na cápsula primeiro orienta a instalação (equivalente a clicar em「安装」）,
    permanecendo na página de detalhe e sem criar sessão; depois de concluída a instalação, um novo clique entra no rascunho.
    Sem `heroImage` mas com `examplePrompts` → lista apenas de cápsulas sem imagem; sem nenhum dos dois → a área inteira não é renderizada.
-3. **Descrição longa**：`description` do listing (por locale, pega `description_i18n`, com fallback `description`).
-4. **Seções de componentes**：na ordem「MCP 服务器」「技能」「命令」「子智能体」「Hooks」,
+3. **Descrição longa**: `description` do listing (por locale, pega `description_i18n`, com fallback `description`).
+4. **Seções de componentes**: na ordem「MCP 服务器」「技能」「命令」「子智能体」「Hooks」,
    renderizando apenas grupos não vazios. Cada seção: título + contador + divisor + linhas de itens (avatar de ícone pequeno/iniciais + nome +
-   descrição truncada), com o mesmo estilo de linha aplicado às cinco categorias. **Nesta rodada não há interruptor individual nem engrenagem na linha**（ver não objetivos）。
+   descrição truncada), com o mesmo estilo de linha aplicado às cinco categorias. **Nesta rodada não há interruptor individual nem engrenagem na linha**(ver não objetivos).
    Os ícones de recurso devem manter a mesma semântica das listas de configurações: servidores MCP usam `Server`, skills usam
    `WandSparkles`, comandos usam `Terminal`, subagentes usam `Bot` e Hooks usam `Anchor`;
    a página de detalhe não pode criar um conjunto próprio de ícones aproximados e inconsistentes.
@@ -319,17 +319,17 @@ O `marketplace.json` de nível superior já tem `name` / `description(_i18n)` / 
 
 | Campo                                     | Nível     | Tipo                                     | Uso                                                   |
 | ---------------------------------------- | --------- | ---------------------------------------- | ----------------------------------------------------- |
-| `featured`                                | superior  | `string[]`（plugin name）                | lista e ordenação do Featured da segmentação pública  |
-| `displayName` / `displayName_i18n`        | entrada   | `string` / `Record<locale,string>`       | nome de exibição no cartão/detalhe（fallback `name` slug） |
-| `icon`                                    | entrada   | `string`（URL https ou caminho relativo no pacote） | ícone do cartão, da faixa de instalados e do cabeçalho de detalhe |
-| `homepage`                                | entrada   | `string`（URL https）                   | seção de informações·site                              |
-| `privacyPolicy`                           | entrada   | `string`（URL https）                   | seção de informações·política de privacidade           |
-| `termsOfService`                          | entrada   | `string`（URL https）                   | seção de informações·termos de serviço                 |
-| `heroImage`                               | entrada   | `string`（URL https ou caminho relativo no pacote） | banner hero da página de detalhe                       |
+| `featured`                                | superior  | `string[]`(plugin name)                | lista e ordenação do Featured da segmentação pública  |
+| `displayName` / `displayName_i18n`        | entrada   | `string` / `Record<locale,string>`       | nome de exibição no cartão/detalhe(fallback `name` slug) |
+| `icon`                                    | entrada   | `string`(URL https ou caminho relativo no pacote) | ícone do cartão, da faixa de instalados e do cabeçalho de detalhe |
+| `homepage`                                | entrada   | `string`(URL https)                   | seção de informações·site                              |
+| `privacyPolicy`                           | entrada   | `string`(URL https)                   | seção de informações·política de privacidade           |
+| `termsOfService`                          | entrada   | `string`(URL https)                   | seção de informações·termos de serviço                 |
+| `heroImage`                               | entrada   | `string`(URL https ou caminho relativo no pacote) | banner hero da página de detalhe                       |
 | `examplePrompts` / `examplePrompts_i18n`  | entrada   | `string[]` / `Record<locale,string[]>`  | cápsulas de prompt da área hero                       |
-| `requiresPaidPlan`                        | entrada   | `boolean`（só `true` tem efeito）        | badge cor de damasco do plano de programação à direita do título no cartão/detalhe |
+| `requiresPaidPlan`                        | entrada   | `boolean`(só `true` tem efeito)        | badge cor de damasco do plano de programação à direita do título no cartão/detalhe |
 
-Os campos já disponíveis continuam sendo repassados: `category`、`author{name,url?}`、`description_i18n`、`keywords`.
+Os campos já disponíveis continuam sendo repassados: `category`, `author{name,url?}`, `description_i18n`, `keywords`.
 
 - Aviso de plano pago: `requiresPaidPlan` só tem efeito com o booleano explícito `true`, e formas ambíguas como
   `"true"` / `1` são sempre tratadas como sem plano, evitando que um erro no catálogo acople um aviso pago a um plugin gratuito. O campo descreve a "condição de uso"
@@ -390,7 +390,7 @@ sequenceDiagram
 ```
 
 Regra de bucketing público/pessoal (puramente na camada de UI, por id de mercado): `zcode-plugins-official` → público;
-todo o resto (incluindo `claude-plugins-official`、`inline` e os adicionados pelo usuário) → pessoal.
+todo o resto (incluindo `claude-plugins-official`, `inline` e os adicionados pelo usuário) → pessoal.
 
 ## Matriz de degradação
 
@@ -403,7 +403,7 @@ todo o resto (incluindo `claude-plugins-official`、`inline` e os adicionados pe
 | `category`                                         | vai para o bloco「其他」                                                | a linha de categoria da seção de informações é omitida            |
 | `homepage` / `privacyPolicy` / `termsOfService`    | —                                                                       | a linha de informação correspondente é omitida (só após o fallback de manifesto continuar ausente) |
 | `author`                                           | —                                                                       | linha de desenvolvedor: listing → manifest → omitida             |
-| `requiresPaidPlan`（ausente ou diferente de `true`） | sem badge de plano de programação à direita do título do cartão         | sem badge de plano de programação à direita do título do detalhe  |
+| `requiresPaidPlan`(ausente ou diferente de `true`) | sem badge de plano de programação à direita do título do cartão         | sem badge de plano de programação à direita do título do detalhe  |
 | `featured` vazio/ausente                           | a segmentação pública não tem a grande seção Featured e vai direto para os blocos de categoria | —                                                   |
 | Falha no carregamento de imagem                    | idem ao ausente (fallback de avatar), sem imagem quebrada               | idem; falha no hero faz a área inteira ser tratada como sem imagem |
 | Falha/timeout no describe                          | —                                                                       | a seção de componentes volta para rótulos de componentTypes + aviso honesto (regra da V1) |
@@ -437,7 +437,7 @@ Página de listagem:
 - [ ] A segmentação pública = apenas o mercado oficial: seção Featured (dirigida pelo `featured` do CDN, pode estar vazia) + blocos de categoria; cada seção é exibida completa por padrão; cada seção com mais de 6 pode ser recolhida manualmente e expandida de novo por "查看 A、B，以及另外 N 个".
 - [ ] A segmentação pessoal = seção de recomendados (recommendedPlugins.json) + as demais origens agrupadas por mercado (incluindo claude-plugins-official, inline).
 - [ ] A busca atravessa as duas segmentações e, ao digitar, vira um fluxo unificado de resultados; limpar restaura (segmentação e posição de rolagem preservadas).
-- [ ] Cartão: não instalado mostra「安装」（incluindo os estados em andamento/cancelamento）, instalado mostra「…」（habilitar/desabilitar, atualizar, remover); a remoção tem diálogo de confirmação.
+- [ ] Cartão: não instalado mostra「安装」(incluindo os estados em andamento/cancelamento), instalado mostra「…」(habilitar/desabilitar, atualizar, remover); a remoção tem diálogo de confirmação.
 - [ ] Atualização disponível: o canto「可更新」no título do cartão + a cápsula「更新」na linha, o botão de atualização no canto superior direito do ícone da faixa de instalados e o canto/botão na linha da visão de gerenciamento de instalados aparecem simultaneamente; sem atualização ou em plugin órfão, nenhum dos três aparece.
 - [ ] Barra superior: o refresh dispara update de todos os mercados; a engrenagem abre o gerenciamento de fontes de mercado (atualizar/validar/remover); New abre diretamente「添加市场源」, com github/git/URL/caminho local e arrastar e soltar todos funcionais.
 - [ ] Refresh automático de catálogo: ao entrar na página da loja, o mercado oficial é atualizado automaticamente e só ele; reentrar dentro de 10 minutos não atualiza; falha no refresh ou reentrada com requisição em voo não reinicia; o refresh manual não é afetado por throttling (PLM-LC-018/019).
@@ -463,7 +463,7 @@ Visão de gerenciamento e transversal:
 
 O New da barra superior passou a ser“添加 ▾”, com um menu contendo apenas“创建插件”e“添加插件市场”, cobrindo desktop/celular e os idiomas chinês/inglês, bem como os temas claro e escuro. Esta seção substitui a restrição da especificação antiga de que o New só abriria o gerenciador de fontes de mercado; a criação entra em um novo rascunho por meio da Skill embutida plugin-creator. A adição de mercado continua reutilizando o diálogo existente. Veja [插件创建入口](plugin-creator.md).
 
-### Registros de configuração ausentes e catálogo da loja（2026-09-17）
+### Registros de configuração ausentes e catálogo da loja(2026-09-17)
 
 Após a divisão/despublicação de plugins, `plugins.enabledPlugins` ou `plugins.options` ainda podem conter IDs antigos.
 O Agent mantém os registros com `source: missing` / `packageStatus: missing` como dados de diagnóstico de configuração de User/Workspace;
@@ -475,9 +475,9 @@ Essa projeção não remove configurações, caches ou registros de instalação
 Cadeia: configuração do usuário → diagnóstico de pacote ausente no Agent → o protocolo preserva os dados de diagnóstico; o join da loja primeiro preserva entradas de catálogo/restauração e só então complementa com pacotes reais.
 Cenário de regressão: `PLM-MISSING-CONFIG`, ver o catálogo de casos de lifecycle e a coverage matrix.
 
-### Ordenação padrão dos plugins de documentos（2026-09-17）
+### Ordenação padrão dos plugins de documentos(2026-09-17)
 
-Os IDs oficiais completos `pdf`、`presentations`、`spreadsheets`、`documents`（todos de `zcode-plugins-official`）
+Os IDs oficiais completos `pdf`, `presentations`, `spreadsheets`, `documents`(todos de `zcode-plugins-official`)
 ocupam as quatro primeiras posições da faixa de ícones instalados e dos grupos pré-definidos da página de gerenciamento, na ordem PDF → PPT → Excel → Word. Plugins ausentes são pulados, desativação não afeta a ordenação e plugins pessoais homônimos não são promovidos ao topo.
 As categorias públicas e os seletores de referência que reutilizam sua ordenação priorizam, por padrão, a ordem acima dentro da mesma categoria; a ordenação explícita de categorias/plugins do servidor continua prevalecendo e as demais regras são mantidas.
 Desktop/celular, chinês/inglês e os temas claro e escuro usam a mesma ordem. A ordenação altera apenas a exibição, e não a instalação, o ligar/desligar, a configuração ou o array original.

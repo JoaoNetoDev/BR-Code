@@ -229,7 +229,7 @@ A identidade de pareamento é `device_sid`. A URL do QR é:
 - `workspace-bridge-open` / `workspace-bridge-ready` / `workspace-bridge-error`
 - `platform-request` / `platform-response`
 - `mobile-view-state-update`
-- `rpc-frame` / `rpc-frame-ack`（somente transporte; o relay não faz parse）
+- `rpc-frame` / `rpc-frame-ack` (somente transporte; o relay não faz parse)
 - `app-error`
 
 04D-3 fez desktop main e mobile web usarem simultaneamente o shared acknowledged adapter; o app parser global passou a aceitar oficialmente o
