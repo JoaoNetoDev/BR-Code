@@ -1,4 +1,4 @@
-# Todo156:Correções subsequentes do Provider Start independente e decisões finais de página
+# Todo156: Correções subsequentes do Provider Start independente e decisões finais de página
 
 > Estado: em 2026-09-17 F01–F09 foram implementados conforme autorizado e a auto-revisão foi concluída; a verificação necessária ainda tem falhas de baseline; o usuário, ciente disso, pediu explicitamente o commit e o push. Implementação, evidências de verificação e itens não cobertos estão em §14.
 > Origem: revisão posterior à entrega de [Todo154](todo-154-start-plan-independent-provider.md), feedback do Air e discussões item a item seguintes.
@@ -31,7 +31,7 @@ Esta rodada corrigiu as dependências residuais do Start em relação ao antigo 
 
 `current` continua significando o contexto de acesso da conta correspondente; Start e um Provider pago podem ser true ao mesmo tempo; não é a seleção da caixa de entrada e não é usado para adivinhar o item selecionado do dropdown. Mantêm-se o continuous do desktop, o replayable do celular e o owner original da submissão.
 
-## 2. F01:A quota do Start na caixa de entrada deixa de depender da conexão antiga
+## 2. F01: A quota do Start na caixa de entrada deixa de depender da conexão antiga
 
 **Descoberta**: em `V4ComposerToolbar.tsx`, `resolveV4ContextPlanConnection`, depois de o Start ser selecionado na caixa de entrada, ainda exigia que a seleção global existisse e tivesse kind start-plan. Os estados globais pessoal / equipe / sem seleção retornam none.
 
@@ -41,7 +41,7 @@ Esta rodada corrigiu as dependências residuais do Start em relação ao antigo 
 - [x] Continuar usando o entitlement da conta original, os modelos, a validação de configuração e a entrada de refresh de cota existentes.
 - [x] Preservar a dependência das cotas pessoal / de equipe ao scope pago correto, sem alterar a semântica de todos os Providers.
 
-## 3. F02:Falha de preenchimento do time antigo deixa de bloquear o Start
+## 3. F02: Falha de preenchimento do time antigo deixa de bloquear o Start
 
 **Descoberta**: `settingService.prepareLegacyAccountConnections` → readAccountProviderSettings em `node.ts` → `accountProviderConnectionResolver.ts`. Quando a equipe antiga não tem organizationId e o preenchimento falha, surgem unresolvedFamilies; hoje isso marca como unknown os Providers da mesma marca, incluindo o Start, e pula a consulta.
 
@@ -51,7 +51,7 @@ Esta rodada corrigiu as dependências residuais do Start em relação ao antigo 
 
 Um teste existente chegou a afirmar que o Start ficava unknown junto com a marca inteira; isso precisa ser alterado para a nova expectativa correta. Este defeito tem evidência de código e de teste, mas não é uma causa comprovada do fenômeno anterior de expiração de plano no Air.
 
-## 4. F03:Resgate, feedback de sucesso e ver o plano
+## 4. F03: Resgate, feedback de sucesso e ver o plano
 
 Dois fluxos precisam ser distinguidos: a entrada / modal de resgate ativo é suportada pelo Marketing Touch; o antigo `manualClaimPlanModelGuideStore` e o consumer da Toolbar esperavam pelo Start global, escolhiam o modelo automaticamente e mostravam «Start 已就绪». O guia antigo não encontrou nenhum solicitante em produção.
 
@@ -72,7 +72,7 @@ Dois fluxos precisam ser distinguidos: a entrada / modal de resgate ativo é sup
 - [x] Limpar o antigo guia de escolha automática de modelo sem entrada em produção e seus resíduos dedicados; não restaurar o «立即使用» com escolha automática de modelo nem adicionar outra camada de dicas na caixa de entrada.
 - [x] A entrada de resgate continua independente do plano que o usuário possui no momento, exibida conforme a elegibilidade original da campanha.
 
-## 5. F04:Completar os parâmetros de acesso de conta nas consultas de saldo
+## 5. F04: Completar os parâmetros de acesso de conta nas consultas de saldo
 
 **Descoberta**: as chamadas a seguir fornecem preferredProviderId, mas omitem accountAccess; `useUsageEntitlement` não completa os parâmetros e `BigModelUsageQuotaProvider` não deduz apenas pelo ID, então o Start pode retornar not_configured, provider=null e quota=null.
 
@@ -86,7 +86,7 @@ Dois fluxos precisam ser distinguidos: a entrada / modal de resgate ativo é sup
 - [x] Cobrir cache frio, cache existente e refresh, evitando que outra entrada preencha o cache e mascare a falta de parâmetros.
 - [x] Não vincular o feedback da sessão ao modelo do rascunho ainda não submetido, nem criar novo owner de cota.
 
-## 6. F05:Start permanente e organização do estado do lado direito
+## 6. F05: Start permanente e organização do estado do lado direito
 
 ### 6.1 Decisão final de produto
 
@@ -134,7 +134,7 @@ plan.ends_at      → expireTime          → 整份套餐到期日期
 - [x] Manter a exibição de tempo original; cada bucket usa apenas o próprio expires_at, sem recorrer ao tempo de expiração do plano como reserva.
 - [x] Não fabricar tempo quando o campo não existe; não prometer adicionalmente que «a cota necessariamente retorna neste horário», pois o último período pode expirar junto com o plano.
 
-## 7. F06:O dropdown de conexão de equipe reflete com precisão a escolha paga
+## 7. F06: O dropdown de conexão de equipe reflete com precisão a escolha paga
 
 ### 7.1 Motivo da introdução
 
@@ -156,7 +156,7 @@ Os itens de equipe são construídos copiando os dados do plano pessoal, e os tr
 
 Nesta rodada não se reconstrói explicitamente todos os itens de equipe, não se extrai um construtor único de equipe e não se substituem por completo os campos herdados; apenas corta-se a dependência incorreta do julgamento de seleção do dropdown em relação a esse objeto. Não se pode continuar tratando o «governar de passagem enquanto se faz isso» levantado no meio do caminho como escopo desta rodada.
 
-## 8. F07:O aviso de modelo da sessão ganha identificação do plano
+## 8. F07: O aviso de modelo da sessão ganha identificação do plano
 
 ```text
 GLM-5.3(个人套餐)
@@ -223,7 +223,7 @@ Portão de implementação: freshness do workspace, git status; typecheck, lint,
 - Na revisão completa da cadeia posterior, o usuário confirmou o acréscimo de F08 e também confirmou o compartilhamento do saldo da recomendação, o refresh sob demanda e a validade de 60 segundos de F09. O usuário permite um breve uso transitório ao trocar de conta, mas não de forma permanente, e não quer que isso sirva de base para novas barreiras complexas de corrida de identidade; a decisão concreta está em §13 e deixa de ser marcada como pendente de discussão.
 - Dúvidas condicionais sobre atribuição de cota / chave de lista em múltiplas instâncias foram verificadas contra o baseline: `StartPlanBalanceCard.tsx`, `StartPlanContextBalance.tsx`, `bigmodelUsageQuotaProvider.ts` não têm diferenças em relação ao `2772217134` anterior à mudança nem ao `origin/staging` local no momento da revisão. Sondas com entradas construídas não provam que a interface de produção permite essa combinação, portanto não é listado como defeito comprovado introduzido desta vez, e as regras originais de agrupamento / exibição já determinadas em F05 não são alteradas por conta própria. O histórico `13bb702b38` chegou a retirar o endurecimento da chave sob o contrato de unicidade por entitlement_id, e depois `853b93b2c2` restaurou esse tópico para uma versão anterior; a explicação histórica não substitui a verificação do contrato atual da interface.
 
-## 12. F08:Preencher a recomendação de commit da tela secundária criada com uma pergunta
+## 12. F08: Preencher a recomendação de commit da tela secundária criada com uma pergunta
 
 **Confirmação**: solicitado pelo usuário em 2026-09-17. Hoje o `SessionPane` retorna cedo para `/side <问题>`, chamando `createSelectionSideSession({ firstInput: { text } })`; a CLI, após criar o child, inicia direto a primeira mensagem, contornando a recomendação de plano de experiência no caminho comum de envio. A continuação comum de uma tela secundária normal continua passando pelo caminho de envio compartilhado.
 
@@ -246,7 +246,7 @@ Portão de implementação: freshness do workspace, git status; typecheck, lint,
 
 **Limites de evidência antes da implementação**: a investigação original veio do branch de front-end, do schema compartilhado e do handler da CLI, quando o ponto de entrada de build da CLI ainda estava ausente. Na fase de implementação as dependências da CLI foram construídas, e a regressão direcionada e a validação da primeira requisição no Pro foram concluídas; ver §14.
 
-## 13. F09:Compartilhamento do saldo da recomendação, refresh sob demanda e validade
+## 13. F09: Compartilhamento do saldo da recomendação, refresh sob demanda e validade
 
 **Confirmação**: em 2026-09-17 o usuário confirmou a solução e pediu que ela fosse registrada. Aqui «推荐弹窗» significa o diálogo «不了／切换套餐／不再提示» exibido antes da submissão / salvamento quando o mesmo modelo pago tem cota de um plano de experiência. Esta seção trata em conjunto do problema da recomendação usar um saldo antigo por muito tempo e do caso de continuar usando o saldo antigo da recomendação depois de trocar de conta na mesma marca.
 

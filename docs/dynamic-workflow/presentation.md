@@ -672,7 +672,7 @@ razões:
 Com as decolagens no centro da lâmpada e apenas os pousos espalhados, uma estação com um
 arco de entrada e um de saída desenhava a subida de saída através da ponta de seta de
 entrada: duas verticais fundidas em uma linha com a ponta de seta no meio dela (as estações
-支路甲 e 支路乙 do script de estresse testfield). Agora dois terminais ficam na borda da
+ramo A e ramo B do script de estresse testfield). Agora dois terminais ficam na borda da
 lâmpada, e três ou mais passam além dela. Dois arcos cujas extensões se intercalam ainda se
  cruzam, como uma horizontal sobre uma vertical.
 

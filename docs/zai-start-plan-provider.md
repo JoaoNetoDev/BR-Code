@@ -424,7 +424,7 @@ idle -> checking-auth -> verifying -> claiming -> success-dialog -> refreshing -
   área de estado centralizada, usando `gap-3` internamente; o contêiner externo entre a área de estado e a área de ação usa `gap-6`.
   O texto de falha é localizado pelo código de negócio; erros desconhecidos e de rede usam o texto de falha genérico, sem expor ao usuário erros internos do servidor.
   `1005` indica que a cota de resgate do dia acabou: a resposta de falha do claim precisa preservar `data.plan.ends_at`, avaliado no fuso local do usuário; quando a campanha termina no mesmo dia, mostra "今日领取名额已用完，欢迎下次再来"; quando termina amanhã ou depois, mostra "今日领取名额已用完，请明天再来"; quando o campo está ausente ou inválido, mostra apenas "今日领取名额已用完".
-  `1001`、`1002`、`1003`、`1004`、`3001`、`3007` e a invalidação de login continuam usando seus respectivos textos estáveis, e só códigos desconhecidos
+  `1001`, `1002`, `1003`, `1004`, `3001`, `3007` e a invalidação de login continuam usando seus respectivos textos estáveis, e só códigos desconhecidos
   caem no texto de falha genérico. O botão de confirmação do estado de falha usa "知道了 / Got it"; o `AlertDialog` padrão não ganha ícone de status
   nem botão de fechar. O estado de falha não inicia quadros de animação do Ticket nem constrói ou executa o fluxo de compartilhamento.
 
