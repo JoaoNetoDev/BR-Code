@@ -1,137 +1,137 @@
-# Embedded Search Branch 实施计划
+# Plano de implementação do branch de busca embutida (Embedded Search)
 
-> For agentic workers: REQUIRED SKILL: Use superpowers:executing-plans to execute this plan step-by-step.
+> Para agentes: SKILL OBRIGATÓRIA: use superpowers:executing-plans para executar este plano passo a passo.
 
-> 2026-06-25 复核修正：ZCode 默认启用 embedded search branch（embedded search gate 开启且 Bash 可用）。provider-visible request 以 embedded branch 合同测试为证据；direct Glob/Grep short description 由 dedicated contract baseline 单独校验。
+> Correção de revisão de 2026-06-25: o ZCode habilita por padrão o branch de embedded search (gate de embedded search ligado e Bash disponível). A requisição provider-visible tem como evidência os testes de contrato do branch embutido; a short description de Glob/Grep direto é validada separadamente por uma baseline de contrato dedicada.
 
-> 2026-06-25 临时运行时策略：provider-visible embedded branch 继续保持默认开启，但 Bash 执行层暂不注入 `find()` / `grep()` prelude。模型仍会看到并优先使用 Bash 中的 `find` / `grep`，实际命令先依赖用户本地 shell 环境；如果是 CMD 或缺少命令，由首轮 Bash 错误反馈给模型自适应。prelude builder、backend 类型和 adapter 支持代码保留，后续可通过开关恢复。
+> Política temporária de runtime de 2026-06-25: o branch de embedded search provider-visible continua ligado por padrão, mas a camada de execução do Bash temporariamente não injeta o prelude `find()` / `grep()`. O modelo ainda verá e priorizará `find` / `grep` no Bash, e os comandos reais dependem primeiro do ambiente de shell local do usuário; se for CMD ou faltar o comando, o erro da primeira execução do Bash é devolvido ao modelo para adaptação. O construtor de prelude, os tipos de backend e o código de suporte do adapter são preservados e podem ser restaurados depois por um interruptor.
 
-## 目标
+## Objetivo
 
-将 ZCode 的 main agent、Agent/Explore subagent、Glob/Grep 工具描述，以及 Bash 中 `find`/`grep` 的运行时行为，统一切换到默认的 **embedded search 分支**。
+Mudar de forma unificada o main agent do ZCode, o subagent Agent/Explore, as descrições das ferramentas Glob/Grep e o comportamento de runtime de `find`/`grep` no Bash para o **branch de embedded search** como padrão.
 
-当前默认 baseline 是 embedded search branch：
+O baseline padrão atual é o branch de embedded search:
 
-1. provider-visible 层：默认不向模型暴露 `Glob` / `Grep` direct tools。
-2. Bash prompt：默认不再提示避免用 Bash 直接跑 `find` / `grep`。
-3. Plan prompt：默认使用 ``find``/Glob, ``grep``/Grep, and Read。
-4. runtime 层：当前临时不注入 embedded search `find()` / `grep()` prelude，先依赖用户本地 `find` / `grep`。
+1. camada provider-visible: por padrão não expõe ao modelo as ferramentas diretas `Glob` / `Grep`.
+2. prompt do Bash: por padrão não orienta mais a evitar rodar `find` / `grep` diretamente no Bash.
+3. prompt do Plan: por padrão usa ``find``/Glob, ``grep``/Grep, and Read``.
+4. camada de runtime: atualmente não injeta temporariamente o prelude `find()` / `grep()` do embedded search, dependendo primeiro do `find` / `grep` local do usuário.
 
-## Embedded search branch 目标行为
+## Comportamento alvo do branch de embedded search
 
-- embedded search gate 默认开启；本地 agent 入口等非默认场景可关闭。
-- gate 开启且 Bash 可用时：
-  - main system broad exploration guidance 使用 ``find`` / ``grep`` via Bash tool。
-  - Explore prompt 使用 Bash 下的 `find` / `grep` 指引。
-  - Bash prompt 的 avoid list 不再要求避开 `find` / `grep`。
-  - Bash 初始化时注入 `find` / `grep` function，由 embedded search backend 执行（bundled 形态下分发到 `bfs` / `ugrep`）。
-  - `grep` function 走 `ugrep -G --ignore-files --hidden -I`，并默认排除 `.git/.svn/.hg/.bzr/.jj/.sl`。
-  - `grep` 遇到 `-*-filter*`、`-*-pager*`、`-*-view*`、`-*-format-open*`、`-*-config*`、`---*`、`-@*`、`-*-save-config*` 时绕回系统 `grep "$@"`。
-  - `find` / `grep` function 在内部 binary 不可执行时会 fallback 到系统命令。
-- Windows/Git Bash 分支：
-  - 仍要求 POSIX shell 语义，不往 CMD 注入 `find()` / `grep()` function。
-  - Git Bash/MSYS/Cygwin 下 `find` / `grep` function 使用 `ARGV0=... "<binary>"` 形式调用，不依赖 Linux/macOS 的 `exec -a`。
-  - shell snapshot 会把 Windows 宿主路径转换成 Git Bash 路径，例如 `C:\repo` -> `/c/repo`，并过滤 Git Bash 自动生成的 `winpty` aliases。
-- Glob/Grep 工具 prompt 另有 simple/short description 分支：
-  - 默认模型属于 short description 分支。
-  - 该点只影响 direct Glob/Grep tool description，不等同于 embedded search gate。
+- O gate de embedded search é ligado por padrão; ele pode ser desligado em cenários não padrão, como o entry de agent local.
+- Com o gate ligado e o Bash disponível:
+  - a orientação de exploração ampla do main system usa ``find`` / ``grep`` via Bash tool.
+  - o prompt do Explore usa as orientações de `find` / `grep` sob o Bash.
+  - a lista de avoid do prompt do Bash deixa de exigir evitar `find` / `grep`.
+  - na inicialização do Bash são injetadas as functions `find` / `grep`, executadas pelo backend de embedded search (na forma bundled, distribuídas para `bfs` / `ugrep`).
+  - a function `grep` usa `ugrep -G --ignore-files --hidden -I` e exclui por padrão `.git/.svn/.hg/.bzr/.jj/.sl`.
+  - ao encontrar `-*-filter*`, `-*-pager*`, `-*-view*`, `-*-format-open*`, `-*-config*`, `---*`, `-@*` ou `-*-save-config*`, a `grep` volta ao `grep "$@"` do sistema.
+  - as functions `find` / `grep` fazem fallback para os comandos do sistema quando o binário interno não é executável.
+- Branch Windows/Git Bash:
+  - ainda exige semântica de shell POSIX e não injeta functions `find()` / `grep()` no CMD.
+  - sob Git Bash/MSYS/Cygwin, as functions `find` / `grep` chamam na forma `ARGV0=... "<binary>"`, sem depender do `exec -a` de Linux/macOS.
+  - o snapshot do shell converte caminhos do host Windows para caminhos do Git Bash, por exemplo `C:\repo` -> `/c/repo`, e filtra os aliases `winpty` gerados automaticamente pelo Git Bash.
+- Os prompts das ferramentas Glob/Grep têm também um branch de simple/short description:
+  - o modelo padrão pertence ao branch de short description.
+  - Esse ponto afeta apenas a descrição direta das ferramentas Glob/Grep e não equivale ao gate de embedded search.
 
-## 第一版实现取舍
+## Trade-offs de implementação da primeira versão
 
-以下取舍是为了降低第一版实现成本，允许保留，但必须在代码和测试中清楚体现：
+Os trade-offs a seguir existem para reduzir o custo de implementação da primeira versão; são permitidos, mas devem ficar claramente refletidos no código e nos testes:
 
-- 第一版不实现 `ARGV0=bfs/ugrep` 自分发二进制。
-  - ZCode 第一版使用 `internal-cli` backend 接管 `find` / `grep`。
-  - 架构事实必须叫 embedded search backend，而不是 internal search shim。
-  - 默认 provider-visible 行为保持 embedded search；模型看到并调用 Bash 中的 `find` / `grep`。
-  - 预留 `argv0-dispatch` backend 口子，未来可以替换成单 binary 自分发实现，不改 prompt/tool exposure。
-  - `internal-cli` 仍然调用宿主真实 `find` / `grep`，但 `grep` 会补齐低成本的默认参数：`-G -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude-dir=.jj --exclude-dir=.sl`。
-  - `grep` shell function 和 `internal-cli grep` 必须保留上述特殊参数 bypass 列表，避免把默认参数混入 filter/pager/view/config 等特殊模式。
-  - `internal-cli` 不解析或裁剪真实 `find` / `grep` 参数；除上述默认参数和 bypass 外，argv、stdin、stdout、stderr、exit code 必须透明透传。
-- 不做 provider/source 判定 gate。
-  - 本目标内 gate 不区分 provider/source/variant，统一视为启用。
-  - embedded search branch 判断函数必须接收模型信息，形态参考 MCS capability helper。
-  - 一期用全局 feature flag 短路判断；后续可以在同一个函数里按模型决定是否进入 embedded search branch。
-  - 不读取 provider/source 来判断是否启用。
-- 保留 direct Glob/Grep tools 的实现。
-  - embedded branch 不暴露 direct tools。
-  - non-embedded/direct branch 用于 global flag 关闭或 Bash unavailable 等非默认降级，继续使用现有 Glob/Grep 工具。
+- A primeira versão não implementa o auto-dispatch dos binários `ARGV0=bfs/ugrep`.
+  - Na primeira versão o ZCode usa o backend `internal-cli` para assumir `find` / `grep`.
+  - O fato arquitetural deve ser chamado de backend de embedded search, e não de internal search shim.
+  - O comportamento provider-visible padrão continua sendo o embedded search; o modelo vê e chama `find` / `grep` no Bash.
+  - Reserva-se a porta de backend `argv0-dispatch`, que futuramente poderá ser trocada por uma implementação de auto-dispatch de binário único, sem mudar a exposição de prompt/tool.
+  - O `internal-cli` ainda chama o `find` / `grep` real do host, mas o `grep` completa parâmetros padrão de baixo custo: `-G -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude-dir=.jj --exclude-dir=.sl`.
+  - A shell function `grep` e o `internal-cli grep` devem preservar a lista de bypass dos parâmetros especiais acima, para evitar misturar os parâmetros padrão em modos especiais como filter/pager/view/config.
+  - O `internal-cli` não faz parse nem recorte dos argumentos reais de `find` / `grep`; além dos parâmetros padrão e do bypass acima, argv, stdin, stdout, stderr e exit code devem ser transmitidos de forma transparente.
+- Não fazer um gate de decisão por provider/source.
+  - Dentro deste objetivo, o gate não distingue provider/source/variant e tudo é considerado habilitado.
+  - A função de decisão do branch de embedded search deve receber informações do modelo, com forma semelhante ao helper de capability do MCS.
+  - Na primeira etapa um feature flag global faz curto-circuito na decisão; depois a mesma função pode decidir se entra no branch de embedded search conforme o modelo.
+  - Não ler provider/source para decidir se está habilitado.
+- Manter a implementação das ferramentas diretas Glob/Grep.
+  - O branch embutido não expõe ferramentas diretas.
+  - O branch non-embedded/direct é usado nas degradações não padrão, como o flag global desligado ou Bash indisponível, e continua usando as ferramentas Glob/Grep existentes.
 
-## 全局约束
+## Restrições globais
 
-- 先更新/新增 docs，再实现代码。
-- 所有新增逻辑要有自动化测试覆盖 provider-visible prompt/tool schema 和 runtime shell wrapping。
-- 不改 UI，不触碰 mobile/web remote realtime 语义。
-- 不把 provider/source 判定做成可变 gate；当前目标内 gate 统一视为启用。
-- embedded search branch 必须通过一个模型感知的 capability 函数判断，不能在 prompt/tool 注册调用点散落判断。
-- capability 函数同时接收 Bash shell selection，为后续模型/运行时策略保留上下文；当前 provider-visible embedded branch 不再按 shell dialect 回退。
-- 不用 patch-on-patch 的零散判断，统一抽出 branch capability、backend 和 prelude helper。
-- 注释如需解释 bug/差异原因，用中文。
-- 提交前必须执行：
+- Atualizar/criar primeiro a documentação, depois implementar o código.
+- Toda lógica nova precisa ter cobertura automatizada de testes para o prompt/tool schema provider-visible e para o wrapping de shell do runtime.
+- Não alterar a UI nem tocar na semântica realtime de mobile/web remote.
+- Não transformar a decisão por provider/source em um gate mutável; dentro deste objetivo o gate é uniformemente considerado habilitado.
+- O branch de embedded search precisa ser decidido por uma função de capability consciente do modelo, e a decisão não pode ficar espalhada pelos pontos de chamada de registro de prompt/tool.
+- A função de capability recebe também a seleção do shell Bash, preservando contexto para futuras estratégias de modelo/runtime; o branch de embedded search provider-visible não faz mais fallback por dialeto de shell.
+- Não usar decisões esparsas do tipo patch-on-patch; extrair uniformemente helpers de branch capability, backend e prelude.
+- Comentários que precisem explicar bug/diferença devem ser escritos em chinês.
+- Antes de commitar é obrigatório executar:
   - `pnpm --filter @zcode/core typecheck`
   - `pnpm --filter @zcode/core lint`
   - `pnpm --filter @zcode/adapters typecheck`
   - `pnpm --filter @zcode/adapters lint`
-  - 相关单测
+  - os testes unitários relacionados
 
-## Provider-Visible 合同边界
+## Fronteira do contrato provider-visible
 
-本任务的 provider-visible 验收口径是最终请求体中模型能看到的全部内容，而不是只看 system prompt 的几行文案。默认模型的 embedded branch 必须整组满足以下内容：
+O critério de aceite provider-visible desta tarefa é tudo o que o modelo consegue ver no corpo final da requisição, e não apenas algumas linhas de texto do system prompt. O branch embutido do modelo padrão precisa atender integralmente ao seguinte:
 
-1. `tools[]` 默认不暴露 direct `Glob` / `Grep`。
-   - main agent 的 provider-visible tools 不应包含 `Glob` / `Grep`。
-   - Explore subagent 的 provider-visible tools 不应包含 `Glob` / `Grep`。
-2. Bash tool description 默认走 embedded search 分支。
-   - `Avoid using Bash to run ...` 中不包含 `find` / `grep`。
-3. Explore prompt 默认走 embedded 分支。
-   - 使用 `Use \`find\` via Bash for broad file pattern matching`。
-   - 使用 `Use \`grep\` via Bash for searching file contents with regex`。
-   - Explore allowlist 不包含 direct `Glob` / `Grep`。
-4. Plan prompt 默认走 embedded 分支。
-   - 使用 ``find``, ``grep``, and Read 查找 patterns/conventions。
-5. Agent tool description 默认不列出 direct search tools。
-   - Explore description 不能写 `(Tools: Glob, Grep, Read, Bash, WebFetch, WebSearch, TodoWrite)`。
-6. Main system guidance 默认不输出 Agent/Explore session guidance。
-   - embedded branch 的 simple guidance 不包含这两行；ZCode 保持注释不输出。
+1. `tools[]` não expõe por padrão as ferramentas diretas `Glob` / `Grep`.
+   - as ferramentas provider-visible do main agent não devem conter `Glob` / `Grep`.
+   - as ferramentas provider-visible do subagent Explore não devem conter `Glob` / `Grep`.
+2. A descrição da ferramenta Bash segue por padrão o branch de embedded search.
+   - `Avoid using Bash to run ...` não contém `find` / `grep`.
+3. O prompt do Explore segue por padrão o branch embutido.
+   - usa `Use \`find\` via Bash for broad file pattern matching`.
+   - usa `Use \`grep\` via Bash for searching file contents with regex`.
+   - a allowlist do Explore não contém `Glob` / `Grep` diretos.
+4. O prompt do Plan segue por padrão o branch embutido.
+   - usa ``find``, ``grep``, and Read`` para encontrar patterns/conventions.
+5. A descrição da ferramenta Agent não lista por padrão ferramentas de busca direta.
+   - a descrição do Explore não pode escrever `(Tools: Glob, Grep, Read, Bash, WebFetch, WebSearch, TodoWrite)`.
+6. A orientação do main system não emite por padrão o session guidance de Agent/Explore.
+   - a orientação simples do branch embutido não contém essas duas linhas; o ZCode mantém os comentários sem emiti-los.
 
-当前临时策略下，CMD / legacy shell fallback 不再改变 provider-visible branch：仍默认隐藏 direct `Glob` / `Grep`，Bash prompt 仍允许模型使用 `find` / `grep`。执行层不注入 Bash prelude；如果本地 shell 不支持这些命令，由首轮 Bash 错误反馈给模型自适应。
+Sob a política temporária atual, o fallback para CMD / shell legado deixa de alterar o branch provider-visible: os `Glob` / `Grep` diretos continuam ocultos por padrão e o prompt do Bash continua permitindo que o modelo use `find` / `grep`. A camada de execução não injeta o prelude do Bash; se o shell local não suportar esses comandos, o erro da primeira execução do Bash é devolvido ao modelo para adaptação.
 
-## 三层架构边界
+## Fronteira da arquitetura de três camadas
 
-实现必须拆成三层，避免第一版 `internal-cli` 策略污染 provider-visible contract：
+A implementação precisa ser dividida em três camadas, evitando que a estratégia `internal-cli` da primeira version contamine o contrato provider-visible:
 
-1. Provider-visible branch capability
-   - 用一个模型感知函数决定是否进入 embedded search branch，形态参考 MCS 的 `evaluateMidConversationSystemCapability`。
-   - 控制 direct Glob/Grep 是否暴露、Bash prompt、Explore prompt、Plan prompt、Agent description、main system guidance。
-   - 不关心 Bash 里的 `find` / `grep` 最终由哪种 backend 执行。
-2. Bash prelude builder
-   - 只负责生成 shell function：
+1. Branch capability provider-visible
+   - uma função consciente do modelo decide se entra no branch de embedded search, com forma semelhante à `evaluateMidConversationSystemCapability` do MCS.
+   - controla se Glob/Grep diretos são expostos, o prompt do Bash, o prompt do Explore, o prompt do Plan, a descrição do Agent e a orientação do main system.
+   - não se importa com qual backend executa no final o `find` / `grep` no Bash.
+2. Construtor de prelude do Bash
+   - responsável apenas por gerar as shell functions:
      ```bash
      find() { ... "$@"; }
      grep() { ... "$@"; }
      ```
-   - 接收 `EmbeddedSearchBackend`，不硬编码 `zcode __internal-search`。
-3. Embedded search backend
-   - 第一版使用 `internal-cli` 降低实现成本。
-   - 未来允许切换到 `argv0-dispatch`。
-   - 切换 backend 不应影响 provider-visible branch capability、prompt tests、tool exposure tests 和 Bash handler 的大部分 wiring。
+   - recebe `EmbeddedSearchBackend` e não faz hardcode de `zcode __internal-search`.
+3. Backend de embedded search
+   - a primeira versão usa `internal-cli` para reduzir o custo de implementação.
+   - futuramente será permitido trocar por `argv0-dispatch`.
+   - trocar de backend não deve afetar a branch capability provider-visible, os testes de prompt, os testes de exposição de tools e a maior parte do wiring do handler de Bash.
 
-## Windows Shell 适配边界
+## Fronteira de adaptação de shell no Windows
 
-- Git Bash：
-  - provider-visible policy 可以启用 embedded branch。
-  - adapter/prelude 负责把 backend command 与 Windows 绝对路径参数转换为 Git Bash 路径。
-  - 当前 backend 仍是 `internal-cli`；未来切到 `argv0-dispatch` 时复用同一 prelude 边界。
-- CMD / legacy shell fallback：
-  - 当前不禁用 provider-visible embedded branch。
-  - 执行层不注入 POSIX function，直接依赖本地 shell 的命令可用性。
-  - adapter 层即使收到 `bashPrelude` 也不能向 CMD 注入 POSIX function，作为防误用兜底。
-- 本阶段不实现完整 shell snapshot `.sh` 文件生成；该问题单独留到 shell snapshot/prelude 任务。
-- 当前临时禁用 Bash prelude 注入；CMD / legacy shell fallback 不再作为 provider-visible branch 的关闭条件，执行层统一先让本地 shell 报错或成功。
+- Git Bash:
+  - a política provider-visible pode habilitar o branch embutido.
+  - adapter/prelude é responsável por converter o comando do backend e argumentos de caminho absoluto do Windows para caminhos do Git Bash.
+  - o backend atual ainda é `internal-cli`; ao trocar no futuro para `argv0-dispatch` a mesma fronteira de prelude é reutilizada.
+- CMD / fallback de shell legado:
+  - atualmente não desabilita o branch de embedded search provider-visible.
+  - a camada de execução não injeta functions POSIX e depende diretamente da disponibilidade dos comandos no shell local.
+  - mesmo que a camada de adapter receba `bashPrelude`, ela não pode injetar functions POSIX no CMD, como salvaguarda contra uso indevido.
+- Esta etapa não implementa a geração completa do arquivo de snapshot de shell `.sh`; esse problema fica para a tarefa separada de shell snapshot/prelude.
+- A injeção do prelude do Bash está temporariamente desabilitada; o fallback para CMD / shell legado deixa de ser condição de desligamento do branch provider-visible e a camada de execução uniformemente deixa o shell local errar ou ter sucesso.
 
-## 受影响文件
+## Arquivos afetados
 
-预期新增：
+Adições esperadas:
 
 - `apps/zcode-cli/packages/core/src/embedded-search/capability.ts`
 - `apps/zcode-cli/packages/core/tests/runtime-embedded-search-capability.test.ts`
@@ -140,7 +140,7 @@
 - `apps/zcode-cli/packages/cli/src/internal-search/embedded-search-cli.ts`
 - `apps/zcode-cli/packages/cli/tests/internal-search.test.ts`
 
-预期修改：
+Modificações esperadas:
 
 - `docs/plan/trajectory/embedded-search-provider-visible.md`
 - `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
@@ -163,113 +163,113 @@
 - `apps/zcode-cli/packages/adapters/src/exec/cwd-capture.ts`
 - `apps/zcode-cli/packages/cli/src/run.ts`
 
-用户补充约束：本轮完成后不要自动 commit、不要 push、不要 stage；所有改动留在 unstaged 工作区中等待 review。
+Restrição adicional do usuário: ao concluir esta rodada não fazer commit, push nem stage; todas as alterações ficam na árvore de trabalho sem stage, aguardando review.
 
-## Phase 0：建立实现前基线
+## Phase 0: estabelecer a baseline antes da implementação
 
-### 0.1 检查工作区状态
+### 0.1 Verificar o estado da árvore de trabalho
 
-执行：
+Executar:
 
 ```bash
 git status --short
 ```
 
-期望：
+Esperado:
 
-- 如果有用户未提交改动，记录文件列表。
-- 后续只修改本计划列出的文件。
+- Se houver alterações não commitadas do usuário, registrar a lista de arquivos.
+- Modificar somente os arquivos listados neste plano.
 
-### 0.2 记录当前 provider-visible 行为
+### 0.2 Registrar o comportamento provider-visible atual
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/core test -- tool-contracts.test.ts context-builder.test.ts
 ```
 
-期望：
+Esperado:
 
-- 当前测试通过。
-- 如果失败，先记录失败项，不在本任务中顺手修无关问题。
+- Os testes atuais passam.
+- Se falharem, registrar primeiro os itens que falham, sem corrigir problemas alheios a esta tarefa.
 
-### 0.3 新增设计文档
+### 0.3 Criar o documento de design
 
-创建：
+Criar:
 
 ```text
 docs/plan/trajectory/embedded-search-provider-visible.md
 ```
 
-文档内容包括：
+Conteúdo do documento:
 
-- embedded search branch 目标行为：
-  - embedded search gate。
-  - Bash 初始化注入 `find` / `grep`。
-  - main/Explore/Bash prompt 的 embedded 分支。
-  - Glob/Grep short description 分支与 gate 的关系。
-- ZCode 的实现策略：
-  - provider-visible branch capability。
-  - provider-visible branch。
-  - Bash prelude。
-  - embedded search backend。
-- 实现取舍：
-  - 第一版 backend 使用 `internal-cli`，不直接实现 `ARGV0=bfs/ugrep` 自分发。
-  - 预留 `argv0-dispatch` backend，未来可切换到单 binary 自分发实现。
-  - gate 统一视为启用，不做 provider/source 判定。
-  - branch capability 接收模型信息，一期由全局 feature flag 短路。
+- comportamento alvo do branch de embedded search:
+  - gate de embedded search.
+  - injeção de `find` / `grep` na inicialização do Bash.
+  - branch embutido nos prompts main/Explore/Bash.
+  - relação entre o branch de short description de Glob/Grep e o gate.
+- estratégia de implementação do ZCode:
+  - branch capability provider-visible.
+  - branch provider-visible.
+  - prelude do Bash.
+  - backend de embedded search.
+- trade-offs de implementação:
+  - o backend da primeira versão usa `internal-cli` e não implementa diretamente o auto-dispatch `ARGV0=bfs/ugrep`.
+  - reserva-se o backend `argv0-dispatch`, que futuramente pode ser trocado por uma implementação de auto-dispatch de binário único.
+  - o gate é uniformemente considerado habilitado, sem decisão por provider/source.
+  - a branch capability recebe informações do modelo e, na primeira etapa, faz curto-circuito por um feature flag global.
 
-验证：
+Verificação:
 
 ```bash
 test -f docs/plan/trajectory/embedded-search-provider-visible.md
 ```
 
-## Phase 1：抽出 embedded search branch capability
+## Phase 1: extrair a branch capability de embedded search
 
-以下 Phase 1-5 是默认 embedded branch 的实现步骤；CMD / legacy shell fallback 会回到 direct Glob/Grep 分支。
+As phases 1 a 5 abaixo são os passos de implementação do branch embutido padrão; o fallback para CMD / shell legado volta ao branch direto Glob/Grep.
 
-### 1.1 编写失败测试
+### 1.1 Escrever testes que falham
 
-新增：
+Adicionar:
 
 ```text
 apps/zcode-cli/packages/core/tests/runtime-embedded-search-capability.test.ts
 ```
 
-测试覆盖：
+Cobertura de testes:
 
-- capability input 必须接收 `ModelRef`。
-- 默认不传 `embeddedSearchBranchEnabled` + Bash available 启用 embedded search。
-- 显式 `embeddedSearchBranchEnabled: true` + Bash unavailable 不启用 embedded search。
-- global flag 关闭时短路为 disabled。
-- decision context 保留安全的模型信息，形态参考 MCS：
+- a entrada de capability precisa receber `ModelRef`.
+- sem `embeddedSearchBranchEnabled` explícito + Bash disponível, o embedded search é habilitado.
+- `embeddedSearchBranchEnabled: true` explícito + Bash indisponível não habilita o embedded search.
+- com o flag global desligado, faz curto-circuito para disabled.
+- o decision context preserva informações seguras do modelo, com forma semelhante ao MCS:
   - `context.modelRef`
   - `context.modelId`
   - `context.providerId`
   - `context.providerKind`
   - `context.baseURL`
-- 一期不按 model id/provider/source 判断开关，但测试要证明模型信息已经传入 decision context。
+- Na primeira etapa o interruptor não é decidido por model id/provider/source, mas os testes devem provar que a informação do modelo já é passada ao decision context.
 
-测试命令：
+Comando de teste:
 
 ```bash
 pnpm --filter @zcode/core test -- runtime-embedded-search-capability.test.ts
 ```
 
-期望：
+Esperado:
 
-- 测试先失败，提示模块不存在或函数不存在。
+- Os testes falham primeiro, indicando que o módulo ou a função não existe.
 
-### 1.2 实现 branch capability helper
+### 1.2 Implementar o helper de branch capability
 
-新增：
+Adicionar:
 
 ```text
 apps/zcode-cli/packages/core/src/embedded-search/capability.ts
 ```
 
-导出：
+Exportar:
 
 ```ts
 import type { ModelConnectionInfo, ModelConnectionPort, ModelRef } from "@zcode/contracts";
@@ -377,7 +377,7 @@ function sanitizeModelConnectionInfo(
 }
 ```
 
-后续模型分支扩展时，只允许在 `evaluateEmbeddedSearchBranchCapability` 内新增判断，例如：
+Ao estender para o branch por modelo mais adiante, só é permitido adicionar decisões dentro de `evaluateEmbeddedSearchBranchCapability`, por exemplo:
 
 ```ts
 if (isEmbeddedSearchCapableModel(resolvedContext.modelId)) {
@@ -389,46 +389,46 @@ if (isEmbeddedSearchCapableModel(resolvedContext.modelId)) {
 }
 ```
 
-说明：
+Explicação:
 
-- helper 接收 `modelRef`，现在不按模型开关，后续可以补模型分支。
-- `resolveEmbeddedSearchBranchCapability` 形态与 MCS 一致：调用点传入 `modelConnectionPort` 和 `modelRef`，helper 内部安全 resolve/sanitize connection。
-- global flag 是一期短路入口，运行时默认读取 `ENABLE_EMBEDDED_SEARCH_BRANCH`；测试和 bench 可以通过 `embeddedSearchBranchEnabled` 显式覆盖。
-- global flag 判断不能在各个 prompt builder 或 tool registry 里重复写。
-- 目标分支内 gate 统一视为启用，不能按 provider/source/variant 猜测。
-- 默认模型的 short prompt/tool wording 仍由现有 model prompt 分支控制，不能和 embedded search branch capability 混在一起。
-- helper 必须是纯函数，便于测试和 provider-visible 构造复用。
+- O helper recebe `modelRef`; hoje não liga/desliga por modelo e depois pode ser completado com um branch por modelo.
+- `resolveEmbeddedSearchBranchCapability` tem a mesma forma do MCS: o ponto de chamada passa `modelConnectionPort` e `modelRef`, e o helper faz resolve/sanitize seguro da connection internamente.
+- O flag global é a entrada de curto-circuito da primeira etapa; o runtime lê por padrão `ENABLE_EMBEDDED_SEARCH_BRANCH`, e testes e bench podem sobrescrever explicitamente via `embeddedSearchBranchEnabled`.
+- A decisão do flag global não pode ser reescrita em cada prompt builder ou tool registry.
+- Dentro do branch alvo o gate é uniformemente considerado habilitado e não pode ser adivinhado por provider/source/variant.
+- O wording curto de prompt/tool do modelo padrão continua controlado pelo branch de prompt de modelo existente e não pode se misturar com a embedded search branch capability.
+- O helper precisa ser uma função pura, para facilitar os testes e a reutilização na construção provider-visible.
 
-### 1.3 跑测试
+### 1.3 Rodar os testes
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/core test -- runtime-embedded-search-capability.test.ts
 ```
 
-期望：
+Esperado:
 
-- branch capability 测试通过。
+- Os testes de branch capability passam.
 
-## Phase 2：调整 provider-visible prompt 和 tool exposure
+## Phase 2: ajustar prompt provider-visible e exposição de tools
 
-### 2.1 修改 built-in tools 注册逻辑
+### 2.1 Modificar a lógica de registro de built-in tools
 
-文件：
+Arquivo:
 
 ```text
 apps/zcode-cli/packages/core/src/tool/handlers/index.ts
 ```
 
-目标：
+Objetivo:
 
-- embedded branch：不注册 direct `Glob` / `Grep` provider tools。
-- direct branch：继续注册 `Glob` / `Grep`。
-- 删除当前临时注释式 exclude 逻辑，改为显式参数。
-- main agent 和 Explore subagent 都必须复用同一 branch capability decision，避免一个隐藏 tools、另一个仍暴露 tools。
+- branch embutido: não registrar provider tools diretas `Glob` / `Grep`.
+- branch direto: continuar registrando `Glob` / `Grep`.
+- remover a lógica temporária de exclude baseada em comentário e passar a usar um parâmetro explícito.
+- o main agent e o subagent Explore precisam reutilizar a mesma decisão de branch capability, para que um não esconda tools e o outro ainda exponha tools.
 
-接口形态：
+Forma da interface:
 
 ```ts
 export interface RegisterBuiltInToolsOptions {
@@ -449,26 +449,26 @@ export function registerBuiltInTools(
 }
 ```
 
-验收点：
+Pontos de aceite:
 
-- 不再通过“注释掉 exclude 逻辑”控制行为。
-- 注册行为只由 `embeddedSearchEnabled` 决定。
-- 默认 embedded branch 的最终 `tools[]` 不包含 `Glob` / `Grep`。
+- O comportamento não é mais controlado por "comentar a lógica de exclude".
+- O comportamento de registro é determinado apenas por `embeddedSearchEnabled`.
+- O `tools[]` final do branch embutido padrão não contém `Glob` / `Grep`.
 
-### 2.2 修改 Bash prompt 分支
+### 2.2 Modificar o branch do prompt do Bash
 
-文件：
+Arquivo:
 
 ```text
 apps/zcode-cli/packages/core/src/tool/handlers/bash-prompt.ts
 ```
 
-目标：
+Objetivo:
 
-- embedded branch exact 合同：avoid list 不包含 `find` / `grep`，只保留 ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo``。
-- direct branch 保留当前“避免 Bash 跑 find/grep/cat/head/tail/sed/awk/echo”的 ZCode 规则。
+- contrato exato do branch embutido: a lista de avoid não contém `find` / `grep` e mantém apenas ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo```.
+- branch direto: manter a regra atual do ZCode de "evitar rodar find/grep/cat/head/tail/sed/awk/echo no Bash".
 
-建议接口：
+Interface sugerida:
 
 ```ts
 export interface BuildBashPromptOptions {
@@ -484,51 +484,51 @@ export function buildBashPrompt(options: BuildBashPromptOptions = {}): string {
 }
 ```
 
-验收点：
+Pontos de aceite:
 
-- 对默认 embedded branch，Bash prompt 不再劝模型避开 `find` / `grep`。
-- 对默认 embedded branch，Bash prompt 的 avoid list exact 包含 ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo``。
-- direct branch 不受影响。
+- Para o branch embutido padrão, o prompt do Bash não desaconselha mais o modelo a evitar `find` / `grep`.
+- Para o branch embutido padrão, a lista de avoid do prompt do Bash contém exatamente ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo```.
+- O branch direto não é afetado.
 
-### 2.3 修改 main Agent tool description
+### 2.3 Modificar a descrição da ferramenta Agent principal
 
-文件：
+Arquivo:
 
 ```text
 apps/zcode-cli/packages/core/src/tool/handlers/agent.ts
 ```
 
-目标：
+Objetivo:
 
-- embedded branch：Agent/Task description 中不声称 subagent 拥有 `Glob` / `Grep` direct tools。
-- direct branch：继续列出 `Glob` / `Grep`。
-- embedded branch 的 Explore description 不出现 `(Tools: Glob, Grep, Read, Bash, WebFetch, WebSearch, TodoWrite)` 这类 direct tools 泄漏。
+- branch embutido: a descrição de Agent/Task não afirma que o subagent possui direct tools `Glob` / `Grep`.
+- branch direto: continuar listando `Glob` / `Grep`.
+- a descrição do Explore no branch embutido não pode vazar direct tools como `(Tools: Glob, Grep, Read, Bash, WebFetch, WebSearch, TodoWrite)`.
 
-验收点：
+Pontos de aceite:
 
-- 默认 embedded branch 的 provider-visible tool schema 不出现 Glob/Grep direct tools。
-- Agent tool description 也不出现“Tools: Glob, Grep”。
+- O tool schema provider-visible do branch embutido padrão não contém direct tools Glob/Grep.
+- A descrição da ferramenta Agent também não contém "Tools: Glob, Grep".
 
-### 2.4 修改 Explore subagent prompt 和 allowed tools
+### 2.4 Modificar o prompt e as tools permitidas do subagent Explore
 
-文件：
+Arquivo:
 
 ```text
 apps/zcode-cli/packages/core/src/subagent/explore.ts
 ```
 
-目标：
+Objetivo:
 
-- embedded branch：
-  - allowed tools 不包含 `Glob` / `Grep`。
-  - prompt exact 使用 `Use \`find\` via Bash for broad file pattern matching`。
-  - prompt exact 使用 `Use \`grep\` via Bash for searching file contents with regex`。
-  - Bash read-only 列表允许 `find` 和 `grep`。
-- direct branch：
-  - allowed tools 包含 `Glob` / `Grep`。
-  - prompt 使用 direct `Glob` / `Grep` 表述。
+- branch embutido:
+  - as tools permitidas não contêm `Glob` / `Grep`.
+  - o prompt usa exatamente `Use \`find\` via Bash for broad file pattern matching`.
+  - o prompt usa exatamente `Use \`grep\` via Bash for searching file contents with regex`.
+  - a lista de comandos Bash read-only permite `find` e `grep`.
+- branch direto:
+  - as tools permitidas contêm `Glob` / `Grep`.
+  - o prompt usa formulações de `Glob` / `Grep` diretos.
 
-建议接口：
+Interface sugerida:
 
 ```ts
 export interface BuildExploreSubagentOptions {
@@ -546,137 +546,137 @@ export function buildExploreAllowedTools(options: BuildExploreSubagentOptions = 
 }
 ```
 
-验收点：
+Pontos de aceite:
 
-- Explore 的 Glob/Grep 是否出现完全由 branch 决定。
-- 文件内注释明确说明 Glob/Grep direct exposure 是 non-embedded branch 行为。
-- Explore 的 Bash read-only 命令列表在 embedded branch 包含 `find, grep`。
+- A presença ou não de Glob/Grep no Explore é inteiramente decidida pelo branch.
+- Os comentários no arquivo deixam explícito que a exposição direta de Glob/Grep é comportamento do branch non-embedded.
+- A lista de comandos Bash read-only do Explore contém `find, grep` no branch embutido.
 
-### 2.5 修改 plan mode prompt
+### 2.5 Modificar o prompt do plan mode
 
-文件：
+Arquivo:
 
 ```text
 apps/zcode-cli/packages/core/src/tool/handlers/plan-mode-prompts.ts
 ```
 
-目标：
+Objetivo:
 
-- embedded branch：让 Plan prompt 使用 ``find``, ``grep``, and Read 查找 patterns/conventions。
-- direct branch：继续使用 `${GLOB_TOOL_NAME}` / `${GREP_TOOL_NAME}`。
+- branch embutido: fazer o prompt do Plan usar ``find``, ``grep``, and Read`` para encontrar patterns/conventions.
+- branch direto: continuar usando `${GLOB_TOOL_NAME}` / `${GREP_TOOL_NAME}`.
 
-验收点：
+Pontos de aceite:
 
-- 默认 embedded branch 的 provider-visible plan prompt 不出现 direct Glob/Grep guidance。
+- O plan prompt provider-visible do branch embutido padrão não contém orientação de Glob/Grep direto.
 
-### 2.6 修改 main system guidance dedicated-tool 列表
+### 2.6 Modificar a lista de dedicated-tools da orientação do main system
 
-文件：
-
-```text
-apps/zcode-cli/packages/core/src/context/dynamic-sections.ts
-```
-
-目标：
-
-- embedded branch 的 `# Using your tools` dedicated-tool 列表不包含 Glob/Grep。
-- direct branch 才能出现 Glob/Grep dedicated-tool guidance。
-- 该 section 如果当前 compact prompt 中不启用，也要把 helper 级别分支和测试补齐，避免未来打开时 drift。
-
-验收点：
-
-- 默认 embedded branch 的 main system guidance 不再出现“use Glob/Grep direct tools”的暗示。
-- direct branch 的现有 dedicated-tool guidance 不被误删。
-
-### 2.7 修改 session guidance fallback
-
-文件：
+Arquivo:
 
 ```text
 apps/zcode-cli/packages/core/src/context/dynamic-sections.ts
 ```
 
-目标：
+Objetivo:
 
-- 如果当前 session guidance 仍然会构造 broad exploration fallback，则 embedded branch exact 使用以下字符串：
+- a lista de dedicated-tools de `# Using your tools` do branch embutido não contém Glob/Grep.
+- somente o branch direto pode exibir a orientação de dedicated tools Glob/Grep.
+- se essa section não estiver habilitada no prompt compacto atual, completar mesmo assim o branch no nível de helper e os testes, evitando drift quando ela for aberta no futuro.
+
+Pontos de aceite:
+
+- A orientação do main system do branch embutido padrão não emite mais a sugestão de "usar direct tools Glob/Grep".
+- A orientação de dedicated tools existente do branch direto não é removida por engano.
+
+### 2.7 Modificar o fallback do session guidance
+
+Arquivo:
+
+```text
+apps/zcode-cli/packages/core/src/context/dynamic-sections.ts
+```
+
+Objetivo:
+
+- se o session guidance atual ainda construir o fallback de exploração ampla, o branch embutido usa exatamente as seguintes strings:
   - ``find`` or ``grep`` via the Bash tool
-- direct branch exact 使用：
+- o branch direto usa exatamente:
   - the Glob or Grep
 
-验收点：
+Pontos de aceite:
 
-- 不再出现 `Glob or Grep` 少 `the` 或 `via Bash` 少 `the Bash tool` 的 drift。
-- 如果该 section 在 compact prompt 中被禁用，测试仍保留 helper 级别覆盖，避免后续开启时 drift。
+- não pode mais existir drift com `Glob or Grep` sem o `the` ou `via Bash` sem o `the Bash tool`.
+- Se a section estiver desabilitada no prompt compacto, os testes mantêm a cobertura no nível de helper para evitar drift quando ela for habilitada depois.
 
-### 2.8 更新 provider-visible 测试
+### 2.8 Atualizar os testes provider-visible
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
 apps/zcode-cli/packages/core/tests/context-builder.test.ts
 ```
 
-新增断言：
+Novas asserções:
 
-- 默认 embedded branch：
-  - `tools[].name` 不包含 `Glob` / `Grep`。
-  - Bash prompt 不包含“avoid find/grep”。
-  - Bash prompt 的 avoid list exact 包含 ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo``，不包含 `find` / `grep`。
-  - main `# Using your tools` dedicated-tool 列表不包含 Glob/Grep。
-  - main session fallback 包含 ``find`` or ``grep`` via the Bash tool。
-  - Explore guidance exact 包含 `Use \`find\` via Bash for broad file pattern matching`。
-  - Explore guidance exact 包含 `Use \`grep\` via Bash for searching file contents with regex`。
-  - Explore Bash read-only 列表包含 `find, grep`。
-  - Plan prompt 包含 ``find``, ``grep``, and Read。
-  - Agent tool description 不包含 `Tools: Glob, Grep`。
-- direct branch：
-  - `tools[].name` 包含 `Glob` / `Grep`。
-  - Glob/Grep short description 继续满足 direct branch 合同基线。
+- branch embutido padrão:
+  - `tools[].name` não contém `Glob` / `Grep`.
+  - o prompt do Bash não contém "avoid find/grep".
+  - a lista de avoid do prompt do Bash contém exatamente ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo``` e não contém `find` / `grep`.
+  - a lista de dedicated-tools de `# Using your tools` do main não contém Glob/Grep.
+  - o fallback de session do main contém ``find`` or ``grep`` via the Bash tool``.
+  - a orientação do Explore contém exatamente `Use \`find\` via Bash for broad file pattern matching`.
+  - a orientação do Explore contém exatamente `Use \`grep\` via Bash for searching file contents with regex`.
+  - a lista Bash read-only do Explore contém `find, grep`.
+  - o prompt do Plan contém ``find``, ``grep``, and Read``.
+  - a descrição da ferramenta Agent não contém `Tools: Glob, Grep`.
+- branch direto:
+  - `tools[].name` contém `Glob` / `Grep`.
+  - a short description de Glob/Grep continua atendendo à baseline de contrato do branch direto.
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/core test -- tool-contracts.test.ts context-builder.test.ts
 ```
 
-期望：
+Esperado:
 
-- provider-visible 测试通过。
+- Os testes provider-visible passam.
 
-## Phase 3：新增 internal-cli embedded search backend
+## Phase 3: adicionar o backend de embedded search internal-cli
 
-### 3.1 编写 internal-cli backend 测试
+### 3.1 Escrever os testes do backend internal-cli
 
-新增：
+Adicionar:
 
 ```text
 apps/zcode-cli/packages/cli/tests/internal-search.test.ts
 ```
 
-测试覆盖：
+Cobertura de testes:
 
-- `grep pattern file` 输出真实 `grep` 匹配行。
-- `grep -e pattern file` 这类真实 `grep` 参数不能被 ZCode shim 拒绝。
-- `grep -Rni --include "*.ts" --exclude-dir ignored pattern .` 透传给真实 `grep`。
-- `cat file | grep pattern` 这类 stdin 管道输入必须保留。
-- `find . -name "*.ts"` 输出真实 `find` 匹配文件。
-- `find . -type f -name "*.ts" -print` 这类真实 `find` predicate 不能被 ZCode shim 拒绝。
-- invalid predicate / flag 的 stderr 与 exit code 来自真实命令，而不是 ZCode 私有 unsupported 文案。
+- `grep pattern file` imprime as linhas reais que casam no `grep`.
+- argumentos reais de `grep` como `grep -e pattern file` não podem ser rejeitados pelo shim do ZCode.
+- `grep -Rni --include "*.ts" --exclude-dir ignored pattern .` é repassado ao `grep` real.
+- entradas de pipe por stdin como `cat file | grep pattern` devem ser preservadas.
+- `find . -name "*.ts"` imprime os arquivos reais que casam no `find`.
+- predicates reais do `find` como `find . -type f -name "*.ts" -print` não podem ser rejeitados pelo shim do ZCode.
+- o stderr e o exit code de predicate/flag inválidos vêm do comando real, e não de textos privados de unsupported do ZCode.
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/cli test -- internal-search.test.ts
 ```
 
-期望：
+Esperado:
 
-- 测试先失败，提示模块不存在或命令未接入。
+- Os testes falham primeiro, indicando que o módulo não existe ou que o comando não foi conectado.
 
-### 3.2 定义 backend launch spec
+### 3.2 Definir a spec de lançamento do backend
 
-新增或放入共享类型文件：
+Adicionar ou colocar em um arquivo de tipos compartilhado:
 
 ```ts
 export type EmbeddedSearchBackendKind = "internal-cli" | "argv0-dispatch";
@@ -688,21 +688,21 @@ export interface EmbeddedSearchBackend {
 }
 ```
 
-约束：
+Restrições:
 
-- `internal-cli` 是第一版实际启用 backend。
-- `argv0-dispatch` 是未来单 binary 自分发 backend 口子，第一版只要求 prelude builder 能生成字符串，不要求 runtime 子命令完整可用。
-- Bash handler、ExecutionRequest、adapter tests 都只能传 `EmbeddedSearchBackend`，不能散落 `__internal-search` 字符串。
+- `internal-cli` é o backend realmente habilitado na primeira versão.
+- `argv0-dispatch` é a porta de backend de auto-dispatch de binário único para o futuro; na primeira versão só se exige que o construtor de prelude consiga gerar a string, sem exigir que o subcomando de runtime funcione de forma completa.
+- O handler de Bash, a ExecutionRequest e os testes do adapter só podem passar `EmbeddedSearchBackend`, sem espalhar strings `__internal-search`.
 
-### 3.3 实现 transparent native passthrough shim
+### 3.3 Implementar o shim transparente de passthrough nativo
 
-新增：
+Adicionar:
 
 ```text
 apps/zcode-cli/packages/cli/src/internal-search/embedded-search-cli.ts
 ```
 
-导出：
+Exportar:
 
 ```ts
 export type EmbeddedSearchCommand = "grep" | "find";
@@ -717,65 +717,65 @@ export interface EmbeddedSearchIo {
 export async function runEmbeddedSearchCli(argv: string[], io: EmbeddedSearchIo): Promise<number>;
 ```
 
-实现策略：
+Estratégia de implementação:
 
-- 第一版 internal backend 不能手写 `find` / `grep` 参数子集解析；模型会生成真实命令参数，子集解析会造成表现退化。
-- `__internal-search grep ...` 通过 `spawn("grep", argv)` 透传到宿主真实 `grep`。
-- `__internal-search find ...` 通过 `spawn("find", argv)` 透传到宿主真实 `find`。
-- stdin、stdout、stderr、cwd、exit code 必须按真实命令语义保留。
-- 真实命令支持的全部参数都必须透传；ZCode shim 只验证第一个子命令是 `find` 或 `grep`。
-- 后续如果要跨平台提供一致能力，应切换 backend 到 bundled `bfs` / `ugrep` 或 `argv0-dispatch`，不能回到手写参数子集。
+- O backend interno da primeira versão não pode fazer parse manual de um subconjunto de argumentos de `find` / `grep`; o modelo gera argumentos de comando reais, e o parse de subconjunto causaria degradação de comportamento.
+- `__internal-search grep ...` é repassado ao `grep` real do host via `spawn("grep", argv)`.
+- `__internal-search find ...` é repassado ao `find` real do host via `spawn("find", argv)`.
+- stdin, stdout, stderr, cwd e exit code devem ser preservados conforme a semântica do comando real.
+- Todos os argumentos suportados pelo comando real devem ser repassados; o shim do ZCode apenas valida que o primeiro subcomando é `find` ou `grep`.
+- Se mais adiante for necessário oferecer capacidades consistentes entre plataformas, deve-se trocar o backend para bundled `bfs` / `ugrep` ou `argv0-dispatch`, sem voltar ao parse manual de subconjunto de argumentos.
 
-说明：
+Explicação:
 
-- 这不是 provider-visible 差异；模型仍只看到 Bash `find` / `grep`。
-- 与 bundled `bfs` / `ugrep` backend 的不同之处记录在 docs 中。
+- Isso não é uma diferença provider-visible; o modelo continua vendo apenas `find` / `grep` no Bash.
+- As diferenças em relação ao backend bundled `bfs` / `ugrep` ficam registradas na documentação.
 
-### 3.5 接入 CLI dispatch
+### 3.5 Conectar o dispatch do CLI
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/cli/src/run.ts
 ```
 
-目标：
+Objetivo:
 
-- 支持内部命令：
+- suportar comandos internos:
 
 ```bash
 zcode __internal-search grep ...
 zcode __internal-search find ...
 ```
 
-验收点：
+Pontos de aceite:
 
-- 普通 CLI 使用路径不变。
-- internal command 不初始化完整交互式 agent runtime。
-- internal command 不输出欢迎语、版本 banner、debug 文案。
-- 该命令只作为 `EmbeddedSearchBackend.kind === "internal-cli"` 的 backend 实现细节出现。
+- o caminho de uso normal do CLI não muda.
+- o comando interno não inicializa um runtime de agent interativo completo.
+- o comando interno não imprime mensagem de boas-vindas, banner de versão ou textos de debug.
+- esse comando aparece apenas como detalhe de implementação do backend com `EmbeddedSearchBackend.kind === "internal-cli"`.
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/cli test -- internal-search.test.ts
 ```
 
-期望：
+Esperado:
 
-- internal-cli backend 测试通过。
+- Os testes do backend internal-cli passam.
 
-## Phase 4：保留 Bash find/grep prelude 支持代码（当前不注入）
+## Phase 4: manter o código de suporte do prelude find/grep do Bash (atualmente sem injeção)
 
-### 4.1 扩展 execution contract
+### 4.1 Estender o contrato de execution
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts
 ```
 
-新增：
+Adicionar:
 
 ```ts
 export type EmbeddedSearchBackendKind = "internal-cli" | "argv0-dispatch";
@@ -792,55 +792,55 @@ export interface ExecutionEmbeddedSearchPrelude {
 }
 ```
 
-在 `ExecutionRequest` 增加：
+Adicionar em `ExecutionRequest`:
 
 ```ts
 bashPrelude?: ExecutionEmbeddedSearchPrelude;
 ```
 
-约束：
+Restrições:
 
-- 只允许 adapter 在 `command.mode === "shell"` 且 `shellProfile === "posix-bash"` 时使用。
-- 对 `execFile`、非 Bash shell、非 shell mode 完全无效。
+- o adapter só pode usar isso quando `command.mode === "shell"` e `shellProfile === "posix-bash"`.
+- é completamente sem efeito para `execFile`, shells que não sejam Bash e mode que não seja shell.
 
-### 4.2 编写 prelude 测试
+### 4.2 Escrever os testes do prelude
 
-新增：
+Adicionar:
 
 ```text
 apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts
 ```
 
-测试覆盖：
+Cobertura de testes:
 
-- 输出包含 `unalias find` / `unalias grep`。
-- 输出包含 `find()` shell function。
-- 输出包含 `grep()` shell function。
-- command 和 args 经过 shell quote。
-- `internal-cli` backend 生成 `command <backend> find "$@"` / `command <backend> grep "$@"`。
-- `argv0-dispatch` backend 生成 `ARGV0=bfs` / `ARGV0=ugrep` 形态的 shell function。
-- 用户命令被拼接在 prelude 后。
-- 没有 `bashPrelude` 时不改变命令。
+- a saída contém `unalias find` / `unalias grep`.
+- a saída contém a shell function `find()`.
+- a saída contém a shell function `grep()`.
+- command e args passam por shell quote.
+- o backend `internal-cli` gera `command <backend> find "$@"` / `command <backend> grep "$@"`.
+- o backend `argv0-dispatch` gera shell functions na forma `ARGV0=bfs` / `ARGV0=ugrep`.
+- o comando do usuário é concatenado depois do prelude.
+- sem `bashPrelude`, o comando não muda.
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/adapters test -- embedded-search-prelude.test.ts
 ```
 
-期望：
+Esperado:
 
-- 测试先失败，提示模块不存在。
+- Os testes falham primeiro, indicando que o módulo não existe.
 
-### 4.3 实现 prelude helper
+### 4.3 Implementar o helper de prelude
 
-新增：
+Adicionar:
 
 ```text
 apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts
 ```
 
-导出：
+Exportar:
 
 ```ts
 import type { ExecutionEmbeddedSearchPrelude } from "@zcode/contracts";
@@ -866,82 +866,82 @@ export function applyEmbeddedSearchPrelude(
 }
 ```
 
-`internal-cli` backend 生成：
+O backend `internal-cli` gera:
 
 ```bash
 find() { command zcode __internal-search find "$@"; }
 grep() { command zcode __internal-search grep "$@"; }
 ```
 
-`argv0-dispatch` backend 预留生成：
+O backend `argv0-dispatch` fica reservado para gerar:
 
 ```bash
 find() { ARGV0=bfs command zcode -S dfs -regextype findutils-default "$@"; }
 grep() { ARGV0=ugrep command zcode -G --ignore-files --hidden -I "$@"; }
 ```
 
-注意：
+Atenção:
 
-- shell quote helper 可以复用现有 adapter 内部 quote 函数；如果没有，新增私有 `shellQuote` 并完整测试单引号转义。
-- `internal-cli` 使用 `command <quoted backend invocation>` 是为了避免 shell function 递归。
-- `argv0-dispatch` 第一版只作为 backend 扩展口子保留；如果没有实际 runtime 支持，不在 runtime config 中启用。
-- 该 helper 不负责判断 branch capability，只负责字符串变换。
+- o helper de shell quote pode reutilizar a função de quote interna já existente no adapter; se não existir, criar uma `shellQuote` privada e testar por completo o escape de aspas simples.
+- o uso de `command <invocação do backend com quote>` no `internal-cli` evita recursão da shell function.
+- o `argv0-dispatch` na primeira versão é mantido apenas como porta de extensão de backend; sem suporte real de runtime, ele não é habilitado no runtime config.
+- esse helper não é responsável por decidir a branch capability; ele só faz transformação de string.
 
-### 4.4 接入 NodeExecutionAdapter（仅支持有 prelude 的请求）
+### 4.4 Conectar ao NodeExecutionAdapter (somente para requisições com prelude)
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/adapters/src/exec/index.ts
 apps/zcode-cli/packages/adapters/src/exec/cwd-capture.ts
 ```
 
-接入顺序：
+Ordem de conexão:
 
-1. 仅当调用方显式传入 `ExecutionRequest.bashPrelude` 且 `shellProfile === "posix-bash"` 时，生成 prelude-wrapped command。
-2. 再执行 cwd capture wrapping。
-3. 再交给 `resolveExecutionCommand`。
+1. Só gerar o comando com prelude envolvido quando o chamador passar explicitamente `ExecutionRequest.bashPrelude` e `shellProfile === "posix-bash"`.
+2. Depois executar o wrapping de captura de cwd.
+3. Depois entregar a `resolveExecutionCommand`.
 
-原因：
+Motivo:
 
-- cwd capture 必须捕获用户命令执行后的最终 cwd。
-- prelude 是 shell 初始化内容，应在用户命令之前生效。
+- a captura de cwd precisa capturar o cwd final após a execução do comando do usuário.
+- o prelude é conteúdo de inicialização do shell e deve valer antes do comando do usuário.
 
-更新测试：
+Atualizar os testes:
 
 ```text
 apps/zcode-cli/packages/adapters/tests/exec.test.ts
 ```
 
-新增 case：
+Novos cases:
 
-- shell command `grep foo file.txt` 只有在 `bashPrelude` 存在时实际命令含 function 注入。
-- cwd capture 和 prelude 同时启用时，cwd capture marker 仍在用户命令之后。
+- no shell command `grep foo file.txt`, o comando real só contém a injeção de function quando existe `bashPrelude`.
+- com captura de cwd e prelude habilitados ao mesmo tempo, o marker de captura de cwd continua depois do comando do usuário.
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/adapters test -- embedded-search-prelude.test.ts exec.test.ts
 ```
 
-期望：
+Esperado:
 
-- adapter 测试通过。
+- Os testes do adapter passam.
 
-## Phase 5：把 branch capability 贯穿到 runtime 和 Bash handler
+## Phase 5: propagar a branch capability até o runtime e o handler de Bash
 
-### 5.1 给 runtime 配置增加 embedded search backend
+### 5.1 Adicionar o backend de embedded search à configuração do runtime
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 apps/zcode-cli/packages/core/src/tool/executor/types.ts
 ```
 
-目标：
+Objetivo:
 
-- runtime config 携带：
+- o runtime config carrega:
 
 ```ts
 embeddedSearchBackend?: {
@@ -951,7 +951,7 @@ embeddedSearchBackend?: {
 };
 ```
 
-CLI 启动 runtime 时填入：
+Ao iniciar o runtime, o CLI preenche:
 
 ```ts
 {
@@ -961,7 +961,7 @@ CLI 启动 runtime 时填入：
 }
 ```
 
-SEA/packaged 场景填入：
+No cenário SEA/packaged, preenche:
 
 ```ts
 {
@@ -971,26 +971,26 @@ SEA/packaged 场景填入：
 }
 ```
 
-实现要求：
+Requisitos de implementação:
 
-- dev Node 模式和 packaged binary 模式分别通过已有 CLI bootstrap 信息判断。
-- 不在 core 里直接猜 `process.argv`。
-- 如果无法构造 backend，branch capability 即使 enabled，也不注入 runtime prelude，并记录 debug 级原因。
-- 第一版实际传入 `internal-cli`；`argv0-dispatch` 只作为后续替换 backend 的稳定接口。
-- `createToolExecutor(...)` 的 deps 增加 `embeddedSearchBackend`，由 runtime config 传入。
+- o modo dev Node e o modo de binário empacotado são distinguidos pelas informações de bootstrap do CLI já existentes.
+- não adivinhar `process.argv` diretamente dentro do core.
+- se não for possível construir o backend, a branch capability não injeta o prelude de runtime mesmo que esteja enabled, e registra o motivo em nível de debug.
+- a primeira versão passa de fato `internal-cli`; `argv0-dispatch` é apenas a interface estável para substituir o backend depois.
+- as deps de `createToolExecutor(...)` recebem `embeddedSearchBackend`, fornecido pelo runtime config.
 
-### 5.2 ToolExecutionContext 透传 branch capability
+### 5.2 Propagar a branch capability no ToolExecutionContext
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts
 apps/zcode-cli/packages/core/src/tool/types.ts
 ```
 
-目标：
+Objetivo:
 
-- 在每次 tool call 上计算一次：
+- calcular uma vez por tool call:
 
 ```ts
 const embeddedSearchDecision = resolveEmbeddedSearchBranchCapability({
@@ -1000,7 +1000,7 @@ const embeddedSearchDecision = resolveEmbeddedSearchBranchCapability({
 });
 ```
 
-- 传入 `ToolExecutionContext`：
+- passar para `ToolExecutionContext`:
 
 ```ts
 embeddedSearch: {
@@ -1009,23 +1009,23 @@ embeddedSearch: {
 }
 ```
 
-验收点：
+Pontos de aceite:
 
-- provider-visible 构造和 runtime 执行使用同一个 branch capability helper。
-- provider-visible branch capability 不依赖 backend kind。
-- 不在各个 prompt builder 内重复 model 判断。
+- a construção provider-visible e a execução de runtime usam o mesmo helper de branch capability.
+- a branch capability provider-visible não depende do kind do backend.
+- não repetir a decisão de modelo dentro de cada prompt builder.
 
-### 5.3 Bash handler 暂不设置 bashPrelude
+### 5.3 O handler de Bash não define bashPrelude por enquanto
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/core/src/tool/handlers/bash.ts
 ```
 
-目标：
+Objetivo:
 
-- provider-visible embedded branch 仍可开启，但 Bash handler 当前不构造：
+- o branch de embedded search provider-visible ainda pode ser ligado, mas o handler de Bash atualmente não constrói:
 
 ```ts
 bashPrelude: {
@@ -1034,50 +1034,50 @@ bashPrelude: {
 }
 ```
 
-- `context.embeddedSearch.enabled === true` 且 backend 存在时，也先不把 `bashPrelude` 传给 adapter。
-- 由用户本地 shell 直接执行 `find` / `grep`；CMD 或缺少命令时，让 Bash 错误反馈给模型自适应。
-- prelude 类型、adapter helper 和 backend 代码保留，后续可通过开关恢复。
+- mesmo com `context.embeddedSearch.enabled === true` e backend presente, não passar `bashPrelude` para o adapter por enquanto.
+- deixar o shell local do usuário executar `find` / `grep` diretamente; em CMD ou quando faltar o comando, deixar o erro do Bash adaptar o modelo.
+- manter os tipos de prelude, o helper do adapter e o código do backend, para restauração futura por interruptor.
 
-新增中文注释：
+Adicionar comentário em chinês:
 
 ```ts
 // 临时策略：provider-visible embedded branch 保持开启，但执行层先不注入
 // find()/grep() function，直接依赖用户本地 shell 的 find/grep。
 ```
 
-更新测试：
+Atualizar os testes:
 
 ```text
 apps/zcode-cli/packages/core/tests/bash-handler.test.ts
 ```
 
-新增 case：
+Novos cases:
 
-- embedded enabled + backend present：ExecutionRequest 不含 `bashPrelude`。
-- embedded enabled + backend absent：ExecutionRequest 不含 `bashPrelude`，不抛错。
-- embedded disabled：ExecutionRequest 不含 `bashPrelude`。
+- embedded enabled + backend presente: a ExecutionRequest não contém `bashPrelude`.
+- embedded enabled + backend ausente: a ExecutionRequest não contém `bashPrelude` e não lança erro.
+- embedded disabled: a ExecutionRequest não contém `bashPrelude`.
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/core test -- bash-handler.test.ts
 ```
 
-期望：
+Esperado:
 
-- Bash handler 测试通过。
+- Os testes do handler de Bash passam.
 
-### 5.4 注册 tools 时使用 branch capability
+### 5.4 Usar a branch capability no registro de tools
 
-修改：
+Modificar:
 
 ```text
 apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts
 ```
 
-目标：
+Objetivo:
 
-- runtime 初始化 registry 时：
+- ao inicializar o registry no runtime:
 
 ```ts
 const builtInToolAllowlist = resolveBuiltInToolAllowlist(this.config);
@@ -1095,86 +1095,86 @@ registerBuiltInTools(registry, dependencies, {
 });
 ```
 
-验收点：
+Pontos de aceite:
 
-- 不在 built-ins 注册前调用 `registry.has("Bash")` 判断 Bash availability。
-- 默认 embedded branch 不暴露 direct Glob/Grep tools。
-- global flag disabled 或 Bash unavailable 时，仍保留当前 direct Glob/Grep 行为。
+- não chamar `registry.has("Bash")` antes do registro das built-ins para julgar a disponibilidade do Bash.
+- o branch embutido padrão não expõe direct tools Glob/Grep.
+- com o flag global disabled ou o Bash indisponível, o comportamento atual de Glob/Grep direto é preservado.
 
-## Phase 6：端到端验证
+## Phase 6: verificação ponta a ponta
 
-### 6.1 Provider-visible snapshot 验证
+### 6.1 Verificação do snapshot provider-visible
 
-新增或更新测试：
+Adicionar ou atualizar os testes:
 
 ```text
 apps/zcode-cli/packages/core/tests/tool-contracts.test.ts
 ```
 
-断言：
+Asserções:
 
-- model `claude-opus-4-8-cc`：
-  - tools 不含 `Glob` / `Grep`。
-  - Bash description 不劝避 `find` / `grep`。
-  - Bash description 的 embedded avoid list exact 是 ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo``，不包含 `find` / `grep`。
-  - main system dedicated-tool guidance 不含 Glob/Grep。
-  - session fallback 是 ``find`` or ``grep`` via the Bash tool。
-  - Agent description 不泄漏 `Tools: Glob, Grep`。
-  - Explore prompt exact 使用 Bash `find` / `grep` 两行。
-  - Explore allowed tools 不含 `Glob` / `Grep`。
-  - Plan prompt 使用 ``find``, ``grep``, and Read。
-- global flag disabled：
-  - direct Glob/Grep 仍可出现。
-  - Glob/Grep description/schema 的 direct branch 测试保持当前约束。
-- Bash unavailable：
-  - direct Glob/Grep 仍可出现。
-  - provider-visible prompt 不进入 embedded search branch。
+- model `claude-opus-4-8-cc`:
+  - as tools não contêm `Glob` / `Grep`.
+  - a descrição do Bash não desaconselha `find` / `grep`.
+  - a embedded avoid list exata da descrição do Bash é ``cat``, ``head``, ``tail``, ``sed``, ``awk``, or ``echo``` e não contém `find` / `grep`.
+  - o dedicated-tool guidance do main system não contém Glob/Grep.
+  - o fallback de session é ``find`` or ``grep`` via the Bash tool``.
+  - a descrição do Agent não vaza `Tools: Glob, Grep`.
+  - o prompt do Explore usa exatamente as duas linhas com `find` / `grep` do Bash.
+  - as tools permitidas do Explore não contêm `Glob` / `Grep`.
+  - o prompt do Plan usa ``find``, ``grep``, and Read``.
+- flag global disabled:
+  - Glob/Grep direto ainda pode aparecer.
+  - os testes de branch direto de description/schema do Glob/Grep mantêm as restrições atuais.
+- Bash indisponível:
+  - Glob/Grep direto ainda pode aparecer.
+  - o prompt provider-visible não entra no branch de embedded search.
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/core test -- tool-contracts.test.ts context-builder.test.ts
 ```
 
-期望：
+Esperado:
 
-- provider-visible tests 通过。
+- Os testes provider-visible passam.
 
-### 6.2 Runtime smoke 验证
+### 6.2 Verificação de smoke do runtime
 
-新增测试位置优先级：
+Prioridade de localização dos novos testes:
 
 1. `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
-2. 如果需要完整 CLI shim，放到 `apps/zcode-cli/packages/cli/tests/internal-search.test.ts`
+2. se for necessário um shim de CLI completo, colocar em `apps/zcode-cli/packages/cli/tests/internal-search.test.ts`
 
-构造临时目录：
+Construir um diretório temporário:
 
 ```text
 tmp/
-  src/a.ts       // contains "needle"
-  src/b.ts       // no match
-  README.md      // contains "needle"
+  src/a.ts       // contém "needle"
+  src/b.ts       // sem match
+  README.md      // contém "needle"
 ```
 
-验证命令：
+Comandos de verificação:
 
 ```bash
 grep -n needle src/a.ts
 find . -name "*.ts"
 ```
 
-期望：
+Esperado:
 
-- `grep` 返回 internal shim 的输出。
-- `find` 返回 internal shim 的输出。
-- exit code 与 grep/find 常见语义一致：
-  - match：0
-  - no match：1
-  - unsupported/usage error：2
+- o `grep` retorna a saída do shim interno.
+- o `find` retorna a saída do shim interno.
+- o exit code é consistente com a semântica comum de grep/find:
+  - match: 0
+  - sem match: 1
+  - erro de uso/unsupported: 2
 
-### 6.3 完整测试命令
+### 6.3 Comandos de teste completos
 
-执行：
+Executar:
 
 ```bash
 pnpm --filter @zcode/core test -- runtime-embedded-search-capability.test.ts tool-contracts.test.ts context-builder.test.ts bash-handler.test.ts
@@ -1188,58 +1188,58 @@ pnpm --filter @zcode/cli typecheck
 pnpm --filter @zcode/cli lint
 ```
 
-期望：
+Esperado:
 
-- 所有命令通过。
-- 如果 CLI package 没有独立 `typecheck` / `lint` script，记录 package.json 实际情况，并执行根级替代命令：
+- Todos os comandos passam.
+- Se o package do CLI não tiver script próprio de `typecheck` / `lint`, registrar a situação real do package.json e executar os comandos alternativos no nível raiz:
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-## Phase 7：收尾与提交
+## Phase 7: encerramento e commit
 
-### 7.1 Review diff
+### 7.1 Revisar o diff
 
-执行：
+Executar:
 
 ```bash
 git diff -- docs/plan/trajectory/embedded-search-provider-visible.md apps/zcode-cli/packages/core apps/zcode-cli/packages/adapters apps/zcode-cli/packages/cli apps/zcode-cli/packages/contracts
 ```
 
-检查清单：
+Checklist:
 
-- provider-visible wording 和 branch 目标一致。
-- branch capability helper 没有散落重复判断。
-- Glob/Grep direct tools 没有被删除，只是按 branch 暴露。
-- Bash prelude 当前不由 Bash handler 注入；adapter 仅在显式收到 `bashPrelude` 时影响 Bash shell request。
-- CLI internal search 不输出多余 banner。
-- 测试覆盖 exact wording、tool exposure、runtime no-prelude 策略。
-- docs 记录了第一版实现取舍。
+- o wording provider-visible é coerente com o objetivo do branch.
+- o helper de branch capability não tem decisões duplicadas e espalhadas.
+- as direct tools Glob/Grep não foram removidas, apenas expostas conforme o branch.
+- o prelude do Bash não é injetado pelo handler de Bash; o adapter só afeta a requisição de shell Bash quando recebe `bashPrelude` explicitamente.
+- a internal search do CLI não imprime banners extras.
+- os testes cobrem o wording exato, a exposição de tools e a estratégia de runtime sem prelude.
+- a documentação registra os trade-offs de implementação da primeira versão.
 
-### 7.2 本轮不 Stage / Commit
+### 7.2 Não fazer Stage / Commit nesta rodada
 
-用户已补充要求：完成后不要自动 commit、不要 push、不要 stage。实际执行时只保留 unstaged 工作区改动，供用户 review。
+O usuário já acrescentou o requisito: ao concluir, não fazer commit, push nem stage automaticamente. Na execução real, manter apenas as alterações da árvore de trabalho sem stage, para review do usuário.
 
-### 7.3 最终检查 unstaged diff
+### 7.3 Verificação final do diff sem stage
 
-执行：
+Executar:
 
 ```bash
 git diff --stat
 git diff
 ```
 
-确认：
+Confirmar:
 
-- 没有把 provider-visible request dump 文件纳入提交。
-- 没有混入无关格式化。
-- 没有修改 UI 或 remote control 文件。
+- nenhum arquivo de dump de requisição provider-visible foi incluído.
+- nenhuma formatação alheia foi misturada.
+- nenhum arquivo de UI ou de remote control foi modificado.
 
-### 7.4 Commit 草稿（本轮不执行）
+### 7.4 Rascunho de commit (não executar nesta rodada)
 
-如果用户 review 后明确要求提交，提交说明可使用：
+Se o usuário, após o review, pedir explicitamente o commit, a mensagem pode ser:
 
 ```text
 Switches ZCode's default provider-visible surface to the embedded search branch.
@@ -1258,33 +1258,33 @@ Verification:
 - pnpm --filter @zcode/cli lint
 ```
 
-## 回滚方案
+## Plano de rollback
 
-如果 bench 或 runtime smoke 发现 embedded search branch 造成退化：
+Se o bench ou o smoke de runtime mostrar que o branch de embedded search causa regressão:
 
-1. 将 `ENABLE_EMBEDDED_SEARCH_BRANCH` 临时设为 `false`，保留代码但关闭默认入口。
-2. 如果需要完全回滚：
+1. Definir temporariamente `ENABLE_EMBEDDED_SEARCH_BRANCH` como `false`, mantendo o código e desligando a entrada padrão.
+2. Se for necessário reverter por completo:
 
 ```bash
 git revert <commit-sha>
 ```
 
-3. 回滚后重新执行：
+3. Após o rollback, executar novamente:
 
 ```bash
 pnpm --filter @zcode/core test -- tool-contracts.test.ts context-builder.test.ts bash-handler.test.ts
 pnpm --filter @zcode/adapters test -- exec.test.ts
 ```
 
-## 验收标准
+## Critérios de aceite
 
-- 默认 provider-visible request 中不暴露 direct Glob/Grep tools。
-- 默认 Bash prompt 不再劝模型避免用 Bash 跑 `find` / `grep`。
-- 默认 Explore prompt、Plan prompt 和 Agent description 走 Bash `find` / `grep` wording。
-- CMD / legacy shell fallback provider-visible request 暴露 direct Glob/Grep tools。
-- Bash runtime 在默认 embedded branch 中通过 injected function 调用 ZCode embedded search backend。
-- direct Glob/Grep fallback branch 保留并通过现有 description/schema 测试。
-- 所有新增 branch 判断集中在 `embedded-search-capability.ts`，没有散落的 provider/source 判断。
-- `internal-cli` 只是第一版 backend strategy，未来可切换到 `argv0-dispatch`。
-- 文档记录 embedded search branch 目标行为和第一版实现取舍。
-- targeted tests、typecheck、lint 全部通过。
+- A requisição provider-visible padrão não expõe direct tools Glob/Grep.
+- O prompt do Bash padrão não desaconselha mais o modelo a evitar `find` / `grep` no Bash.
+- O prompt do Explore, o prompt do Plan e a descrição do Agent usam o wording de `find` / `grep` no Bash.
+- A requisição provider-visible do fallback CMD / shell legado expõe direct tools Glob/Grep.
+- O runtime do Bash, no branch embutido padrão, chama o backend de embedded search do ZCode pela function injetada.
+- O branch de fallback direto Glob/Grep é mantido e passa nos testes existentes de description/schema.
+- Todas as novas decisões de branch estão concentradas em `embedded-search-capability.ts`, sem decisões espalhadas por provider/source.
+- `internal-cli` é apenas a estratégia de backend da primeira versão e pode ser trocada no futuro por `argv0-dispatch`.
+- A documentação registra o comportamento alvo do branch de embedded search e os trade-offs de implementação da primeira versão.
+- Os testes direcionados, o typecheck e o lint passam todos.

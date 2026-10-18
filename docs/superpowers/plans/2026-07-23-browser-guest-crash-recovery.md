@@ -1,176 +1,175 @@
 # Browser Guest Crash Recovery Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. As etapas usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:** Browser 与 browser-use tab 在 Electron guest 被异常终止后，保持稳定 tab 身份和对话归属，以最近有效 URL 原位恢复并重新接入 CDP。
+**Objetivo:** Após a terminação anormal do guest Electron, as tabs de Browser e browser-use mantêm uma identidade de tab estável e a pertencimento à conversa, restaurando no lugar a URL válida mais recente e reconectando ao CDP.
 
-**Architecture:** 正常对话切换继续保留原 `<webview>`。`UnifiedBrowserView` 监听 guest `render-process-gone`，仅对 killed/crashed/oom/memory-eviction 等可恢复原因递增 guest generation，让 `BrowserViewportSurface` 替换失效节点；最近非 `about:blank` URL 保存在 renderer workspaceKey 隔离内存中，新 guest `dom-ready` 后用同一 browserKey/tabId 上报新的 webContentsId 并恢复 URL。main 的旧 guest 监听清理改为 best-effort，避免已销毁 session 阻断替代 guest attach；relay 与 ZCode session protocol 不新增状态。
+**Arquitetura:** A troca normal de conversa continua preservando o `<webview>` original. `UnifiedBrowserView` escuta o evento guest `render-process-gone` e, somente para causas recuperáveis como killed/crashed/oom/memory-eviction, incrementa a geração do guest, fazendo com que `BrowserViewportSurface` substitua o nó inválido; a URL mais recente que não seja `about:blank` é mantida em memória isolada por workspaceKey do renderer e, após o `dom-ready` do novo guest, um novo webContentsId é reportado com o mesmo browserKey/tabId e a URL é restaurada. A limpeza dos listeners do guest antigo no main passa a ser best-effort, evitando que uma sessão já destruída impeça o attach do guest substituto; relay e o protocolo de sessão do ZCode não recebem novos estados.
 
-**Tech Stack:** React 19、Electron `<webview>`、TypeScript、Vitest + Testing Library。
+**Stack tecnológico:** React 19, Electron `<webview>`, TypeScript, Vitest + Testing Library.
 
-## Global Constraints
+## Restrições globais
 
-- 普通 A → B → A 切换不得重建、刷新或卸载仍存活的 `<webview>`。
-- 用户显式关闭 tab/窗口与 ZCode 进程退出不得自动恢复。
-- desktop `desktop-continuous` 只使用 renderer/main 既有 attach 链路；手机 `web-remote-replayable` 不新增 snapshot 或 runtime。
-- URL 隔离 key 使用 `workspaceIdentity?.trim() || workspacePath`，实际 tab URL 再按稳定 side-pane tab id 分桶。
-- UI 日志统一使用 `packages/ui/src/logger.ts`；异常退出为低频 lifecycle `warn`，普通事件不新增生产 info 流量。
-- 修改 UI 前遵守根目录 `DESIGN.md`；本修复不新增视觉样式或文案。
-- 每个生产行为先写失败测试并观察预期失败；完成后执行 `pnpm typecheck` 与 `pnpm lint`。
+- A troca normal A → B → A não deve reconstruir, recarregar ou desmontar um `<webview>` ainda vivo.
+- O fechamento explícito de tab/janela pelo usuário e a saída do processo ZCode não devem ser restaurados automaticamente.
+- O `desktop-continuous` do desktop usa apenas as cadeias de attach existentes renderer/main; o `web-remote-replayable` do celular não adiciona snapshot nem runtime.
+- A chave de isolamento de URL usa `workspaceIdentity?.trim() || workspacePath`; a URL real da tab é então agrupada pelo id de tab do side-pane estável.
+- O log da UI usa unicamente `packages/ui/src/logger.ts`; saída anormal é um `warn` de lifecycle de baixa frequência; eventos comuns não geram novo tráfego de info em produção.
+- Antes de modificar a UI, siga o `DESIGN.md` da raiz; esta correção não adiciona novos estilos visuais nem textos.
+- Para cada comportamento de produção, escreva primeiro um teste que falhe e observe a falha esperada; ao final, execute `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: Electron webview 异常退出类型与失败回归
+### Task 1: tipos de saída anormal do Electron webview e regressão de falha
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/electron-webview.d.ts`
 - Modify: `packages/ui/test/UnifiedBrowserView.test.ts`
 
 **Interfaces:**
-- Produces: `ElectronWebviewRenderProcessGoneEvent`，包含 `details.reason` 与 `details.exitCode`。
-- Consumes: Electron 本地文档 `docs/electron/docs/api/webview-tag.md` 与 `structures/render-process-gone-details.md`。
+- Produces: `ElectronWebviewRenderProcessGoneEvent`, contendo `details.reason` e `details.exitCode`.
+- Consumes: documentação local do Electron `docs/electron/docs/api/webview-tag.md` e `structures/render-process-gone-details.md`.
 
-- [x] **Step 1: 写可恢复退出的失败测试**
+- [x] **Step 1: escrever o teste que falha para saída recuperável**
 
-在 `UnifiedBrowserView.test.ts` 创建已经导航到 `https://example.com/restorable` 的隐藏 tab，向原 webview
-派发 `{ reason: "killed", exitCode: 1 }` 的 `render-process-gone`；断言节点被替换，新节点
-`dom-ready` 后用相同 browserKey、sessionId 和新的 webContentsId attach，并 load 最近 URL。
+Em `UnifiedBrowserView.test.ts`, criar uma tab oculta já navegar até `https://example.com/restorable` e despachar no webview original o evento `render-process-gone` com `{ reason: "killed", exitCode: 1 }`; afirmar que o nó é substituído e que, após o `dom-ready` do novo nó, o attach ocorre com o mesmo browserKey, sessionId e o novo webContentsId, carregando a URL mais recente.
 
-- [x] **Step 2: 写不可恢复原因的失败测试**
+- [x] **Step 2: escrever o teste que falha para causa não recuperável**
 
-派发 `launch-failed`；断言节点不被替换，避免无限恢复循环。
+Despachar `launch-failed`; afirmar que o nó não é substituído, evitando um loop infinito de recuperação.
 
-- [x] **Step 3: 运行测试确认 RED**
+- [x] **Step 3: rodar os testes e confirmar RED**
 
 Run: `.\node_modules\.bin\vitest.CMD run packages/ui/test/UnifiedBrowserView.test.ts`
 
-Expected: 新用例 FAIL，因为 Electron webview 类型和 `UnifiedBrowserView` 尚未处理
-`render-process-gone`。
+Expected: os novos casos FAIL, pois os tipos do Electron webview e o `UnifiedBrowserView` ainda não tratam `render-process-gone`.
 
-### Task 2: 最小 guest replacement 与 URL 恢复
+### Task 2: substituição mínima do guest e restauração de URL
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/browser-use/UnifiedBrowserView.tsx`
 - Modify: `packages/ui/src/browser-use/BrowserViewportSurface.tsx`
 - Modify: `packages/ui/src/embeddedBrowserHelpers.ts`
 
 **Interfaces:**
-- Produces: `isRecoverableBrowserGuestExitReason(reason: string): boolean`。
-- Produces: `BrowserViewportSurface` 的 `webviewGeneration: number` 参数，作为 `<webview>` React key。
-- Consumes: `UnifiedBrowserView` 既有 `browserKey`、`initialUrl`、`onUrlChange`、`browserViewAttachGuest`。
+- Produces: `isRecoverableBrowserGuestExitReason(reason: string): boolean`.
+- Produces: parâmetro `webviewGeneration: number` de `BrowserViewportSurface`, usado como React key do `<webview>`.
+- Consumes: `browserKey`, `initialUrl`, `onUrlChange` e `browserViewAttachGuest` já existentes em `UnifiedBrowserView`.
 
-- [x] **Step 1: 实现退出原因门禁**
+- [x] **Step 1: implementar o portão de causa de saída**
 
-只允许 `abnormal-exit`、`killed`、`crashed`、`oom`、`memory-eviction` 进入恢复；
-`clean-exit`、`launch-failed`、`integrity-failure` 不自动重建。此类 guest 从未成功出画面时，renderer
-必须显示带 `reason/exitCode` 的失败态和用户触发的单次重试入口；不能只写入没有渲染消费者的错误
-字段，让用户看到静默灰屏。手动重试可以递增 guest generation 并恢复最近 URL，但不得改成后台自动
-循环重建。失败态仍允许编辑地址栏；提交合法新 URL 必须等价于一次由用户触发的重建：立即退出失败态、
-递增 guest generation，并在新 guest `dom-ready` 后导航到刚提交的 URL，不能只把 URL 排队后继续停留
-在失败态。无效 URL 必须保留失败态，不得触发重建。
+Permitir a recuperação apenas para `abnormal-exit`, `killed`, `crashed`, `oom`, `memory-eviction`;
+`clean-exit`, `launch-failed` e `integrity-failure` não são reconstruídos automaticamente. Quando esse guest nunca chegou a exibir conteúdo com sucesso, o renderer
+deve exibir um estado de falha com `reason/exitCode` e uma entrada de nova tentativa única disparada pelo usuário; não é permitido apenas gravar um campo
+de erro sem consumidor de renderização, o que deixaria o usuário diante de uma tela cinza silenciosa. A nova tentativa manual pode incrementar a geração do guest e
+restaurar a URL mais recente, mas não pode virar um laço automático de reconstrução em background. O estado de falha ainda permite editar a barra de endereço; ao
+submeter uma nova URL válida, isso deve equivaler a uma reconstrução disparada pelo usuário: sair imediatamente do estado de falha, incrementar a geração do guest e,
+após o `dom-ready` do novo guest, navegar para a URL recém-submetida, não apenas enfileirar a URL e permanecer no estado de falha. Uma URL inválida deve manter o
+estado de falha e não deve disparar reconstrução.
 
-外部 `navigationRequest` 也是一次受信任的显式导航意图：当 guest 已处于上述失败态时，必须与地址栏
-导航一样重建 guest 并消费目标 URL。请求回执不得在仅写入 `pendingUrlRef` 后发出；必须等到新 guest
-`dom-ready` 接管排队 URL，且 `loadURL` 成功或明确失败后再回执，避免上层提前清除尚未执行的导航意图。
+Um `navigationRequest` externo também é uma intenção de navegação explícita e confiável: quando o guest já está no estado de falha acima, deve reconstruir o guest
+da mesma forma que a navegação pela barra de endereço e consumir a URL de destino. O recibo da requisição não pode ser emitido após apenas gravar em
+`pendingUrlRef`; é preciso esperar o novo guest assumir a URL enfileirada no `dom-ready` e o `loadURL` ter sucesso ou falhar explicitamente antes do recibo,
+evitando que a camada superior limpre cedo uma intenção de navegação ainda não executada.
 
-- [x] **Step 2: 实现最近 URL 与 guest generation**
+- [x] **Step 2: implementar a URL mais recente e a geração do guest**
 
-在正常导航/状态同步时记录最近非 `about:blank` URL。可恢复退出时将该 URL 排入
-`pendingUrlRef`，清理 guest attach/load 去重状态，递增 generation 并保留 tab 元数据。
+Durante a navegação normal/sincronização de estado, registrar a URL mais recente que não seja `about:blank`. Em caso de saída recuperável, enfileirar essa URL em
+`pendingUrlRef`, limpar o estado de deduplicação de attach/load do guest, incrementar a generation e preservar os metadados da tab.
 
-- [x] **Step 3: 让 surface 只替换失效 webview**
+- [x] **Step 3: fazer a surface substituir apenas o webview inválido**
 
-将 generation 用作 `<webview>` key；普通 prop/render/对话切换保持 generation 不变。
+Usar a generation como key do `<webview>`; props comuns, rerenders e trocas de conversa mantêm a generation inalterada.
 
-- [x] **Step 4: 新 guest 重新 attach 与导航**
+- [x] **Step 4: reattach e navegação do novo guest**
 
-新节点 `dom-ready` 后继续调用既有 `browserViewAttachGuest({ key: browserKey, ... })`，
-然后消费 pending URL。新增中文注释记录旧实现只保留 DOM、未覆盖 Chromium guest 被终止的根因。
+Após o `dom-ready` do novo nó, continuar chamando o `browserViewAttachGuest({ key: browserKey, ... })` já existente e então consumir a URL pendente. Adicionar um
+comentário em chinês registrando que a implementação antiga apenas preservava o DOM e não cobria a causa raiz do guest Chromium ter sido terminado.
 
-- [x] **Step 5: 运行测试确认 GREEN**
+- [x] **Step 5: rodar os testes e confirmar GREEN**
 
 Run: `.\node_modules\.bin\vitest.CMD run packages/ui/test/UnifiedBrowserView.test.ts`
 
-Expected: 全部通过，且可恢复/不可恢复分支都有断言。
+Expected: tudo passa e os ramos recuperável/não recuperável têm asserções.
 
-### Task 3: browser-use URL 进入 workspace 隔离内存
+### Task 3: URL do browser-use entra na memória isolada por workspace
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/app-shell/AnimatedSidePanePanel.tsx`
 - Modify: `packages/ui/test/UnifiedBrowserView.test.ts`
 
 **Interfaces:**
-- Consumes: `browserRestoreUrls: Record<sidePaneTabId, string>` 与
-  `onBrowserUrlChange(sidePaneTabId, url)`。
-- Produces: browser-use `UnifiedBrowserView` 的 `initialUrl` / `onUrlChange` wiring。
+- Consumes: `browserRestoreUrls: Record<sidePaneTabId, string>` e
+  `onBrowserUrlChange(sidePaneTabId, url)`.
+- Produces: wiring de `initialUrl` / `onUrlChange` do `UnifiedBrowserView` de browser-use.
 
-- [x] **Step 1: 补 browser-use URL 回传断言**
+- [x] **Step 1: adicionar asserções de retorno de URL do browser-use**
 
-组件导航事件更新 URL 时断言 `onUrlChange` 收到非空 URL；恢复新 guest 时使用同一 URL。
+Quando o evento de navegação do componente atualizar a URL, afirmar que `onUrlChange` recebe uma URL não vazia; ao restaurar o novo guest, usar a mesma URL.
 
-- [x] **Step 2: 接入 browser-use tab**
+- [x] **Step 2: conectar a tab de browser-use**
 
-对 `tab.type === "browser-use"` 使用 `tab.id` 读写 `browserRestoreUrls`，与 human Browser
-保持相同隔离层，不改变 main/protocol。
+Para `tab.type === "browser-use"`, usar `tab.id` para ler e escrever `browserRestoreUrls`, mantendo a mesma camada de isolamento do Browser humano e sem alterar
+main/protocol.
 
-- [x] **Step 3: 运行相关 UI 回归**
+- [x] **Step 3: rodar as regressões de UI relacionadas**
 
 Run:
 `.\node_modules\.bin\vitest.CMD run packages/ui/test/UnifiedBrowserView.test.ts packages/ui/test/workspaceSidePane.test.ts packages/ui/test/taskSidePaneMemory.test.ts`
 
-Expected: 三个文件全部通过。
+Expected: os três arquivos passam.
 
-### Task 3.5: main 进程替代 guest 绑定竞态
+### Task 3.5: corrida de bind do guest substituto no processo main
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/desktop/src/main/browserView/browserGuestManager.ts`
 - Modify: `packages/desktop/test/browserGuestManager.test.ts`
 
-- [x] **Step 1: 用真实 crash 日志定位 IPC attach 中断**
+- [x] **Step 1: localizar a interrupção do attach IPC com um log de crash real**
 
-第一轮 `Page.crash` smoke 证明页面与 URL 已恢复，但 `tab.downloadCleanup` 对已销毁 session 调用
-`removeListener` 时抛出 `Object has been destroyed`，使新 guest 的 CDP attach 提前失败。
+O primeiro smoke de `Page.crash` provou que a página e a URL foram restauradas, mas `tab.downloadCleanup` chamava `removeListener` em uma sessão já destruída e
+lançava `Object has been destroyed`, fazendo o attach do CDP do novo guest falhar prematuramente.
 
-- [x] **Step 2: 先补失败测试，再让旧监听清理降级**
+- [x] **Step 2: escrever primeiro o teste que falha e só então degradar a limpeza dos listeners antigos**
 
-测试模拟旧 session 清理抛错，断言同 tab key 的替代 guest 仍能 attach；实现用 `try/finally` 保证
-清理引用释放并继续后续解绑/重绑。
+O teste simula a limpeza da sessão antiga lançando erro e afirma que o guest substituto da mesma tab key ainda consegue fazer attach; a implementação usa `try/finally`
+para garantir a liberação das referências de limpeza e seguir com o desbind/rebind.
 
-- [x] **Step 3: 复跑真实 Electron crash**
+- [x] **Step 3: repetir o crash real no Electron**
 
-第二轮 smoke 中 guest 2 → 3、原 URL 恢复；main 记录清理降级后继续
-`attachGuest ... cdp=true`，不再出现 IPC handler error。
+No segundo smoke, o guest 2 → 3 e a URL original foram restaurados; o main registrou a degradação da limpeza e continuou com `attachGuest ... cdp=true`, sem
+mais erros de handler IPC.
 
-### Task 4: 证据、矩阵与仓库门禁
+### Task 4: evidências, matriz e gates do repositório
 
-**Files:**
+**Arquivos:**
 - Modify: `docs/testing/browser-use-codex-parity-coverage-matrix.md`
 - Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
 
 **Interfaces:**
-- Consumes: BCP-207/208、J07 与实际测试结果。
+- Consumes: BCP-207/208, J07 e os resultados reais dos testes.
 
-- [x] **Step 1: 更新覆盖状态**
+- [x] **Step 1: atualizar o status de cobertura**
 
-将 component/main unit 已证明的部分从 planned 改为自动化路径，并记录真实 Electron
-`Page.crash`、同工作区 A → B → A 的 smoke 结果。
+Mudar de planned para caminho automatizado as partes já provadas por component/main unit e registrar os resultados reais de `Page.crash` no Electron e do smoke
+A → B → A no mesmo workspace.
 
-- [x] **Step 2: 运行类型与 lint 门禁**
+- [x] **Step 2: rodar os gates de tipo e lint**
 
 Run: `pnpm typecheck`
 
-Expected: exit 0。
+Expected: exit 0.
 
 Run: `pnpm lint`
 
-Expected: exit 0；仓库既有 warnings 单独记录。
+Expected: exit 0; os warnings já existentes no repositório são registrados separadamente.
 
-- [x] **Step 3: 检查 diff 与提交**
+- [x] **Step 3: verificar o diff e commitar**
 
-只暂存本计划列出的文件，排除 `packages/desktop/.codex-*` 用户复现产物。
+Adicionar ao stage apenas os arquivos listados neste plano, excluindo os artefatos de reprodução do usuário em `packages/desktop/.codex-*`.
 
 Run: `git diff --check`
 
-Expected: exit 0。
+Expected: exit 0.
 
 Commit: `fix(ui): recover crashed browser guests`

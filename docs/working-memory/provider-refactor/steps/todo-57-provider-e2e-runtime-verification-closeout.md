@@ -1,18 +1,18 @@
-# Todo 57：Provider E2E 实跑与回归收口
+# Todo 57：Execução Real dos Provider E2E e Fechamento da Regressão
 
-> 当前状态（2026-09-09）：本验证 Todo 已关闭，剩余事项由 [Todo102](todo-102-verification-debt-closeout.md) 唯一承接，不再独立排期。下文状态及失败为历史记录，关闭不表示原失败已通过。
+> Status atual (2026-09-09): este Todo de verificação foi encerrado; os itens restantes são assumidos exclusivamente pelo [Todo102](todo-102-verification-debt-closeout.md) e não são mais escalonados separadamente. O status e as falhas abaixo são registros históricos; o encerramento não significa que as falhas originais foram resolvidas.
 
-> 状态：已实施；45 条 macOS Provider E2E 已通过，仅 1 条真实 SSH Remote Environment Case 因缺少凭据未跑
+> Status: implementado; 45 Provider E2E de macOS passaram, apenas 1 caso real de SSH Remote Environment não foi executado por falta de credenciais
 >
-> 日期：2026-09-01
+> Data: 2026-09-01
 >
-> 输入：Todo 52 已迁移的 Provider E2E、Todo 55 的 Provider Template 最终语义、2026-08-31 回归分析、Todo 56 新增的 Remote Environment Provisioning 行为。
+> Entradas: Provider E2E já migrados pelo Todo 52, semântica final de Provider Template do Todo 55, análise de regressão de 2026-08-31 e comportamento de Remote Environment Provisioning adicionado pelo Todo 56.
 
-## 0. 目标
+## 0. Objetivo
 
-Todo 52 已完成测试代码、Fixture 和当前产品语义的迁移，但当时完成的主要证据是 E2E typecheck、fixture 校验、单测、lint 和全仓 typecheck，并不等于 37 条受影响 Desktop E2E 已经全部通过真实 WDIO 执行。
+O Todo 52 já concluiu a migração do código de teste, dos fixtures e da semântica de produto vigente, mas a principal evidência na época era o typecheck de E2E, a validação de fixtures, testes unitários, lint e typecheck de todo o repositório — o que não equivale a dizer que as 37 E2E de Desktop afetadas passaram de fato por execução WDIO.
 
-本 Todo 在 Todo 56 的生产语义稳定后，实际启动 Desktop/Electron，逐组复现、修复并运行 Provider 相关 E2E，直到能够给出 Case 级执行证据。
+Neste Todo, com a semântica de produção do Todo 56 estável, o Desktop/Electron é realmente iniciado e os E2E relacionados a Provider são reproduzidos grupo por grupo, corrigidos e executados, até que seja possível apresentar evidência de execução em nível de caso.
 
 ```text
 Todo 56 生产基线稳定
@@ -33,104 +33,104 @@ Provider 回归组实跑
 容器/整组验证与报告
 ```
 
-## 1. 验证口径
+## 1. Critério de verificação
 
-必须明确区分：
+É preciso distinguir claramente:
 
-| 证据                           | 能证明什么                                            | 是否等于 E2E 通过 |
+| Evidência                           | O que prova                                            | Equivale a E2E aprovado |
 | ------------------------------ | ----------------------------------------------------- | ----------------- |
-| `typecheck:e2e`                | E2E TypeScript 可编译                                 | 否                |
-| fixture check / coverage audit | Fixture、manifest、覆盖矩阵结构正确                   | 否                |
-| 单元测试                       | helper/服务局部行为正确                               | 否                |
-| WDIO 单 spec                   | Electron 中该 Case 的 setup/action/assertion 实际完成 | 是，该 Case       |
-| Docker 单 spec                 | 标准隔离环境中该 Case 通过                            | 是，该环境        |
-| Provider/Conversation preset   | 已纳入套件的 Case 批量通过                            | 是，该套件        |
+| `typecheck:e2e`                | o TypeScript de E2E compila                                 | 否                |
+| verificação de fixture / auditoria de cobertura | estrutura correta de Fixture, manifest e matriz de cobertura                   | 否                |
+| testes unitários                       | comportamento局部 correto de helper/serviço                               | 否                |
+| spec WDIO única                   | setup/action/assertion do caso realmente concluídos no Electron | sim, para esse caso       |
+| spec Docker única                 | o caso passa no ambiente isolado padrão                            | sim, para esse ambiente        |
+| preset Provider/Conversation   | os casos incluídos no suíte passam em lote                            | sim, para esse suíte        |
 
-最终报告不得再使用“相关检查通过”代替“E2E 已运行并通过”。未运行、环境阻塞、产品失败和过时 Case 必须分别列出。
+O relatório final não pode mais usar “as verificações relevantes passaram” no lugar de “o E2E foi executado e passou”. Execuções não realizadas, bloqueios de ambiente, falhas de produto e casos obsoletos devem ser listados separadamente.
 
-## 2. 当前产品边界
+## 2. Limites atuais de produto
 
-- Z.ai / BigModel Provider Family 和结构化 Connection Selection 当前继续保留；不得再次删除对应正式 E2E；
-- 旧 `mode/selectedKey` 未发布兼容 Case 继续删除，不恢复兼容迁移；
-- Todo 55 已经是本 Todo 的生产基线：普通第三方 Provider 从 Template 创建 Personal 实例，Z.ai/BigModel 按量 API 不再是 Family Connection Selection；
-- Account 场景由正式 Account API/Credential mock 驱动，不伪装成 Personal API-key Provider；
-- Personal Provider 场景写正式 Personal Overlay；
-- Model Selection 使用完整 `{ providerId, modelId, options }`；
-- Personal Config 热更新允许生产轮询时间差，统一等待 2 秒；只有 CI 实证仍不足时才在同一 helper 提高到 3 秒；
-- 不恢复已删除的 Registry revision push、旧 Provider mode、旧双 reasoning map 或具体模型 hardcode。
+- A família de Provider Z.ai / BigModel e a Connection Selection estruturada continuam mantidas; não se pode mais remover os E2E formais correspondentes;
+- Os casos de compatibilidade legados `mode/selectedKey` não publicados continuam removidos, sem restaurar a migração de compatibilidade;
+- O Todo 55 já é a linha de base de produção deste Todo: providers de terceiros comuns são criados a partir de um Template como instância Personal, e a API de pagamento da Z.ai/BigModel deixa de ser Family Connection Selection;
+- O cenário de Account é conduzido por mocks formais de Account API/Credential, sem se passar por provider Personal de API key;
+- O cenário de Personal Provider grava o overlay Personal formal;
+- A Model Selection usa o `{ providerId, modelId, options }` completo;
+- A atualização a quente de Personal Config permite uma diferença de tempo de polling de produção, com espera unificada de 2 segundos; só se aumenta para 3 segundos no mesmo helper quando houver evidência do CI de que ainda é insuficiente;
+- Não se restauram o push de revisão do Registry já removido, o mode antigo de Provider, o mapa duplo de reasoning antigo nem hardcode de modelos específicos.
 
-## 3. 共性测试基础设施
+## 3. Infraestrutura de testes compartilhada
 
-继续以 Todo 52 的公共边界为准，不新增另一套 Effective Registry fixture：
+Continua-se usando o limite comum do Todo 52, sem criar um segundo fixture de Effective Registry:
 
-- `seedPersonalProviderConfig(...)` / 现有等价 helper：只写 Personal Provider/Overlay；
-- 正式 Coding Plan mock + Credential Store：准备账号、套餐、quota、activity、opportunity 等上游事实；
-- 原子 persisted Model Selection helper：只用于冷启动/重启 Case；
-- `waitForSelectableModel(...)`：从正式 Selection View 等待模型可选择；
-- `waitForProviderConfigPolling()`：只处理 Personal Config 热更新的 2 秒容忍；
-- Bot 最小非空 Selection fixture：只解除 Bot 执行前置，不代替卡片/terminal 断言；
-- Provider Family Selection fixture：只写当前结构化 selection，不写旧 mode/selectedKey。
+- `seedPersonalProviderConfig(...)` / helper equivalente já existente: grava apenas Personal Provider/Overlay;
+- mock formal de Coding Plan + Credential Store: prepara fatos upstream de conta, plano, quota, activity, opportunity etc.;
+- helper atômico de Model Selection persistida: usado apenas em casos de cold start/restart;
+- `waitForSelectableModel(...)`: espera o modelo ficar selecionável a partir da Selection View formal;
+- `waitForProviderConfigPolling()`: trata apenas a tolerância de 2 segundos da atualização a quente de Personal Config;
+- fixture de Selection mínima não vazia de Bot: só remove a pré-condição de execução do Bot, não substitui as asserções de cartão/terminal;
+- fixture de Provider Family Selection: grava apenas a selection estruturada vigente, sem o mode/selectedKey antigo.
 
-Todo 56 另补 Remote Provisioning E2E helper 时，必须从真实连接生命周期触发，不直接调用 Target Store 伪装用户链路。
+Quando o Todo 56 complementarmente adicionar helpers de Remote Provisioning E2E, eles precisam ser disparados pelo ciclo de vida real da conexão, sem chamar diretamente a Target Store para fingir o caminho do usuário.
 
-## 4. 执行分组
+## 4. Grupos de execução
 
-### 4.1 第一组：Smoke 与基础设施
+### 4.1 Primeiro grupo: Smoke e infraestrutura
 
-先选择最小且诊断价值最高的 Case，证明 MacBook Pro 标准工作目录能真正启动 Electron、连接 mock provider 并完成断言：
+Escolher primeiro os casos mínimos e de maior valor diagnóstico, para provar que um MacBook Pro, no diretório de trabalho padrão, consegue iniciar o Electron de verdade, conectar um provider mock e completar as asserções:
 
-1. 一个 Personal Provider 新增并首发 Case；
-2. 一个 Coding Plan Settings Case；
-3. 一个冷启动 Model Selection 恢复 Case；
-4. 一个 Bot Selection/Card Case。
+1. um caso de criação e primeiro envio de Personal Provider;
+2. um caso de Coding Plan Settings;
+3. um caso de restauração de Model Selection em cold start;
+4. um caso de Bot Selection/Card.
 
-若 Smoke 无法启动，先修 E2E harness、构建产物或测试环境；不得因此修改 Provider 生产语义。
+Se o Smoke não conseguir iniciar, corrigir primeiro o harness de E2E, os artefatos de build ou o ambiente de teste; não é permitido alterar por isso a semântica de produção de Provider.
 
-### 4.2 第二组：Todo 52 的 37 条回归
+### 4.2 Segundo grupo: as 37 regressões do Todo 52
 
-按共性而非文件顺序执行：
+Executar por(commonality), e não pela ordem dos arquivos:
 
-1. Bot 4 条；
-2. CTP/QR 与 Upgrade WebView；
-3. CW/OTB/Personal Provider 热更新；
-4. Restart/Family Connection Selection；
-5. Turbo/reasoning；
-6. Subagent structured selection。
+1. 4 casos de Bot;
+2. CTP/QR e Upgrade WebView;
+3. atualização a quente de CW/OTB/Personal Provider;
+4. Restart/Family Connection Selection;
+5. Turbo/reasoning;
+6. Subagent structured selection.
 
-Todo 55 还必须补齐并实跑以下最终语义代表：
+O Todo 55 ainda precisa completar e executar de fato os seguintes representantes de semântica final:
 
-- 同一 Template 创建多个 Provider 实例，Personal Overlay 与真实请求身份互不污染；
-- Z.ai/BigModel 按量 API 通过普通 Template 创建，不进入 Account Family Connection Selection；
-- Welcome API Key 每次创建新的 Personal Provider 实例，不复用固定 Provider ID；
-- Template 默认值、Personal 修改与全部恢复默认使用同一 Resolver 基线；
-- Provider 顶层 `enabled`、`standard-builtin` 与普通 Built-in 复活入口在 UI、协议和持久化中归零。
+- múltiplas instâncias de Provider criadas a partir do mesmo Template, com o Personal Overlay e a identidade real de requisição sem contaminação mútua;
+- a API de pagamento Z.ai/BigModel criada por um Template comum, sem entrar no Account Family Connection Selection;
+- a Welcome API Key cria uma nova instância de Personal Provider a cada uso, sem reutilizar um Provider ID fixo;
+- valores padrão do Template, alterações Personal e a restauração completa dos padrões usam a mesma linha de base do Resolver;
+- `enabled` no topo do Provider, `standard-builtin` e o ponto de entrada de ressurreição do Built-in comum zeram na UI, no protocolo e na persistência.
 
-每组处理规则：
+Regras de tratamento por grupo:
 
-- 先用原始 spec 复现并保存完整失败日志/截图；
-- 判断是生产 Bug、Fixture 漂移、过时断言还是环境问题；
-- 生产 Bug：先增加能固定根因的测试，再最小修复生产代码；
-- Fixture 漂移：只改 setup，不弱化原 action/assertion；
-- 过时行为：只有已有明确裁决时才能删除或改写 Case，并同步 catalog/matrix；
-- 需要改变 Provider/Account/Selection 产品语义时停止实施并请求裁决。
+- reproduzir primeiro com a spec original e salvar o log de falha completo / captura de tela;
+- determinar se é bug de produção, drift de fixture, asserção obsoleta ou problema de ambiente;
+- bug de produção: primeiro adicionar um teste que fixe a causa raiz e só então fazer a correção mínima no código de produção;
+- drift de fixture: alterar apenas o setup, sem enfraquecer a action/assertion original;
+- comportamento obsoleto: só remover ou reescrever o caso quando já existir uma decisão explícita, sincronizando catalog/matrix;
+- se for preciso alterar a semântica de produto de Provider/Account/Selection, interromper a implementação e solicitar uma decisão.
 
-### 4.3 第三组：Todo 56 Remote Provisioning
+### 4.3 Terceiro grupo: Remote Provisioning do Todo 56
 
-新增或晋升最小但完整的 Remote Environment 行为证明：
+Adicionar ou promover as provas mínimas mas completas do comportamento de Remote Environment:
 
-- 同一 Environment 打开第二个 Workspace 不发生第二次首次同步；
-- 本地 Personal Config save 后，远端后续新建 Model 使用新配置；
-- Configured Default/Account/Credential 变化触发同步；
-- 本地清空 Personal Config 或删除 allowlist credential 能传播；
-- 同步中连续保存最终以最新快照收敛；
-- Provisioning 失败不阻断 Remote Workspace；
-- 不影响远程 Workspace 的 `workspaceIdentity` 路由和手机 replayable 边界。
+- abrir um segundo Workspace no mesmo Environment não gera uma segunda sincronização inicial;
+- depois de salvar um Personal Config local, um Model criado remotamente depois usa a nova configuração;
+- mudanças em Configured Default/Account/Credential disparam a sincronização;
+- limpar o Personal Config local ou remover uma credencial da allowlist propaga;
+- salvamentos consecutivos durante a sincronização convergem para o snapshot mais recente;
+- falha de Provisioning não bloqueia o Remote Workspace;
+- não afeta o roteamento de `workspaceIdentity` do Workspace remoto nem o limite de replayable do celular.
 
-新 Case 先写入对应 case catalog/coverage matrix。需要人工体验确认的交互先放 `manual-review/pending`，未确认前不得伪装为正式覆盖。
+Casos novos são escritos primeiro no case catalog/coverage matrix correspondente. Interações que exigem confirmação humana entram primeiro como `manual-review/pending` e não podem ser apresentadas como cobertura formal antes da confirmação.
 
-## 5. 实跑流程
+## 5. Fluxo de execução real
 
-### 5.1 每个 Case
+### 5.1 Para cada caso
 
 ```bash
 pnpm --filter @zcode/desktop typecheck:e2e
@@ -139,81 +139,81 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
   --spec './test/e2e/<path>/<case>.test.ts'
 ```
 
-Conversation replay Case 还必须：
+Casos de Conversation replay também precisam:
 
-1. 运行 `e2e:fixture:check`；
-2. 使用 `common.json + case-local fixture` 实跑，证明不依赖 legacy shared fixture；
-3. 再运行默认 replay；
-4. 需要进入容器套件的 Case 做单 Case Docker admission proof。
+1. rodar `e2e:fixture:check`;
+2. executar de fato com `common.json + fixture local do caso`, provando que não dependem do legacy shared fixture;
+3. então rodar o replay padrão;
+4. casos que precisam entrar no suíte de container fazem prova de admission Docker de caso único.
 
-### 5.2 批量回归
+### 5.2 Regressão em lote
 
-按风险递增：
+Em ordem crescente de risco:
 
-1. Provider/Account/Selection/Provisioning 定向单测；
-2. `pnpm --filter @zcode/desktop typecheck:e2e`；
-3. 四类 Smoke WDIO；
-4. 上述六组 Provider WDIO；
-5. Remote Provisioning 正式 Case；
-6. `pnpm typecheck`；
-7. `pnpm lint`；
-8. `pnpm test:unit`；
-9. `pnpm test:e2e:container:conversation` 或当前实际收录 Provider Case 的对应 preset。
+1. testes unitários direcionados de Provider/Account/Selection/Provisioning;
+2. `pnpm --filter @zcode/desktop typecheck:e2e`;
+3. os quatro Smoke WDIO;
+4. os seis grupos WDIO de Provider acima;
+5. casos formais de Remote Provisioning;
+6. `pnpm typecheck`;
+7. `pnpm lint`;
+8. `pnpm test:unit`;
+9. `pnpm test:e2e:container:conversation` ou o preset correspondente que atualmente reúne os casos de Provider.
 
-在 MacBook Pro 上统一从标准仓库目录构建和运行，不从 worktree 的半成品 build、旧 Electron 进程或另一份 clone 混用产物。临时日志和 artifact 使用测试框架既有目录，不建立第二套永久环境配置。
+No MacBook Pro, construir e executar sempre a partir do diretório padrão do repositório, sem misturar artefatos de um build inacabado de worktree, de processos Electron antigos ou de outro clone. Logs temporários e artefatos usam os diretórios já existentes do framework de testes, sem criar um segundo conjunto permanente de configuração de ambiente.
 
-## 6. 修复纪律
+## 6. Disciplina de correção
 
-- E2E 不直接写 Effective Provider Config、Registry Snapshot 或 executable 标记；
-- 不通过延长任意 sleep 掩盖未知竞态；Personal Config 轮询只使用统一 2 秒 helper，必要时统一提高到 3 秒；
-- 不把账号 Provider 变成 Personal API-key Provider；
-- 不为测试恢复未发布的旧迁移；
-- 不以 `providerId`/`modelId` hardcode 推断运行时能力；
-- 不弱化 terminal、interaction card、请求路由、恢复身份、reasoning、quota 等原始业务断言；
-- 修生产 Bug 时保留中文根因注释和对应回归测试；
-- 每组完成后 review diff，确认没有顺手改造无关 CI/workspace 基线。
+- E2E não escreve diretamente Effective Provider Config, Registry Snapshot nem marcadores de executável;
+- não se mascaram corridas desconhecidas alongando sleeps arbitrários; o polling de Personal Config usa apenas o helper unificado de 2 segundos, elevado uniformemente para 3 segundos se necessário;
+- não se transforma provider de conta em Personal API-key Provider;
+- não se restaura migração antiga não publicada por causa dos testes;
+- não se infere capacidade de runtime a partir de hardcode de `providerId`/`modelId`;
+- não se enfraquecem as asserções de negócio originais de terminal, interaction card, roteamento de requisição, identidade de restauração, reasoning, quota etc.;
+- ao corrigir bugs de produção, manter os comentários de causa raiz em chinês e o teste de regressão correspondente;
+- após cada grupo, revisar o diff e confirmar que nenhuma linha de base de CI/workspace sem relação foi mexida por conveniência.
 
-## 7. 结果记录
+## 7. Registro dos resultados
 
-在本 Todo 中追加执行矩阵，每个 Case 至少记录：
+Acrescentar a este Todo uma matriz de execução, registrando por caso no mínimo:
 
-| Case | 环境 | 首次结果 | 根因分类 | 修改 | 最终命令 | 最终结果 | artifact |
+| Caso | Ambiente | Primeiro resultado | Classificação da causa raiz | Modificação | Comando final | Resultado final | artifact |
 | ---- | ---- | -------- | -------- | ---- | -------- | -------- | -------- |
 
-状态只允许：
+Os estados permitidos são:
 
-- `passed`：实际 WDIO/Docker 执行通过；
-- `failed-product`：确认生产行为错误；
-- `failed-fixture`：测试输入/断言漂移；
-- `blocked-environment`：环境无法启动或依赖缺失；
-- `not-run`：尚未执行；
-- `deleted-by-decision`：已有明确产品裁决删除。
+- `passed`: passou de fato na execução WDIO/Docker;
+- `failed-product`: comportamento de produção confirmado como errado;
+- `failed-fixture`: drift de entrada/asserção de teste;
+- `blocked-environment`: ambiente não sobe ou falta dependência;
+- `not-run`: ainda não executado;
+- `deleted-by-decision`: removido por uma decisão de produto já explícita.
 
-## 8. 完成门禁
+## 8. Portão de conclusão
 
-- Todo 52 保留的 Provider E2E 均有实际 WDIO 结果，不再只有静态前置校验；
-- Todo 56 的 Environment 级同步至少有一个正式远程生命周期 E2E，其余组合由单元/集成测试覆盖；
-- Family 正式行为继续受测，旧 mode/selectedKey 兼容保持归零；
-- 所有生产 Bug 有先失败后通过的证据；
-- `typecheck:e2e`、根 typecheck、lint、全量 unit 与相关容器 preset 通过；
-- 环境 blocker 单独记录，不能将未运行写成通过；
-- 更新 case catalog、coverage matrix、Todo 52/56 的实施状态和最终验证矩阵；
-- 最后提交 Conventional Commit；若生产修复与纯测试迁移差异较大，可按可审阅边界拆分提交，但不强制为了回退制造额外抽象。
+- Todos os Provider E2E mantidos pelo Todo 52 têm resultado WDIO real, e não apenas validação estática prévia;
+- A sincronização em nível de Environment do Todo 56 tem pelo menos um E2E formal de ciclo de vida remoto; as demais combinações são cobertas por testes unitários/de integração;
+- O comportamento formal de Family continua testado e a compatibilidade antiga mode/selectedKey permanece zerada;
+- Todo bug de produção tem evidência de falha antes e sucesso depois;
+- `typecheck:e2e`, o typecheck da raiz, o lint, a suíte unitária completa e o preset de container relacionado passam;
+- Bloqueios de ambiente são registrados separadamente e uma execução não realizada nunca pode ser escrita como aprovada;
+- Atualizar o case catalog, a coverage matrix, o status de implementação do Todo 52/56 e a matriz final de verificação;
+- Por fim, submeter um Conventional Commit; se as correções de produção e a migração apenas de testes divergirem muito, o commit pode ser dividido por limites revisáveis, mas não é obrigatório criar abstrações extras só para permitir rollback.
 
-## 9. 2026-09-01 实施结果
+## 9. Resultado da implementação em 2026-09-01
 
-本轮没有继续维护旧 Provider Registry fixture，而是修正真实输入和真实运行链：
+Este ciclo não manteve o fixture antigo de Provider Registry, e sim corrigiu as entradas reais e a cadeia real de execução:
 
-- Draft Model Selection 现在按“recent 有效选择 → 当前 Account Provider 首个模型 → Host preferred”解析；Account Registry 延迟发布时，Selection View revision 会使没有显式模型意图的预热 Draft 重新水合，避免早到的 DeepSeek 事实被永久冻结；
-- Provider Template 的代表 Case 使用两个 DeepSeek Template 实例，验证实例身份隔离、稀疏 Personal Model Rule、恢复默认以及 OpenAI Chat Completions 的真实请求字段；
-- OpenAI Chat Completions Fixture 从旧 `max_tokens` 修正为正式 Option Map 产生的 `max_completion_tokens`；Anthropic Fixture 继续使用 `max_tokens`；
-- Coding Plan、Upgrade WebView、Subagent、冷恢复、输出预算、Restart、Turbo 和 Bot Case 均保留原业务断言；
-- 三条已失去产品对象的 selected-key migration Case 继续按既有裁决删除，不恢复旧 Family mode/selectedKey 兼容；
-- SSH-P0-TASK-01 增加正式 Remote Environment 证明：第一个 Workspace 产生 Provisioning 状态记录，同一 SSH Environment 的第二个 Workspace 不再产生第二条首次同步记录。
+- O Draft Model Selection agora é resolvido por “seleção recent válida → primeiro modelo do Account Provider atual → preferred do Host”; quando o Account Registry publica com atraso, a revisão da Selection View faz o Draft de pré-aquecimento sem intenção explícita de modelo se reidratar, evitando que um fato do DeepSeek que chegou cedo fique congelado para sempre;
+- Os casos representativos de Provider Template usam duas instâncias de Template do DeepSeek, validando isolamento de identidade entre instâncias, Personal Model Rule esparsa, restauração de padrões e os campos reais de requisição do OpenAI Chat Completions;
+- O fixture de OpenAI Chat Completions foi corrigido do antigo `max_tokens` para o `max_completion_tokens` produzido pelo Option Map formal; o fixture do Anthropic continua usando `max_tokens`;
+- Casos de Coding Plan, Upgrade WebView, Subagent, restauração a frio, orçamento de saída, Restart, Turbo e Bot mantêm as asserções de negócio originais;
+- Os três casos de migração de selected-key que já perderam seu objeto de produto continuam removidos conforme a decisão existente, sem restaurar a compatibilidade antiga de Family mode/selectedKey;
+- SSH-P0-TASK-01 recebeu uma prova formal de Remote Environment: o primeiro Workspace gera um registro de estado de Provisioning e o segundo Workspace do mesmo SSH Environment não gera mais um segundo registro de sincronização inicial.
 
-### 9.1 macOS Electron/WDIO 实跑证据
+### 9.1 Evidência de execução real em macOS com Electron/WDIO
 
-| 范围                                    |  结果 | Artifact / 状态                                                                                        |
+| Escopo                                    |  Resultado | Artifact / status                                                                                        |
 | --------------------------------------- | ----: | ------------------------------------------------------------------------------------------------------ |
 | Bot automation / Feishu lifecycle       |   5/5 | `desktop-e2e-20260901-123836-685`                                                                      |
 | Coding Plan Team / quota reset          | 18/18 | `desktop-e2e-20260901-134307-916`                                                                      |
@@ -229,23 +229,23 @@ Conversation replay Case 还必须：
 | Output-token preflight smoke            |   2/2 | `desktop-e2e-20260901-135009-362`                                                                      |
 | Provider Template add/edit/restore/send |   1/1 | `desktop-e2e-20260901-140409-625`                                                                      |
 | selected-key migration                  |     — | `deleted-by-decision`                                                                                  |
-| SSH Remote Environment Provisioning     |     — | `blocked-environment`：MacBook Pro 未配置 `ZCODE_E2E_SSH_HOST/USERNAME/PASSWORD`，未将静态检查记作通过 |
+| SSH Remote Environment Provisioning     |     — | `blocked-environment`：o MacBook Pro não tinha `ZCODE_E2E_SSH_HOST/USERNAME/PASSWORD` configurados; a verificação estática não foi registrada como aprovação |
 
-上述运行都在 MacBook Pro 的独立干净 runtime clone 中使用同一提交和标准 `mise`/WDIO 链路完成，没有复用工作区旧 Electron 产物。
+Todas as execuções acima foram feitas em um clone runtime limpo e separado no MacBook Pro, com o mesmo commit e a cadeia padrão `mise`/WDIO, sem reaproveitar artefatos antigos de Electron do workspace.
 
-### 9.2 仓库门禁
+### 9.2 Portões do repositório
 
-- Provider/Provisioning/Selection 定向单测：8 个文件、64 条通过；
-- 受影响的 9 个 Conversation Fixture 检查全部通过；
-- `pnpm --filter @zcode/desktop typecheck:e2e` 通过；
-- `pnpm typecheck` 通过；
-- `pnpm lint` 通过，仅保留仓库既有 warning；
-- `pnpm test:unit`：1501 个 Test Files、12797 条 Tests 通过，1 个文件与 25 条测试按既有配置跳过；
-- 修改文件格式检查与 `git diff --check` 通过；
-- 全仓 `pnpm fmt:check` 仍被 Electron 文档示例的既有 HTML 语法和 `apps/zcode-cli/tests/gb2312.js` 读取问题阻断；
-- Conversation coverage audit 中本轮 OTB manifest/fixture 已恢复一致，剩余失败仅为独立的 Hooks Lifecycle ledger 顺序/文案和三份既有生成文档过期；
-- 本机和 MacBook Pro 都没有可用 Docker CLI，因此 Conversation container preset 记为 `blocked-environment`，不记作通过。
+- Testes unitários direcionados de Provider/Provisioning/Selection: 8 arquivos, 64 casos aprovados;
+- As 9 verificações de Conversation Fixture afetadas passaram todas;
+- `pnpm --filter @zcode/desktop typecheck:e2e` passou;
+- `pnpm typecheck` passou;
+- `pnpm lint` passou, mantendo apenas os warnings já existentes no repositório;
+- `pnpm test:unit`: 1501 Test Files e 12797 Tests aprovados, com 1 arquivo e 25 testes pulados conforme a configuração já existente;
+- A verificação de formatação dos arquivos alterados e `git diff --check` passaram;
+- O `pnpm fmt:check` de todo o repositório continua bloqueado pela sintaxe HTML já existente nos exemplos de documentação do Electron e por um problema de leitura em `apps/zcode-cli/tests/gb2312.js`;
+- Na auditoria de cobertura de Conversation, o manifest/fixture de OTB deste ciclo voltou a ficar consistente; as falhas restantes são apenas a ordem/textos do ledger de Hooks Lifecycle, independente, e três documentos gerados já desatualizados;
+- Nem a máquina local nem o MacBook Pro tinham CLI do Docker disponível, portanto o preset de container de Conversation foi registrado como `blocked-environment`, e não como aprovação.
 
-### 9.3 Todo 59 后续纠偏
+### 9.3 Correção de rumo posterior no Todo 59
 
-本 Todo 实施时加入的“recent → 当前 Account Provider 首项 → Host preferred”只记录历史执行事实，已经被 Todo 59 取代。当前唯一规则是：有效 Recent 优先；Recent 缺失或失效时直接使用目标 Host 的 `preferredSelection`。Renderer 不再理解 Account Provider 的默认模型优先级，reasoning options 由 Host 统一解析并完整携带。
+A regra “recent → primeiro item do Account Provider atual → preferred do Host” adicionada na implementação deste Todo registra apenas um fato histórico de execução e já foi substituída pelo Todo 59. A única regra atual é: um Recent válido tem prioridade; quando Recent está ausente ou inválido, usa-se diretamente o `preferredSelection` do Host alvo. O Renderer não entende mais a prioridade de modelo padrão do Account Provider, e as options de reasoning são resolvidas de forma unificada pelo Host e transportadas por completo.

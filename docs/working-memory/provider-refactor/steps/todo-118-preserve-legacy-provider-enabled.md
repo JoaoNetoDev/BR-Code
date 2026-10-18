@@ -1,24 +1,24 @@
-# Todo118：Provider 首次迁移保留用户启停状态
+# Todo118: preservar o estado de ativação do usuário na primeira migração de Provider
 
-> 状态：2026-09-11 已实现首次导入修复，定向测试与局部 review 通过；账号不可禁用的联合验收随 Todo117，整批最终验收仍待执行。未修改真实用户配置。
+> Status: em 2026-09-11 a correção da primeira importação foi implementada, com testes direcionados e review local aprovados; a aceitação conjunta de «conta não desativável» acompanha o Todo117, e a aceitação final do lote completo ainda está pendente. Nenhuma configuração real de usuário foi modificada.
 
-> 最新裁决：内置账号 Provider 的旧禁用全部取消，不允许禁用；不再等待区分其禁用由用户还是系统产生。手动 Key Provider 保留启停能力，模板创建的实例不等于内置账号。现行账号写入／解析约束由 Todo117 承接，本项负责首次迁移。
+> Decisão mais recente: todas as desativações antigas dos Providers de conta embutidos são canceladas e não é permitido desativá-los; não se espera mais distinguir se essa desativação foi gerada pelo usuário ou pelo sistema. Providers de Key manuais mantêm a capacidade de ativar/desativar, e instâncias criadas por template não equivalem a contas embutidas. As restrições vigentes de escrita/resolução de contas são assumidas pelo Todo117; este item é responsável pela primeira migração.
 
-## 已确认的问题
+## Problemas confirmados
 
-以 `origin/staging_backup` 为旧格式基线。旧配置保存 Provider 外层 `enabled`，读取器也能从外层或旧 `zcode.enabled` 正确读出它。当前 `importLegacyPersonalProviderConfig()` 创建新 Provider 规则时没有复制该字段，而公共 Resolver 使用 `rule.enabled ?? true`。
+Tomando `origin/staging_backup` como baseline do formato antigo. A configuração antiga guarda o `enabled` externo do Provider, e o leitor consegue lê-lo corretamente tanto de fora quanto do antigo `zcode.enabled`. Atualmente, `importLegacyPersonalProviderConfig()` não copia esse campo ao criar a nova regra de Provider, e o Resolver comum usa `rule.enabled ?? true`.
 
 ```text
-旧配置 enabled=false
-  → 读取器保留 false
-  → 导入器遗漏 enabled
-  → 新规则 enabled 缺失
-  → Resolver 默认启用
+config antiga enabled=false
+  → o leitor preserva false
+  → o importador perde enabled
+  → a regra nova fica sem enabled
+  → o Resolver habilita por padrão
 ```
 
-已调用实际导入器及 Resolver 做无联网内存验证：自定义 Provider 的旧值分别为 `false`、`true`、缺失时，导入结果均缺失 enabled，解析结果均为 true。不是 UI 假显示，也不需要特殊模型或复杂操作才能触发。
+Já foram feitas verificações em memória, sem rede, chamando o importador e o Resolver reais: quando o valor antigo de um Provider customizado é `false`, `true` ou ausente, o resultado da importação fica sempre sem `enabled` e o resultado da resolução é sempre `true`. Não é uma exibição falsa da UI, e não exige modelos especiais nem operações complexas para ser disparado.
 
-相关入口：
+Pontos de entrada relacionados:
 
 - `packages/services/src/model-provider/legacyZCodeConfigProviderReader.ts`
 - `packages/services/src/model-provider/legacyPersonalProviderConfigImporter.ts`
@@ -26,29 +26,29 @@
 - `packages/services/test/legacyPersonalProviderConfigImporter.test.ts`
 - `packages/services/test/legacyProviderUpgrade.test.ts`
 
-## 修复范围和边界
+## Escopo e limites da correção
 
-1. 自定义 Provider：保留旧启停意图，将明确的 `enabled` 写到新 **Provider 规则外层**，与 `providerId` 同层，不写进 `config` 或模型规则。false、true 原样保留，缺失仍缺失；不修改 Resolver 的统一默认行为。
-2. 不把 Provider 禁用转成逐个禁用模型，不清 Key、模型成员、历史 Selection，不影响已固定的运行中执行。不借机修改账号域、套餐或权益。
-3. 旧内置账号身份：不导入 enabled=false，不再区分用户禁用或系统因登录、连接、权益失败生成的禁用。账号 Provider 按当前配置重建，仍遵守连接、权益、凭据及模型执行资格；不是强制可执行。
-4. 旧 `builtin:bigmodel / builtin:zai` API 身份沿用 Todo35 只迁 Key、不抢救旧 enabled 的既定边界，不借本项扩大身份迁移。迁移后手动 Key 实例仍可由用户启停；其他预设模板创建的手动实例也不适用账号不可禁用规则。
-5. 本项首先修正首次导入。已完成迁移的新手动 Key 配置不得从旧文件自动覆盖：新旧 enabled 不一致可能包含迁移后的主动修改。已有账号 enabled=false 由 Todo117 的新统一语义使其不再生效，不靠重跑迁移或旧文件回读。已迁移手动 Provider 的补救不在本项自动实施。
-6. 原始旧配置保留，不覆盖、不双写；不新增运行时旧字段回读。思考档位迁移遗漏另由 Todo121 修复，不纳入本项。
+1. Providers customizados: preservar a intenção antiga de ativação, gravando o `enabled` explícito no nível **externo** da nova regra de Provider, no mesmo nível de `providerId`, sem gravá-lo em `config` nem em regras de modelo. `false` e `true` são preservados como estão, e ausente continua ausente; não se modifica o comportamento padrão unificado do Resolver.
+2. Não converter a desativação do Provider em desativações individuais de modelos, não limpar Key, membros de modelo ou histórico de Selection, e não afetar execuções em andamento já fixadas. Não se aproveita para modificar o domínio de contas, pacotes ou direitos.
+3. Identidades antigas de conta embutida: não importar `enabled=false`, e deixar de distinguir desativação feita pelo usuário de desativação gerada pelo sistema por falha de login, conexão ou direito. O Provider de conta é reconstruído conforme a configuração atual, continuando sujeito a conexão, direitos, credenciais e elegibilidade de execução de modelos; não significa execução forçada.
+4. As identidades de API antigas `builtin:bigmodel / builtin:zai` seguem a fronteira já estabelecida no Todo35 — migrar apenas a Key e não resgatar o `enabled` antigo —, e este item não amplia a migração de identidades. Após a migração, as instâncias com Key manual continuam podendo ser ativadas/desativadas pelo usuário; outras instâncias manuais criadas por templates de preset também não se enquadram na regra de conta não desativável.
+5. Este item corrige primeiro a primeira importação. Configurações novas de Key manual já migradas não podem ser sobrescritas automaticamente a partir do arquivo antigo: uma divergência entre o `enabled` antigo e o novo pode conter alterações ativas feitas após a migração. O `enabled=false` de contas já migradas deixa de valer graças à nova semântica unificada do Todo117, sem depender de reexecutar a migração ou reler o arquivo antigo. O remendo de Providers manuais já migrados não é implementado automaticamente por este item.
+6. A configuração antiga original é preservada, sem sobrescrita nem escrita dupla; não se adiciona releitura de campos antigos em runtime. Omissões na migração do nível de raciocínio são corrigidas pelo Todo121 e não entram neste item.
 
-## 验收与复审
+## Aceitação e revisão
 
-- [ ] 先补有区分力的测试：旧自定义 Provider 为 false／true／缺失，读旧文件、导入、保存新格式、重读及 Resolver 全链路分别保持预期。
-- [ ] 使用有效 Key 占位符及完整模型配置的离线 fixture，证明 false 不发布可执行模型；true 与缺省仍受公共配置完整性等条件约束，不因启用而放宽执行资格。
-- [ ] 覆盖旧外层 enabled 与旧扩展字段的读取优先级，验证新字段位于规则外层、Schema 可接受；原始配置内容不变。
-- [ ] 核对内置 API／账号分支：旧 API 只迁 Key；账号旧禁用不导入，含有／缺少 systemDisabledReason 均不阻塞。与 Todo117 联合验证账号不可禁用，手动 Key 和模型各自的启停不受影响。
-- [ ] 保持首次导入边界：新配置存在时不重复导入，不覆盖升级后用户主动启停。
-- [ ] 检查并更新旧迁移测试的预期；已有测试输入 enabled=false 却未断言启停，不得继续作为该行为通过的证据。
-- [ ] 批量完成相关单测、typecheck、lint、架构检查及完整 review；记录运行验证和未测限制。当前仅文档阶段不执行产品回归。
+- [ ] Adicionar primeiro testes com poder discriminante: Provider customizado antigo com `false`/`true`/ausente, lendo o arquivo antigo, importando, salvando o formato novo, relendo e passando pelo Resolver em toda a cadeia, cada resultado conforme o esperado.
+- [ ] Usando fixtures offline com placeholders de Key válidos e configuração completa de modelos, provar que `false` não publica modelos executáveis; `true` e o padrão continuam sujeitos às condições comuns de integridade de configuração, sem afrouxar a elegibilidade de execução por estar habilitado.
+- [ ] Cobrir a prioridade de leitura entre o `enabled` externo antigo e os campos estendidos antigos, verificando que o novo campo fica fora da regra, que o Schema o aceita e que o conteúdo da configuração original não muda.
+- [ ] Conferir os ramos de API/conta embutida: a API antiga migra apenas a Key; a desativação antiga de conta não é importada e a presença ou ausência de `systemDisabledReason` não bloqueia nada. Verificar em conjunto com o Todo117 que a conta não pode ser desativada e que a ativação/desativação da Key manual e de cada modelo não é afetada.
+- [ ] Manter o limite da primeira importação: quando a configuração nova já existe, não reimportar e não sobrescrever a ativação/desativação ativa do usuário após o upgrade.
+- [ ] Revisar e atualizar as expectativas dos testes antigos de migração; testes existentes que passam `enabled=false` sem afirmar a ativação/desativação não podem continuar servindo como evidência de que esse comportamento funciona.
+- [ ] Concluir em lote os testes unitários relacionados, typecheck, lint, checagem de arquitetura e o review completo; registrar as verificações executadas e as limitações não testadas. Na fase apenas de documentação, não se executa regressão de produto.
 
-完成声明必须区分：首次迁移保留手动 Provider 启停、内置账号取消禁用、已经迁移手动用户的补救不在范围内，不互相替代。内置身份不再有待用户裁决项。
+A declaração de conclusão precisa distinguir: a primeira migração preserva a ativação de Providers manuais, as contas embutidas cancelam a desativação, e o remendo de usuários manuais já migrados está fora de escopo — nenhuma dessas coisas substitui as outras. As identidades embutidas não têm mais itens aguardando decisão do usuário.
 
-## 本轮实现与复审
+## Implementação e review desta rodada
 
-导入器仅在自定义分支写入明确的外层 enabled，缺失保持缺失；内置身份分支不变。旧文件→新文件→Resolver 的参数化用例先复现丢值，修复后三个测试文件 20 项通过；已覆盖外层与扩展字段优先级、新版重读、升级后主动反转启停不重复导入、旧文件字节不变与实际 Registry 发布。根 typecheck、lint（0 errors / 41 既有 warnings）、架构（0 violations）通过。
+O importador grava o `enabled` externo explícito apenas no ramo de Provider customizado, mantendo ausente quando ausente; o ramo de identidade embutida não muda. Casos parametrizados de arquivo antigo → arquivo novo → Resolver reproduziram primeiro a perda do valor, e após a correção 20 casos passaram em três arquivos de teste; já estão cobertos a prioridade entre campo externo e campo estendido, a releitura no formato novo, a não reimportação após reversão ativa de ativação pós-upgrade, a invariância dos bytes do arquivo antigo e a publicação real no Registry. Typecheck da raiz, lint (0 errors / 41 warnings já existentes) e arquitetura (0 violations) passaram.
 
-局部 review 未引入运行时旧字段回读、数据补救、Key/模型级启停改写或身份猜测。Todo117 联合批次已验证账号取消禁用且资格检查不放宽；首次迁移追加有/无合法 systemDisabledReason 和启用但缺 Key 不可执行断言通过。清单要求的代码与离线全链路已覆盖，整批最终交付复审待执行。完整批次记录见 [执行账本](./provider-stabilization-20260911-execution.md)。
+O review local não introduziu releitura de campos antigos em runtime, remendo de dados, reescrita de ativação em nível de Key/modelo nem adivinhação de identidade. O lote conjunto com o Todo117 já verificou que a conta cancela a desativação e que a verificação de elegibilidade não é afrouxada; a primeira migração adicionou asserções de sistema com e sem `systemDisabledReason` válido e de «habilitado mas sem Key não é executável», que passaram. O código e a cadeia offline exigidos pela lista foram cobertos; a revisão de entrega final do lote está pendente. O registro completo do lote está em [ledger de execução](./provider-stabilization-20260911-execution.md).

@@ -1,17 +1,10 @@
-# Windows Caption Menu Button
+# Botão de menu na caption do Windows
 
-- 仅 Windows 桌面端在原生最小化/最大化/关闭按钮左侧渲染一颗自绘菜单按钮。
-- 这颗按钮不替换原生 caption buttons，只补充应用级快捷入口。
-- 自绘按钮与原生 caption buttons 的横向边界以 Window Controls Overlay 暴露的
-  `titlebar-area-x` / `titlebar-area-width` CSS 环境变量为事实源；窗口宽度减去可用
-  titlebar 区域即为右侧原生控制区安全边距。`136px / zoomFactor` 只作为旧 Electron、
-  测试环境或环境变量不可用时的兼容 fallback，不能覆盖真实的系统/DPI 几何。
-- Windows 自绘 Terminal、侧边栏与下拉菜单按钮的宽度由右侧原生控制区总宽度除以三
-  派生，使页面缩放后仍与最小化、最大化、关闭三个原生按钮保持同一列宽；不得把
-  固定 `46px` 作为缩放后的最终视觉宽度。
-- workspace task header、新任务草稿标题栏和 Settings 标题栏必须复用同一安全区计算；
-  在默认缩放、最小 `-3` 档、最大 `+5` 档以及不同 Windows DPI 下，下拉按钮的命中区
-  都不得进入原生最小化按钮区域。
-- 菜单项优先复用已有平台命令与工作区动作，避免再维护一套并行逻辑。
-- 菜单顺序按工作区动作、帮助动作、开发诊断动作、窗口动作分组；帮助分组里在“检查更新”和“问题反馈”之间额外插入分隔线，便于区分系统更新与用户支持动作。
-- 帮助与诊断类入口统一复用 `DesktopCommandIds`，避免 Windows caption 菜单和桌面主菜单出现能力漂移。
+- Apenas o desktop Windows renderiza um botão de menu desenhado pelo próprio app à esquerda dos botões nativos de minimizar/maximizar/fechar.
+- Esse botão não substitui os caption buttons nativos; apenas complementa um atalho de nível de aplicação.
+- O limite horizontal entre o botão desenhado e os caption buttons nativos tem como fonte de verdade as variáveis de ambiente CSS `titlebar-area-x` / `titlebar-area-width` expostas pelo Window Controls Overlay; a largura da janela menos a área de titlebar disponível corresponde à margem segura do lado direito para os controles nativos. `136px / zoomFactor` serve apenas como fallback de compatibilidade para Electron antigo, ambiente de testes ou quando as variáveis de ambiente não estão disponíveis, e não pode sobrescrever a geometria real do sistema/DPI.
+- No Windows, a largura dos botões desenhados de Terminal, barra lateral e menu dropdown é derivada da largura total da área de controles nativa à direita dividida por três, para que, após o zoom da página, continuem alinhados com a mesma largura de coluna dos três botões nativos (minimizar, maximizar, fechar); não se deve usar `46px` fixo como largura visual final após o zoom.
+- O workspace task header, a barra de título de rascunho de nova tarefa e a barra de título de Settings devem reutilizar o mesmo cálculo de área segura; no zoom padrão, no nível mínimo `-3`, no nível máximo `+5` e sob diferentes DPI do Windows, a área de clique do botão dropdown não pode invadir a região do botão nativo de minimizar.
+- Os itens de menu devem priorizar o reaproveitamento de comandos de plataforma e ações de workspace já existentes, evitando manter uma lógica paralela paralela.
+- A ordem do menu é agrupada em ações de workspace, ações de ajuda, ações de diagnóstico de desenvolvimento e ações de janela; no grupo de ajuda, é inserido um separador adicional entre "Verificar atualizações" e "Relatar problema", para diferenciar atualização do sistema de ações de suporte ao usuário.
+- Entradas de ajuda e diagnóstico reutilizam uniformemente `DesktopCommandIds`, evitando divergência de capacidades entre o menu de caption do Windows e o menu principal do desktop.

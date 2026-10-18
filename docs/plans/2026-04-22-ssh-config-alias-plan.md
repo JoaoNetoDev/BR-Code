@@ -1,77 +1,77 @@
-# SSH Config Alias Connection Plan
+# Plano de Conexão por Alias do SSH Config
 
-## 背景
+## Contexto
 
-当前 SSH dialog 只能让用户手动填写 `host / port / username / password / privateKeyPath`。
-对于已经在 `~/.ssh/config` 里维护了多个 SSH alias 的用户，这条链路效率较低，也容易重复输入和填错。
+Atualmente o diálogo SSH só permite que o usuário preencha manualmente `host / port / username / password / privateKeyPath`.
+Para usuários que já mantêm vários alias SSH em `~/.ssh/config`, esse fluxo é pouco eficiente e sujeito a entrada repetida e erros de digitação.
 
-目标是让用户在 SSH dialog 中直接选择本机 `~/.ssh/config` 里的 alias，并把 alias 对应的配置自动填充到现有表单中，再沿用现有远程连接流程继续连接。
+O objetivo é permitir que o usuário selecione diretamente um alias de `~/.ssh/config` da máquina local no diálogo SSH, que a configuração correspondente ao alias seja preenchida automaticamente no formulário existente e que a conexão prossiga pelo fluxo de conexão remota já existente.
 
-## 目标
+## Objetivos
 
-- 在 SSH dialog 的 SSH 配置区增加一个 alias 下拉菜单。
-- 下拉菜单展示本机 SSH config 中可直接连接的 alias。
-- 用户选择 alias 后，把可映射到当前表单的字段自动填入对应输入框。
-- 自动填充后，用户仍可继续手动修改字段，再发起连接。
-- 不破坏现有 `RemoteTarget`、远程历史记录、自动重连、desktop / web 兼容边界。
+- Adicionar um menu suspenso de alias na seção de configuração SSH do diálogo SSH.
+- O menu suspenso exibe os aliases do SSH config local que podem ser conectados diretamente.
+- Após o usuário selecionar um alias, preencher automaticamente nos campos correspondentes todos os campos mapeáveis para o formulário atual.
+- Depois do preenchimento automático, o usuário ainda pode modificar manualmente os campos e então iniciar a conexão.
+- Não quebrar `RemoteTarget`, o histórico de conexões remotas, a reconexão automática nem a fronteira de compatibilidade desktop / web.
 
-## 非目标
+## Não objetivos
 
-- v1 不做“直接把 alias 名传给后端，再完整按 OpenSSH 运行时语义执行”的能力。
-- v1 不保证完整支持 `ProxyJump`、`ProxyCommand`、`Match exec`、`IdentityAgent` 等 OpenSSH 高级能力。
-- v1 不从 SSH config 中读取或填充密码。
-- v1 不把 alias 名本身作为远程历史记录和自动重连的持久化主键。
+- Na v1, não implementar a capacidade de "passar o nome do alias diretamente ao backend e executar com a semântica completa de runtime do OpenSSH".
+- A v1 não garante suporte completo a recursos avançados do OpenSSH como `ProxyJump`, `ProxyCommand`, `Match exec` e `IdentityAgent`.
+- A v1 não lê nem preenche senhas a partir do SSH config.
+- A v1 não usa o próprio nome do alias como chave primária persistida do histórico de conexões remotas e da reconexão automática.
 
-## 用户体验
+## Experiência do usuário
 
-### 交互位置
+### Local da interação
 
-- 入口放在 SSH dialog 的第二步 `填写连接配置` 中。
-- 仅当连接方式为 `SSH` 时显示。
-- 下拉菜单放在 SSH 配置区顶部，位于 `Host / Port` 之前，语义上作为“快捷填表”入口。
+- A entrada fica no segundo passo do diálogo SSH, `Preencher configuração de conexão`.
+- Exibida apenas quando o método de conexão for `SSH`.
+- O menu suspenso fica no topo da seção de configuração SSH, antes de `Host / Port`, funcionando semanticamente como uma entrada de "preenchimento rápido do formulário".
 
-### 交互行为
+### Comportamento da interação
 
-- SSH 表单首次展示时，懒加载本机 SSH config alias 列表。
-- 如果成功读到 alias：
-  - 显示一个可选下拉框，默认值为空。
-  - 每个选项展示 alias 名，必要时补充摘要，例如 `user@host:port`。
-- 如果没有读到 alias：
-  - 下拉框可不展示，或展示 disabled 空状态提示。
-- 用户选择某个 alias 后：
+- Quando o formulário SSH é exibido pela primeira vez, carregar preguiçosamente a lista de alias do SSH config local.
+- Se a leitura dos alias for bem-sucedida:
+  - Exibir uma caixa de seleção com valor padrão vazio.
+  - Cada opção exibe o nome do alias, complementado por um resumo quando necessário, por exemplo `user@host:port`.
+- Se nenhum alias for lido:
+  - A caixa de seleção pode não ser exibida, ou exibir um estado vazio desabilitado com uma dica.
+- Após o usuário selecionar um alias:
   - `HostName -> host`
   - `Port -> port`
   - `User -> username`
   - `IdentityFile -> privateKeyPath`
-  - 若存在 `IdentityFile`，自动切换认证方式到 `Private Key`
-- 自动填充后，用户仍然可以手动修改任意字段。
-- 如果用户手动修改了 alias 已经填入的关键字段，清空当前 alias 选中状态，避免 UI 误导为“仍严格等于该 alias 配置”。
+  - Se `IdentityFile` existir, alternar automaticamente o método de autenticação para `Private Key`
+- Após o preenchimento automático, o usuário ainda pode modificar manualmente qualquer campo.
+- Se o usuário modificar manualmente um campo-chave que o alias já preencheu, limpar o estado de seleção do alias, evitando que a UI sugira indevidamente que a configuração ainda é estritamente igual à do alias.
 
-### 错误与降级
+### Erros e degradação
 
-- 读取 SSH config 失败时，不阻塞用户继续手动填写表单。
-- UI 只展示一条轻量提示，例如“SSH config 读取失败，仍可手动输入连接信息”。
-- Web 端不读取本机 `~/.ssh/config`，统一返回空列表。
+- Em caso de falha na leitura do SSH config, não bloquear o usuário de continuar preencher o formulário manualmente.
+- A UI exibe apenas um aviso leve, por exemplo "Falha ao ler o SSH config, ainda é possível inserir as informações de conexão manualmente".
+- O lado web não lê o `~/.ssh/config` local e sempre retorna uma lista vazia.
 
-## 方案边界定义
+## Definição do escopo da solução
 
-本次能力定义为：
+Esta capacidade é definida como:
 
-> 通过 SSH alias 快速预填现有 SSH 表单，再走现有 `connectRemote()` 链路完成连接。
+> Pré-preencher rapidamente o formulário SSH existente por meio de um alias SSH e então concluir a conexão pela cadeia `connectRemote()` já existente.
 
-这意味着：
+Isso significa que:
 
-- alias 只是“配置来源”，不是新的连接协议。
-- 后端仍消费展开后的具体字段，而不是 alias 名。
-- 如果某个 alias 依赖 OpenSSH 专有运行时能力，v1 只会提取其中可映射到现有表单的静态字段，不承诺完整复现命令行 `ssh alias` 的全部行为。
+- O alias é apenas uma "fonte de configuração", não um novo protocolo de conexão.
+- O backend continua consumindo os campos concretos já expandidos, e não o nome do alias.
+- Se um alias depender de recursos de runtime exclusivos do OpenSSH, a v1 apenas extrai os campos estáticos mapeáveis para o formulário atual e não promete reproduzir todo o comportamento do comando `ssh alias` na linha de comando.
 
-这个边界必须在实现和文档里保持一致，避免把“alias 自动填表”误做成“完整兼容 OpenSSH alias 直连”。
+Essa fronteira precisa ser mantida consistente na implementação e na documentação, para evitar que o "preenchimento automático por alias" seja implementado por engano como "compatibilidade completa com conexão direta por alias do OpenSSH".
 
-## 架构落点
+## Ponto de integração na arquitetura
 
-### 分层原则
+### Princípio de camadas
 
-这项能力应该复用现有平台能力注入链路，不允许 UI 直接读本地文件：
+Esta capacidade deve reutilizar a cadeia existente de injeção de capacidades de plataforma; não é permitido que a UI leia arquivos locais diretamente:
 
 ```text
 Desktop main / runtime
@@ -81,23 +81,23 @@ Desktop main / runtime
         -> SSH dialog UI
 ```
 
-原因：
+Motivo:
 
-- `~/.ssh/config` 是宿主机本地文件，只能由 desktop 平台层读取。
-- UI 层只负责展示和表单状态，不负责访问本地文件系统。
-- 这和当前 Docker / WSL 探测走 `IPlatformService` 的分层方式一致。
-- Web 模式可以自然降级为空能力，不污染现有远程连接服务层。
+- `~/.ssh/config` é um arquivo local da máquina host e só pode ser lido pela camada de plataforma desktop.
+- A camada de UI é responsável apenas por exibição e estado do formulário, não por acessar o sistema de arquivos local.
+- Isso é consistente com a forma como a detecção atual de Docker / WSL passa por `IPlatformService`.
+- O modo web pode degradar naturalmente para uma capacidade vazia, sem poluir a camada de serviço de conexão remota existente.
 
-### 不建议的做法
+### Abordagens não recomendadas
 
-- 不要在 `packages/ui` 里直接读 `~/.ssh/config`
-- 不要把 alias 解析逻辑塞进 React 组件
-- 不要修改现有 `RemoteTarget`，把它变成 `alias | host`
-- 不要让远程历史记录只保存 alias 名，否则 SSH config 变化后重连语义会漂移
+- Não ler `~/.ssh/config` diretamente em `packages/ui`
+- Não colocar a lógica de resolução de alias dentro de componentes React
+- Não modificar o `RemoteTarget` existente para transformá-lo em `alias | host`
+- Não fazer o histórico remoto salvar apenas o nome do alias, pois assim a semântica de reconexão mudaria sempre que o SSH config mudasse
 
-## 数据模型
+## Modelo de dados
 
-建议在 `packages/shared` 增加一个平台返回类型，例如：
+Sugere-se adicionar em `packages/shared` um tipo retornado pela plataforma, por exemplo:
 
 ```ts
 export interface SSHConfigAliasOption {
@@ -110,25 +110,25 @@ export interface SSHConfigAliasOption {
 }
 ```
 
-说明：
+Descrição:
 
-- `alias`：展示名，也是选择值
-- `host / port / username / privateKeyPath`：当前 UI 可直接消费的字段
-- `source`：可选，表示命中的 config 文件路径，方便后续调试和日志
+- `alias`: nome de exibição, que também é o valor selecionado
+- `host / port / username / privateKeyPath`: campos que a UI atual pode consumir diretamente
+- `source`: opcional, indica o caminho do arquivo de config encontrado, facilitando depuração e logs posteriores
 
-这个类型只表达“可用于表单预填的静态展开结果”，不试图承载完整 OpenSSH 配置全集。
+Esse tipo expressa apenas o "resultado estático expandido, utilizável para pré-preencher o formulário" e não tenta representar o conjunto completo da configuração do OpenSSH.
 
-## 平台接口设计
+## Design da interface de plataforma
 
 ### Shared
 
-在 `packages/shared/src/platform.ts` 的 `IPlatformService` 增加：
+Adicionar em `IPlatformService`, em `packages/shared/src/platform.ts`:
 
 ```ts
 listSSHConfigAliases(): Promise<SSHConfigAliasOption[]>;
 ```
 
-同时需要同步：
+Também é preciso sincronizar:
 
 - `packages/shared/src/channels.ts`
 - `packages/client/src/globals.d.ts`
@@ -136,106 +136,106 @@ listSSHConfigAliases(): Promise<SSHConfigAliasOption[]>;
 - `packages/desktop/src/renderer/src/main.tsx`
 - `packages/web/src/main.tsx`
 - `packages/shared/src/web-remote-control.ts`
-- 旧仓库内 relay 的平台代理文件（已移除，当前外部 relay 不承载该业务）
+- o arquivo de proxy de plataforma do relay no repositório antigo (já removido; atualmente o relay externo não hospeda esse negócio)
 - `packages/desktop/src/main/webRemoteControlManager.ts`
 
 ### Desktop
 
-在 desktop main 新增对应 IPC handler，仅负责转发与编排，不承载解析业务：
+Adicionar no main do desktop o IPC handler correspondente, responsável apenas por encaminhamento e orquestração, sem hospedar a lógica de parsing:
 
-- 接收 renderer 的 `listSSHConfigAliases` 请求
-- 转发到 host process / service 层执行 SSH config 读取与 alias 解析
-- 返回适合 UI 预填的字段结果
-- 异常时记录 `warn` 日志并返回 `[]`
+- Receber a requisição `listSSHConfigAliases` do renderer
+- Encaminhar ao host process / camada de service para executar a leitura do SSH config e a resolução dos alias
+- Retornar o resultado com os campos adequados ao pré-preenchimento da UI
+- Em caso de exceção, registrar log `warn` e retornar `[]`
 
-同时明确职责边界：
+Ao mesmo tempo, deixar explícita a fronteira de responsabilidades:
 
-- main 进程保持“调度层”，不内嵌 SSH config 解析逻辑
-- 解析实现放在 host process / service，便于测试与复用
-- 后续若扩展到 remote control 透传，也沿用同一 service 能力
+- O processo main permanece como "camada de agendamento", sem embutir a lógica de parsing do SSH config
+- A implementação do parsing fica no host process / service, facilitando testes e reuso
+- Futuras extensões para repasse via remote control também reutilizam a mesma capacidade de service
 
 ### Web
 
-- 普通 web 模式返回 `[]`
-- Web remote control 模式可后续按需透传 desktop 机器的 alias 列表
-- v1 如不做 web remote control 透传，也必须保持类型链路兼容，不能让接口只在 desktop 独有
+- No modo web comum, retorna `[]`
+- No modo web remote control, o repasse da lista de alias da máquina desktop pode ser adicionado depois conforme a necessidade
+- Mesmo que a v1 não faça o repasse no web remote control, a compatibilidade da cadeia de tipos precisa ser mantida; a interface não pode existir apenas no desktop
 
-## 解析策略
+## Estratégia de parsing
 
-### 跨平台约束（必须满足）
+### Restrições entre plataformas (obrigatórias)
 
-该能力必须兼容 macOS / Linux / Windows，不能只按类 Unix 假设实现：
+Esta capacidade precisa ser compatível com macOS / Linux / Windows e não pode ser implementada assumindo apenas um ambiente parecido com Unix:
 
-- SSH config 路径统一基于 `os.homedir()` 解析，再拼接 `.ssh/config`
-- Windows 下优先走 `PATH` 里的 `ssh.exe`，并兼容系统 OpenSSH 常见位置探测
-- 若运行环境不存在可执行 `ssh`，自动回退到内置轻量解析，不报阻断错误
-- 路径与分隔符处理统一归一化，避免 `\` / `/` 差异导致解析失败
+- O caminho do SSH config é resolvido uniformemente a partir de `os.homedir()`, concatenando `.ssh/config`
+- No Windows, dar preferência ao `ssh.exe` no `PATH`, com detecção também das posições comuns do OpenSSH do sistema
+- Se o ambiente de execução não tiver um `ssh` executável, voltar automaticamente para o parser leve embutido, sem erro bloqueante
+- O tratamento de caminhos e separadores é normalizado de forma uniforme, evitando que a diferença entre `\` e `/` cause falhas de parsing
 
-### 推荐策略
+### Estratégia recomendada
 
-推荐采用“两段式解析”：
+Recomenda-se a "parsing em duas etapas":
 
-1. 扫描 `~/.ssh/config` 与 `Include` 展开的文件，收集 alias 名单
-2. 对 alias 采用受控 `ssh -G <alias>` 解析最终结果，再提取需要字段
+1. Varrer `~/.ssh/config` e os arquivos expandidos por `Include`, coletando a lista de alias
+2. Para cada alias, usar `ssh -G <alias>` de forma controlada para obter a resolução final e então extrair os campos necessários
 
-原因：
+Motivo:
 
-- `ssh -G` 更接近用户真实命令行行为
-- 能减少手写 SSH config 解析规则和 OpenSSH 实际行为不一致的问题
-- 对 `Include`、默认值、覆盖顺序的兼容性更高
+- `ssh -G` é mais próximo do comportamento real do usuário na linha de comando
+- Reduz o problema de divergência entre regras de parsing escritas à mão e o comportamento real do OpenSSH
+- Tem maior compatibilidade com `Include`, valores padrão e ordem de sobrescrita
 
-### 执行保护与性能边界
+### Proteção de execução e limites de desempenho
 
-为避免 `ssh -G` 对弹窗交互造成抖动，必须加保护：
+Para evitar que `ssh -G` cause travamentos na interação do diálogo, é preciso adicionar proteções:
 
-- 单次 `ssh -G` 设置超时（例如 1s~2s），超时即判失败并回退
-- 限制并发数（例如 2~4），避免 alias 过多时瞬时拉满 CPU/IO
-- 设置可解析 alias 数量上限，超限时只解析前 N 项并给出降级提示
-- 任一 alias 解析失败只影响该项，不影响整体列表返回
-- 对解析结果做短时缓存（TTL），避免弹窗反复打开时重复扫描与执行
-- 执行 `ssh -G` 时禁用交互式输入能力，防止进入密码/确认阻塞
+- Definir um timeout para cada `ssh -G` (por exemplo 1s~2s); em caso de timeout, considerar falha e fazer fallback
+- Limitar o número de execuções concorrentes (por exemplo 2~4), evitando saturar CPU/IO instantaneamente quando houver muitos alias
+- Definir um limite superior para a quantidade de alias que podem ser resolvidos; ao exceder, resolver apenas os N primeiros e exibir um aviso de degradação
+- A falha na resolução de um alias afeta apenas esse item e não impede o retorno da lista completa
+- Fazer cache de curto prazo (TTL) dos resultados de parsing, evitando varrer e executar repetidamente quando o diálogo é aberto várias vezes
+- Desabilitar a entrada interativa ao executar `ssh -G`, evitando bloquear por senha/confirmação
 
-### 回退策略
+### Estratégia de fallback
 
-如果当前环境无法执行 `ssh -G`，则回退到内置轻量解析：
+Se o ambiente atual não conseguir executar `ssh -G`, usar o parser leve embutido:
 
-- 识别 `Host`
-- 识别 `HostName`
-- 识别 `Port`
-- 识别 `User`
-- 识别 `IdentityFile`
-- 识别 `Include`
+- Reconhecer `Host`
+- Reconhecer `HostName`
+- Reconhecer `Port`
+- Reconhecer `User`
+- Reconhecer `IdentityFile`
+- Reconhecer `Include`
 
-### alias 过滤规则
+### Regras de filtragem de alias
 
-只展示“可直接点击连接”的 alias，不展示以下模式：
+Exibir apenas os alias que podem ser conectados com um clique direto, sem exibir os seguintes padrões:
 
 - `*`
-- 含 `?` 的模式
-- 含 `!` 的 negated 模式
-- 多个 pattern 混在一起、语义不稳定的规则项
+- padrões contendo `?`
+- padrões negados contendo `!`
+- itens de regra que misturam vários patterns e têm semântica instável
 
-这样可以避免把“规则模板”错误地展示成“可直接连接的节点”。
+Isso evita apresentar "modelos de regra" como se fossem "nós conectáveis diretamente".
 
-## 字段映射规则
+## Regras de mapeamento de campos
 
-| SSH config 字段 | 表单字段 | 说明 |
+| Campo do SSH config | Campo do formulário | Descrição |
 | --- | --- | --- |
-| `HostName` | `host` | 若缺失则可回退为 alias 本身 |
-| `Port` | `port` | 保持数字到字符串转换 |
-| `User` | `username` | 直接填入 |
-| `IdentityFile` | `privateKeyPath` | 取首个可用值 |
+| `HostName` | `host` | Se ausente, pode fazer fallback para o próprio alias |
+| `Port` | `port` | Mantém a conversão de número para string |
+| `User` | `username` | Preenchido diretamente |
+| `IdentityFile` | `privateKeyPath` | Usa o primeiro valor disponível |
 
-补充规则：
+Regras complementares:
 
-- 若 alias 只有 `Host` 没有 `HostName`，可用 alias 自身作为 `host` 预填。
-- 若存在 `IdentityFile`，自动切换到 `Private Key` 认证方式。
-- 若不存在 `IdentityFile`，不自动切换到 `Password`，保持当前认证方式，避免覆盖用户已输入的密码。
-- 自动填充 alias 时不要写入密码字段。
+- Se o alias tiver apenas `Host` e nenhum `HostName`, é possível usar o próprio alias como `host` para o pré-preenchimento.
+- Se `IdentityFile` existir, alternar automaticamente para o método de autenticação `Private Key`.
+- Se `IdentityFile` não existir, não alternar automaticamente para `Password`; manter o método de autenticação atual, para não sobrescrever a senha já digitada pelo usuário.
+- Não gravar o campo de senha ao preencher um alias automaticamente.
 
-## 表单状态设计
+## Design do estado do formulário
 
-建议在 `useRemoteConnectionForm` 中新增：
+Sugere-se adicionar em `useRemoteConnectionForm`:
 
 - `sshConfigAliases`
 - `sshConfigAliasesLoading`
@@ -244,33 +244,33 @@ listSSHConfigAliases(): Promise<SSHConfigAliasOption[]>;
 - `applySshConfigAlias(alias: SSHConfigAliasOption)`
 - `clearSelectedSshConfigAlias()`
 
-状态职责：
+Responsabilidades de estado:
 
-- `useRemoteConnectionForm` 负责加载、缓存、应用 alias
-- `RemoteConnectionFields` 只负责渲染下拉和调用 setter
+- `useRemoteConnectionForm` é responsável por carregar, cachear e aplicar o alias
+- `RemoteConnectionFields` é responsável apenas por renderizar o menu suspenso e chamar o setter
 
-这样可以把“平台数据加载”和“UI 展示”继续放在现有 hook + 组件职责边界内。
+Dessa forma, os dados da plataforma e a exibição da UI continuam dentro da fronteira de responsabilidades já existente entre hook e componente.
 
-## 历史记录与重连策略
+## Estratégia de histórico e reconexão
 
-远程历史记录仍应保存展开后的 SSH 目标，而不是 alias 名本身。
+O histórico de conexões remotas deve continuar salvando o destino SSH expandido, e não o próprio nome do alias.
 
-原因：
+Motivo:
 
-- 当前远程连接和自动重连都是基于 `RemoteTarget` 具体字段工作的
-- alias 名并不是稳定的连接语义，用户随时可能修改 `~/.ssh/config`
-- 如果只存 alias 名，下次重连行为会被“当前 SSH config 内容”隐式改变，导致持久化行为不可预测
+- A conexão remota atual e a reconexão automática funcionam com base nos campos concretos de `RemoteTarget`
+- O nome do alias não é uma semântica de conexão estável; o usuário pode modificar `~/.ssh/config` a qualquer momento
+- Se apenas o nome do alias for salvo, o comportamento da próxima reconexão mudaria implicitamente conforme o "conteúdo atual do SSH config", tornando o comportamento de persistência imprevisível
 
-因此：
+Portanto:
 
-- 本次只把 alias 当作“初始化表单”的来源
-- 历史记录仍按现有 `host / port / username / privateKeyPath / credential key` 逻辑持久化
-- workspace 级去重、会话关联、缓存 key 继续遵循 `workspaceKey = workspaceIdentity?.trim() || workspacePath`
-- 远程 workspace identity 的构造与匹配继续复用统一工具（如 `buildRemoteWorkspaceIdentity`），不引入 alias 专用 identity 规则
+- Nesta entrega o alias serve apenas como fonte de "inicialização do formulário"
+- O histórico continua sendo persistido conforme a lógica existente de `host / port / username / privateKeyPath / credential key`
+- A deduplicação em nível de workspace, a associação de sessões e a chave de cache continuam seguindo `workspaceKey = workspaceIdentity?.trim() || workspacePath`
+- A construção e o casamento da identidade do workspace remoto continuam reutilizando as utilidades unificadas (como `buildRemoteWorkspaceIdentity`), sem introduzir regras de identidade específicas para alias
 
-## UI 文案建议
+## Sugestões de textos de UI
 
-新增 i18n key：
+Novas chaves de i18n:
 
 - `ssh.configAlias`
 - `ssh.configAliasPlaceholder`
@@ -278,98 +278,98 @@ listSSHConfigAliases(): Promise<SSHConfigAliasOption[]>;
 - `ssh.configAliasLoadFailed`
 - `ssh.configAliasDescription`
 
-文案方向：
+Direção dos textos:
 
-- 中文：`SSH 配置别名（可选）`
-- 英文：`SSH Config Alias (Optional)`
+- Chinês: `SSH 配置别名（可选）`
+- Inglês: `SSH Config Alias (Optional)`
 
-## 实施步骤
+## Passos de implementação
 
-### 阶段 1：平台能力打通
+### Fase 1: conectar a capacidade de plataforma
 
-- shared 增加 `SSHConfigAliasOption`
-- `IPlatformService` 增加 `listSSHConfigAliases()`
-- desktop preload / renderer / main / web fallback 打通调用链
-- web remote control 类型链路补齐兼容
+- Adicionar `SSHConfigAliasOption` em shared
+- Adicionar `listSSHConfigAliases()` em `IPlatformService`
+- Conectar a cadeia de chamadas em desktop preload / renderer / main e o fallback web
+- Completar a compatibilidade da cadeia de tipos do web remote control
 
-### 阶段 2：desktop 解析器落地
+### Fase 2: implementar o parser no desktop
 
-- 新增 desktop runtime 工具，负责读取和解析 SSH config
-- 先实现 alias 列表提取与基础字段映射
-- 优先尝试 `ssh -G`，失败后回退轻量解析
-- 增加针对 `Include`、模式 alias、`IdentityFile` 的单测
+- Adicionar uma utilidade de runtime do desktop responsável por ler e fazer o parsing do SSH config
+- Implementar primeiro a extração da lista de alias e o mapeamento básico de campos
+- Tentar `ssh -G` primeiro e, em caso de falha, recorrer ao parsing leve
+- Adicionar testes unitários para `Include`, alias de padrão e `IdentityFile`
 
-### 阶段 3：UI 接入
+### Fase 3: integração com a UI
 
-- 先读取并对照项目根目录 `DESIGN.md`，确保颜色、层级、圆角、尺寸、响应式、主题与 i18n 规则不被破坏
-- `useRemoteConnectionForm` 加载 alias 列表和选中状态
-- `RemoteConnectionFields` 渲染下拉与提示
-- alias 选中后回填表单
-- 用户手动编辑关键字段时清除 alias 选中状态
+- Ler e usar como referência o `DESIGN.md` na raiz do projeto, garantindo que cores, hierarquia, raio de canto, tamanhos, responsividade, tema e regras de i18n não sejam quebrados
+- Fazer `useRemoteConnectionForm` carregar a lista de alias e o estado de seleção
+- Fazer `RemoteConnectionFields` renderizar o menu suspenso e as dicas
+- Preencher o formulário após a seleção do alias
+- Limpar o estado de seleção do alias quando o usuário editar manualmente um campo-chave
 
-### 阶段 4：测试与回归
+### Fase 4: testes e regressão
 
-- UI 单测
-- desktop main / parser 单测
-- e2e 覆盖 SSH dialog 下拉选择和字段自动填充
-- 跑 `pnpm typecheck`
-- 跑 `pnpm lint`
+- Testes unitários de UI
+- Testes unitários do main do desktop / do parser
+- E2E cobrindo a seleção no menu suspenso do diálogo SSH e o preenchimento automático de campos
+- Rodar `pnpm typecheck`
+- Rodar `pnpm lint`
 
-## 测试建议
+## Sugestões de teste
 
-### 单元测试
+### Testes unitários
 
-- SSH config 解析：
-  - 单个 alias
-  - 多个 alias
+- Parsing do SSH config:
+  - Um único alias
+  - Vários alias
   - `Include`
-  - 含模式项时过滤
-  - `IdentityFile` 提取
-- 表单状态：
-  - 选择 alias 后正确回填
-  - `IdentityFile` 存在时切到 `privateKey`
-  - 手动编辑后清空 alias 选中状态
+  - Filtragem quando há itens de padrão
+  - Extração de `IdentityFile`
+- Estado do formulário:
+  - Preenchimento correto após selecionar um alias
+  - Troca para `privateKey` quando `IdentityFile` existe
+  - Limpeza do estado de seleção do alias após edição manual
 
 ### E2E
 
-- SSH dialog 打开后出现 alias 下拉
-- 选择 alias 后 `host / port / username / privateKeyPath` 自动更新
-- 无 alias 时不阻塞手动连接
+- O menu de alias aparece após abrir o diálogo SSH
+- Após selecionar um alias, `host / port / username / privateKeyPath` são atualizados automaticamente
+- Sem alias, a conexão manual não é bloqueada
 
-## 风险与注意事项
+## Riscos e pontos de atenção
 
-### 风险 1：用户预期“alias 等于完整 OpenSSH 兼容”
+### Risco 1: o usuário esperar que o alias equivalha a compatibilidade completa com OpenSSH
 
-这是最大的产品风险。需要明确告知：
+Este é o maior risco de produto. É preciso informar claramente:
 
-- v1 支持的是“alias 自动填表”
-- 不是“完整复刻 `ssh alias` 的全部语义”
+- A v1 oferece "preenchimento automático por alias"
+- E não "reprodução completa de toda a semântica de `ssh alias`"
 
-### 风险 2：解析结果和真实 OpenSSH 行为不一致
+### Risco 2: resultado do parsing divergente do comportamento real do OpenSSH
 
-缓解方式：
+Mitigação:
 
-- 优先用 `ssh -G`
-- 只提取当前 UI 真正可消费的字段
-- 对不支持的复杂配置不做虚假承诺
+- Dar prioridade a `ssh -G`
+- Extrair apenas os campos que a UI atual realmente consegue consumir
+- Não fazer promessas falsas para configurações complexas não suportadas
 
-### 风险 3：Web / desktop 行为分裂
+### Risco 3: divergência de comportamento entre web / desktop
 
-缓解方式：
+Mitigação:
 
-- 保持接口统一
-- web 明确返回空数组
-- 不让 UI 直接依赖 desktop 特有对象
+- Manter a interface unificada
+- O web retorna explicitamente um array vazio
+- Não fazer a UI depender diretamente de objetos exclusivos do desktop
 
-## 结论
+## Conclusão
 
-推荐把这项功能定义为：
+Recomenda-se definir esta funcionalidade como:
 
-> 在 SSH dialog 中增加一个基于本机 `~/.ssh/config` 的 alias 下拉菜单，选择后自动填充当前 SSH 表单，并继续沿用现有 `connectRemote()` 流程连接。
+> Adicionar ao diálogo SSH um menu suspenso de alias baseado no `~/.ssh/config` local; após a seleção, preencher automaticamente o formulário SSH atual e continuar usando o fluxo `connectRemote()` existente para conectar.
 
-这个方案的优点是：
+As vantagens desta abordagem são:
 
-- 与当前分层一致
-- 对现有 `RemoteTarget`、远程历史记录、自动重连影响最小
-- 用户价值明确
-- 可以先交付高频场景，再视反馈决定是否继续扩展到完整 OpenSSH alias 语义支持
+- Consistente com a camada atual
+- Impacto mínimo sobre o `RemoteTarget` existente, o histórico remoto e a reconexão automática
+- Valor claro para o usuário
+- Permite entregar primeiro os cenários de alta frequência e depois, conforme o feedback, decidir se vale estender para o suporte completo à semântica de alias do OpenSSH

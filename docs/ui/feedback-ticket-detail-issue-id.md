@@ -1,31 +1,31 @@
-# 我的反馈详情编号展示
+# Exibição do número na detalhe do meu feedback
 
-## 背景
+## Contexto
 
-用户在“问题反馈 / 我的反馈”里打开单条反馈后，需要把该反馈的 issue 编号发给研发、产品或客服定位问题。当前详情页只展示标题、状态、提交时间和处理进度，用户无法直接看到或复制编号。
+Ao abrir um feedback individual em "Relatar problema / Meus feedbacks", o usuário precisa enviar o número (issue) desse feedback ao time de desenvolvimento, produto ou suporte para localizar o problema. Atualmente a página de detalhe só exibe título, status, hora de envio e progresso de tratamento, e o usuário não consegue ver nem copiar o número diretamente.
 
-## 目标
+## Objetivos
 
-- 在“我的反馈”详情页顶部展示当前反馈的编号。
-- 编号旁提供复制按钮，点击后复制纯编号值，便于粘贴到聊天、文档或后台检索框。
-- 交互保持桌面端和手机 Web 端一致，不依赖桌面专有 API。
+- Exibir o número do feedback atual no topo da página de detalhe de "Meus feedbacks".
+- Disponibilizar um botão de cópia ao lado do número; ao clicar, copia apenas o valor puro do número, o que facilita colar em chats, documentos ou campos de busca do backoffice.
+- A interação deve ser consistente entre desktop e Web mobile, sem depender de API exclusiva do desktop.
 
-## 设计
+## Design
 
-- 编号来源使用 `FeedbackTicketDetail.id`，不新增反馈服务协议字段。
-- 显示文案为 `Issue #<id>`；其中 `<id>` 使用等宽字体，避免长编号阅读困难。
-- 复制按钮放在编号同一行，使用 `Button` 的 `ghost` + `icon-sm` 尺寸和 `CopyIcon`，符合 `DESIGN.md` 对紧凑工具按钮的要求。
-- 复制内容只包含 `<id>`，不包含 `Issue #` 前缀。
-- 复制成功后按钮的可访问标签短暂切换为“已复制”；复制失败时通过 `packages/ui/src/logger.ts` 记录 warn，不直接调用 `console` 或 `window.zcode`。
+- A origem do número é `FeedbackTicketDetail.id`, sem novos campos no protocolo do serviço de feedback.
+- O texto exibido é `Issue #<id>`; o `<id>` usa fonte monoespaçada, evitando dificuldade de leitura de números longos.
+- O botão de cópia fica na mesma linha do número, usando tamanho `ghost` + `icon-sm` do `Button` e o `CopyIcon`, em conformidade com o requisito de botões de ferramenta compactos em `DESIGN.md`.
+- O conteúdo copiado contém apenas `<id>`, sem o prefixo `Issue #`.
+- Após a cópia bem-sucedida, o label acessível do botão muda brevemente para "Copiado"; em caso de falha, registra-se um warn por `packages/ui/src/logger.ts`, sem chamar diretamente `console` nem `window.zcode`.
 
-## 兼容性
+## Compatibilidade
 
-- 浏览器剪贴板使用 `navigator.clipboard.writeText`，桌面 Electron、Web 和手机远控都走同一 Web API。
-- 剪贴板不可用或写入失败时不阻断详情页渲染，只记录可诊断日志。
-- 该改动不涉及 `clientMode`、`deliveryKind`、task realtime、snapshot、queue 或远控恢复链路。
+- A área de transferência do navegador usa `navigator.clipboard.writeText`; o Electron do desktop, a Web e o controle remoto do celular passam pela mesma Web API.
+- Se a área de transferência não estiver disponível ou a escrita falhar, a renderização da página de detalhe não é bloqueada; apenas se registra um log diagnosticável.
+- A alteração não envolve `clientMode`, `deliveryKind`, realtime de task, snapshot, queue ou a cadeia de recuperação do controle remoto.
 
-## 验证
+## Verificação
 
-- 单测覆盖详情页渲染编号和复制按钮标签。
-- 运行 `pnpm typecheck`。
-- 运行 `pnpm lint`。
+- Teste unitário cobrindo a renderização do número na página de detalhe e o label do botão de cópia.
+- Executar `pnpm typecheck`.
+- Executar `pnpm lint`.

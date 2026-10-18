@@ -1,13 +1,14 @@
-# Model Option Map 与原始请求体
+# Mapa de Opções de Modelo e corpo bruto da requisição
 
-> 状态：当前有效设计
+> Status: design vigente
 >
-> 最近更新：2026-09-02
+> Atualizado recentemente: 2026-09-02
 
-## 目标
+## Objetivo
 
-`reasoningLevel` 与 `maxOutputTokens` 是 ZCode 的公共 Model Option。每个 Option Spec 同时声明
-值域和它到目标 API 原始 JSON Request Body 的映射：
+`reasoningLevel` e `maxOutputTokens` são as Opções de Modelo públicas do ZCode. Cada Especificação de
+Opção declara simultaneamente o domínio de valores e seu mapeamento para o corpo JSON bruto da requisição
+da API de destino:
 
 ```ts
 interface EnumOptionSpec {
@@ -24,12 +25,13 @@ interface LimitOptionSpec {
 }
 ```
 
-`map` 是受限 CEL 表达式。它唯一可读取的变量与所属 Option 同名：`reasoningLevel.map` 读取
-`reasoningLevel`，`maxOutputTokens.map` 读取 `maxOutputTokens`。表达式返回一个 RFC 7396
-JSON Merge Patch Object。Config、Registry、Active Model 与 Runtime 共用同一个字段名和事实，不再建立
-`reasoningMapping`、AI SDK `providerOptions` 映射或输出预算兼容 DTO。
+`map` é uma expressão CEL restrita. A única variável que ela pode ler tem o mesmo nome da Opção à qual
+pertence: `reasoningLevel.map` lê `reasoningLevel`, `maxOutputTokens.map` lê `maxOutputTokens`. A
+expressão retorna um Objeto JSON Merge Patch (RFC 7396). Config, Registry, Active Model e Runtime
+compartilham o mesmo nome de campo e o mesmo fato, sem que se estabeleça `reasoningMapping`, um mapeamento
+de `providerOptions` do AI SDK ou um DTO de compatibilidade de orçamento de saída.
 
-## 唯一执行链
+## Cadeia de execução única
 
 ```text
 Effective Model Config
@@ -58,16 +60,19 @@ AI SDK 已完成协议序列化和 Schema 兼容的原始 JSON Body
 业务 Header / 动态鉴权 / 请求安全校验 / 网络发送
 ```
 
-Map 必须在 AI SDK 和协议兼容层已经形成最终 JSON Body 之后、动态请求安全校验之前应用。`generateText()` 与
-`streamText()` 共用同一个执行器；Model IO 捕获的是 Patch 后真正发送的请求体。Runtime 不再同时传递
-AI SDK 标准 `maxOutputTokens` 或 reasoning namespace，否则会形成第二份请求字段权威。
+O Map deve ser aplicado depois que o AI SDK e a camada de compatibilidade de protocolo já tiverem formado o
+corpo JSON final, e antes da validação dinâmica de segurança da requisição. `generateText()` e
+`streamText()` compartilham o mesmo executor; o Model IO captura o corpo de requisição realmente enviado
+após o Patch. O Runtime não passa mais simultaneamente o `maxOutputTokens` padrão do AI SDK nem o namespace
+de reasoning, o que formaria uma segunda autoridade sobre os campos da requisição.
 
-## 受限 CEL
+## CEL restrito
 
-唯一实现位于纯 TypeScript 包 `@zcode/model-option-map`，由 Provider Config 校验与 CLI Adapter 共同使用。
-实现固定为 tokenizer、parser、AST evaluator；禁止 `eval`、`Function` 或动态代码执行。
+A única implementação está no pacote TypeScript puro `@zcode/model-option-map`, usado tanto pela validação
+de Config de Provider quanto pelo CLI Adapter. A implementação é fixa em tokenizer, parser e avaliador
+de AST; são proibidos `eval`, `Function` ou execução dinâmica de código.
 
-支持：
+Suporta:
 
 ```text
 所属 Option 的同名变量（`reasoningLevel` 或 `maxOutputTokens`）
@@ -80,31 +85,38 @@ condition ? whenTrue : whenFalse
 括号
 ```
 
-每个 Map 只暴露自己的同名变量；旧通用变量 `value` 不受支持。不支持函数、方法、成员访问、宏、
-comprehension、其他 Option、Provider/Model/凭据对象、时间、随机数和
-任何 IO。数值统一采用 JavaScript `number`，算术、比较、除法与取模均遵循 JavaScript 数值语义；本受限
-表达式不实现 CEL 的 `int` / `double` 类型区分或整数除法。数值输入和计算结果必须能安全表示为有限 JSON
-number；Map 最终必须返回 JSON Object。
+Cada Map expõe apenas a variável de mesmo nome à qual pertence; a antiga variável genérica `value` não é
+suportada. Não há suporte a funções, métodos, acesso a membros, macros, comprehension, outras Opções,
+objetos de Provider/Model/credenciais, tempo, números aleatórios nem qualquer IO. Valores numéricos usam
+uniformemente o `number` do JavaScript, e aritmética, comparação, divisão e módulo seguem a semântica
+numérica do JavaScript; esta expressão restrita não implementa a distinção de tipos `int`/`double` do CEL
+nem divisão inteira. Entradas numéricas e resultados de cálculo devem poder ser representados com segurança como
+`number` JSON finito; o Map deve retornar ao final um Objeto JSON.
 
-## Overlay 与完整性
+## Overlay e integridade
 
-Rule Input 中的 `optionSpecs.reasoningLevel` 和 `optionSpecs.maxOutputTokens` 都是可嵌套的稀疏 Overlay；
-`type`、值域、max 与 map 可以独立继承、覆盖或用 `null` 清除。Effective Model Config 必须得到
-完整 Option Spec：
+Tanto `optionSpecs.reasoningLevel` quanto `optionSpecs.maxOutputTokens` na Entrada da Regra são Overlays
+esparsos e aninháveis; `type`, domínio de valores, max e map podem ser herdados, sobrescritos ou limpos
+independentemente com `null`. O Effective Model Config deve obter uma Especificação de Opção completa:
 
-- `maxOutputTokens` 必须具有合法 `type/max/map`；
-- `reasoningLevel` 必须具有合法 `type/values/map`；
-- `reasoningLevel.values` 非空、无空白项、无重复项，并按语义强度从低到高排列；客户端不根据名称猜测语义；
-- 所有 map 必须能由同一个受限 CEL compiler 编译，并返回 Object Patch；
-- 不兼容读取未发布的 `reasoningMapping`，也不建立 dual-read 或 importer。
+- `maxOutputTokens` deve ter `type/max/map` válidos;
+- `reasoningLevel` deve ter `type/values/map` válidos;
+- `reasoningLevel.values` deve ser não vazio, sem itens em branco, sem duplicatas e ordenado por
+  intensidade semântica da mais baixa para a mais alta; o cliente não infere semântica pelo nome;
+- todos os maps devem poder ser compilados pelo mesmo compilador CEL restrito e retornar um Patch de
+  Objeto;
+- não se faz leitura incompatível do `reasoningMapping` não publicado, nem se estabelece dual-read ou
+  importer.
 
-设置页以固定高度技术文本框编辑 Reasoning Map。Personal Map 是输入值，Inherited Map 是 placeholder；
-清空输入表示删除 Personal `map` 叶子并恢复继承。Renderer 仍只维护稀疏 Personal Model Rule，不能把
-Inherited 值反向展开成 Personal 覆盖。Max Output Map 暂不开放编辑，保存其他字段时必须原样保留。
+A página de configurações edita o Reasoning Map em uma caixa de texto técnica de altura fixa. O Personal Map
+é o valor de entrada e o Inherited Map é o placeholder; limpar a entrada significa remover a folha Personal
+`map` e restaurar a herança. O Renderer continua mantendo apenas a Personal Model Rule esparsa e não pode
+expandir valores Inherited de volta em sobreposições Personal. O Max Output Map ainda não é editável e deve
+ser preservado exatamente como está ao salvar outros campos.
 
-## Patch 顺序与冲突
+## Ordem dos Patches e conflitos
 
-同一请求按固定顺序执行：
+Para a mesma requisição, a execução segue uma ordem fixa:
 
 ```text
 reasoningLevel.map
@@ -113,11 +125,13 @@ reasoningLevel.map
 maxOutputTokens.map
 ```
 
-两个 Map 可以写同一对象下的不同叶子，例如 `reasoning.effort` 与 `reasoning.max_tokens`。如果写入相同
-路径，或一方写父路径而另一方写其子路径，则请求在网络前明确失败；不能依赖覆盖顺序静默决定结果。
-RFC 7396 中 `null` 表示删除字段，数组和其他非 Object 值在对应路径整体替换。
+Os dois Maps podem escrever folhas diferentes sob o mesmo objeto, por exemplo `reasoning.effort` e
+`reasoning.max_tokens`. Se escreverem no mesmo caminho, ou se um escrever um caminho pai e o outro um
+caminho filho, a requisição falha explicitamente antes da rede; não se pode depender da ordem de
+sobrescrita para decidir o resultado silenciosamente. Em RFC 7396, `null` significa remover o campo, e
+arrays assim como outros valores não-Objeto são substituídos inteiramente em seu caminho.
 
-## 典型 Schema
+## Schemas típicos
 
 ```text
 Anthropic Messages
@@ -133,15 +147,33 @@ OpenAI Responses
 └─ maxOutputTokens -> max_output_tokens
 ```
 
-具体表达只属于命中 `providerId/modelId/api.type/baseURL` 的 Model Config Rule。Runtime 与 Adapter 禁止根据
-具体模型 ID、Provider ID 或 API 类型重新推断这些字段。
+A representação concreta pertence apenas à Model Config Rule cujo `providerId/modelId/api.type/baseURL`
+corresponde. Runtime e Adapter proibem reinferir esses campos a partir do ID do modelo, do ID do provider ou
+do tipo de API.
 
-## Built-in 兜底与专用规则（Todo 95）
+## Fallback interno e regras dedicadas (Todo 95)
 
-表达式写作与排版统一遵循 [Option Map 写作风格](option-map-writing-style.md)：对象展开、两空格缩进、简单三目同行。写作风格与下列改造/兼容约束分开维护。
+A escrita e a formatação das expressões seguem uniformemente o
+[Estilo de Escrita do Option Map](option-map-writing-style.md): expansão de objetos, indentação de dois
+espaços e ternário simples em linha única. O estilo de escrita é mantido separado das seguintes restrições
+de mudança/compatibilidade.
 
-- 专用 Map 的整理只允许合法输入的请求等价化：同名 effort 直接透传，条件下沉到变化字段；字段是否存在不同才保留对象分支。不得用 `null` 代替省略，也不改模式、预算和值域。
-- API Schema 兜底增强：Chat Completions 同时输出 `thinking.type`、`enable_thinking`、`reasoning_effort`、`reasoning.effort`，关闭 `disabled/none` 统一为关闭开关与 effort `none`；Responses 仅使用 `reasoning.effort`；Messages 为 `disabled` 或 Adaptive + 原 effort，不增加手动预算模式。
-- 混合 Chat 兜底依赖用户已接受的假设：未知字段被忽略，一致的重复控制可并存，关闭模式下额外 effort 可被忽略或允许 `none`。不是所有站点的已验证保证；不兼容正常报错，不删字段重试。
-- 通用 values 仍只有 `disabled`，新增合法档位才能使用该档位；专用规则与 Personal Map 仍按既有 Overlay 顺序覆盖兜底。Reasoning Map 不写输出上限。
-- 非原生关闭档位改名为单独兼容变更；未经 Personal Map-only 覆盖与执行入口的安全验证，不把 `off/nothink` 改成 `disabled`。来源受限的旧选择兼容不能替代对用户 Map 语义的保护。
+- A organização dos Maps dedicados só permite a equivalência de requisições com entrada válida: effort de
+  mesmo nome é repassado diretamente, condições descem para o campo que varia; a ramificação de objeto só
+  é mantida quando a existência do campo difere. Não se pode substituir `null` por omissão, nem alterar
+  modo, orçamento ou domínio de valores.
+- Reforço do fallback de Schema da API: Chat Completions emite simultaneamente `thinking.type`,
+  `enable_thinking`, `reasoning_effort` e `reasoning.effort`, e desligar `disabled/none` é unificado como
+  interruptor desligado mais effort `none`; Responses usa apenas `reasoning.effort`; Messages usa
+  `disabled` ou Adaptive + o effort original, sem adicionar modo de orçamento manual.
+- O fallback de Chat misto depende de hipóteses já aceitas pelo usuário: campos desconhecidos são ignorados,
+  controles duplicados consistentes podem coexistir, e em modo desligado um effort extra pode ser ignorado
+  ou ter `none` permitido. Não é uma garantia verificada para todos os sites; incompatibilidades reportam
+  erro normalmente, sem apagar campos e tentar de novo.
+- Os values genéricos continuam tendo apenas `disabled`; uma nova 档位 só pode ser usada depois de se
+  tornar uma 档位 legal. Regras dedicadas e Personal Map continuam sobrescrevendo o fallback pela ordem de
+  Overlay existente. Reasoning Map não escreve limite superior de saída.
+- A renomeação da 档位 não nativa de desligamento é uma mudança de compatibilidade separada; sem verificação
+  de segurança via cobertura apenas por Personal Map e pelo ponto de entrada de execução, não se troca
+  `off/nothink` por `disabled`. A compatibilidade das escolhas antigas com origem restrita não substitui a
+  proteção da semântica do Map do usuário.

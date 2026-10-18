@@ -1,37 +1,42 @@
-# 内置插件图标
+# Ícones dos plugins integrados
 
-内置插件的商店信息定义在
-`apps/zcode-cli/packages/bootstrap/src/app/official-plugin-definitions.ts`。每个
-`listing.icon` 使用官方插件资源 CDN：
+As informações da loja dos plugins integrados são definidas em
+`apps/zcode-cli/packages/bootstrap/src/app/official-plugin-definitions.ts`. Cada
+`listing.icon` usa a CDN de recursos dos plugins oficiais:
 
 ```
 https://cdn-zcode.z.ai/zcode/official-plugin/assets/<plugin-name>/icon.png
 ```
 
-`computer-use` 复用已发布的 `assets/zcode-cua/icon.png`。插件标识从 `zcode-cua`
-改为 `computer-use` 后，CDN 资源目录仍保留原名；不能随插件标识拼接出尚未发布的
-`computer-use/icon.png`（会返回 404）。图标路径与插件标识可以独立维护。
+`computer-use` reaproveita o `assets/zcode-cua/icon.png` já publicado. Depois que o identificador do plugin mudou de
+`zcode-cua` para `computer-use`, o diretório de recursos na CDN manteve o nome antigo; não se pode concatenar o
+identificador para produzir um `computer-use/icon.png` ainda não publicado (isso retornaria 404). O caminho do ícone e o
+identificador do plugin podem ser mantidos de forma independente.
 
-资源文件由 `zcode-plugins` 仓库的 `assets/<plugin-name>/icon.png` 提供；该仓库的
-`main` 分支发布流水线会将 assets 目录同步到 CDN。图标使用 HTTPS URL，以符合客户端
-受信任图片地址校验。PNG 必须使用透明背景，并保留 Figma 原始颜色；商店使用语义化
-`bg-hover` 容器承载图标，不再对整张图片做深色主题反相，避免 Android、iOS、ZCode
-等品牌色在深色主题失真。Installed Strip 也不得根据插件启用状态对头像整体应用透明度；
-启用状态由管理视图表达。若资源请求失败或没有配置图标，插件商店会继续显示默认图标。
+Os arquivos de recurso são fornecidos pelo repositório `zcode-plugins` em `assets/<plugin-name>/icon.png`; o pipeline de
+publicação do branch `main` desse repositório sincroniza o diretório assets com a CDN. Os ícones usam URL HTTPS para atender
+à validação de endereços de imagem confiáveis do cliente. O PNG precisa usar fundo transparente e preservar as cores
+originais do Figma; a loja usa um contêiner semântico `bg-hover` para hospedar o ícone e não aplica mais inversão de tema
+escuro à imagem inteira, evitando que cores de marca como as de Android, iOS e ZCode fiquem distorcidas no tema escuro. O
+Installed Strip também não pode aplicar opacidade ao avatar inteiro conforme o estado de habilitação do plugin; o estado de
+habilitação é expresso pela visão de gerenciamento. Se a requisição do recurso falhar ou não houver ícone configurado, a
+loja de plugins continua exibindo o ícone padrão.
 
-Figma 节点 `5080:5352` 的 Installed Strip 定义了内置图标的视觉契约：36px 圆角容器
-内居中放置 24px 图形。内置插件定义顺序与图标顺序必须保持一致：
+O Installed Strip do nó Figma `5080:5352` define o contrato visual dos ícones integrados: um contêiner de 36px com cantos
+arredondados e um gráfico de 24px centralizado. A ordem das definições dos plugins integrados e a ordem dos ícones devem
+permanecer consistentes:
 
 1. `android-emulator` → `android`
 2. `document-skills` → `dotpoints-01`
 3. `ios-simulator` → `ios`
-4. `restore-legacy-sessions` → `Frame`（归档盒上箭头）
-5. `skill-creator` → `Frame`（立方体）
-6. `zcode-guide` → ZCode 标志
+4. `restore-legacy-sessions` → `Frame` (seta para cima sobre uma caixa de arquivo)
+5. `skill-creator` → `Frame` (cubo)
+6. `zcode-guide` → logotipo do ZCode
 
-Installed Strip 排序时，内置/inline 插件必须整体排在市场安装插件之前，并按当前语言
-下的展示名称稳定排序；其余市场安装插件继续按安装时间倒序。排序依据使用运行时
-`source`，不以是否缺失 `installedAt` 间接判断内置身份。
+Na ordenação do Installed Strip, os plugins integrados/inline devem vir inteiramente antes dos plugins instalados da
+loja, ordenados de forma estável pelo nome de exibição no idioma atual; os demais plugins instalados da loja continuam
+em ordem decrescente de data de instalação. A ordenação usa o `source` de runtime e não infere a identidade de plugin
+integrado pela ausência de `installedAt`.
 
-当前内置插件：`android-emulator`、`document-skills`、`ios-simulator`、
-`restore-legacy-sessions`、`skill-creator`、`zcode-guide`。
+Plugins integrados atuais: `android-emulator`, `document-skills`, `ios-simulator`,
+`restore-legacy-sessions`, `skill-creator`, `zcode-guide`.

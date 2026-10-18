@@ -1,18 +1,18 @@
-# 桌面端开发态自动更新验证
+# Verificação de Atualização Automática em Modo de Desenvolvimento no Desktop
 
-## 目的
+## Objetivo
 
-开发态默认不初始化自动更新，避免日常联调误触发下载、安装和重启流程。需要验证自动更新交互时，可以显式开启开发态自动更新，让 dev app 直接请求测试环境的服务端 manifest 接口。
+Por padrão, a atualização automática não é inicializada em modo de desenvolvimento, evitando que a integração diária dispare inadvertidamente fluxos de download, instalação e reinicialização. Quando for necessário verificar a interação de atualização automática, é possível habilitar explicitamente a atualização automática em modo de desenvolvimento, para que o dev app solicite diretamente a interface de manifest do servidor do ambiente de teste.
 
-测试环境已经提供：
+O ambiente de teste já oferece:
 
 ```text
 GET /api/v1/releases/electron/manifest
 ```
 
-因此本地验证不再依赖 mock manifest server。
+Dessa forma, a verificação local não depende mais de um mock manifest server.
 
-## 启动方式
+## Como iniciar
 
 ```bash
 ZCODE_AUTO_UPDATE_DEV=1 \
@@ -20,12 +20,12 @@ ZCODE_AUTO_UPDATE_DEV_VERSION=3.3.1 \
 pnpm dev:desktop:test
 ```
 
-- `pnpm dev:desktop:test` 会注入 `ZCODE_ENV=test`，manifest provider 会请求测试环境 endpoint。
-- `ZCODE_AUTO_UPDATE_DEV=1` 只在开发态显式开启自动更新；未设置时保持开发态不检查更新。
-- `ZCODE_AUTO_UPDATE_DEV_VERSION` 用于模拟当前客户端版本，例如当前版本按 `3.3.1` 比较，测试环境 stable 返回 `3.3.2`、preview 返回 `3.3.3` 时即可验证通道切换。
+- `pnpm dev:desktop:test` injeta `ZCODE_ENV=test`, e o manifest provider solicita o endpoint do ambiente de teste.
+- `ZCODE_AUTO_UPDATE_DEV=1` habilita explicitamente a atualização automática apenas em modo de desenvolvimento; quando não definido, o modo de desenvolvimento continua sem verificar atualizações.
+- `ZCODE_AUTO_UPDATE_DEV_VERSION` é usado para simular a versão atual do cliente; por exemplo, se a versão atual for comparada como `3.3.1`, o stable do ambiente de teste retornando `3.3.2` e o preview retornando `3.3.3` já permitem verificar a troca de canal.
 
-## 行为边界
+## Limites de comportamento
 
-- 生产包不读取这些开发态开关，仍按打包配置和服务端 manifest provider 检查更新。
-- 开发态会设置 `electron-updater` 的 `forceDevUpdateConfig`，并读取 `packages/desktop/dev-app-update.yml` 作为本地缓存初始化占位；真实下载 URL 仍来自测试环境 manifest 响应。
-- 开发态点击“重启以更新”只重启当前 dev app，用于验证 UI 状态闭环，不尝试让未打包应用接管真实安装器。
+- O pacote de produção não lê essas flags de modo de desenvolvimento e continua verificando atualizações conforme a configuração de empacotamento e o manifest provider do servidor.
+- Em modo de desenvolvimento é definido o `forceDevUpdateConfig` do `electron-updater`, e `packages/desktop/dev-app-update.yml` é lido como placeholder de inicialização de cache local; a URL real de download continua vindo da resposta do manifest do ambiente de teste.
+- Em modo de desenvolvimento, clicar em "reiniciar para atualizar" reinicia apenas o dev app atual, usado para verificar o ciclo completo de estados da UI, sem tentar que um aplicativo não empacotado assuma o instalador real.

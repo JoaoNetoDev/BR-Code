@@ -1,38 +1,61 @@
 # Appearance Settings
 
-## Goal
+## Objetivo
 
-Provide one Appearance settings section for application theme, UI font size, and code presentation preferences across desktop, Web, and mobile Web.
+Oferecer uma única seção de configurações de Appearance para o tema do aplicativo, o tamanho da
+fonte da UI e as preferências de apresentação de código, no desktop, na Web e na Web mobile.
 
-## Settings
+## Configurações
 
-- App theme: System, Light, or Dark, using the existing theme preference and cross-window synchronization.
-- UI font size (Chinese label: `界面字号`): a numeric input from 12px through 20px, default 14px. The preference drives the dedicated `text-ui-*` scale through `--ui-font-size` without changing the root `html` font size.
-- Code presentation: light and dark syntax themes, line numbers, long-line wrapping, and an independent numeric code font-size input from 12px through 20px.
-- Code settings and code preview are stacked vertically. Inside code preview, the light and dark preview cards use a side-by-side layout on `sm` screens and fall back to one card per row below that breakpoint.
+- Tema do aplicativo: System, Light ou Dark, usando a preferência de tema existente e a
+  sincronização entre janelas.
+- Tamanho da fonte da UI (rótulo em chinês: `界面字号`): um input numérico de 12px a 20px, com
+  padrão de 14px. A preferência alimenta a escala `text-ui-*` dedicada via `--ui-font-size`, sem
+  alterar o tamanho de fonte raiz do `html`.
+- Apresentação de código: temas de sintaxe claro e escuro, numeração de linhas, quebra de linhas
+  longas e um input numérico independente para o tamanho da fonte de código, de 12px a 20px.
+- As configurações de código e a pré-visualização de código são empilhadas verticalmente. Dentro da
+  pré-visualização, os cards de pré-visualização claro e escuro usam layout lado a lado em telas
+  `sm` e caem para um card por linha abaixo desse breakpoint.
 
-## Boundaries
+## Limites
 
-- UI font size and code font size are persisted independently.
-- Code and diff rendering continues to consume `codePreviewSettings.fontSizePx`; it does not inherit the root UI `rem` size.
-- The integrated terminal retains its own font configuration and is not controlled by either Appearance font-size setting.
-- UI font-size changes are applied through `--ui-font-size`, persisted, and synchronized between application windows without mutating `document.documentElement.style.fontSize`.
-- The former Code Preview navigation target is replaced by Appearance. A stored legacy `codePreview` target resolves to Appearance.
+- O tamanho da fonte da UI e o tamanho da fonte de código são persistidos de forma independente.
+- A renderização de código e diff continua consumindo `codePreviewSettings.fontSizePx`; ela não
+  herda o tamanho `rem` raiz da UI.
+- O terminal integrado mantém sua própria configuração de fonte e não é controlado por nenhuma das
+  duas configurações de tamanho de fonte de Appearance.
+- As mudanças no tamanho da fonte da UI são aplicadas via `--ui-font-size`, persistidas e
+  sincronizadas entre as janelas do aplicativo, sem alterar
+  `document.documentElement.style.fontSize`.
+- O antigo alvo de navegação Code Preview é substituído por Appearance. Um `codePreview` legado
+  armazenado resolve para Appearance.
 
-## Copy
+## Textos
 
-- The interface subsection title is `界面设置` in Chinese and `Interface Setting` in English.
-- Describe visible outcomes instead of implementation details such as `rem`, root font size, or UI scaling.
-- Interface font-size copy states that icons and layout dimensions do not change with text size.
-- Code preference copy covers code blocks, file previews, and diff views rather than only the preview cards on this settings page.
-- The light and dark preview cards are displayed together below the controls; copy must not describe them as a single viewer on the right.
+- O título da subseção de interface é `界面设置` em chinês e `Interface Setting` em inglês.
+- Descrever resultados visíveis em vez de detalhes de implementação como `rem`, tamanho de fonte
+  raiz ou escala da UI.
+- O texto sobre o tamanho da fonte da interface informa que ícones e dimensões de layout não mudam
+  com o tamanho do texto.
+- O texto sobre preferências de código cobre blocos de código, pré-visualizações de arquivo e
+  visualizações de diff, e não apenas os cards de pré-visualização desta página de configurações.
+- Os cards de pré-visualização claro e escuro são exibidos juntos abaixo dos controles; o texto não
+  deve descrevê-los como um único visualizador à direita.
 
-## Verification
+## Verificação
 
-- Verify Appearance is listed after General and the separate Code Preview navigation item is removed.
-- Verify General retains language and system behavior settings but no longer duplicates app theme.
-- Verify theme, UI font size, and code presentation controls render together under Appearance.
-- Verify both font sizes use numeric inputs rather than drag sliders, and commit on Enter or blur.
-- Verify Code settings stays above Code preview, while the light / dark preview cards sit side by side at `sm` layouts and render one card per row below that breakpoint.
-- Verify UI font size persistence, clamping, and cross-window synchronization without root DOM font-size mutation.
-- Run `pnpm typecheck`, `pnpm lint`, and relevant UI tests.
+- Verificar que Appearance aparece depois de General e que o item de navegação separado Code Preview
+  foi removido.
+- Verificar que General mantém as configurações de idioma e comportamento do sistema, mas não
+  duplica mais o tema do aplicativo.
+- Verificar que os controles de tema, tamanho da fonte da UI e apresentação de código são
+  renderizados juntos em Appearance.
+- Verificar que ambos os tamanhos de fonte usam inputs numéricos em vez de sliders de arraste, e que
+  são confirmados com Enter ou blur.
+- Verificar que Code settings permanece acima de Code preview, enquanto os cards de pré-visualização
+  claro / escuro ficam lado a lado em layouts `sm` e renderizam um card por linha abaixo desse
+  breakpoint.
+- Verificar a persistência, o clamping e a sincronização entre janelas do tamanho da fonte da UI sem
+  mutação da fonte de tamanho do DOM raiz.
+- Executar `pnpm typecheck`, `pnpm lint` e os testes de UI relevantes.

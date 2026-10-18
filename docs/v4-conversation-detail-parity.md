@@ -1,36 +1,33 @@
-# v4 Conversation Detail Parity
+# Paridade de Detalhe da Conversa v4
 
-本文记录 v4 会话渲染在重构后需要补齐的 z-code-2 细节回归。范围只限 renderer /
-adapter 层，不改变 protocol、runtime、host process、relay 或 session stream 语义。
+Este documento registra as regressões de detalhes do z-code-2 que a renderização de sessão v4 precisa recompletar após o refactor. O escopo se limita à camada renderer / adapter e não altera a semântica de protocol, runtime, host process, relay ou session stream.
 
-## P0 行为合同
+## Contrato de comportamento P0
 
-### 工具失败错误可见
+### Erro de falha de ferramenta visível
 
-v4 `ToolCallRow` 进入旧 `ToolCallBlock` 渲染前，必须保留足够的失败信息：
+Antes de o `ToolCallRow` v4 entrar na renderização antiga do `ToolCallBlock`, é preciso preservar informação de falha suficiente:
 
 ```text
 ToolCallRow(status=error)
   -> toolCallRowToLegacyNode
-  -> TaskChatToolCall(status=failed, error=可读错误)
+  -> TaskChatToolCall(status=failed, error=erro legível)
   -> getToolCallErrorText
   -> ToolCallBlock / ToolOutput(error)
 ```
 
-错误文案归一化优先级：
+Prioridade de normalização do texto de erro:
 
 1. `row.error.message`
-2. `row.output.text` 中完整包裹的 `<tool_use_error>...</tool_use_error>`
-3. 非空 `row.output.text`
+2. `<tool_use_error>...</tool_use_error>` completamente involve em `row.output.text`
+3. `row.output.text` não vazio
 4. `row.error.code`
 
-同时要在 legacy `raw` 上保留 `rawOutput`、`status=failed`、`v4Status` 和
-`output.truncated` 引用，避免后续工具渲染或诊断再次丢失根因。`cancelled` 不应被当作
-失败错误展示。
+Ao mesmo tempo, é preciso preservar no `raw` legado as referências `rawOutput`, `status=failed`, `v4Status` e `output.truncated`, evitando que a renderização de ferramenta ou o diagnóstico percam novamente a causa raiz. `cancelled` não deve ser exibido como erro de falha.
 
-### 文件链接右侧详情
+### Detalhe à direita do link de arquivo
 
-assistant markdown 中的本地文件链接继续走旧版 z-code-2 的宿主分流：
+Os links de arquivo locais no markdown do assistant continuam passando pelo desvio de host da versão antiga do z-code-2:
 
 ```text
 MessageResponse file link
@@ -40,43 +37,32 @@ MessageResponse file link
       directory -> WorkspaceFileTree reveal
 ```
 
-v4 prop 链路必须从 shell 传到每个 row renderer：`V4ChatPane` /
-`V4WorkspaceChatArea` -> `SessionPane` -> `ConversationRowRenderContext` ->
-`AssistantTextRowView` / `AssistantPreviewCards`。`MessageResponse` 仍负责 hover
-下划线、context menu 和 `Open With`，v4 不重新实现视觉样式。
+A cadeia de props do v4 precisa ir do shell até cada row renderer: `V4ChatPane` / `V4WorkspaceChatArea` -> `SessionPane` -> `ConversationRowRenderContext` -> `AssistantTextRowView` / `AssistantPreviewCards`. O `MessageResponse` continua responsável pelo sublinhado no hover, pelo context menu e pelo `Open With`; o v4 não reimplementa os estilos visuais.
 
-### Windows 本地文件定位
+### Localização de arquivo local no Windows
 
-右键“资源管理器”经现有 platform/preload IPC 进入 main；本地文件只调用一次
-`shell.showItemInFolder(path)`（打开所在目录并选中文件），不再执行
-`explorer.exe /select` 后按退出码二次打开。Explorer 可能已委托打开请求却以非零码退出，
-不能把该退出码当作需要再次打开的依据。返回成功只表示已发出定位请求，不保证系统窗口已显示。
-Windows 目录仍使用 `shell.openPath`；macOS Finder、WSL UNC 分支和手机远控保持原有行为。
-验收：中文及空格文件路径只发出一次定位请求，不启动 Explorer 子进程；Windows 实机右键后
-只出现目标目录窗口且选中文件，不额外出现桌面窗口。
+O clique com o botão direito em "Explorador de Arquivos", passando pelo IPC de platform/preload existente, entra no processo main; arquivos locais chamam `shell.showItemInFolder(path)` apenas uma vez (abre o diretório e seleciona o arquivo) e não executa mais `explorer.exe /select` seguido de uma segunda abertura pelo código de saída. O Explorer pode já ter delegado a abertura e ainda assim sair com código diferente de zero, e esse código não pode ser tratado como motivo para abrir de novo. Um retorno de sucesso significa apenas que a solicitação de localização foi enviada, sem garantir que a janela do sistema já foi exibida. Diretórios no Windows continuam usando `shell.openPath`; o Finder do macOS, o ramo de UNC do WSL e o controle remoto pelo celular mantêm o comportamento original.
+Aceitação: caminhos de arquivo com caracteres chineses e espaços emitem apenas uma solicitação de localização e não iniciam um processo filho do Explorer; com o botão direito em uma máquina Windows real, aparece somente a janela do diretório alvo com o arquivo selecionado, sem uma janela adicional da área de trabalho.
 
-自动回归：`openInEditor.test.ts` 检查无子进程调用；
-`test/e2e/manual-review/pending/windows-file-reveal.test.ts` 检查真实 preload/main IPC
-到 shell 的调用次数（Windows 专用，mock shell，不证明真实窗口数量）。
+Regressão automática: `openInEditor.test.ts` verifica a ausência de chamada de subprocesso; `test/e2e/manual-review/pending/windows-file-reveal.test.ts` verifica a contagem de chamadas reais do IPC preload/main até o shell (exclusivo de Windows, com shell mockado, sem provar a quantidade real de janelas).
 
-## P1 审计清单
+## Checklist de auditoria P1
 
-以下细节来自 z-code-2 对照，本次只登记，不在 P0 中实现：
+Os detalhes a seguir vêm da comparação com o z-code-2 e são registrados aqui, sem implementação no P0:
 
-- Assistant Preview Card 的 file target 预览优先级仍需单独审计，避免目录卡片绕过 shell `stat` 分流。
-- 旧版低噪音 tool diagnostics 可用于排查“任务结束但工具仍显示运行中”。
-- foreground active tool call 对 thinking shimmer 的抑制逻辑需要确认 v4 是否等价。
-- 手机 `/remote` 无 hover，assistant action 可见性需要单独审计。
-- v4 `output.truncated.ref` 的完整工具输出加载入口仍未补齐。
-- `ToolOutput` 的 `Error` / `Result` 标题仍是英文文本，后续需要 i18n 收敛。
+- A prioridade de preview de file target no Assistant Preview Card ainda precisa de auditoria separada, evitando que o cartão de diretório contorne o desvio de shell `stat`.
+- As tool diagnostics de baixo ruído da versão antiga podem servir para investigar "a task terminou, mas a ferramenta continua exibindo em execução".
+- A lógica que suprime o thinking shimmer para foreground active tool call precisa ter sua equivalência no v4 confirmada.
+- No `/remote` do celular não há hover; a visibilidade das assistant actions precisa de auditoria separada.
+- A entrada de carregamento da saída completa da ferramenta via `output.truncated.ref` no v4 ainda não foi completada.
+- Os títulos `Error` / `Result` do `ToolOutput` continuam em texto em inglês e depois precisarão de convergência de i18n.
 
-## 验证口径
+## Critério de verificação
 
-本次先用 UI 单测证明投影和回调链路：
+Desta vez, primeiro se prova a projeção e a cadeia de callbacks com testes unitários de UI:
 
-- `v4ToolCallRowAdapter.test.ts` 覆盖 output-only error、tagged error、code fallback 和非失败状态。
-- `toolCallBlocks.test.ts` 覆盖适配后的 failed node 能在工具卡中显示错误正文。
-- v4 row / session wiring 单测覆盖 file/code/browser 三类打开回调进入 `MessageResponse` 和 tool row。
+- `v4ToolCallRowAdapter.test.ts` cobre error somente por output, error marcado por tag, fallback por code e estados que não são de falha.
+- `toolCallBlocks.test.ts` cobre que o node adapted com failed exibe o corpo do erro no cartão da ferramenta.
+- Testes unitários de wiring de row/session do v4 cobrem os três tipos de callback de abertura (file/code/browser) entrando no `MessageResponse` e no tool row.
 
-正式 WDIO E2E 可在后续补 `VDP` 分组，用 replay fixture 构造 failed tool row 和 markdown
-本地文件链接，断言右侧 pane / 文件树真实打开。
+O E2E formal de WDIO pode complementar depois com o grupo `VDP`, usando replay fixture para construir failed tool row e link de arquivo local em markdown e afirmar a abertura real do pane à direita / da árvore de arquivos.

@@ -1,89 +1,88 @@
-# Coding Plan client configs 接入用例
+# Casos de integração de client configs do Coding Plan
 
-日期：2026-07-23
+Data: 2026-07-23
 
-## Feature/change summary
+## Resumo da feature/mudança
 
-| Field                 | Value                                                                                  |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| Change                | “升级 Coding Plan”统一消费 `client/configs` 的个人、团队和 Start Plan 静态数据         |
-| User-visible surfaces | 升级页套餐选择、个人周期选择、团队套餐选择、Start Plan 卡片                            |
-| Existing docs         | `docs/bigmodel-coding-plan-subscription.md`、`docs/coding-plan-purchase-panel-flow.md` |
-| Existing code owners  | host `codingPlanSubscriptionService`、UI purchase hooks/panel                          |
-| Out of scope          | 支付协议、订单创建、entitlement、provider registry 与 realtime pricing 协议变更        |
+| Campo                  | Valor                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| Mudança                | "Upgrade do Coding Plan" passa a consumir de forma unificada os dados estáticos de pessoal, equipe e Start Plan de `client/configs` |
+| Superfícies visíveis ao usuário | Seleção de plano na página de upgrade, seleção de ciclo pessoal, seleção de plano de equipe, cartão do Start Plan |
+| Docs existentes        | `docs/bigmodel-coding-plan-subscription.md`, `docs/coding-plan-purchase-panel-flow.md` |
+| Owners de código existentes | `codingPlanSubscriptionService` do host, hooks/painel de compra da UI |
+| Fora de escopo         | Protocolo de pagamento, criação de pedido, entitlement, mudanças de protocolo em provider registry e realtime pricing |
 
-## Clarification log
+## Registro de esclarecimentos
 
-| Round | Question                 | User answer                                   | Boundary fixed                           | Follow-up needed |
-| ----- | ------------------------ | --------------------------------------------- | ---------------------------------------- | ---------------- |
-| 1     | 静态套餐和文案从哪里获取 | 使用 `client/configs`                         | configs 是静态目录权威源                 | no               |
-| 2     | 本地开发如何读取测试数据 | 使用 `ZCODE_ENV=test`                         | 连接 ZCode 测试环境 endpoint             | no               |
-| 3     | provider 如何隔离        | Team 区分 Z.AI/BigModel，当前 Z.AI 无团队套餐 | provider key 严格匹配，不跨品牌回退      | no               |
-| 4     | Start Plan 如何处理      | 补入完整 configs                              | 保持 provider-neutral `startPlanPreview` | no               |
-| 5     | 迁移后个人套餐描述文案   | `description` 恢复迁移前卡片文案              | 仅恢复描述，不回退商品、价格或权益        | no               |
+| Rodada | Pergunta                                | Resposta do usuário                        | Limite fixado                                  | Necessário acompanhamento |
+| ------ | --------------------------------------- | ------------------------------------------ | ---------------------------------------------- | ------------------------- |
+| 1      | De onde vêm os planos e textos estáticos | Usar `client/configs`                      | configs é a fonte autoritativa do catálogo estático | não                  |
+| 2      | Como ler dados de teste no desenvolvimento local | Usar `ZCODE_ENV=test`         | Conectar ao endpoint do ambiente de teste do ZCode | não             |
+| 3      | Como isolar o provider                  | Team distingue Z.AI/BigModel; atualmente Z.AI não tem plano de equipe | Correspondência estrita de provider key, sem fallback entre marcas | não |
+| 4      | Como tratar o Start Plan                | Incluir configs completos                  | Manter o `startPlanPreview` neutro em relação a provider | não              |
+| 5      | Texto de descrição dos planos pessoais após a migração | `description` recupera o texto do cartão anterior à migração | Recuperar apenas a descrição, sem reverter produto, preço ou entitlement | não |
 
-## Boundary decisions
+## Decisões de limite
 
-| Boundary      | Decision                     | Includes                                 | Excludes / prunes        | Source        |
-| ------------- | ---------------------------- | ---------------------------------------- | ------------------------ | ------------- |
-| 静态目录      | configs 为权威源             | 商品身份、名称、周期、静态价格、卡片文案 | 本地常量覆盖远端         | user          |
-| 文案缺失      | 保持为空                     | 个人/团队权益、描述与 Start 文案         | 前端硬编码文案兜底       | user          |
-| 实时状态      | preview/pricing 覆盖动态字段 | 实付价格、可购、售罄、订阅状态           | 覆盖远端卡片文案         | existing spec |
-| 测试环境      | `ZCODE_ENV=test`             | 远端测试环境 `client/configs`            | 本地开发 mock            | user          |
-| Team provider | 精确 provider key            | BigModel 8 SKU、Z.AI 空数组              | BigModel → Z.AI fallback | user          |
-| Start         | 独立 preview                 | planId/name/entitlements                 | 伪装成支付 SKU           | existing spec |
+| Limite         | Decisão                     | Inclui                                    | Exclui / poda                        | Origem         |
+| -------------- | --------------------------- | ----------------------------------------- | ------------------------------------- | -------------- |
+| Catálogo estático | configs como fonte autoritativa | Identidade do produto, nome, ciclo, preço estático, texto do cartão | Substituir o remoto por constante local | usuário    |
+| Texto ausente  | Permanecer vazio            | Entitlement de pessoal/equipe, descrição e texto do Start | Fallback de texto hardcoded no front-end | usuário    |
+| Estado em tempo real | preview/pricing sobrescrevem campos dinâmicos | Preço final, comprável, esgotado, estado de assinatura | Sobrescrever o texto remoto do cartão | spec existente |
+| Ambiente de teste | `ZCODE_ENV=test`            | `client/configs` do ambiente de teste remoto | Mock de desenvolvimento local      | usuário        |
+| Provider de Team | provider key exato        | BigModel com 8 SKUs, Z.AI com array vazio | Fallback de BigModel → Z.AI       | usuário        |
+| Start            | Preview independente        | planId/name/entitlements                  | Fingir ser um SKU de pagamento       | spec existente |
 
-## Domain scope and high-risk cross-products
+## Escopo de domínio e cross-products de alto risco
 
-| Domain                        | Include? | Reason                                       |
-| ----------------------------- | -------- | -------------------------------------------- |
-| Model/provider config         | yes      | provider key、静态目录、实时合并             |
-| Architecture/process boundary | yes      | renderer 通过 service 获取 host 配置         |
-| UI locale/responsive          | yes      | BigModel 中文、Z.AI 英文；布局不变           |
-| Mobile remote/replayable      | pruned   | App-global 配置服务不改变 task realtime 语义 |
+| Domínio                           | Inclui? | Motivo                                                |
+| --------------------------------- | ------- | ----------------------------------------------------- |
+| Config de Model/provider          | sim     | provider key, catálogo estático, merge em tempo real  |
+| Limites de arquitetura/processo   | sim     | renderer obtém a configuração do host pelo service    |
+| Locale/responsividade da UI       | sim     | BigModel em chinês, Z.AI em inglês; layout inalterado |
+| Remoto mobile/replayable          | podado  | O serviço de config global do App não altera a semântica realtime de task |
 
-高风险组合为 `provider × audience × config result × realtime result`。mock 与生产 endpoint
-只改变配置来源，不改变合并算法。
+A combinação de alto risco é `provider × audience × config result × realtime result`. Mock e endpoint de produção alteram apenas a origem da configuração, não o algoritmo de merge.
 
-## State owners
+## Owners de estado
 
-| State / fact  | Authority                                     | Cache/mirror             | Evidence                 |
-| ------------- | --------------------------------------------- | ------------------------ | ------------------------ |
-| 个人静态目录  | `client/configs.codingPlanStaticProducts`     | host + UI 一天内存缓存   | service result / UI card |
-| 团队静态目录  | `client/configs.codingPlanStaticTeamProducts` | host client-config cache | service result / UI card |
-| Start Preview | `client/configs.startPlanPreview`             | host + UI cache          | service result / UI card |
-| 个人实时状态  | `batch-preview`                               | UI hook snapshot         | network + card action    |
-| 团队实时状态  | enterprise pricing                            | UI hook snapshot         | network + card action    |
+| Estado / fato         | Autoridade                                  | Cache/espelho                    | Evidência                |
+| --------------------- | ------------------------------------------- | -------------------------------- | ------------------------ |
+| Catálogo estático pessoal | `client/configs.codingPlanStaticProducts`     | cache em memória de um dia no host + UI | resultado do service / cartão da UI |
+| Catálogo estático de equipe | `client/configs.codingPlanStaticTeamProducts` | cache de client-config do host | resultado do service / cartão da UI |
+| Start Preview          | `client/configs.startPlanPreview`             | cache do host + UI               | resultado do service / cartão da UI |
+| Estado realtime pessoal | `batch-preview`                              | snapshot do hook da UI           | rede + ação do cartão    |
+| Estado realtime de equipe | enterprise pricing                         | snapshot do hook da UI           | rede + ação do cartão    |
 
-## Candidate combinations and pruning
+## Combinações candidatas e poda
 
-| Candidate ID | Setup                                      | Expected effect                     | Status              |
-| ------------ | ------------------------------------------ | ----------------------------------- | ------------------- |
-| CPCFG-01     | BigModel personal config + preview success | 静态文案保留，实时价格/状态覆盖     | accepted            |
-| CPCFG-02     | Z.AI personal config + preview failure     | 保留 Z.AI 静态卡，不跨品牌          | accepted            |
-| CPCFG-03     | BigModel team config + pricing success     | 按 productId 合并静态文案和实时状态 | accepted            |
-| CPCFG-04     | BigModel team config + pricing failure     | 保留静态团队卡并显示刷新错误        | accepted            |
-| CPCFG-05     | Z.AI team 空数组                           | 不展示团队商品                      | accepted            |
-| CPCFG-06     | Start Preview 存在                         | 从 entitlements 计算额度            | accepted            |
-| CPCFG-07     | Start Preview 缺失                         | 隐藏 Start Plan                     | accepted            |
-| CPCFG-08     | mock 未显式启用                            | 访问正常 runtime endpoint           | accepted            |
-| CPCFG-09     | 生产构建设置 mock env                      | 忽略 mock，禁止本地配置进入生产     | accepted            |
-| CPCFG-10     | desktop/mobile/remote workspace            | 使用同一 App-global service 结果    | pruned by invariant |
+| Candidate ID | Setup                                      | Efeito esperado                             | Status              |
+| ------------ | ------------------------------------------ | ------------------------------------------ | ------------------- |
+| CPCFG-01     | BigModel personal config + preview success | Texto estático preservado, preço/estado em tempo real sobrescreve | aceito |
+| CPCFG-02     | Z.AI personal config + preview failure     | Cartão estático da Z.AI preservado, sem cruzar marcas | aceito |
+| CPCFG-03     | BigModel team config + pricing success     | Texto estático e estado em tempo real mesclados por productId | aceito |
+| CPCFG-04     | BigModel team config + pricing failure     | Cartão estático de equipe preservado com erro de exibição | aceito |
+| CPCFG-05     | Array vazio de team na Z.AI                | Nenhum produto de equipe exibido            | aceito |
+| CPCFG-06     | Start Preview presente                     | Cota calculada a partir de entitlements    | aceito |
+| CPCFG-07     | Start Preview ausente                      | Start Plan oculto                           | aceito |
+| CPCFG-08     | Mock não habilitado explicitamente         | Acesso ao endpoint normal de runtime       | aceito |
+| CPCFG-09     | Env de mock definido em build de produção  | Mock ignorado, config local proibida em produção | aceito |
+| CPCFG-10     | desktop/mobile/remote workspace            | Usa o mesmo resultado do service global do App | podado por invariante |
 
-## Accepted case list
+## Lista de cases aceitos
 
-| Case ID  | Setup                                  | Action           | Assertions                                           | Evidence layers       | Status   |
-| -------- | -------------------------------------- | ---------------- | ---------------------------------------------------- | --------------------- | -------- |
-| CPCFG-01 | BigModel config + preview fixture      | 打开个人升级页   | 名称/文案来自 config，价格/按钮来自 preview          | unit + E2E network/UI | planned  |
-| CPCFG-03 | BigModel team config + pricing fixture | 切换团队         | 两行 equity 和 description 来自 config，实时状态合并 | unit + E2E network/UI | planned  |
-| CPCFG-04 | Team pricing 失败                      | 切换团队         | 静态卡仍存在并展示错误                               | unit                  | planned  |
-| CPCFG-05 | Z.AI team `[]`                         | 打开 Z.AI 升级页 | 无跨品牌团队卡                                       | unit                  | planned  |
-| CPCFG-06 | Start fixture                          | 打开升级页       | Start 名称和 5M entitlement 汇总正确                 | unit + E2E UI         | planned  |
-| CPCFG-08 | `ZCODE_ENV=test`                       | 请求 configs     | 使用测试环境 endpoint 并附加客户端参数               | unit                  | verified |
+| Case ID  | Setup                                  | Ação                | Asserções                                             | Camadas de evidência       | Status   |
+| -------- | -------------------------------------- | ------------------- | ----------------------------------------------------- | -------------------------- | -------- |
+| CPCFG-01 | BigModel config + preview fixture      | Abrir página de upgrade pessoal | Nome/texto vêm do config, preço/botão vêm do preview | unit + E2E rede/UI | planejado |
+| CPCFG-03 | BigModel team config + pricing fixture | Alternar para equipe | As duas linhas, equity e description, vêm do config, e o estado em tempo real é mesclado | unit + E2E rede/UI | planejado |
+| CPCFG-04 | Falha no pricing de Team               | Alternar para equipe | O cartão estático continua existindo e o erro é exibido | unit | planejado |
+| CPCFG-05 | `[]` de team na Z.AI                   | Abrir página de upgrade da Z.AI | Nenhum cartão de equipe de outra marca | unit | planejado |
+| CPCFG-06 | Start fixture                          | Abrir página de upgrade | Nome do Start e o resumo do entitlement de 5M corretos | unit + E2E UI | planejado |
+| CPCFG-08 | `ZCODE_ENV=test`                       | Requisitar configs   | Usa o endpoint do ambiente de teste e acrescenta os parâmetros de cliente | unit | verificado |
 
-## E2E handoff notes
+## Notas de passagem para E2E
 
-- Provider fixture：复用 `packages/desktop/test/e2e/fixtures/coding-plan-client-configs.json`，禁止复制商品数组。
-- Timing：App 内 client-config 缓存测试需显式清理。
-- Desktop/mobile：购买页已有响应式实现，本次不新增 conversation realtime 状态。
-- Review risk：团队 pricing 按 `productId` 合并时必须保留 raw enterprise product，支付参数仍取 realtime product。
+- Fixture de Provider: reaproveitar `packages/desktop/test/e2e/fixtures/coding-plan-client-configs.json`; é proibido copiar arrays de produtos.
+- Timing: os testes do cache de client-config dentro do App exigem limpeza explícita.
+- Desktop/mobile: a página de compra já tem implementação responsiva; esta rodada não adiciona estado realtime de conversation.
+- Risco de revisão: ao mesclar o pricing de equipe por `productId`, é obrigatório preservar o enterprise product bruto; os parâmetros de pagamento continuam vindo do product em tempo real.

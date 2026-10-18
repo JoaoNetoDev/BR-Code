@@ -1,36 +1,49 @@
-# 问题上报自动截图 Implementation Plan
+# Plano de implementação de captura de tela automática no relato de problema
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para trabalhadores agentivos:** SUB-SKILL OBRIGATÓRIA: use
+> superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para
+> implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para
+> acompanhamento.
 
-**Goal:** 点击帮助菜单“问题上报”时，先截取当前窗口任务画面，并把截图放进“提交反馈”弹窗截图区域。
+**Objetivo:** ao clicar em "问题上报" (relato de problema) no menu de ajuda, capturar primeiro a imagem
+da janela atual da task e colocar a captura na área de screenshot do popup "提交反馈".
 
-**Architecture:** 在 UI 层新增一个小 helper，把可选平台截图能力转换为 `FeedbackAttachmentDraft[]`；`WorkspaceHelpMenuButton` 在打开反馈前调用 helper。反馈弹窗、上传链路、Electron IPC 截图实现保持不变。
+**Arquitetura:** adicionar um pequeno helper na camada de UI que converte a capacidade opcional de
+captura de tela da plataforma em `FeedbackAttachmentDraft[]`; o `WorkspaceHelpMenuButton` chama o helper
+antes de abrir o feedback. O popup de feedback, a cadeia de upload e a implementação de captura via
+Electron IPC permanecem inalteradas.
 
-**Tech Stack:** React 19, Zustand, Vitest, TypeScript, existing `IPlatformService.captureWindowScreenshot`.
+**Stack técnico:** React 19, Zustand, Vitest, TypeScript, `IPlatformService.captureWindowScreenshot`
+existente.
 
-## Global Constraints
+## Restrições globais
 
-- 先保留 spec，再实现代码；spec 已提交到 `docs/superpowers/specs/2026-06-17-issue-report-auto-screenshot-design.md`。
-- 修改 `packages/ui` 已读取并遵守根目录 `DESIGN.md`；本计划不新增可见 UI 样式。
-- UI 日志如需新增必须走 `packages/ui/src/logger.ts`；本计划不新增日志。
-- import 路径使用 `@/` 或包名绝对路径。
-- Web/手机端 `captureWindowScreenshot` 不存在、返回 `null` 或失败时静默降级，仍打开反馈弹窗。
-- 不修改远控 relay、main 进程、session/task stream、snapshot、queue、replayable 恢复语义。
-- 完成后执行 `pnpm typecheck` 和 `pnpm lint`。
+- preservar primeiro o spec e só depois implementar o código; o spec já foi submetido em
+  `docs/superpowers/specs/2026-06-17-issue-report-auto-screenshot-design.md`.
+- ao modificar `packages/ui`, ler e respeitar o `DESIGN.md` da raiz; este plano não adiciona estilo de
+  UI visível.
+- novos logs de UI, se necessários, devem passar por `packages/ui/src/logger.ts`; este plano não
+  adiciona logs.
+- usar `@/` ou caminho absoluto com nome de pacote nos imports.
+- na Web/celular, quando `captureWindowScreenshot` não existir, retornar `null` ou falhar, degradar
+  silenciosamente e ainda abrir o popup de feedback.
+- não alterar o relay de controle remoto, o processo main, o stream de session/task, o snapshot, a
+  fila nem a semântica de recuperação replayable.
+- ao concluir, executar `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: Feedback Screenshot Draft Helper
+### Task 1: Helper de draft de screenshot do feedback
 
-**Files:**
-- Create: `packages/ui/src/feedback/feedbackScreenshotDraft.ts`
-- Test: `packages/ui/test/feedbackScreenshotDraft.test.ts`
+**Arquivos:**
+- Criar: `packages/ui/src/feedback/feedbackScreenshotDraft.ts`
+- Teste: `packages/ui/test/feedbackScreenshotDraft.test.ts`
 
 **Interfaces:**
-- Consumes: `IPlatformService.captureWindowScreenshot?(): Promise<WindowScreenshotResult | null>`
-- Produces: `captureFeedbackScreenshotDraft(platform): Promise<FeedbackAttachmentDraft[]>`
+- Consome: `IPlatformService.captureWindowScreenshot?(): Promise<WindowScreenshotResult | null>`
+- Produz: `captureFeedbackScreenshotDraft(platform): Promise<FeedbackAttachmentDraft[]>`
 
-- [x] **Step 1: Write the failing test**
+- [x] **Step 1: Escrever o teste que falha**
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
@@ -72,13 +85,13 @@ describe("captureFeedbackScreenshotDraft", () => {
 });
 ```
 
-- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Executar o teste para verificar que falha**
 
 Run: `pnpm exec vitest run packages/ui/test/feedbackScreenshotDraft.test.ts`
 
-Expected: FAIL because `@/feedback/feedbackScreenshotDraft.js` does not exist.
+Esperado: FAIL porque `@/feedback/feedbackScreenshotDraft.js` não existe.
 
-- [x] **Step 3: Write minimal implementation**
+- [x] **Step 3: Escrever a implementação mínima**
 
 ```ts
 import type { IPlatformService } from "@zcode/shared";
@@ -92,27 +105,27 @@ export async function captureFeedbackScreenshotDraft(
 }
 ```
 
-- [x] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Executar o teste para verificar que passa**
 
 Run: `pnpm exec vitest run packages/ui/test/feedbackScreenshotDraft.test.ts`
 
-Expected: PASS.
+Esperado: PASS.
 
 ---
 
-### Task 2: Workspace Help Menu Uses Screenshot Draft
+### Task 2: O menu de ajuda do workspace usa o draft de screenshot
 
-**Files:**
-- Modify: `packages/ui/src/WorkspaceHelpMenuButton.tsx`
-- Modify: `packages/ui/test/workspaceHeaderActionSection.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/WorkspaceHelpMenuButton.tsx`
+- Modificar: `packages/ui/test/workspaceHeaderActionSection.test.ts`
 
 **Interfaces:**
-- Consumes: `captureFeedbackScreenshotDraft(platform)`
-- Produces: help menu issue report draft with `screenshots: FeedbackAttachmentDraft[]`
+- Consome: `captureFeedbackScreenshotDraft(platform)`
+- Produz: draft de relato de problema do menu de ajuda com `screenshots: FeedbackAttachmentDraft[]`
 
-- [x] **Step 1: Write the failing test**
+- [x] **Step 1: Escrever o teste que falha**
 
-Update `packages/ui/test/workspaceHeaderActionSection.test.ts`:
+Atualizar `packages/ui/test/workspaceHeaderActionSection.test.ts`:
 
 ```ts
 const screenshot = {
@@ -135,7 +148,7 @@ const capturedHeaderHelp = vi.hoisted(() => ({
 }));
 ```
 
-Mock `usePlatform` with `captureWindowScreenshot`, then update the routing test:
+Mockar `usePlatform` com `captureWindowScreenshot` e então atualizar o teste de roteamento:
 
 ```ts
 capturedHeaderHelp.captureWindowScreenshot.mockClear();
@@ -158,7 +171,7 @@ expect(capturedHeaderHelp.openSubmit).toHaveBeenNthCalledWith(
 );
 ```
 
-Add a second failure-path assertion:
+Adicionar uma segunda asserção para o caminho de falha:
 
 ```ts
 it("opens issue report without screenshots when window screenshot fails", async () => {
@@ -191,21 +204,22 @@ it("opens issue report without screenshots when window screenshot fails", async 
 });
 ```
 
-- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Executar o teste para verificar que falha**
 
 Run: `pnpm exec vitest run packages/ui/test/workspaceHeaderActionSection.test.ts`
 
-Expected: FAIL because the current issue report handler does not call `captureWindowScreenshot` and does not pass `screenshots`.
+Esperado: FAIL porque o handler atual de relato de problema não chama `captureWindowScreenshot` e não
+passa `screenshots`.
 
-- [x] **Step 3: Write minimal implementation**
+- [x] **Step 3: Escrever a implementação mínima**
 
-Update `packages/ui/src/WorkspaceHelpMenuButton.tsx`:
+Atualizar `packages/ui/src/WorkspaceHelpMenuButton.tsx`:
 
 ```ts
 import { captureFeedbackScreenshotDraft } from "@/feedback/feedbackScreenshotDraft.js";
 ```
 
-Replace `handleOpenIssueReport`:
+Substituir `handleOpenIssueReport`:
 
 ```ts
 const handleOpenIssueReport = async () => {
@@ -220,9 +234,9 @@ const handleOpenIssueReport = async () => {
 };
 ```
 
-Keep menu binding as `onSelect={handleOpenIssueReport}`.
+Manter o binding do menu como `onSelect={handleOpenIssueReport}`.
 
-- [x] **Step 4: Run focused tests to verify they pass**
+- [x] **Step 4: Executar os testes focados para verificar que passam**
 
 Run:
 
@@ -230,36 +244,37 @@ Run:
 pnpm exec vitest run packages/ui/test/feedbackScreenshotDraft.test.ts packages/ui/test/workspaceHeaderActionSection.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
 ---
 
-### Task 3: Full Verification And Commit
+### Task 3: Verificação completa e commit
 
-**Files:**
-- Verify all files changed by Tasks 1-2.
+**Arquivos:**
+- Verificar todos os arquivos alterados pelas Tasks 1-2.
 
 **Interfaces:**
-- Consumes: implementation from Tasks 1-2.
-- Produces: committed feature implementation.
+- Consome: implementação das Tasks 1-2.
+- Produz: implementação da feature submetida.
 
-- [x] **Step 1: Run required typecheck**
+- [x] **Step 1: Executar o typecheck obrigatório**
 
 Run: `pnpm typecheck`
 
-Expected: PASS.
+Esperado: PASS.
 
-- [x] **Step 2: Run required lint**
+- [x] **Step 2: Executar o lint obrigatório**
 
 Run: `pnpm lint`
 
-Expected: PASS.
+Esperado: PASS.
 
-- [x] **Step 3: Inspect git diff**
+- [x] **Step 3: Inspecionar o git diff**
 
 Run: `git diff --stat && git diff -- packages/ui/src/feedback/feedbackScreenshotDraft.ts packages/ui/src/WorkspaceHelpMenuButton.tsx packages/ui/test/feedbackScreenshotDraft.test.ts packages/ui/test/workspaceHeaderActionSection.test.ts`
 
-Expected: only helper, help menu, focused tests, and this implementation plan are changed.
+Esperado: apenas o helper, o menu de ajuda, os testes focados e este plano de implementação foram
+alterados.
 
 - [x] **Step 4: Commit**
 

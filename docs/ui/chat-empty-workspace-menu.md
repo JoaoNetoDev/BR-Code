@@ -1,31 +1,46 @@
 # Chat Empty Workspace Menu
 
-> **当前状态**：本文描述 V4 空草稿与 workspace quick switcher 的当前行为。
+> **Estado atual**: este documento descreve o comportamento atual do rascunho vazio V4 e do workspace quick switcher.
 
-The empty chat state title is `Start a new task in {workspace}`.
-The workspace selector now sits in the composer context row above `ConversationComposer`, next to the Git branch switcher.
+O título do estado vazio do chat é `Start a new task in {workspace}`.
+O seletor de workspace agora fica na linha de contexto do composer, acima do `ConversationComposer`, ao lado do seletor
+de branch Git.
 
-## Workspace List
+## Lista de Workspaces
 
-- The menu includes a search input at the top.
-- Search matches workspace display name, tab label, workspace path, and remote target text such as SSH host/user, WSL distro, or Docker container.
-- Results keep the current workspace tab order; search never re-sorts matches.
-- The menu shows at most the first 5 visible workspace matches both before and after searching.
-- Disconnected remote workspaces remain hidden from this quick switcher because they cannot be entered immediately.
-- The previous `Home` shortcut item is no longer shown.
+- O menu inclui um campo de busca no topo.
+- A busca casa com o nome de exibição do workspace, o rótulo da tab, o caminho do workspace e o texto de destino
+  remoto, como host/usuário SSH, distro WSL ou container Docker.
+- Os resultados mantêm a ordem atual das tabs de workspace; a busca nunca reordena as correspondências.
+- O menu mostra no máximo as primeiras 5 correspondências visíveis de workspace, tanto antes quanto depois da busca.
+- Workspaces remotos desconectados permanecem ocultos neste quick switcher, porque não podem ser acessados
+  imediatamente.
+- O item de atalho `Home` anterior não é mais exibido.
 
-## Add New Workspace
+## Adicionar Novo Workspace
 
-The action area is ordered as:
+A área de ações é ordenada como:
 
 - `Open folder`
 - `Remote connection`
 - `Work without a project`
 
-`Work without a project` ensures the stable backing workspace at `<dataBaseDir>/.zcode/workspace/default` and starts a draft there. The backing workspace is classified as `conversation`, excluded from project search/results, and displayed as `Select project` in the trigger. Selecting it repeatedly is a no-op.
+`Work without a project` garante o workspace de suporte estável em
+`<dataBaseDir>/.zcode/workspace/default` e inicia um rascunho ali. O workspace de suporte é classificado como
+`conversation`, fica excluído da busca e dos resultados de projetos e é exibido como `Select project` no gatilho.
+Selecioná-lo repetidamente é uma operação sem efeito.
 
-When a real project is selected, the trigger reveals a separate close action on hover/focus. Closing only rebinds the unsent draft to the conversation backing workspace; it does not close the project tab or move an existing task. Workspace targets include path, optional identity, and purpose so remote workspaces with the same path remain isolated.
+Quando um projeto real é selecionado, o gatilho revela uma ação de fechamento separada no hover/foco. Fechar apenas
+revincula o rascunho não enviado ao workspace de suporte da conversa; não fecha a tab do projeto nem move uma task
+existente. Os alvos de workspace incluem caminho, identidade opcional e propósito, para que workspaces remotos com o
+mesmo caminho permaneçam isolados.
 
-The selector can be reused by a surface that requires a real project. In that capability mode, both ways of entering the conversation backing workspace are absent: the trigger does not reveal the close action and the menu does not render `Work without a project`. The current workspace icon remains visible because no close action replaces it. The scheduled-task creation form uses this mode; ordinary conversation drafts keep the default behavior above.
+O seletor pode ser reutilizado por uma superfície que exige um projeto real. Nesse modo de capacidade, as duas formas de
+entrar no workspace de suporte da conversa estão ausentes: o gatilho não revela a ação de fechamento e o menu não
+renderiza `Work without a project`. O ícone do workspace atual permanece visível porque nenhuma ação de fechamento o
+substitui. O formulário de criação de tarefa agendada usa esse modo; rascunhos de conversa comuns mantêm o comportamento
+padrão acima.
 
-`Open folder` reuses the same Open Folder entry function as the Open Workspace page. On desktop, the platform directory picker is configured with Electron `openDirectory` and `createDirectory`, so native dialogs that support creating folders can expose New Folder / Create Directory.
+`Open folder` reusa a mesma função de entrada Open Folder da página Open Workspace. No desktop, o seletor de diretórios
+da plataforma é configurado com `openDirectory` e `createDirectory` do Electron, de modo que diálogos nativos que
+suportam a criação de pastas podem expor New Folder / Create Directory.

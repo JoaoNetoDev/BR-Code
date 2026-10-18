@@ -1,45 +1,50 @@
-# Composer Prompt History
+# Histórico de prompts do Composer
 
-## Feature/change summary
+## Resumo da funcionalidade/mudança
 
-| Field                 | Value                                                                                                                                |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Change                | Composer 提交文本时只过滤与上一条相同的连续历史；`↑/↓` 继续读取历史                                                                  |
-| User-visible surfaces | Desktop / Web 共用的 V4 conversation composer                                                                                        |
-| Existing docs         | `docs/v4-refactor/m5-composer-parity.md`、`docs/conversation-session-case-catalog.md`                                                |
-| Existing code owners  | `packages/ui/src/lib/promptHistory.ts`、`packages/ui/src/lib/promptHistoryStorage.ts`、`packages/ui/src/v4/ConversationComposer.tsx` |
-| Out of scope          | 全局去重、旧数据迁移、历史容量和 workspace key 变更、协议/Agent/relay 状态                                                           |
+| Campo                   | Valor                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Mudança                 | Ao submeter texto, o Composer filtra apenas repetições consecutivas iguais à última entrada; `↑/↓` continuam lendo o histórico |
+| Superfícies visíveis ao usuário | Composer de conversa V4 compartilhado por Desktop/Web                                                          |
+| Documentos existentes   | `docs/v4-refactor/m5-composer-parity.md`、`docs/conversation-session-case-catalog.md`                          |
+| Responsáveis pelo código existente | `packages/ui/src/lib/promptHistory.ts`、`packages/ui/src/lib/promptHistoryStorage.ts`、`packages/ui/src/v4/ConversationComposer.tsx` |
+| Fora de escopo           | Deduplicação global, migração de dados antigos, mudança de capacidade do histórico e da workspace key, estado de protocolo/Agent/relay |
 
-## Clarification log
+## Registro de esclarecimentos
 
-| Round | Question                 | User answer      | Boundary fixed                                               | Follow-up needed |
-| ----- | ------------------------ | ---------------- | ------------------------------------------------------------ | ---------------- |
-| 1     | 连续重复还是全局重复     | 只过滤连续的     | `A,A` 只留一条；`A,B,A` 全部保留                             | no               |
-| 1     | 相等前如何归一化         | 去掉首尾空格就行 | 仅比较 `trim()` 后的完整文本；内部空白、换行和大小写仍有意义 | no               |
-| 1     | 读取旧历史时是否清理重复 | 不用清理         | 读路径不做去重迁移；历史里已有的重复项保持原顺序             | no               |
+| Rodada | Pergunta                              | Resposta do usuário        | Limite fixado                                                | Acompanhamento necessário |
+| ------ | ------------------------------------- | -------------------------- | ------------------------------------------------------------ | ------------------------ |
+| 1      | Repetição consecutiva ou global       | Só filtra as consecutivas | `A,A` mantém só uma; `A,B,A` mantém tudo                   | não                      |
+| 1      | Como normalizar antes de comparar     | Basta remover espaços das pontas | Compara apenas o texto completo após `trim()`; espaços internos, quebras de linha e caixa ainda importam | não        |
+| 1      | Se ao ler o histórico antigo deve-se limpar duplicatas | Não é preciso limpar | O caminho de leitura não faz migração de dedup; duplicatas já existentes no histórico mantêm a ordem original | não |
 
-## Boundary decisions
+## Decisões de limite
 
-| Boundary | Decision                                                   | Includes                     | Excludes / prunes                      | Source        |
-| -------- | ---------------------------------------------------------- | ---------------------------- | -------------------------------------- | ------------- |
-| 写入去重 | 新条目与当前最后一条在 `trim()` 后完全相同则跳过追加和写盘 | 连续相同提交、仅首尾空白不同 | 非连续重复                             | user          |
-| 文本等价 | 只去首尾空白                                               | `" A "` 与 `"A"` 相同        | 内部空白折叠、大小写折叠、Unicode 改写 | user          |
-| 读取兼容 | 不在 read path 去重                                        | 旧数组原顺序和重复项         | 迁移/全量清洗                          | user          |
-| 导航接管 | 沿用现状：空输入或已进入历史浏览态时才接管 `↑/↓`           | 单行/多行 composer           | 覆盖非空草稿时的正常光标上移           | existing code |
-| 失败回滚 | 沿用现状：发送失败不新增历史                               | send reject/failure          | 把失败正文留在历史                     | existing code |
+| Limite        | Decisão                                                                              | Inclui                                  | Exclui / poda                                         | Fonte          |
+| ------------- | ------------------------------------------------------------------------------------ | --------------------------------------- | ----------------------------------------------------- | -------------- |
+| Deduplicação na escrita | Se a nova entrada for idêntica à última entrada atual após `trim()`, não anexa nem grava em disco | Submissões consecutivas iguais, diferença apenas de espaços nas pontas | Duplicatas não consecutivas                  | usuário       |
+| Equivalência de texto | Remove apenas espaços das pontas                                                     | `" A "` é igual a `"A"`                  | Colapso de espaços internos, de caixa, normalização Unicode | usuário       |
+| Compatibilidade de leitura | Não deduplica no read path                                    | Ordem original e duplicatas do array antigo | Migração ou limpeza total                     | usuário       |
+| Assumir navegação | Mantém o estado atual: `↑/↓` só são assumidos com entrada vazia ou já em modo de navegação do histórico | Composer de linha única ou multilinha   | Cursor se movendo normalmente com rascunho não vazio | código existente |
+| Rollback em falha | Mantém o estado atual: envio com falha não adiciona ao histórico                         | reject/failure no send                   | Manter o texto que falhou no histórico               | código existente |
 
-## Domain scope and high-risk cross-products
+## Escopo de domínio e cruzamentos de alto risco
 
-| Domain                  | Include?       | Why it can change behavior                                      | Primary sources                                    |
-| ----------------------- | -------------- | --------------------------------------------------------------- | -------------------------------------------------- |
-| Conversation composer   | yes            | 提交和 `↑/↓` 都发生在共享 Lexical composer                      | `ConversationComposer.tsx`、`LexicalChatInput.tsx` |
-| Renderer persistence    | yes            | 历史是 renderer `localStorage` 状态                             | `promptHistoryStorage.ts`                          |
-| Desktop/Web client mode | representative | 两端复用同一 UI 逻辑；本功能不进入 continuous/replayable 数据链 | `docs/architecture/message-flow.md`                |
-| Agent/protocol/queue    | no             | 历史写入不改变已提交 command、queue 或 projection               | `docs/conversation-protocol-declaration.md`        |
+| Domínio                    | Inclui?       | Por que pode alterar o comportamento                              | Fontes primárias                                    |
+| -------------------------- | ------------- | ------------------------------------------------------------------ | -------------------------------------------------- |
+| Composer de conversa       | sim           | Tanto a submissão quanto `↑/↓` acontecem no composer Lexical compartilhado | `ConversationComposer.tsx`、`LexicalChatInput.tsx` |
+| Persistência do renderer   | sim           | O histórico é estado `localStorage` do renderer                   | `promptHistoryStorage.ts`                          |
+| Modo de cliente Desktop/Web | representativo | Os dois lados reutilizam a mesma lógica de UI; esta funcionalidade não entra na cadeia de dados continuous/replayable | `docs/architecture/message-flow.md`                |
+| Agent/protocol/queue       | não           | A escrita do histórico não altera command submetido, queue nem projection | `docs/conversation-protocol-declaration.md`        |
 
-高风险组合收敛如下：发送成功/失败会影响是否保留新历史；连续/非连续重复会影响是否追加；旧存储重复项只影响读取结果。`desktop-continuous` 与 `web-remote-replayable`、session phase、provider、queue、theme 和 locale 不改变纯 renderer 去重结果，因此各保留共享实现代表，不做全排列。
+Os cruzamentos de alto risco convergem assim: sucesso/falha do envio afeta se o novo histórico é
+mantido; repetição consecutiva ou não consecutiva afeta se algo é anexado; duplicatas no storage
+antigo afetam apenas o resultado da leitura. `desktop-continuous` e `web-remote-replayable`, fase da
+session, provider, queue, tema e locale não alteram o resultado de deduplicação que é puramente de
+renderer, por isso cada um fica com um representante da implementação compartilhada, sem permutação
+completa.
 
-## Concept map and state owners
+## Mapa conceitual e responsáveis pelo estado
 
 ```text
 composer submit
@@ -56,41 +61,44 @@ empty composer / history-browsing state
   -> replace Lexical editor text
 ```
 
-| State / fact             | Authority                                                     | Mirrors / caches                                 | Evidence                                    |
-| ------------------------ | ------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------- |
-| Prompt history entries   | Browser `localStorage` for the current existing workspace key | `ConversationComposer.promptHistory` React state | stored JSON + composer `promptHistory` prop |
-| Current navigation index | `PromptHistoryPlugin` ref                                     | none                                             | focused navigation unit behavior            |
-| Submitted text           | Lexical/composer draft until command accepted                 | `textRef`                                        | `onSendText` call                           |
+| Estado / fato                | Autoridade                                                            | Espelhos / caches                             | Evidência                                    |
+| ---------------------------- | --------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------- |
+| Entradas do histórico de prompts | `localStorage` do navegador para a workspace key existente atual | estado React `ConversationComposer.promptHistory` | JSON armazenado + prop `promptHistory` do composer |
+| Índice de navegação atual    | ref de `PromptHistoryPlugin`                                          | nenhum                                        | comportamento unitário focado de navegação  |
+| Texto submetido              | rascunho Lexical/composer até o command ser aceito                    | `textRef`                                     | chamada de `onSendText`                     |
 
-## Dimensions and candidate combinations
+## Dimensões e combinações candidatas
 
-| Candidate ID | Stored history     | Submitted text / event | Expected guard/effect                      | Status   |
-| ------------ | ------------------ | ---------------------- | ------------------------------------------ | -------- |
-| PH01         | `["A"]`            | send `" A "`           | trim 后等于最后一条；不追加、不写盘        | accepted |
-| PH02         | `["A", "B"]`       | send `"A"`             | 只比较最后一条 `B`；追加为 `["A","B","A"]` | accepted |
-| PH03         | `["A B"]`          | send `"A  B"`          | 内部空白不同；正常追加                     | accepted |
-| PH04         | 旧数据 `["A","A"]` | read / mount           | 不做读取去重，仍返回两条                   | accepted |
-| PH05         | `["A"]`            | send `"A"` 失败        | 未写入历史，无需回滚写盘，原历史不变       | accepted |
-| PH06         | `["A"]`            | 非空多行草稿按 `↑`     | 现有 guard 保留光标导航，不进入历史        | pruned   |
+| ID candidato | Histórico armazenado | Texto submetido / evento | Guarda/efeito esperado                          | Status    |
+| ------------ | -------------------- | ------------------------- | ----------------------------------------------- | --------- |
+| PH01         | `["A"]`              | envia `" A "`             | igual à última após trim; não anexa nem grava   | aceito    |
+| PH02         | `["A", "B"]`         | envia `"A"`               | compara só com o último `B`; anexa como `["A","B","A"]` | aceito    |
+| PH03         | `["A B"]`            | envia `"A  B"`            | espaços internos diferentes; anexa normalmente  | aceito    |
+| PH04         | dado antigo `["A","A"]` | leitura / mount         | sem dedup na leitura, ainda retorna dois itens  | aceito    |
+| PH05         | `["A"]`              | envia `"A"` e falha      | não gravado no histórico, sem rollback de disco; histórico original intacto | aceito    |
+| PH06         | `["A"]`              | rascunho multilinha não vazio com `↑` | a guarda existente preserva a navegação do cursor e não entra no histórico | podado    |
 
-## Pruning decisions and unresolved questions
+## Decisões de poda e questões em aberto
 
-| Decision ID | Pruned combinations                    | Guard/invariant                            | Product reason     | Representative coverage          |
-| ----------- | -------------------------------------- | ------------------------------------------ | ------------------ | -------------------------------- |
-| PHD01       | provider/model/session phase × 去重    | 去重在 command 前的 renderer 纯函数完成    | 不影响比较结果     | PH01-PH05                        |
-| PHD02       | desktop continuous × mobile replayable | 历史不进入 conversation delivery           | 两端复用 composer  | PH01                             |
-| PHD03       | 非空草稿的 `↑/↓` 历史接管              | `currentIndex === null && text.length > 0` | 不破坏多行光标移动 | 既有 `PromptHistoryPlugin` guard |
+| ID decisão | Combinações podadas                             | Guarda/invariante                          | Motivo no produto              | Cobertura representativa |
+| ---------- | ----------------------------------------------- | ------------------------------------------ | ------------------------------ | ------------------------ |
+| PHD01      | provider/model/fase da session × dedup          | o dedup acontece numa função pura do renderer antes do command | não afeta o resultado da comparação | PH01-PH05                |
+| PHD02      | desktop continuous × mobile replayable          | o histórico não entra na entrega de conversation | os dois lados reutilizam o composer | PH01                   |
+| PHD03      | assumir histórico com `↑/↓` em rascunho não vazio | `currentIndex === null && text.length > 0` | não quebra o movimento do cursor multilinha | guarda existente do `PromptHistoryPlugin` |
 
-未解决问题：无。
+Questões não resolvidas: nenhuma.
 
-## Accepted cases and coverage handoff
+## Casos aceitos e passagem de cobertura
 
-| Case ID | Setup                     | Action                   | Assertions                                          | Evidence layers               | Status       |
-| ------- | ------------------------- | ------------------------ | --------------------------------------------------- | ----------------------------- | ------------ |
-| PH01    | 最近历史为 `A`            | 提交首尾带空白的 `" A "` | command 仍发送；历史仍只有 `A`；不调用 storage 写入 | UI integration + localStorage | focused test |
-| PH02    | 历史为 `A,B`              | 再提交 `A`               | 历史为 `A,B,A`；上读顺序保留非连续重复              | pure function + localStorage  | focused test |
-| PH03    | 最近历史为 `A B`          | 提交 `A  B`              | 两条都保留                                          | pure function                 | focused test |
-| PH04    | localStorage 已含连续重复 | 读取历史                 | 返回原重复顺序，不迁移写盘                          | localStorage                  | focused test |
-| PH05    | 最近历史为 `A`            | 重复提交 `A` 且发送失败  | 原历史不变且不产生补偿写盘                          | UI integration + localStorage | focused test |
+| ID caso | Preparação                       | Ação                      | Asserções                                                      | Camadas de evidência        | Status         |
+| ------- | -------------------------------- | ------------------------- | -------------------------------------------------------------- | ---------------------------- | -------------- |
+| PH01    | histórico recente é `A`          | submete `" A "`           | o command ainda é enviado; o histórico continua só com `A`; storage não recebe escrita | integração de UI + localStorage | teste focado  |
+| PH02    | histórico é `A,B`                | submete `A` de novo       | o histórico fica `A,B,A`; a leitura preserva a repetição não consecutiva | função pura + localStorage | teste focado  |
+| PH03    | histórico recente é `A B`        | submete `A  B`            | as duas entradas são mantidas                                  | função pura                  | teste focado  |
+| PH04    | localStorage já tem repetição consecutiva | lê o histórico   | retorna a ordem original de duplicatas, sem migração nem gravação | localStorage                | teste focado  |
+| PH05    | histórico recente é `A`          | submete `A` duplicado e o envio falha | o histórico original fica intacto e não há escrita compensatória | integração de UI + localStorage | teste focado  |
 
-Matrix backfill：`docs/conversation-session-case-catalog.md` 新增 `PH` 组；`docs/testing/conversation-session-e2e-coverage-matrix.md` 登记 focused UI/storage 自动化。该变更不发 provider 请求、不改变协议和视觉，不需要新增 replay fixture；如果后续补 WDIO，可声明 `providerRequestPolicy: "none"`。
+Matrix backfill: `docs/conversation-session-case-catalog.md` ganha o grupo `PH`;
+`docs/testing/conversation-session-e2e-coverage-matrix.md` registra a automação de UI/storage focada.
+Esta mudança não envia requisições a provider, não altera protocolo nem visual e não exige nova
+fixture de replay; se o WDIO for adicionado depois, pode declarar `providerRequestPolicy: "none"`.

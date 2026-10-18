@@ -1,21 +1,21 @@
-# SSH Remote Workspace Tooltip
+# Tooltip de Workspace Remoto via SSH
 
-## Goal
+## Objetivo
 
-没有 SSH config alias 的远程 workspace 仍需要能在左侧任务列表里区分服务器。用户 hover SSH 远程 workspace 的侧栏 tab 主标签区域时，显示连接信息 tooltip。
+Workspaces remotos sem alias no SSH config ainda precisam ser distinguidos por servidor na lista de tarefas da esquerda. Quando o usuário passa o mouse sobre a área do rótulo principal da tab da barra lateral de um workspace remoto SSH, um tooltip com as informações de conexão é exibido.
 
-## Behavior
+## Comportamento
 
-- 仅 SSH remote workspace 显示该 tooltip；本地、WSL、Docker workspace 保持现状。
-- tooltip 展示非敏感连接信息：
-  - `Alias`：仅当 `remoteTarget.sshConfigAlias` 存在时显示。
-  - `Host`：显示 `username@host:port`，端口缺省时按 SSH 默认端口 `22` 展示。
-  - `Path`：显示当前远程 workspace 路径。
-- tooltip 只用于识别 workspace，不参与排序、去重、持久化 key 或 workspace identity 计算。
-- 右侧已有操作按钮的 tooltip（新建任务、文件树、重连、错误日志）保持不变。
+- O tooltip é exibido apenas para workspaces remotos SSH; workspaces locais, WSL e Docker permanecem como estão.
+- O tooltip mostra informações de conexão não sensíveis:
+  - `Alias`: exibido apenas quando `remoteTarget.sshConfigAlias` existe.
+  - `Host`: exibe `username@host:port`; quando a porta está ausente, é exibida a porta padrão do SSH, `22`.
+  - `Path`: exibe o caminho atual do workspace remoto.
+- O tooltip serve apenas para identificar o workspace e não participa de ordenação, desduplicação, chaves de persistência nem do cálculo da identidade do workspace.
+- Os tooltips dos botões de ação que já existem à direita (nova task, árvore de arquivos, reconexão, log de erros) permanecem inalterados.
 
-## Implementation Notes
+## Notas de implementação
 
-- 数据来源为 `WorkspaceTabState.remoteTarget` 和 `workspacePath`，不读取凭据，也不显示密码、私钥路径或 passphrase。
-- 仅修改 UI 展示层，不新增或修改 ZCode session/task realtime、snapshot、queue、stream、owner command 或 web remote-control 状态。
-- 桌面端与 Web 端共用 `packages/ui` 组件；手机远控任务首页不使用桌面侧栏，不受该 tooltip 影响。
+- A origem dos dados é `WorkspaceTabState.remoteTarget` e `workspacePath`; nenhuma credencial é lida e senha, caminho de chave privada ou passphrase não são exibidos.
+- Apenas a camada de apresentação da UI é alterada; nenhum estado de session/task realtime, snapshot, queue, stream, owner command ou web remote-control do ZCode é adicionado ou modificado.
+- Desktop e Web compartilham os componentes de `packages/ui`; a página inicial de tarefas do controle remoto no celular não usa a barra lateral do desktop e não é afetada por esse tooltip.

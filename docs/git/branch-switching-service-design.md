@@ -1,144 +1,144 @@
-# Git 分支切换与创建底层能力设计
+# Design de capacidade subjacente de troca e criação de branches do Git
 
-更新日期：2026-04-15
+Data de atualização: 2026-04-15
 
-## 文档定位
+## Posicionamento do documento
 
-本文是对现有 Git 架构与底层服务能力的增量设计，聚焦：
+Este é um design incremental para a arquitetura Git existente e para as capacidades de serviços subjacentes, com foco em:
 
-- 本地分支列表读取
-- 分支切换
-- 新建分支并切换
-- 切换失败时的结构化阻塞原因返回
+- leitura da lista de branches locais
+- troca de branch
+- criação de branch e troca
+- retorno de causa de bloqueio estruturada em caso de falha na troca
 
-本文只讨论 Git 底层能力设计，不展开 UI 交互、弹窗样式、表单细节。
+Este documento discute apenas o design da capacidade subjacente do Git, sem detalhar interação de UI, estilo de pop-up ou detalhes de formulário.
 
-## 当前落地状态
+## Estado atual de implementação
 
-截至 2026-04-15，底层能力已按本文方案落地到以下位置：
+Até 2026-04-15, a capacidade subjacente já foi implementada conforme a solução deste documento nos seguintes locais:
 
 - `packages/shared/src/git.ts`
-  - 新增本地分支列表、分支切换 / 创建切换的共享 DTO
+  - novos DTOs compartilhados para lista de branches locais e troca/criação de branch
 - `packages/services/src/git/git.ts`
-  - `IGitService` 暴露 `getLocalBranches`、`switchBranch`、`createBranchAndSwitch`
+  - `IGitService` expõe `getLocalBranches`, `switchBranch`, `createBranchAndSwitch`
 - `packages/services/src/git/repo/gitCliRepo.ts`
-  - 新增 `git for-each-ref` 本地分支读取
-  - 新增 `git switch --no-guess` 切换与 `git switch -c` 创建并切换
-  - 新增切换前冲突 / 进行中操作检查，以及失败结果结构化映射
+  - nova leitura de branches locais com `git for-each-ref`
+  - nova troca com `git switch --no-guess` e criação com troca via `git switch -c`
+  - novas verificações de conflito / operação em andamento antes da troca, e mapeamento estruturado dos resultados de falha
 - `packages/services/test/gitService.test.ts`
-  - 增加真实 Git 仓库集成测试，覆盖成功路径、no-op、dirty 允许切换、覆盖阻塞、冲突、进行中操作、非法分支名、已有分支、worktree 占用
+  - testes de integração com repositório Git real, cobrindo caminho de sucesso, no-op, troca permitida com working tree sujo, bloqueio por sobrescrita, conflito, operação em andamento, nome de branch inválido, branch já existente e occupation por worktree
 
-## 背景
+## Contexto
 
-当前项目已经具备稳定的 Git 服务分层：
+O projeto atual já possui uma camada de serviço Git estável:
 
-- `packages/shared/src/git.ts` 定义 Git DTO
-- `packages/services/src/git/git.ts` 定义 `IGitService`
-- `packages/services/src/git/gitService.ts` 负责高层语义聚合
-- `packages/services/src/git/repo/gitCliRepo.ts` 负责 Git CLI 薄封装
+- `packages/shared/src/git.ts` define os DTOs de Git
+- `packages/services/src/git/git.ts` define o `IGitService`
+- `packages/services/src/git/gitService.ts` é responsável pela agregação de semântica de alto nível
+- `packages/services/src/git/repo/gitCliRepo.ts` é responsável pelo encapsulamento fino da CLI do Git
 
-现有能力已经覆盖：
+As capacidades existentes já cobrem:
 
-- 仓库解析
-- status / diff / branch comparison
+- resolução de repositório
+- status / diff / comparação de branches
 - stage / unstage / discard / commit
 - identity / refresh
 
-因此，这次需求不应引入新的平台层通道，也不应绕开现有 `GitService -> GitCliRepo -> Git CLI` 链路。
+Portanto, este requisito não deve introduzir um novo canal de camada de plataforma, nem contornar a cadeia existente `GitService -> GitCliRepo -> Git CLI`.
 
-## 目标
+## Objetivos
 
-- 为 UI 提供“当前项目已拉取本地分支”的稳定数据源
-- 提供真实分支切换能力
-- 提供“新建分支并切换”能力
-- 在切换失败时返回可驱动 UI 的结构化阻塞原因
-- 保持 local / remote / web 三端统一抽象
-- 保持 Git 原生行为，不人为收紧为“只要 dirty 就不允许切换”
+- Fornecer à UI uma fonte de dados estável de "branches locais já obtidas no projeto atual"
+- Oferecer capacidade real de troca de branch
+- Oferecer a capacidade de "criar branch e trocar"
+- Em caso de falha na troca, retornar uma causa de bloqueio estruturada que possa orientar a UI
+- Manter a abstração unificada entre local / remote / web
+- Preservar o comportamento nativo do Git, sem restringir artificialmente a "não é permitido trocar se houver alterações não commitadas"
 
-## 非目标
+## Não objetivos
 
-- 不做 stash、force switch、discard changes 后再切换
-- 不做 remote branch 浏览与拉取
-- 不做 branch rename / delete
-- 不做 rebase、merge、cherry-pick、submodule 等复杂 Git 工作流
-- 不在本设计中直接承诺 UI 提交面板
+- Não fazer stash, troca forçada, nem descartar alterações e depois trocar
+- Não fazer navegação e pull de branches remotas
+- Não fazer renomeação / exclusão de branch
+- Não fazer fluxos de trabalho complexos do Git como rebase, merge, cherry-pick, submodule
+- Não prometer o painel de commit da UI diretamente neste design
 
-## 核心决策
+## Decisões centrais
 
-### 1. 遵循 Git 原生阻塞模型
+### 1. Seguir o modelo de bloqueio nativo do Git
 
-本次不采用“只要存在未提交改动就禁止切换”的产品规则。
+Não adotamos a regra de produto "proibir a troca sempre que existirem alterações não commitadas".
 
-原因：
+Motivos:
 
-- Git 原生允许“存在未提交改动，但这些改动不会被目标分支覆盖”的切换
-- 如果产品层一刀切，会比 Git 更保守，和用户预期不一致
-- UI 需要提示的是“真实阻塞项”，而不是“仓库不够干净”
+- O Git nativo permite trocar quando "existem alterações não commitadas, mas elas não serão sobrescritas pela branch de destino"
+- Se a camada de produto aplicar uma regra única, ela será mais conservadora do que o Git e ficará inconsistente com a expectativa do usuário
+- O que a UI precisa sinalizar são os "bloqueios reais", e não "o repositório não está limpo o suficiente"
 
-因此，切换逻辑以真实 `git switch` 的结果为准。
+Portanto, a lógica de troca se baseia no resultado real do `git switch`.
 
-### 2. 不单独提供布尔型 `canSwitch` 接口
+### 2. Não fornecer uma interface booleana `canSwitch` isolada
 
-不建议增加 `canSwitchToBranch(): boolean` 这类接口。
+Não recomendamos adicionar interfaces como `canSwitchToBranch(): boolean`.
 
-原因：
+Motivos:
 
-- Git 没有稳定、完整、低成本的 dry-run 切换命令
-- 仅凭 `status` 做预判，很容易和真实 `git switch` 结果不一致
-- `tracked` 覆盖、`untracked` 覆盖、进行中操作等阻塞项，最好以真实切换命令结果为权威来源
+- O Git não possui um comando de troca em dry-run estável, completo e de baixo custo
+- Prever apenas com base em `status` facilmente diverge do resultado real do `git switch`
+- Bloqueios como sobrescrita de arquivos `tracked`, sobrescrita de arquivos `untracked` e operações em andamento devem ter como fonte autoritativa o resultado real do comando de troca
 
-因此，推荐由 `switchBranch` / `createBranchAndSwitch` 直接返回结构化结果：
+Portanto, recomendamos que `switchBranch` / `createBranchAndSwitch` retornem diretamente um resultado estruturado:
 
-- 成功：返回新的 `summary`
-- 失败：返回 `issues`
+- sucesso: retorna o novo `summary`
+- falha: retorna `issues`
 
-如果 UI 需要在点击前做弱提示，可以继续复用现有 `summary`、`getChanges`、`getIdentity` 能力，但不能把它们当作最终准入判断。
+Se a UI precisar de um aviso leve antes do clique, pode continuar reaproveitando as capacidades existentes `summary`, `getChanges` e `getIdentity`, mas não deve tratá-las como julgamento final de admissão.
 
-### 3. 分支能力继续放在现有 Git 服务域内
+### 3. A capacidade de branches continua dentro do domínio de serviço Git existente
 
-新能力仍落在：
+A nova capacidade continua localizada em:
 
 `Types -> Config -> Repo -> Service -> Runtime -> UI`
 
-不新增 `IPlatformService` 能力，不新增单独频道。
+Não adiciona capacidade a `IPlatformService`, nem cria um canal separado.
 
-## 能力范围
+## Escopo das capacidades
 
-### 1. 本地分支列表
+### 1. Lista de branches locais
 
-用于支撑 UI 展示“当前仓库已存在的本地分支”。
+Usada para apoiar a UI na exibição das "branches locais já existentes no repositório atual".
 
-约束：
+Restrições:
 
-- 只列 `refs/heads/*`
-- 不列 remote-tracking branch
-- 分支是 repo 级概念，不按 workspace 子目录裁剪
-- 如果当前处于 detached HEAD，则 `currentBranchName` 为空，但仍返回本地分支列表
+- lista apenas `refs/heads/*`
+- não lista remote-tracking branches
+- branch é um conceito de nível de repositório, não é recortada por subdiretório de workspace
+- se estiver em detached HEAD, `currentBranchName` fica vazio, mas a lista de branches locais ainda é retornada
 
-### 2. 切换分支
+### 2. Trocar de branch
 
-输入目标本地分支名，尝试切换。
+Recebe como entrada o nome da branch local de destino e tenta trocar.
 
-行为：
+Comportamento:
 
-- 成功时返回最新仓库摘要
-- 如果切换到当前分支，视为成功 no-op
-- 如果 Git 原生阻止切换，返回结构化阻塞原因
+- em caso de sucesso, retorna o resumo mais recente do repositório
+- se trocar para a branch atual, é considerado sucesso no-op
+- se o Git nativo bloquear a troca, retorna a causa de bloqueio estruturada
 
-### 3. 新建分支并切换
+### 3. Criar branch e trocar
 
-默认从当前 `HEAD` 创建新分支并切换。
+Por padrão, cria a nova branch a partir do `HEAD` atual e troca.
 
-首版只承诺：
+A primeira versão só garante:
 
-- 用户输入分支名
-- 可选传入 `startPoint`
-- 不自动推断 remote branch
-- 不自动设置复杂跟踪策略
+- o usuário informa o nome da branch
+- é possível passar opcionalmente `startPoint`
+- não infere automaticamente branch remota
+- não define automaticamente estratégias de tracking complexas
 
-## 接口设计
+## Design das interfaces
 
-建议在 `IGitService` 上新增 3 个方法：
+Recomendamos adicionar 3 métodos ao `IGitService`:
 
 ```ts
 getLocalBranches(params: GitRepositoryRequest): Promise<GitLocalBranchListResult>;
@@ -146,7 +146,7 @@ switchBranch(params: GitSwitchBranchRequest): Promise<GitBranchMutationResult>;
 createBranchAndSwitch(params: GitCreateBranchRequest): Promise<GitBranchMutationResult>;
 ```
 
-建议新增请求类型：
+Recomendamos adicionar os seguintes tipos de requisição:
 
 ```ts
 export interface GitSwitchBranchRequest extends GitRepositoryRequest {
@@ -159,11 +159,11 @@ export interface GitCreateBranchRequest extends GitRepositoryRequest {
 }
 ```
 
-## Shared DTO 设计
+## Design dos DTOs compartilhados
 
-建议在 `packages/shared/src/git.ts` 新增以下类型。
+Recomendamos adicionar os seguintes tipos em `packages/shared/src/git.ts`.
 
-### 分支列表
+### Lista de branches
 
 ```ts
 export interface GitLocalBranch {
@@ -181,13 +181,13 @@ export interface GitLocalBranchListResult {
 }
 ```
 
-排序建议：
+Recomendação de ordenação:
 
-- 当前分支排第一
-- 其余按最近提交时间倒序
-- 时间相同再按名称升序
+- branch atual primeiro
+- as demais em ordem decrescente de data do commit mais recente
+- em caso de empate de tempo, por nome em ordem crescente
 
-### 切换/创建结果
+### Resultado de troca/criação
 
 ```ts
 export type GitBranchMutationAction = "switch" | "create-and-switch";
@@ -221,15 +221,15 @@ export interface GitBranchMutationResult {
 }
 ```
 
-语义说明：
+Explicação da semântica:
 
-- `ok=true` 且 `didChange=true`：真实完成切换
-- `ok=true` 且 `didChange=false`：成功 no-op，例如切到当前分支
-- `ok=false`：被 Git 原生规则阻止，或输入非法
+- `ok=true` e `didChange=true`: a troca foi realmente concluída
+- `ok=true` e `didChange=false`: sucesso no-op, por exemplo trocar para a branch atual
+- `ok=false`: bloqueado por regras nativas do Git, ou entrada inválida
 
-## Repo 层设计
+## Design da camada Repo
 
-建议在 `GitCliRepo` 新增以下能力：
+Recomendamos adicionar as seguintes capacidades ao `GitCliRepo`:
 
 ```ts
 listLocalBranches(workspacePath: string): Promise<GitLocalBranchListResult>;
@@ -243,96 +243,96 @@ createBranchAndSwitch(
 
 ### 1. listLocalBranches
 
-建议命令：
+Comandos recomendados:
 
 ```bash
 git for-each-ref refs/heads \
   --format=%(refname:short)%00%(upstream:short)%00%(objectname)%00%(committerdate:unix)
 ```
 
-设计要点：
+Pontos de design:
 
-- 使用稳定格式，避免解析人类可读输出
-- `cwd` 仍以 `repoRoot` 执行
-- detached HEAD 时，`branches` 中可能没有 `isCurrent=true`
+- usa um formato estável, evitando fazer parsing de saída legível por humanos
+- o `cwd` continua sendo executado com `repoRoot`
+- em caso de detached HEAD, pode não haver nenhum `isCurrent=true` em `branches`
 
 ### 2. switchBranch
 
-建议命令：
+Comandos recomendados:
 
 ```bash
 git switch --no-guess -- <branchName>
 ```
 
-实际实现时，为避免 `--` 误伤命令结构，推荐使用：
+Na implementação real, para evitar que o `--` prejudique a estrutura do comando, recomendamos usar:
 
 ```bash
 git switch --no-guess <branchName>
 ```
 
-设计要点：
+Pontos de design:
 
-- `--no-guess` 避免 Git 因 remote-tracking branch 自动猜测并创建本地分支
-- 先做最小前置校验：仓库存在、目标分支名非空
-- 真正的阻塞判断以 `git switch` 的 stderr 与 exit code 为准
+- `--no-guess` evita que o Git adivinhe automaticamente via remote-tracking branch e crie uma branch local
+- faz primeiro uma verificação mínima de pré-condição: repositório existe, nome da branch de destino não é vazio
+- o julgamento real de bloqueio se baseia no stderr e no exit code do `git switch`
 
 ### 3. createBranchAndSwitch
 
-建议先校验分支名：
+Recomendamos validar primeiro o nome da branch:
 
 ```bash
 git check-ref-format --branch <branchName>
 ```
 
-然后执行：
+Depois executar:
 
 ```bash
 git switch --no-guess -c <branchName> [startPoint]
 ```
 
-设计要点：
+Pontos de design:
 
-- 默认从当前 `HEAD` 创建
-- `startPoint` 先作为底层扩展口保留，UI 首版可以不暴露
-- 若分支已存在，直接返回结构化错误，不做覆盖式创建
+- cria por padrão a partir do `HEAD` atual
+- `startPoint` é mantido como ponto de extensão subjacente; a UI da primeira versão pode não expô-lo
+- se a branch já existir, retorna diretamente um erro estruturado, sem criação por sobrescrita
 
-## 阻塞模型
+## Modelo de bloqueio
 
-### 1. 应直接透传并结构化的阻塞项
+### 1. Bloqueios que devem ser repassados diretamente e estruturados
 
-#### tracked 文件会被覆盖
+#### Arquivos tracked serão sobrescritos
 
-Git 常见提示：
+Mensagem comum do Git:
 
 - `Your local changes to the following files would be overwritten by checkout`
 
-映射为：
+Mapeado para:
 
 - `tracked-changes-would-be-overwritten`
 
-#### untracked 文件会被覆盖
+#### Arquivos untracked serão sobrescritos
 
-Git 常见提示：
+Mensagem comum do Git:
 
 - `The following untracked working tree files would be overwritten by checkout`
 
-映射为：
+Mapeado para:
 
 - `untracked-changes-would-be-overwritten`
 
-#### 当前存在冲突
+#### Existem conflitos no momento
 
-可以通过现有 `status` 里的 `isConflicted` 快速发现，也可以在失败时兜底解析 stderr。
+Pode ser detectado rapidamente pelo `isConflicted` existente no `status`, e também pode ser analisado no stderr em caso de falha.
 
-映射为：
+Mapeado para:
 
 - `conflicts-present`
 
-#### 仓库存在进行中操作
+#### O repositório tem uma operação em andamento
 
-例如 merge、rebase、cherry-pick、revert、bisect。
+Por exemplo merge, rebase, cherry-pick, revert, bisect.
 
-建议 repo 层增加轻量检查：
+Recomendamos que a camada repo adicione uma verificação leve:
 
 - `MERGE_HEAD`
 - `CHERRY_PICK_HEAD`
@@ -342,69 +342,69 @@ Git 常见提示：
 - `rebase-apply/`
 - `BISECT_LOG`
 
-映射为：
+Mapeado para:
 
 - `operation-in-progress`
 
-这样做的原因是这类状态不一定都通过 `git switch` 给出足够稳定的错误语义，提前识别更利于 UI 解释。
+A razão é que esses estados nem sempre são reportados pelo `git switch` com semântica de erro estável o suficiente; identificá-los antes facilita a explicação pela UI.
 
-#### 分支正在其他 worktree 中使用
+#### A branch está em uso em outro worktree
 
-Git 常见提示中会出现：
+Nas mensagens comuns do Git aparece:
 
 - `is already checked out at`
 
-映射为：
+Mapeado para:
 
 - `branch-in-other-worktree`
 
-### 2. 不作为阻塞项的情况
+### 2. Situações que não devem ser tratadas como bloqueio
 
-- 仓库 dirty，但这些改动不会被目标分支覆盖
-- 存在无关路径的 untracked 文件，且目标分支不会占用这些路径
-- 切换到当前分支
+- repositório sujo, mas essas alterações não serão sobrescritas pela branch de destino
+- existem arquivos untracked em caminhos não relacionados, e a branch de destino não ocupará esses caminhos
+- trocar para a branch atual
 
-这几类都应尽量遵循 Git 原生行为。
+Todas essas situações devem seguir, na medida do possível, o comportamento nativo do Git.
 
-## Service 层设计
+## Design da camada Service
 
-`GitService` 继续承担“高层语义收口”的职责。
+O `GitService` continua assumindo a responsabilidade de "fechar a semântica de alto nível".
 
-建议行为：
+Comportamento recomendado:
 
-- `getLocalBranches` 直接返回 repo 层结果
-- `switchBranch` / `createBranchAndSwitch` 在 repo 成功后重新读取 `getStatus`
-- 对 repo 返回的原始失败结果做统一映射，保证 UI 永远收到稳定的 DTO
+- `getLocalBranches` retorna diretamente o resultado da camada repo
+- `switchBranch` / `createBranchAndSwitch` relêm `getStatus` após o sucesso na camada repo
+- aplica um mapeamento unificado sobre os resultados de falha brutos retornados pelo repo, garantindo que a UI sempre receba um DTO estável
 
-建议在 service 层做一次额外收口：
+Recomendamos uma consolidação adicional na camada service:
 
-- 如果当前 `workspacePath` 是 monorepo 子目录，分支操作仍然作用于整个 `repoRoot`
-- 返回的 `summary.workspacePath` 仍保留当前 workspace 视角，保持 UI 与其他 Git 能力一致
+- se o `workspacePath` atual for um subdiretório de monorepo, as operações de branch continuam agindo sobre o `repoRoot` inteiro
+- o `summary.workspacePath` retornado preserva a perspectiva do workspace atual, mantendo a UI consistente com as demais capacidades de Git
 
-## 缓存与刷新
+## Cache e refresh
 
-当前 `GitCliRepo` 内部会复用进行中的：
+Atualmente o `GitCliRepo` internamente reaproveita as operações em andamento:
 
 - `resolveRepository(workspacePath)`
 - `getStatus(workspacePath)`
 
-分支切换与创建属于真实写操作，可能导致：
+A troca e a criação de branch são operações reais de escrita, que podem alterar:
 
 - `branchName`
 - `trackingBranchName`
 - `ahead/behind`
 - `isDirty`
-- diff / branch comparison 基线
+- a linha de base de diff / comparação de branches
 
-全部变化。
+Todas as opções acima mudam.
 
-因此建议补一个 repo 级缓存失效方法，例如：
+Portanto, recomendamos adicionar um método de invalidação de cache no nível do repo, por exemplo:
 
 ```ts
 invalidate(workspacePath: string): void;
 ```
 
-并在以下操作后调用：
+e chamá-lo após as seguintes operações:
 
 - `stage`
 - `unstage`
@@ -413,112 +413,112 @@ invalidate(workspacePath: string): void;
 - `switchBranch`
 - `createBranchAndSwitch`
 
-这样可以避免刷新过程中复用到切换前的旧快照。
+Isso evita reaproveitar snapshots antigos de antes da troca durante o refresh.
 
-## 推荐调用流
+## Fluxo de chamada recomendado
 
-### 1. 打开分支下拉
+### 1. Abrir o dropdown de branches
 
-1. UI 调用 `getLocalBranches`
-2. 展示本地分支列表
-3. 当前分支根据 `isCurrent` 高亮
+1. A UI chama `getLocalBranches`
+2. Exibe a lista de branches locais
+3. Destaca a branch atual conforme `isCurrent`
 
-### 2. 用户点击切换某个分支
+### 2. O usuário clica para trocar para alguma branch
 
-1. UI 调用 `switchBranch`
-2. 如果 `ok=true`
-   - 用返回的 `summary` 更新仓库状态
-   - 触发相关数据刷新
-3. 如果 `ok=false`
-   - 根据 `issues` 决定提示文案
-   - 如果阻塞原因与未提交改动相关，可进一步引导用户进入提交流程
+1. A UI chama `switchBranch`
+2. Se `ok=true`
+   - atualiza o estado do repositório com o `summary` retornado
+   - dispara o refresh dos dados relacionados
+3. Se `ok=false`
+   - decide o texto do aviso com base em `issues`
+   - se a causa do bloqueio estiver relacionada a alterações não commitadas, pode orientar o usuário a entrar no fluxo de commit
 
-### 3. 用户输入新分支名并确认
+### 3. O usuário informa um novo nome de branch e confirma
 
-1. UI 调用 `createBranchAndSwitch`
-2. 成功则更新仓库状态
-3. 失败则展示结构化错误
+1. A UI chama `createBranchAndSwitch`
+2. Em caso de sucesso, atualiza o estado do repositório
+3. Em caso de falha, exibe o erro estruturado
 
-## 与提交能力的关系
+## Relação com a capacidade de commit
 
-本设计不需要新增 `commit` 底层能力。
+Este design não precisa de uma nova capacidade subjacente de `commit`.
 
-原因：
+Motivos:
 
-- 当前服务已经具备 `stagePaths`
-- 当前服务已经具备 `commit`
-- 当前服务已经具备 `getIdentity`
-- 当前服务已经具备 `getChanges`
+- o serviço atual já possui `stagePaths`
+- o serviço atual já possui `commit`
+- o serviço atual já possui `getIdentity`
+- o serviço atual já possui `getChanges`
 
-这意味着 UI 后续如果要做“检测到阻塞后，引导用户先提交再切换”，底层能力已经足够。
+Isso significa que, se a UI quiser posteriormente implementar "ao detectar um bloqueio, orientar o usuário a fazer commit antes de trocar", a capacidade subjacente já é suficiente.
 
-推荐做法是：
+A abordagem recomendada é:
 
-- 先完成“切换失败 -> 返回结构化 issues”
-- 再由 UI 决定是否弹出提交引导
+- primeiro completar "troca falha -> retornar issues estruturadas"
+- deixar a UI decidir se exibe a orientação para commit
 
-而不是在本次设计中直接引入 `commitAndSwitch` 这类组合动作。
+em vez de introduzir diretamente neste design uma ação combinada como `commitAndSwitch`.
 
-## 测试建议
+## Sugestões de teste
 
-建议在 `packages/services/test/gitService.test.ts` 增加覆盖：
+Recomendamos adicionar cobertura em `packages/services/test/gitService.test.ts`:
 
-- 能列出本地分支，且当前分支标记正确
-- clean 仓库切换分支成功
-- 切换到当前分支返回 no-op 成功
-- dirty 仓库但改动与目标分支无冲突时允许切换
-- tracked 文件会被目标分支覆盖时切换失败
-- untracked 文件会被目标分支覆盖时切换失败
-- 仓库存在 conflict 时返回结构化阻塞
-- 仓库存在 merge/rebase 等进行中状态时返回结构化阻塞
-- 新建分支并切换成功
-- 新建分支名非法
-- 新建已存在分支失败
-- monorepo 子目录 workspace 下调用仍正确作用于 repoRoot
+- consegue listar branches locais, com a marcação da branch atual correta
+- troca de branch em repositório clean tem sucesso
+- trocar para a branch atual retorna sucesso no-op
+- repositório dirty, mas com alterações sem conflito com a branch de destino, permite a troca
+- a troca falha quando arquivos tracked seriam sobrescritos pela branch de destino
+- a troca falha quando arquivos untracked seriam sobrescritos pela branch de destino
+- retorna bloqueio estruturado quando o repositório está em conflito
+- retorna bloqueio estruturado quando o repositório tem estado em andamento como merge/rebase
+- criar branch e trocar tem sucesso
+- nome de branch inválido na criação
+- criação de branch que já existe falha
+- chamadas em subdiretório de monorepo continuam agindo corretamente sobre o `repoRoot`
 
-## 后续扩展点
+## Pontos de extensão futuros
 
-如果后续产品继续扩展，可以在这个设计上自然演进：
+Se o produto continuar se expandindo, este design permite evolução natural:
 
-- 支持 remote branch 列表与“基于远端分支创建本地分支”
-- 支持 branch rename / delete
-- 支持 switch 前的可选 stash 流程
-- 支持更细的 branch metadata，例如 ahead/behind、最近提交摘要
+- suportar lista de branches remotas e "criar branch local a partir de uma branch remota"
+- suportar renomeação / exclusão de branch
+- suportar fluxo opcional de stash antes da troca
+- suportar metadados de branch mais detalhados, como ahead/behind e resumo do último commit
 
-这些能力都不应影响本次设计的核心边界：
+Nenhuma dessas capacidades deve afetar os limites centrais deste design:
 
-- 分支操作仍属于 Git 服务域
-- 阻塞判断仍尽量以 Git 原生命令结果为准
-- UI 负责引导，service 负责提供真实且稳定的能力结果
+- operações de branch continuam pertencendo ao domínio de serviço Git
+- o julgamento de bloqueio continua, na medida do possível, baseado no resultado dos comandos nativos do Git
+- a UI é responsável pela orientação, e o service por fornecer resultados de capacidade reais e estáveis
 
-## UI 落地补充（2026-04-15）
+## Complemento de implementação na UI (2026-04-15)
 
-基于本文底层能力，当前 UI 侧补充了以下交互约定：
+Com base na capacidade subjacente deste documento, o lado da UI acrescentou as seguintes convenções de interação:
 
-- 功能入口放在聊天输入框下方，采用独立的 branch pill 触发器，不和模型 / 模式选择混在同一行
-- 触发器默认展示当前分支；`detached HEAD` 时展示 detached 状态文案
-- 展开后使用带搜索的本地分支列表：
-  - 当前分支高亮
-  - 当前分支存在未提交改动时，展示“未提交的更改：N 个文件”
-  - 底部提供“创建并检出新分支...”入口
-- 点击已有分支时直接调用 `switchBranch`
-- 点击创建入口后弹出轻量表单，提交时调用 `createBranchAndSwitch`
-- 如果切换失败属于 `tracked/untracked changes would be overwritten`
-  - 不再直接 toast
-  - 改为弹出阻塞卡片，列出会被覆盖的文件及 +/- 统计
-  - 用户可继续进入“提交并切换分支”弹窗
-- “提交并切换分支”弹窗首版做简化：
-  - 默认提交当前 workspace 内全部未提交更改
-  - 不提供“包含取消暂存的更改”开关
-  - 不提供 push / PR / draft 选项
-  - commit 成功后自动重试 `switchBranch`
-- 切换 / 创建成功后，UI 会同时刷新：
-  - 当前分支入口文案
-  - header Git 摘要
-  - Git side pane 数据
-- 切换失败时优先根据结构化 `issues` 映射用户可读提示，不直接暴露底层 Git 原始错误
+- a entrada da funcionalidade fica abaixo da caixa de entrada de chat, usando um disparador independente em forma de branch pill, sem misturar na mesma linha com a seleção de modelo / modo
+- o disparador exibe por padrão a branch atual; em caso de `detached HEAD`, exibe o texto de estado detached
+- após expandir, usa uma lista de branches locais com busca:
+  - branch atual destacada
+  - quando a branch atual tem alterações não commitadas, exibe "Alterações não commitadas: N arquivos"
+  - no rodapé, fornece a entrada "Criar e fazer checkout de uma nova branch..."
+- ao clicar em uma branch existente, chama `switchBranch` diretamente
+- ao clicar na entrada de criação, abre um formulário leve e, no envio, chama `createBranchAndSwitch`
+- se a falha de troca for do tipo `tracked/untracked changes would be overwritten`
+  - não exibe mais um toast direto
+  - passa a exibir um cartão de bloqueio, listando os arquivos que seriam sobrescritos e as estatísticas de +/-
+  - o usuário pode continuar para o pop-up "Commitar e trocar de branch"
+- o pop-up "Commitar e trocar de branch" é simplificado na primeira versão:
+  - por padrão, commita todas as alterações não commitadas do workspace atual
+  - não oferece a opção "incluir alterações des staged" (desestagiadas)
+  - não oferece opções de push / PR / draft
+  - após o sucesso do commit, retenta `switchBranch` automaticamente
+- após sucesso na troca / criação, a UI atualiza simultaneamente:
+  - o texto da entrada de branch atual
+  - o resumo de Git no header
+  - os dados do painel lateral de Git
+- em caso de falha na troca, prioriza mapear as mensagens legíveis para o usuário a partir das `issues` estruturadas, sem expor diretamente os erros brutos do Git
 
-这样可以保持责任边界清晰：
+Dessa forma a fronteira de responsabilidade permanece clara:
 
-- service 继续只负责返回真实 Git 结果
-- UI 负责入口布局、提示文案和刷新链路编排
+- o service continua responsável apenas por retornar resultados reais do Git
+- a UI é responsável pelo layout da entrada, pelo texto dos avisos e pela orquestração da cadeia de refresh

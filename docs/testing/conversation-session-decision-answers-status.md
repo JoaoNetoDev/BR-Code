@@ -1,16 +1,17 @@
 # Conversation Session Decision Answers Status
 
-目标：检查产品答案草稿是否已经足够回写。这里的 ready 只代表 answers 草稿已填齐，不代表 catalog/coverage 已完成回写。
+Objetivo: verificar se o rascunho das respostas de produto já é suficiente para a reescrita. Aqui, ready significa apenas
+que o rascunho em answers está preenchido, e não que o catalog/coverage já foi reescrito.
 
-生成命令：
+Comando de geração:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --answers-status-md
 ```
 
-## 当前状态
+## Situação atual
 
-| 指标 | 当前值 |
+| Métrica | Valor atual |
 | --- | ---: |
 | Expected questions | 36 |
 | Draft rows | 36 |

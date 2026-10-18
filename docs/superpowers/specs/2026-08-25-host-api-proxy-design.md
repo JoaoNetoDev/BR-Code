@@ -1,18 +1,16 @@
-# Host 外部业务 API 代理设计
+# Design do Proxy de APIs de Negócio Externas do Host
 
-## 状态
+## Status
 
-- 阶段：已实现；2026-08-28 增补远程资源下载的显式 port 消费方。
-- 关联反馈：`ZCT-2092222819015462912`。
-- 改动层级：`commit-effect`、`validation`。
-- 本文描述的 `NodeApiClient` Host 代理已经实现；后续远程资源下载扩展继续复用同一 request-scoped transport。
+- Fase: implementada; em 2026-08-28 foi adicionado o consumidor explícito de porta para download de recursos remotos.
+- Feedback relacionado: `ZCT-2092222819015462912`.
+- Camadas de mudança: `commit-effect`, `validation`.
+- O proxy de Host do `NodeApiClient` descrito aqui já foi implementado; a extensão de download de recursos remotos continua reutilizando o mesmo transport com escopo de requisição.
 
-## 问题摘要
+## Resumo do Problema
 
-设置页已经把 `httpProxy`、`httpProxyNoProxy` 和 `httpProxyCaCertPath` 应用到 Electron
-Session，并在启动 Agent 时注入对应网络配置，但 Window Host 自己的外部业务 API 请求没有消费这三项设置。
-OAuth 浏览器授权和 deep-link 回调可以成功，Host 随后的 token exchange 仍会直连公网；在强制代理网络中，
-请求因此超时。
+A página de configurações já aplica `httpProxy`, `httpProxyNoProxy` e `httpProxyCaCertPath` à Session do Electron e injeta a configuração de rede correspondente ao iniciar o Agent, mas as requisições de APIs de negócio externas do próprio Window Host não consomem essas três configurações.
+A autorização de navegador OAuth e o callback de deep-link podem ter sucesso, mas o token exchange posterior do Host ainda se conecta diretamente à internet pública; em redes com proxy obrigatório, a requisição acaba expirando.
 
 ```text
 Browser                  Electron Main              Window Host
@@ -24,43 +22,34 @@ Browser                  Electron Main              Window Host
    |                          |                         | NodeApiClient
    |                          |                         | -> global fetch
    |                          |                         | -> direct egress
-   |                          |                         X corporate firewall
+   |                          |                         | X corporate firewall
 ```
 
-## 事实、推断与未知
+## Fatos, Inferências e Desconhecidos
 
-### 已确认事实
+### Fatos Confirmados
 
-- `AppSettings` 是桌面端显式代理、No Proxy 和自定义 CA 的持久化权威；设置页提示重启后生效。
-- `packages/services/src/providers/api/nodeApiClient.ts` 默认调用 `globalThis.fetch`，没有 Host 网络策略。
-- `packages/services/src/node.ts` 创建本地服务集合共享的 `NodeApiClient`，OAuth、模型供应商配置、
-  Coding Plan、usage、client scenes、feedback、Repo Snapshot 元数据等服务复用它。
-- `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts` 为 desktop-attached remote 的本机全局服务
-  创建第二个 `NodeApiClient`；OAuth、凭据和套餐事实仍由桌面 Host 持有。
-- Main 到 Host 的环境构造会清理 shell 的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 和 CA
-  变量；这属于既有隔离设计，不能通过重新继承环境变量绕过。
-- Host 仍有 Bot、telemetry、对象存储上传、off-peak 等直接 `fetch` 出口，它们不属于 `NodeApiClient`
-  的当前统一业务 API 边界。
+- `AppSettings` é a autoridade de persistência para proxy explícito, No Proxy e CA customizado no desktop; a página de configurações informa que a mudança tem efeito após reiniciar.
+- `packages/services/src/providers/api/nodeApiClient.ts` chama `globalThis.fetch` por padrão, sem política de rede do Host.
+- `packages/services/src/node.ts` cria o `NodeApiClient` compartilhado pelo conjunto de serviços locais; OAuth, configuração de provedores de modelo, Coding Plan, usage, client scenes, feedback, metadados de Repo Snapshot e outros serviços o reutilizam.
+- `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts` cria um segundo `NodeApiClient` para os serviços globais locais do remote desktop-attached; OAuth, credenciais e fatos de plano continuam sendo deterr pelo Host do desktop.
+- A construção do ambiente de Main para o Host limpa as variáveis `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` e de CA do shell; isso faz parte do desenho de isolamento existente e não pode ser contornado herdando novamente as variáveis de ambiente.
+- O Host ainda tem saídas por `fetch` direto de Bot, telemetry, upload para object storage e off-peak, que não pertencem à fronteira atual de API de negócio unificada do `NodeApiClient`.
 
-### 受证据支持的推断
+### Inferências Apoiadas por Evidências
 
-- 对 `NodeApiClient` 注入显式 proxy-aware fetch 足以修复工单里的 OAuth、Coding Plan 和
-  `client-scenes` 失败，而不需要修改各业务服务。
-- 进程全局 dispatcher 会同时改变 Host 中不属于本工单的第三方、内网、本地和对象上传流量，回归面明显更大。
+- Injetar no `NodeApiClient` um fetch explícito ciente de proxy é suficiente para corrigir as falhas de OAuth, Coding Plan e `client-scenes` do ticket, sem precisar modificar cada serviço de negócio.
+- Um dispatcher global de processo alteraria simultaneamente tráfego de terceiros, intranet, local e de upload de objetos que não pertence a este ticket no Host, com uma superfície de regressão claramente maior.
 
-### 已分类的后续出口
+### Saídas Posteriores Classificadas
 
-- Desktop-attached SSH/WSL/Docker 的远程资源 manifest、组件归档和进度 `HEAD` 已完成出口分类：
-  它们属于 app-managed 下载，复用本设计的 Host 生命周期 transport，但通过显式
-  `RemoteAssetNetworkPort` 注入，不设置全局 dispatcher。
-- Bot、telemetry、Repo Snapshot 对象上传和其它裸 `fetch` 是否都应跟随 App 代理，仍需单独做出口分类；
-  不以全局 dispatcher 提前替产品作答。
-- 系统代理不是 Host app-managed API 的隐式来源。设置为空时保持直连；如未来要增加 system fallback，
-  必须单独定义与 Electron embedded browser 不同的信任边界。
+- O manifesto de recursos remotos, os arquivos de componente e o `HEAD` de progresso de SSH/WSL/Docker desktop-attached já foram classificados: pertencem a downloads gerenciados pelo app, reutilizam o transport do ciclo de vida do Host deste desenho, mas são injetados por uma porta explícita `RemoteAssetNetworkPort`, sem definir dispatcher global.
+- Se Bot, telemetry, upload de objetos de Repo Snapshot e outros `fetch` nus devem seguir o proxy do App ainda exige uma classificação de saídas separada; não se responde antecipadamente pelo produto com um dispatcher global.
+- O proxy do sistema não é uma fonte implícita para as APIs gerenciadas pelo app do Host. Quando vazio, mantém-se a conexão direta; se no futuro for adicionado um fallback de sistema, é preciso definir à parte uma fronteira de confiança diferente da do navegador embutido do Electron.
 
-## 架构合同
+## Contrato de Arquitetura
 
-### 边界图
+### Grafo de Fronteiras
 
 ```text
 setting.json
@@ -88,226 +77,208 @@ setting.json
   telemetry direct fetch | object-upload fetch | RPC/WS/SSH | relay
 ```
 
-### 决策 D1：设置权威不变
+### Decisão D1: A autoridade das configurações permanece inalterada
 
-**选择**：Host 只读取 `AppSettings.httpProxy`、`httpProxyNoProxy`、`httpProxyCaCertPath`；空值表示直连或默认
-TLS 信任。继续清理用户 shell 的标准代理和 CA 变量。
+**Escolha**: o Host só lê `AppSettings.httpProxy`, `AppSettings.httpProxyNoProxy` e `AppSettings.httpProxyCaCertPath`; valor vazio significa conexão direta ou confiança TLS padrão. Continua limpando as variáveis padrão de proxy e de CA do shell do usuário.
 
-**原因**：与现有 app/provider 网络隔离规则一致，避免从启动 shell 获得不可见、不可诊断的行为。
+**Motivo**: consistente com as regras existentes de isolamento de rede do app/provider, evitando comportamentos invisíveis e não diagnosticáveis herdados do shell de inicialização.
 
-**未选择**：取消 `sanitizeZCodeRuntimeEnv` 对标准网络变量的清理；使用 `NODE_USE_ENV_PROXY`。
+**Não escolhido**: remover a limpeza das variáveis de rede padrão feita por `sanitizeZCodeRuntimeEnv`; usar `NODE_USE_ENV_PROXY`.
 
-### 决策 D2：使用请求级 dispatcher，不设置进程全局 dispatcher
+### Decisão D2: Usar dispatcher por requisição, sem dispatcher global de processo
 
-**选择**：在 `packages/services` 的 Node HTTP provider 边界创建 proxy-aware fetch，并通过
-`NodeApiClientOptions.fetchImpl` 注入。代理模式使用 `undici` 的显式 dispatcher；直连模式保留直连 dispatcher。
+**Escolha**: criar um fetch ciente de proxy na fronteira de provider HTTP de Node em `packages/services` e injetá-lo por `NodeApiClientOptions.fetchImpl`. O modo proxy usa o dispatcher explícito do `undici`; o modo direto mantém o dispatcher direto.
 
-**原因**：只改变已经声明为外部业务 API 统一出口的请求，保留依赖注入和测试替换能力。
+**Motivo**: altera apenas as requisições já declaradas como saída unificada de APIs de negócio externas, preservando a injeção de dependências e a substituibilidade em testes.
 
-**未选择**：Host 启动时调用 `setGlobalDispatcher`。它会接管 remote server 探测、Bot、telemetry、上传和
-localhost 请求，要求额外产品决策和回归矩阵。
+**Não escolhido**: chamar `setGlobalDispatcher` na inicialização do Host. Isso assumiria sondagem de remote server, Bot, telemetry, upload e requisições localhost, exigindo decisões de produto extras e uma matriz de regressão.
 
-### 决策 D3：按 Window Host 生命周期冻结配置
+### Decisão D3: Congelar a configuração pelo ciclo de vida do Window Host
 
-**选择**：每个 Window Host 第一次需要网络策略时，通过单飞 Promise 异步读取设置、CA 文件并构造不可变快照；
-同一 Host 生命周期内复用该快照。设置修改后由下一次应用/Host 重启生效。
+**Escolha**: quando cada Window Host precisar da política de rede pela primeira vez, ler as configurações e o arquivo de CA de forma assíncrona por meio de uma Promise single-flight e construir um snapshot imutável; o snapshot é reutilizado durante todo o ciclo de vida do Host. Alterações de configuração passam a valer no próximo reinício do app/Host.
 
-策略 transport 是 Host collection 的非 RPC 托管资源：本地 collection 和 desktop-attached remote collection
-各自登记生命周期 disposer；同步退出触发 best-effort destroy，等待式退出 await dispatcher close。不得把 transport
-注册成 renderer 可调用的业务 service，也不得仅依赖进程退出回收连接池。
+O transport de política é um recurso gerenciado, não-RPC, da coleção do Host: a coleção local e a coleção do remote desktop-attached registram cada uma seu disposer de ciclo de vida; saída síncrona dispara um destroy best-effort, e saída por espera faz await do fechamento do dispatcher. Não se deve registrar o transport como um serviço de negócio invocável pelo renderer nem depender apenas do encerramento do processo para reciclar o pool de conexões.
 
-**原因**：保持设置页现有“重启后生效”合同，避免每个请求读取磁盘，也避免请求进行中切换连接池。
+**Motivo**: mantém o contrato existente da página de configurações de "tem efeito após reiniciar", evita ler o disco a cada requisição e evita trocar o pool de conexões com requisições em andamento.
 
-**失败边界**：读取设置失败时当前请求 fail closed，且不得缓存 rejected promise；后续请求可重新读取设置并
-重试。显式配置存在但代理或 CA 无效时必须 fail closed 到该请求，不得静默回退直连。
+**Fronteira de falha**: quando a leitura das configurações falha, a requisição atual falha de forma fechada (fail closed), e não se pode cachear a Promise rejeitada; requisições posteriores podem reler as configurações e tentar de novo. Quando há configuração explícita, mas o proxy ou a CA são inválidos, é preciso falhar fechado nessa requisição, sem voltar silenciosamente à conexão direta.
 
-### 决策 D4：先重写 endpoint，再选择出口
+### Decisão D4: Reescrever o endpoint primeiro, depois escolher a saída
 
-**选择**：`NodeApiClient` 先按现有规则把默认 ZCode endpoint 重写为当前有效 endpoint，再对最终 URL 执行
-No Proxy 和 dispatcher 选择。
+**Escolha**: o `NodeApiClient` primeiro reescreve o endpoint ZCode padrão, conforme as regras existentes, para o endpoint efetivo atual, e só então executa a escolha de No Proxy e de dispatcher sobre a URL final.
 
-**原因**：No Proxy 必须匹配真实目标，不能匹配重写前的生产域名。
+**Motivo**: o No Proxy precisa casar com o alvo real, e não com o domínio de produção antes da reescrita.
 
-### 决策 D5：No Proxy 和自定义 CA 与现有显式语义一致
+### Decisão D5: No Proxy e CA customizado consistentes com a semântica explícita existente
 
-**选择**：No Proxy 支持 `*`、精确 host、host:port、`.example.com` 和 `*.example.com`；命中后只绕过代理，
-不绕过自定义 CA。自定义 CA 同时用于直连 TLS、HTTPS proxy 和 HTTP CONNECT 后的目标 TLS。
+**Escolha**: o No Proxy suporta `*`, host exato, host:port, `.example.com` e `*.example.com`; quando há correspondência, apenas o proxy é contornado, não a CA customizada. A CA customizada é usada tanto no TLS direto quanto no proxy HTTPS e no TLS do alvo após o HTTP CONNECT.
 
-**失败边界**：CA 文件不存在、不可读或无法解析时，受策略管理的请求返回结构化网络错误；不得关闭 TLS 校验。
+**Fronteira de falha**: quando o arquivo de CA não existe, não é legível ou não pode ser analisado, as requisições gerenciadas pela política retornam um erro de rede estruturado; não se deve desligar a verificação de TLS.
 
-### 决策 D6：本地与远程 workspace 的 owner 边界保持不变
+### Decisão D6: A fronteira de owner entre workspace local e remoto permanece inalterada
 
-**选择**：
+**Escolha**:
 
-- desktop local：本地 `createLocalServices` 的 `NodeApiClient` 使用 Host 策略。
-- desktop-attached SSH/WSL/Docker：远端 Agent/文件 IO 不变；桌面 Host 内 app-global OAuth、provider、usage、
-  Coding Plan 和 client scenes 使用同一类 Host 策略。
-- server remote：继续使用 server 权威服务，不由桌面 Host 覆盖其网络出口。
-- 手机 `/remote`：只复用已有 shared-host attachment；不新增 Agent、Host、relay 状态或网络配置协议。
+- desktop local: o `NodeApiClient` do `createLocalServices` local usa a política do Host.
+- desktop-attached SSH/WSL/Docker: o Agent/IO de arquivos remoto permanece inalterado; dentro do Host do desktop, os serviços app-global de OAuth, provider, usage, Coding Plan e client scenes usam a mesma classe de política do Host.
+- server remote: continua usando os serviços autoritativos do server, sem que o Host do desktop sobrescreva sua saída de rede.
+- celular `/remote`: apenas reutiliza o attachment de shared-host já existente; não adiciona estado de Agent, Host, relay nem protocolo de configuração de rede.
 
-### 决策 D7：诊断日志低频且脱敏
+### Decisão D7: Logs de diagnóstico pouco frequentes e anonimizados
 
-**选择**：策略快照构造成功或失败最多记录一次生命周期日志；请求级出口选择仅允许 `debug`，字段只包含
-`mode`、脱敏后的目标 host、代理 host、No Proxy 命中和 custom CA enabled，不记录代理凭据、完整 URL、
-OAuth code、token 或 header value。
+**Escolha**: registrar no máximo uma vez um log de ciclo de vida para a construção bem-sucedida ou falha do snapshot de política; a escolha de saída por requisição só é permitida em `debug`, e os campos incluem apenas `mode`, host de destino anonimizado, host de proxy, correspondência de No Proxy e custom CA enabled, sem registrar credenciais de proxy, URL completa, código OAuth, token ou valor de header.
 
-## Impact Brief
+## Resumo de Impacto
 
-### Feature Summary
+### Resumo de Funcionalidade
 
-| Field            | Value                                                                            |
-| ---------------- | -------------------------------------------------------------------------------- |
-| Developer intent | 让 Host 外部业务 API 遵循设置页显式代理策略                                      |
-| Capability       | Host app-managed API network policy                                              |
-| Change layer     | commit-effect、validation                                                        |
-| Operating mode   | planning                                                                         |
-| Primary seeds    | `NodeApiClient`、`createLocalServices`、`createRemoteWorkspaceServiceCollection` |
-| Out of scope     | 全局 dispatcher、裸 `fetch` 治理、UI、协议、session/replayable 状态              |
+| Campo                      | Valor                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| Intenção do desenvolvedor   | Fazer as APIs de negócio externas do Host seguirem a política explícita de proxy da página de configurações |
+| Capacidade                 | Política de rede de API gerenciada pelo app do Host                              |
+| Camada de mudança          | commit-effect, validation                                                         |
+| Modo de operação           | planning                                                                         |
+| Sementes principais        | `NodeApiClient`, `createLocalServices`, `createRemoteWorkspaceServiceCollection` |
+| Fora de escopo             | dispatcher global, governança de `fetch` nu, UI, protocolo, estado session/replayable |
 
-### UI Surface Matrix
+### Matriz de Superfícies de UI
 
-| User scenario | UI entry                                              | Shared implementation            | Display/draft owner      | Default/inherit source | Validation/gating              | Commit action           | Authority/persistence | Mode boundary                                    | Must remain isolated from            |
-| ------------- | ----------------------------------------------------- | -------------------------------- | ------------------------ | ---------------------- | ------------------------------ | ----------------------- | --------------------- | ------------------------------------------------ | ------------------------------------ |
-| 配置代理      | Settings / General / Network                          | `GeneralSectionContent`          | SettingsPage local draft | `AppSettings`          | setting schema + normalization | `settingService.update` | `setting.json`        | desktop 设置；重启后 Host/Agent/Session 各自应用 | shell 环境隐式代理                   |
-| OAuth 登录    | provider 登录入口                                     | `OAuthService` + `NodeApiClient` | OAuth pending state      | Host policy snapshot   | state、callback、network/TLS   | token exchange          | credential repo       | local 与 desktop-attached remote 的本机身份      | server remote 身份与 remote Agent    |
-| 后台业务 API  | Coding Plan、scenes、provider、usage、feedback 等入口 | shared `NodeApiClient`           | 各业务服务               | Host policy snapshot   | URL、No Proxy、TLS、timeout    | API request             | 各业务 owner          | 不改变 desktop/mobile delivery                   | Bot、telemetry、object upload 裸出口 |
+| Cenário do usuário | Entrada de UI                                              | Implementação compartilhada          | Owner de exibição/rascunho  | Origem do default/herança | Validação/gating               | Ação de commit           | Autoridade/persistência     | Limite de modo                                          | Deve permanecer isolado de                             |
+| ------------------ | ---------------------------------------------------------- | ----------------------------------- | --------------------------- | ------------------------- | ------------------------------- | ----------------------- | --------------------------- | ------------------------------------------------------- | ----------------------------------------------------- |
+| Configurar proxy   | Settings / General / Network                               | `GeneralSectionContent`              | SettingsPage local draft    | `AppSettings`             | schema da config + normalização | `settingService.update` | `setting.json`             | configurações do desktop; após reinício Host/Agent/Session aplicam cada um | proxy implícito do ambiente shell              |
+| Login OAuth        | entrada de login do provider                               | `OAuthService` + `NodeApiClient`     | estado pendente do OAuth    | snapshot de política do Host | estado, callback, rede/TLS   | token exchange          | credential repo            | identidade local do remote desktop-attached              | identidade do server remote e Agent remoto             |
+| APIs de negócio em background | entradas de Coding Plan, scenes, provider, usage, feedback etc. | `NodeApiClient` compartilhado | cada serviço de negócio    | snapshot de política do Host | URL, No Proxy, TLS, timeout | requisição de API       | cada owner de negócio     | não altera a entrega desktop/mobile                     | saídas nuas de Bot, telemetry e object upload          |
 
-### Feature Relationships
+### Relacionamentos de Funcionalidade
 
-| Rank           | From                     | Semantic edge               | To                                            | Condition                 | Why inspect it      | Evidence                                         |
-| -------------- | ------------------------ | --------------------------- | --------------------------------------------- | ------------------------- | ------------------- | ------------------------------------------------ |
-| must-inspect   | desktop network settings | supplies explicit policy to | Host API network policy                       | next Host lifecycle       | 配置权威            | `settingService.ts`、设置页文案                  |
-| must-inspect   | Host API network policy  | injects transport into      | `NodeApiClient`                               | app-managed HTTP(S)       | 统一修复点          | `nodeApiClient.ts`                               |
-| must-inspect   | Host API network policy  | wires into                  | local and desktop-attached remote collections | local app-global services | 两个 client 装配点  | `node.ts`、`remoteWorkspaceServiceCollection.ts` |
-| conditional    | endpoint switching       | rewrites before             | proxy/No Proxy selection                      | dev/test override         | 必须匹配最终 URL    | `NodeApiClient.request`                          |
-| invariant-only | Host API network policy  | must not alter              | desktop-continuous / web-remote-replayable    | all requests              | 无 session 状态变化 | 架构文档                                         |
-| invariant-only | Host API network policy  | must not become global      | direct fetch / WS / SSH / RPC                 | first phase               | 控制回归面          | 当前直接出口清单                                 |
-| evidence-only  | Host API network policy  | covered by                  | focused unit/integration tests                | implementation            | 证明而非产品依赖    | 下方 accepted cases                              |
+| Rank           | De                            | Aresta semântica                | Para                                           | Condição                 | Por que inspecionar  | Evidência                                    |
+| -------------- | ----------------------------- | ------------------------------- | ---------------------------------------------- | ------------------------ | ------------------- | -------------------------------------------- |
+| must-inspect   | configurações de rede do desktop | fornece política explícita para | política de rede de API do Host                | próximo ciclo de vida do Host | autoridade da configuração | `settingService.ts`, textos da página de configurações |
+| must-inspect   | política de rede de API do Host | injeta transport em              | `NodeApiClient`                                | HTTP(S) gerenciado pelo app | ponto único de correção | `nodeApiClient.ts`                        |
+| must-inspect   | política de rede de API do Host | conecta em                       | coleções local e remote desktop-attached       | serviços app-global locais | dois pontos de montagem do client | `node.ts`, `remoteWorkspaceServiceCollection.ts` |
+| conditional    | troca de endpoint              | reescreve antes de              | escolha de proxy/No Proxy                     | override de dev/test     | precisa casar com a URL final    | `NodeApiClient.request`                      |
+| invariant-only | política de rede de API do Host | não deve alterar                | desktop-continuous / web-remote-replayable    | todas as requisições    | sem mudança de estado de sessão  | documentação de arquitetura                  |
+| invariant-only | política de rede de API do Host | não deve se tornar global       | fetch direto / WS / SSH / RPC                  | primeira fase            | controlar a superfície de regressão | lista atual de saídas diretas              |
+| evidence-only  | política de rede de API do Host | coberta por                      | testes unitários/integrados focados           | implementação           | prova, não dependência de produto | casos aceitos abaixo                      |
 
-### State Owners And Commit Sinks
+### Owners de Estado e Destinos de Commit
 
-| State/fact                      | Draft/display owner  | Authoritative owner | Commit command/service   | Persistence/cache                  | Evidence                              |
-| ------------------------------- | -------------------- | ------------------- | ------------------------ | ---------------------------------- | ------------------------------------- |
-| proxy / no-proxy / CA path      | SettingsPage         | `AppSettings`       | `settingService.update`  | `setting.json`                     | `settingService.ts`                   |
-| effective Host policy           | none                 | Window Host process | lazy snapshot creation   | process-memory snapshot + disposer | planned provider boundary             |
-| OAuth pending callback          | OAuth UI/service     | `OAuthService`      | `handleCallback`         | process memory + credential repo   | `oauthService.ts`                     |
-| remote workspace app-global API | remote UI projection | desktop Window Host | local service collection | local settings/credentials         | `remoteWorkspaceServiceCollection.ts` |
+| Estado/fato                        | Owner de rascunho/exibição | Owner autoritativo       | Comando/serviço de commit  | Persistência/cache                  | Evidência                              |
+| ---------------------------------- | --------------------------- | ------------------------- | -------------------------- | ---------------------------------- | -------------------------------------- |
+| proxy / no-proxy / caminho da CA   | SettingsPage                | `AppSettings`             | `settingService.update`    | `setting.json`                     | `settingService.ts`                    |
+| política efetiva do Host           | nenhum                     | processo do Window Host   | criação lazy do snapshot   | snapshot em memória do processo + disposer | fronteira de provider planejada |
+| callback OAuth pendente             | UI/serviço do OAuth         | `OAuthService`            | `handleCallback`           | memória do processo + credential repo | `oauthService.ts`                      |
+| API app-global de remote workspace | projeção de UI do remote    | Window Host do desktop    | coleção de serviços local  | configurações/credenciais locais   | `remoteWorkspaceServiceCollection.ts`  |
 
-### Must-Preserve Invariants
+### Invariantes a Preservar
 
-| Invariant                                                                   | Surfaces/modes        | Proof needed                                 | Evidence                     |
-| --------------------------------------------------------------------------- | --------------------- | -------------------------------------------- | ---------------------------- |
-| 未配置显式代理时 Host 业务 API 继续直连                                     | all                   | direct test                                  | `HAP-001`                    |
-| 显式代理失败不得回退直连                                                    | forced-proxy network  | capture upstream direct connection count = 0 | `HAP-004`                    |
-| desktop-attached remote 的本机身份 API 使用桌面策略，server remote 不被覆盖 | remote modes          | wiring tests                                 | `HAP-008/009`                |
-| 不改变 Agent、Electron Session、Bot、telemetry、object upload 出口          | all                   | dependency and regression checks             | `HAP-010`                    |
-| 不改变 continuous/replayable、workspace identity 或 session 状态            | desktop/mobile/remote | no protocol/schema/state diff                | static diff + existing tests |
+| Invariante                                                                              | Superfícies/modos             | Prova necessária                                        | Evidência                     |
+| ---------------------------------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------- | ----------------------------- |
+| Sem proxy explícito configurado, as APIs de negócio do Host continuam em conexão direta    | todas                         | teste direto                                            | `HAP-001`                    |
+| Falha de proxy explícito não pode recair em conexão direta                                 | rede com proxy obrigatório    | contagem de conexões diretas a montante capturada = 0    | `HAP-004`                    |
+| As APIs de identidade local do remote desktop-attached usam a política do desktop; o server remote não é sobrescrito | modos remotos                 | testes de wiring                                        | `HAP-008/009`                |
+| Não altera as saídas de Agent, Electron Session, Bot, telemetry e object upload           | todas                         | verificações de dependência e regressão                | `HAP-010`                    |
+| Não altera o estado continuous/replayable, a identidade do workspace nem o estado de sessão | desktop/mobile/remote         | nenhum diff de protocolo/schema/estado                 | diff estático + testes existentes |
 
-### Codegraph Evidence
+### Evidências de Codegraph
 
-当前环境没有可调用的 codegraph 工具；按 skill 的 fallback 使用精确 symbol/text 跟踪，展开深度 2。
+O ambiente atual não tem uma ferramenta de codegraph que possa ser chamada; conforme o fallback da skill, usa-se rastreamento preciso de símbolos/texto, com profundidade de expansão 2.
 
-| Seed                    | Query             | Direct callers / key path                                                       | Depth | Interpretation           |
-| ----------------------- | ----------------- | ------------------------------------------------------------------------------- | ----- | ------------------------ |
-| `createNodeApiClient`   | callers           | `createLocalServices`、`createRemoteWorkspaceServiceCollection`                 | 1     | 两个必须接线点           |
-| `NodeApiClient.request` | callers/consumers | OAuth、provider、Coding Plan、usage、client scenes、feedback、snapshot metadata | 2     | 共享业务 API 出口        |
-| `settingService.get`    | key path          | AppSettings -> lazy Host policy snapshot                                        | 2     | 设置权威和重启语义       |
-| direct `fetch`          | text inventory    | Bot、telemetry、object upload、off-peak、system probe                           | 1     | 证据项；不是本次产品依赖 |
+| Semente                  | Consulta                | Chamadores diretos / caminho principal                                                  | Profundidade | Interpretação                    |
+| ------------------------ | ----------------------- | -------------------------------------------------------------------------------------- | ----------- | -------------------------------- |
+| `createNodeApiClient`    | callers                 | `createLocalServices`, `createRemoteWorkspaceServiceCollection`                          | 1           | dois pontos de wiring obrigatórios |
+| `NodeApiClient.request`  | callers/consumers       | OAuth, provider, Coding Plan, usage, client scenes, feedback, metadados de snapshot     | 2           | saída unificada de API de negócio |
+| `settingService.get`     | caminho principal       | AppSettings -> snapshot lazy de política do Host                                        | 2           | autoridade da configuração e semântica de reinício |
+| `fetch` direto           | inventário de texto     | Bot, telemetry, object upload, off-peak, sondagem de sistema                            | 1           | item de evidência; não é dependência de produto deste ciclo |
 
-### Graph Drift And Delta
+### Drift do Grafo e Delta
 
-现有 feature graph 只声明 Electron renderer / embedded Browser 的网络策略，没有 Host app-managed API
-网络策略节点。规划阶段新增独立 capability、service、evidence 和边，不扩大既有 Browser capability 的语义。
+O feature graph existente só declara a política de rede do renderer do Electron / Browser embutido, e não tem um nó de política de rede de API gerenciada pelo app do Host. A fase de planejamento adiciona uma capacidade, serviço, evidência e arestas independentes, sem ampliar a semântica da capability de Browser existente.
 
-## Case Planning
+## Planejamento de Casos
 
-### Clarification Log
+### Registro de Esclarecimentos
 
-| Round | Question                    | User answer                                                         | Boundary fixed                            | Follow-up needed |
-| ----- | --------------------------- | ------------------------------------------------------------------- | ----------------------------------------- | ---------------- |
-| 1     | Host 覆盖的修改量和影响范围 | 用户继续调用 `zcode-plan`；沿用已建议的 scoped `NodeApiClient` 方案 | 先修 app-managed API，不用全局 dispatcher | no               |
+| Rodada | Pergunta                        | Resposta do usuário                                                          | Fronteira fixada                             | Necessita acompanhamento |
+| ------ | ------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------- | ------------------------- |
+| 1      | Volume de mudança e escopo cobertos pelo Host | o usuário continua usando `zcode-plan`; mantém-se a abordagem de `NodeApiClient` com escopo já sugerido | corrigir primeiro as APIs gerenciadas pelo app, sem dispatcher global | não                 |
 
-### Boundary Decisions
+### Decisões de Fronteira
 
-| Boundary        | Decision               | Includes                        | Excludes / prunes          | Source               |
-| --------------- | ---------------------- | ------------------------------- | -------------------------- | -------------------- |
-| transport scope | scoped fetch injection | `NodeApiClient` consumers       | global/direct fetch        | code + risk analysis |
-| config source   | AppSettings only       | proxy/no-proxy/CA               | ambient shell/system proxy | existing spec        |
-| activation      | next Host lifecycle    | local + desktop-attached remote | live hot swap              | settings UI contract |
-| remote owner    | keep current authority | desktop app-global services     | server remote override     | architecture docs    |
+| Fronteira         | Decisão                        | Inclui                       | Exclui / poda                      | Fonte                   |
+| ----------------- | ------------------------------ | ---------------------------- | ----------------------------------- | ----------------------- |
+| escopo do transport | injeção de fetch com escopo   | consumidores de `NodeApiClient` | fetch global/direto           | código + análise de risco |
+| fonte de configuração | apenas AppSettings         | proxy/no-proxy/CA            | proxy do shell/sistema ambiente   | spec existente          |
+| ativação          | próximo ciclo de vida do Host | local + remote desktop-attached | troca a quente em tempo real  | contrato da UI de configurações |
+| owner remoto      | manter a autoridade atual     | serviços app-global do desktop | override do server remote     | documentação de arquitetura |
 
-### Dimensions And Candidate Combinations
+### Dimensões e Combinações Candidatas
 
-| Candidate ID | State                                 | Event                           | Target/surface                | Expected guard/effect                               | Status   | Notes                  |
-| ------------ | ------------------------------------- | ------------------------------- | ----------------------------- | --------------------------------------------------- | -------- | ---------------------- |
-| HAP-001      | no explicit policy                    | API request                     | ZCode endpoint                | direct, existing behavior                           | accepted | baseline               |
-| HAP-002      | explicit proxy                        | OAuth callback                  | final token URL               | exactly one proxied request                         | accepted | core ticket            |
-| HAP-003      | proxy + matching No Proxy             | API request                     | exact/suffix/host:port target | direct, CA still applies                            | accepted | bypass semantics       |
-| HAP-004      | unreachable proxy                     | API request                     | external endpoint             | structured failure, zero direct fallback            | accepted | security invariant     |
-| HAP-005      | custom CA, no proxy                   | HTTPS request                   | private CA endpoint           | direct TLS succeeds                                 | accepted | direct CA              |
-| HAP-006      | proxy + custom CA                     | CONNECT request                 | private CA endpoint           | tunnel TLS succeeds                                 | accepted | enterprise path        |
-| HAP-007      | settings changed during Host lifetime | later request                   | same Host                     | old snapshot until restart; new Host uses new value | accepted | restart contract       |
-| HAP-008      | desktop-attached remote               | local OAuth/Coding Plan request | desktop Host local service    | desktop policy applies                              | accepted | local authority        |
-| HAP-009      | server remote                         | remote-owned API request        | server service                | desktop Host policy does not replace it             | accepted | authority isolation    |
-| HAP-010      | explicit proxy                        | non-ApiClient direct fetch      | Bot/telemetry/object upload   | unchanged in this phase                             | accepted | scope guard            |
-| HAP-011      | endpoint override + No Proxy          | request                         | rewritten endpoint            | match final URL                                     | accepted | ordering               |
-| HAP-012      | timeout/abort                         | proxied streamed response       | ApiClient                     | existing abort/timeout/stream behavior preserved    | accepted | transport parity       |
-| HAP-013      | system/shell proxy only               | API request                     | Host                          | ignored; direct                                     | accepted | sanitization invariant |
+| Candidate ID | Estado                                  | Evento                          | Alvo/superfície               | Guard/efeito esperado                                | Status   | Observações               |
+| ------------ | --------------------------------------- | ------------------------------- | ------------------------------ | ---------------------------------------------------- | -------- | ------------------------- |
+| HAP-001      | sem política explícita                  | requisição de API               | endpoint ZCode                 | direta, comportamento existente                      | accepted | baseline                  |
+| HAP-002      | proxy explícito                         | callback OAuth                  | URL final do token             | exatamente uma requisição via proxy                  | accepted | ticket principal          |
+| HAP-003      | proxy + No Proxy correspondente         | requisição de API               | alvo exato/sufixo/host:port    | direta, a CA ainda se aplica                         | accepted | semântica de bypass       |
+| HAP-004      | proxy inalcançável                      | requisição de API               | endpoint externo                | falha estruturada, zero fallback direto              | accepted | invariante de segurança   |
+| HAP-005      | CA customizada, sem proxy               | requisição HTTPS                | endpoint com CA privada        | TLS direto bem-sucedido                              | accepted | CA direta                 |
+| HAP-006      | proxy + CA customizada                  | requisição CONNECT              | endpoint com CA privada        | TLS do túnel bem-sucedido                            | accepted | caminho corporativo       |
+| HAP-007      | configurações alteradas durante o ciclo de vida do Host | requisição posterior | mesmo Host                     | snapshot antigo até reiniciar; novo Host usa o novo valor | accepted | contrato de reinício    |
+| HAP-008      | remote desktop-attached                 | requisição local de OAuth/Coding Plan | serviço local do Host do desktop | política do desktop se aplica        | accepted | autoridade local          |
+| HAP-009      | server remote                           | requisição de API pertencente ao remote | serviço do server       | a política do Host do desktop não a substitui        | accepted | isolamento de autoridade  |
+| HAP-010      | proxy explícito                         | fetch direto fora do ApiClient  | Bot/telemetry/object upload    | inalterado nesta fase                                | accepted | guarda de escopo          |
+| HAP-011      | override de endpoint + No Proxy         | requisição                      | endpoint reescrito             | casa com a URL final                                 | accepted | ordenação                 |
+| HAP-012      | timeout/abort                           | resposta em streaming via proxy | ApiClient                      | comportamento atual de abort/timeout/stream preservado | accepted | paridade de transport     |
+| HAP-013      | apenas proxy do sistema/shell           | requisição de API               | Host                           | ignorado; direto                                      | accepted | invariante de sanitização |
 
-### Pruning Decisions
+### Decisões de Poda
 
-| Decision ID | Pruned combinations                  | Guard/invariant                                            | Product reason                                     | Representative coverage               |
-| ----------- | ------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------- | ------------------------------------- |
-| P-001       | proxy x every business service       | all share injected `NodeApiClient`                         | avoid duplicated business tests                    | OAuth + generic client + wiring tests |
-| P-002       | desktop/mobile delivery permutations | no protocol/state changes                                  | network transport is below RPC business semantics  | static boundary check                 |
-| P-003       | every remote target type             | SSH/WSL/Docker share desktop-attached app-global authority | representative desktop-attached remote wiring test | `HAP-008`                             |
-| P-004       | direct-fetch product behaviors       | outside scoped transport                                   | requires separate owner decision                   | `HAP-010` invariant only              |
+| Decision ID | Combinações podadas                      | Guard/invariante                                     | Motivo no produto                                    | Cobertura representativa        |
+| ----------- | ---------------------------------------- | ---------------------------------------------------- | --------------------------------------------------- | ------------------------------- |
+| P-001       | proxy x todos os serviços de negócio     | todos compartilham o `NodeApiClient` injetado        | evitar testes de negócio duplicados                 | OAuth + client genérico + testes de wiring |
+| P-002       | permutações de entrega desktop/mobile     | sem mudança de protocolo/estado                      | o transport de rede fica abaixo da semântica de negócio do RPC | verificação estática de fronteira |
+| P-003       | todos os tipos de alvo remoto            | SSH/WSL/Docker compartilham a autoridade app-global do desktop-attached | teste de wiring representativo do remote desktop-attached | `HAP-008`  |
+| P-004       | comportamentos de produto com fetch direto | fora do transport com escopo                       | exige decisão de owner separada                      | apenas o invariante `HAP-010`    |
 
-### Accepted Cases And Evidence
+### Casos Aceitos e Evidências
 
-| Case ID     | Setup                                    | Action                                    | Assertions                                    | Evidence layers            | E2E status |
-| ----------- | ---------------------------------------- | ----------------------------------------- | --------------------------------------------- | -------------------------- | ---------- |
-| HAP-001     | no settings                              | request test server                       | direct success, no proxy agent                | unit + network             | planned    |
-| HAP-002     | local CONNECT proxy; direct route denied | complete OAuth token request              | proxy observes final URL; response succeeds   | unit + integration/network | planned    |
-| HAP-003     | explicit bypass patterns                 | request matching and nonmatching targets  | correct dispatcher chosen                     | unit                       | planned    |
-| HAP-004     | dead proxy                               | request reachable direct upstream         | fails without upstream hit                    | integration/network        | planned    |
-| HAP-005/006 | private CA endpoint; direct/proxy        | request endpoint                          | TLS succeeds only with configured CA          | integration/network        | planned    |
-| HAP-007     | write setting after first request        | second request, then recreate Host/client | old/new lifecycle policies observed           | unit                       | planned    |
-| HAP-008/009 | remote collection fixtures               | resolve local and server-owned services   | correct client authority                      | wiring unit                | planned    |
-| HAP-010     | direct fetch spy                         | construct scoped client                   | global fetch/dispatcher unchanged             | unit/static                | planned    |
-| HAP-011     | test endpoint rewrite                    | request production URL                    | No Proxy sees rewritten origin                | unit                       | planned    |
-| HAP-012     | slow/stream server                       | abort and timeout                         | current `ApiError`/stream semantics preserved | unit + network             | planned    |
+| Case ID      | Setup                                        | Ação                                        | Asserções                                            | Camadas de evidência      | Status E2E |
+| ------------ | -------------------------------------------- | ------------------------------------------- | ---------------------------------------------------- | ------------------------- | ---------- |
+| HAP-001      | sem configurações                            | requisição ao servidor de teste            | sucesso direto, sem agente de proxy                 | unit + rede               | planned    |
+| HAP-002      | proxy CONNECT local; rota direta negada      | completar a requisição de token do OAuth    | o proxy observa a URL final; a resposta tem sucesso  | unit + integração/rede    | planned    |
+| HAP-003      | padrões de bypass explícitos                 | requisição a alvos correspondentes e não    | dispatcher correto escolhido                         | unit                      | planned    |
+| HAP-004      | proxy morto                                  | requisição com upstream direto acessível    | falha sem atingir o upstream                         | integração/rede           | planned    |
+| HAP-005/006  | endpoint com CA privada; direto/proxy        | requisição ao endpoint                      | o TLS só tem sucesso com a CA configurada            | integração/rede           | planned    |
+| HAP-007      | escrever a configuração após a primeira requisição | segunda requisição, depois recriar Host/client | políticas de ciclo de vida antiga/nova observadas | unit                      | planned    |
+| HAP-008/009  | fixtures de coleção remote                   | resolver serviços locais e do server        | autoridade correta do client                         | unit de wiring             | planned    |
+| HAP-010      | spy de fetch direto                          | construir o client com escopo               | fetch/dispatcher global inalterado                   | unit/estático              | planned    |
+| HAP-011      | reescrita de endpoint de teste               | requisição à URL de produção                | o No Proxy vê a origem reescrita                     | unit                      | planned    |
+| HAP-012      | servidor lento/em streaming                  | abort e timeout                             | semântica atual de `ApiError`/stream preservada       | unit + rede                | planned    |
 
-不需要 conversation formal-proof 或 conversation E2E handoff；本改动不增加产品状态、command、snapshot 或
-replayable 组合。真实 Windows 强制代理 smoke 是发布前补充验证，不替代确定性的本地代理集成测试。
+Não é necessária prova formal em conversa nem handoff de E2E em conversa; esta mudança não adiciona estado de produto, command, snapshot ou combinações replayable. Um smoke test real de proxy obrigatório no Windows é uma verificação complementar antes do lançamento e não substitui os testes determinísticos de integração de proxy local.
 
-## 实现顺序（测试先行）
+## Ordem de Implementação (testes primeiro)
 
-1. 为 Host 网络策略快照和 request-scoped fetch 写失败测试：直连、代理、No Proxy、CA、fail-closed、abort。
-2. 为 `NodeApiClient` 写 endpoint rewrite 后选路及注入测试。
-3. 实现 `packages/services` 内的 Host API network provider；禁止同步文件 IO。
-4. 接入 `createLocalServices`，再接入 desktop-attached remote 的本机服务集合，并把 transport close 纳入两类
-   collection 的同步/等待式资源释放。
-5. 增加装配/隔离测试，确认没有调用 `setGlobalDispatcher`，server remote 与 direct fetch 不变，dispatcher
-   不留下 open handle。
-6. 执行定向测试、`pnpm typecheck`、`pnpm lint`；能运行时再做 Windows 强制代理 smoke。
+1. Escrever testes falhando para o snapshot de política de rede do Host e para o fetch com escopo de requisição: direto, proxy, No Proxy, CA, fail-closed, abort.
+2. Escrever testes de injeção e de escolha de rota após a reescrita de endpoint no `NodeApiClient`.
+3. Implementar o provider de política de rede de API do Host dentro de `packages/services`; é proibido fazer IO de arquivo síncrono.
+4. Integrar ao `createLocalServices`, depois ao conjunto de serviços locais do remote desktop-attached, e incluir o fechamento do transport na liberação de recursos das duas coleções, tanto síncrona quanto por espera.
+5. Adicionar testes de montagem/isolamento, confirmando que `setGlobalDispatcher` não é chamado, que o server remote e o fetch direto permanecem inalterados e que o dispatcher não deixa handles abertos.
+6. Executar os testes direcionados, `pnpm typecheck` e `pnpm lint`; quando possível, rodar também o smoke test de proxy obrigatório no Windows.
 
-## 风险与回滚
+## Riscos e Rollback
 
-| 风险                                    | 收口方式                                                          |
-| --------------------------------------- | ----------------------------------------------------------------- |
-| 误代理 localhost / 内网 / remote server | scoped client + No Proxy + 禁止 global dispatcher                 |
-| endpoint override 匹配错误              | rewrite-before-routing 测试                                       |
-| 代理失败后泄漏直连                      | fail-closed 集成测试，统计 direct upstream hit                    |
-| CA 只覆盖某一段 TLS                     | direct、HTTPS proxy、CONNECT 分别验证                             |
-| 连接池或 dispatcher 泄漏                | Host lifecycle 持有并在 service dispose 时关闭；测试 open handles |
-| 设置热更新语义漂移                      | immutable lifecycle snapshot，设置页文案不变                      |
+| Risco                                        | Forma de contenção                                              |
+| -------------------------------------------- | --------------------------------------------------------------- |
+| Proxing indevido de localhost / intranet / remote server | client com escopo + No Proxy + proibição de dispatcher global |
+| Correspondência errada no override de endpoint | teste de reescrita antes do roteamento                          |
+| Vazamento de conexão direta após falha do proxy | teste de integração fail-closed, contando hits diretos a montante |
+| CA cobrindo apenas um trecho do TLS           | validação separada para direto, proxy HTTPS e CONNECT           |
+| Vazamento de pool de conexões ou dispatcher    | mantido pelo ciclo de vida do Host e fechado no dispose do serviço; teste de handles abertos |
+| Deriva da semântica de atualização a quente das configurações | snapshot imutável de ciclo de vida, textos da página de configurações inalterados |
 
-回滚只需撤销 `NodeApiClient` 的 fetch 注入和 Host policy provider；没有 schema、协议、凭据、设置格式或数据迁移，
-已有 Electron Session 与 Agent 网络路径不受影响。
+O rollback exige apenas reverter a injeção de fetch do `NodeApiClient` e o provider de política do Host; não há schema, protocolo, credenciais, formato de configuração ou migração de dados, e os caminhos de rede existentes do Electron Session e do Agent não são afetados.
 
-## 实现结论
+## Conclusão da Implementação
 
-Owner、配置来源、作用域、激活时机、远程边界、失败模式、测试和回滚均已实现并收口。
-其它 Host 裸网络出口是否都应跟随 App 代理仍需逐项分类，且不得通过全局 dispatcher 偷渡。远程资源下载
-已经按独立 spec 收口为显式 port 消费方，不改变 Bot、telemetry、object upload 等剩余出口。
+Owner, origem da configuração, escopo, momento de ativação, fronteira remota, modo de falha, testes e rollback foram implementados e consolidados.
+Se as demais saídas de rede nuas do Host devem seguir o proxy do App ainda exige classificação item a item, e não pode ser contornado por um dispatcher global. O download de recursos remotos já foi consolidado, em spec separada, como consumidor explícito de porta, sem alterar as saídas restantes de Bot, telemetry, object upload e demais.

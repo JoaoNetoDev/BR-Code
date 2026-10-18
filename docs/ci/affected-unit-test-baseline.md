@@ -1,7 +1,7 @@
-# Push 前 affected 单测比较基线
+# Linha de Base de Comparação dos Testes Unitários Afetados no Push
 
-首次推送新分支时，远端 ref 没有可比较的 commit，affected 单测 runner 会回退到默认基线。默认基线优先使用 `origin/staging`，再使用 `origin/HEAD`、`origin/main`、`origin/master`、`main`、`master`。
+Na primeira vez em que uma nova branch é enviada, a ref remota não tem commit com o qual comparar, e o runner dos testes unitários afetados volta à linha de base padrão. A linha de base padrão prefere `origin/staging`, depois `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master`.
 
-不再按锁文件、package、Vitest、TypeScript 或门禁脚本等文件名强制执行全量测试。只要存在可用比较基线，就统一根据实际变更运行 affected/related 单测。
+Não se força mais a execução da suíte completa por nomes de arquivos como lockfile, package, Vitest, TypeScript ou scripts de portão. Sempre que existir uma linha de base de comparação utilizável, os testes unitários afetados/relacionados são executados de forma unificada com base nas mudanças reais.
 
-只有找不到任何可用基线，或删除了无法交给 Vitest related 分析的源码文件时，才执行全量 `pnpm test:unit`。
+A suíte completa `pnpm test:unit` só é executada quando nenhuma linha de base utilizável é encontrada, ou quando arquivos de código-fonte que não podem ser entregues à análise de "related" do Vitest são removidos.

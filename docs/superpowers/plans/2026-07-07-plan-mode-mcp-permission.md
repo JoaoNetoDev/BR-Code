@@ -1,71 +1,71 @@
-# Plan Mode MCP Permission Boundary Implementation Plan
+# Plano de Implementação do Limite de Permissão MCP no Plan Mode
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use `superpowers:executing-plans` para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 Plan mode 下的 MCP 工具跳过普通 readonly 判定，但仍保留 MCP 身份识别、显式 destructive 拦截、项目 deny/ask 规则和现有非 MCP 写保护。
+**Objetivo:** Fazer com que as ferramentas MCP no Plan mode dispensem a verificação normal de somente leitura, mas ainda preservem a identificação de identidade MCP, o bloqueio explícito de operações destrutivas, as regras deny/ask do projeto e a proteção de escrita já existente para ferramentas não MCP.
 
-**Architecture:** 不改 MCP registry、metadata、protocol 或 UI。MCP 工具继续由 `apps/zcode-cli/packages/core/src/mcp/index.ts` 注册，权限层通过 `permission.permission === "mcp"` 形成的 `capability.permissionName` 识别 MCP；Plan mode 只新增一个 MCP 专用 permission 分支，避免把普通 unknown tool 或伪 `mcp__` 名称一起放过。
+**Arquitetura:** Não alterar o registry MCP, metadados, protocolo ou UI. As ferramentas MCP continuam registradas por `apps/zcode-cli/packages/core/src/mcp/index.ts`, e a camada de permissão identifica o MCP pela `capability.permissionName` formada por `permission.permission === "mcp"`. O Plan mode apenas adiciona um ramo de permissão exclusivo para MCP, evitando liberar também ferramentas desconhecidas comuns ou nomes falsos com `mcp__`.
 
-**Tech Stack:** TypeScript, Vitest, `@zcode/core` permission service, MCP bridge, ZCode runtime tool loop.
+**Stack técnico:** TypeScript, Vitest, serviço de permissão do `@zcode/core`, MCP bridge, loop de ferramentas do runtime ZCode.
 
-## Global Constraints
+## Restrições globais
 
-- 先更新 docs spec，再改测试和代码。
-- 不修改 `packages/shared/src/zcode-protocol/index.ts`，因为本次不新增协议字段。
-- 不修改 MCP registry / metadata / model-visible tool contract。
-- 不修改 UI，不涉及 `packages/ui` 和 `DESIGN.md`。
-- 不靠 `toolName.startsWith("mcp__")` 作为主判断；MCP 身份以 `permission.permission === "mcp"` 为准。
-- Plan mode 下 project deny / project ask 仍优先于 MCP 专用 allow。
-- Plan mode 下显式 `destructiveHint: true` 的 MCP 仍拒绝。
-- Plan mode 下 `permission.permission === "mcp"` 且 `destructive !== true` 的 MCP 允许执行，即使 `readOnlyHint` 缺失或为 `false`。
-- 保持 `ExitPlanMode` / `EnterPlanMode` 现有专用规则不变。
-- 不自动提交 commit，除非用户后续明确要求。
+- Atualizar primeiro a spec de documentação, depois alterar testes e código.
+- Não modificar `packages/shared/src/zcode-protocol/index.ts`, pois esta mudança não adiciona campos de protocolo.
+- Não modificar o registry / metadados / contrato de ferramentas visíveis ao modelo do MCP.
+- Não modificar a UI; não envolve `packages/ui` nem `DESIGN.md`.
+- Não usar `toolName.startsWith("mcp__")` como critério principal; a identidade MCP é determinada por `permission.permission === "mcp"`.
+- No Plan mode, o deny/ask do projeto continua tendo prioridade sobre o allow exclusivo de MCP.
+- No Plan mode, um MCP com `destructiveHint: true` explícito ainda é rejeitado.
+- No Plan mode, um MCP com `permission.permission === "mcp"` e `destructive !== true` tem sua execução permitida, mesmo que `readOnlyHint` esteja ausente ou seja `false`.
+- Manter inalteradas as regras específicas existentes de `ExitPlanMode` / `EnterPlanMode`.
+- Não fazer commit automaticamente, a menos que o usuário solicite explicitamente depois.
 
 ---
 
-## Phase 0: 文件与职责地图
+## Fase 0: Mapa de arquivos e responsabilidades
 
-**计划改动文件：**
+**Arquivos com alterações planejadas:**
 
-- Modify: `docs/plan-mode-approval-boundary.md`
-  - 记录 Plan mode 的 MCP 例外语义，明确“跳过 readonly 判定”不等于“跳过 destructive / project rules”。
-- Modify: `apps/zcode-cli/packages/core/src/permission/service.ts`
-  - 在 `PermissionService.checkPlanMode()` 中增加 MCP 专用分支。
-  - 新增私有 helper，集中判断 `capability.permissionName === "mcp"`。
-- Modify: `apps/zcode-cli/packages/core/tests/permission-service.test.ts`
-  - 覆盖 permission service 层的 MCP plan-mode 策略。
-- Modify: `apps/zcode-cli/packages/core/tests/mcp-runtime.test.ts`
-  - 覆盖真实 runtime 中 MCP tool 在 Plan mode 下能被执行，且不走 permission broker。
+- Modificar: `docs/plan-mode-approval-boundary.md`
+  - Registrar a semântica de exceção do MCP no Plan mode, deixando claro que "dispensar a verificação de readonly" não significa "dispensar destructive / regras do projeto".
+- Modificar: `apps/zcode-cli/packages/core/src/permission/service.ts`
+  - Adicionar um ramo exclusivo para MCP em `PermissionService.checkPlanMode()`.
+  - Adicionar um helper privado que centralize a verificação de `capability.permissionName === "mcp"`.
+- Modificar: `apps/zcode-cli/packages/core/tests/permission-service.test.ts`
+  - Cobrir a política de MCP em plan mode na camada do serviço de permissão.
+- Modificar: `apps/zcode-cli/packages/core/tests/mcp-runtime.test.ts`
+  - Cobrir, no runtime real, que uma ferramenta MCP pode ser executada no Plan mode sem passar pelo permission broker.
 
-**不改文件：**
+**Arquivos não alterados:**
 
 - `apps/zcode-cli/packages/core/src/mcp/index.ts`
-  - MCP 仍按 descriptor annotation 映射 `readOnly` / `destructive`。
+  - O MCP continua mapeando `readOnly` / `destructive` por anotação do descriptor.
 - `apps/zcode-cli/packages/core/src/tool/executor/permission-flow.ts`
-  - 已经会把 `entry.permission.permission` 合并为 `PermissionToolCapability.permission.permission`。
+  - Já mescla `entry.permission.permission` em `PermissionToolCapability.permission.permission`.
 - `packages/shared/src/zcode-protocol/index.ts`
-  - 没有协议变更。
+  - Não há mudança de protocolo.
 - `packages/ui/**`
-  - 没有 UI 交互变更。
+  - Não há mudança de interação de UI.
 
 ---
 
-## Phase 1: 先更新行为 spec
+## Fase 1: Atualizar primeiro a spec de comportamento
 
-### Task 1: 更新 Plan mode MCP 权限边界文档
+### Tarefa 1: Atualizar a documentação do limite de permissão MCP do Plan mode
 
-**Files:**
+**Arquivos:**
 
-- Modify: `docs/plan-mode-approval-boundary.md`
+- Modificar: `docs/plan-mode-approval-boundary.md`
 
 **Interfaces:**
 
-- Consumes: 当前 Plan mode 文档中的 `ExitPlanMode` 审批语义。
-- Produces: 后续实现与测试共同遵守的 MCP 例外语义。
+- Consome: a semântica de aprovação de `ExitPlanMode` na documentação atual do Plan mode.
+- Produz: a semântica de exceção do MCP que implementação e testes seguirão em conjunto.
 
-- [ ] **Step 1: 在文档 “语义” 段落后加入 MCP 例外说明**
+- [ ] **Passo 1: Adicionar a explicação da exceção do MCP após a seção "Semântica" da documentação**
 
-在 `docs/plan-mode-approval-boundary.md` 的 `## 语义` 列表后追加：
+Acrescentar após a lista `## 语义` em `docs/plan-mode-approval-boundary.md`:
 
 ```md
 
@@ -82,22 +82,22 @@ Plan mode 默认只允许只读、非 destructive 的工具执行。MCP 工具�
 - 该例外只跳过 Plan mode 的 readonly 判定，不改变 MCP 工具注册、模型可见 schema、输出预算、timeout、取消、日志或 UI 权限展示协议。
 ```
 
-- [ ] **Step 2: 自检文档边界**
+- [ ] **Passo 2: Autoverificar os limites da documentação**
 
-检查文档中同时说明了：
+Verificar se a documentação afirma simultaneamente que:
 
-- MCP 识别来源是 permission 声明。
-- destructive MCP 仍拒绝。
-- project deny / ask 仍优先。
-- 不改 UI / protocol。
+- A origem da identificação MCP é a declaração de permissão.
+- MCP destrutivo ainda é rejeitado.
+- deny/ask do projeto ainda tem prioridade.
+- UI / protocolo não são alterados.
 
-Run:
+Executar:
 
 ```sh
 rg -n "MCP 工具例外|permission.permission|destructiveHint|项目级" docs/plan-mode-approval-boundary.md
 ```
 
-Expected:
+Esperado:
 
 ```text
 docs/plan-mode-approval-boundary.md:<line>:## MCP 工具例外
@@ -108,22 +108,22 @@ docs/plan-mode-approval-boundary.md:<line>:- 显式声明 `destructiveHint: true
 
 ---
 
-## Phase 2: 先补 PermissionService 层失败测试
+## Fase 2: Adicionar primeiro os testes que falham na camada do PermissionService
 
-### Task 2: 覆盖 MCP Plan mode 策略
+### Tarefa 2: Cobrir a política de MCP no Plan mode
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/core/tests/permission-service.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/permission-service.test.ts`
 
 **Interfaces:**
 
-- Consumes: `PermissionService.checkPermission(context, capability, projectRules?)`
-- Produces: 新的 expected behavior，供实现 `checkPlanMode()` 时驱动。
+- Consome: `PermissionService.checkPermission(context, capability, projectRules?)`
+- Produz: o novo comportamento esperado, que orienta a implementação de `checkPlanMode()`.
 
-- [ ] **Step 1: 增加 MCP capability fixtures**
+- [ ] **Passo 1: Adicionar fixtures de capability de MCP**
 
-在 `permission-service.test.ts` 顶部现有 fixture 后加入：
+Adicionar após as fixtures existentes no topo de `permission-service.test.ts`:
 
 ```ts
 const mcpCapability: PermissionToolCapability = {
@@ -161,9 +161,9 @@ const fakeMcpNameCapability: PermissionToolCapability = {
 };
 ```
 
-- [ ] **Step 2: 写 MCP 非 readonly 但非 destructive 可通过的失败测试**
+- [ ] **Passo 2: Escrever o teste que falha para MCP não readonly, porém não destrutivo**
 
-在 `describe("PermissionService mode policy", () => {` 内、Plan mode 相关测试附近加入：
+Adicionar dentro de `describe("PermissionService mode policy", () => {`, perto dos testes de Plan mode:
 
 ```ts
   it("allows non-destructive MCP tools in plan mode without requiring readOnly metadata", () => {
@@ -188,9 +188,9 @@ const fakeMcpNameCapability: PermissionToolCapability = {
   });
 ```
 
-- [ ] **Step 3: 写 destructive MCP 仍拒绝的失败测试**
+- [ ] **Passo 3: Escrever o teste que falha para MCP destrutivo ainda rejeitado**
 
-同一 describe 内继续加入：
+Continuar adicionando no mesmo describe:
 
 ```ts
   it("denies destructive MCP tools in plan mode", () => {
@@ -214,9 +214,9 @@ const fakeMcpNameCapability: PermissionToolCapability = {
   });
 ```
 
-- [ ] **Step 4: 写伪 MCP 名称不通过的失败测试**
+- [ ] **Passo 4: Escrever o teste que falha para nome falso de MCP não aprovado**
 
-同一 describe 内继续加入：
+Continuar adicionando no mesmo describe:
 
 ```ts
   it("does not treat an mcp-prefixed tool name as MCP without the mcp permission declaration", () => {
@@ -240,9 +240,9 @@ const fakeMcpNameCapability: PermissionToolCapability = {
   });
 ```
 
-- [ ] **Step 5: 写 project deny / ask 优先于 MCP 例外的失败测试**
+- [ ] **Passo 5: Escrever os testes que falham para deny/ask do projeto com prioridade sobre a exceção de MCP**
 
-同一 describe 内继续加入：
+Continuar adicionando no mesmo describe:
 
 ```ts
   it("lets project deny rules override the plan-mode MCP exception", () => {
@@ -294,15 +294,15 @@ const fakeMcpNameCapability: PermissionToolCapability = {
   });
 ```
 
-- [ ] **Step 6: 运行测试确认失败**
+- [ ] **Passo 6: Executar os testes e confirmar a falha**
 
-Run:
+Executar:
 
 ```sh
 pnpm --filter @zcode/core exec vitest run tests/permission-service.test.ts
 ```
 
-Expected before implementation:
+Esperado antes da implementação:
 
 ```text
 FAIL  tests/permission-service.test.ts
@@ -312,26 +312,26 @@ expected ... ruleId ... "mode.plan.mcp"
 
 ---
 
-## Phase 3: 实现 Plan mode MCP 专用分支
+## Fase 3: Implementar o ramo exclusivo de MCP do Plan mode
 
-### Task 3: 在 PermissionService 中增加 MCP 例外
+### Tarefa 3: Adicionar a exceção de MCP no PermissionService
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/core/src/permission/service.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/permission/service.ts`
 
 **Interfaces:**
 
-- Consumes:
+- Consome:
   - `ResolvedPermissionCapability.permissionName?: string`
   - `ResolvedPermissionCapability.destructive: boolean`
-- Produces:
-  - `mode.plan.mcp` allow rule
-  - 集中的 MCP 判断 helper
+- Produz:
+  - regra allow `mode.plan.mcp`
+  - helper centralizado de identificação MCP
 
-- [ ] **Step 1: 修改 `checkPlanMode()`**
+- [ ] **Passo 1: Modificar `checkPlanMode()`**
 
-把当前 `checkPlanMode()` 替换为：
+Substituir o `checkPlanMode()` atual por:
 
 ```ts
   private checkPlanMode(
@@ -365,9 +365,9 @@ expected ... ruleId ... "mode.plan.mcp"
   }
 ```
 
-- [ ] **Step 2: 增加 MCP 身份 helper**
+- [ ] **Passo 2: Adicionar o helper de identidade MCP**
 
-在 `checkPlanMode()` 附近加入私有方法：
+Adicionar um método privado próximo de `checkPlanMode()`:
 
 ```ts
   private isMcpToolCapability(capability: ResolvedPermissionCapability): boolean {
@@ -375,25 +375,25 @@ expected ... ruleId ... "mode.plan.mcp"
   }
 ```
 
-- [ ] **Step 3: 保持 `resolveCapability()` 不变**
+- [ ] **Passo 3: Manter `resolveCapability()` inalterado**
 
-确认 `resolveCapability()` 仍保留：
+Confirmar que `resolveCapability()` ainda preserva:
 
 ```ts
       permissionName: toolCapability?.permission?.permission,
 ```
 
-不要新增 `toolName.startsWith("mcp__")` 判断。
+Não adicionar nenhuma verificação `toolName.startsWith("mcp__")`.
 
-- [ ] **Step 4: 运行 PermissionService 测试确认通过**
+- [ ] **Passo 4: Executar os testes do PermissionService e confirmar que passam**
 
-Run:
+Executar:
 
 ```sh
 pnpm --filter @zcode/core exec vitest run tests/permission-service.test.ts
 ```
 
-Expected:
+Esperado:
 
 ```text
 Test Files  1 passed (1)
@@ -401,22 +401,22 @@ Test Files  1 passed (1)
 
 ---
 
-## Phase 4: 补 MCP bridge 与 runtime 级回归
+## Fase 4: Complementar a regressão no nível do MCP bridge e do runtime
 
-### Task 4: 覆盖 MCP descriptor 到 destructive metadata 的映射
+### Tarefa 4: Cobrir o mapeamento do descriptor MCP para metadados destrutivos
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/core/tests/mcp-tool-bridge.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/mcp-tool-bridge.test.ts`
 
 **Interfaces:**
 
-- Consumes: `registerMcpTools(registry, mcpPort, descriptors)`
-- Produces: 测试证明 `destructiveHint: true` 会变成 `entry.metadata.destructive === true` 和 high risk。
+- Consome: `registerMcpTools(registry, mcpPort, descriptors)`
+- Produz: um teste provando que `destructiveHint: true` vira `entry.metadata.destructive === true` e risco alto.
 
-- [ ] **Step 1: 增加 destructiveHint 映射测试**
+- [ ] **Passo 1: Adicionar teste de mapeamento de destructiveHint**
 
-在 `describe("MCP tool bridge", () => {` 内加入：
+Adicionar dentro de `describe("MCP tool bridge", () => {`:
 
 ```ts
   it("maps destructive MCP annotations into tool metadata", () => {
@@ -451,43 +451,43 @@ Test Files  1 passed (1)
   });
 ```
 
-- [ ] **Step 2: 运行 MCP bridge 测试**
+- [ ] **Passo 2: Executar os testes do MCP bridge**
 
-Run:
+Executar:
 
 ```sh
 pnpm --filter @zcode/core exec vitest run tests/mcp-tool-bridge.test.ts
 ```
 
-Expected:
+Esperado:
 
 ```text
 Test Files  1 passed (1)
 ```
 
-### Task 5: 覆盖 Plan mode 下 MCP tool 真实执行
+### Tarefa 5: Cobrir a execução real de ferramenta MCP no Plan mode
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/core/tests/mcp-runtime.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/mcp-runtime.test.ts`
 
 **Interfaces:**
 
-- Consumes:
+- Consome:
   - `AgentRuntime`
   - `createMockMcpPort(...)`
-  - runtime MCP startup registration
-- Produces: 真实 runtime 回归：Plan mode 下没有 `readOnlyHint` 的 MCP tool 不被 `mode.plan.nonReadOnly` 拦截。
+  - registro MCP na inicialização do runtime
+- Produz: regressão no runtime real: no Plan mode, uma ferramenta MCP sem `readOnlyHint` não é bloqueada por `mode.plan.nonReadOnly`.
 
-- [ ] **Step 1: 在 import 中加入 `type PermissionBrokerPort`**
+- [ ] **Passo 1: Adicionar `type PermissionBrokerPort` aos imports**
 
-把当前 imports 调整为包含：
+Ajustar os imports atuais para incluir:
 
 ```ts
   type PermissionBrokerPort,
 ```
 
-即：
+Ou seja:
 
 ```ts
 import {
@@ -501,9 +501,9 @@ import {
 } from "@zcode/contracts";
 ```
 
-- [ ] **Step 2: 增加 Plan mode MCP 执行测试**
+- [ ] **Passo 2: Adicionar teste de execução de MCP no Plan mode**
 
-在 `describe("AgentRuntime MCP integration", () => {` 内加入：
+Adicionar dentro de `describe("AgentRuntime MCP integration", () => {`:
 
 ```ts
   it("executes non-destructive MCP tools in plan mode without readOnlyHint", async () => {
@@ -628,9 +628,9 @@ import {
   });
 ```
 
-- [ ] **Step 3: 增加 Plan mode destructive MCP 不执行测试**
+- [ ] **Passo 3: Adicionar teste de MCP destrutivo não executado no Plan mode**
 
-同一 describe 内加入：
+Adicionar no mesmo describe:
 
 ```ts
   it("denies destructive MCP tools in plan mode before calling the MCP server", async () => {
@@ -738,15 +738,15 @@ import {
   });
 ```
 
-- [ ] **Step 4: 运行 MCP runtime 测试**
+- [ ] **Passo 4: Executar os testes do MCP runtime**
 
-Run:
+Executar:
 
 ```sh
 pnpm --filter @zcode/core exec vitest run tests/mcp-runtime.test.ts
 ```
 
-Expected:
+Esperado:
 
 ```text
 Test Files  1 passed (1)
@@ -754,22 +754,22 @@ Test Files  1 passed (1)
 
 ---
 
-## Phase 5: 回归验证与审查
+## Fase 5: Verificação de regressão e revisão
 
-### Task 6: 聚合验证
+### Tarefa 6: Verificação agregada
 
-**Files:**
+**Arquivos:**
 
-- Test only, no source changes expected.
+- Apenas testes; nenhuma alteração de código-fonte esperada.
 
 **Interfaces:**
 
-- Consumes: Phase 1-4 的全部改动。
-- Produces: 可交付验证结论。
+- Consome: todas as alterações das Fases 1 a 4.
+- Produz: uma conclusão de verificação entregável.
 
-- [ ] **Step 1: 跑 permission + MCP focused tests**
+- [ ] **Passo 1: Executar os testes focados de permissão e MCP**
 
-Run:
+Executar:
 
 ```sh
 pnpm --filter @zcode/core exec vitest run \
@@ -778,86 +778,86 @@ pnpm --filter @zcode/core exec vitest run \
   tests/mcp-runtime.test.ts
 ```
 
-Expected:
+Esperado:
 
 ```text
 Test Files  3 passed (3)
 ```
 
-- [ ] **Step 2: 跑相关 runtime tool loop 回归**
+- [ ] **Passo 2: Executar a regressão relacionada ao runtime tool loop**
 
-Run:
+Executar:
 
 ```sh
 pnpm --filter @zcode/core exec vitest run tests/runtime-tool-loop.test.ts -t "continues later tool calls after a blocking permission denial"
 ```
 
-Expected:
+Esperado:
 
 ```text
 Test Files  1 passed (1)
 ```
 
-Purpose:
+Propósito:
 
-- 确认 Plan mode 下非 MCP 写工具仍会被拦截。
-- 确认拦截后后续只读工具仍能继续执行。
+- Confirmar que, no Plan mode, ferramentas de escrita não MCP ainda são bloqueadas.
+- Confirmar que, após o bloqueio, as ferramentas somente leitura subsequentes ainda podem ser executadas.
 
-- [ ] **Step 3: 跑 core typecheck**
+- [ ] **Passo 3: Executar o typecheck do core**
 
-Run:
+Executar:
 
 ```sh
 pnpm --filter @zcode/core typecheck
 ```
 
-Expected:
+Esperado:
 
 ```text
 No TypeScript errors from @zcode/core
 ```
 
-- [ ] **Step 4: 跑根 lint**
+- [ ] **Passo 4: Executar o lint da raiz**
 
-Run:
+Executar:
 
 ```sh
 pnpm lint
 ```
 
-Expected:
+Esperado:
 
 ```text
 Lint passes, or only reports pre-existing unrelated warnings/errors.
 ```
 
-If root lint reports unrelated existing failures, record exact file and message in final report. Do not fix unrelated files in this task.
+Se o lint da raiz relatar falhas existentes não relacionadas, registrar o arquivo e a mensagem exatos no relatório final. Não corrigir arquivos não relacionados nesta tarefa.
 
-- [ ] **Step 5: 跑根 typecheck**
+- [ ] **Passo 5: Executar o typecheck da raiz**
 
-Run:
+Executar:
 
 ```sh
 pnpm typecheck
 ```
 
-Expected:
+Esperado:
 
 ```text
 Typecheck passes, or only reports pre-existing unrelated failures.
 ```
 
-If root typecheck still fails on known unrelated desktop e2e Istanbul declarations, record the exact failure and keep this task scoped.
+Se o typecheck da raiz ainda falhar com as declarações conhecidas e não relacionadas de Istanbul do desktop e2e, registrar a falha exata e manter esta tarefa delimitada.
 
 ---
 
-## Phase 6: 最终人工审查清单
+## Fase 6: Checklist final de revisão manual
 
-### Task 7: 变更审查与交付说明
+### Tarefa 7: Revisão das mudanças e nota de entrega
 
-**Files:**
+**Arquivos:**
 
-- Review:
+- Revisar:
   - `docs/plan-mode-approval-boundary.md`
   - `apps/zcode-cli/packages/core/src/permission/service.ts`
   - `apps/zcode-cli/packages/core/tests/permission-service.test.ts`
@@ -866,18 +866,18 @@ If root typecheck still fails on known unrelated desktop e2e Istanbul declaratio
 
 **Interfaces:**
 
-- Consumes: 全部实现与验证结果。
-- Produces: 用户可 review 的最终说明。
+- Consome: todos os resultados de implementação e verificação.
+- Produz: a nota final para revisão do usuário.
 
-- [ ] **Step 1: 检查没有误改 UI/protocol/registry**
+- [ ] **Passo 1: Verificar que UI/protocol/registry não foram alterados indevidamente**
 
-Run:
+Executar:
 
 ```sh
 git diff --name-only
 ```
 
-Expected files only:
+Arquivos esperados apenas:
 
 ```text
 docs/plan-mode-approval-boundary.md
@@ -888,57 +888,57 @@ apps/zcode-cli/packages/core/tests/mcp-runtime.test.ts
 docs/superpowers/plans/2026-07-07-plan-mode-mcp-permission.md
 ```
 
-- [ ] **Step 2: 检查没有 toolName 前缀主判断**
+- [ ] **Passo 2: Verificar que não há critério principal baseado no prefixo toolName**
 
-Run:
+Executar:
 
 ```sh
 rg -n "startsWith\\(\\\"mcp__\\\"\\)|mode\\.plan\\.mcp|permissionName === \\\"mcp\\\"" apps/zcode-cli/packages/core/src/permission apps/zcode-cli/packages/core/tests
 ```
 
-Expected:
+Esperado:
 
-- `permissionName === "mcp"` 只出现在 helper 或测试断言相关语义里。
-- `mode.plan.mcp` 出现在实现和测试中。
-- 不新增以 `startsWith("mcp__")` 作为 permission 主判断的代码。
+- `permissionName === "mcp"` aparece apenas no helper ou em semântica relacionada a asserções de teste.
+- `mode.plan.mcp` aparece na implementação e nos testes.
+- Nenhum código novo usa `startsWith("mcp__")` como critério principal de permissão.
 
-- [ ] **Step 3: 检查 destructive 语义没有被覆盖**
+- [ ] **Passo 3: Verificar que a semântica de destructive não foi sobrescrita**
 
-Run:
+Executar:
 
 ```sh
 rg -n "destructive MCP|destructiveHint|mode.plan.nonReadOnly|mode.plan.mcp" apps/zcode-cli/packages/core/tests docs/plan-mode-approval-boundary.md
 ```
 
-Expected:
+Esperado:
 
-- 文档包含 destructive MCP 仍拒绝。
-- `permission-service.test.ts` 包含 destructive MCP 拒绝。
-- `mcp-runtime.test.ts` 包含 destructive MCP 不调用 server。
+- A documentação contém que MCP destrutivo ainda é rejeitado.
+- `permission-service.test.ts` contém a rejeição de MCP destrutivo.
+- `mcp-runtime.test.ts` contém que MCP destrutivo não chama o server.
 
-- [ ] **Step 4: 准备最终说明**
+- [ ] **Passo 4: Preparar a nota final**
 
-最终说明必须包含：
+A nota final deve conter:
 
-- 本次实际改动文件。
-- Plan mode MCP 新语义。
-- 验证命令和结果。
-- 是否存在未能完整验证的命令。
-- 未提交 commit，等待用户明确要求。
+- Os arquivos efetivamente alterados nesta rodada.
+- A nova semântica de MCP no Plan mode.
+- Os comandos de verificação e seus resultados.
+- Se houve comandos que não puderam ser verificados por completo.
+- Que nenhum commit foi feito, aguardando um pedido explícito do usuário.
 
 ---
 
-## Commit Plan
+## Plano de commit
 
-仅当用户明确说“帮我提交吧”时提交。
+Commitar somente quando o usuário disser explicitamente "帮我提交吧" ("me ajude a commitar").
 
-建议 commit message:
+Mensagem de commit sugerida:
 
 ```text
 fix(zcode-cli): allow non-destructive mcp tools in plan mode
 ```
 
-提交前必须重新运行：
+Antes de commitar, é obrigatório executar novamente:
 
 ```sh
 pnpm --filter @zcode/core exec vitest run \
@@ -949,7 +949,7 @@ pnpm --filter @zcode/core typecheck
 pnpm lint
 ```
 
-提交命令：
+Comando de commit:
 
 ```sh
 git add \
@@ -964,10 +964,10 @@ git commit -m "fix(zcode-cli): allow non-destructive mcp tools in plan mode"
 
 ---
 
-## Self-Review
+## Auto-revisão
 
-- Spec coverage: Phase 1 写入 Plan mode MCP 例外 spec；Phase 2-5 覆盖 permission、MCP bridge、runtime 和验证。
-- Placeholder scan: 无 TBD / TODO / implement later。
-- Type consistency: 使用现有 `PermissionToolCapability`、`ResolvedPermissionCapability.permissionName`、`PermissionService.checkPermission()`、`registerMcpTools()`、`AgentRuntime`。
-- Scope check: 不修改 UI、protocol、MCP registry 或 model-visible contract。
-- Risk note: `destructiveHint` 来自 MCP server annotation，当前实现只能识别显式 `destructiveHint: true`；缺失 annotation 的 MCP 会按非 destructive 处理，这是本计划明确接受的产品边界。
+- Cobertura da spec: a Fase 1 escreve a spec de exceção de MCP do Plan mode; as Fases 2 a 5 cobrem permissão, MCP bridge, runtime e verificação.
+- Varredura de placeholders: sem TBD / TODO / implementar depois.
+- Consistência de tipos: usa o `PermissionToolCapability`, `ResolvedPermissionCapability.permissionName`, `PermissionService.checkPermission()`, `registerMcpTools()` e `AgentRuntime` já existentes.
+- Verificação de escopo: não altera a UI, o protocolo, o MCP registry nem o contrato visível ao modelo.
+- Nota de risco: `destructiveHint` vem da anotação do MCP server, e a implementação atual só reconhece `destructiveHint: true` explícito; um MCP sem a anotação é tratado como não destrutivo, e esse é um limite de produto explicitamente aceito por este plano.

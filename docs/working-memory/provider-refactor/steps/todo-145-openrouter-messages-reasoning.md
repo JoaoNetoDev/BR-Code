@@ -1,18 +1,16 @@
-# Todo145：OpenRouter Messages 推理参数修复
+# Todo145: correção dos parâmetros de raciocínio do OpenRouter Messages
 
-状态：已实现并复审，补录；代码提交 `2d622900ce`。
+Status: implementado e revisado, registrado retroativamente; commit de código `2d622900ce`.
 
-## 原因与范围
+## Causa e escopo
 
-Air 上 GLM-5.3 向 OpenRouter Messages 发送 `thinking.type=enabled`，却没有
-`budget_tokens`，违反服务端协议。完整决策及证据见
-[OpenRouter 请求契约](../../../openrouter-reasoning-request-contract.md)。
+No Air, o GLM-5.3 enviava `thinking.type=enabled` para o OpenRouter Messages, sem `budget_tokens`, violando o protocolo do servidor. A decisão completa e as evidências estão em [Contrato de requisição do OpenRouter](../../../openrouter-reasoning-request-contract.md).
 
-- [x] GLM、DeepSeek、Kimi K2、Qwen、MiMo 在 OpenRouter Messages 使用 adaptive + effort。
-- [x] 关闭档位保持 disabled；不人为添加固定预算，不修改其他供应商或 API 格式。
-- [x] 保留个人覆盖以及现有 Claude、GPT、Kimi K3 专用规则。
-- [x] 发布配置解析、真实 SDK wire 共 221 项测试通过；类型、Lint、格式、架构检查通过。
-- [x] Air 上 GLM-5.3、GLM-5.3-Flash、DeepSeek 4.1 Flash 的 adaptive 请求已成功。
+- [x] GLM, DeepSeek, Kimi K2, Qwen e MiMo usam adaptive + effort no OpenRouter Messages.
+- [x] O nível desligado permanece disabled; nenhum orçamento fixo é adicionado artificialmente e nenhum outro provider ou formato de API é modificado.
+- [x] Overrides pessoais e as regras específicas existentes de Claude, GPT e Kimi K3 são preservados.
+- [x] 221 testes, entre análise de configuração publicada e wire do SDK real, passaram; verificações de tipo, lint, formatação e arquitetura passaram.
+- [x] No Air, as requisições adaptive de GLM-5.3, GLM-5.3-Flash e DeepSeek 4.1 Flash foram bem-sucedidas.
 
-Fable 的失败为地区限制，非本次推理参数问题；不绕过地区限制、不扩大修复。
-未逐个线上调用全部模型，未发布远端配置。
+As falhas do Fable decorrem de restrição regional e não têm relação com os parâmetros de raciocínio desta mudança; a restrição regional não foi contornada e a correção não foi ampliada.
+Não foram feitas chamadas online individuais para todos os modelos, e nenhuma configuração remota foi publicada.

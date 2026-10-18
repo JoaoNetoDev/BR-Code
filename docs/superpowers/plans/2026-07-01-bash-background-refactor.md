@@ -1,170 +1,170 @@
-# Bash Background Auto-Background Narrow Boundary Refactor Implementation Plan
+# Plano de implementação do refactor de limite estreito do auto-background do Bash
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 撤掉这轮 Bash background 中新增的 generic `runBackgroundable` 抽象，把 Bash timeout auto-background 收回 Bash 专属路径，并复用已有 background notification / wake / runtime command queue。
+**Objetivo:** remover a abstração generic `runBackgroundable` introduzida nesta rodada no background do Bash, recolher o auto-background por timeout do Bash de volta para um caminho exclusivo do Bash e reutilizar as notificações de background / wake / runtime command queue já existentes.
 
-**Architecture:** 保留现有 `ExecutionPort.run()`、`ExecutionPort.start()`、`getBackgroundTask()`、`cancelBackgroundTask()` 作为公共 execution 边界；新增能力只作为 Bash handler 与 Node execution adapter 之间的窄结构化 capability，不扩展公共 `ExecutionPort`。Bash auto-background 只负责“同一个前台进程超时后转后台任务”，完成后仍通过 `BackgroundTaskTracker` 走现有 task-notification、runtime wake、runtime command queue 和 post-turn goal driver。
+**Arquitetura:** manter `ExecutionPort.run()`, `ExecutionPort.start()`, `getBackgroundTask()` e `cancelBackgroundTask()` como fronteiras públicas de execution; a nova capacidade existe apenas como uma capability estruturada e estreita entre o handler do Bash e o adapter de execution do Node, sem estender o `ExecutionPort` público. O auto-background do Bash cuida apenas de "transferir para tarefa de background o mesmo processo de foreground depois do timeout" e, ao terminar, continua passando pelo `BackgroundTaskTracker` existente, usando a task-notification, o runtime wake, o runtime command queue e o post-turn goal driver já existentes.
 
-**Tech Stack:** TypeScript, Vitest, pnpm, `@zcode/contracts`, `@zcode/adapters`, `@zcode/core`, current workspace source only.
+**Stack técnico:** TypeScript, Vitest, pnpm, `@zcode/contracts`, `@zcode/adapters`, `@zcode/core`, apenas o source atual do workspace.
 
-## Global Constraints
+## Restrições globais
 
-- 只参考当前工作区源码和 `docs/bash-background-parity.md`；不参考其它分支。
-- 不自动提交；本计划和执行过程都不包含 `git commit`，除非用户在当前任务里明确要求。
-- 不新增 generic foreground-promotion API；禁止继续扩展 `ExecutionPort.runBackgroundable`、`BackgroundableExecutionRunOptions`、`BackgroundableExecutionRunResult`。
-- 不把 Bash auto-background 的内部落盘细节暴露为调用方可见的 `persistOutput: "always"` 语义。
-- 不新增 feature flag、兜底 timer、poller 特殊策略或手动 background 操作入口。
-- 新增代码、测试名、注释、provider-visible 文案只使用本地语义命名，不引入外部产品名。
-- 每个 phase 开始前先重新阅读本 plan 的当前 phase，执行 `git status --short`，确认没有用户新改动被覆盖。
-- 每个 phase 完成后必须跑本 phase 的指定单测和类型检查；失败时停在当前 phase，不进入下一 phase。
+- Consultar apenas o source atual do workspace e `docs/bash-background-parity.md`; não consultar outros branches.
+- Não fazer commit automático; nem este plano nem o processo de execução contêm `git commit`, a menos que o usuário peça explicitamente na tarefa atual.
+- Não adicionar uma nova API generic de foreground-promotion; é proibido continuar estendendo `ExecutionPort.runBackgroundable`, `BackgroundableExecutionRunOptions`, `BackgroundableExecutionRunResult`.
+- Não expor os detalhes internos de persistência em disco do auto-background do Bash como uma semântica `persistOutput: "always"` visível ao chamador.
+- Não adicionar feature flag, timer de fallback, estratégia especial de poller nem entrada manual de operação de background.
+- Código novo, nomes de teste, comentários e textos visíveis ao provider usam apenas nomenclatura semântica local, sem introduzir nomes de produtos externos.
+- Antes de começar cada phase, reler a phase atual deste plan, executar `git status --short` e confirmar que nenhuma alteração nova do usuário foi sobrescrita.
+- Após concluir cada phase, é obrigatório rodar os testes unitários e a checagem de tipos especificados daquela phase; em caso de falha, parar na phase atual e não avançar para a próxima.
 
 ---
 
-## Current Refactor Target
+## Alvo do refactor atual
 
-当前工作区里 Bash background WIP 已经实现了大部分 notification/wake/queue 能力，但 auto-background 入口过宽：
+No workspace atual, o WIP de background do Bash já implementa a maior parte das capacidades de notification/wake/queue, mas a entrada de auto-background é larga demais:
 
-- `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts` 新增了 `runBackgroundable`、`waitForBackgroundTask`、`BackgroundableExecution*` 类型。
-- `apps/zcode-cli/packages/adapters/src/exec/index.ts` 在 `NodeExecutionAdapter.runBackgroundable()` 内做 foreground completion 和 timeout promotion。
-- `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts` 通过 `executionPort.runBackgroundable()` 调用 auto-background，并强制 `persistOutput: "always"`。
-- `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts` 已经能发 Bash `local_bash` task notification，并且可以用 direct waiter 避免 Bash poller。
+- `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts` adicionou `runBackgroundable`, `waitForBackgroundTask` e tipos `BackgroundableExecution*`.
+- `apps/zcode-cli/packages/adapters/src/exec/index.ts` faz a completion de foreground e a promoção por timeout dentro de `NodeExecutionAdapter.runBackgroundable()`.
+- `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts` chama o auto-background via `executionPort.runBackgroundable()` e força `persistOutput: "always"`.
+- `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts` já consegue emitir a task notification `local_bash` do Bash e pode usar um waiter direto para evitar o poller do Bash.
 
-目标形态：
+Forma alvo:
 
-- 公共 `ExecutionPort` 不再出现 `runBackgroundable` / `BackgroundableExecution*`。
-- Bash handler 只通过 Bash 专属 capability 调用 auto-background，例如 `runBashWithAutoBackground(request, options)`。
-- 这个 capability 不是 generic execution contract，只服务 Bash handler；其它调用方继续用 `run()` 或 `start()`。
-- Bash auto-background 继续复用现有 `BackgroundTaskTracker`、`formatTaskNotification({ taskType: "local_bash" })`、`enqueueBackgroundTaskNotification`、runtime command queue。
+- O `ExecutionPort` público não tem mais `runBackgroundable` / `BackgroundableExecution*`.
+- O handler do Bash chama o auto-background apenas por uma capability exclusiva do Bash, como `runBashWithAutoBackground(request, options)`.
+- Essa capability não é um contrato generic de execution, serve apenas ao handler do Bash; os demais chamadores continuam usando `run()` ou `start()`.
+- O auto-background do Bash continua reutilizando o `BackgroundTaskTracker`, o `formatTaskNotification({ taskType: "local_bash" })`, o `enqueueBackgroundTaskNotification` e o runtime command queue existentes.
 
-## File Structure
+## Estrutura de arquivos
 
-- Modify: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
-  - 移除 generic auto-background 类型和接口方法。
-  - 保留已有 `BackgroundExecutionStartResult`、`BackgroundExecutionSnapshot`、`ExecutionPort.start/getBackgroundTask/cancelBackgroundTask`。
+- Modificar: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
+  - Remover os tipos e métodos de interface genéricos de auto-background.
+  - Manter os existentes `BackgroundExecutionStartResult`, `BackgroundExecutionSnapshot`, `ExecutionPort.start/getBackgroundTask/cancelBackgroundTask`.
 
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
-  - 删除 `NodeExecutionAdapter.runBackgroundable()`。
-  - 新增窄方法 `runBashWithAutoBackground(request, options)`，只处理 Bash timeout promotion。
-  - 保留 class 上的 `waitForBackgroundTask(taskId, options?)` 作为内部结构化 capability，但不放回公共 `ExecutionPort`。
-  - 把 foreground artifact cleanup 限定在 Bash auto-background 内部强制落盘场景，不能破坏普通 `run()` 的 `persistOutput` 语义。
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
+  - Remover `NodeExecutionAdapter.runBackgroundable()`.
+  - Adicionar o método estreito `runBashWithAutoBackground(request, options)`, que trata apenas a promoção por timeout do Bash.
+  - Manter `waitForBackgroundTask(taskId, options?)` na classe como capability estruturada interna, sem colocá-lo de volta no `ExecutionPort` público.
+  - Limitar a limpeza dos artefatos de foreground ao cenário interno de persistência forçada do auto-background do Bash, sem quebrar a semântica de `persistOutput` do `run()` comum.
 
-- Create: `apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts`
-  - 放 Bash handler 使用的窄类型、type guard 和 wrapper。
-  - 让 `bash.ts` 不直接写 structural cast。
+- Criar: `apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts`
+  - Conter os tipos estreitos, o type guard e o wrapper usados pelo handler do Bash.
+  - Fazer com que `bash.ts` não escreva mais structural cast diretamente.
 
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
-  - 移除 `createAutoBackgroundExecutionRequest()` 和 `restoreForegroundOutputPersistence()`。
-  - 改为调用 `runBashWithOptionalAutoBackground()`。
-  - 保留 explicit `run_in_background` 走 `executionPort.start()`。
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
+  - Remover `createAutoBackgroundExecutionRequest()` e `restoreForegroundOutputPersistence()`.
+  - Passar a chamar `runBashWithOptionalAutoBackground()`.
+  - Manter o `run_in_background` explícito passando por `executionPort.start()`.
 
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts`
-  - 把 direct waiter 的类型判断改为本文件内部 structural capability，不依赖 `ExecutionPort["waitForBackgroundTask"]`。
-  - Bash direct waiter 存在时继续不用 poller；不存在时保留原 `getBackgroundTask()` fallback。
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts`
+  - Mudar a verificação de tipo do waiter direto para uma structural capability interna deste arquivo, sem depender de `ExecutionPort["waitForBackgroundTask"]`.
+  - Quando o waiter direto do Bash existir, continuar sem usar o poller; quando não existir, manter o fallback original de `getBackgroundTask()`.
 
-- Modify: tests
+- Modificar: testes
   - `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
   - `apps/zcode-cli/packages/core/tests/bash-run-conformance.test.ts`
   - `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
   - `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`
 
-- Modify: docs
+- Modificar: docs
   - `docs/bash-background-parity.md`
-  - Keep this plan as execution checklist: `docs/superpowers/plans/2026-07-01-bash-background-refactor.md`
+  - Manter este plan como checklist de execução: `docs/superpowers/plans/2026-07-01-bash-background-refactor.md`
 
 ---
 
-## Phase 0: Baseline And Target Behavior Recheck
+## Phase 0: Baseline e reconferência do comportamento alvo
 
-**Purpose:** 在动代码前重新确认当前 diff 和目标 Bash background 行为，避免按过期结论继续 patch。
+**Propósito:** reconfirmar o diff atual e o comportamento alvo do background do Bash antes de mexer no código, evitando continuar aplicando patch sobre conclusões desatualizadas.
 
-**Files:** no code changes in this phase.
+**Arquivos:** nenhuma mudança de código nesta phase.
 
 **Checklist**
 
-- [ ] **Step 0.1: Confirm dirty worktree**
+- [ ] **Step 0.1: Confirmar worktree sujo**
 
-Run:
+Executar:
 
 ```bash
 git status --short
 ```
 
-Expected:
+Esperado:
 
-- 能看到当前 Bash background WIP 文件。
-- 如果出现本 plan 外的新文件或用户新改动，先停下来读 diff。
+- É possível ver os arquivos atuais do WIP de background do Bash.
+- Se aparecerem arquivos novos fora deste plan ou alterações novas do usuário, parar e ler o diff antes.
 
-- [ ] **Step 0.2: Confirm generic abstraction is current WIP, not HEAD baseline**
+- [ ] **Step 0.2: Confirmar que a abstração generic é WIP atual, não baseline do HEAD**
 
-Run:
+Executar:
 
 ```bash
 git show HEAD:apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts | rg -n "runBackgroundable|BackgroundableExecution|waitForBackgroundTask|BackgroundExecution" -C 2
 ```
 
-Expected:
+Esperado:
 
-- 只能看到 `BackgroundExecution*`、`start()`、`getBackgroundTask()`、`cancelBackgroundTask()`。
-- 不应看到 `runBackgroundable` 或 `BackgroundableExecution*`。
+- Só devem aparecer `BackgroundExecution*`, `start()`, `getBackgroundTask()` e `cancelBackgroundTask()`.
+- Não deve aparecer `runBackgroundable` nem `BackgroundableExecution*`.
 
-- [ ] **Step 0.3: Confirm current WIP references to remove or narrow**
+- [ ] **Step 0.3: Confirmar as referências atuais do WIP a remover ou estreitar**
 
-Run:
+Executar:
 
 ```bash
 rg -n "runBackgroundable|BackgroundableExecution|autoBackgroundOnTimeout|waitForBackgroundTask" apps/zcode-cli/packages docs/bash-background-parity.md
 ```
 
-Expected:
+Esperado:
 
-- 列出当前 WIP 中待重构引用。
-- 后续 phase 完成后，`runBackgroundable|BackgroundableExecution|autoBackgroundOnTimeout` 在 `apps/zcode-cli/packages` 下应为 0。
+- Lista as referências pendentes de refactor no WIP atual.
+- Após a conclusão das phases seguintes, `runBackgroundable|BackgroundableExecution|autoBackgroundOnTimeout` deve ser 0 em `apps/zcode-cli/packages`.
 
-- [ ] **Step 0.4: Recheck target Bash background facts**
+- [ ] **Step 0.4: Reconferir os fatos alvo do background do Bash**
 
-Run:
+Executar:
 
 ```bash
 rg -n "assistantAutoBackgrounded|backgroundTaskId|persistedOutputPath|run_in_background|TaskOutput" apps/zcode-cli/packages/contracts/src/tools/bash.ts docs/bash-background-parity.md
 ```
 
-Expected:
+Esperado:
 
-- Bash output schema includes `backgroundTaskId`, `backgroundedByUser`, `assistantAutoBackgrounded`, `persistedOutputPath`.
-- Bash auto-background call path is Bash tool owned, not generic public execution contract.
-- Task output path is task-owned and model is notified with task output path after backgrounding.
+- O schema de output do Bash inclui `backgroundTaskId`, `backgroundedByUser`, `assistantAutoBackgrounded`, `persistedOutputPath`.
+- O caminho de chamada do auto-background do Bash pertence à ferramenta Bash, e não a um contrato público de execution generic.
+- O caminho de output da task pertence à task, e o modelo é notificado com o caminho de output da task depois de ir para background.
 
-**Phase 0 Pass Criteria**
+**Critérios de aprovação da Phase 0**
 
-- Current abstraction source and target behavior are re-confirmed.
-- No code changed.
+- A origem da abstração atual e o comportamento alvo foram reconfirmados.
+- Nenhum código alterado.
 
 ---
 
-## Phase 1: Test Desired Narrow Boundary First
+## Phase 1: testar primeiro o limite estreito desejado
 
-**Purpose:** 先把测试从 generic API 改到 Bash 专属 capability，形成重构目标的失败测试。
+**Propósito:** mudar primeiro os testes da API generic para a capability exclusiva do Bash, formando os testes que falham do alvo do refactor.
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
-- Modify: `apps/zcode-cli/packages/core/tests/bash-run-conformance.test.ts`
-- Modify: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
-- Modify: `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/bash-run-conformance.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`
 
 **Interfaces:**
 
-- Produces expected method name: `runBashWithAutoBackground(request: ExecutionRequest, options?: ExecutionRunOptions): Promise<BashAutoBackgroundRunResult>`
-- Produces expected direct waiter shape: `waitForBackgroundTask(taskId: string, options?: { signal?: AbortSignal }): Promise<BackgroundExecutionSnapshot | undefined>`
+- Produz o nome de método esperado: `runBashWithAutoBackground(request: ExecutionRequest, options?: ExecutionRunOptions): Promise<BashAutoBackgroundRunResult>`
+- Produz a forma esperada do waiter direto: `waitForBackgroundTask(taskId: string, options?: { signal?: AbortSignal }): Promise<BackgroundExecutionSnapshot | undefined>`
 
 **Checklist**
 
-- [ ] **Step 1.1: Replace adapter test entrypoint**
+- [ ] **Step 1.1: Substituir o entrypoint de teste do adapter**
 
-In `apps/zcode-cli/packages/adapters/tests/exec.test.ts`, rename auto-background tests so they call `runBashWithAutoBackground` instead of `runBackgroundable`.
+Em `apps/zcode-cli/packages/adapters/tests/exec.test.ts`, renomear os testes de auto-background para que chamem `runBashWithAutoBackground` em vez de `runBackgroundable`.
 
-Use this structural helper in the test file:
+Use este helper estrutural no arquivo de teste:
 
 ```ts
 type BashAutoBackgroundCapableAdapter = NodeExecutionAdapter & {
@@ -186,18 +186,18 @@ type BashAutoBackgroundCapableAdapter = NodeExecutionAdapter & {
 };
 ```
 
-Add one explicit boundary assertion near the first auto-background adapter test:
+Adicione uma asserção explícita de limite perto do primeiro teste de auto-background do adapter:
 
 ```ts
 expect("runBackgroundable" in adapter).toBe(false);
 expect(typeof capable.runBashWithAutoBackground).toBe("function");
 ```
 
-- [ ] **Step 1.2: Replace Bash handler conformance fake**
+- [ ] **Step 1.2: Substituir o fake de conformidade do handler do Bash**
 
-In `apps/zcode-cli/packages/core/tests/bash-run-conformance.test.ts`, change the fake execution port test from `runBackgroundableCalled` to `runBashWithAutoBackgroundCalled`.
+Em `apps/zcode-cli/packages/core/tests/bash-run-conformance.test.ts`, mudar o teste do execution port fake de `runBackgroundableCalled` para `runBashWithAutoBackgroundCalled`.
 
-The fake method should return:
+O método fake deve retornar:
 
 ```ts
 async runBashWithAutoBackground() {
@@ -215,7 +215,7 @@ async runBashWithAutoBackground() {
 }
 ```
 
-Expected assertion:
+Asserção esperada:
 
 ```ts
 expect(runBashWithAutoBackgroundCalled).toBe(true);
@@ -223,11 +223,11 @@ expect(output.status).toBe("backgrounded");
 expect(output.assistantAutoBackgrounded).toBe(true);
 ```
 
-- [ ] **Step 1.3: Add no-generic-contract regression**
+- [ ] **Step 1.3: Adicionar regressão de ausência de contrato generic**
 
-In `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`, add a runtime shape check that Bash provider schema still exposes background result fields but does not rely on execution-port generic promotion.
+Em `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`, adicionar uma checagem de shape em runtime de que o schema de provider do Bash ainda expõe os campos de resultado de background mas não depende da promoção generic do execution port.
 
-Use this expectation style:
+Use este estilo de expectativa:
 
 ```ts
 expect(BashOutputJsonSchema.properties).toHaveProperty("backgroundTaskId");
@@ -235,44 +235,44 @@ expect(BashOutputJsonSchema.properties).toHaveProperty("assistantAutoBackgrounde
 expect(BashInputJsonSchema.properties).toHaveProperty("run_in_background");
 ```
 
-Do not assert any provider-visible field for `runBackgroundable`; it must remain implementation-only and absent from tool schema.
+Não afirme nenhum campo visível ao provider para `runBackgroundable`; ele precisa continuar sendo apenas de implementação e ausente do schema da ferramenta.
 
-- [ ] **Step 1.4: Run focused tests and confirm failure**
+- [ ] **Step 1.4: rodar os testes focados e confirmar a falha**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/adapters/tests/exec.test.ts -t "auto-background|foreground results foreground|persisted output"
 ../../node_modules/.bin/vitest run packages/core/tests/bash-run-conformance.test.ts -t "auto-backgrounds eligible foreground commands"
 ```
 
-Expected:
+Esperado:
 
-- Fails because `NodeExecutionAdapter.runBashWithAutoBackground` does not exist yet.
-- Fails because `bashHandler` still calls `runBackgroundable`.
+- Falha porque `NodeExecutionAdapter.runBashWithAutoBackground` ainda não existe.
+- Falha porque `bashHandler` ainda chama `runBackgroundable`.
 
-**Phase 1 Pass Criteria**
+**Critérios de aprovação da Phase 1**
 
-- Tests encode the desired narrow API.
-- Failure reason is missing/old API only, not unrelated behavior.
+- Os testes codificam a API estreita desejada.
+- O motivo da falha é apenas API ausente/antiga, e não comportamento não relacionado.
 
 ---
 
-## Phase 2: Remove Generic Public ExecutionPort Surface
+## Phase 2: remover a superfície generic do ExecutionPort público
 
-**Purpose:** 从公共 contracts 移除 generic foreground-promotion API，先把边界收窄。
+**Propósito:** remover dos contracts públicos a API generic de foreground-promotion, estreitando primeiro o limite.
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
-- Modify imports in `apps/zcode-cli/packages/adapters/src/exec/index.ts`
-- Modify imports in affected tests
+- Modificar: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
+- Modificar imports em `apps/zcode-cli/packages/adapters/src/exec/index.ts`
+- Modificar imports nos testes afetados
 
 **Checklist**
 
-- [ ] **Step 2.1: Remove generic types from contracts**
+- [ ] **Step 2.1: Remover os tipos genéricos dos contracts**
 
-Delete these declarations from `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`:
+Apagar estas declarações de `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`:
 
 ```ts
 export interface BackgroundableExecutionRunOptions extends ExecutionRunOptions {
@@ -285,9 +285,9 @@ export interface BackgroundableExecutionRunOptions extends ExecutionRunOptions {
 export type BackgroundableExecutionRunResult = ...
 ```
 
-- [ ] **Step 2.2: Remove generic methods from `ExecutionPort`**
+- [ ] **Step 2.2: Remover os métodos genéricos do `ExecutionPort`**
 
-Remove these optional methods from `ExecutionPort`:
+Remover estes métodos opcionais do `ExecutionPort`:
 
 ```ts
 waitForBackgroundTask?(
@@ -300,7 +300,7 @@ runBackgroundable?(
 ): Promise<BackgroundableExecutionRunResult>;
 ```
 
-Keep:
+Manter:
 
 ```ts
 start?(
@@ -311,46 +311,46 @@ getBackgroundTask?(taskId: string): Promise<BackgroundExecutionSnapshot | undefi
 cancelBackgroundTask?(taskId: string): Promise<BackgroundExecutionSnapshot | undefined>;
 ```
 
-- [ ] **Step 2.3: Remove stale imports**
+- [ ] **Step 2.3: Remover imports obsoletos**
 
-In `apps/zcode-cli/packages/adapters/src/exec/index.ts`, remove imports of:
+Em `apps/zcode-cli/packages/adapters/src/exec/index.ts`, remover os imports de:
 
 ```ts
 BackgroundableExecutionRunOptions,
 BackgroundableExecutionRunResult,
 ```
 
-- [ ] **Step 2.4: Typecheck contracts**
+- [ ] **Step 2.4: Checar os tipos dos contracts**
 
-Run:
+Executar:
 
 ```bash
 cd apps/zcode-cli/packages/contracts && ../../../../node_modules/.bin/tsc --noEmit
 ```
 
-Expected:
+Esperado:
 
 - PASS.
 
-**Phase 2 Pass Criteria**
+**Critérios de aprovação da Phase 2**
 
-- `ExecutionPort` no longer exposes generic auto-background.
-- Contracts typecheck passes.
+- O `ExecutionPort` não expõe mais auto-background generic.
+- A checagem de tipos dos contracts passa.
 
 ---
 
-## Phase 3: Add Bash-Specific Auto-Background Capability In NodeExecutionAdapter
+## Phase 3: adicionar a capability de auto-background exclusiva do Bash no NodeExecutionAdapter
 
-**Purpose:** 保留同进程 timeout promotion 能力，但把它限定为 Bash 专属 adapter capability。
+**Propósito:** manter a capacidade de promoção por timeout no mesmo processo, mas limitá-la a uma capability de adapter exclusiva do Bash.
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
-- Modify: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
 
 **Interfaces:**
 
-Add local adapter-only types near the existing background task types in `index.ts`:
+Adicionar tipos locais apenas do adapter, próximos aos tipos de background task existentes em `index.ts`:
 
 ```ts
 interface BashAutoBackgroundRunOptions extends ExecutionRunOptions {}
@@ -367,7 +367,7 @@ type BashAutoBackgroundRunResult =
     };
 ```
 
-Add class method:
+Adicionar o método de classe:
 
 ```ts
 async runBashWithAutoBackground(
@@ -378,21 +378,21 @@ async runBashWithAutoBackground(
 
 **Checklist**
 
-- [ ] **Step 3.1: Rename and narrow method**
+- [ ] **Step 3.1: Renomear e estreitar o método**
 
-In `NodeExecutionAdapter`, replace `runBackgroundable()` with `runBashWithAutoBackground()`.
+Em `NodeExecutionAdapter`, substituir `runBackgroundable()` por `runBashWithAutoBackground()`.
 
-Required semantic changes:
+Mudanças semânticas obrigatórias:
 
-- Remove `autoBackgroundOnTimeout` options object.
-- Use `request.timeoutMs ?? DEFAULT_TIMEOUT_MS` as the auto-background threshold.
-- If threshold is `<= 0`, return `{ kind: "completed", result: await this.run(request, options) }`.
-- Generate task id internally with `exec_${crypto.randomUUID()}`.
-- Do not accept caller-supplied task id.
+- Remover o objeto de options `autoBackgroundOnTimeout`.
+- Usar `request.timeoutMs ?? DEFAULT_TIMEOUT_MS` como o limiar de auto-background.
+- Se o limiar for `<= 0`, retornar `{ kind: "completed", result: await this.run(request, options) }`.
+- Gerar o task id internamente com `exec_${crypto.randomUUID()}`.
+- Não aceitar task id fornecido pelo chamador.
 
-- [ ] **Step 3.2: Keep forced persistence internal**
+- [ ] **Step 3.2: Manter a persistência forçada como interna**
 
-Inside `runBashWithAutoBackground()`, create an internal run request:
+Dentro de `runBashWithAutoBackground()`, criar uma requisição de execução interna:
 
 ```ts
 const originalPersistOutput = request.outputLimit?.persistOutput ?? "none";
@@ -406,11 +406,11 @@ const runRequest: ExecutionRequest = {
 };
 ```
 
-This internal `persistOutput: "always"` must not be created in `bash.ts`.
+Este `persistOutput: "always"` interno não pode ser criado em `bash.ts`.
 
-- [ ] **Step 3.3: Normalize foreground completion**
+- [ ] **Step 3.3: Normalizar a completion de foreground**
 
-Replace `cleanupAutoBackgroundForegroundArtifacts()` with a narrower helper:
+Substituir `cleanupAutoBackgroundForegroundArtifacts()` por um helper mais estreito:
 
 ```ts
 private normalizeBashAutoBackgroundForegroundResult(
@@ -420,15 +420,15 @@ private normalizeBashAutoBackgroundForegroundResult(
 ): ExecutionResult
 ```
 
-Required behavior:
+Comportamento obrigatório:
 
-- If `originalPersistOutput === "always"`, return `result` unchanged.
-- If `originalPersistOutput === "on_truncate"`, preserve artifact metadata only for streams where `stream.truncated === true`; delete internal non-truncated output files.
-- If `originalPersistOutput === "none"`, delete internal output files and remove artifact metadata from both streams unless the stream is truncated by existing output-limit semantics.
+- Se `originalPersistOutput === "always"`, retornar `result` sem alterações.
+- Se `originalPersistOutput === "on_truncate"`, preservar os metadados de artefato apenas para os streams em que `stream.truncated === true`; apagar os arquivos de output internos não truncados.
+- Se `originalPersistOutput === "none"`, apagar os arquivos de output internos e remover os metadados de artefato dos dois streams, a menos que o stream esteja truncado pela semântica existente de output limit.
 
-- [ ] **Step 3.4: Keep output-limit kill only after promotion**
+- [ ] **Step 3.4: Manter o kill por output limit somente após a promoção**
 
-Preserve the current fixed behavior:
+Preservar o comportamento fixo atual:
 
 ```ts
 let backgrounded = false;
@@ -448,7 +448,7 @@ const backgroundRunOptions: InternalExecutionRunOptions = {
 };
 ```
 
-When timeout promotion wins:
+Quando a promoção por timeout vencer:
 
 ```ts
 backgrounded = true;
@@ -458,9 +458,9 @@ if (persistedLimitReached) {
 }
 ```
 
-- [ ] **Step 3.5: Keep direct waiter off public contract**
+- [ ] **Step 3.5: Manter o waiter direto fora do contrato público**
 
-Keep this method on `NodeExecutionAdapter`:
+Manter este método em `NodeExecutionAdapter`:
 
 ```ts
 async waitForBackgroundTask(
@@ -469,43 +469,43 @@ async waitForBackgroundTask(
 ): Promise<BackgroundExecutionSnapshot | undefined>
 ```
 
-Do not re-add it to `ExecutionPort`.
+Não recolocá-lo no `ExecutionPort`.
 
-- [ ] **Step 3.6: Run adapter tests**
+- [ ] **Step 3.6: Rodar os testes do adapter**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/adapters/tests/exec.test.ts -t "auto-background|foreground results foreground|persisted output"
 ```
 
-Expected:
+Esperado:
 
 - PASS.
-- Fast foreground command does not leave hidden artifact files when original request did not ask for persistence.
-- Auto-backgrounded command can be waited through `waitForBackgroundTask`.
+- Um comando de foreground rápido não deixa arquivos de artefato ocultos quando a requisição original não pediu persistência.
+- Um comando levado a background automaticamente pode ser aguardado por `waitForBackgroundTask`.
 
-**Phase 3 Pass Criteria**
+**Critérios de aprovação da Phase 3**
 
-- Adapter supports Bash auto-background without `runBackgroundable`.
-- Adapter tests pass.
-- `rg -n "runBackgroundable|BackgroundableExecution|autoBackgroundOnTimeout" apps/zcode-cli/packages/adapters apps/zcode-cli/packages/contracts` returns no matches.
+- O adapter suporta auto-background do Bash sem `runBackgroundable`.
+- Os testes do adapter passam.
+- `rg -n "runBackgroundable|BackgroundableExecution|autoBackgroundOnTimeout" apps/zcode-cli/packages/adapters apps/zcode-cli/packages/contracts` não retorna nenhuma ocorrência.
 
 ---
 
-## Phase 4: Move Bash Handler To Narrow Helper
+## Phase 4: mover o handler do Bash para o helper estreito
 
-**Purpose:** 让 Bash handler 使用 Bash 专属 capability，并删除 handler 里的 forced persistence patch。
+**Propósito:** fazer o handler do Bash usar a capability exclusiva do Bash e remover do handler o patch de persistência forçada.
 
-**Files:**
+**Arquivos:**
 
-- Create: `apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
-- Modify: `apps/zcode-cli/packages/core/tests/bash-run-conformance.test.ts`
+- Criar: `apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/bash-run-conformance.test.ts`
 
 **Interfaces:**
 
-Create `apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts`:
+Criar `apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts`:
 
 ```ts
 import type {
@@ -564,13 +564,13 @@ export async function runBashWithOptionalAutoBackground(input: {
 
 **Checklist**
 
-- [ ] **Step 4.1: Add helper file**
+- [ ] **Step 4.1: Adicionar o arquivo helper**
 
-Create `bash-auto-background.ts` exactly for the narrow Bash capability and wrapper. Do not export this from contracts.
+Criar `bash-auto-background.ts` exatamente para a capability estreita do Bash e o wrapper. Não exportar isto dos contracts.
 
-- [ ] **Step 4.2: Update `bash.ts` call site**
+- [ ] **Step 4.2: Atualizar o ponto de chamada de `bash.ts`**
 
-Replace the current runResult block with:
+Substituir o bloco runResult atual por:
 
 ```ts
 const runResult = await runBashWithOptionalAutoBackground({
@@ -581,54 +581,54 @@ const runResult = await runBashWithOptionalAutoBackground({
 });
 ```
 
-- [ ] **Step 4.3: Delete handler-level forced persistence helpers**
+- [ ] **Step 4.3: Apagar os helpers de persistência forçada no nível do handler**
 
-Remove from `bash.ts`:
+Remover de `bash.ts`:
 
 ```ts
 function createAutoBackgroundExecutionRequest(...)
 function restoreForegroundOutputPersistence(...)
 ```
 
-Also remove any now-unused imports:
+Remover também os imports que agora ficarem sem uso:
 
 ```ts
 type ExecutionResult
 ```
 
-- [ ] **Step 4.4: Run Bash conformance tests**
+- [ ] **Step 4.4: Rodar os testes de conformidade do Bash**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/bash-run-conformance.test.ts -t "auto-backgrounds eligible foreground commands|conformance"
 ```
 
-Expected:
+Esperado:
 
-- PASS for the auto-background focused test.
-- Existing conformance cases remain unchanged.
+- PASS no teste focado de auto-background.
+- Os casos de conformidade existentes permanecem inalterados.
 
-**Phase 4 Pass Criteria**
+**Critérios de aprovação da Phase 4**
 
-- Bash handler no longer references `runBackgroundable`.
-- Bash handler no longer mutates request persistence for auto-background.
-- Focused Bash tests pass.
+- O handler do Bash não referencia mais `runBackgroundable`.
+- O handler do Bash não altera mais a persistência da requisição para auto-background.
+- Os testes focados do Bash passam.
 
 ---
 
-## Phase 5: Keep Bash Notification On Existing Background Pipeline
+## Phase 5: manter a notificação do Bash no pipeline de background existente
 
-**Purpose:** 继续复用已有的 background notification / wake / runtime command queue，不新增 Bash 专用 wake 机制。
+**Propósito:** continuar reutilizando as notificações de background / wake / runtime command queue já existentes, sem adicionar um mecanismo de wake exclusivo do Bash.
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts`
-- Modify: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
 
 **Interfaces:**
 
-In `background-tasks.ts`, define a local structural waiter type:
+Em `background-tasks.ts`, definir um tipo de waiter estrutural local:
 
 ```ts
 type BackgroundTaskWaiter = {
@@ -639,7 +639,7 @@ type BackgroundTaskWaiter = {
 };
 ```
 
-Add helper:
+Adicionar o helper:
 
 ```ts
 function getBackgroundTaskWaiter(
@@ -654,11 +654,11 @@ function getBackgroundTaskWaiter(
 
 **Checklist**
 
-- [ ] **Step 5.1: Remove dependency on `ExecutionPort["waitForBackgroundTask"]`**
+- [ ] **Step 5.1: Remover a dependência de `ExecutionPort["waitForBackgroundTask"]`**
 
-Change the `BackgroundTaskSnapshot` type so it no longer references `ExecutionPort["waitForBackgroundTask"]`.
+Mudar o tipo `BackgroundTaskSnapshot` para que não referencie mais `ExecutionPort["waitForBackgroundTask"]`.
 
-Keep this union:
+Manter esta união:
 
 ```ts
 type BackgroundTaskSnapshot =
@@ -667,39 +667,39 @@ type BackgroundTaskSnapshot =
   | WorkflowTaskSnapshot;
 ```
 
-- [ ] **Step 5.2: Update Bash direct waiter path**
+- [ ] **Step 5.2: Atualizar o caminho do waiter direto do Bash**
 
-Replace:
+Substituir:
 
 ```ts
 return toolCall.name === "Bash" && Boolean(this.deps.executionPort?.waitForBackgroundTask);
 ```
 
-with:
+por:
 
 ```ts
 return toolCall.name === "Bash" && Boolean(getBackgroundTaskWaiter(this.deps.executionPort));
 ```
 
-Replace the waiter call with:
+Substituir a chamada do waiter por:
 
 ```ts
 return getBackgroundTaskWaiter(this.deps.executionPort)?.waitForBackgroundTask(taskId);
 ```
 
-- [ ] **Step 5.3: Keep fallback poller only as capability fallback**
+- [ ] **Step 5.3: Manter o poller de fallback apenas como fallback de capability**
 
-Do not remove the existing `getBackgroundTask()` polling fallback in this phase; it remains for execution ports that cannot provide direct waiter. Bash on `NodeExecutionAdapter` should use direct waiter and therefore not poll.
+Não remover nesta phase o fallback de polling por `getBackgroundTask()` existente; ele permanece para execution ports que não conseguem fornecer um waiter direto. O Bash no `NodeExecutionAdapter` deve usar o waiter direto e portanto não fazer polling.
 
-- [ ] **Step 5.4: Verify notification enqueue path**
+- [ ] **Step 5.4: Verificar o caminho de enqueue da notificação**
 
-Keep `maybeEnqueueBackgroundTaskNotification()` unchanged except for type fallout. It must still call:
+Manter `maybeEnqueueBackgroundTaskNotification()` inalterado, exceto por efeitos de tipo. Ele ainda precisa chamar:
 
 ```ts
 this.deps.enqueueBackgroundTaskNotification({ text, traceContext });
 ```
 
-The text must still come from:
+O texto ainda precisa vir de:
 
 ```ts
 formatTaskNotification({
@@ -708,44 +708,44 @@ formatTaskNotification({
 });
 ```
 
-- [ ] **Step 5.5: Run runtime loop tests**
+- [ ] **Step 5.5: Rodar os testes do runtime loop**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/runtime-tool-loop.test.ts -t "background Bash|direct execution wait|stale Bash|task-notification|goal|notification"
 ```
 
-Expected:
+Esperado:
 
 - PASS.
-- Started emit failure does not keep stale tracker.
-- Bash completion notification is enqueued after direct wait.
-- Runtime command queue consumes task notification as a normal queued command.
+- Uma falha na emissão de started não mantém um tracker obsoleto.
+- A notificação de completion do Bash é enfileirada após a espera direta.
+- O runtime command queue consome a task notification como um comando enfileirado normal.
 
-**Phase 5 Pass Criteria**
+**Critérios de aprovação da Phase 5**
 
-- Bash direct wait works without public `ExecutionPort.waitForBackgroundTask`.
-- Notification path remains unified with existing background mechanism.
-- Runtime loop focused tests pass.
+- A espera direta do Bash funciona sem o `ExecutionPort.waitForBackgroundTask` público.
+- O caminho de notificação permanece unificado com o mecanismo de background existente.
+- Os testes focados do runtime loop passam.
 
 ---
 
-## Phase 6: Remove Generic References And Update Docs
+## Phase 6: remover referências genéricas e atualizar docs
 
-**Purpose:** 清掉多轮 patch 留下的概念债，确保文档描述的是最终实现，而不是过期抽象。
+**Propósito:** limpar a dívida conceitual deixada por várias rodadas de patch e garantir que os docs descrevam a implementação final, e não abstrações desatualizadas.
 
-**Files:**
+**Arquivos:**
 
-- Modify: `docs/bash-background-parity.md`
-- Modify: `docs/superpowers/plans/2026-07-01-bash-background-parity.md` only if it contains now-dangerous implementation guidance
-- Keep: `docs/superpowers/plans/2026-07-01-bash-background-refactor.md`
+- Modificar: `docs/bash-background-parity.md`
+- Modificar: `docs/superpowers/plans/2026-07-01-bash-background-parity.md` somente se ele contiver orientação de implementação que agora seja perigosa
+- Manter: `docs/superpowers/plans/2026-07-01-bash-background-refactor.md`
 
 **Checklist**
 
-- [ ] **Step 6.1: Update feature doc wording**
+- [ ] **Step 6.1: Atualizar a redação do documento de feature**
 
-In `docs/bash-background-parity.md`, describe the final architecture as:
+Em `docs/bash-background-parity.md`, descrever a arquitetura final como:
 
 ```md
 Bash timeout auto-background is implemented as a Bash-owned execution path.
@@ -754,88 +754,88 @@ and runtime command queue. It does not expose a generic foreground-promotion met
 on ExecutionPort.
 ```
 
-Use Chinese if the rest of the file is Chinese; keep wording short.
+Use chinês se o resto do arquivo for em chinês; mantenha a redação curta.
 
-- [ ] **Step 6.2: Remove stale generic guidance**
+- [ ] **Step 6.2: Remover orientações genéricas obsoletas**
 
-Run:
+Executar:
 
 ```bash
 rg -n "runBackgroundable|BackgroundableExecution|autoBackgroundOnTimeout|persistOutput: \"always\"" apps/zcode-cli/packages docs/bash-background-parity.md
 ```
 
-Expected:
+Esperado:
 
-- No matches for `runBackgroundable`, `BackgroundableExecution`, `autoBackgroundOnTimeout`.
-- `persistOutput: "always"` may still appear in existing explicit background tests or adapter internals for current output persistence semantics, but not in Bash handler auto-background policy.
+- Nenhuma ocorrência de `runBackgroundable`, `BackgroundableExecution`, `autoBackgroundOnTimeout`.
+- `persistOutput: "always"` ainda pode aparecer em testes explícitos de background existentes ou em internos do adapter para a semântica atual de persistência de output, mas não na policy de auto-background do handler do Bash.
 
-- [ ] **Step 6.3: Check naming stays local**
+- [ ] **Step 6.3: Conferir se a nomenclatura continua local**
 
-Run:
+Executar:
 
 ```bash
 node opensource/tools/check-competitor-terms.mjs apps/zcode-cli/packages/core/src/tool/handlers/bash.ts apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts docs/bash-background-parity.md
 ```
 
-Expected:
+Esperado:
 
-- Reports 0 findings.
+- Relata 0 achados.
 
-**Phase 6 Pass Criteria**
+**Critérios de aprovação da Phase 6**
 
-- Docs match final code boundary.
-- No generic auto-background API names remain in source packages.
-- Touched Bash/background files only use local naming.
+- Os docs correspondem ao limite final do código.
+- Nenhum nome de API generic de auto-background permanece nos pacotes de source.
+- Os arquivos tocados de Bash/background usam apenas nomenclatura local.
 
 ---
 
-## Phase 7: Full Verification
+## Phase 7: verificação completa
 
-**Purpose:** 证明这次重构没有破坏现有 Bash、background、notification、contracts、typecheck 和 lint。
+**Propósito:** provar que este refactor não quebrou Bash, background, notificação, contracts, typecheck e lint existentes.
 
-**Files:** no intended code changes.
+**Arquivos:** nenhuma mudança de código pretendida.
 
 **Checklist**
 
-- [ ] **Step 7.1: Adapter tests**
+- [ ] **Step 7.1: Testes do adapter**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/adapters/tests/exec.test.ts
 ```
 
-Expected:
+Esperado:
 
-- PASS with existing skips only.
+- PASS com apenas os skips existentes.
 
-- [ ] **Step 7.2: Core Bash and tool tests**
+- [ ] **Step 7.2: Testes de Bash e ferramentas do core**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/bash-run-conformance.test.ts packages/core/tests/tool-contracts.test.ts
 ```
 
-Expected:
+Esperado:
 
-- PASS with existing skips only.
+- PASS com apenas os skips existentes.
 
-- [ ] **Step 7.3: Runtime background tests**
+- [ ] **Step 7.3: Testes de background do runtime**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/runtime-tool-loop.test.ts -t "background Bash|direct execution wait|stale Bash|task-notification|goal|notification"
 ```
 
-Expected:
+Esperado:
 
 - PASS.
 
-- [ ] **Step 7.4: Package typechecks**
+- [ ] **Step 7.4: Checagens de tipos dos pacotes**
 
-Run:
+Executar:
 
 ```bash
 cd apps/zcode-cli/packages/contracts && ../../../../node_modules/.bin/tsc --noEmit
@@ -843,13 +843,13 @@ cd ../adapters && ../../../../node_modules/.bin/tsc --noEmit
 cd ../core && ../../../../node_modules/.bin/tsc --noEmit
 ```
 
-Expected:
+Esperado:
 
-- All PASS.
+- Todos PASS.
 
-- [ ] **Step 7.5: Repo checks**
+- [ ] **Step 7.5: Checagens do repositório**
 
-Run from repo root:
+Executar a partir da raiz do repositório:
 
 ```bash
 pnpm lint
@@ -857,43 +857,43 @@ pnpm typecheck
 git diff --check
 ```
 
-Expected:
+Esperado:
 
-- `pnpm lint`: exit 0; existing warnings are acceptable if not introduced by this refactor.
+- `pnpm lint`: exit 0; warnings existentes são aceitáveis se não foram introduzidos por este refactor.
 - `pnpm typecheck`: exit 0.
-- `git diff --check`: no whitespace errors.
+- `git diff --check`: sem erros de whitespace.
 
-- [ ] **Step 7.6: Final source scan**
+- [ ] **Step 7.6: Varredura final do source**
 
-Run:
+Executar:
 
 ```bash
 rg -n "runBackgroundable|BackgroundableExecution|autoBackgroundOnTimeout" apps/zcode-cli/packages
 node opensource/tools/check-competitor-terms.mjs apps/zcode-cli/packages/core/src/tool/handlers/bash.ts apps/zcode-cli/packages/core/src/tool/handlers/bash-auto-background.ts apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts docs/bash-background-parity.md
 ```
 
-Expected:
+Esperado:
 
-- First command: no matches.
-- Second command: reports 0 findings.
+- Primeiro comando: nenhuma ocorrência.
+- Segundo comando: relata 0 achados.
 
-**Phase 7 Pass Criteria**
+**Critérios de aprovação da Phase 7**
 
-- All focused tests pass.
-- Package typechecks pass.
-- Repo lint/typecheck pass.
-- Generic auto-background API is gone from source packages.
+- Todos os testes focados passam.
+- As checagens de tipos dos pacotes passam.
+- O lint/typecheck do repositório passa.
+- A API generic de auto-background sumiu dos pacotes de source.
 
 ---
 
-## Definition Of Done
+## Definição de Concluído
 
-- [ ] `ExecutionPort` public contract is back to existing execution/background primitives only.
-- [ ] Bash auto-background works through `runBashWithAutoBackground()` narrow structural capability, not generic `runBackgroundable()`.
-- [ ] Bash handler does not force `persistOutput: "always"` at call site.
-- [ ] Fast foreground Bash completion preserves normal foreground output semantics and does not leak hidden artifacts.
-- [ ] Auto-backgrounded Bash completion emits existing background task events and enqueues existing `local_bash` task notification.
-- [ ] Runtime wake and continuation are handled by the existing runtime command queue path.
-- [ ] Existing explicit `run_in_background` behavior still uses `executionPort.start()`.
-- [ ] No new manual background controls, feature flags, fallback wake timers, or separate Bash notification queue were introduced.
-- [ ] All Phase 7 verification commands pass.
+- [ ] O contrato público `ExecutionPort` voltou a ter apenas as primitivas existentes de execution/background.
+- [ ] O auto-background do Bash funciona pela capability estrutural estreita `runBashWithAutoBackground()`, e não pelo `runBackgroundable()` generic.
+- [ ] O handler do Bash não força `persistOutput: "always"` no ponto de chamada.
+- [ ] A completion de foreground rápido do Bash preserva a semântica normal de output de foreground e não vaza artefatos ocultos.
+- [ ] A completion de Bash levada a background automaticamente emite os eventos de background task existentes e enfileira a task notification `local_bash` existente.
+- [ ] O runtime wake e a continuação são tratados pelo caminho existente do runtime command queue.
+- [ ] O comportamento explícito existente de `run_in_background` continua usando `executionPort.start()`.
+- [ ] Nenhum controle manual de background, feature flag, timer de wake de fallback ou fila de notificação de Bash separada foi introduzido.
+- [ ] Todos os comandos de verificação da Phase 7 passam.

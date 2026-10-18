@@ -1,22 +1,22 @@
-# Sidebar Coding Plan 升级入口
+# Entrada de upgrade do Coding Plan na barra lateral
 
-## 背景
+## Contexto
 
-侧边栏头像菜单保留 Coding Plan 升级入口，用于让用户从账号菜单稳定进入套餐购买/续费流程。入口不再依赖 quota / remaining / subscription 快照决定是否展示，避免未登录、普通 API Key 或套餐状态暂不可用时入口消失。
+O menu do avatar na barra lateral mantém a entrada de upgrade do Coding Plan, para que o usuário entre de forma estável no fluxo de compra/renovação de planos a partir do menu de conta. A entrada não depende mais de o snapshot de quota / remaining / subscription decidir se é exibida, evitando que a entrada desapareça quando o usuário está desconectado, usa apenas uma API Key comum ou o estado do plano está temporariamente indisponível.
 
-## 可见性
+## Visibilidade
 
-“升级”菜单项始终展示在头像菜单中。它不再因为以下状态隐藏：
+O item de menu "Upgrade" é sempre exibido no menu do avatar. Ele não é mais ocultado por nenhum dos seguintes estados:
 
-- 未登录或 OAuth 恢复中。
-- 当前模型不是 Coding Plan。
-- Coding Plan provider 不可用、未配置或 entitlement 正在加载。
-- entitlement 返回 `no_plan` / `unavailable` / 已有套餐 / Team / Enterprise / Max。
+- Usuário desconectado ou em recuperação via OAuth.
+- O modelo atual não é Coding Plan.
+- O provider do Coding Plan está indisponível, não configurado ou com o entitlement em carregamento.
+- O entitlement retorna `no_plan` / `unavailable` / já existe um plano / Team / Enterprise / Max.
 
-## 行为
+## Comportamento
 
-点击“升级”后直接调用现有 `CodingPlanUpgradeDialog`：
+Ao clicar em "Upgrade", o `CodingPlanUpgradeDialog` existente é chamado diretamente:
 
-- 如果当前上下文能解析出 Z.ai / BigModel Coding Plan provider，则打开对应 provider。
-- 如果无法解析 provider，则默认打开 Z.ai Coding Plan。
-- 如果当前 entitlement 可识别为 Max，文案仍显示续费；否则显示升级。
+- Se o contexto atual conseguir resolver um provider Z.ai / BigModel Coding Plan, o provider correspondente é aberto.
+- Se não for possível resolver o provider, o Z.ai Coding Plan é aberto por padrão.
+- Se o entitlement atual for reconhecível como Max, o texto exibido continua sendo renovação; caso contrário, exibe upgrade.

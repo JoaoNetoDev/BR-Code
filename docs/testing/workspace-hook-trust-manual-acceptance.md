@@ -1,20 +1,20 @@
-# Workspace Hook Trust — 人工验收
+# Workspace Hook Trust — Aceitação manual
 
-> 当前口径：Workspace Hook 只有“未信任 / 持久信任”两种授权结果。普通工具权限的
-> `Allow once` 与本功能无关。
+> Posição atual: o Workspace Hook tem apenas dois resultados de autorização, "não confiável / confiável persistente". O
+> `Allow once` das permissões comuns de ferramentas não tem relação com esta funcionalidade.
 
-## 1. 验收目标
+## 1. Objetivo da aceitação
 
-- 未信任的 workspace Hook 默认不执行，也不阻塞正常对话。
-- `设置 → 钩子 → 工作区` 中，未信任行只在最右侧配置开关左边显示一个“信任”按钮。
-- 点击成功后按钮消失；不显示“配置已启用 / 已信任 / 需要审核 / 将会运行”等状态徽章。
-- 配置开关只控制是否启用，信任按钮只建立 exact persistent Trust。
-- 已跳过的 SessionStart 不在当前 task 的下一条消息补跑。
-- 关闭设置、超时或断连不建立 Trust；声明 digest 变化后重新显示“信任”。
+- O Workspace Hook não confiável não é executado por padrão e não bloqueia a conversa normal.
+- Em `Configurações → Hooks → Workspace`, a linha não confiável exibe apenas um botão "Confiar" à esquerda do interruptor de configuração, na extremidade mais à direita.
+- Após o clique bem-sucedido o botão desaparece; não são exibidos badges de estado como "configuração ativada / confiável / precisa de revisão / vai executar".
+- O interruptor de configuração controla apenas a ativação; o botão de confiança estabelece apenas o Trust persistente exato.
+- O SessionStart ignorado não é reexecutado na próxima mensagem da task atual.
+- Fechar as configurações, expirar o tempo limite ou a desconexão não estabelecem Trust; após a mudança do digest declarado o botão "Confiar" é exibido novamente.
 
-## 2. 准备与启动
+## 2. Preparação e inicialização
 
-在仓库根目录使用 Node 24：
+Na raiz do repositório, usando Node 24:
 
 ```bash
 nvm use 24
@@ -22,112 +22,112 @@ pnpm --dir apps/zcode-cli/packages/cli build:desktop-agent
 node scripts/create-workspace-hook-trust-uat-fixture.mjs
 ```
 
-最后一条命令会输出一个新的临时 workspace，例如：
+O último comando imprime um novo workspace temporário, por exemplo:
 
 ```text
 /private/tmp/zcode-workspace-hook-trust-uat-XXXXXX
 ```
 
-记录该路径，并启动 Desktop：
+Registre esse caminho e inicie o Desktop:
 
 ```bash
 pnpm dev:desktop:test
 ```
 
-fixture 包含两个 SessionStart Hook 和一个 UserPromptSubmit Hook。真实执行只会向下面的
-文件追加 JSON，不会执行危险操作：
+O fixture contém dois Hooks SessionStart e um Hook UserPromptSubmit. A execução real apenas anexa JSON ao arquivo abaixo,
+sem executar operações perigosas:
 
 ```text
 <workspace>/.workspace-hook-trust-uat/executions.jsonl
 ```
 
-每轮开始前可校验 fixture 未漂移：
+Antes de cada rodada é possível verificar que o fixture não sofreu drift:
 
 ```bash
 node scripts/create-workspace-hook-trust-uat-fixture.mjs --verify "<workspace>"
 ```
 
-## 3. UAT-01：默认拒绝与行内入口
+## 3. UAT-01: negação por padrão e entrada inline
 
-1. 在 Desktop 添加该 workspace，创建新 task，发送 `reply with ok`。
-2. 确认对话正常完成，聊天区域出现 Workspace Hook 待审核提示。
-3. 点击提示进入 `设置 → 钩子 → 工作区`。
-4. 检查每条未信任 Hook。
+1. No Desktop, adicione esse workspace, crie uma nova task e envie `reply with ok`.
+2. Confirme que a conversa conclui normalmente e que a área de chat exibe o aviso de Workspace Hook aguardando revisão.
+3. Clique no aviso para entrar em `Configurações → Hooks → Workspace`.
+4. Inspecione cada Hook não confiável.
 
-预期：
+Esperado:
 
-- execution marker 不存在，或没有本次 Hook 的记录。
-- 每条未信任行的最右侧顺序为 `信任` → `配置开关`。
-- 页面没有独立审核面板，也没有批量 Trust/Allow once/Keep blocked 操作。
-- 页面没有“配置已启用 / 已信任 / 需要审核 / 将会运行”等徽章。
+- O marcador de execução não existe, ou não há registro deste Hook.
+- Em cada linha não confiável, a ordem na extremidade mais à direita é `Confiar` → `interruptor de configuração`.
+- A página não tem painel de revisão independente nem operações em lote de Trust/Allow once/Keep blocked.
+- A página não exibe badges como "configuração ativada / confiável / precisa de revisão / vai executar".
 
-## 4. UAT-02：关闭状态也可信任
+## 4. UAT-02: é possível confiar mesmo com a configuração desligada
 
-1. 关闭其中一条 Hook 的配置开关。
-2. 确认该行仍显示“信任”。
-3. 点击“信任”。
+1. Desligue o interruptor de configuração de um dos Hooks.
+2. Confirme que a linha ainda exibe "Confiar".
+3. Clique em "Confiar".
 
-预期：
+Esperado:
 
-- 成功后该行“信任”按钮消失。
-- 配置开关保持关闭，信任动作不会顺带启用 Hook。
-- 其他未信任行仍显示自己的“信任”按钮。
+- Após o sucesso, o botão "Confiar" desaparece da linha.
+- O interruptor de configuração permanece desligado; a ação de confiança não habilita o Hook por efeito colateral.
+- As outras linhas não confiáveis ainda exibem seus próprios botões "Confiar".
 
-## 5. UAT-03：逐行信任与未来事件
+## 5. UAT-03: confiança linha a linha e eventos futuros
 
-1. 对一个 SessionStart Hook 点击“信任”。
-2. 留在当前 task，再发送一条 prompt。
-3. 对 UserPromptSubmit Hook 点击“信任”，再发送一条 prompt。
-4. 创建新 task，让新的自然 SessionStart 发生。
+1. Clique em "Confiar" em um Hook SessionStart.
+2. Permaneça na task atual e envie mais um prompt.
+3. Clique em "Confiar" no Hook UserPromptSubmit e envie mais um prompt.
+4. Crie uma nova task, para que um novo SessionStart natural aconteça.
 
-查看执行证据：
+Verifique as evidências de execução:
 
 ```bash
 test -f "<workspace>/.workspace-hook-trust-uat/executions.jsonl" \
   && tail -n 20 "<workspace>/.workspace-hook-trust-uat/executions.jsonl"
 ```
 
-预期：
+Esperado:
 
-- 当前 task 中先前被跳过的 SessionStart 不会因信任而补跑。
-- 已信任的 UserPromptSubmit 可在下一次自然提交 prompt 时运行。
-- 已信任且已启用的 SessionStart 可在新 task/session 的自然 SessionStart 时运行。
-- 每次行内信任只影响该行；其他未信任按钮不会一起消失。
+- O SessionStart ignorado anteriormente na task atual não é reexecutado por causa da confiança.
+- O UserPromptSubmit já confiável pode rodar na próxima submissão natural de prompt.
+- O SessionStart confiável e habilitado pode rodar no SessionStart natural de uma nova task/sessão.
+- Cada confiança inline afeta apenas a própria linha; os outros botões não confiáveis não desaparecem junto.
 
-## 6. UAT-04：持久化与 digest 变化
+## 6. UAT-04: persistência e mudança de digest
 
-1. 关闭并重启 Desktop，再打开同一 workspace。
-2. 确认未变声明仍不显示“信任”，且已启用 Hook 可在自然事件运行。
-3. 修改其中一条 Hook 的命令参数或 matcher，保存配置并重新进入当前 workspace。
+1. Feche e reinicie o Desktop e abra o mesmo workspace.
+2. Confirme que as declarações inalteradas continuam sem exibir "Confiar" e que os Hooks habilitados rodam em eventos naturais.
+3. Altere os argumentos de comando ou o matcher de um dos Hooks, salve a configuração e entre novamente no workspace atual.
 
-预期：
+Esperado:
 
-- 重启不清除 persistent Trust。
-- 语义变化的声明生成新 digest，重新显示“信任”并保持 fail closed。
-- 未变化声明继续命中原 Trust。
+- Reiniciar não limpa o Trust persistente.
+- Declarações com mudança semântica geram um novo digest, exibem "Confiar" novamente e permanecem em fail closed.
+- Declarações inalteradas continuam acertando o Trust existente.
 
-## 7. UAT-05：无决定退出
+## 7. UAT-05: sair sem decidir
 
-1. 使用一个新的 fixture 触发待审核状态。
-2. 打开设置后直接关闭设置页，不点击“信任”。
-3. 可选：等待审核绑定超时，或用手机 Web 断开再连接。
-4. 重新进入 Hooks 设置。
+1. Use um novo fixture para disparar o estado aguardando revisão.
+2. Após abrir as configurações, feche a página de configurações diretamente, sem clicar em "Confiar".
+3. Opcional: aguarde o tempo limite da vinculação de revisão, ou desconecte e reconecte pelo Web do celular.
+4. Reentre nas configurações de Hooks.
 
-预期：
+Esperado:
 
-- 关闭、超时、断连都不产生 Trust record。
-- 未信任行仍显示“信任”，Hook 仍不会运行。
-- mobile replayable 恢复只恢复当前权威状态，不制造临时授权。
+- Fechar, expirar o tempo limite e a desconexão não geram nenhum registro de Trust.
+- As linhas não confiáveis ainda exibem "Confiar" e o Hook continua sem executar.
+- A restauração mobile replayable restaura apenas o estado autoritativo atual e não cria autorização temporária.
 
-## 8. 失败反馈
+## 8. Relato de falha
 
-记录以下信息：
+Registre as seguintes informações:
 
-- 本分支 commit SHA、操作系统、Desktop/Web 入口；
-- workspace 路径与具体 Hook 行；
-- 实际按钮/开关状态；
-- `executions.jsonl` 内容；
-- `~/.zcode/cli/log` 中对应 session 的日志片段（不要附敏感命令内容）。
+- o commit SHA deste branch, o sistema operacional e o ponto de entrada Desktop/Web;
+- o caminho do workspace e a linha específica do Hook;
+- o estado real dos botões/interruptores;
+- o conteúdo de `executions.jsonl`;
+- o trecho de log da session correspondente em `~/.zcode/cli/log` (não anexe o conteúdo de comandos sensíveis).
 
-自动化验证范围见
-[`workspace-hook-trust-persistent-only.md`](../specs/workspace-hook-trust-persistent-only.md)。
+O escopo da verificação automatizada está em
+[`workspace-hook-trust-persistent-only.md`](../specs/workspace-hook-trust-persistent-only.md).

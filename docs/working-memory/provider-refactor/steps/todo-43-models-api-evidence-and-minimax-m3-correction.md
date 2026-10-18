@@ -1,63 +1,74 @@
-# Todo 43：Models API 证据边界与 MiniMax M3 校正
+# Todo 43: Limite de evidências da Models API e correção do MiniMax M3
 
-> 状态：完成
+> Status: concluído
 
-## 1. 新发现
+## 1. Nova descoberta
 
-Provider Endpoint 可能提供协议级 Models API。它查询的是当前 `Endpoint + API Schema + 访问材料` 可见的
-模型，而不是脱离账号的 Base URL：
+O Provider Endpoint pode oferecer uma Models API de nível de protocolo. Ela consulta os modelos
+visíveis para o `Endpoint + API Schema + material de acesso` atual, e não um Base URL destacado da
+conta:
 
 ```text
 Endpoint + API Schema + Access
                |
                v
-       Models API 实时响应
+       Resposta ao vivo da Models API
                |
-               +--> Model ID 成员证据
-               `--> 接口明确提供的能力元数据
+               +--> Evidência de membro do Model ID
+               `--> Metadados de capacidade explicitamente fornecidos pela interface
                |
                v
-       发布者差异报告与人工审核
+       Relatório de divergências do publicador e revisão manual
                |
                v
           Built-in Release
 ```
 
-它不直接覆盖运行时 Config，不形成第四层 Overlay。文档示例只证明接口形状，不能代替带当前访问材料的实时
-响应；厂商未返回的能力仍由官方文档和内容消费实测证明。
+Ela não sobrescreve diretamente o Config de runtime nem forma uma quarta camada de Overlay. Os
+exemplos da documentação provam apenas o formato da interface e não substituem uma resposta ao
+vivo com o material de acesso atual; capacidades que o fabricante não retornou continuam sendo
+provadas pela documentação oficial e por medições reais de consumo de conteúdo.
 
-## 2. MiniMax 冲突校正
+## 2. Correção do conflito do MiniMax
 
-旧研究错误地依据过时接口概览和 Models API 示例，把 `MiniMax-M3` 当作未被官方直接 Endpoint 证明的候选。
-当前中国区官方“模型调用”文档明确声明：
+Uma pesquisa antiga errou ao tomar, com base em uma visão geral de interface obsoleta e em exemplos
+da Models API, `MiniMax-M3` como um candidato não provado diretamente por um Endpoint oficial. A
+documentação oficial atual da China para "模型调用" (chamada de modelo) declara explicitamente:
 
-- M3 是最新 M 系列模型；
-- 1,000,000 context，支持 Text/Image/Video；
-- 中国区 Anthropic Endpoint 为 `https://api.minimaxi.com/anthropic`；
-- 中国区 OpenAI Endpoint 为 `https://api.minimaxi.com/v1`；
-- 两套兼容调用示例都直接使用 `MiniMax-M3`。
+- M3 é o modelo mais recente da série M;
+- context de 1,000,000, com suporte a Text/Image/Video;
+- Endpoint Anthropic da China é `https://api.minimaxi.com/anthropic`;
+- Endpoint OpenAI da China é `https://api.minimaxi.com/v1`;
+- Os dois exemplos de chamada compatível usam diretamente `MiniMax-M3`.
 
-因此 revision 4 必须把 M3 置于 MiniMax `builtinModelIds` 首位并默认启用。M2.7 与 highspeed 仍可作为速度/
-成本不同的可用档位继续默认启用；旧 M2.x 保持关闭。
+Portanto, a revision 4 deve colocar M3 em primeiro lugar no `builtinModelIds` do MiniMax e
+habilitá-lo por padrão. M2.7 e highspeed podem continuar habilitados por padrão como níveis de
+velocidade/custo diferentes; os antigos M2.x permanecem desabilitados.
 
-## 3. 测试先行与验收
+## 3. Testes primeiro e aceitação
 
-先修改真实 Built-in 完整性测试，使 revision 3 失败：
+Primeiro modifica-se o teste real de integridade do Built-in, fazendo a revision 3 falhar:
 
-- release revision 为 4；
-- MiniMax 前三个成员固定为 M3、M2.7、M2.7-highspeed；
-- 三者 Exact Rule 均 `enabled=true`；
-- M3 在当前 Anthropic Endpoint 解析为 1M、Text/Image/Video。
+- a revision do release é 4;
+- os três primeiros membros do MiniMax são fixados como M3, M2.7 e M2.7-highspeed;
+- os três têm Exact Rule com `enabled=true`;
+- M3 é resolvido no Endpoint Anthropic atual como 1M, Text/Image/Video.
 
-随后最小修改 Built-in Config 与当前研究报告。验证 Provider/Provider Node 定向测试和 typecheck、根
-`pnpm typecheck`、`pnpm lint`、格式检查与 `git diff --check`。
+Em seguida faz-se a alteração mínima no Built-in Config e no relatório de pesquisa atual. Validam-se
+os testes direcionados de Provider/Provider Node e o typecheck, o `pnpm typecheck` e o
+`pnpm lint` da raiz, a verificação de formatação e o `git diff --check`.
 
-## 4. 实施记录
+## 4. Registro de implementação
 
-- Built-in Config 升级到 revision 4，MiniMax 成员首段改为 M3、M2.7、M2.7-highspeed，三者默认启用；
-- M3 的既有 1M 与 Text/Image/Video Model Rule 保持不变，新增真实 Config 测试固定其在中国区 Anthropic
-  Endpoint 的 Effective Model Config；
-- Design 明确 Models API 只作为发布验证、差异报告或用户主动导入证据，不形成 Runtime 第四层 Overlay；
-- 旧研究中“M3 未被兼容 Endpoint 证明”的结论已标记并校正，Todo 41 保留历史轨迹但不再作为当前依据；
-- Provider Node 47 项、Provider 151 项测试通过，两个包 typecheck、根 typecheck 通过；根 lint 通过并保留
-  33 条与本轮无关的既有 warning。
+- Built-in Config elevado para revision 4, com o primeiro segmento de membros do MiniMax alterado
+  para M3, M2.7 e M2.7-highspeed, os três habilitados por padrão;
+- As Model Rules existentes de 1M e Text/Image/Video do M3 permanecem inalteradas, e um novo teste
+  real de Config fixa seu Effective Model Config no Endpoint Anthropic da China;
+- O Design deixa explícito que a Models API só serve como evidência de verificação de release,
+  relatório de divergências ou importação ativa pelo usuário, sem formar uma quarta camada de
+  Overlay em Runtime;
+- A conclusão antiga de que "M3 não foi provado por Endpoint compatível" foi marcada e corrigida; o
+  Todo 41 preserva o histórico, mas deixa de servir como base atual;
+- 47 testes do Provider Node e 151 do Provider passaram, assim como o typecheck dos dois pacotes e
+  o typecheck da raiz; o lint da raiz passou mantendo 33 warnings preexistentes e não relacionados a
+  esta rodada.

@@ -1,86 +1,77 @@
-# 模型链路当前审计
+# Auditoria Atual da Cadeia de Modelos
 
-更新日期：2026-07-17
+Data de atualização: 2026-07-17
 
-> **历史审计，已被 Provider Refactor 取代。** 本文记录的是迁移前的 App Provider Snapshot、
-> `runtimeModel` fallback 和 workspace catalog 链路，不是当前实现。当前模型事实由目标 Environment
-> 的 Effective Provider Config、Model Config Rules、Provider Registry 与 ModelFactory 共同产生；
-> 当前设计见 `docs/working-memory/provider-refactor/design/`。
+> **Auditoria histórica, substituída pelo Provider Refactor.** O que este documento registra é o App Provider Snapshot, o fallback de `runtimeModel` e a cadeia de catálogo de workspace anteriores à migração, e não a implementação atual. Os fatos atuais sobre o modelo são produzidos em conjunto pela Effective Provider Config do Environment de destino, pelas Model Config Rules, pelo Provider Registry e pelo ModelFactory; o design atual está em `docs/working-memory/provider-refactor/design/`.
 
-本文汇总以下四条当前链路，并记录仍然存在的复杂性和缺口：
+Este documento resume as quatro cadeias atuais a seguir e registra a complexidade e as lacunas que ainda existem:
 
 - `docs/chat/task-switch-model-resolution-chain.md`
 - `docs/chat/new-task-model-resolution-chain.md`
 - `docs/chat/manual-model-switch-resolution-chain.md`
 - `docs/chat/send-prompt-model-resolution-chain.md`
 
-## 审计结论
+## Conclusão da Auditoria
 
-V4 已经删除“UI task config、task meta、workspace 默认、session snapshot、runtimeModel cache 多级共同决定
-当前模型”的旧主链路。当前边界可以归纳为三层：
+O V4 já removeu a antiga cadeia principal em que "config da task na UI, meta da task, default do workspace, snapshot de sessão e cache de `runtimeModel`" decidiam em conjunto o modelo atual. O limite atual pode ser resumido em três camadas:
 
 ```text
-草稿偏好 / workspace provider registry
-  -> createSession.config 或预热 session CAS
-  -> CLI session runtime config（唯一写入权威）
-  -> ModelSelected（用户切换与 registry fallback 共用）
-  -> ConversationSnapshot.config（只读投影）
-  -> V4 toolbar
+preferência de rascunho / provider registry do workspace
+  -> createSession.config ou CAS da sessão de prewarm
+  -> config de runtime da sessão na CLI (única autoridade de escrita)
+  -> ModelSelected (compartilhado entre troca do usuário e fallback do registry)
+  -> ConversationSnapshot.config (projeção somente leitura)
+  -> barra de ferramentas do V4
 ```
 
-已有 session 的模型权威在 CLI runtime；草稿偏好只决定新 session 初值；UI 目录只决定可选择什么。发送
-不再携带独立模型，配置与发送通过同一 barrier 排序。
+A autoridade do modelo de uma session já existente está no runtime da CLI; a preferência de rascunho só determina o valor inicial de uma nova sessão; o catálogo da UI só determina o que é selecionável. O envio não carrega mais um modelo independente, e a configuração e o envio são ordenados pela mesma barreira.
 
-## 当前必须保留的复杂性
+## Complexidade que Precisa Ser Preservada
 
-| 复杂性                          | 保留原因                                               | 边界                                                                                                 |
-| ------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| workspace provider registry     | custom provider 凭据和模型元数据在 app/service 侧      | 按 workspace identity 和 remote session 同步                                                         |
-| `runtimeModel` 一次性 fallback  | CLI registry 尚未看到新 provider 时安装 client overlay | 仅在 `provider.notInRegistry` 后重试一次                                                             |
-| service `runtimeModel` 派生缓存 | provider header/capability 热刷新需要模型运行配置      | accepted/noop 后按 decision 顺序重建；duplicate 不写；Agent 校验 model+thought，不允许它承担切换意图 |
-| draft prewarm                   | 避免首发临时建 session 和 workspace default 慢写       | deferred、内存态、未提升即清理                                                                       |
-| draft global seed               | 新草稿延续用户上次选择                                 | 不能覆盖本草稿显式选择                                                                               |
-| Agent registry fallback         | 历史 session 模型从 registry 移除后仍可续聊            | Agent 按 default、last-used、catalog first 决策并发布 projection；UI 不写                            |
-| config command barrier          | 防止“切模型 → 立即发送”越序                            | 只线性化本 renderer admission，不承诺跨端全局 FIFO                                                   |
+| Complexidade                        | Motivo da preservação                                        | Limite                                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| provider registry do workspace     | credenciais e metadados de modelo de custom provider ficam do lado app/service | sincronizados por identidade de workspace e sessão remota                                           |
+| fallback único de `runtimeModel`    | instala um overlay de client quando o registry da CLI ainda não viu o novo provider | apenas uma nova tentativa, depois de `provider.notInRegistry`                                        |
+| cache derivado de `runtimeModel` do service | o hot refresh de header/capability de provider precisa da configuração de execução do modelo | reconstruído pela ordem da decisão após accepted/noop; duplicate não escreve; o Agent valida model+thought e não pode carregar a intenção de troca |
+| prewarm de rascunho                 | evita criar sessão temporária no primeiro envio e a escrita lenta do default do workspace | deferred, em memória, limpo se não for promovido                                                       |
+| semente global de rascunho          | um novo rascunho continua a última escolha do usuário        | não pode sobrescrever a escolha explícita daquele rascunho                                           |
+| fallback de registry do Agent       | uma sessão histórica continua conversável após o modelo ser removido do registry | o Agent decide por default, last-used, primeiro do catálogo e publica a projeção; a UI não escreve    |
+| barreira de comandos de config      | impede que "trocar modelo → enviar imediatamente" saia de ordem | lineariza apenas a admissão deste renderer; não promete FIFO global entre clientes                   |
 
-## 已删除的旧事实源
+## Fontes de Fato Antigas Removidas
 
-以下概念可能仍出现在 2026-06 的历史计划、测试迁移记录或兼容 adapter 中，但不再决定 V4 conversation
-当前模型：
+Os conceitos abaixo ainda podem aparecer em planos históricos de 2026-06, registros de migração de testes ou adapters de compatibilidade, mas já não decidem o modelo atual da conversation do V4:
 
-- `ChatInputToolbar` / `useToolbarModelChange` 的 active-task 分支；
-- `useZCodeChatSendPrompt` 的 resume hint 解析；
-- `taskConfigOptionsByTaskId` 作为 conversation config 权威；
-- renderer-local busy prompt queue；
-- `session/setModel`、`workspace/setDefaultModel` 作为 V4 会话写入口；
-- 从消息最后一个 model 或 task meta 推导 toolbar 当前值。
+- O branch de active-task de `ChatInputToolbar` / `useToolbarModelChange`;
+- A resolução de resume hint de `useZCodeChatSendPrompt`;
+- `taskConfigOptionsByTaskId` como autoridade de config da conversation;
+- Fila de prompt busy local do renderer;
+- `session/setModel` e `workspace/setDefaultModel` como entradas de escrita de sessão do V4;
+- Derivar o valor atual da barra de ferramentas a partir do último model da mensagem ou da meta da task.
 
-`zcodeSessionStore` 仍服务 workspace shell、task list、未读、兼容服务投影和草稿目录，不等于它仍拥有 V4
-conversation transcript 或 session config。
+`zcodeSessionStore` ainda atende o shell de workspace, a lista de tasks, não lidas, a projeção de serviço de compatibilidade e o catálogo de rascunhos; isso não significa que ele ainda seja dono do transcript da conversation do V4 ou da config de sessão.
 
-## 已验证的不变量
+## Invariantes Verificados
 
-1. 已绑定 session 的 toolbar 值只能由 snapshot config 确认。
-2. draft 显式选择优先于异步水合的全局种子。
-3. `createSession.config` 在 `firstInput` 前应用；预热 session 首发前再次对齐。
-4. 跨模型时不把源模型 thought 强写给目标模型。
-5. 同值配置是 noop；stale revision 有界重试；provider registry 恢复只重试一次。
-6. `sendText` 不携带第二份模型选择，queued input 也不固定入队时模型。
-7. desktop continuous 与 mobile replayable 共享 session 事实，但保留不同 delivery/recovery 机制。
-8. relay 和 desktop main 不保存模型、queue、snapshot 等 conversation 业务状态。
-9. provider registry 失效后的自动 fallback 只由 Agent 决策；UI 模型菜单是目录投影，不按菜单首项写回会话。
-10. 自动 fallback 与手动切换共用 `setModel → 实际 thought → ModelSelected`，模型、thought 和能力目录不能拆分发布。
-11. create/resume/fork、legacy 写、V4 写、registry fallback 和 runtime refresh 共用同一个 session
-    model-config 临界区；旧 runtimeModel 与当前 model/thought 不一致时只能被忽略，不能回写选型。
+1. O valor da barra de ferramentas de uma sessão vinculada só pode ser confirmado pela config do snapshot.
+2. A escolha explícita do rascunho tem prioridade sobre a semente global hidratada de forma assíncrona.
+3. `createSession.config` é aplicado antes de `firstInput`; a sessão de prewarm é alinhada de novo antes do primeiro envio.
+4. Entre modelos, o thought do modelo de origem não é forçado por escrito no modelo de destino.
+5. Config de mesmo valor é noop; revision obsoleta tem nova tentativa limitada; a recuperação do provider registry só é tentada uma vez.
+6. `sendText` não carrega uma segunda seleção de modelo, e a input enfileirada também não fixa o modelo no momento da entrada na fila.
+7. desktop continuous e mobile replayable compartilham os fatos de sessão, mas mantêm mecanismos distintos de delivery/recovery.
+8. relay e o main do desktop não guardam estado de negócio da conversation como modelo, queue ou snapshot.
+9. O fallback automático após a falha do provider registry é decidido apenas pelo Agent; o menu de modelos da UI é uma projeção do catálogo e não grava de volta o primeiro item do menu na sessão.
+10. O fallback automático e a troca manual compartilham `setModel → thought efetivo → ModelSelected`; modelo, thought e catálogo de capacidades não podem ser publicados separadamente.
+11. create/resume/fork, escritas legadas, escritas do V4, fallback de registry e runtime refresh compartilham a mesma região crítica de session model-config; quando o `runtimeModel` antigo é inconsistente com o model/thought atual, ele só pode ser ignorado, sem gravação de volta da seleção.
 
-## 当前缺口
+## Lacunas Atuais
 
-- context window switch guard 尚未迁回 V4；running session 目前允许直接切模型。
-- `createSession.config` 应用失败采用“会话创建成功、配置降级 runtime 缺省”的语义；需要依赖 UI 屏障、日志和
-  后续 snapshot 暴露偏差，不能把 accepted create 简化成“指定模型一定应用成功”。
-- 多客户端同时配置同一 session 只依赖 revision/CAS 收口，没有“某客户端永久拥有模型选择”的产品语义。
+- O guard de troca da context window ainda não foi migrado de volta para o V4; uma sessão em execução hoje permite trocar de modelo diretamente.
+- A falha na aplicação de `createSession.config` adota a semântica de "sessão criada com sucesso, configuração rebaixada para o padrão do runtime"; é preciso depender da barreira da UI, de logs e do snapshot subsequente para expor a divergência, e não é possível simplificar um create aceito como "o modelo especificado foi aplicado com sucesso".
+- A configuração simultânea da mesma sessão por múltiplos clientes depende apenas de revision/CAS para convergir; não há semântica de produto de que "algum cliente possui permanentemente a escolha de modelo".
 
-## 审计入口
+## Entradas de Auditoria
 
 - `packages/ui/src/v4/SessionPane.tsx`
 - `packages/ui/src/v4/composer/useDraftConfigControl.ts`

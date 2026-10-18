@@ -1,26 +1,26 @@
-# Intranet Machine Host
+# Host da Máquina da Intranet
 
-## 背景
+## Contexto
 
-内网依赖下载、内网探测、SEA SMB 上传提示和发布通知都需要引用同一台内网机器。过去各脚本各自写默认 IP，机器迁移时容易漏改。
+O download de dependências da intranet, a sondagem da intranet, os avisos de upload de SEA via SMB e as notificações de publicação precisam referenciar a mesma máquina da intranet. No passado, cada script escrevia seu próprio IP padrão, o que fazia com que Migrações de máquina esquecessem algum trecho.
 
-## 规则
+## Regras
 
-- 统一环境变量：`INTRANET_MACHINE_HOST`
-- 默认值：`10.0.0.100`
-- host 语义只表示机器地址，不包含协议、端口或路径
-- 需要完整 URL 的场景继续在调用处按自己的协议、端口和路径拼接
-- deps 完整镜像地址仍可用 `ZCODE_DEPS_BASE_URL` 覆盖；该变量覆盖的是完整 deps base URL，不替代 `INTRANET_MACHINE_HOST`
+- Variável de ambiente unificada: `INTRANET_MACHINE_HOST`
+- Valor padrão: `10.0.0.100`
+- A semântica de host representa somente o endereço da máquina, sem protocolo, porta ou caminho
+- Nos cenários que exigem uma URL completa, a montagem continua sendo feita no ponto de chamada, com o protocolo, a porta e o caminho próprios de cada um
+- O endereço completo do espelho de deps continua podendo ser sobrescrito por `ZCODE_DEPS_BASE_URL`; essa variável sobrescreve a deps base URL completa e não substitui `INTRANET_MACHINE_HOST`
 
-## 覆盖范围
+## Escopo de cobertura
 
-- `packages/shared/src/intranetDefaults.ts`：内网探测默认 host 和 probe URL
-- `scripts/intranetDefaults.mjs`：脚本侧 deps base URL 默认 host
-- `scripts/download-glm.sh`：Shell 下载脚本默认 host
-- `apps/zcode-cli/packages/cli/scripts/upload-sea-smb.mjs`：SMB URL 提示默认 host
-- 发布通知脚本：通过同一个 host 组装内网制品 URL 或远程发送地址
+- `packages/shared/src/intranetDefaults.ts`: host padrão da sondagem da intranet e probe URL
+- `scripts/intranetDefaults.mjs`: host padrão da deps base URL do lado de scripts
+- `scripts/download-glm.sh`: host padrão do script de download em Shell
+- `apps/zcode-cli/packages/cli/scripts/upload-sea-smb.mjs`: host padrão dos avisos de URL SMB
+- Scripts de notificação de publicação: montam a URL dos artefatos da intranet ou o endereço de envio remoto usando o mesmo host
 
-## 使用示例
+## Exemplo de uso
 
 ```bash
 INTRANET_MACHINE_HOST=192.0.2.10 pnpm bundle:desktop

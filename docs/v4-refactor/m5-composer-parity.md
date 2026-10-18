@@ -1,55 +1,52 @@
-# M5 Composer Parity — 输入框全量对齐老版 · 能力审计对账
+# M5 Composer Parity — Alinhamento total da caixa de entrada com a versão antiga · auditoria de capacidades
 
-分界原则：**壳老芯新**——旧 `ChatViewComposer` / `ChatPromptEditor` / `ChatInputToolbar` 的
-JSX/样式原样复用（z-code-2 参考），wiring 全部新写：数据读 v4 投影（`snapshot.inputRouting /
-control / config / usage`）+ sessions-index + 存活配置面服务；操作发 v4 命令（`sendText /
+Princípio divisor: **casca antiga, núcleo novo** — o JSX/estilos do antigo `ChatViewComposer` / `ChatPromptEditor` / `ChatInputToolbar` são reutilizados como estão (referência z-code-2), todo o wiring é novo: leitura de dados pela projeção v4 (`snapshot.inputRouting /
+control / config / usage`) + sessions-index + serviço de superfície de config vivo; operações enviam comandos v4 (`sendText /
 createSession / editUserQuery / stop / switchModelConfig / switchCollaborationMode /
-attachment.put`）；不复活旧 hooks 编排 / 旧 store 会话态。
+attachment.put`); sem ressuscitar a orquestração de hooks antigos / estado de sessão do store antigo.
 
-参考基线：老版 `ChatViewComposer.tsx`（删除前 `b44d4a87a^`）。
-现状载体：`packages/ui/src/v4/ConversationComposer.tsx`、`packages/ui/src/v4/composer/*`、
-`packages/ui/src/v4/SessionPane.tsx`。
+Linha de base de referência: `ChatViewComposer.tsx` antigo (antes da remoção `b44d4a87a^`).
+Suporte atual: `packages/ui/src/v4/ConversationComposer.tsx`, `packages/ui/src/v4/composer/*`,
+`packages/ui/src/v4/SessionPane.tsx`.
 
-## 一、已对齐能力（能力 × 老版 × v4 现状 × 处置）
+## I, Capacidades já alinhadas (capacidade × versão antiga × situação atual v4 × disposição)
 
-| 能力                                                | 老版来源                                                                   | v4 现状                                                                                                                                                                                            | 处置                                                                                                        |
-| --------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Lexical 编辑器 + 动作菜单 + sticky 底座             | ChatPromptEditor                                                           | `ChatPromptEditor`（同组件）                                                                                                                                                                       | 完成                                                                                                        |
-| 动态 placeholder（phase/history 变文案）            | `resolveChatPlaceholderKey`                                                | 同函数：`hasHistoryMessages=rows.totalCount>0`、`isTaskProcessing=control.canStop`                                                                                                                 | 完成（parity）                                                                                              |
-| Enter 提交策略                                      | `resolveChatEnterSubmits(preferEnterNewline=isWebRemoteControl)`           | 同函数；桌面端 Enter 发送，手机 Web 远控 Enter 换行                                                                                                                                                | 完成（多端语义一致，见 §三）                                                                                |
-| 草稿 per-session 持久化                             | 旧 `zcodeSessionStore.composerDraftByScopeId` + `chatComposerDraftStorage` | `composer/composerDraftStore.ts`（独立 v4 键空间，text+editorStateJson，scope=sessionId/`__draft__`）                                                                                              | 完成（新做，不与旧键互写）                                                                                  |
-| prompt history ↑/↓                                  | `promptHistoryStorage`                                                     | `readPromptHistoryEntries` / `appendPromptHistoryEntry` / `persistPromptHistoryEntries`                                                                                                            | 完成；写入仅过滤 trim 后与上一条相同的连续重复，旧历史读取不清理（见 `docs/ui/composer-prompt-history.md`） |
-| 附件：文件选择（native picker / hidden input 回退） | useChatComposer                                                            | `useComposerAttachments.openAttachmentPicker`                                                                                                                                                      | 完成                                                                                                        |
-| 附件：粘贴图片 / 文件                               | useChatComposer                                                            | `handlePaste`                                                                                                                                                                                      | 完成                                                                                                        |
-| 附件：长文本粘贴 ≥15Ki 字符→宿主临时文件            | useChatComposer                                                            | `platform.createTempTextAttachment` 路径                                                                                                                                                           | 完成                                                                                                        |
-| 附件：外部 OS 拖拽 + 心跳自动复位                   | useChatComposer                                                            | `handleDragOver/Leave/Drop` + `scheduleComposerDragFeedbackReset`                                                                                                                                  | 完成                                                                                                        |
-| 附件：画板 add-to-chat（PNG）                       | useChatComposer                                                            | `handleWhiteboardMentionSelected` + `WHITEBOARD_ADD_TO_CHAT_EVENT`                                                                                                                                 | 完成                                                                                                        |
-| 附件：8 上限 / 大小 / oversized 内联图拒发          | useChatComposer                                                            | `MAX_CHAT_ATTACHMENTS` + `serializeForSend`（`OversizedInlineImageAttachmentError`→拒发保留草稿）                                                                                                  | 完成                                                                                                        |
-| 附件：objectUrl 生命周期回收                        | useChatComposer                                                            | 卸载/清空 `revokeChatComposerAttachment`                                                                                                                                                           | 完成                                                                                                        |
-| 附件预览网格 + 图片大图预览                         | ChatViewComposer topContent                                                | `topContentNode`（旧 345-501 区段原样恢复）                                                                                                                                                        | 完成                                                                                                        |
-| codeComment 附件 chip                               | `CodeCommentAttachmentChip` + `codeCommentContext` prompt block            | `useCodeCommentContexts`（composer 内存态）+ `buildPromptWithCodeComments`；仅 primary pane 接收全局事件，发送成功后同步移除代码预览                                                               | **完成（2026-07-21 bugfix）**：补回 V4 迁移漏接的 add/remove 事件、chip 和发送序列化                        |
-| webElementContext 附件 chip                         | `WebElementContextAttachmentChip` + `webElementContext` prompt block       | `useWebElementContexts`（composer 内存态）+ `buildPromptWithWebElementContexts`；发送后 user row 用 `parsePromptWebElementContexts` 还原只读 chip，copy/edit 保留原始 `row.text`                   | **完成（2026-07-09）**：不走协议附件、不进草稿持久化                                                        |
-| 会话错误横幅（输入框上方显示失败原因）              | `ChatBottomDock` → `ChatViewErrorBanner` → `ChatErrorBanner`               | `SessionPane` 读取 `snapshot.control.lastError`，映射为 `ChatErrorBanner` 展示在 `ConversationComposer` 编辑器上方；dismiss 只隐藏当前错误指纹，下一条错误继续显示                                 | **接（2026-07-07）**                                                                                        |
-| 发送附件寄存 → 引用模型                             | 旧协议 promptAttachment                                                    | `attachment.put`→`AttachmentRef`（`composer/attachmentUpload.ts`，10 §6.5）；localPath 零上传/内联图经 put                                                                                         | 完成（新协议）                                                                                              |
-| mention `@` 文件 / 文件夹                           | ChatPromptEditor mention                                                   | `enableMentionPanel` + `fileService.listWorkspaceFiles`                                                                                                                                            | 完成                                                                                                        |
-| mention `@` 画板                                    | whiteboard mention                                                         | `onWhiteboardMentionSelected`                                                                                                                                                                      | 完成                                                                                                        |
-| mention `$` 技能                                    | skills mention                                                             | `skillsService`                                                                                                                                                                                    | 完成                                                                                                        |
-| mention `#` 会话                                    | 旧 zcodeSessionStore/taskQueryCache                                        | `sessionsMentionProvider` 切源 v4 sessions-index（`useWorkspaceSessionsIndexItems`）                                                                                                               | 完成（切源）                                                                                                |
-| slash `/` 目录全集                                  | `SlashCommandPlugin`（workspace slashCommands+技能+子智能体广播）          | command 仅展示 CLI workspace slash catalog；技能与子智能体继续使用各自目录；UI 不追加 command 或维护内建白名单                                                                                     | 完成                                                                                                        |
-| 未识别 `/` 命令 → 直发 CLI                          | customCommandPromptResolver                                                | 携附件或 web element context 不消费；`text.startsWith("/")` 且无上下文附件走 `handleSlashCommand`，未识别随 sendText 直发                                                                          | 完成                                                                                                        |
-| workspace file tree「加入对话」                     | 全局事件                                                                   | `WORKSPACE_FILE_ADD_TO_CHAT_EVENT` → `appendWorkspaceFileMentionToComposer`（仅 primary pane）                                                                                                     | 完成                                                                                                        |
-| 发送/停止/入队 状态机                               | ChatViewComposer submitControl                                             | `canSend` / `showStopControl` / `mode==="choice"` 两钮，读 `inputRouting.mode` + `control.canStop`                                                                                                 | 完成                                                                                                        |
-| streaming 队列发送按钮                              | `shouldShowStreamingQueueSendButton`                                       | v4 `choice` 模式两钮（清空 queue / 保留 queue 立即发送）                                                                                                                                           | 完成（v4 队列语义）                                                                                         |
-| Esc → 停止生成（弹窗内不误停）                      | `useChatViewEffects.shouldIgnoreEscapeForStopGeneration`                   | `composer/escapeStop.ts` + `SessionPane` window keydown（仅 primary pane，`control.canStop` 门控）→ `stop` 命令                                                                                    | 完成                                                                                                        |
-| 工具条：模型 / 思考深度 / 模式 / context usage      | ChatInputToolbar                                                           | `V4ComposerToolbar`（展示件复用旧 chat-input-toolbar，值读 config、写发 v4 命令）                                                                                                                  | 完成                                                                                                        |
-| 工具条键盘热键 Ctrl+M / Ctrl+Shift+M / Ctrl+T       | `useToolbarShortcutBindings`                                               | `composer/toolbarShortcuts.ts`（恢复为纯逻辑）；Ctrl+M→openRequestKey 开菜单、Ctrl+T→`getNextThoughtLevelValue`→switchModelConfig、Ctrl+Shift+M→`getNextConfigSelectValue`→switchCollaborationMode | 完成（本次补完）                                                                                            |
-| queue 行为开关 autoDrain / followupMode             | —（v4 特有）                                                               | `V4ComposerQueueToggles`（复用 M4 input-control testid）                                                                                                                                           | 完成（v4 新增）                                                                                             |
+| Capacidade                                                | Origem na versão antiga                                              | Situação atual v4                                                                                                                                                                               | Disposição                                                                                                   |
+| --------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Editor Lexical + menu de ações + base fixa (sticky)       | ChatPromptEditor                                                      | `ChatPromptEditor` (mesmo componente)                                                                                                                                                          | Concluído                                                                                                    |
+| Placeholder dinâmico (phase/history mudam o texto)         | `resolveChatPlaceholderKey`                                           | Mesma função: `hasHistoryMessages=rows.totalCount>0`, `isTaskProcessing=control.canStop`                                                                                                      | Concluído (parity)                                                                                           |
+| Política de envio com Enter                               | `resolveChatEnterSubmits(preferEnterNewline=isWebRemoteControl)`      | Mesma função; no desktop Enter envia, no controle remoto Web do celular Enter quebra linha                                                                                                   | Concluído (semântica consistente entre plataformas, ver §III)                                               |
+| Persistência de rascunho por sessão                       | Store antigo `zcodeSessionStore.composerDraftByScopeId` + `chatComposerDraftStorage` | `composer/composerDraftStore.ts` (espaço de chaves v4 independente, text+editorStateJson, scope=sessionId/`__draft__`)                                                            | Concluído (novo, sem escrita cruzada com chaves antigas)                                                     |
+| Histórico de prompts ↑/↓                                  | `promptHistoryStorage`                                                | `readPromptHistoryEntries` / `appendPromptHistoryEntry` / `persistPromptHistoryEntries`                                                                                                       | Concluído; a escrita apenas filtra repetições consecutivas idênticas após trim em relação à anterior; a leitura do histórico antigo não limpa nada (ver `docs/ui/composer-prompt-history.md`) |
+| Anexo: seleção de arquivo (picker nativo / fallback via input oculto) | useChatComposer                                                    | `useComposerAttachments.openAttachmentPicker`                                                                                                                                                  | Concluído                                                                                                    |
+| Anexo: colagem de imagem / arquivo                         | useChatComposer                                                      | `handlePaste`                                                                                                                                                                                   | Concluído                                                                                                    |
+| Anexo: colagem de texto longo ≥15Ki caracteres → arquivo temporário do host | useChatComposer                                 | Caminho `platform.createTempTextAttachment`                                                                                                                                                     | Concluído                                                                                                    |
+| Anexo: arrastar do SO externo + reset automático por heartbeat | useChatComposer                                                    | `handleDragOver/Leave/Drop` + `scheduleComposerDragFeedbackReset`                                                                                                                              | Concluído                                                                                                    |
+| Anexo: whiteboard add-to-chat (PNG)                       | useChatComposer                                                      | `handleWhiteboardMentionSelected` + `WHITEBOARD_ADD_TO_CHAT_EVENT`                                                                                                                             | Concluído                                                                                                    |
+| Anexo: limite de 8 / tamanho / recusa de imagem inline oversized | useChatComposer                                                    | `MAX_CHAT_ATTACHMENTS` + `serializeForSend` (`OversizedInlineImageAttachmentError`→recusa envio preservando o rascunho)                                                                           | Concluído                                                                                                    |
+| Anexo:回收 do objectUrl / ciclo de vida                  | useChatComposer                                                      | `revokeChatComposerAttachment` na desmontagem/limpeza                                                                                                                                           | Concluído                                                                                                    |
+| Grade de pré-visualização de anexos + pré-visualização ampliada de imagem | ChatViewComposer topContent                                 | `topContentNode` (trecho antigo 345-501 restaurado como está)                                                                                                                                  | Concluído                                                                                                    |
+| Chip de anexo codeComment                                  | `CodeCommentAttachmentChip` + bloco de prompt `codeCommentContext`    | `useCodeCommentContexts` (estado em memória do composer) + `buildPromptWithCodeComments`; apenas o pane principal recebe eventos globais; após envio bem-sucedido a pré-visualização do código é removida em sincronia                                          | **Concluído (correção de bug em 2026-07-21)**: repostos os eventos de add/remove, o chip e a serialização de envio que faltaram na migração v4 |
+| Chip de anexo webElementContext                            | `WebElementContextAttachmentChip` + bloco de prompt `webElementContext` | `useWebElementContexts` (estado em memória do composer) + `buildPromptWithWebElementContexts`; após o envio, a linha de usuário restaura o chip somente-leitura com `parsePromptWebElementContexts`, e copy/edit preservam o `row.text` original                    | **Concluído (2026-07-09)**: não passa por anexos de protocolo nem entra na persistência de rascunho                                 |
+| Banner de erro de sessão (mostra a causa da falha acima da caixa de entrada) | `ChatBottomDock` → `ChatViewErrorBanner` → `ChatErrorBanner` | `SessionPane` lê `snapshot.control.lastError` e mapeia para `ChatErrorBanner` exibido acima do editor de `ConversationComposer`; dismiss apenas oculta a impressão digital do erro atual, o próximo erro continua aparecendo        | **Integrado (2026-07-07)**                                                                                    |
+| Depósito de anexos de envio → referência de modelo         | promptAttachment do protocolo antigo                                | `attachment.put`→`AttachmentRef` (`composer/attachmentUpload.ts`, 10 §6.5); localPath sem upload/imagem inline via put                                                                          | Concluído (novo protocolo)                                                                                    |
+| Menção `@` de arquivo / pasta                              | Menção do ChatPromptEditor                                           | `enableMentionPanel` + `fileService.listWorkspaceFiles`                                                                                                                                         | Concluído                                                                                                    |
+| Menção `@` de whiteboard                                   | Menção de whiteboard                                                  | `onWhiteboardMentionSelected`                                                                                                                                                                   | Concluído                                                                                                    |
+| Menção `$` de skills                                      | Menção de skills                                                     | `skillsService`                                                                                                                                                                                 | Concluído                                                                                                    |
+| Menção `#` de sessão                                      | Store antigo zcodeSessionStore/taskQueryCache                        | `sessionsMentionProvider` com fonte v4 sessions-index (`useWorkspaceSessionsIndexItems`)                                                                                                        | Concluído (troca de fonte)                                                                                    |
+| Catálogo completo de slash `/`                             | `SlashCommandPlugin` (workspace slashCommands+skills+subagentes em broadcast) | command só exibe o catálogo slash do workspace da CLI; skills e subagentes continuam usando seus catálogos; a UI não acrescenta commands nem mantém whitelist embutida                          | Concluído                                                                                                    |
+| Comando `/` não reconhecido → envio direto à CLI          | customCommandPromptResolver                                          | Não consome quando há anexo ou contexto de web element; `text.startsWith("/")` sem anexo de contexto vai por `handleSlashCommand`, e o não reconhecido é enviado direto por sendText                  | Concluído                                                                                                    |
+| Árvore de arquivos do workspace «adicionar à conversa»     | Evento global                                                        | `WORKSPACE_FILE_ADD_TO_CHAT_EVENT` → `appendWorkspaceFileMentionToComposer` (somente pane principal)                                                                                          | Concluído                                                                                                    |
+| Máquina de estados enviar/parar/enfileirar                  | submitControl do ChatViewComposer                                    | `canSend` / `showStopControl` / `mode==="choice"` dois botões, lendo `inputRouting.mode` + `control.canStop`                                                                                       | Concluído                                                                                                    |
+| Botão de envio da fila durante streaming                   | `shouldShowStreamingQueueSendButton`                                  | Modo `choice` da v4 com dois botões (limpar a fila / manter a fila e enviar imediatamente)                                                                                                     | Concluído (semântica de fila v4)                                                                            |
+| Esc → parar a geração (não parar por engano em popover)   | `useChatViewEffects.shouldIgnoreEscapeForStopGeneration`             | `composer/escapeStop.ts` + keydown de window no `SessionPane` (somente pane principal, com gate `control.canStop`) → comando `stop`                                                                | Concluído                                                                                                    |
+| Barra: modelo / profundidade de pensamento / modo / uso de contexto | ChatInputToolbar                                                  | `V4ComposerToolbar` (reaproveita o antigo chat-input-toolbar para exibição; valores lidos de config, escritos por comandos v4)                                                                     | Concluído                                                                                                    |
+| Atalhos de teclado da barra Ctrl+M / Ctrl+Shift+M / Ctrl+T | `useToolbarShortcutBindings`                                         | `composer/toolbarShortcuts.ts` (restaurado como lógica pura); Ctrl+M→openRequestKey abre o menu, Ctrl+T→`getNextThoughtLevelValue`→switchModelConfig, Ctrl+Shift+M→`getNextConfigSelectValue`→switchCollaborationMode | Concluído (completado nesta rodada)                                                                        |
+| Interruptores de comportamento da fila autoDrain / followupMode | — (específico da v4)                                             | `V4ComposerQueueToggles` (reaproveita o testid input-control do M4)                                                                                                                             | Concluído (novo na v4)                                                                                       |
 
-### codeComment 加入对话链路
+### Cadeia de codeComment para adicionar à conversa
 
-代码预览与 composer 继续通过 renderer 内的 cancelable event 解耦，不新增协议字段。只有
-`listenAddToChatEvents=true` 的 primary pane 可以 claim 事件，避免分屏时一次点击写入多个输入区；
-评论来源仍保留自己的 `workspaceIdentity`，删除按“来源 workspace key + comment id”精确匹配。
+A pré-visualização do código e o composer continuam desacoplados por um evento cancelável dentro do renderer, sem novos campos de protocolo. Apenas o pane principal com `listenAddToChatEvents=true` pode reivindicar o evento, evitando que um clique em tela dividida escreva em várias caixas de entrada; a origem do comentário continua guardando seu próprio `workspaceIdentity`, e a remoção casa com precisão por «chave do workspace de origem + id do comentário».
 
 ```text
 代码预览提交评论
@@ -61,223 +58,199 @@ attachment.put`）；不复活旧 hooks 编排 / 旧 store 会话态。
   -> accepted 后清 chip，并同步移除来源代码预览
 ```
 
-发送被 `blocked`、要求队列二次确认或抛错时，不清 chip 和代码预览，用户可以直接重试。
-这条链路只改变 renderer 草稿内容，不改变桌面 `desktop-continuous` 和手机
-`web-remote-replayable` 的消息投递、snapshot、queue 或 owner 边界。
+Quando o envio é `blocked`, exige segunda confirmação de fila ou lança erro, o chip e a pré-visualização do código não são limpos, e o usuário pode tentar novamente diretamente. Esta cadeia altera apenas o conteúdo do rascunho no renderer; não altera a entrega de mensagens, o snapshot, a fila ou os limites de owner do `desktop-continuous` da desktop e do `web-remote-replayable` do celular.
 
-## 二、老版有、v4 未接（处置与理由）
+## II, Presente na versão antiga e não integrado na v4 (disposição e motivo)
 
-| 能力                                     | 老版来源                                                                          | v4 现状                   | 处置 / 理由                                                                                       |
-| ---------------------------------------- | --------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- |
-| 模型切换前上下文压缩守卫                 | `onRequestContextCompressionForModelSwitch`（`modelSwitchContextWindowGuard.ts`） | ✗（模块已随波次删除）     | 死期已到：v4 未复活；context usage 面的 `/compact` 入口仍在（`onSendCompressionCommand`）         |
-| provider 恢复                            | `onRecoverWorkspaceProvider`（recovery 配置面）                                   | ✗                         | 配置/恢复面 v4 化前不接；不属会话输入核心                                                         |
-| contextHeaderContent（头部 banner 插槽） | ChatViewComposer prop                                                             | ✗                         | 无对应 v4 头内容源；纯展示插槽，按需再接                                                          |
-| onFocus（`handleInputFocus`）            | ChatPromptEditor onFocus                                                          | ✗                         | 旧用于清 blocking/聚焦副作用；v4 permission 面经 `inputRouting.mode` 门控，不经 composer focus    |
-| blockingRequestId 隐藏 composer          | ChatViewComposer 整体 `display:none`                                              | 以 `mode` 门控替代        | v4 用 `inputRouting.mode`（reject→editing disabled、guide/choice→不可直发）替代整体隐藏，语义等价 |
-| triggerPanelContainer 外置 portal        | `setTriggerPanelContainer`                                                        | ChatPromptEditor 内置回退 | 完成（等价）：`internalTriggerPanelContainer` 自解析，v4 无需外置容器                             |
+| Capacidade                                     | Origem na versão antiga                                                  | Situação atual v4                | Disposição / motivo                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Guarda de compactação de contexto antes de trocar de modelo | `onRequestContextCompressionForModelSwitch` (`modelSwitchContextWindowGuard.ts`) | ✗ (módulo removido junto com a onda) | Prazo encerrado: a v4 não ressuscitou; a entrada `/compact` da superfície de uso de contexto continua (`onSendCompressionCommand`) |
+| Recuperação de provider                         | `onRecoverWorkspaceProvider` (superfície de configuração de recuperação)  | ✗                                 | Não integrar antes da v4ização das superfícies de configuração/recuperação; não pertence ao núcleo de entrada da sessão |
+| contextHeaderContent (slot de banner do cabeçalho) | prop do ChatViewComposer                                            | ✗                                 | Não há fonte de conteúdo de cabeçalho v4 correspondente; é um slot puramente de exibição, integrar se necessário |
+| onFocus (`handleInputFocus`)                     | onFocus do ChatPromptEditor                                             | ✗                                 | Antes servia para limpar efeitos colaterais de bloqueio/foco; na v4 a superfície de permission é controlada por `inputRouting.mode`, não pelo foco do composer |
+| Ocultar o composer por blockingRequestId         | `display:none` do ChatViewComposer inteiro                               | Substituído por gate de `mode`    | A v4 usa `inputRouting.mode` (reject→editing desabilitado, guide/choice→sem envio direto) no lugar de ocultar tudo, semântica equivalente |
+| Portal externo de triggerPanelContainer         | `setTriggerPanelContainer`                                              | Fallback interno do ChatPromptEditor | Concluído (equivalente): `internalTriggerPanelContainer` se resolve sozinho, a v4 não precisa de container externo |
 
-## 三、Enter 提交策略说明
+## III, Explicação da política de envio com Enter
 
-老版 `preferEnterNewline` 唯一来源是 `isWebRemoteControl`（`ChatViewComposer.tsx:177
-preferEnterNewline: isWebRemoteControl`），并非用户设置项：
+Na versão antiga, a única origem de `preferEnterNewline` é `isWebRemoteControl` (`ChatViewComposer.tsx:177
+preferEnterNewline: isWebRemoteControl`), e não uma opção de usuário:
 
-- 桌面端：`preferEnterNewline=false`，Enter 发送、Shift+Enter 换行。
-- 手机 Web 远控：`preferEnterNewline=true`，Enter 换行，使用发送按钮提交。
+- Desktop: `preferEnterNewline=false`, Enter envia, Shift+Enter quebra linha.
+- Controle remoto Web no celular: `preferEnterNewline=true`, Enter quebra linha, o envio é feito pelo botão.
 
-v4 composer 继续通过 `resolveChatEnterSubmits` 统一计算，并将 `isWebRemoteControl` 作为
-`preferEnterNewline` 传入；移动视口门禁仍由该函数负责，不能把手机语义扩散到桌面端。
+O composer da v4 continua calculando tudo de forma unificada por `resolveChatEnterSubmits` e passando `isWebRemoteControl` como
+`preferEnterNewline`; o gate de viewport móvel continua sob responsabilidade dessa função, e a semântica do celular não pode se espalhar para o desktop.
 
-## 四、结论
+## IV, Conclusão
 
-输入框核心能力（编辑器 / 草稿 / prompt history / 附件全链 / mention / slash / 发送-停止状态机 /
-Esc-停止 / 工具条 + 键盘热键 / 动态 placeholder / Enter 策略）已全量对齐老版。未接项均为
-**超 v4 vertical slice 范围**（代码评审/provider 恢复）或**已判死期**（模型切换压缩守卫），
-非遗漏。
+As capacidades centrais da caixa de entrada (editor / rascunho / histórico de prompts / cadeia completa de anexos / menções / slash / máquina de estados enviar-parar /
+Esc-parar / barra + atalhos de teclado / placeholder dinâmico / política de Enter) estão totalmente alinhadas com a versão antiga. Os itens não integrados são
+**acima do escopo do vertical slice da v4** (revisão de código/recuperação de provider) ou **já com prazo encerrado** (guarda de compactação na troca de modelo),
+e não omissões.
 
-**勘误（2026-07-07）**：上述审计只覆盖了「已有会话」的 composer；**草稿态（sessionId=null）整块漏审**，
-属真遗漏，不在「非遗漏」结论范围内。补审见 §五。
+**Retificação (2026-07-07)**: a auditoria acima cobriu apenas o composer de «sessões existentes»; o **estado de rascunho (sessionId=null) foi auditado por inteiro como ausência**,
+o que é uma omissão real e não se inclui na conclusão de «não é omissão». A auditoria complementar está na §V.
 
-## 五、草稿态（draft / 空态）对账 —— 2026-07-07 补审
+## V, Reconciliação do estado de rascunho (draft / estado vazio) — auditoria complementar de 2026-07-07
 
-参考基线：z-code-2 线上 `ChatView.tsx` 草稿路径（`shouldShowChatViewEmptyState` /
-`shouldUseCenteredDraftChatLayout` 分支）+ `ChatInputToolbar.tsx`（`taskId=null` 分支）。
-v4 现状载体：`SessionPane`（`sessionId===null` → `draftMode`）、`ConversationComposer`、
-`V4ComposerToolbar`。
+Linha de base de referência: o caminho de rascunho do `ChatView.tsx` online do z-code-2 (ramos `shouldShowChatViewEmptyState` /
+`shouldUseCenteredDraftChatLayout`) + `ChatInputToolbar.tsx` (ramo `taskId=null`).
+Suporte atual da v4: `SessionPane` (`sessionId===null` → `draftMode`), `ConversationComposer`,
+`V4ComposerToolbar`.
 
-现状根因一句话：v4 工具条三件套（模型/思考深度/模式）全部门控在 `config !== null` 上，
-而 `config` 只来自会话投影 `snapshot.config`——草稿态无投影 → 控件整体不渲染；写路径
-`dispatchConfigCas` 也在 `!sessionId` 时 skip。空态壳（workspace 菜单/问候语/居中布局）则完全没接。
+Causa raiz atual em uma frase: o trio da barra na v4 (modelo/profundidade de pensamento/modo) está todo condicionado a `config !== null`,
+e `config` vem apenas da projeção de sessão `snapshot.config` — no estado de rascunho não há projeção → os controles não são renderizados; o caminho de escrita
+`dispatchConfigCas` também faz skip quando `!sessionId`. A casca de estado vazio (menu do workspace/saudação/layout centralizado) simplesmente não foi integrada.
 
-### 5.1 工具条配置面（草稿态）
+### 5.1 Superfície de configuração da barra (estado de rascunho)
 
-统一方案（与 10-protocol-spec §4.2.3 R-19 配套）：**草稿态读写 workspace 缺省配置，首发时随
-`createSession.config` 携带**。
+Solução unificada (em par com 10-protocol-spec §4.2.3 R-19): **no estado de rascunho, leitura e escrita usam a configuração padrão do workspace, carregada no primeiro envio com**
+`createSession.config`.
 
-- 读面：`useToolbarConfigOptions(workspacePath, null, workspaceIdentity)` 的 `currentValue`
-  （= workspace 缺省，配置面存活服务；后续切 v4 `workspace-config` topic 时消费面不变）。
-- 目录水合（2026-07-07 二测补裁决）：旧 `useWorkspacePrepare` hook 随 M5② 删除后
-  草稿态目录无人初始化（恒空 → 控件隐藏、agent 未拉起 → 首次 default 写失败）。
-  水合责任归 `useDraftConfigControl` 挂载 effect：目录缺失时 `readWorkspaceState`
-  拉取并写 store（per-workspace 单飞；顺带拉起 workspace agent）；水合期间模型菜单
-  以占位 trigger 保持可见（app provider snapshot 分组已就绪即可点开）。
-- 目录就绪边界（2026-07-21 bugfix）：`configOptions` 与 `slashCommands` 是两份独立目录，
-  不得再用「已有模型目录」同时代表两者已经水合。task → draft 会继承模型目录，但会清空
-  上一条会话的 slash 命令；此时空 slash 目录必须重新触发同一条 `readWorkspaceState`
-  单飞，并按 `workspaceIdentity?.trim() || workspacePath` 写回当前 workspace 身份桶。
+- Superfície de leitura: o `currentValue` de `useToolbarConfigOptions(workspacePath, null, workspaceIdentity)`
+  (= padrão do workspace, serviço de superfície de config vivo; quando migrar para o topic v4 `workspace-config` a superfície consumidora não muda).
+- Hidratação de catálogos (decisão da segunda reteste em 2026-07-07): depois que o hook antigo `useWorkspacePrepare` foi removido no M5②,
+  ninguém inicializa mais os catálogos no estado de rascunho (sempre vazios → controles ocultos, agent não iniciado → primeira escrita de default falha).
+  A responsabilidade de hidratação fica com o effect de montagem de `useDraftConfigControl`: quando faltam catálogos, `readWorkspaceState`
+  busca e escreve no store (voo único por workspace; aproveita para subir o agent do workspace); durante a hidratação o menu de modelos
+  permanece visível com um trigger de placeholder (basta o agrupamento de snapshot do app provider estar pronto para abrir).
+- Limite de prontidão dos catálogos (correção de bug em 2026-07-21): `configOptions` e `slashCommands` são dois catálogos independentes,
+  e não se pode mais usar «o catálogo de modelos já existe» para representar que ambos foram hidratados. A transição task → draft herda o catálogo de modelos, mas limpa
+  os comandos slash da sessão anterior; nesse caso o catálogo slash vazio precisa acionar de novo o mesmo voo único de `readWorkspaceState`
+  e gravar de volta no bucket de identidade do workspace atual por `workspaceIdentity?.trim() || workspacePath`.
 
       task → draft
           ├─ configOptions: 保留 ───────┐
           └─ slashCommands: 清空 ──────┼─ 任一目录未就绪 → readWorkspaceState
                                        └─ 两份目录均就绪 → 跳过 RPC
 
-  该修复只补 renderer 草稿目录水合，不改变 desktop continuous 或 web remote replayable
-  的消息投递、snapshot、queue 与 owner 边界。
+  Essa correção apenas repõe a hidratação de catálogos de rascunho no renderer; não altera a entrega de mensagens, o snapshot, a fila nem os limites de owner do desktop continuous ou do web remote replayable.
 
-- 已知 session 导航边界（2026-07-22 bugfix）：`slashCommands` 是 workspace identity 级目录，
-  选择同一 workspace 的已有 task 时不得先清空再等待 conversation projection 回填；projection
-  只恢复 session 状态，不负责写 composer 消费的 workspace 目录。冷恢复或旧状态下目录确实为空时，
-  `useDraftConfigControl` 也会在已有 session 下独立读取 workspace state，但不会覆盖 task config，
-  也不会把草稿全局 model seed 应用到该 session。
+- Limite conhecido de navegação entre sessões (correção de bug em 2026-07-22): `slashCommands` é um catálogo no nível da identidade do workspace,
+  e ao selecionar uma task existente do mesmo workspace não se deve limpar primeiro e esperar o conversation projection preencher; o projection
+  só restaura o estado da sessão, não é responsável por escrever os catálogos de workspace consumidos pelo composer. Na recuperação a frio ou quando o catálogo
+  está de fato vazio em estado antigo, `useDraftConfigControl` também lê o workspace state de forma independente mesmo com sessão existente, mas não sobrescreve
+  a config da task nem aplica a semente global de modelo do rascunho àquela sessão.
 
       draft / task A：workspace slash catalog ready
                       │ select known task B（同 workspace identity）
                       ├─ catalog 非空 ──> 原样保留，composer 立即可用
                       └─ catalog 为空 ──> readWorkspaceState ──> 补齐 workspace catalog
 
-  该修复不改变 desktop continuous 主链路，也不把目录水合扩散为 mobile replayable 的
-  snapshot、gap、queue 或 owner 语义。
+  Essa correção não altera a cadeia principal do desktop continuous nem espalha a hidratação de catálogos para semântica de snapshot, gap, fila ou owner do mobile replayable.
 
-- 命令目录权威（2026-07-22）：CLI protocol workspace slash catalog 是 command 的唯一来源。
-  UI 删除 M5 迁移期的 `extraSlashCommands`、内建白名单和 GLM `/goal` fallback；`/goal`、
-  `/compact`、`/init` 与 custom command 均以 CLI 返回为准。UI 私有 `/resume-goal` alias 删除，
-  恢复 goal 使用 CLI 已声明的 `/goal resume`。提交边界保留 command 路由，但不再参与目录声明。
-- 写面：复用存活的 `lib/zcodeWorkspaceDefaultConfigControl.ts`（写 workspace default，
-  保证「下一个新会话继承上次选择」语义——线上修过只写 draft 不写 default 的 bug，注释保真）。
-- 首发：`createSession` 携带 `config`（partial，协议 `command.ts` 已支持），CLI 按 R-19 以
-  runtime 真值 + 请求 config 归并出会话初值；UI 不再依赖「先建会话再切配置」。
+- Autoridade do catálogo de comandos (2026-07-22): o catálogo slash de workspace do protocolo CLI é a única fonte de command.
+  A UI remove o `extraSlashCommands` da migração M5, a whitelist embutida e o fallback `/goal` do GLM; `/goal`,
+  `/compact`, `/init` e custom command seguem exatamente o que a CLI retorna. O alias privado `/resume-goal` da UI é removido,
+  e a retomada de goal volta a usar o `/goal resume` já declarado pela CLI. O limite de envio mantém o roteamento de commands, mas deixa de participar da declaração de catálogos.
+- Superfície de escrita: reaproveita o `lib/zcodeWorkspaceDefaultConfigControl.ts` vivo (escreve o default do workspace,
+  garantindo a semântica de «a próxima sessão nova herda a última escolha» — o bug online de escrever apenas no draft sem escrever no default já foi corrigido, com o comentário preservado).
+- Primeiro envio: `createSession` carrega `config` (partial, já suportado pelo protocolo em `command.ts`), e a CLI faz a mesclagem conforme R-19 entre o valor real do runtime e a config da requisição para obter o valor inicial da sessão; a UI não depende mais de «criar a sessão e só então trocar a config».
 
-| 能力                                                          | 老版来源                                                   | v4 现状                                                                                      | 处置                                            |
-| ------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| 草稿态模型选择（显示 workspace 缺省 + 可切）                  | ChatInputToolbar `taskId=null` + `useToolbarConfigOptions` | `resolveDraftEffectiveConfig`（composer/draftWorkspaceDefaults）合成 display-only config     | **完成（2026-07-07）**                          |
-| 草稿态模式选择                                                | 同上                                                       | `resolveDraftModeCurrentValue` + `V4ComposerModeSwitch` draftMode 分支                       | **完成（2026-07-07）**                          |
-| 草稿态思考深度                                                | 同上                                                       | thought 目录 currentValue 回落（同 effectiveConfig）                                         | **完成（2026-07-07）**                          |
-| 草稿选择写 workspace default（双语义：当前首发 + 新会话继承） | `setWorkspacePreferredModelWithSessionControl`             | `useDraftConfigControl`（写 default + 权威目录直写 store 回显）+ `createSession.config` 携带 | **完成（2026-07-07）**                          |
-| 工具条热键 Ctrl+M / Ctrl+T / Ctrl+Shift+M 草稿态生效          | `useToolbarShortcutBindings`                               | 随 effectiveConfig 非空自然恢复                                                              | **完成（2026-07-07）**；e2e 断言待补（见 §5.6） |
-| 会话建立后工具条初值非空                                      | 旧协议 settings 恒有值                                     | CLI R-19 种子已落地（c7ee7b914）                                                             | **完成（CLI 侧）**                              |
+| Capacidade                                                          | Origem na versão antiga                                              | Situação atual v4                                                                                        | Disposição                                            |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Escolha de modelo no estado de rascunho (mostrar o default do workspace + permitir troca) | `taskId=null` do ChatInputToolbar + `useToolbarConfigOptions` | `resolveDraftEffectiveConfig` (composer/draftWorkspaceDefaults) sintetiza config somente para exibição      | **Concluído (2026-07-07)**                          |
+| Escolha de modo no estado de rascunho                               | Idem                                                                  | `resolveDraftModeCurrentValue` + ramo draftMode de `V4ComposerModeSwitch`                                    | **Concluído (2026-07-07)**                          |
+| Profundidade de pensamento no estado de rascunho                     | Idem                                                                  | currentValue do catálogo de thought com fallback (mesmo effectiveConfig)                                    | **Concluído (2026-07-07)**                          |
+| Escolha no rascunho escreve no default do workspace (dupla semântica: primeiro envio atual + herança por sessão nova) | `setWorkspacePreferredModelWithSessionControl`           | `useDraftConfigControl` (escreve default + escrita direta no store pelo catálogo autoritativo) + `config` transportado em `createSession` | **Concluído (2026-07-07)**             |
+| Atalhos de teclado da barra Ctrl+M / Ctrl+T / Ctrl+Shift+M valem no estado de rascunho | `useToolbarShortcutBindings`                            | Restaurados naturalmente com effectiveConfig não vazio                                                     | **Concluído (2026-07-07)**; asserção e2e pendente (ver §5.6) |
+| Valor inicial não vazio da barra após criar a sessão                 | Settings do protocolo antigo sempre tinha valor                       | A semente R-19 da CLI já está implantada (c7ee7b914)                                                       | **Concluído (lado da CLI)**                           |
 
-### 5.2 空态壳（empty state）
+### 5.2 Casca de estado vazio (empty state)
 
-| 能力                                                                        | 老版来源                                              | v4 现状                                                                                                                                       | 处置                         |
-| --------------------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| workspace 切换菜单（搜索/最多5项/打开文件夹/SSH 远程入口/断连 remote 过滤） | `ChatEmptyWorkspacePreviewMenu`（ChatEmptyState.tsx） | 组件原样复用；壳层（WorkspaceShellLayout）构造 `draftComposerHeader` 经 V4WorkspaceChatArea/V4ChatPane → SessionPane → composer contextHeader | **完成（2026-07-07）**       |
-| Git 分支切换器（空态，锁定向上弹出）                                        | ChatView `contextHeaderContent`                       | 同上（`avoidPopoverCollisions=false` 旧 bugfix 保真）                                                                                         | **完成（2026-07-07）**       |
-| 时间问候语 + ZCode Logo                                                     | `ChatView/ChatViewEmptyState.tsx`                     | 恢复为 `v4/ConversationDraftEmptyState.tsx`（compactForRemoteControl prop 收敛为 max-md 响应式）                                              | **完成（2026-07-07）**       |
-| 居中草稿布局（composer 垂直居中）                                           | `shouldUseCenteredDraftChatLayout`                    | SessionPane draft 分支：问候语 + composer（`centered`，max-w-2xl 去 sticky）垂直居中                                                          | **完成（2026-07-07）**       |
-| `TID_CHAT_EMPTY` e2e 锚点                                                   | ChatView 空态区                                       | draft 居中容器携带                                                                                                                            | **完成（2026-07-07）**       |
-| scratch workspace（临时工作区）入口                                         | `ChatEmptyScratchWorkspaceDialog`（经空态菜单）       | ✗（组件存活未接；旧入口不在菜单组件内部）                                                                                                     | 待接（需先确认旧触发点归属） |
+| Capacidade                                                                        | Origem na versão antiga                                          | Situação atual v4                                                                                                                                   | Disposição                         |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Menu de troca de workspace (busca/máximo de 5 itens/abrir pasta/entrada SSH remoto/filtro de remote desconectado) | `ChatEmptyWorkspacePreviewMenu` (ChatEmptyState.tsx)       | Componente reutilizado como está; a casca (WorkspaceShellLayout) monta `draftComposerHeader` que passa por V4WorkspaceChatArea/V4ChatPane → SessionPane → composer contextHeader | **Concluído (2026-07-07)**       |
+| Seletor de branch do Git (estado vazio, travado para cima)                          | `contextHeaderContent` do ChatView                                | Idem (`avoidPopoverCollisions=false` preservado fielmente da correção antiga)                                                                         | **Concluído (2026-07-07)**       |
+| Saudação por horário + logo do ZCode                                               | `ChatView/ChatViewEmptyState.tsx`                                 | Restaurado como `v4/ConversationDraftEmptyState.tsx` (prop compactForRemoteControl convergido para responsividade max-md)                                 | **Concluído (2026-07-07)**       |
+| Layout de rascunho centralizado (composer centralizado verticalmente)             | `shouldUseCenteredDraftChatLayout`                                | Ramo draft do SessionPane: saudação + composer (`centered`, max-w-2xl sem sticky) centralizados verticalmente                                          | **Concluído (2026-07-07)**       |
+| Âncora e2e `TID_CHAT_EMPTY`                                                       | Área de estado vazio do ChatView                                   | Carregada pelo container centralizado do draft                                                                                                        | **Concluído (2026-07-07)**       |
+| Entrada de scratch workspace (área de trabalho temporária)                        | `ChatEmptyScratchWorkspaceDialog` (via menu de estado vazio)       | ✗ (componente vivo e não integrado; a entrada antiga não fica dentro do componente de menu)                                                          | Pendente (confirmar antes a titularidade do gatilho antigo) |
 
-#### 5.2.1 低高度窗口标题位置（2026-07-30）
+#### 5.2.1 Posição do título em janelas de baixa altura (2026-07-30)
 
-- 默认高度继续使用现有“问候语 + composer dock”整体居中布局，不改变 Logo、标题、
-  composer、横幅或模板之间的既有间距。
-- 草稿内容组采用连续的安全居中约束：上下空间充足时保持整体居中；空间不足时停止继续
-  上移。桌面窗口继续使用跨页面共用的 `480 × 640px` 原生基础下限，renderer 禁止根据
-  草稿 DOM 高度动态调用 `setMinimumSize` 或 `setBounds`，否则宽度变化引发的本地化换行会
-  形成 `ResizeObserver → IPC → 原生窗口反向扩高` 的拖动反馈环。标题顶部保留 `52px`，
-  最后一张卡片下方保留 `16px`；当前显示器或窗口无法容纳全部内容时，由草稿 timeline
-  自身滚动保证内容可达。禁止按 `zh-CN`、`en-US` 或任何当前文案样本写死窗口总高度。
-  禁止通过固定高度断点在两套布局间硬切换，避免窗口跨过临界高度时标题、Logo 与 composer
-  整组跳动。默认宽屏下，问候标题、Logo 与 composer dock 必须共享
-  同一条水平中心轴；空态布局容器不得让问候容器回退到起始边对齐。顶部与底部使用连续
-  伸缩 spacer：空间充足时等分留白以保持原有整体居中，受限时分别停在 `52px` 与 `16px`
-  下限，不能使用两条不同下限的 `1fr` Grid 轨道把底部错误抬高到 `52px`。
-- 问候标题默认保持 `30px`，字号不得绑定窗口宽度、chat 宽度或固定 viewport 断点。
-  只有标题文字按 `30px` 排版后确实超过标题自身的水平可用宽度时，才根据实际缺口按
-  `1px` 档位逐级缩小，最低为 `20px`；标题两侧仍有空间时，即使窗口已经达到最小尺寸，
-  也必须保持 `30px`。测量必须基于本地化后的真实文案，避免中文未受挤压却缩小，或英文
-  长文案已经受挤压却仍沿用大字号。
-- 上述标题测量和 `52px / 16px` 安全间距仅用于桌面草稿首页。手机 `/remote` 继续使用原有
-  `20px` 紧凑标题与 `justify-center + 16px gap` 居中布局，避免把桌面空态的装饰性空间和
-  测量逻辑扩散到移动端 replayable 界面。
-- 低高度约束只改变草稿内容组的纵向起点；标题到 composer dock 的原有间距保持不变，
-  超出部分仍由现有 timeline 滚动容器承接。草稿布局容器必须保留内容固有高度，不能使用
-  `h-full min-h-0 overflow-hidden` 把溢出截断。桌面草稿空态 timeline 固定从顶部开始展示，
-  避免既有吸底语义把安全顶部留白滚出视口；离开草稿空态后仍恢复原会话吸底语义。
+- A altura padrão continua usando o layout centralizado existente de «saudação + dock do composer», sem alterar as distâncias já existentes entre Logo, título, composer, banners e templates.
+- O grupo de conteúdo do rascunho adota uma restrição de centralização segura e contínua: com espaço suficiente em cima e embaixo mantém o整体 centralizado; quando falta espaço, para de subir.
+  A janela desktop continua usando o piso nativo base de `480 × 640px` compartilhado entre páginas, e o renderer é proibido de chamar `setMinimumSize` ou `setBounds` dinamicamente conforme a altura do DOM do
+  rascunho, senão a quebra de linha localizada provocada por mudança de largura formaria um laço de feedback de arraste `ResizeObserver → IPC → janela nativa crescendo de volta`.
+  O topo do título preserva `52px`, e abaixo do último cartão preserva `16px`; quando o monitor ou a janela atual não consegue acomodar todo o conteúdo, a própria timeline do rascunho
+  garante o alcance do conteúdo por rolagem. É proibido escrever a altura total da janela em função de `zh-CN`, `en-US` ou de qualquer amostra de texto atual.
+  É proibido alternar abruptamente entre os dois layouts por um breakpoint de altura fixa, evitando que ao cruzar a altura crítica o grupo título + Logo + composer
+  salte inteiro. Na largura padrão de tela larga, o título de saudação, o Logo e o dock do composer devem compartilhar
+  o mesmo eixo central horizontal; o container de layout de estado vazio não pode deixar o container de saudação voltar ao alinhamento pela borda inicial. No topo e na base usam-se spacers de elasticidade contínua:
+  com espaço suficiente o espaço em branco é dividido igualmente para manter a centralização geral original; quando limitado, param respectivamente nos pisos `52px` e `16px`,
+  e não se pode usar duas trilhas de Grid `1fr` com pisos diferentes para erguer incorretamente a base até `52px`.
+- O título de saudação mantém por padrão `30px`, e o tamanho da fonte não pode ser vinculado à largura da janela, à largura do chat ou a breakpoints fixos de viewport.
+  Somente quando o texto do título, após diagramado a `30px`, realmente excede a largura horizontal disponível do próprio título é que se reduz em degraus de `1px` conforme a lacuna real, com mínimo de `20px`; enquanto houver espaço dos dois lados do título, mesmo que a janela já tenha atingido o tamanho mínimo,
+  é obrigatório manter `30px`. A medição precisa se basear no texto real após localização, evitando que o chinês encolha sem estar comprimido ou que um texto longo em inglês
+  já comprimido continue usando um tamanho de fonte grande.
+- A medição de título acima e as distâncias seguras de `52px / 16px` valem apenas para a página inicial de rascunho do desktop. O `/remote` do celular continua usando o
+  título compacto de `20px` e o layout centralizado `justify-center + 16px gap`, evitando espalhar para a interface mobile replayable o espaço decorativo e a lógica de medição do estado vazio do desktop.
+- A restrição de baixa altura altera apenas o ponto de partida vertical do grupo de conteúdo do rascunho; a distância original entre o título e o dock do composer permanece, e
+  a parte excedente continua sendo absorvida pelo container de rolagem da timeline existente. O container de layout do rascunho precisa preservar a altura intrínseca do conteúdo, e não pode usar
+  `h-full min-h-0 overflow-hidden` para truncar o transbordo. A timeline de estado vazio do rascunho no desktop começa sempre pelo topo,
+  evitando que a semântica existente de ancoragem inferior role para fora da viewport a margem segura do topo; ao sair do estado vazio do rascunho a semântica original de ancoragem inferior da sessão é restaurada.
 
-### 5.3 草稿行为逻辑
+### 5.3 Lógica de comportamento do rascunho
 
-| 能力                                                                   | 老版来源                            | v4 现状                                                                                       | 处置                                                                                                                                                                                                                                                                       |
+| Capacidade                                                                   | Origem na versão antiga                             | Situação atual v4                                     | Disposição                                                                                                                                                                                                                                                                       |
 | ---------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| draft session 预热（`draftSessionId`：预建真实会话，首发复用）         | `useWorkspacePrepare` 等            | v4 原生预热（§5.4，`useDraftSessionPrewarm`）                                                 | **接（2026-07-07 四测撤销「不复活」裁决）**：原裁决把旧预热链的补丁包袱和预热本身一起扔了，后果是草稿配置被迫走 workspace-default 旧 RPC（回包 `buildWorkspaceState` 无 session 在册时临建完整 app，140-798ms/次）。v4 形态见 §5.4——旧链三个补丁在 v4 形态下无对象仍判死期 |
-| 切 workspace 草稿 provider 继承（目标 workspace 记住的 provider 优先） | `workspaceDraftProvider.ts`（存活） | `App.handleStartDraftInWorkspace` 已在调用该函数；空态菜单 onSelectWorkspace 接的正是这条链路 | **已存活（复核 2026-07-07，无需新代码）**                                                                                                                                                                                                                                  |
-| provider 恢复 `onRecoverWorkspaceProvider`                             | §二已登记                           | ✗                                                                                             | 维持 §二裁决：配置/恢复面 v4 化前不接                                                                                                                                                                                                                                      |
+| Pré-aquecimento de draft session (`draftSessionId`: pré-cria uma sessão real, reaproveitada no primeiro envio) | `useWorkspacePrepare` e afins       | Pré-aquecimento nativo da v4 (§5.4, `useDraftSessionPrewarm`)                                                 | **Integrar (a decisão de «não ressuscitar» foi revogada na quarta reteste de 2026-07-07)**: a decisão original descartava junto a dívida de correções da cadeia antiga de pré-aquecimento e o próprio pré-aquecimento, com a consequência de que a config do rascunho passava a usar o RPC antigo de workspace-default (a resposta `buildWorkspaceState`, sem sessão registrada, criava um app completo na hora, 140-798ms por vez). A forma na v4 está na §5.4 — as três correções da cadeia antiga continuam com prazo encerrado na forma v4 |
+| Herança do provider de rascunho ao trocar de workspace (o provider lembrado do workspace de destino tem prioridade) | `workspaceDraftProvider.ts` (vivo) | `App.handleStartDraftInWorkspace` já chama essa função; o onSelectWorkspace do menu de estado vazio é exatamente essa cadeia         | **Já vivo (revisão em 2026-07-07, sem código novo)**                                                                                                                                                                                                                                  |
+| Recuperação de provider `onRecoverWorkspaceProvider`                             | Já registrada na §II                                 | ✗                                                                                             | Mantém a decisão da §II: não integrar antes da v4ização das superfícies de configuração/recuperação                                                                                                                                                                                                                                      |
 
-### 5.4 草稿态 = v4 draft session 预热（2026-07-07 用户裁决「关键功能」）
+### 5.4 Estado de rascunho = pré-aquecimento de draft session da v4 (decisão do usuário em 2026-07-07: «funcionalidade essencial»)
 
-目标形态：**进草稿态即建 v4 draft session（`createSession` 无 firstInput → phase=draft，
-纯内存不落盘），它就是预热载体**——与 10 §4.2.1「pane 绑 draft session 则服务端已有
-会话实体」的设计意图对齐。收益：首发零等待；配置写走 v4 原生 CAS 命令（不再进
-workspace-default 旧 RPC 的 buildWorkspaceState 热路径）；工具条读会话投影（R-19
-种子给 runtime 真值）。
+Forma desejada: **entrar no estado de rascunho já cria a draft session da v4 (`createSession` sem firstInput → phase=draft,
+puramente em memória e sem persistir), e ela é o portador do pré-aquecimento** — alinhado à intenção de projeto da §4.2.1 de 10 («se o pane estiver ligado a uma draft session, o servidor já tem uma entidade de sessão»). Benefícios: espera zero no primeiro envio; a escrita de config passa pelo comando CAS nativo da v4 (sem entrar mais no caminho quente de buildWorkspaceState do RPC antigo de workspace-default); a barra lê a projeção da sessão (a semente R-19 dá o valor real do runtime).
 
-实现口径（`useDraftSessionPrewarm` + SessionPane 接线）：
+Critério de implementação (`useDraftSessionPrewarm` + fiação no SessionPane):
 
-- **创建**：pane 未绑定会话（sessionId=null）时后台 `createSession`；显式分屏的 draft pane
-  仍按独立 pane 预热并保持绑定语义隔离。同一逻辑草稿的 owner 固定为
-  `{ workspaceKey, paneId, transportGeneration }`：同一事件循环内的组件重挂、StrictMode effect 重放
-  必须复用同一个 pending/ready 预热，不得再次排入 `createSession`。真实卸载后的重新挂载若旧创建
-  尚在飞，则必须等待旧 owner 退休完成。
-  `draftRuntimeInvalidationVersion` 连续变化时只保留最新目标代；旧创建尚在飞时必须等其 ACK 后先发
-  清理，再创建最新代，任意时刻同 owner 最多一个 `createSession` 在途。
-- **绑定语义不变**：pane 对外仍是 draft（shell 的 activeTaskId 仍 null，WorkspaceHeader
-  等壳级 draft 判定不受影响）；预热会话是 pane 内部 effectiveSessionId，lease/投影
-  照常订阅。草稿 UX（问候语/居中/workspace 菜单）仍键在 pane sessionId===null。
-- **草稿配置单一意图源**：模型、思考深度和模式先写 renderer 的 reactive draft intent，
-  工具条在下一帧直接回显；模型与 thought 作为同一个配置元组，跨模型时不得继承源模型
-  thought。预热就绪后只用 v4 CAS 命令直写这个明确 sessionId 的既有 App。草稿点击禁止再发
-  `workspace/setDefaultModel|ThoughtLevel|Mode`，也不能等待 workspace state 广播后才更新 UI。
-- **thought 能力归属目标模型**：草稿 intent 尚未绑定权威 session 时优先读 provider metadata；
-  已绑定/历史/fork session 必须读 `SessionConfigState.thoughtLevels`，由 Agent runtime 的
-  `listThoughtLevels()` 与 `provider/model/thought` 同一 snapshot/event 原子投影。GLM-5.2 这类由
-  CLI 默认策略动态补齐的模型不能依赖 legacy task config cache，也不能借用源模型目录或退回
-  客户端写死的通用五档。
-- **投影确认与持久化**：预热 projection 只负责确认 runtime 实际配置；只有 projection 与最新
-  intent 的 provider/model（以及显式 thought）匹配后，才整体持久化 model + thought 元组。
-  迟到 projection 不得覆盖更新的草稿 intent。预热未就绪时 intent 随 `createSession.config`
-  创建，ready 后只补投仍不一致的字段。
-- **顺序与合并**：配置命令和首发共用同一顺序屏障；发送必须等最新 intent 收敛。快速连续
-  选择允许合并尚未开始的中间值，只同步最后一个 intent，不能让旧值在队列中逐条回放。
-- **首发**：`sendText` 直发预热会话（附件经 `attachment/begin -> chunk -> commit` 上传到它，不再需要
-  「先建空会话再传附件」的两段式）→ 成功后 pane 经 onSessionCreated 正式绑定。
-  renderer 在发出首条 admission 命令前必须先把原 binding 同步标成 `promotion-pending`；
-  ACK accepted 后再转成 `promoted`，明确拒绝或失效则转成 `discarded`。MCP 初始化、hooks 或 transport
-  回压都可能让 Agent 已开始运行而 renderer 仍在等待 ACK，owner cleanup 在这个窗口内不得把该
-  session 当成未使用 draft 删除。
-  预热缺席/失效（CLI 重启内存会话消失、sendText 被拒）→ 回落既有
-  `createSession + config` 路径，语义不丢。
-- **清理**：未首发就切走（选中其他任务/切 workspace/关分屏/卸载）→ `deleteSession`
-  预热会话；effect cleanup 先给同 owner 的同步重挂一次接管机会，确认为真实离开后再清理。
-  只有仍处于 `draft` 的预热会话允许自动删除；`promotion-pending`、`promoted`、`discarded` 都禁止
-  cleanup 发 `deleteSession`，避免关闭已经 admission 或结果未知的运行态。
-  已经发出的 `createSession` 不可取消时，owner 保留 retiring 状态直到 ACK 到达并排入删除，禁止新
-  owner 绕过它并发创建。renderer 刷新来不及清理的孤儿随 CLI 退出消失（内存态），可接受。
-- **workspace / transport 所有权**：预热资源不是可跨 workspace 复用的裸 `sessionId`，而是
-  `{ workspaceKey, paneId, transportGeneration, sessionId, controller, dispatchCommand }` 同属一个
-  owner 的 binding。`workspaceKey` 继续统一取 `workspaceIdentity?.trim() || workspacePath`；
-  transport 换代由 workspace connection registry 持有的 `SessionDataLayer` identity 区分；provider
-  wrapper 重建产生的新 `sendCommand` 函数不得误判为换代。同 workspace
-  内仅 lease 变化时更新该 binding 的 lease，不重建预热；workspace 或 transport 换代时，
-  新 render 立即停止暴露旧 binding，旧 binding 的 cleanup 仍只能通过创建它的 dispatcher
-  删除旧 session。首发 ACK、订阅失败等异步收口必须捕获并操作原 binding，禁止通过
-  `controllerRef.current` 或全局 mutable dispatcher 误操作后来创建的 binding。该约束同时
-  适用于本地、SSH/WSL/Docker 和 Web shared-host attachment，不增加 remote 特判或独立 runtime。
-- **列表隔离**：CLI gateway 的 `isDraftSession`（persistence=deferred）已在
-  fanOutToIndex 与冷启动种子两处把 draft 排除在 sessions-index 外，预热会话不会
-  以「新任务」漏进侧栏。
-- **降级链**：预热失败/未就绪期间，工具条回落 workspace 目录 currentValue（§5.1
-  只提供模型目录/能力；当前选择仍以 renderer draft intent 为准），交互不阻塞。
+- **Criação**: quando o pane não está ligado a uma sessão (sessionId=null), faz `createSession` em segundo plano; um pane de draft com split explícito
+  continua sendo pré-aquecido como pane independente e mantém o isolamento semântico de vínculo. O owner do mesmo rascunho lógico é fixado como
+  `{ workspaceKey, paneId, transportGeneration }`: remontagens de componente no mesmo event loop e reexecuções de effect do StrictMode
+  precisam reutilizar o mesmo pré-aquecimento pending/ready, sem enfileirar `createSession` de novo. Se uma remontagem após desmontagem real ainda tiver a criação antiga
+  em voo, é preciso esperar a aposentadoria do owner antigo terminar.
+  Quando `draftRuntimeInvalidationVersion` muda continuamente, só se mantém a geração-alvo mais recente; se a criação antiga ainda estiver em voo, é preciso esperar seu ACK, enviar primeiro a
+  limpeza e só então criar a geração mais recente — em qualquer instante há no máximo um `createSession` em voo por owner.
+- **Semântica de vínculo inalterada**: externamente o pane continua sendo draft (o activeTaskId da casca continua null, e as decisões de draft no nível da casca como WorkspaceHeader
+  não são afetadas); a sessão pré-aquecida é o effectiveSessionId interno do pane, e lease/projeção são assinados normalmente. A UX de rascunho (saudação/centralização/menu de workspace) continua chaveada a pane sessionId===null.
+- **Fonte única de intenção para a config do rascunho**: modelo, profundidade de pensamento e modo são escritos primeiro na intenção de rascunho reativa do renderer,
+  e a barra reflete na próxima frame; modelo e thought formam uma mesma tupla de configuração, e ao trocar de modelo não se pode herdar o thought do modelo de origem.
+  Depois que o pré-aquecimento fica pronto, usa-se apenas o comando CAS da v4 para escrever direto no App existente desse sessionId explícito. O clique no rascunho é proibido de enviar de novo
+  `workspace/setDefaultModel|ThoughtLevel|Mode`, e também não pode esperar adifusão do workspace state para atualizar a UI.
+- **Aptidão de thought pertence ao modelo alvo**: enquanto a intenção de rascunho não estiver ligada a uma sessão autoritativa, lê-se primeiro o metadata do provider;
+  uma sessão já ligada/histórica/fork deve ler `SessionConfigState.thoughtLevels`, projetado atomicamente pelo `listThoughtLevels()` do runtime do Agent a partir do mesmo snapshot/evento de `provider/model/thought`. Modelos como GLM-5.2, completados dinamicamente pela estratégia padrão da CLI, não podem depender do cache de task config legado nem tomar emprestado o catálogo do modelo de origem nem recuar para os cinco níveis genéricos fixados no cliente.
+- **Confirmação por projeção e persistência**: a projeção do pré-aquecimento só confirma a config real do runtime; só depois que a projeção bate com o provider/model (e o thought explícito) da intenção mais recente é que a tupla model + thought é persistida por inteiro.
+  Uma projeção atrasada não pode sobrescrever uma intenção de rascunho mais nova. Se o pré-aquecimento não estiver pronto, a intenção é criada junto com `createSession.config`;
+  depois de pronta, só se reenviam os campos que ainda estão inconsistentes.
+- **Ordem e mesclagem**: comandos de config e primeiro envio compartilham a mesma barreira de ordem; o envio precisa esperar a convergência da intenção mais recente. Seleções rápidas consecutivas podem mesclar valores intermediários que ainda não começaram, sincronizando apenas a última intenção; não se deixa um valor antigo ser reproduzido item a item na fila.
+- **Primeiro envio**: `sendText` envia direto para a sessão pré-aquecida (anexos são enviados a ela por `attachment/begin -> chunk -> commit`, sem necessidade do esquema de duas etapas «criar sessão vazia e depois enviar anexos») → após o sucesso o pane é ligado formalmente via onSessionCreated.
+  Antes de o renderer emitir o primeiro comando de admissão, ele precisa marcar o vínculo original como `promotion-pending` de forma síncrona;
+  após o ACK accepted vira `promoted`, e rejeição explícita ou invalidez vira `discarded`. A inicialização de MCP, hooks ou a contrapressão do transport
+  podem fazer o Agent já estar rodando enquanto o renderer ainda espera o ACK; nessa janela o owner cleanup não pode tratar aquela sessão como um draft não utilizado e apagá-la.
+  Pré-aquecimento ausente/inválido (reinício da CLI faz a sessão em memória sumir, sendText é recusado) → Volta ao caminho existente
+  `createSession + config`, sem perda de semântica.
+- **Limpeza**: sair sem ter enviado (selecionar outra task/trocar de workspace/fechar o split/desmontar) → `deleteSession`
+  da sessão pré-aquecida; o cleanup do effect dá primeiro uma chance de takeover para a remontagem síncrona do mesmo owner, e só limpa depois de confirmar uma saída real.
+  Somente sessões pré-aquecidas ainda em `draft` podem ser apagadas automaticamente; `promotion-pending`, `promoted` e `discarded` proíbem
+  o cleanup de enviar `deleteSession`, evitando fechar um runtime que já foi admitido ou cujo resultado é desconhecido.
+  Quando um `createSession` já emitido não pode ser cancelado, o owner mantém o estado retiring até o ACK chegar e a exclusão ser enfileirada, e nenhum novo
+  owner pode contorná-lo criando em paralelo. Orfãos que o renderer não conseguiu limpar a tempo somem com a saída da CLI (estado em memória), o que é aceitável.
+- **Propriedade de workspace / transport**: o recurso de pré-aquecimento não é um `sessionId` cru reutilizável entre workspaces, mas um
+  binding `{ workspaceKey, paneId, transportGeneration, sessionId, controller, dispatchCommand }` pertencente a um mesmo owner. `workspaceKey` continua sendo uniformemente `workspaceIdentity?.trim() || workspacePath`;
+  a troca de transport é distinguida pela identidade de `SessionDataLayer` mantida pelo workspace connection registry; a reconstrução do provider wrapper, que produz uma nova função `sendCommand`, não pode ser confundida com troca de geração. Quando apenas o lease muda dentro do mesmo workspace,
+  atualiza-se o lease daquele binding sem reconstruir o pré-aquecimento; quando o workspace ou o transport mudam de geração, o novo render
+  deixa de expor imediatamente o binding antigo, e o cleanup do binding antigo só pode apagar a sessão antiga pelo dispatcher que a criou. O ACK de primeiro envio, falhas de assinatura e outras
+  fechaduras assíncronas devem capturar e operar o binding original, é proibido operar por engano um binding criado depois via `controllerRef.current` ou um dispatcher global mutável. Essa restrição vale igualmente
+  para local, SSH/WSL/Docker e Web shared-host attachment, sem acrescentar caso especial remoto nem runtime separado.
+- **Isolamento de lista**: o `isDraftSession` do gateway da CLI (persistence=deferred) já exclui drafts do sessions-index tanto no fanOutToIndex quanto na semente de partida a frio, então a sessão pré-aquecida não
+  vaza para a barra lateral como «nova task».
+- **Cadeia de degradação**: enquanto o pré-aquecimento falha/não está pronto, a barra volta ao currentValue dos catálogos do workspace (§5.1
+  só fornece catálogo de modelos/capacidades; a seleção atual continua sendo a intenção de rascunho do renderer), e a interação não fica bloqueada.
 
-草稿配置的状态与同步顺序固定为：
+O estado da config de rascunho e a ordem de sincronização são fixos:
 
 ```text
 toolbar click
@@ -293,17 +266,16 @@ first send
   -> sendText
 ```
 
-`workspace/setDefault*` 是 workspace catalog 的兼容接口，不属于 v4 草稿交互链。其实现即使仍被
-其它旧入口调用，也不得通过“创建完整临时 App、加载 plugin/MCP、映射状态后立即关闭”来服务一次
-配置点击。
+`workspace/setDefault*` é a interface de compatibilidade do catálogo de workspace e não faz parte da cadeia de interação de rascunho da v4. Mesmo que sua implementação ainda seja chamada por
+outras entradas antigas, ela não pode atender a um único clique de configuração por meio de «criar um App temporário completo, carregar plugin/MCP, mapear estado e fechar imediatamente».
 
-#### 5.4.1 首发 promotion 的 composer 连续性（2026-07-10）
+#### 5.4.1 Continuidade do composer na promoção do primeiro envio (2026-07-10)
 
-草稿首发从 `sessionId=null` promotion 到正式 session 时，`ConversationComposer` 必须保持
-同一个 React 实例和编辑器 DOM，不得因为草稿居中容器与会话 timeline bottom dock 使用
-不同父节点而卸载重建。草稿态和会话态共用一个持续挂载的 conversation viewport：草稿时
-只通过布局把问候语与 composer 居中，正式绑定后只通过布局把同一 composer 切到底部 dock。
-本次不增加位移动画。
+Quando o primeiro envio do rascunho promove de `sessionId=null` para uma session formal, o `ConversationComposer` precisa manter
+a mesma instância React e o mesmo DOM do editor, sem desmontar e reconstruir por causa de pais diferentes entre o container centralizado do rascunho e o bottom dock da timeline da sessão.
+O estado de rascunho e o estado de sessão compartilham um conversation viewport continuamente montado: no rascunho,
+apenas o layout centraliza saudação e composer; após o vínculo formal, apenas o layout move o mesmo composer para o bottom dock.
+Esta rodada não adiciona animação de deslocamento.
 
 ```text
 draft centered viewport
@@ -312,82 +284,77 @@ draft centered viewport
   -> first userInput projection: normal timeline + same composer dock
 ```
 
-- 绑定后首个 snapshot / `userInput` row 尚未到达时，timeline 内容区保持空白；不显示
-  “发送第一条消息开始对话”，也不由 UI 乐观伪造 user row。
-- 真正存在但 rows 为空的正式 session 同样使用空白 timeline + bottom composer。
-- composer 发送成功仍在 command ACK accepted 后清空；promotion 必须捕获并清理发送开始时的
-  draft scope，禁止 scope 从 `__draft__` 切到 sessionId 后残留首条输入、下次新建任务又恢复。
-- subscribe error 仍使用独立错误布局；本节只约束正常 draft → session promotion。
-- desktop 与手机 Web 共用相同组件身份和响应式布局；不改变 `desktop-continuous` /
-  `web-remote-replayable` 的投影交付边界。
+- Enquanto o primeiro snapshot / a primeira linha `userInput` ainda não chegam após o vínculo, a área de conteúdo da timeline fica em branco; não se exibe
+  «envie a primeira mensagem para começar a conversa», e a UI não fabrica otimisticamente uma linha de usuário.
+- Uma sessão formal que realmente existe mas tem rows vazias usa igualmente timeline em branco + composer inferior.
+- O composer continua sendo limpo após o sucesso do envio, no ACK accepted do comando; a promoção precisa capturar e limpar o escopo de rascunho existente no momento do envio,
+  proibindo que, depois da mudança de escopo de `__draft__` para sessionId, sobre a primeira entrada e reapareça ao criar uma nova task.
+- subscribe error continua usando layout de erro dedicado; esta seção só restringe a promoção normal de rascunho → sessão.
+- desktop e Web no celular compartilham a mesma identidade de componente e o mesmo layout responsivo; não altera os limites de entrega de projeção de `desktop-continuous` /
+  `web-remote-replayable`.
 
-### 5.5 模型切换的记录语义（2026-07-07 五测裁决）
+### 5.5 Semântica de registro da troca de modelo (decisão da quinta reteste em 2026-07-07)
 
-用户裁决：**切换动作是意向，不是 timeline 事实**。草稿态还没发过消息（截图
-sess_54392f61：首条消息上方挂 [modelChange]），编辑期切换也只是准备动作——
-两者都不进 timeline；发送后模型相对上一轮真的变了，才落记录。
+Decisão do usuário: **a ação de troca é uma intenção, não um fato da timeline**. No estado de rascunho ainda não houve envio de mensagem (captura
+sess_54392f61: [modelChange] pendurado acima da primeira mensagem), e trocar durante a edição também é apenas preparação —
+nenhum dos dois entra na timeline; depois do envio, só quando o modelo realmente mudou em relação ao turno anterior é que o registro é feito.
 
-- **marker 时机**（CLI 投影，spec 10 §config「R-17 时机细则」）：`modelChange`
-  marker 由 onTurnStarted 按「本轮 provider/model 身份 ≠ 上一个实际启动的 turn
-  的 provider/model 身份」裁决；思考深度只更新 `config.thought` 与请求参数，不产
-  `modelChange`，
-  落在新 turn 的 turnHeader row 之前；首轮（无上一轮基准）永不产 marker；
-  A→B→A 净变化为零不产 marker。onModelSelected 只更新 config，不再落 marker
-  （旧实现在选型事件即落 marker，正是草稿态 bug 的根因）。
-- **marker 文案身份**（2026-07-29）：CLI marker 已携带起止 provider/model ID；
-  renderer 必须订阅 provider snapshot 并映射供应商名称。Z.ai / BigModel 内置供应商只显示
-  modelId；其他供应商显示 `provider.name/modelId`，配置缺失时回落 provider ID。该规则与模型
-  触发器和 toast 一致，不改 marker schema、落位、desktop continuous 或 mobile replayable
-  语义；目录稍后水合或供应商改名时，已渲染 marker 必须原地刷新名称。
-- **toast = 性能下降警告，不是切换确认**（2026-07-29 更新，取代 2026-07-07
-  六测纠偏，2026-07-30 收紧草稿边界）：只有已绑定会话中的显式 `provider + model` 身份切换
-  才立即显示 changed + warning 文案；草稿态的普通选择、configOptions error custom provider
-  恢复和 prewarm fallback 都不显示 toast。提示不等待切换 ACK，也不代表命令已经成功。
-  Agent registry 自动 fallback 在已绑定会话的当前聚焦 pane 首次通过实时 `online` 帧观察到带来源的
-  权威 A→B 跃迁时复用同一文案；草稿 prewarm、initial/recovery、历史 snapshot、建立首个
-  applied base 的完整 online snapshot、duplicate delta 和后台 pane 不提示。自动
-  fallback 的 last-selected CAS 只与这条实时回调共同发生，普通 snapshot 差异不得写。两种状态
-  仍都不由 UI 写 timeline 行；marker
-  时机继续遵循上一条。当前完整判定链路见
-  `docs/chat/manual-model-switch-resolution-chain.md`。
-- **重放确定性**：marker 由事件序列（ModelSelected + TurnStarted）确定性推导，
-  冷恢复/fork 重放同一口径；transcript hydration 不合成 modelChange marker，
-  无历史迁移问题。
+- **Momento do marker** (projeção da CLI, spec 10 §config «R-17 细则 de momento»): o marker `modelChange`
+  é decidido por onTurnStarted pelo critério «a identidade provider/model deste turno ≠ a identidade provider/model do último turno efetivamente iniciado»;
+  a profundidade de pensamento atualiza apenas `config.thought` e os parâmetros da requisição, não gera
+  `modelChange`,
+  e é posicionado antes da linha turnHeader do novo turno; o primeiro turno (sem base anterior) nunca gera marker;
+  uma variação líquida A→B→A não gera marker. onModelSelected apenas atualiza a config, sem gravar marker
+  (a implementação antiga gravava o marker no evento de seleção de modelo, exatamente a causa raiz do bug do estado de rascunho).
+- **Identidade do texto do marker** (2026-07-29): o marker da CLI já carrega os IDs de provider/model inicial e final;
+  o renderer precisa assinar o snapshot de provider e mapear os nomes de fornecedor. Fornecedores embutidos Z.ai / BigModel mostram apenas
+  o modelId; outros fornecedores mostram `provider.name/modelId`, com fallback para o ID do provider quando a config está ausente. Essa regra é consistente com o gatilho de modelo
+  e o toast, não altera o schema do marker, seu posicionamento nem as semânticas desktop continuous ou mobile replayable; quando o catálogo for hidratado depois ou o fornecedor for renomeado,
+  markers já renderizados precisam atualizar o nome no lugar.
+- **toast = aviso de queda de desempenho, não confirmação de troca** (atualizado em 2026-07-29, substitui a correção da sexta reteste de 2026-07-07 e é mais estrito na 2026-07-30 para o limite de rascunho): só uma troca explícita de identidade `provider + model` em uma sessão já vinculada
+  mostra imediatamente os textos changed + warning; seleções comuns no estado de rascunho, a recuperação de custom provider por configOptions error
+  e o fallback de prewarm não mostram toast. O aviso não espera o ACK da troca e não significa que o comando já tenha sucesso.
+  O fallback automático do agent registry reutiliza o mesmo texto quando, no pane em foco de uma sessão já vinculada, observa em tempo real pela primeira vez um frame `online` com uma transição autoritativa A→B originada; prewarm de rascunho, initial/recovery, snapshot histórico, o snapshot online completo que estabelece o primeiro
+  applied base, delta duplicado e panes em segundo plano não avisam. O CAS de last-selected do fallback automático só ocorre junto com
+  essa callback em tempo real; diferenças de snapshot comuns não escrevem. Os dois estados continuam não sendo escritos pela UI como linha de timeline; o momento do
+  marker continua seguindo o item anterior. A cadeia completa de decisão atual está em
+  `docs/chat/manual-model-switch-resolution-chain.md`.
+- **Determinismo de replay**: o marker é derivado deterministicamente da sequência de eventos (ModelSelected + TurnStarted),
+  e a recuperação a frio / o replay de fork usam o mesmo critério; a hidratação do transcript não sintetiza marker de modelChange,
+  não havendo problema de migração de histórico.
 
-### 5.6 验收口径
+### 5.6 Critérios de aceitação
 
-- e2e：草稿态可见模型/模式/思考深度控件且值 = workspace 缺省；草稿态切模型 → 新建会话
-  首个投影 `config` 等于所选值（经 `createSession.config` + R-19 种子归并）；空态可见
-  workspace 菜单 / 问候语 / 居中布局锚点。
-- 覆盖矩阵：按仓库规则先补 `docs/conversation-session-case-catalog.md` 与
-  `docs/testing/conversation-session-e2e-coverage-matrix.md` 再写 case。
+- e2e: no estado de rascunho os controles de modelo/modo/profundidade de pensamento são visíveis e o valor = default do workspace; trocar o modelo no rascunho → o `config` da primeira projeção da nova sessão é igual ao valor escolhido (por `createSession.config` + mesclagem da semente R-19); no estado vazio ficam visíveis o menu de workspace / a saudação / a âncora do layout centralizado.
+- Matriz de cobertura: pelas regras do repositório, primeiro completar `docs/conversation-session-case-catalog.md` e
+  `docs/testing/conversation-session-e2e-coverage-matrix.md` e só então escrever os cases.
 
-## 六、context usage 面板对账 —— 2026-07-07 七审
+## VI, Reconciliação do painel de uso de contexto — sétima revisão em 2026-07-07
 
-2026-07-09 更新：重构中曾给 `ChatContextUsage` 增加 `contextCapacityTokens`
-派生分支，导致只有模型窗口、真实占用为 0 时也渲染 `0/max` 圈；这与老版不一致。
-当前口径恢复为：context window 只有 `used > 0 && size > 0` 才展示；Coding Plan /
-Start Plan 余额独立于 context usage，但必须由“当前模型连接方式”确认为 OAuth
-Coding Plan、Team Plan 或 Start Plan 后才展示。
+Atualização de 2026-07-09: durante a refatoração foi adicionado a `ChatContextUsage` um ramo derivado de `contextCapacityTokens`,
+o que fazia o anel `0/max` ser renderizado mesmo quando só havia janela de modelo e uso real igual a 0; isso diverge da versão antiga.
+O critério atual foi restaurado: a janela de contexto só é exibida quando `used > 0 && size > 0`; o saldo de Coding Plan /
+Start Plan é independente do uso de contexto, mas só pode ser exibido depois de confirmado pelo «modo de conexão do modelo atual»
+como OAuth Coding Plan, Team Plan ou Start Plan.
 
-| 能力                                                                                                            | 老版                                                                                                                                                                       | v4 现状                                                                                                                                      | 处置                                                                                                                                                     |
+| Capacidade                                                                                                            | Versão antiga                                                                                                                                                             | Situação atual v4                                                                                                                                 | Disposição                                                                                                                                                     |
 | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 总量行（used/size + 百分比，compact token 格式）                                                                | ✅ 仅真实正数占用展示                                                                                                                                                      | ✅ 已接（`snapshot.usage.contextWindow`）；0 占用不再从模型容量派生展示                                                                      | 无                                                                                                                                                       |
-| **分段进度条 + breakdown 分项占比**                                                                             | ✅ 7 类 source（messages/system_prompt/meta_user_context/skills/tool_prompt/system_tool_schemas/mcp_tool_schemas），按占比降序、只显示百分比不显示分项 token（防口径混读） | ❌ v4 `SessionUsageState` 无 `breakdown` 字段，组件收不到数据整段不渲染                                                                      | **接**：CLI `ModelComplete` payload 已带 `contextUsageBreakdown`（core `turn-model-step.ts` 仅 main_turn 附带）→ v4 schema additive + 投影 + UI 透传即可 |
-| **缓存命中率**                                                                                                  | ✅ 累计口径 `cacheHit.hitRate`（主轮聚合，`recordMainTurnCacheHitUsage`），**≥78% 才露出**（低命中率会把注意力从容量本身带偏）                                             | ❌ 同上，`SessionUsageState` 无 `cache` 字段                                                                                                 | **接**：payload `cacheHit.hitRate` 已有，同 breakdown 三层接线                                                                                           |
-| **Coding Plan 用量面板**（`ChatCodingPlanUsageRemainingPanel`：多供应商切换、剩余量、点击跳设置用量页并收面板） | ✅ 只跟随当前 paid Coding / Team 连接                                                                                                                                      | ✅ v4 toolbar 已接 `codingPlanUsageRemaining`，并按当前 provider + family selected key 门控；Team Plan 支持 entitlement snapshot 兜底 source | 无                                                                                                                                                       |
-| **Start Plan 余额面板**（zai/bigmodel：余额、loading、升级入口点击先收面板再跳设置）                            | ✅ 只跟随当前 Start Plan 连接，且同品牌 paid Coding active 时隐藏                                                                                                          | ✅ v4 toolbar 已接 `startPlanBalance`，沿用 Start fallback 与当前连接门控                                                                    | 无                                                                                                                                                       |
-| 无 usage 仅有 plan 数据时 trigger 仍显示（草稿态/新会话也能看 plan 用量）                                       | ✅（`!renderableTaskUsage && hasCodingPlan/hasStartPlan` 仍渲染）                                                                                                          | ✅ 仅在当前连接为 Coding/Team/Start 且有可展示余额或 loading 时显示                                                                          | 无                                                                                                                                                       |
-| `/compact` 压缩入口（`onSendCompressionCommand`）                                                               | 传了但组件**未消费**（死参数，`getContextCompressionCommand` 无 JSX 引用）                                                                                                 | 同样传了                                                                                                                                     | 无缺口；后续可清理死参数                                                                                                                                 |
+| Linha de total (used/size + porcentagem, formato compacto de tokens)                                                                | ✅ exibida só com consumo real positivo                                                                                                                                   | ✅ integrada (`snapshot.usage.contextWindow`); consumo 0 deixa de ser derivado da capacidade do modelo                                               | Nenhuma                                                                                                                                                       |
+| **Barra de progresso segmentada + proporção por item do breakdown**                                                                             | ✅ 7 classes de source (messages/system_prompt/meta_user_context/skills/tool_prompt/system_tool_schemas/mcp_tool_schemas), em ordem decrescente de proporção, mostrando só a porcentagem e não os tokens por item (evita leitura de grandezas misturadas) | ❌ o `SessionUsageState` da v4 não tem campo `breakdown`, o componente não recebe dados e o trecho inteiro não é renderizado                                              | **Integrar**: o payload `ModelComplete` da CLI já traz `contextUsageBreakdown` (o core `turn-model-step.ts` só anexa em main_turn) → basta schema aditivo na v4 + projeção + repasse na UI |
+| **Taxa de acerto do cache**                                                                                                  | ✅ cumulativa `cacheHit.hitRate` (agregado do turno principal, `recordMainTurnCacheHitUsage`), **exposta apenas com ≥78%** (taxas baixas desviam a atenção da própria capacidade)                                             | ❌ igual acima, o `SessionUsageState` não tem campo `cache`                                                                                                 | **Integrar**: o payload `cacheHit.hitRate` já existe, mesma ligação em três camadas do breakdown                                                                                           |
+| **Painel de uso do Coding Plan** (`ChatCodingPlanUsageRemainingPanel`: troca entre fornecedores, saldo restante, clique leva ao página de uso nas configurações e fecha o painel) | ✅ segue apenas a conexão Coding / Team paga atual                                                                                                                                      | ✅ a toolbar da v4 já integrou `codingPlanUsageRemaining`, com gate pelo provider atual + selected key da family; Team Plan tem fallback de entitlement snapshot | Nenhuma                                                                                                                                                       |
+| **Painel de saldo do Start Plan** (zai/bigmodel: saldo, loading, clique na entrada de upgrade fecha o painel antes de ir às configurações)                            | ✅ segue apenas a conexão Start Plan atual, e é ocultado quando a mesma marca tem Coding pago ativo                                                                                                          | ✅ a toolbar da v4 já integrou `startPlanBalance`, mantendo o fallback de Start e o gate da conexão atual                                                     | Nenhuma                                                                                                                                                       |
+| Quando não há usage mas há dados de plano, o trigger continua aparecendo (o estado de rascunho/nova sessão também consegue ver o uso do plano)                                       | ✅ (`!renderableTaskUsage && hasCodingPlan/hasStartPlan` continua renderizando)                                                                                                          | ✅ só aparece quando a conexão atual é Coding/Team/Start e há saldo exibível ou loading                                                                 | Nenhuma                                                                                                                                                       |
+| Entrada de compactação `/compact` (`onSendCompressionCommand`)                                                               | Passado, mas **não consumido** pelo componente (parâmetro morto, `getContextCompressionCommand` sem referência em JSX)                                                           | Também passado                                                                                                                                     | Sem lacuna; o parâmetro morto pode ser limpo depois                                                                                                                 |
 
-实现批次（批准后执行）：
+Lotes de implementação (executar após aprovação):
 
-1. **一期（usage 数据面，纯三层透传）**：
-   - `packages/shared/src/zcode-protocol-v4/snapshot.ts`：`sessionUsageStateSchema` additive
-     增加 `cache: { hitRate: number|null } | null` 与 `breakdown: ContextUsageBreakdownItem[] | null`
-     （P-05 conflation 不变；G-02 usage 语义扩展需同步 10-protocol-spec §4.2.4）。
-   - CLI `product-projection.ts` `onModelComplete`：main_turn 时从 `payload.cacheHit.hitRate` /
-     `payload.contextUsageBreakdown` 并入 usage patch（沿用旧 reducer「仅主轮可覆盖」裁决）。
-   - UI `V4ComposerToolbar`：`taskUsage` 透传 `cache`/`breakdown`（`ChatContextUsage` 现成消费）。
-2. **二期（plan 面板）**：已接。后续若继续抽 hook，必须保留当前连接门控、Team source
-   兜底和 Start fallback，不得回退到“账号有套餐就显示余额”。
+1. **Primeiro lote (superfície de dados de usage, puro repasse em três camadas)**:
+   - `packages/shared/src/zcode-protocol-v4/snapshot.ts`: `sessionUsageStateSchema` ganha aditivamente
+     `cache: { hitRate: number|null } | null` e `breakdown: ContextUsageBreakdownItem[] | null`
+     (P-05 conflation inalterado; a extensão de semântica de usage G-02 precisa atualizar em sincronia 10-protocol-spec §4.2.4).
+   - CLI `product-projection.ts` em `onModelComplete`: no main_turn, mesclar `payload.cacheHit.hitRate` /
+     `payload.contextUsageBreakdown` no patch de usage (seguindo a decisão antiga do reducer «apenas o turno principal pode sobrescrever»).
+   - UI `V4ComposerToolbar`: `taskUsage` repassa `cache`/`breakdown` (o `ChatContextUsage` já consome).
+2. **Segundo lote (painéis de plano)**: já integrado. Se futuramente se extrair hooks, é obrigatório preservar o gate da conexão atual, o fallback de source do Team
+   e o fallback de Start, sem regredir para «se a conta tem plano, mostra o saldo».

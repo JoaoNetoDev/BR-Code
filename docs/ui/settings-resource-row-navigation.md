@@ -1,27 +1,27 @@
-# Settings 资源列表行导航
+# Navegação por linha na lista de recursos do Settings
 
-## 范围
+## Escopo
 
-Settings 中 Commands、Subagents、MCP Servers、Hooks 四类资源列表统一使用整行作为编辑入口，不再展示独立的编辑图标按钮。Memory 的项目行和文件行以及 Skills 的详情入口同样遵循列表下钻交互。
+Em Settings, as quatro listas de recursos — Commands, Subagents, MCP Servers e Hooks — passam a usar a linha inteira como entrada de edição, sem exibir mais um botão separado com ícone de edição. As linhas de projeto e de arquivo de Memory, assim como a entrada de detalhe de Skills, seguem igualmente a interação de descida pela lista.
 
-## 交互约束
+## Restrições de interação
 
-- 仅 ZCode 管理且可编辑的资源行可打开编辑页；内置、插件托管和兼容来源保持只读。
-- 鼠标点击可编辑行的非操作区域时打开对应编辑页。
-- 可编辑行可聚焦，并支持 `Enter`、`Space` 打开编辑页。
-- 行内开关、删除、授权、模型选择等控件保持独立操作，点击或键盘操作不得触发行导航。
-- 可编辑行显式使用 `cursor-default` 保持普通箭头光标，并统一使用 `hover:bg-hover` 反馈；只读行不伪装成可点击入口。
-- 桌面端与手机 Web 端使用同一套行交互，不依赖 hover 才能发现入口。
-- 所有可下钻的 Memory 项目行和文件行使用与其他资源行一致的普通箭头光标。
-- Memory 的项目主区域和文件行使用 `div[role="button"][tabindex="0"]`，并复用资源行的 Enter / Space 键盘激活逻辑；项目行右侧 File Tree 保持独立 Button。
+- Só linhas de recursos gerenciáveis e editáveis pelo ZCode podem abrir a página de edição; itens embutidos, hospedados em plugin e de fontes compatíveis permanecem somente leitura.
+- Clicar com o mouse em uma área não-acionável de uma linha editável abre a página de edição correspondente.
+- Linhas editáveis podem receber foco e suportam `Enter` e `Space` para abrir a página de edição.
+- Controles internos da linha, como switch, exclusão, autorização e seleção de modelo, permanecem operações independentes; clique ou operação por teclado não pode disparar a navegação da linha.
+- Linhas editáveis usam explicitamente `cursor-default` para manter o cursor de seta comum e unificam o feedback com `hover:bg-hover`; linhas somente leitura não se passam por entradas clicáveis.
+- Desktop e Web no celular usam o mesmo conjunto de interações de linha, sem depender de hover para descobrir a entrada.
+- Todas as linhas de projeto e de arquivo de Memory que podem descem na hierarquia usam o cursor de seta comum, igual ao das demais linhas de recurso.
+- A área principal de projeto e as linhas de arquivo do Memory usam `div[role="button"][tabindex="0"]` e reutilizam a lógica de ativação por teclado das linhas de recurso (Enter / Space); o File Tree à direita da linha de projeto permanece um Button independente.
 
-## 编辑页删除入口
+## Entrada de exclusão na página de edição
 
-- Command、Subagent、MCP Server、Hook 的现有资源编辑页统一在表单底部展示删除入口，创建页不展示。
-- 删除入口参考 Subagent：左侧使用 `Button variant="link" size="lg"`、`px-0 text-destructive hover:text-destructive` 和 `Trash2 size-3.5`；Save、Cancel 操作组保持右对齐。
-- 列表行不再重复展示删除按钮。删除仍经过各资源既有确认弹窗，成功后返回列表。
+- As páginas de edição de recursos existentes de Command, Subagent, MCP Server e Hook exibem de forma unificada a entrada de exclusão no fim do formulário; as páginas de criação não a exibem.
+- A entrada de exclusão segue o padrão do Subagent: à esquerda, `Button variant="link" size="lg"`, `px-0 text-destructive hover:text-destructive` e `Trash2 size-3.5`; o grupo de ações Save e Cancel permanece alinhado à direita.
+- As linhas da lista não exibem mais o botão de exclusão. A exclusão continua passando pelo diálogo de confirmação já existente de cada recurso, e, após o sucesso, retorna-se à lista.
 
-## Subagent 行信息
+## Informações na linha de Subagent
 
-- Subagent 已按 User、Plugin、Built-in 分组，行内不再重复展示作用域标签。
-- 行内继续展示模型（非内置项）、工具、描述、路径和对应操作。
+- Os Subagents já estão agrupados por User, Plugin e Built-in; a linha não exibe mais de forma redundante a etiqueta de escopo.
+- A linha continua exibindo modelo (para itens não embutidos), ferramentas, descrição, caminho e as ações correspondentes.

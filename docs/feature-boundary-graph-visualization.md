@@ -1,26 +1,25 @@
-# Feature Boundary Graph 可视化
+# Visualização do Feature Boundary Graph
 
-## 目标
+## Objetivo
 
-在 `@zcode/dev-docs` 中提供 `feature-boundary-planner` 语义图的可读视图，替代在对话区域查看大图。页面直接读取
-`.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml`，让开发者可以从能力节点追踪 UI 入口、状态 owner、服务、持久化和交付边界。
+Oferecer em `@zcode/dev-docs` uma visão legível do grafo semântico de `feature-boundary-planner`, substituindo a exibição de imagens grandes na área de conversa. A página lê diretamente `.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml`, permitindo que o desenvolvedor rastreie, a partir de um nó de capacidade, as entradas de UI, o owner de estado, os serviços, a persistência e os limites de entrega.
 
-## 产品边界
+## Limites de produto
 
-- 图谱以 YAML 为唯一数据源；页面构建时解析 YAML，不维护第二份手写节点关系数据。
-- 默认展示完整语义图，支持按关键词定位节点、按关系等级收窄连线，并保留画布缩放、平移和适配视图。
-- 选中节点后只突出一阶邻居，并在详情栏展示节点类型、ID、别名、文档、代码种子、不变量和直接关系。
-- YAML 中引用但未在 `nodes` 声明的端点以“未声明端点”显示，不自动补写产品语义。
-- 页面只读，不修改 YAML，也不把静态可达性解释成新的产品依赖。
+- O grafo tem o YAML como única fonte de dados; a página faz o parse do YAML no build e não mantém uma segunda cópia escrita à mão das relações entre nós.
+- Exibe por padrão o grafo semântico completo, com suporte a localizar nós por palavra-chave, estreitar as conexões por nível de relação e preservar zoom, pan e ajuste de visão do canvas.
+- Ao selecionar um nó, apenas os vizinhos de primeira ordem são destacados, e a barra de detalhes mostra tipo do nó, ID, aliases, documentação, seeds de código, invariantes e relações diretas.
+- Endpoints referenciados no YAML mas não declarados em `nodes` aparecem como "endpoint não declarado", sem completar automaticamente semântica de produto.
+- A página é somente leitura, não modifica o YAML e não interpreta a alcançabilidade estática como novas dependências de produto.
 
-## 实现约束
+## Restrições de implementação
 
-- 使用已有 `@xyflow/react` 和 dev-docs 的主题 token，兼容浅色/深色主题与窄屏布局。
-- 图谱加载失败时显示明确错误状态；布局在后台计算，首屏显示加载状态。
-- 节点和详情交互必须支持键盘操作；选中状态通过 `aria-live` 暴露。
-- 关系与节点类型使用稳定的颜色/文字组合，不能只依赖颜色传达含义。
+- Usar o `@xyflow/react` já existente e os theme tokens do dev-docs, compatível com temas claro/escuro e layout de tela estreita.
+- Exibir um estado de erro claro quando o carregamento do grafo falhar; o layout é calculado em segundo plano e a primeira tela mostra estado de carregamento.
+- A interação de nós e detalhes precisa suportar operação por teclado; o estado de seleção é exposto via `aria-live`.
+- Relações e tipos de nó usam combinações estáveis de cor/texto, não dependendo apenas de cor para transmitir significado.
 
-## 验证证据
+## Evidências de verificação
 
-- 单元测试校验 YAML 解析后的节点/边计数、未声明端点保留和直接邻居计算。
-- `@zcode/dev-docs` 的 typecheck、lint、unit test 和 production build 必须通过。
+- Testes unitários validam a contagem de nós/arestas após o parse do YAML, a preservação de endpoints não declarados e o cálculo de vizinhos diretos.
+- O typecheck, lint, teste unitário e production build de `@zcode/dev-docs` devem passar.

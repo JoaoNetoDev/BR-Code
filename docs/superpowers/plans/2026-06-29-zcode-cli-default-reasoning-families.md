@@ -1,35 +1,35 @@
-# zcode-cli 默认思考强度族补全 Implementation Plan
+# Plano de implementação: completar as famílias de intensidade de pensamento padrão do zcode-cli
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentic:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 zcode-cli 在 dynamic provider model 缺少 reasoning metadata 时，为 Qwen、Kimi、MiMo 补默认思考强度能力。
+**Goal:** fazer o zcode-cli, quando um dynamic provider model não tiver reasoning metadata, fornecer capacidades padrão de intensidade de pensamento para Qwen, Kimi e MiMo.
 
-**Architecture:** 只修改 zcode-cli bootstrap 的 workspace model catalog overlay。默认 reasoning 仍由 agent catalog override 承载，App/UI 不参与本次推断。
+**Architecture:** modificar apenas o overlay do workspace model catalog do bootstrap do zcode-cli. O reasoning padrão continua sendo carregado pelo agent catalog override; App/UI não participam desta inferência.
 
 **Tech Stack:** TypeScript, Vitest, zcode protocol dynamic provider catalog overlay.
 
-## Global Constraints
+## Restrições globais
 
-- 新增功能必须先留 spec 到 `docs`。
-- 不修改 `packages/ui`。
-- import 路径保持现有绝对包路径风格。
-- 修改完成后执行 `pnpm typecheck` 和 `pnpm lint`。
-- 完成后提交 Conventional Commit。
+- Funcionalidades novas devem ter antes um spec em `docs`.
+- Não modificar `packages/ui`.
+- Manter o estilo atual de caminhos de import absolutos de pacote.
+- Após a modificação, executar `pnpm typecheck` e `pnpm lint`.
+- Ao terminar, criar um commit com Conventional Commit.
 
 ---
 
-### Task 1: Add failing dynamic provider default reasoning tests
+### Task 1: Adicionar testes falhos de reasoning padrão de dynamic provider
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
 
 **Interfaces:**
-- Consumes: `workspaceUpsertModelProvider` protocol method.
-- Produces: test expectations for `overlay.catalogOverrides[provider/model].reasoning`.
+- Consumes: o método de protocolo `workspaceUpsertModelProvider`.
+- Produces: expectativas de teste para `overlay.catalogOverrides[provider/model].reasoning`.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Escrever os testes que falham**
 
-Add three tests near existing dynamic reasoning tests:
+Adicionar três testes próximos dos testes existentes de reasoning dinâmico:
 
 ```ts
 it("synthesizes Qwen enable_thinking defaults for dynamic providers without reasoning metadata", async () => {
@@ -48,17 +48,17 @@ it("synthesizes Anthropic MiMo thinking toggle defaults for dynamic providers wi
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Executar o teste para verificar que falha**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/bootstrap test -- tests/zcode-protocol.test.ts
 ```
 
-Expected: new tests fail because catalog overrides do not contain reasoning for Qwen/Kimi/MiMo without metadata.
+Esperado: os novos testes falham porque os catalog overrides não contêm reasoning para Qwen/Kimi/MiMo sem metadata.
 
-### Task 2: Implement zcode-cli default reasoning families
+### Task 2: Implementar as famílias de reasoning padrão do zcode-cli
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`
@@ -67,23 +67,23 @@ Expected: new tests fail because catalog overrides do not contain reasoning for 
 - Consumes: `ZCodeModelProviderConfig`, `ZCodeModelProviderModel`.
 - Produces: `createDynamicProviderDefaultReasoning(provider, model)`.
 
-- [ ] **Step 1: Update helper signature**
+- [ ] **Step 1: Atualizar a assinatura do helper**
 
-Change:
+Mudar:
 
 ```ts
 createDynamicProviderDefaultReasoning(provider.kind, model.modelId)
 ```
 
-to:
+para:
 
 ```ts
 createDynamicProviderDefaultReasoning(provider, model)
 ```
 
-- [ ] **Step 2: Add Qwen default reasoning helper**
+- [ ] **Step 2: Adicionar o helper de reasoning padrão do Qwen**
 
-Add a helper that returns:
+Adicionar um helper que retorna:
 
 ```ts
 {
@@ -97,44 +97,44 @@ Add a helper that returns:
 }
 ```
 
-- [ ] **Step 3: Expand default inference**
+- [ ] **Step 3: Ampliar a inferência padrão**
 
-For Anthropic providers, return Anthropic thinking toggle for `isCatalogThinkingToggleProtocolModel(provider, model)`.
+Para providers Anthropic, retornar o thinking toggle do Anthropic para `isCatalogThinkingToggleProtocolModel(provider, model)`.
 
-For OpenAI-compatible providers, return Qwen `enable_thinking` defaults before the generic catalog thinking toggle branch. Return generic OpenAI-compatible thinking toggle for Kimi/MiMo/GLM/DeepSeek non-V4.
+Para providers compatíveis com OpenAI, retornar os padrões `enable_thinking` do Qwen antes do ramo genérico de thinking toggle do catálogo. Retornar o thinking toggle genérico compatível com OpenAI para Kimi/MiMo/GLM/DeepSeek não-V4.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Executar o teste para verificar que passa**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/bootstrap test -- tests/zcode-protocol.test.ts
 ```
 
-Expected: all `zcode-protocol.test.ts` tests pass.
+Esperado: todos os testes de `zcode-protocol.test.ts` passam.
 
-### Task 3: Verify repository constraints and commit
+### Task 3: Verificar as restrições do repositório e commitar
 
 **Files:**
-- Existing changed files only.
+- Apenas os arquivos já alterados.
 
 **Interfaces:**
-- Produces: committed working tree.
+- Produces: árvore de trabalho com commit feito.
 
-- [ ] **Step 1: Run required checks**
+- [ ] **Step 1: Executar as verificações obrigatórias**
 
-Run:
+Executar:
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-Expected: both commands pass.
+Esperado: os dois comandos passam.
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Commitar**
 
-Run:
+Executar:
 
 ```bash
 git add docs/superpowers/specs/2026-06-29-zcode-cli-default-reasoning-families-design.md docs/superpowers/plans/2026-06-29-zcode-cli-default-reasoning-families.md apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts

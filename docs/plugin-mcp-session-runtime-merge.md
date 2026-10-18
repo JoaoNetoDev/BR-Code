@@ -1,16 +1,16 @@
-# Plugin MCP Session Runtime Merge
+# Fusão do Runtime de Sessão com MCP de Plugin
 
-## 背景
+## Contexto
 
-ZCode Dev 的设置页会通过 `zcode/mcp/list` 展示插件 MCP 和用户 MCP 的合并结果，但桌面端创建或恢复 session 时，UI 传给 protocol 的 `mcpServers` 只来自 `source === "zcodeagentmcp"` 的用户配置。
+A página de configurações do ZCode Dev exibe, via `zcode/mcp/list`, o resultado da combinação dos MCPs de plugin e dos MCPs do usuário, mas no desktop, ao criar ou restaurar uma sessão, o `mcpServers` que a UI passa para o protocol vem apenas da configuração do usuário com `source === "zcodeagentmcp"`.
 
-## 问题
+## Problema
 
-`resolveAppRuntimeConfig` 过去把 `runtimeConfig.mcp.servers` 当作完整覆盖配置。一旦 protocol 传入用户 MCP，插件 MCP 就不会再和 runtime 配置合并，导致模型侧只能看到用户 MCP 中成功连接的服务器；例如本机 `context7`、`exa`、`playwright` 等用户 MCP 保留，但 `plugin:chrome-devtools-mcp:chrome-devtools`、`plugin:ios-simulator:ios-simulator` 等插件 MCP 丢失。
+`resolveAppRuntimeConfig` tratava `runtimeConfig.mcp.servers` como uma configuração de sobrescrita completa. Assim que o protocol passava os MCPs do usuário, os MCPs de plugin deixavam de ser combinados com a configuração de runtime, fazendo com que o lado do modelo enxergasse apenas os servidores de MCP do usuário que conectaram com sucesso; por exemplo, os MCPs do usuário `context7`, `exa` e `playwright` eram preservados, mas MCPs de plugin como `plugin:chrome-devtools-mcp:chrome-devtools` e `plugin:ios-simulator:ios-simulator` eram perdidos.
 
-## 修复
+## Correção
 
-session runtime 配置解析时始终先注入插件 MCP，再合并显式用户 MCP：
+Ao resolver a configuração de runtime da sessão, os MCPs de plugin são sempre injetados primeiro e, em seguida, os MCPs explícitos do usuário são combined:
 
 ```ts
 {
@@ -19,4 +19,4 @@ session runtime 配置解析时始终先注入插件 MCP，再合并显式用户
 }
 ```
 
-这样保留用户配置覆盖同名 MCP 的优先级，同时保证插件注册的 MCP 进入新 session 的 runtime。
+Dessa forma, mantém-se a prioridade da configuração do usuário para sobrescrever MCPs com o mesmo nome, ao mesmo tempo em que se garante que os MCPs registrados por plugins entrem no runtime da nova sessão.

@@ -1,33 +1,33 @@
 # Model Provider OpenCode Config
 
-## 状态
+## Status
 
-> 历史实现说明，已被 Provider Refactor 的 Config/Registry/ModelFactory 设计取代。文中的
-> `config.json`、Runtime Model 和 Registry Snapshot 下发只用于理解迁移前代码，不是当前事实。
-> 当前设计见 `docs/working-memory/provider-refactor/design/`。
+> Nota sobre implementação histórica, substituída pelo design Config/Registry/ModelFactory do Provider Refactor. O
+> `config.json`, o Runtime Model e o Registry Snapshot descritos aqui servem apenas para entender o código anterior à migração, não
+> representam o estado atual.
+> O design atual está em `docs/working-memory/provider-refactor/design/`.
 
-该历史方案曾取代 `zcode.model-providers.v1` catalog 和 `model-providers.v2.json` store，随后又被
-当前 `.zcode/v2/provider_config.json`、ZCode Built-in Release 和每 Environment 自有 Registry 的方案取代。
+Esse esquema histórico chegou a substituir o catálogo `zcode.model-providers.v1` e o store `model-providers.v2.json`, e depois foi substituído
+pelo esquema atual com `.zcode/v2/provider_config.json`, ZCode Built-in Release e um Registry próprio por Environment.
 
-## 文件边界
+## Limites dos Arquivos
 
-| 文件                                             | 语义                                                         |
-| ------------------------------------------------ | ------------------------------------------------------------ |
-| `~/.zcode/v2/config.json`                        | app 模型供应商权威源，包含 `provider` 字段（见 Provider Schema）。 |
-| `~/.zcode/v2/model-providers.json`               | 一次性迁移来源，只读取有效旧内容，迁移后保留原文件不改。     |
-| `~/.zcode/v2/model-providers.v2.json`            | 完全忽略，不读取、不删除、不迁移。                           |
-| `~/.zcode/cli/config.json`                       | standalone CLI 使用的配置文件，不参与 app provider 迁移。    |
-| `models_catalog_china_llm_zcode_2026-06-03.json` | legacy `model-providers.json` 迁移时的模型 metadata 补齐源。 |
+| Arquivo                                           | Semântica                                                                  |
+| ------------------------------------------------- | -------------------------------------------------------------------------- |
+| `~/.zcode/v2/config.json`                         | fonte autoritativa de providers de modelo do app, contém o campo `provider` (ver Provider Schema). |
+| `~/.zcode/v2/model-providers.json`                | origem de migração única, apenas lê conteúdo antigo válido; após a migração o arquivo original é preservado sem alteração. |
+| `~/.zcode/v2/model-providers.v2.json`             | totalmente ignorado: não é lido, não é removido, não é migrado.            |
+| `~/.zcode/cli/config.json`                        | arquivo de configuração usado pela CLI standalone, não participa da migração de providers do app. |
+| `models_catalog_china_llm_zcode_2026-06-03.json` | fonte de complementação de metadata de modelo durante a migração do `model-providers.json` legado. |
 
-`config.json` 已经存在且包含有效 `provider` 时，不用旧文件覆盖用户的新配置。
+Quando `config.json` já existe e contém um `provider` válido, a nova configuração do usuário não é sobrescrita pelo arquivo antigo.
 
 ## Provider Schema
 
-Provider 结构兼容 opencode config 的 provider 形态，并向 agent 的 provider 定义靠齐。
-ZCode 写回时不再写顶层 `$schema`，也不再写 `zcode` 扩展对象、provider 顶层
-`api`、`npm`、`endpoints` 等内部推导字段。请求地址只写在 `options.baseURL`。
+A estrutura de Provider é compatível com a forma de provider do opencode config e se aproxima da definição de provider do agent.
+No write-back do ZCode não se escreve mais o `$schema` de topo, nem o objeto de extensão `zcode`, nem campos internos derivados como `api`, `npm` e `endpoints` de topo do provider. O endereço de requisição é escrito apenas em `options.baseURL`.
 
-provider 的 transport 类型使用 `kind`：
+O tipo de transport do provider usa `kind`:
 
 ```jsonc
 {
@@ -45,29 +45,27 @@ provider 的 transport 类型使用 `kind`：
 }
 ```
 
-迁移兼容规则：
+Regras de compatibilidade de migração:
 
-- 读旧文件时仍接受顶层 `$schema`，写回时会移除。
-- 读旧文件时仍接受 provider 顶层 `api`，只作为 `options.baseURL` 缺省来源。
-- 读旧文件时仍接受 `npm`，并转换成无 `@ai-sdk/` 前缀的 `kind`。
-- 读旧文件时仍接受 provider/model 的 `zcode` 扩展对象。
-- 当 `config.json` 已有 `kind` 或 `options.baseURL` 时，运行态以新结构字段为准；
-  残留的 `endpoints`、`apiFormat`、`defaultKind`、`zcode` 只作为缺少新字段时的迁移输入。
-- 写回时统一移除 provider 顶层 `api`、`npm`、`endpoints`、`apiFormat`、`defaultKind`、
-  `providerMappings`、`createdAt`、`updatedAt`、provider/model 的 `zcode` 扩展对象，以及
-  `providerMappings` 里旧的 `zcode*` 前缀 key。
-- app 内部需要的 `endpoints`、`apiFormat`、`defaultKind` 等字段由 storage 读入时从
-  `kind + options.baseURL` 推导。
-- 设置页 Base URL 输入和 `options.baseURL` 读写必须保留用户配置的路径段；不得因为
-  `kind` 是 `openai` / `openai-compatible` / `anthropic` 就自动删除 `/v1`、
-  `/responses`、`/chat/completions` 等后缀。历史 catalog / legacy endpoint 可以在迁移时
-  继续做“完整 operation URL -> runtime base URL”的兼容归一化，但不能作用到用户当前输入。
-- ZCode 自家内置/计划类 provider 当前统一使用 `anthropic` runtime，不再用 model-level
-  `kinds` 表达单 provider 下的多协议能力。
+- Na leitura do arquivo antigo, o `$schema` de topo ainda é aceito, mas é removido no write-back.
+- Na leitura do arquivo antigo, o `api` de topo do provider ainda é aceito, apenas como fonte padrão de `options.baseURL`.
+- Na leitura do arquivo antigo, o `npm` ainda é aceito e convertido em `kind` sem o prefixo `@ai-sdk/`.
+- Na leitura do arquivo antigo, o objeto de extensão `zcode` de provider/model ainda é aceito.
+- Quando `config.json` já tem `kind` ou `options.baseURL`, o runtime usa como válido os campos da estrutura nova;
+  os resíduos `endpoints`, `apiFormat`, `defaultKind` e `zcode` servem apenas como entrada de migração quando faltam campos novos.
+- No write-back são removidos uniformemente `api`, `npm`, `endpoints`, `apiFormat`, `defaultKind` de topo do provider,
+  `providerMappings`, `createdAt`, `updatedAt`, o objeto de extensão `zcode` de provider/model, e as chaves antigas com
+  prefixo `zcode*` dentro de `providerMappings`.
+- Campos como `endpoints`, `apiFormat` e `defaultKind`, necessários internamente ao app, são derivados na leitura pelo storage a partir de
+  `kind + options.baseURL`.
+- O campo Base URL da página de configurações e a leitura/escrita de `options.baseURL` devem preservar os segmentos de caminho configurados pelo usuário; não se deve apagar automaticamente sufixos como `/v1`,
+  `/responses` e `/chat/completions` só porque o `kind` é `openai` / `openai-compatible` / `anthropic`. O catálogo histórico / endpoint legado pode continuar fazendo a normalização de compatibilidade
+  "URL completo de operation -> runtime base URL" durante a migração, mas isso não pode valer para a entrada atual do usuário.
+- Os providers built-in / do plano da própria ZCode usam uniformemente o runtime `anthropic`; a capacidade multi-protocolo dentro de um único provider não é mais expressa por `kinds` em nível de model.
 
 ## Model Schema
 
-模型继续保留以下主字段：
+Os modelos continuam preservando os seguintes campos principais:
 
 - `name`
 - `reasoning`
@@ -76,9 +74,9 @@ provider 的 transport 类型使用 `kind`：
 - `options`
 - `headers`
 
-`reasoning` 面向 UI、配置页和 ZCode Protocol，表示模型是否支持思考以及可展示的推理强度
-档位。App 只保存并下发档位值，例如 `high`、`max`；这些值对应供应商请求里的哪些字段由
-zcode-cli 维护，app 不再在 `config.json` 里保存 provider-specific `model.variants`。
+`reasoning` é voltado para a UI, a página de configurações e o ZCode Protocol, indicando se o modelo suporta pensamento e quais níveis de intensidade de raciocínio podem ser exibidos.
+O App apenas salva e distribui os valores de nível, como `high` e `max`; a correspondência desses valores com os campos da requisição ao provider é mantida pelo
+zcode-cli, e o app não salva mais `model.variants` específicos de provider no `config.json`.
 
 ```jsonc
 {
@@ -101,90 +99,85 @@ zcode-cli 维护，app 不再在 `config.json` 里保存 provider-specific `mode
 }
 ```
 
-## 请求参数合并
+## Mesclagem dos Parâmetros de Requisição
 
-app 侧只投影 provider、model、context/output limit、当前 thought level 和当前模型可用
-reasoning variants。一次模型请求中推理强度到 provider options 的映射在 zcode-cli 内完成，
-不从 app config 下发。
+O lado do app projeta apenas provider, model, limite de context/output, o thought level atual e as reasoning variants disponíveis do modelo atual.
+O mapeamento da intensidade de raciocínio para as options do provider dentro de uma requisição de modelo é feito no zcode-cli,
+e não é distribuído a partir do app config.
 
 ```text
 provider.options
   -> model.options
-  -> zcode-cli 根据 selected reasoning level 生成供应商请求字段
+  -> zcode-cli gera os campos da requisição ao provider conforme o reasoning level selecionado
 ```
 
-`reasoning.variants` 是 app 侧唯一的 reasoning 档位列表来源。历史 `model.variants` 仅作为旧
-配置残留被 schema 接受，读入后不会生成 app 内部 provider patch，写回时会被清理。
+`reasoning.variants` é a única fonte da lista de níveis de reasoning no lado do app. O `model.variants` histórico é apenas aceito pelo schema como resíduo de configuração antiga; após a leitura ele não gera patch de provider interno do app e é limpo no write-back.
 
-读取 `config.json.provider[].models[]` 时，`model.limit.context` 和 `model.limit.output`
-是标准来源。为兼容早期测试配置和历史残留，读取边界也接受顶层
-`model.contextWindow` / `model.maxOutputTokens` 作为 fallback；一旦重新持久化，仍统一写回
-`model.limit.context` / `model.limit.output`，不继续扩散顶层字段。
+Ao ler `config.json.provider[].models[]`, `model.limit.context` e `model.limit.output`
+são a fonte padrão. Para compatibilidade com configurações de teste iniciais e resíduos históricos, a fronteira de leitura também aceita o topo
+`model.contextWindow` / `model.maxOutputTokens` como fallback; assim que for persistido novamente, continua-se gravando uniformemente
+`model.limit.context` / `model.limit.output`, sem propagar os campos de topo.
 
-## 迁移
+## Migração
 
-迁移只从 `~/.zcode/v2/model-providers.json` 读取。支持两类历史形态：
+A migração lê apenas de `~/.zcode/v2/model-providers.json`. Suporta duas formas históricas:
 
-1. 旧裸数组 `ModelProviderConfig[]`。
-2. 历史误写入旧文件的 `{ schemaVersion, providers }`。
+1. O array puro antigo `ModelProviderConfig[]`.
+2. O `{ schemaVersion, providers }` gravado por engano no arquivo antigo.
 
-迁移规则：
+Regras de migração:
 
-- `id` -> `provider` map key。
-- `name` -> `provider[id].name`。
-- 默认运行协议 -> `provider[id].kind`，值为 `anthropic`、`openai` 或 `openai-compatible`。
-- `apiKey` -> `provider[id].options.apiKey`。
-- 默认 endpoint runtime base URL -> `provider[id].options.baseURL`。
-- `headers` -> `provider[id].headers`。
-- `models[]` -> `provider[id].models`。
-- `contextWindow` -> `model.limit.context`。
-- `maxOutputTokens` -> `model.limit.output`。
-- `modalities` -> `model.modalities`。
-- 旧 `reasoning.levels[level][kind]` -> `model.reasoning.variants`；provider-specific patch
-  不再写入 `config.json`。
+- `id` -> chave do map `provider`.
+- `name` -> `provider[id].name`.
+- Protocolo de execução padrão -> `provider[id].kind`, com valor `anthropic`, `openai` ou `openai-compatible`.
+- `apiKey` -> `provider[id].options.apiKey`.
+- Endpoint runtime base URL padrão -> `provider[id].options.baseURL`.
+- `headers` -> `provider[id].headers`.
+- `models[]` -> `provider[id].models`.
+- `contextWindow` -> `model.limit.context`.
+- `maxOutputTokens` -> `model.limit.output`.
+- `modalities` -> `model.modalities`.
+- `reasoning.levels[level][kind]` antigo -> `model.reasoning.variants`; patch específico de provider
+  não é mais escrito no `config.json`.
 
-模型 ID 以 `[1m]` 结尾时，App 在存储归一化、设置页保存和 ZCode Protocol 投影阶段都会把
-`contextWindow` / `model.limit.context` 强制收敛为 `1000000`。这样可以让设置页、桌面
-continuous 链路、手机远控 replayable 恢复链路和 agent context meter 使用同一个 1M 分母，
-不会被旧配置里保存的 128k 或用户手动输入的较小值覆盖。
+Quando o ID do modelo termina em `[1m]`, o App força `contextWindow` / `model.limit.context` a convergir para `1000000` nas etapas de normalização no storage, salvamento na página de configurações e projeção do ZCode Protocol.
+Isso permite que a página de configurações, a cadeia continuous do desktop, a cadeia de recuperação replayable do controle remoto no celular e o medidor de contexto do agent usem o mesmo denominador de 1M,
+sem serem sobrescritos pelo 128k guardado em configurações antigas ou por valores menores digitados manualmente pelo usuário.
 
-旧 `model-providers.json` 的模型经常只有字符串 id，没有 `contextWindow`、
-`maxOutputTokens`、`modalities`、`reasoning` 等模型事实。迁移时会用本地
-`models_catalog_china_llm_zcode_2026-06-03.json` 按模型 id 补齐缺失 metadata；
-例如 `deepseek-v4-pro` 会从 catalog 得到 `contextWindow: 1000000`，避免落到旧
-128k 兜底值。`model-providers.v2.json` 不参与读取或迁移。
+Os modelos do `model-providers.json` antigo frequentemente têm apenas o id em forma de string, sem fatos como `contextWindow`,
+`maxOutputTokens`, `modalities` e `reasoning`. Na migração, os metadata que faltam são complementados pelo
+`models_catalog_china_llm_zcode_2026-06-03.json` local, por id de modelo; por exemplo, `deepseek-v4-pro` obtém `contextWindow: 1000000` do catálogo, evitando cair no valor
+antigo de fallback 128k. `model-providers.v2.json` não participa da leitura nem da migração.
 
-迁移成功后原子写入 `~/.zcode/v2/config.json`，不修改旧文件。
+Após a migração bem-sucedida, `~/.zcode/v2/config.json` é escrito atomicamente, sem modificar o arquivo antigo.
 
-## App 与 Agent 边界
+## Limite entre App e Agent
 
-App 设置页读写 `~/.zcode/v2/config.json`，并投影出：
+A página de configurações do App lê e escreve `~/.zcode/v2/config.json`, e projeta:
 
-- UI 兼容 DTO，供设置页和聊天页展示。
-- `ZCodeProviderRegistrySnapshot`，供 app service 在本进程内解析当前选中模型。
+- DTO de compatibilidade para a UI, usado pela página de configurações e pela página de chat.
+- `ZCodeProviderRegistrySnapshot`, usado pelo app service para resolver o modelo selecionado atual dentro deste processo.
 
-Agent 的 `--stdio` 模式不读取 app config 文件。它只消费 app 通过协议下发的 runtime
-model config：当前 provider、当前模型、context/output limit、当前 thought level、当前模型
-可用 reasoning variants。生成请求所需的 reasoning provider options 由 zcode-cli 根据档位值
-维护。UI 的 provider/model 列表以 app 侧 `modelProviderService` 为准，不依赖 agent snapshot
-返回完整 catalog。
+O modo `--stdio` do Agent não lê o arquivo de config do app. Ele consome apenas o runtime
+model config distribuído pelo app via protocolo: provider atual, modelo atual, limite de context/output, thought level atual, reasoning variants disponíveis do modelo
+atual. As reasoning provider options necessárias para gerar a requisição são mantidas pelo zcode-cli conforme o valor do nível.
+A lista de provider/model da UI segue o `modelProviderService` do lado do app e não depende do snapshot do agent retornar o catálogo completo.
 
-远控链路继续遵守 shared-host attachment 边界：手机 `/remote` 不为 provider 配置另起独立
-agent runtime，也不读取远端机器自己的 provider 配置。
+A cadeia de controle remoto continua respeitando o limite de shared-host attachment: o `/remote` no celular não inicia um agent runtime
+independente para a configuração de providers, nem lê a configuração de providers da máquina remota.
 
-## 验证
+## Verificação
 
-必须覆盖：
+Deve cobrir:
 
-- 只有 `model-providers.json` 时能迁移到 `config.json.provider`。
-- 写出的 config 不包含顶层 `$schema`。
-- 写出的 provider 使用 `kind`，且不包含 provider 顶层 `api`、`npm`、`endpoints`、
-  `apiFormat`、`defaultKind`、`providerMappings`、`createdAt`、`updatedAt` 和 `zcode`
-  扩展对象。
-- legacy 字符串模型迁移时能从本地 catalog 补齐 `contextWindow` 等 metadata。
-- 只有 `model-providers.v2.json` 时不迁移，结果等同没有旧 provider 配置。
-- `config.json.provider` 已存在时不会被旧配置覆盖，但会被清洗成新 schema。
-- 设置页保存 provider 后只修改 `config.json`。
-- agent `--stdio` 初始化和 `session/send` 不接收完整 provider registry，只接收当前模型 runtime config。
-- UI 模型选择列表来自 app provider 数据源，agent snapshot 只需要提供当前模型状态。
-- standalone CLI 仍只受 `~/.zcode/cli/config.json` 影响。
+- Migrar para `config.json.provider` quando existir apenas `model-providers.json`.
+- O config escrito não contém o `$schema` de topo.
+- O provider escrito usa `kind` e não contém `api`, `npm`, `endpoints`, `apiFormat`, `defaultKind`, `providerMappings`, `createdAt`, `updatedAt` de topo do provider nem o objeto de extensão
+  `zcode`.
+- Na migração de modelos string legados, consegue complementar metadata como `contextWindow` a partir do catálogo local.
+- Não migra quando existir apenas `model-providers.v2.json`; o resultado equivale a não haver configuração antiga de provider.
+- Quando `config.json.provider` já existe, ele não é sobrescrito pela configuração antiga, mas é limpo para o novo schema.
+- Salvar o provider na página de configurações modifica apenas o `config.json`.
+- A inicialização do agent `--stdio` e `session/send` não recebem o registro completo de providers, apenas o runtime config do modelo atual.
+- A lista de seleção de modelos da UI vem da fonte de dados de providers do app, e o snapshot do agent só precisa fornecer o estado do modelo atual.
+- A CLI standalone continua sendo afetada apenas por `~/.zcode/cli/config.json`.

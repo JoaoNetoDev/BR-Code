@@ -1,50 +1,50 @@
-# Todo 100：Account / Provider / Effective Selection 链路纯调查
+# Todo 100: investigação de arquitetura da cadeia Account / Provider / Effective Selection
 
-> 状态：调查完成；2026-09-09。后续修复范围已裁决并由 Todo99 完成，本调查不再等待实施裁决。下文保留调查时事实，不代表这些缺陷仍全部存在；验证欠账转交 Todo102。
-> 基线：`86bbe157c88e8e599694afb53c39f6dac125ac08`，`provider-refactor-e2e-recovery`。Todo99 的未提交代码是暂停中的实验，不算已完成修复；本项不改动或回滚这些代码。
+> Status: investigação concluída; 2026-09-09. O escopo de correções subsequentes foi decidido e entregue pelo Todo99; esta investigação não aguarda mais decisão de implementação. Os fatos abaixo foram preservados no momento da investigação e não representam que todos esses defeitos ainda existam; as pendências de verificação foram transferidas para o Todo102.
+> Baseline: `86bbe157c88e8e599694afb53c39f6dac125ac08`, `provider-refactor-e2e-recovery`. O código não commitado do Todo99 é um experimento pausado e não conta como correção concluída; este item não altera nem reverte esse código.
 
-## 目标与优先级
+## Objetivo e prioridade
 
-彻底梳理 Host 与 Core Worker 的账号、Provider 和有效模型选择链路：当前有哪些问题，公共机制已有多少，各执行入口如何消费，长期应重构成什么样。
+Mapear de forma completa as cadeias de seleção de conta, Provider e modelo efetivo do Host e do Core Worker: quais problemas existem hoje, quanto do mecanismo comum já existe, como cada ponto de entrada consome isso e como deve ser reestruturado no longo prazo.
 
-1. 优先：输入事实和已应用快照自洽；各入口复用公共 Effective Selection；解析结果正确用于执行且不损坏原意图。
-2. 必查：临时 Account 同步是否完整、去重和应用确认是否真实、Worker 生命周期是否遗漏。同步机制以后可能删除，当前只求正确可靠，不以彻底美化它为主目标。
-3. 排除：实现修复、全仓重构、独立终端 CLI 功能升级、持久化迁移、推送部署。独立 CLI 仅记录架构差异。
+1. Prioridade: coerência entre os fatos de entrada e o snapshot aplicado; reutilização da Effective Selection comum em todos os pontos de entrada; uso correto do resultado do parse na execução, sem corromper a intenção original.
+2. Obrigatório verificar: se a sincronização temporária de Account é completa, desduplicada e se a confirmação de aplicação é real, e se a lifecycle do Worker deixa algo de fora. O mecanismo de sincronização pode ser removido no futuro; por agora busca-se apenas correção e confiabilidade, sem ter como meta principal uma reformulação estética completa.
+3. Fora de escopo: implementação de correções, refatoração de todo o repo, evolução funcional da CLI independente, migrações de persistência e deploy. Para a CLI independente apenas registrar as diferenças de arquitetura.
 
-## 已确认边界
+## Limites confirmados
 
-- 允许 Host 使用完整 B、Worker 暂时使用完整 A；不允许进程内混用 A/B 或虚假确认 B 已应用。
-- 原 Selection 是意图；有效选择是临时结果；固定的本次执行不可再重解释。
-- 显式 Subagent 等消费方应复用公共解析；隐式继承、内部执行 override、已绑定 Off-Peak Ticket 保持原执行归属。
-- 读取、刷新、失败不覆盖持久原意图；各业务提交与保存边界不强行统一。
-- 不新增每次发送前强制追平远端最新配置的屏障；不改变 workspace 隔离、桌面 continuous 或手机 replayable。
+- É permitido que o Host use o B completo e que o Worker use temporariamente o A completo; não é permitido misturar A/B dentro do processo nem afirmar falsamente que o B já foi aplicado.
+- A Selection original é a intenção; a seleção efetiva é um resultado temporário; a fixação desta execução não pode ser reinterpretada.
+- Consumidores como o Subagent explícito devem reutilizar o parse comum; herança implícita, override de execução interna e Off-Peak Ticket já vinculado mantêm a atribuição de execução original.
+- Leitura, refresh e falha não sobrescrevem a intenção original persistida; não forçar a unificação das fronteiras de commit e salvamento de cada negócio.
+- Não adicionar uma nova barreira que obrigue a sincronizar com a configuração remota mais recente antes de cada envio; não alterar o isolamento de workspace, o continuous do desktop nem o replayable do celular.
 
-## 调查方法与交付
+## Método e entregas da investigação
 
-以当前事实文档和代码为证据，优先检索已有功能图的 ProviderRegistryService、AccountProviderService、ModelSelectionFacade 和执行入口；codegraph 不可用时明确使用定向调用阅读，不伪称完成图扫描。只读检查及无真实账号的内存验证可执行，不访问或修改真实用户状态。
+Usar os documentos de fatos atuais e o código como evidência, buscando primeiro o ProviderRegistryService, AccountProviderService, ModelSelectionFacade e os pontos de entrada de execução já mapeados nos diagramas de funcionalidade existentes; quando o codegraph não estiver disponível, declarar explicitamente o uso de leitura dirigida por chamadas, sem afirmar que a varredura do grafo foi concluída. Inspeções somente-leitura e verificações em memória sem conta real podem ser executadas, sem acessar ou modificar o estado real do usuário.
 
-每项记录：预期、实际链路、基线代码位置、证据强度、用户影响、建议归属、未提交实验是否覆盖、待验证/裁决。结论区分已确认问题、条件性风险、正确机制、待裁决设计；不以可达性当作实际 Bug。
+Para cada item registrar: expectativa, cadeia real, localização do código no baseline, força da evidência, impacto no usuário, atribuição sugerida, se o experimento não commitado já cobre o caso e o que falta verificar/decidir. As conclusões distinguem problemas confirmados, riscos condicionais, mecanismos corretos e decisões de design pendentes; não tratar alcançabilidade como bug real.
 
-执行报告：[调查结果与目标架构](../research/todo100-account-provider-selection-investigation.md)。报告须包含架构图、逐入口消费表、问题清单、目标架构、最小修复与长期重构的分界、验证缺口。
+Relatório de execução: [Resultados da investigação e arquitetura-alvo](../research/todo100-account-provider-selection-investigation.md). O relatório deve conter diagrama de arquitetura, tabela de consumo por ponto de entrada, lista de problemas, arquitetura-alvo, a fronteira entre correção mínima e refatoração de longo prazo, e as lacunas de verificação.
 
-| ID | 调查项 | 完成标准 | 状态 |
+| ID | Item de investigação | Critério de conclusão | Status |
 | --- | --- | --- | --- |
-| I01 | 进程和服务装配 | 区分 Host、受管理 Worker、独立 CLI、SSH 环境；列出共享/分叉实现 | 完成：报告 §2 |
-| I02 | Account 事实生产和发布 | 查配置/连接/身份变化、刷新串行化、过期结果与 last-known-good | 完成：§3、§7；异步身份混合列风险，不冒称已复现 |
-| I03 | Provider 已应用快照 | 查源版本匹配、状态/model 一致、通知与快照消费 | 完成：§3、P100-01/02 |
-| I04 | 临时同步正确性 | 首次/事件/按需触发、字段完整性、ack、去重/顺序/失败、不同 Worker 生命周期 | 完成：§6；保留已有队列，不建议先重造同步平台 |
-| I05 | Session / Composer | 原意图→公共解析→提交→最终 Model，缓存及保存边界 | 完成：§3、§5；已有公共 Hook/执行冻结正确 |
-| I06 | Automation / Bot / Wiki | 各自目标 Host、解析/派发点、冻结和配置保存边界 | 完成：§5；P100-04/05 分别记录 Bot 后续轮和附件传递缺口 |
-| I07 | Subagent / Workflow | 显式/隐式/override/嵌套和实际请求，不能只查设置页 | 完成静态链：P100-03、§5；真实 child 网络验证尚未执行 |
-| I08 | 请求鉴权和其他内部模型调用 | 精确执行、账号绑定、辅助模型、继承及 Ticket 例外 | 完成：§5；不把动态鉴权误改成模型选择，也不重绑 Ticket |
-| I09 | 证据与试改复审 | 验证确定问题；区分基线与暂停实验；列出未验证范围 | 完成：§10；52 条现有单测通过，ACK 差异内存复现；试改仍暂停 |
-| I10 | 目标架构与建议顺序 | 公共服务边界、临时同步可移除性、最小修复与待裁决项 | 完成：§8/9；纯公共解析 + applied snapshot + 明确新派发/固定执行边界 |
+| I01 | Montagem de processos e serviços | Distinguir Host, Worker gerenciado, CLI independente e ambiente SSH; listar implementações compartilhadas/divergentes | Concluído: relatório §2 |
+| I02 | Produção e publicação dos fatos de Account | Verificar mudanças de configuração/conexão/identidade, serialização do refresh, resultados expirados e last-known-good | Concluído: §3, §7; risco de mistura assíncrona de identidade listado, sem alegar reprodução |
+| I03 | Snapshot aplicado do Provider | Verificar casamento da versão de origem, consistência estado/model e consumo de notificações e snapshot | Concluído: §3, P100-01/02 |
+| I04 | Correção da sincronização temporária | Triggers inicial/evento/sob demanda, completude dos campos, ack, desduplicação/ordem/falha, lifecycles distintos de Worker | Concluído: §6; manter a fila existente, sem recomendar antes recriar uma plataforma de sincronização |
+| I05 | Session / Composer | Intenção original → parse comum → commit → Model final, cache e fronteira de salvamento | Concluído: §3, §5; Hook comum e congelamento de execução já corretos |
+| I06 | Automation / Bot / Wiki | Host-alvo de cada um, pontos de parse/ despacho, congelamento e fronteira de salvamento de configuração | Concluído: §5; P100-04/05 registram respectivamente as lacunas de turnos seguintes do Bot e de passagem de anexos |
+| I07 | Subagent / Workflow | Explícito/implícito/override/aninhado e requisições reais; não basta checar a página de settings | Cadeia estática concluída: P100-03, §5; verificação de rede com child real ainda não executada |
+| I08 | Autenticação da requisição e outras chamadas internas de modelo | Execução precisa, vínculo de conta, modelos auxiliares, herança e exceções de Ticket | Concluído: §5; não trocar autenticação dinâmica por seleção de modelo nem revincular Ticket |
+| I09 | Evidências e revisão da tentativa de patch | Verificar problemas determinados; distinguir baseline de experimento pausado; listar o que não foi verificado | Concluído: §10; 52 testes unitários existentes passando, diferença de ACK reproduzida em memória; a tentativa de patch continua pausada |
+| I10 | Arquitetura-alvo e ordem sugerida | Fronteira do serviço comum, removibilidade da sincronização temporária, correção mínima e itens pendentes de decisão | Concluído: §8/9; parse puramente comum + applied snapshot + fronteira explícita de novo despacho/execução fixada |
 
-完成条件：以上调查逐项有结果与证据，不能以“需继续核对”替代结论；真实账号/真机验证未执行须明确列出。调查完成不代表产品问题修复，也不自动授权续做 Todo99。
+Condição de conclusão: cada item acima tem resultado e evidência, e «precisa continuar conferindo» não pode substituir uma conclusão; verificações com conta real ou em máquina real devem ser listadas explicitamente como não executadas. Concluir a investigação não significa que os problemas de produto foram corrigidos, nem autoriza automaticamente retomar o Todo99.
 
-## 执行结论
+## Conclusões da execução
 
-- 确认三项状态/消费缺口：同步丢 states、ACK 不代表真实 applied snapshot、显式 Subagent 未复用公共解析。
-- 另外确认附件派发分支漏传模型选择/执行上下文；Bot 首次创建已接解析，但已有任务后续消息未接，需按新轮/已接纳输入边界收口。
-- Registry/Facade/Hook 已有较完整的一致性保护，不建议推倒重写；Account 上游查询作用域竞态仍是待运行验证的风险，不能夸大为已证实全局混乱。
-- 本项只改调查 Todo、索引、暂停说明及结果报告。产品试改未继续、未提交、未推送。
+- Confirmadas três lacunas de estado/consumo: a sincronização perde states, o ACK não representa um applied snapshot real e o Subagent explícito não reutiliza o parse comum.
+- Confirmada também uma lacuna na ramificação de despacho de anexos, que deixa de passar a seleção de modelo/contexto de execução; a criação inicial do Bot já tem o parse conectado, mas mensagens seguintes de tarefas existentes não têm, sendo necessário fechar o escopo por turno novo / entrada já aceita.
+- Registry/Facade/Hook já possuem proteção de consistência razoavelmente completa; não se recomenda reescrever tudo. A corrida de escopo na consulta upstream de Account continua sendo um risco pendente de verificação em execução, e não deve ser exagerado como caos global comprovado.
+- Este item alterou apenas o Todo de investigação, o índice, a nota de pausa e o relatório de resultado. O patch de produto não foi retomado, commitado nem enviado.

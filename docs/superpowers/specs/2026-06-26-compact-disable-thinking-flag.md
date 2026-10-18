@@ -1,20 +1,15 @@
-# Compact Thinking Control
+# Controle de Thinking no Compact
 
-## 背景
+## Contexto
 
-Compact summary 是一次短输出的辅助请求。runtime 通过 `ENABLE_COMPACT_SUMMARY_THINKING`
-决定是否把主对话的 reasoning/thinking providerOptions 透传给 compact。这个开关只控制
-summary 是否使用 thinking；Anthropic fixed thinking 与可见输出仍共享 compact 的请求总预算，
-由 adapter 在当前请求内限制 oversized thinking，不修改主对话配置。
+O compact summary é uma requisição auxiliar de saída curta. O runtime decide, por meio de `ENABLE_COMPACT_SUMMARY_THINKING`, se repassa ao compact as providerOptions de reasoning/thinking da conversa principal. Essa flag controla apenas se o summary usa thinking; o fixed thinking da Anthropic e a saída visível continuam compartilhando o orçamento total da requisição do compact, e o adapter limita o thinking oversized dentro da requisição atual, sem modificar a configuração da conversa principal.
 
-## 行为
+## Comportamento
 
-- `ENABLE_COMPACT_SUMMARY_THINKING` 为 `false` 时，compact summary 请求会禁用 inherited thinking/reasoning providerOptions。
-- `ENABLE_COMPACT_SUMMARY_THINKING` 为 `true`（当前默认）时，compact 继续透传当前 `modelProviderOptions`；Anthropic fixed thinking 仍受本次请求总预算约束。
-- 普通对话、subagent、标题生成等非 compact 请求不受这个开关影响。
+- Quando `ENABLE_COMPACT_SUMMARY_THINKING` é `false`, a requisição de compact summary desabilita as providerOptions de thinking/reasoning herdadas.
+- Quando `ENABLE_COMPACT_SUMMARY_THINKING` é `true` (padrão atual), o compact continua repassando as `modelProviderOptions` vigentes; o fixed thinking da Anthropic permanece sujeito ao orçamento total desta requisição.
+- Requisições não compact — conversa comum, subagent, geração de título, etc. — não são afetadas por essa flag.
 
-## 范围
+## Escopo
 
-这里只控制 compact summary request 是否继承 reasoning/thinking providerOptions，不负责请求总预算
-约束，也不改变 compact prompt、history selection、UI compact divider 展示或普通模型请求的
-reasoning 配置。
+Aqui está sendo controlado apenas se a requisição de compact summary herda providerOptions de reasoning/thinking; não cabe a isso a restrição do orçamento total da requisição, nem a alteração do prompt do compact, da seleção de histórico, da exibição do compact divider na UI ou da configuração de reasoning das requisições comuns de modelo.

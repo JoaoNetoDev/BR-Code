@@ -1,36 +1,34 @@
-# Todo147：从生产配置生成测试账号地址，并补齐测试域名签名准入
+# Todo147: gerar os endereços das contas de teste a partir da configuração de produção e completar a admissão por assinatura nos domínios de teste
 
-状态：已实现，定向验证与复审完成；未请求真实模型服务。
+Status: implementado, verificação direcionada e revisão concluídas; nenhum serviço real de modelo foi solicitado.
 
-## 范围
+## Escopo
 
-- 生产 Built-in JSON 为唯一编辑源，脚本同步生成测试 JSON，仅变换账号 Provider 的四类 URL 和对应站点规则。
-- 测试配置保留生产站点规则（手动模板仍使用它们），派生规则逐 URL 生成，能力及优先级不改。
-- revision 同步，不修改用户配置，不发布在线配置，不新增运行时 URL 改写。
-- 签名补充两个明确的 z.ai 测试 hostname；bigmodel.cn 沿用既有匹配。
-- 体验／闲时仍不发 Sig，其他签名、鉴权及 Header 行为保持。
+- O Built-in JSON de produção é a única fonte de edição; o script gera sincronamente o JSON de teste, alterando apenas as quatro categorias de URL do Provider de conta e as regras de site correspondentes.
+- A configuração de teste mantém as regras de site de produção (os templates manuais continuam usando elas), as regras derivadas são geradas URL a URL e capacidades e prioridade não mudam.
+- O revision é sincronizado, a configuração do usuário não é modificada, nenhuma configuração online é publicada e nenhuma reescrita de URL em runtime é adicionada.
+- A assinatura ganha dois hostnames de teste explícitos de z.ai; bigmodel.cn segue com o casamento existente.
+- Em experiência / off-peak a Sig continua não sendo enviada; os demais comportamentos de assinatura, autenticação e Header são mantidos.
 
-详细规则与命令见 [双环境构建 Spec](../../../builtin-provider-config-build-environments.md)。
-本裁决接续 Todo146 的“初始两份一致”，之后不再独立维护测试 JSON。
+As regras detalhadas e os comandos estão em [Spec de build para os dois ambientes](../../../builtin-provider-config-build-environments.md).
+Esta decisão dá sequência ao "inicialmente os dois idênticos" do Todo146; depois disso o JSON de teste deixa de ser mantido de forma independente.
 
-## 验收
+## Aceitação
 
-- [x] 脚本可重复生成，生产源不变；新增模型／能力能同步，过期检查失败且不写文件。
-- [x] 真实两份 Release 的八个账号地址与对应模型有效配置一致；手动模板及其他字段保留。
-- [x] 测试域手动 Key 请求实际经过同一 gate、同源握手、Sig；伪域、关闭 gate 与 HTTPS 边界覆盖。
-- [x] 两家体验／闲时在测试域使用真实形状 JWT、流式与非流式均不进入签名。
-- [x] 相关测试、类型、lint、架构与复审完成；未测试真实环境如实记录。
+- [x] O script gera de forma repetível sem alterar a fonte de produção; novos modelos / capacidades são sincronizados, e a verificação de desatualização falha sem escrever arquivo.
+- [x] Os oito endereços de conta das duas Copies Release reais são consistentes com a configuração efetiva de modelos correspondente; o template manual e os demais campos são preservados.
+- [x] Requisições com Key manual no domínio de teste passam pelo mesmo gate, pelo handshake de mesma origem e pela Sig; domínio falso, gate desligado e fronteiras HTTPS estão cobertos.
+- [x] As duas providers em experiência / off-peak usam no domínio de teste um JWT com o formato real, e tanto o fluxo com streaming quanto sem streaming não entram na assinatura.
+- [x] Testes, tipos, lint, arquitetura e revisão relacionados concluídos; o ambiente real não testado foi registrado com honestidade.
 
-## 2026-09-14 验证与复审
+## Verificação e revisão de 2026-09-14
 
-- Node 生成契约 7 项通过；既有构建契约 13 项通过，均通过 Vitest 包装纳入日常回归。
-- SDK 签名集 70 项通过，注入本地 transport 捕获真实 SDK 请求，断言同源握手、最终 Sig 以及测试域 JWT 例外；不消耗真实账号。
-- 测试 JSON 的差异仅为 8 个账号 URL 与 7 条派生站点规则；生产 JSON 无修改。
-  八个账号当前全部内置模型经完整 Release 解码后，测试／生产有效模型配置一致。
-- 根目录与 adapters 类型检查通过；根目录 lint 0 错误、42 条既有警告；架构 0 违规，改动文件格式检查通过。
-- 额外复查 `model-execution.test.ts`：31 项通过、3 项既有失败。临时恢复执行文件至 HEAD
-  （diff 确认为空）后复跑仍为同三项失败：旧测试期待官方手动 Key 不签名，及两条未声明
-  accountMode、实际被夹具构造成 api-key 的 Start／Off-Peak 用例。未修改这些旧测试或扩大产品修复。
-- adapters 整包 lint 仍受其他未改文件的既有 max-lines 违规阻塞；本次改动文件单独 lint 通过。
-- 没有 UI、用户数据、消息同步／执行权变更，不新增交互 E2E；未执行真实测试账号联网请求或完整签名安装包。
-- 构建只消费已生成文件，不暗中重写；生产配置、模板、模型规则、个人覆盖及签名例外顺序复审无意外变更。
+- 7 itens do contrato de geração em Node passaram; os 13 itens do contrato de build existente passaram; ambos foram incorporados à regressão diária por meio do wrapper Vitest.
+- Os 70 itens do conjunto de assinatura do SDK passaram, injetando um transport local para capturar as requisições reais do SDK e asserindo o handshake de mesma origem, a Sig final e a exceção de JWT nos domínios de teste; nenhuma conta real é consumida.
+- A única diferença do JSON de teste são as 8 URLs de conta e as 7 regras de site derivadas; o JSON de produção não foi modificado.
+  As oito contas, com todos os modelos embutidos atuais, ficam com a configuração efetiva de modelos consistente entre teste e produção após a decodificação completa do Release.
+- A verificação de tipos do diretório raiz e de adapters passou; o lint do diretório raiz ficou com 0 erros e 42 avisos já existentes; arquitetura com 0 violações e a verificação de formatação dos arquivos alterados passou.
+- Revisão adicional de `model-execution.test.ts`: 31 itens passaram, 3 falharam (falhas já existentes). Depois de restaurar temporariamente o arquivo de execução para HEAD (com diff confirmado como vazio) e rodar de novo, continuam sendo as mesmas três falhas: um teste antigo que espera que a Key manual oficial não seja assinada e duas falhas Start / Off-Peak que não declaram accountMode e são efetivamente construídas pelo fixture como api-key. Esses testes antigos não foram modificados e a correção do produto não foi ampliada.
+- O lint do pacote inteiro de adapters continua bloqueado por violações max-lines já existentes em outros arquivos não alterados; os arquivos alterados desta vez passam no lint sozinhos.
+- Não houve mudança de UI, dados de usuário, sincronização/execução de mensagens nem novo E2E de interação; não foram executadas requisições de rede reais com conta de teste nem a instalação do pacote de assinatura completo.
+- O build consome apenas arquivos já gerados e não os reescreve silenciosamente; a revisão da configuração de produção, dos templates, das regras de modelo, das sobrescritas individuais e da ordem das exceções de assinatura não mostrou mudanças inesperadas.

@@ -1,91 +1,92 @@
-# Model Provider Coding Plan
+# Plano de Código do Model Provider
 
-Model Providers now separate manual API Key access from account-based Coding Plan access.
+Os Model Providers agora separam o acesso manual por API Key do acesso por Coding Plan baseado em conta.
 
-## Entries
+## Entradas
 
-- `Z.AI - API Key` and `BigModel - API Key` keep the existing provider form, including API Key, endpoints, models, and model mappings.
-- `Z.AI - Coding Plan` and `BigModel - Coding Plan` are independent entries. They use their own `*-coding-plan` provider credential to query the usage quota entitlement API, then derive whether the account has Coding Plan access.
-- Provider ids are intentionally separate:
+- `Z.AI - API Key` e `BigModel - API Key` mantêm o formulário de provider existente, incluindo API Key, endpoints, modelos e mapeamentos de modelo.
+- `Z.AI - Coding Plan` e `BigModel - Coding Plan` são entradas independentes. Elas usam a própria credencial de provider `*-coding-plan` para consultar a API de entitlement de cota de uso e, a partir daí, deduzir se a conta tem acesso ao Coding Plan.
+- Os ids de provider são intencionalmente separados:
   - `builtin:zai` => `Z.AI - API Key`
   - `builtin:zai-coding-plan` => `Z.AI - Coding Plan`
   - `builtin:bigmodel` => `BigModel - API Key`
   - `builtin:bigmodel-coding-plan` => `BigModel - Coding Plan`
-- The provider sidebar groups preset entries into provider cards:
+- A barra lateral de providers agrupa as entradas predefinidas em cards de provider:
   - `Z.AI`: `Coding Plan`, `API Key`
   - `BigModel`: `Coding Plan`, `API Key`
 
-## Coding Plan States
+## Estados do Coding Plan
 
-- Not connected: the matching Coding Plan provider is not configured. The page shows the lightweight account connection card and vertical Lite / Pro / Max plan cards.
-- Connected but not subscribed: the matching Coding Plan provider is configured, but the quota entitlement API returns `no_plan` or no usable plan data. The page keeps the plan cards and shows only the subscribe action.
-- Subscribed: the matching Coding Plan provider is configured and the quota entitlement API returns subscription or quota data. The page shows the normal provider configuration in this order: name, Coding Plan status card, endpoints, models, and model mapping. It does not show API Key or Connection Mode fields.
+- Não conectado: o provider Coding Plan correspondente não está configurado. A página mostra o card leve de conexão de conta e os cards verticais de plano Lite / Pro / Max.
+- Conectado, mas sem assinatura: o provider Coding Plan correspondente está configurado, mas a API de entitlement de cota retorna `no_plan` ou nenhum dado de plano utilizável. A página mantém os cards de plano e mostra apenas a ação de assinar.
+- Assinado: o provider Coding Plan correspondente está configurado e a API de entitlement de cota retorna dados de assinatura ou de cota. A página mostra a configuração normal de provider nesta ordem: nome, card de status do Coding Plan, endpoints, modelos e mapeamento de modelo. Não mostra campos de API Key nem de Connection Mode.
 
-The Coding Plan status is refreshed after provider load, manual refresh, and saving `builtin:zai-coding-plan` or `builtin:bigmodel-coding-plan`. Users who need to paste a key manually should use the API Key entries instead.
+O status do Coding Plan é atualizado após o carregamento do provider, o refresh manual e o salvamento de `builtin:zai-coding-plan` ou `builtin:bigmodel-coding-plan`. Usuários que precisem colar uma chave manualmente devem usar as entradas de API Key.
 
-When an entitlement refresh is in flight, the settings page keeps displaying an existing valid paid Coding Plan quota snapshot for the same provider. This matches the sidebar usage entry: cached valid entitlement is treated as the current visible state until the background refresh returns, instead of temporarily falling back to Start Plan or an empty checking state.
+Quando um refresh de entitlement está em andamento, a página de configurações continua exibindo um snapshot válido existente de cota paga de Coding Plan para o mesmo provider. Isso corresponde à entrada de uso da barra lateral: entitlement válido em cache é tratado como o estado visível atual até que o refresh em segundo plano retorne, em vez de voltar temporariamente para Start Plan ou para um estado vazio de verificação.
 
-Manual refresh in Model Provider settings is an account entitlement refresh, not
-only a provider catalog refresh. It must refresh OAuth-derived Coding Plan API
-keys, personal Coding/Start entitlement snapshots, and authenticated Team Plan
-pricing/customer project data. This covers users being added to a team, removed
-from a team, and team purchases completed while the app is already open.
+O refresh manual nas configurações de Model Provider é um refresh de entitlement da conta, não
+apenas um refresh do catálogo de providers. Ele deve atualizar as API keys de Coding Plan
+derivadas do OAuth, os snapshots de entitlement pessoal de Coding/Start e os dados de
+pricing/customer project autenticados do Team Plan. Isso cobre usuários adicionados a um
+time, removidos de um time e compras de time concluídas com o app já aberto.
 
-The purchase success page keeps a single `Done` action. It must not show a
-separate immediate refresh button. Clicking `Done` completes the purchase flow
-by running the outer purchase-complete refresh chain first, then closing the
-panel. That refresh chain is responsible for making the new personal or Team
-Plan entitlement visible in Model Provider settings.
+A página de sucesso da compra mantém uma única ação `Done`. Ela não deve mostrar um
+botão de refresh imediato separado. Clicar em `Done` conclui o fluxo de compra
+executando primeiro a cadeia externa de refresh de compra-concluída e depois fechando o
+painel. Essa cadeia de refresh é responsável por tornar o novo entitlement pessoal ou de
+Team Plan visível nas configurações de Model Provider.
 
-## Pricing Cards
+## Cards de Preço
 
-- Pricing cards are provider-specific. Z.AI uses the Z.AI USD Coding Plan catalog; BigModel uses the BigModel CNY GLM Coding catalog.
-- The visible periods are `Monthly`, `Quarterly`, and `Yearly`. Non-monthly periods show the billed period amount plus the monthly equivalent.
-- Plan descriptions are also provider-specific, so BigModel wording is not reused from the Z.AI catalog.
+- Os cards de preço são específicos de provider. Z.AI usa o catálogo Z.AI USD Coding Plan; BigModel usa o catálogo BigModel CNY GLM Coding.
+- Os períodos visíveis são `Monthly`, `Quarterly` e `Yearly`. Períodos não mensais mostram o valor do período cobrado mais o equivalente mensal.
+- As descrições de plano também são específicas de provider, portanto a redação da BigModel não é reaproveitada do catálogo da Z.AI.
 
-## Signed-out Purchase Choice
+## Escolha de Compra com Sessão Deslogada
 
-When BigModel account-based access is disconnected, the purchase choice banners
-show For Individuals and For Teams entries before the user opens the full
-purchase panel.
-Each entry must include the same price hierarchy used by the plan list, placed
-between the title and description:
+Quando o acesso baseado em conta da BigModel está desconectado, os banners de escolha
+de compra mostram entradas For Individuals e For Teams antes de o usuário abrir o painel
+completo de compra.
+Cada entrada deve incluir a mesma hierarquia de preços usada pela lista de planos, colocada
+entre o título e a descrição:
 
 - For Individuals: `¥49.00 人民币 起`
 - For Teams: `¥598.00 人民币 起`
 
-The amount formatting must reuse the shared Coding Plan amount formatter so
-Chinese and non-Chinese locales keep the same currency semantics as the package
-list.
+A formatação de valores deve reutilizar o formatador compartilhado de valores do Coding Plan
+para que locales chineses e não chineses mantenham a mesma semântica de moeda da lista
+de pacotes.
 
-When `client/configs.codingPlanBillingDiscount` is active, the activity is
-announced by the purchase panel banner and upgrade action only. The settings
-Plan Card title must not show a separate 150% quota badge, because the banner is
-the single source of campaign promotion.
+Quando `client/configs.codingPlanBillingDiscount` está ativo, a atividade é
+anunciada apenas pelo banner do painel de compra e pela ação de upgrade. O título do
+Plan Card nas configurações não deve mostrar um badge separado de cota de 150%, porque o
+banner é a única fonte de promoção da campanha.
 
-The compact Coding Plan usage panel inside a conversation must not render the
-150% quota campaign badge. That panel prioritizes quota values, reset timing,
-and reset actions within a narrow surface; campaign promotion remains available
-from the Model Provider and purchase surfaces.
+O painel compacto de uso do Coding Plan dentro de uma conversa não deve renderizar o
+badge de campanha de cota de 150%. Esse painel prioriza valores de cota, tempo de
+reset e ações de reset dentro de uma superfície estreita; a promoção de campanha continua
+disponível a partir das superfícies de Model Provider e de compra.
 
-The signed-out purchase choice banners are acquisition entries rather than Plan
-Card status. When the billing discount is active, the signed-out For Individuals
-and For Teams entries both show the compact 150% quota badge next to the title.
-Logged-in not-subscribed entries and logged-in enterprise team group entries do
-not show this badge.
+Os banners de escolha de compra com sessão deslogada são entradas de aquisição, e não
+status de Plan Card. Quando o desconto de cobrança está ativo, as entradas For Individuals
+e For Teams deslogadas mostram ambas o badge compacto de cota de 150% ao lado do título.
+Entradas logadas sem assinatura e entradas logadas de grupo de time empresarial não
+mostram esse badge.
 
-When Z.ai account-based access is disconnected and no Start/Coding entitlement
-is available yet, the same signed-out surface is still shown, but only the Start
-entry (when `startPlanPreview` exists) and For Individuals entry are visible.
-For Teams is hidden for Z.ai.
+Quando o acesso baseado em conta da Z.ai está desconectado e nenhum entitlement
+Start/Coding está disponível ainda, a mesma superfície deslogada ainda é exibida, mas
+apenas a entrada Start (quando `startPlanPreview` existe) e a entrada For Individuals ficam
+visíveis.
+For Teams fica oculta para Z.ai.
 
-The purchase panel follows the same product boundary. When the selected provider
-does not support For Teams, such as Z.ai, the panel renders the Individuals plan
-content directly and does not show Individuals/Teams audience tabs.
-This no-tabs branch must still fill the available panel body height so the plan
-cards keep the same stretched layout as the tabbed BigModel view.
+O painel de compra segue o mesmo limite de produto. Quando o provider selecionado
+não suporta For Teams, como Z.ai, o painel renderiza diretamente o conteúdo do plano
+Individuals e não mostra as abas de público Individuals/Teams.
+Esse ramo sem abas ainda deve preencher a altura disponível do corpo do painel para que
+os cards de plano mantenham o mesmo layout esticado da visão com abas da BigModel.
 
-When the account state is disconnected, clicking For Individuals or For Teams
-must start the provider login flow first. The full purchase panel should only
-open from these entries after the provider has an authenticated, not-subscribed
-purchase token.
+Quando o estado da conta está desconectado, clicar em For Individuals ou For Teams
+deve primeiro iniciar o fluxo de login do provider. O painel completo de compra só
+deve abrir a partir dessas entradas depois que o provider tiver um token de compra
+autenticado e sem assinatura.

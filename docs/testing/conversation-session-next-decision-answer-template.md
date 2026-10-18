@@ -1,29 +1,29 @@
 # Conversation Session Decision Answer Template
 
-目标：给产品确认使用的可填写模板。回复时保留 `Case` 和 `Question` 编号，我会按编号回写 worksheet、catalog、coverage matrix，再进入 E2E。
+Objetivo: um template preenchível para confirmação do produto. Ao responder, mantenha a numeração de `Case` e `Question`; eu reescrevo worksheet, catalog e coverage matrix conforme a numeração e depois passo para o E2E.
 
-生成命令：
+Comando de geração:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --answer-template-md
 ```
 
-## 当前状态
+## Estado atual
 
-| 指标 | 当前值 |
+| Métrica | Valor atual |
 | --- | ---: |
-| Product case 总数 | 221 |
-| 已覆盖 | 125 |
-| 待产品决策 / 自动化 | 36 |
-| 当前模板范围 | 下一批 review：N01, N02, N03 |
-| 当前模板 case | 3 |
+| Total de product case | 221 |
+| Já cobertos | 125 |
+| Aguardando decisão do produto / automação | 36 |
+| Escopo atual do template | Próximo lote de review: N01, N02, N03 |
+| Cases no template atual | 3 |
 
-## 填写规则
+## Regras de preenchimento
 
-1. 每个 `Question` 都要给明确产品结论；不要继续写 `待确认`。
-2. 如果选候选答案之外的方案，写在 `补充` 里。
-3. 结论要能转成 UI / network / runtime / file 的稳定断言。
-4. 如果某个问题要剪枝，写清楚“不需要覆盖”的原因。
+1. Cada `Question` precisa de uma conclusão clara de produto; não escreva mais `待确认` ("a confirmar").
+2. Se a escolha for uma opção diferente das respostas candidatas, escreva em `补充` ("complemento").
+3. A conclusão precisa ser conversível em asserções estáveis de UI / rede / runtime / arquivo.
+4. Se alguma pergunta for podada, explique claramente o motivo de "não é necessário cobrir".
 
 ## Answer Template
 
@@ -33,11 +33,11 @@ node scripts/audit-conversation-session-case-coverage.mjs --check --answer-templ
 
 #### N01.1
 
-- 需要确认：401/403 后最终状态、设置引导、user message 与 queue 是否保留
-- 候选答案/验证关键词：auth error、settings entry、queue snapshot
-- 回写目标：fault N01、fault coverage N01
-- 产品结论：
-- 补充：
+- O que precisa ser confirmado: estado final após 401/403, entrada de configurações, se user message e queue são preservados
+- Respostas candidatas / palavras-chave de verificação: auth error, settings entry, queue snapshot
+- Alvo da reescrita: fault N01, fault coverage N01
+- Conclusão do produto:
+- Complemento:
 
 ### N02
 
@@ -45,11 +45,11 @@ node scripts/audit-conversation-session-case-coverage.mjs --check --answer-templ
 
 #### N02.1
 
-- 需要确认：provider/API Key 缺失是发送前阻止还是发送后失败，draft 是否保留
-- 候选答案/验证关键词：no network request、composer draft、settings entry
-- 回写目标：fault N02、fault coverage N02
-- 产品结论：
-- 补充：
+- O que precisa ser confirmado: provider/API Key ausente é bloqueado antes do envio ou falha após o envio, se o draft é preservado
+- Respostas candidatas / palavras-chave de verificação: no network request, composer draft, settings entry
+- Alvo da reescrita: fault N02, fault coverage N02
+- Conclusão do produto:
+- Complemento:
 
 ### N03
 
@@ -57,13 +57,13 @@ node scripts/audit-conversation-session-case-coverage.mjs --check --answer-templ
 
 #### N03.1
 
-- 需要确认：429 retry 策略、retry 期间入队、最终失败后的状态与 queue
-- 候选答案/验证关键词：retry count、toolbar retry、queue
-- 回写目标：fault N03、fault coverage N03
-- 产品结论：
-- 补充：
+- O que precisa ser confirmado: estratégia de retry do 429, enfileiramento durante o retry, estado e queue após a falha final
+- Respostas candidatas / palavras-chave de verificação: retry count, toolbar retry, queue
+- Alvo da reescrita: fault N03, fault coverage N03
+- Conclusão do produto:
+- Complemento:
 
-## 可直接回复的精简格式
+## Formato enxuto para responder diretamente
 
 ```text
 N01:

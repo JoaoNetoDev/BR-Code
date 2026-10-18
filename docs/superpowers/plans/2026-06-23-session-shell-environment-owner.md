@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 Bash shell 的 session-start 快照、provider-visible Shell 展示、Bash executor selection、resume 恢复和 Explore 继承收敛到一个 runtime owner，消除当前多层各自维护 shell 状态的复杂度。
+**Goal:**收敛 Bash shell 的 session-start 快照、provider-visible Shell 展示、Bash executor selection、resume 恢复和 Explore 继承到一个 runtime owner，消除当前多层各自维护 shell 状态的复杂度。
 
-**Architecture:** 保留现有 `ExecutionShellSelection` / `resolveEffectiveBashShellSelection()` 的解析能力，但新增一个 core runtime owner：`session-shell-environment.ts`。所有 runtime 内部 shell 状态读写、EnvInfo shell patch、snapshot persist/restore 都通过这个 owner；pre-conversation context rebuild 抽到无环的 shared helper，owner 只调用 helper，不反向依赖 `config.ts` / `context.ts`。bootstrap/protocol 只负责提供“当前候选 selection”，不再维护额外 prepared 状态。
+**Architecture:**保留现有 `ExecutionShellSelection` / `resolveEffectiveBashShellSelection()` 的解析能力，但新增一个 core runtime owner：`session-shell-environment.ts`。所有 runtime 内部 shell 状态读写、EnvInfo shell patch、snapshot persist/restore 都通过这个 owner；pre-conversation context rebuild 抽到无环的 shared helper，owner 只调用 helper，不反向依赖 `config.ts` / `context.ts`。bootstrap/protocol 只负责提供“当前候选 selection”，不再维护额外 prepared 状态。
 
 **Tech Stack:** TypeScript, Vitest, `@zcode/contracts`, `@zcode/adapters`, `@zcode/core`, `@zcode/bootstrap`, ZCode Protocol.
 
@@ -434,7 +434,7 @@ export {
 } from "./session-shell-environment.js";
 ```
 
-This keeps existing call sites compiling while later tasks migrate names.
+Isso mantém os call sites existentes compilando enquanto as tarefas seguintes migram os nomes.
 
 - [ ] **Step 6: Rename runtime public initialization method in-place**
 

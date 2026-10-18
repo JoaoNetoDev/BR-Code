@@ -1,43 +1,27 @@
-# ZCode 交互行为
+# Comportamento de interação do ZCode
 
-## 背景
+## Contexto
 
-当 ZCode 当前轮仍在运行时，用户继续发送内容有两种产品语义：
+Quando o turno atual do ZCode ainda está em execução, o usuário continua enviando conteúdo e há duas semânticas de produto:
 
-- 队列：把后续输入作为待发送消息，等上一轮结束后自动发送。
-- 引导：交给 ZCode CLI 的 turn steering，在下一次合法 model-step 边界注入当前轮。
+- Fila: tratar as entradas seguintes como mensagens pendentes, enviadas automaticamente após o fim do turno anterior.
+- Guia: entregar ao turn steering do ZCode CLI, injetado no turno atual no próximo limite válido de model-step.
 
-`AppSettings.zcodeInteractionBehavior` 控制这个偏好，默认值是 `queue`。Composer
-不再暴露会话级“追加模式”切换；会话投影里的 `config.followupMode` 只是 CLI/runtime
-对这份 app 偏好的当前同步结果。用户在设置页切换后，已打开的 v4 session 通过
-`setFollowupMode` 命令同步到 CLI；新建或预热 session 通过 `createSession.config.followupMode`
-继承当前 app 偏好。
+`AppSettings.zcodeInteractionBehavior` controla essa preferência, com valor padrão `queue`. O Composer
+não expõe mais a alternância de "modo de acréscimo" por sessão; `config.followupMode` na projeção da sessão é apenas o resultado atual da sincronização dessa preferência de app por parte do CLI/runtime. Após o usuário alternar na página de configurações, a session v4 já aberta é sincronizada ao CLI pelo comando
+`setFollowupMode`; sessões novas ou pré-aquecidas herdam a preferência atual do app por
+`createSession.config.followupMode`.
 
-## 行为
+## Comportamento
 
-`queue` 是默认行为。桌面和手机已提交的 busy/running 输入都由 CLI/runtime 的
-`CommandInbox` 串行 admission；renderer、host、relay 和 desktop main 都不维护第二份权威
-conversation queue。桌面通过 `desktop-continuous` 直接接收事实，手机 Web 远控通过
-`web-remote-replayable` snapshot/gap 恢复同一组 CLI 事实，两种 delivery profile 不改变消费规则。
+`queue` é o comportamento padrão. No desktop e no mobile, as entradas busy/running já submetidas passam pela admission serial do `CommandInbox` do CLI/runtime; renderer, host, relay e desktop main não mantêm uma segunda fila autoritativa de conversation. O desktop recebe os fatos diretamente por `desktop-continuous`, e o controle remoto Web mobile recupera o mesmo conjunto de fatos da CLI por snapshot/gap `web-remote-replayable`; os dois delivery profiles não alteram as regras de consumo.
 
-队列消费的边界是 session ready，而不是任意单个 timeline 横条完成。`context_compaction`
-的 `started` / `retrying` 和 `goal_verification` 的 `started` 都表示当前 session 仍有
-维护或裁判活动在运行，普通 queue 不能在这些状态下自动 drain。手动 `/compact`
-完成后如果 session 已 ready，可以继续消费队列；auto/pre-request compact 的 `completed`
-只表示前置压缩完成，后续原 prompt 仍可能继续运行，不能被当成队列 ready 边界。
+O limite para o consumo da fila é a session pronta, e não a conclusão de uma barra qualquer da timeline. O `started` / `retrying` de `context_compaction` e o `started` de `goal_verification` indicam que a session atual ainda tem atividade de manutenção ou de arbitragem em execução, e a queue comum não pode drenar automaticamente nesses estados. Depois que um `/compact` manual for concluído, se a session já estiver pronta, o consumo da fila pode continuar; o `completed` de compact auto/pre-request indica apenas que a compressão prévia terminou, e o prompt original ainda pode continuar em execução, portanto não pode ser tratado como limite de fila pronta.
 
-Goal mode 下还需要额外满足“整个 goal 已达标”：`goal_verification completed` 只是一次
-verifier attempt 的终态。verifier 明确返回 `passed: false` 时会继续进入下一轮
-goal continuation；verifier 自身格式错误、请求异常或错误调用工具时采用 fail-open，
-写入 `passed: true`，避免裁判链路偶发失败把已经交付的目标卡住。`passed: true`
-之后也必须等 session target 被更新为 `status: "complete"` 才能消费普通 queue。
-只要 task meta / projection 里仍有非 `complete` 的 target，队列消息就继续等待；target 为空
-表示当前没有 goal，不受该 guard 限制。用户在未达标 goal 期间继续输入时，也应先进入
-普通 queue，而不是绕过 goal loop 立即发送。这个 guard 同时覆盖 `sendText`、queued `/goal`
-和 queued `/compact`，并保持原 admission FIFO。手动停止 verifier 不属于 fail-open：它会把
-verification 收口为 cancelled/failed、target 置为 paused，并使 queue 保留且默认不自动消费。
+No Goal mode ainda é preciso que "o goal inteiro tenha sido atingido": `goal_verification completed` é apenas o estado terminal de uma tentativa do verifier. Quando o verifier retorna explicitamente `passed: false`, o fluxo continua para a próxima iteração de goal continuation; quando o próprio verifier tem erro de formato, exceção na requisição ou chama ferramenta de forma incorreta, adota-se fail-open, gravando `passed: true`, para que uma falha ocasional da cadeia de arbitragem não trave um goal já entregue. Depois de `passed: true` também é preciso esperar que o target da session seja atualizado para `status: "complete"` para consumir a queue comum.
+Enquanto houver no task meta / projection algum target diferente de `complete`, as mensagens da fila continuam aguardando; target vazio significa que não há goal no momento e não é afetado por esse guard. Quando o usuário continua inserindo durante um goal não atingido, a entrada também deve entrar primeiro na queue comum, em vez de contornar o goal loop e enviar imediatamente. Esse guard cobre `sendText`, `/goal` enfileirado e `/compact` enfileirado, e preserva a admission FIFO original. Parar o verifier manualmente não é fail-open: ele encerra a verification como cancelled/failed, coloca o target como paused, e faz a queue ser mantida e por padrão não consumida automaticamente.
 
-普通 queue 的自动消费顺序固定为：
+A ordem de consumo automático da queue comum é fixa:
 
 ```text
 queue head
@@ -48,27 +32,20 @@ queue head
        yes -> promote exactly one head item by its original kind
 ```
 
-队列项“立即发送”是用户显式抢占路径，继续沿用 reservation + Stop barrier，不属于上述自动
-消费 guard。
+O "enviar imediatamente" de um item da fila é o caminho explícito de preempção do usuário e continua usando reservation + Stop barrier; não faz parte do guard de consumo automático acima.
 
-`guide` 是模型/provider 无关的 runtime 能力：它不改写已经发给 provider 的 in-flight 请求，只在
-task 正在 streaming、没有附件且没有 stop 请求时尝试 turn steering。已有普通 queue 表达未来
-product turn 的用户意图，不阻塞显式 guide 进入当前 active turn；两类输入按 delivery 分轨，普通
-queue 的相对顺序保持不变。
-guide 可以在 tool call 出现前提交并等待；只有当前 model step 的全部
-sibling tool results 已提交后，runtime 才最多消费一条 guide，并在同一 product turn 的下一次
-provider 请求中使用它。不能在单个 parallel tool 提前完成时消费，也不能一次消费多条 guide。
+`guide` é uma capacidade de runtime independente de modelo/provider: ela não reescreve requisições in-flight já enviadas ao provider e só tenta turn steering quando a task está em streaming, sem anexos e sem requisição de stop. Uma queue comum existente já expressa a intenção do usuário para um futuro product turn e não bloqueia a entrada explícita de guide no turno ativo atual; os dois tipos de entrada seguem trilhas separadas por delivery, e a ordem relativa da queue comum permanece inalterada.
 
-guide 在等待合法 model-step 边界期间仍由 CLI `pendingInputs` / `TurnSteerQueued` 持久承载，
-但 renderer 不把 `admittedDelivery=guide` 展示成普通 future queue。它应立即在当前对话流末尾
-显示用户消息，并在气泡下方显示“等待引导当前任务…”。收到 `TurnSteerDrained(delivery=guide)`
-后，正式 `UserInputRow(guided=true)` 以同一 `sourceCommandId` 接管展示，等待提示消失；若 runtime
-把该输入降级为 `admittedDelivery=queue`，临时对话流消息消失，同一权威项回到普通队列面板。
-renderer 只做 projection 分流，不维护第二份 accepted-input queue。
+O guide pode ser submetido e ficar aguardando antes da ocorrência de um tool call; o runtime só consome no máximo um guide, e somente depois que todos os sibling tool results do model step atual foram submetidos, usando-o na próxima requisição ao provider do mesmo product turn. Não pode ser consumido quando uma tool paralela individual termina cedo, nem mais de um guide por vez.
 
-待引导消息的气泡、等待提示和操作按钮必须与底部输入框共用内容列及每侧 16px 的水平留白，
-桌面和手机 Web 均保持右边缘对齐。该临时列表直接渲染消息行，不经过普通轮容器，
-因此列表自身承担水平留白，不能直接贴到内容列边缘。
+Enquanto o guide aguarda um limite válido de model-step, ele continua sendo carregado pela persistência do CLI em `pendingInputs` / `TurnSteerQueued`,
+mas o renderer não exibe `admittedDelivery=guide` como uma future queue comum. Ele deve exibir imediatamente a mensagem do usuário no fim do fluxo atual da conversa e mostrar "aguardando para guiar a task atual…" abaixo do balão. Após receber `TurnSteerDrained(delivery=guide)`,
+o `UserInputRow(guided=true)` oficial assume a exibição com o mesmo `sourceCommandId` e a dica de espera desaparece; se o runtime rebaixar essa entrada para `admittedDelivery=queue`, a mensagem temporária no fluxo da conversa desaparece e o mesmo item autoritativo volta ao painel da fila comum.
+O renderer faz apenas a roteação da projection e não mantém uma segunda fila de inputs aceitos.
+
+Os balões das mensagens aguardando guia, as dicas de espera e os botões de ação devem compartilhar a coluna de conteúdo e as margens horizontais de 16px de cada lado do campo de entrada inferior,
+mantendo o alinhamento com a borda direita tanto no desktop quanto na Web mobile. Essa lista temporária renderiza as linhas de mensagem diretamente, sem passar pelo contêiner comum de turno,
+portanto a lista em si carrega as margens horizontais e não pode encostar na borda da coluna de conteúdo.
 
 ```text
 TurnSteerQueued(admitted=guide)
@@ -78,27 +55,25 @@ TurnSteerQueued(admitted=guide)
   -> delivery fallback(queue) -> 普通 queue panel
 ```
 
-桌面端任务运行中，`Cmd+Enter` 或按住 `Cmd` 点击发送按钮（macOS），以及
-`Ctrl+Enter` 或按住 `Ctrl` 点击发送按钮（Windows/Linux），
-只对当前这一条消息执行与 session `followupMode` 相反的投递语义：
+No desktop, durante a execução da task, `Cmd+Enter` ou segurar `Cmd` e clicar no botão de envio (macOS), assim como
+`Ctrl+Enter` ou segurar `Ctrl` e clicar no botão de envio (Windows/Linux),
+aplicam a semântica de entrega oposta ao `followupMode` da sessão apenas para esta mensagem:
 
 | `followupMode` | `Enter`       | `Cmd/Ctrl+Enter`                                                                      |
 | -------------- | ------------- | ------------------------------------------------------------------------------------- |
-| `queue`        | 普通队列      | 立即发送：原子 `sendText(requestedDelivery=startNow)` 抢占当前 turn，不创建 QueueItem |
-| `guide`        | 引导当前 turn | 普通队列                                                                              |
+| `queue`        | Fila comum      | Envio imediato: `sendText(requestedDelivery=startNow)` atômico preempta o turno atual, sem criar QueueItem |
+| `guide`        | Guiar o turno atual | Fila comum                                                                              |
 
-组合键或修饰键点击只覆盖本次输入，不调用
-`setFollowupMode`，不改写持久设置。普通 `Enter`、`Shift+Enter` 和普通点击发送按钮继续沿用
-当前交互。空闲状态（包括新任务 draft）的 `Cmd/Ctrl+Enter` 与 Enter 一样正常发送；
-`Cmd/Ctrl+Shift+Enter` 保留换行。组合键能力只在手机 Web 远控的移动输入视口禁用；
-桌面 Electron 即使窗口窄于 768px，或 Windows 设备报告 `hover: none` / `pointer: coarse`，
-仍必须保留平台主修饰键提交，不能用通用媒体查询代替 desktop / Web remote 产品边界。
+A combinação de teclas ou o clique com modificador sobrescreve somente esta entrada; não chama
+`setFollowupMode` nem reescreve a configuração persistente. `Enter` comum, `Shift+Enter` e o clique comum no botão de envio continuam com o comportamento atual. No estado ocioso (inclusive um draft de nova task), `Cmd/Ctrl+Enter` envia normalmente como o Enter;
+`Cmd/Ctrl+Shift+Enter` preserva a quebra de linha. A capacidade das combinações é desativada apenas no viewport de entrada móvel do controle remoto Web mobile;
+o Electron desktop, mesmo com janela mais estreita que 768px ou com um dispositivo Windows reportando `hover: none` / `pointer: coarse`,
+deve preservar o envio pela tecla modificadora principal da plataforma; não se pode substituir a fronteira de produto desktop / Web remote por uma media query genérica.
 
-当桌面端 running composer 已有可发送内容且发送按钮可用时，按下平台主修饰键应自动打开
-发送按钮 Tooltip，无需 hover。标题展示本条消息的相反行为：默认 queue 时显示“立即发送”，
-默认 guide 时显示“加入队列”；快捷键区域在 macOS 显示 `⌘ + Enter`，在 Windows/Linux 显示
-`Ctrl + Enter`。松开主修饰键、窗口失焦、提交开始、输入变为不可发送、切到 idle/移动端或组件
-卸载时关闭自动提示。普通 hover Tooltip 继续显示原发送行为，修饰键提示不写入设置或协议。
+No desktop, quando o composer em execução já tem conteúdo enviável e o botão de envio está habilitado, pressionar a tecla modificadora principal da plataforma deve abrir automaticamente o
+Tooltip do botão de envio, sem exigir hover. O título mostra o comportamento oposto para esta mensagem: com queue como padrão exibe "envio imediato",
+com guide como padrão exibe "adicionar à fila"; a área de atalho mostra `⌘ + Enter` no macOS e `Ctrl + Enter` no Windows/Linux.
+Solta da modificadora principal, perda de foco da janela, início do envio, entrada que se torna não enviável, mudança para idle/mobile ou desmontagem do componente fecham a dica automática. O Tooltip de hover comum continua exibindo o comportamento de envio original, e a dica de modificador não é gravada em configuração nem no protocolo.
 
 ```text
 keydown(Cmd/Ctrl)
@@ -116,11 +91,11 @@ running composer Cmd/Ctrl+Enter OR Cmd/Ctrl+click send
   -> 只改变这一条 input intent
 ```
 
-queue 模式的 `startNow` 必须在 CLI 内原子取得 foreground promotion lease，执行 Stop barrier，
-等待旧 foreground 完全 idle 后直接启动新 turn。该路径不得调用普通 queue admission、不得创建或
-短暂投影 QueueItem，也不得依赖 renderer 观察 queue 后再发第二条 promotion command。CLI 接受
-`sendText(startNow)` 后发起端立即清空 Composer；若命令在接受前被拒绝，原草稿与附件保持不变。
-`sendQueuedNow` 只用于用户显式提升已经存在的 QueueItem，不再承担新输入的立即发送。
+O `startNow` no modo queue deve obter atomicamente dentro da CLI o foreground promotion lease, executar o Stop barrier,
+aguardar o foreground antigo ficar totalmente idle e então iniciar diretamente o novo turno. Esse caminho não pode chamar a admission da queue comum, não pode criar nem
+projetar temporariamente um QueueItem e não pode depender de o renderer observar a fila e então enviar um segundo promotion command. Depois que a CLI aceita
+`sendText(startNow)`, o lado emissor limpa o Composer imediatamente; se o comando for rejeitado antes de ser aceito, o draft original e os anexos permanecem inalterados.
+`sendQueuedNow` é usado apenas para o usuário promover explicitamente um QueueItem já existente e não responde mais pelo envio imediato de novas entradas.
 
 ```text
 guide admitted
@@ -131,19 +106,18 @@ guide admitted
   -> start the next provider request in the same product turn
 ```
 
-如果当前 turn 在没有形成可用 tool result batch 的情况下 text-only complete、stop 或 interrupted，
-未消费的 guide 必须把同一 `ConversationInputIntent` 原地改投普通 queue；原文、附件、clientId、
-`sourceCommandId`、`queueItemId` 和 admission FIFO 不变。附件/compact/verifier
-busy 不满足 eligibility，或 runtime steer reject 时也走同一 fallback，不能静默丢失。
+Se o turno atual completar apenas com texto, parar ou for interrompido sem formar um lote de tool result utilizável,
+o guide não consumido deve redirecionar no lugar o mesmo `ConversationInputIntent` para a queue comum; o texto original, os anexos, o clientId,
+`sourceCommandId`, `queueItemId` e a admission FIFO permanecem iguais. Quando anexo/compact/verifier ocupado não satisfaz a eligibility, ou quando o runtime rejeita o steer, o mesmo fallback também vale e nada pode ser perdido silenciosamente.
 
-模型/provider 维度按不变量剪枝：所有已接入的模型都复用相同 message history 与下一次普通 provider
-request，不能按模型名、provider 名或上游协议格式设置 guide 白名单。
+A dimensão modelo/provider é podada por invariantes: todos os modelos já integrados reutilizam o mesmo message history e a mesma próxima requisição comum ao provider,
+e não pode haver uma whitelist de guide por nome de modelo, nome de provider ou formato de protocolo upstream.
 
-## 边界
+## Limites
 
-该设置只改变 busy 时是否优先尝试 turn steering，不改变 task realtime 传输语义：
+Essa configuração muda apenas se, durante o busy, o turn steering é tentado primeiro; não muda a semântica de transporte realtime da task:
 
-- 桌面主链路仍是 `desktop-continuous`。
-- 手机远控仍是 `web-remote-replayable`。
-- relay 和 desktop main 不拥有 session、stream、queue 或 snapshot 业务状态。
-- guide/queue 的 CLI 产品 guard 不因 delivery profile 分叉；replayable 只负责恢复，不拥有业务队列。
+- O caminho principal do desktop continua sendo `desktop-continuous`.
+- O controle remoto mobile continua sendo `web-remote-replayable`.
+- relay e desktop main não possuem estado de negócio de session, stream, queue ou snapshot.
+- O guard de produto guide/queue no CLI não se bifurca por delivery profile; o replayable cuida apenas da recuperação e não é dono da fila de negócio.

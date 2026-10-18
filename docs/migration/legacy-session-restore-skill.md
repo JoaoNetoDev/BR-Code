@@ -1,65 +1,65 @@
-# Legacy Session Restore Skill
+# Skill de Restauração de Sessions Legadas
 
-## 背景
+## Contexto
 
-旧版 ZCode session 记录已备份到 `~/.zcode-bak/v2/sessions`，当前新版 ZCode 已改用 `~/.zcode/cli/db/db.sqlite` 作为真实 session/message/part 存储，并用 `~/.zcode/v2/tasks-index.sqlite` 作为 app 侧任务列表索引。恢复历史任务时，用户需要先选择旧 agent，再选择要恢复的 workspace，最后选择具体对话。
+Os registros de sessions da versão antiga do ZCode foram salvos em `~/.zcode-bak/v2/sessions`; a versão atual do ZCode passou a usar `~/.zcode/cli/db/db.sqlite` como armazenamento real de session/message/part e `~/.zcode/v2/tasks-index.sqlite` como índice da lista de tasks no lado do app. Para restaurar tarefas históricas, o usuário precisa primeiro escolher o agent antigo, depois o workspace a ser restaurado e por fim a conversa específica.
 
-## 目标
+## Objetivo
 
-- 新增 workspace skill `restore-legacy-sessions`，用于指导 Agent 做旧 session 恢复前的选择和验证。
-- 提供只读扫描脚本，按 agent、workspace、conversation 三层列出候选。
-- 每个候选显示旧 snapshot 状态、新 CLI DB 状态、task-index 状态，避免重复导入。
-- skill 默认只做 dry-run/规划；真正写库前必须先确认目标范围和回滚备份。
+- Adicionar a skill de workspace `restore-legacy-sessions`, para orientar o Agente nas seleções e verificações anteriores à restauração de sessions antigas.
+- Fornecer um script de varredura somente leitura, listando candidatos em três níveis: agent, workspace e conversation.
+- Cada candidato mostra o estado do snapshot antigo, o estado do CLI DB novo e o estado do task-index, evitando importações duplicadas.
+- A skill faz por padrão apenas dry-run/planejamento; antes de realmente escrever no banco, é obrigatório confirmar o escopo alvo e o backup de rollback.
 
-## 非目标
+## Não objetivos
 
-- 不重新启动任何旧 runtime。
-- 不把旧 task stream/queue/owner 状态迁入 relay 或 main process。
-- 不在扫描脚本里写入 `db.sqlite` 或 `tasks-index.sqlite`。
+- Não reiniciar nenhum runtime antigo.
+- Não migrar estados antigos de task stream/queue/owner para o relay ou o processo principal.
+- Não escrever em `db.sqlite` ou `tasks-index.sqlite` no script de varredura.
 
-## 数据映射
+## Mapeamento de dados
 
-- 旧源：`~/.zcode-bak/v2/sessions/{workspaceHash}/{legacyTaskId}.json`
-- 新 session 首选旧快照中的稳定 session id；缺失时回退到旧 task id。
-- 旧 snapshot ID：`meta.taskId`
-- workspace 隔离键：`workspaceIdentity?.trim() || workspacePath`
-- CLI DB 命中：`session.id = restoredTaskId`
-- task-index 命中：`tasks.task_id = restoredTaskId and tasks.workspace_path = workspacePath`
-- 恢复后的运行时 provider 统一写入 `glm`。旧 snapshot 里的 `meta.provider` 只表示历史来源，不写入 task-index `provider` 或 CLI message `providerID`。
-- 旧版 session 恢复不写 task-index `migration_source`，也不写 `meta_json.migrationSource`。该字段当前只用于 Claude Code 原生导入的 `claudeCode` 专线，避免新增 `legacy-session` 这类未建模语义。
-- task-index `meta_json.taskId` 必须等于 `restoredTaskId`，不能保留旧 snapshot 的 `meta.taskId`，否则 UI 读 meta 时会拿到 legacy task id。
-- CLI DB 必须同时写 `message` 和 `part`。详情页从 `part` 表还原可见正文和工具调用顺序，只有 `message.data.content` 会导致任务可打开但历史区空白。
+- Fonte antiga: `~/.zcode-bak/v2/sessions/{workspaceHash}/{legacyTaskId}.json`
+- A nova session prefere o session id estável do snapshot antigo; quando ausente, faz fallback para o task id antigo.
+- Snapshot ID antigo: `meta.taskId`
+- Chave de isolamento de workspace: `workspaceIdentity?.trim() || workspacePath`
+- Acerto no CLI DB: `session.id = restoredTaskId`
+- Acerto no task-index: `tasks.task_id = restoredTaskId and tasks.workspace_path = workspacePath`
+- O provider de runtime após a restauração é gravado uniformemente como `glm`. O `meta.provider` do snapshot antigo indica apenas a origem histórica e não é gravado no `provider` do task-index nem no `providerID` da mensagem do CLI.
+- A restauração de session antiga não grava `migration_source` no task-index nem `migrationSource` em `meta_json`. Esse campo hoje é usado apenas pela via dedicada `claudeCode` da importação nativa do Claude Code, evitando introduzir semânticas não modeladas como `legacy-session`.
+- `meta_json.taskId` do task-index precisa ser igual a `restoredTaskId`; não se pode manter o `meta.taskId` do snapshot antigo, senão a UI lerá um legacy task id ao acessar o meta.
+- O CLI DB precisa gravar `message` e `part`. A página de detalhes reconstrói o corpo visível e a ordem das chamadas de ferramentas a partir da tabela `part`; apenas `message.data.content` faria a task abrir com o histórico em branco.
 
-## Skill 工作流
+## Workflow da skill
 
-默认只扫描备份源 `~/.zcode-bak/v2/sessions`，目的地仍是当前 `~/.zcode/cli/db/db.sqlite` 与 `~/.zcode/v2/tasks-index.sqlite`。需要检查原目录时，必须显式传入 `--legacy-dir ~/.zcode/v2/sessions`。
+Por padrão só a fonte de backup `~/.zcode-bak/v2/sessions` é varrida; o destino continua sendo o `~/.zcode/cli/db/db.sqlite` e o `~/.zcode/v2/tasks-index.sqlite` atuais. Para inspecionar o diretório original é obrigatório passar explicitamente `--legacy-dir ~/.zcode/v2/sessions`.
 
-1. 扫描 agent：
+1. Varrer agents:
    `node .agents/skills/restore-legacy-sessions/scripts/scan-legacy-sessions.mjs agents`
-2. 用户选择 agent 后扫描 workspace：
+2. Depois da escolha do agent, varrer workspaces:
    `node .agents/skills/restore-legacy-sessions/scripts/scan-legacy-sessions.mjs workspaces --agent glm`
-3. 用户选择 workspace 后扫描对话：
+3. Depois da escolha do workspace, varrer conversas:
    `node .agents/skills/restore-legacy-sessions/scripts/scan-legacy-sessions.mjs conversations --agent glm --workspace /path/to/workspace`
-4. 对选中的 conversation 做 dry-run 分类：
-   - `ready`：CLI DB 和 task-index 都已存在。
-   - `needs-cli-db`：task-index 已有，但 CLI DB 缺 session，需要从旧 snapshot 重建真实 session。
-   - `needs-task-index`：CLI DB 已有，但 task-index 缺索引，需要补索引。
-   - `needs-full-import`：两边都缺，需要完整导入。
-5. 确认要恢复单个对话后执行恢复脚本：
+4. Fazer a classificação dry-run da conversation selecionada:
+   - `ready`: já existe tanto no CLI DB quanto no task-index.
+   - `needs-cli-db`: o task-index já existe, mas falta a session no CLI DB; é preciso reconstruir a session real a partir do snapshot antigo.
+   - `needs-task-index`: o CLI DB já existe, mas falta o índice no task-index; é preciso completar o índice.
+   - `needs-full-import`: faltam os dois lados; é preciso uma importação completa.
+5. Depois de confirmar que uma conversa específica será restaurada, executar o script de restauração:
    `node .agents/skills/restore-legacy-sessions/scripts/restore-conversation.mjs --snapshot ~/.zcode-bak/v2/sessions/<workspaceHash>/<legacyTaskId>.json`
 
-## 安全约束
+## Restrições de segurança
 
-- 写库前必须备份两个数据库：`tasks-index.sqlite` 和 `db.sqlite`。
-- 重复运行必须幂等：已存在的真实 session 不覆盖用户后续对话。
-- task-index 更新必须保留已有 `pinned`、`archived`、`deleted`、`title_overridden`。
-- task-index 冲突更新时必须清空旧恢复流程误写的 `migration_source`，并保持 `provider = "glm"`。
-- CLI DB 恢复必须为每条 legacy message 写入至少一个 `text` part；assistant message 还要保留能映射的 tool part，并补上上一条 user message 的 `parentID`。
-- UI / remote 恢复相关实现不得把 `web-remote-replayable` 恢复语义扩散到桌面 `desktop-continuous` 主链路。
+- Antes de escrever no banco, é obrigatório fazer backup dos dois bancos: `tasks-index.sqlite` e `db.sqlite`.
+- Execuções repetidas precisam ser idempotentes: uma session real já existente não pode sobrescrever conversas posteriores do usuário.
+- A atualização do task-index precisa preservar os valores existentes de `pinned`, `archived`, `deleted` e `title_overridden`.
+- Em caso de conflito na atualização do task-index, é preciso limpar o `migration_source` gravado por engano pelo fluxo antigo de restauração e manter `provider = "glm"`.
+- A restauração no CLI DB precisa gravar pelo menos um part `text` para cada legacy message; mensagens de assistant também devem preservar os parts de ferramenta que puderem ser mapeados e receber o `parentID` da mensagem de usuário anterior.
+- Implementações relacionadas à restauração em UI / remote não podem espalhar a semântica de recuperação `web-remote-replayable` para a cadeia principal desktop `desktop-continuous`.
 
-## 验证
+## Verificação
 
-- 扫描脚本在默认路径下能输出 agent、workspace、conversation 三层列表。
-- JSON 输出可被 `jq` 解析。
-- skill 结构通过 `quick_validate.py`。
-- 修改完成后执行 `pnpm typecheck` 和 `pnpm lint`。
+- O script de varredura consegue outputting as listas de três níveis (agent, workspace, conversation) no caminho padrão.
+- A saída JSON pode ser parseada por `jq`.
+- A estrutura da skill passa em `quick_validate.py`.
+- Após a modificação, executar `pnpm typecheck` e `pnpm lint`.

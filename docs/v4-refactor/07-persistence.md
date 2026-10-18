@@ -1,96 +1,115 @@
-# V4 持久化与冷恢复当前规格
+# Especificação Atual de Persistência e Recuperação Cold do V4
 
-更新日期：2026-07-15
+Data de atualização: 2026-07-15
 
-V4 的持久化原则是：transcript、timeline anchor、session metadata 和输入生命周期是长期事实；
-projection、topic event log、subscription、CommandInbox LRU 和 active runtime work 是可重建或进程内状态。
+O princípio de persistência do V4 é: transcript, timeline anchor, session metadata e o
+ciclo de vida da entrada são fatos de longo prazo; projection, topic event log, subscription,
+CommandInbox LRU e active runtime work são estado reconstruível ou estado dentro do processo.
 
-## SQLite 事实
+## Fatos em SQLite
 
-CLI session store 位于 `~/.zcode/cli/db/db.sqlite`。迁移入口是
-`apps/zcode-cli/packages/adapters/src/storage/session-store/migrations.ts`，当前迁移到 `0018`：
+O session store do CLI fica em `~/.zcode/cli/db/db.sqlite`. O ponto de entrada das migrações
+é `apps/zcode-cli/packages/adapters/src/storage/session-store/migrations.ts`, atualmente na
+migração `0018`:
 
-| 迁移 | 当前作用 |
+| Migração | Efeito atual |
 | --- | --- |
-| `0014_message_part_sequence` | 为 message/part 建立稳定顺序 |
-| `0015_message_part_sequence_backfill_and_guard` | 修复空 sequence，并用 trigger 保证后续写入 |
-| `0016_session_input_ledger` | 新增 durable input lifecycle ledger |
-| `0017_session_input_start_now_delivery` | 将 `startNow` 纳入输入 admission 账本 |
-| `0018_session_input_failed_status` | 区分 accepted 后运行时启动失败的终态 |
+| `0014_message_part_sequence` | Estabelece uma ordem estável para message/part |
+| `0015_message_part_sequence_backfill_and_guard` | Corrige sequences vazias e garante as escritas seguintes com trigger |
+| `0016_session_input_ledger` | Adiciona o ledger durável do ciclo de vida das entradas |
+| `0017_session_input_start_now_delivery` | Inclui `startNow` no ledger de admissão de entradas |
+| `0018_session_input_failed_status` | Distingue o estado terminal de falha de inicialização do runtime após o aceite |
 
-message/part 仍采用索引列加 JSON data 的 additive 演进。可选锚点缺失时读侧宽容兼容；需要查询、唯一性
-或事务约束的结构才通过 append-only migration 增加。
+message/part continua evoluindo de forma aditiva, com colunas de índice mais JSON data. Quando
+um anchor opcional está ausente, o lado de leitura tolera a ausência por compatibilidade; apenas
+estruturas que precisam de consulta, unicidade ou restrição transacional recebem novas colunas por
+migração append-only.
 
-## Transcript 与 timeline anchor
+## Transcript e timeline anchor
 
-`MessageProjectionAnchor` 当前可保存：
+`MessageProjectionAnchor` atualmente pode guardar:
 
-- `turnId`、`productTurnId`；
-- `origin`；
-- `sourceCommandId`；
-- stable fork 的 ordered/boundary message ids 与 goal boundary。
+- `turnId`, `productTurnId`;
+- `origin`;
+- `sourceCommandId`;
+- message ids ordenados e de fronteira do fork stable, além da fronteira de goal.
 
-timeline part 保存 compact、goal verification、fork、model change 等可见 marker，并可带
-`sourceCommandId`。新写入必须尽量保留这些锚点；历史数据缺字段时由唯一 resolver 降级解释，禁止由
-多个 UI/helper 各写一套启发式。
+As timeline parts guardam markers visíveis como compact, goal verification, fork, model change, e
+podem trazer `sourceCommandId`. Novas gravações devem preservar esses anchors sempre que possível;
+quando um dado histórico estiver sem o campo, um resolver único faz o downgrade da interpretação,
+e é proibido que várias UIs/helpers escrevam cada um sua própria heurística.
 
-stable fork 复制 conversation 事实时必须重写 child-local 引用。指向未复制父消息的本地 anchor 要清空，
-只把原引用保留为 provenance；不得让 child 恢复时重新读取 parent 当前状态冒充 fork 时状态。
+Quando o fork stable copia os fatos da conversation, ele deve reescrever as referências locais do
+filho. Um anchor local que aponta para uma mensagem do pai que não foi copiada deve ser limpo,
+mantendo a referência original apenas como provenance; não se deve permitir que a restauração do
+filho releia o estado atual do pai e se passe pelo estado do momento do fork.
 
-## 输入生命周期账本
+## Ledger do ciclo de vida das entradas
 
-`session_input` 记录：
+`session_input` registra:
 
 ```text
 admitted
-  |-- promoted  -> 与 transcript user message 原子关联
-  |-- cancelled -> 用户删除或取消
-  |-- discarded -> 重启/清空 queue 等明确原因
-  `-- failed    -> 已接受，但 runtime 无法启动
+  |-- promoted  -> associado atomicamente à user message do transcript
+  |-- cancelled -> o usuário deletou ou cancelou
+  |-- discarded -> motivos explícitos como restart / limpeza de queue
+  `-- failed    -> aceito, mas o runtime não conseguiu iniciar
 ```
 
-delivery 是 `startNow | guide | queue`。id 与 `sourceCommandId` 对齐，payload 保留完整
-`ConversationInputIntent`，包括附件、提交端与 dispatch 信息。
+A entrega é `startNow | guide | queue`. O id fica alinhado com o `sourceCommandId`, e o payload
+preserva o `ConversationInputIntent` completo, incluindo anexos, lado de envio e informações de
+dispatch.
 
-该表解决“ACK 后、消息落库前崩溃导致输入无痕消失”的问题，但不意味着 CLI 重启后自动执行旧输入。
-resume 时遗留 `admitted` 记录转为 `discarded(session_resumed)`；`commands/query` 可返回明确失败事实，
-再由用户决定是否重新提交。
+Essa tabela resolve o problema de "após o ACK, uma queda antes de a mensagem ser persistida faz a
+entrada desaparecer sem deixar rastro", mas não significa que o CLI execute automaticamente as
+entradas antigas depois de um restart. No resume, registros `admitted` remanescentes passam a
+`discarded(session_resumed)`; o `commands/query` pode devolver um fato de falha explícito, e então
+o usuário decide se reenvia.
 
-## Command 幂等事实
+## Fatos de idempotência de comandos
 
-不建立持久化 CommandInbox 表。settled LRU 之外，`commands/query` 从以下持久来源重建结果：
+Não é criada uma tabela CommandInbox persistente. Além do LRU já resolvido, `commands/query`
+reconstrói o resultado a partir das seguintes fontes persistentes:
 
-1. transcript anchor；
-2. timeline part；
-3. child/session entry command fact；
-4. input ledger 终态。
+1. transcript anchor;
+2. timeline part;
+3. child/session entry command fact;
+4. estado terminal do input ledger.
 
-查询必须按 `(sessionId, commandId)` 精确命中。global `createSession` 通过 command id 对应的 input/child
-事实找回真实 session，不能只靠 title、workspace path 或最近创建时间猜测。
+A consulta precisa acertar exatamente por `(sessionId, commandId)`. O `createSession` global
+recupera a session real pelo fato de input/child correspondente ao command id, e não pode se
+basear apenas em title, workspace path ou na criação mais recente para adivinhar.
 
 ## Cold hydration
 
-V4 冷订阅遵守：
+A assinatura cold do V4 respeita:
 
 ```text
 persisted message/part + timeline + session input + session metadata
   -> transcript-hydration / cold-event-merge
   -> canonical SessionEvent
   -> ProductProjection
-  -> snapshot + 新 logEpoch
+  -> snapshot + novo logEpoch
 ```
 
-恢复覆盖 text、reasoning、tool、subagent、compact、goal、model/config、queue/input 终态等可见事实。
-历史 `pending/running` tool 或 active work 不能在 CLI 重启后伪装成仍执行；hydration 必须收口成只读历史
-终态。compact marker 的权威顺序仍是新 timeline part 优先，legacy compaction boundary 只用于 runtime
-history，不应重复渲染可见横条。
+A recuperação cobre fatos visíveis como text, reasoning, tool, subagent, compact, goal,
+model/config e o estado terminal de queue/input. Tools históricas em `pending/running` ou active
+work não podem fingir, após um restart do CLI, que continuam em execução; o hydration precisa
+fechá-las em um estado terminal somente leitura. A ordem autoritativa dos compact markers
+continua priorizando a nova timeline part, e o legacy compaction boundary serve apenas para o
+runtime history e não deve renderizar de novo a barra visível.
 
-事件日志只用于当前 CLI 进程内的有界 resume。logEpoch 变化表示旧 base 失效，客户端必须接受新 snapshot；
-不能把数据库 message 直接送给 renderer 绕开 projection，也不能把旧 seq/revision 当成跨进程稳定游标。
+O event log é usado apenas para o resume limitado dentro do processo atual do CLI. Uma mudança de
+logEpoch indica que o base antigo ficou inválido, e o cliente deve aceitar o novo snapshot; não é
+possível entregar messages do banco de dados diretamente ao renderer contornando a projection,
+nem tratar seq/revision antigos como um cursor estável entre processos.
 
-## Draft 与运行态边界
+## Limites entre draft e estado de execução
 
-- 纯 draft session 可出现在 sessions-index，但没有 transcript 时不会作为长期会话事实恢复；
-- active runtime work、pending network request 与 subscription 不持久化；
-- queue 的可见 input 有 durable ledger，但重启不自动恢复执行；
-- desktop continuous 与 mobile replayable 共享上述持久事实，恢复帧仍按各自 delivery profile 生成。
+- Uma session que é apenas um draft pode aparecer no sessions-index, mas, sem transcript, não é
+  restaurada como fato de sessão de longo prazo;
+- active runtime work, pending network request e subscription não são persistidos;
+- o input visível da queue tem um ledger durável, mas um restart não restaura a execução
+  automaticamente;
+- desktop continuous e mobile replayable compartilham os fatos persistidos acima, e os frames de
+  recuperação continuam sendo gerados conforme cada delivery profile.

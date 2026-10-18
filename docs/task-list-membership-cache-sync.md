@@ -1,46 +1,83 @@
-# Task List Membership Cache Sync
+# Sincronização do Cache de Membership da Lista de Tasks
 
-## 背景
+## Contexto
 
-用户在归档、取消归档、置顶、取消置顶和删除 task 后，侧栏或远控任务列表会出现整表刷新。原因是这些操作会广播 `workspace_task_list_changed`，但 UI 没有统一的本地 membership 变更处理链路，收到事件后只能让 query cache 失效并重新请求列表。
+Depois que o usuário arquiva, desarquiva, fixa, desfixa ou exclui uma task, a lista de tarefas da barra lateral ou
+do controle remoto sofre uma atualização da tabela inteira. A causa é que essas operações fazem broadcast de
+`workspace_task_list_changed`, mas a UI não tem uma cadeia unificada de tratamento local de mudança de membership;
+ao receber o evento, ela só consegue invalidar o query cache e solicitar a lista novamente.
 
-## 目标
+## Objetivos
 
-- 桌面端 `desktop-continuous` 主链路中，归档 / 取消归档 / 置顶 / 取消置顶 / 删除 task 不触发整表刷新。
-- 手机远控 `web-remote-replayable` 收到 shared-host 推送时，继续根据广播事件同步列表成员关系，但不绕过 replayable 的 task snapshot 恢复边界。
-- 搜索结果等无法只靠 task meta 精确判断成员关系的缓存，可以标记 stale，但不清空可见列表。
-- sessions-index 不携带的 tasks-index 元数据（当前包括 `unreadAt`、历史终态、手动标题和 `cronAutomationId`）必须经统一 join 回填，避免切换列表数据源后丢失未读点、状态、标题或定时任务 clock icon。
+- No fluxo principal `desktop-continuous` do desktop, arquivar / desarquivar / fixar / desfixar / excluir uma task
+  não dispara atualização da tabela inteira.
+- No controle remoto `web-remote-replayable` do celular, ao receber pushes do shared-host, a sincronização da
+  relação de membros da lista continua sendo feita a partir dos eventos de broadcast, sem contornar a boundary de
+  restauração do task snapshot do replayable.
+- Caches cuja pertinência não pode ser determinada com precisão apenas pelo task meta, como os resultados de
+  busca, podem ser marcados como stale, mas não esvaziam a lista visível.
+- Metadados de tasks-index não carregados pelo sessions-index (atualmente `unreadAt`, estado final histórico,
+  título manual e `cronAutomationId`) precisam ser preenchidos por um join unificado, evitando perder pontos não
+  lidos, status, títulos ou o clock icon de tarefas agendadas ao trocar a fonte de dados da lista.
 
-## 方案
+## Solução
 
-- service 删除 task 时显式广播 `task_deleted` reason，避免 UI 把删除误判成普通 `task_meta_changed`。
-- UI 收到 `task_archived` / `task_unarchived` / `task_pinned` / `task_unpinned` 且携带 `taskMeta` 时，根据当前 query cache 中该 task 所在列表推断旧 membership，再用现有 `applyTaskQueryCacheMutation` 移动到目标列表。
-- UI 收到 `task_deleted` 时按 `workspace + taskId` 从所有 query cache 中移除该 task，并同步清理 workspace task list cache / optimistic meta。
-- `workspace_task_list_changed` 由全局列表和 workspace 行共享一个事件级 coordinator 处理；membership / delete 广播只执行一次 query cache mutation，后续订阅者复用第一次的刷新决策，避免已处理的删除事件被误判成隐藏项删除。
-- 普通 meta / status 广播不参与 coordinator 去重；这类写入是幂等的，重复应用比吞掉 2 秒内连续标题、错误详情或摘要更新更安全。
-- 删除事件命中当前可见 query cache 时不触发整表刷新；未命中可见缓存的隐藏/分页项无法从 `taskId` 推断成员关系，保留刷新兜底以修正 `total` / `hasMore`。
-- 只有事件缺少必要 task 信息，或删除项未命中可见缓存时，才保留刷新兜底。
-- `task_meta_changed` 会使 membership join 缓存换代；已有会话首次获得 `cronAutomationId` 后，workspace、grouped、timeline、pinned/archived 列表都必须在同一轮刷新中看到该身份。
-- tasks-index 的 `deleted=1` 是持久负向 membership。membership 读取必须显式返回 deleted task id 集，所有 sessions-index 派生列表在 kind 判定前统一排除；不能用“未出现在 archivedIds”推断任务仍是普通成员。
-- `task_deleted` 除了立即移除可见 query cache，还必须使 membership join 缓存换代。这样后续 live sessions-index upsert、App/CLI 冷启动和 mobile replayable 恢复即使再次看到仍存在的 CLI session，也不会把 tombstone 对应任务复活。
+- Ao excluir uma task, o service faz broadcast explícito do reason `task_deleted`, evitando que a UI interprete a
+  exclusão como um `task_meta_changed` comum.
+- Ao receber `task_archived` / `task_unarchived` / `task_pinned` / `task_unpinned` com `taskMeta`, a UI infere o
+  membership anterior a partir da lista onde a task está no query cache atual e usa o
+  `applyTaskQueryCacheMutation` existente para movê-la para a lista de destino.
+- Ao receber `task_deleted`, a UI remove a task de todos os query caches por `workspace + taskId` e limpa também o
+  cache da lista de tasks do workspace e o meta otimista.
+- `workspace_task_list_changed` é tratado por um coordinator de nível de evento compartilhado entre a lista global
+  e a linha do workspace; os broadcasts de membership/delete executam a mutação do query cache apenas uma vez, e
+  os assinantes seguintes reutilizam a decisão de atualização da primeira vez, evitando que um evento de exclusão
+  já processado seja interpretado como exclusão de item oculto.
+- Broadcasts comuns de meta / status não participam da deduplicação do coordinator; essas escritas são idempotentes,
+  e reaplicá-las é mais seguro do que engolir atualizações consecutivas de título, detalhe de erro ou resumo em
+  até 2 segundos.
+- Quando um evento de exclusão acerta o query cache visível atual, não há atualização da tabela inteira; itens
+  ocultos/paginados que não acertam o cache visível não permitem inferir o membership a partir do `taskId`, e o
+  fallback de atualização é mantido para corrigir `total` / `hasMore`.
+- O fallback de atualização só permanece quando o evento não traz informações necessárias da task, ou quando o item
+  excluído não acerta o cache visível.
+- `task_meta_changed` invalida a geração do cache de membership join; depois que uma sessão existente recebe
+  `cronAutomationId` pela primeira vez, as listas workspace, grouped, timeline e pinned/archived precisam ver essa
+  identidade na mesma rodada de atualização.
+- O `deleted=1` do tasks-index é um membership negativo persistente. A leitura de membership precisa retornar
+  explicitamente o conjunto de task ids deleted, e todas as listas derivadas do sessions-index devem excluí-lo de
+  forma unificada antes da determinação de kind; não é válido inferir que uma task ainda é membro comum por “não
+  aparecer em archivedIds”.
+- Além de remover imediatamente o query cache visível, `task_deleted` precisa invalidar a geração do cache de
+  membership join. Assim, upserts live posteriores no sessions-index, o cold start do App/CLI e a restauração
+  mobile replayable não ressuscitam a task correspondente ao tombstone mesmo ao verem novamente uma sessão CLI
+  ainda existente.
 
-## 删除 tombstone 的边界裁决
+## Decisão de Boundary sobre o Tombstone de Exclusão
 
-| 边界 | 裁决 | 剪枝理由 |
+| Boundary | Decisão | Justificativa da poda |
 | --- | --- | --- |
-| 数据所有权 | CLI session store 继续拥有会话内容；tasks-index `deleted` 拥有任务列表不可见性 | 删除归档任务不等价于物理擦除会话存储，避免扩大数据破坏范围 |
-| 列表 surface | regular、pinned、archived、timeline、workspace、grouped 全部排除 deleted | `deleted` 是所有列表 kind 之前的负向 guard，不按 kind 做重复实现 |
-| 归档对照 | `archived=1, deleted=0` 仍只在归档列表显示 | 防止修复把正常归档一并隐藏 |
-| session type | interactive、fork、workflow parent 共用同一 deleted guard；side chat/subagent/workflow child 仍由 task-type guard 排除 | task type 决定能否成为 task，deleted 决定已成 task 后是否仍可见，两个维度正交 |
-| client/delivery | desktop continuous 与 mobile replayable 收敛到同一最终 membership | delivery 只改变事实到达方式，不新建第二份 deleted 状态 |
-| workspace | 读取和事件继续使用 `workspaceIdentity?.trim() || workspacePath` | 同 path 的远程 workspace 不能串 tombstone |
+| Propriedade dos dados | O CLI session store continua possuindo o conteúdo das sessões; o `deleted` do tasks-index possui a invisibilidade da task nas listas | Excluir uma task arquivada não equivale a apagar fisicamente o session store, evitando ampliar o alcance de destruição de dados |
+| Superfícies de lista | regular, pinned, archived, timeline, workspace e grouped excluem todas as deleted | `deleted` é um guard negativo antes de qualquer kind de lista, sem implementação duplicada por kind |
+| Contraste com arquivamento | `archived=1, deleted=0` continua aparecendo apenas na lista de arquivados | Evita que a correção esconda também o arquivamento normal |
+| session type | interactive, fork e workflow parent compartilham o mesmo guard de deleted; side chat/subagent/workflow child continuam excluídos pelo guard de task-type | O task type determina se algo pode virar task, e deleted determina se, já sendo task, continua visível: duas dimensões ortogonais |
+| client/delivery | desktop continuous e mobile replayable convergem para o mesmo membership final | Delivery apenas muda a forma como o fato chega, sem criar um segundo estado de deleted |
+| Workspace | Leitura e eventos continuam usando `workspaceIdentity?.trim() || workspacePath` | Workspaces remotos com o mesmo path não podem compartilhar o tombstone |
 
-确认轨迹：用户报告“之前归档后删除的对话重启后都出来了”，并确认直接修改。采用保留 CLI 会话内容、增加 deleted membership 字段的方案；不执行物理删除。
+Rastro de confirmação: o usuário relatou que “as conversas arquivadas e depois excluídas voltaram todas depois do
+reinício” e confirmou a modificação direta. Adota-se a solução de manter o conteúdo das sessões no CLI e adicionar um
+campo de membership deleted; nenhuma exclusão física é executada.
 
-## 验证点
+## Pontos de Verificação
 
-- 本地桌面归档/置顶/删除不应让 workspace 行或全局列表整表重拉。
-- 远控端发起 membership 变更后，桌面端列表应通过事件增量同步。
-- 删除 archived task 后，归档列表应立即移除目标项，不把它恢复到普通列表。
-- App/CLI 重启或 mobile replayable 恢复后，已删除 task 即使仍存在于 CLI session store，也不得出现在任何任务列表；同 scope 的普通归档 task 仍留在归档列表。
-- tasks-index 已持久化 `cronAutomationId` 而 sessions-index summary 不含该字段时，各列表仍应在时间左侧显示 clock icon。
+- Arquivar/fixar/excluir localmente no desktop não deve fazer a linha do workspace ou a lista global recarregarem
+  a tabela inteira.
+- Após uma mudança de membership iniciada pelo controle remoto, a lista do desktop deve sincronizar incrementalmente
+  por evento.
+- Depois de excluir uma task arquivada, a lista de arquivados deve remover o item imediatamente e não restaurá-lo
+  para a lista comum.
+- Após reiniciar o App/CLI ou restaurar via mobile replayable, uma task excluída não pode aparecer em nenhuma lista
+  de tarefas, mesmo que ainda exista no CLI session store; uma task comum arquivada de mesmo scope continua na
+  lista de arquivados.
+- Quando o tasks-index já tiver persistido `cronAutomationId` e o summary do sessions-index não tiver esse campo,
+  as listas ainda devem mostrar o clock icon à esquerda do tempo.

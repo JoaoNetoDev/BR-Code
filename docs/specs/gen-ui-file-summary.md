@@ -1,48 +1,68 @@
-# Visualize 源文件的会话展示
+# Exibição de sessões para arquivos-fonte do Visualize
 
-## 行为
+## Comportamento
 
-有效 visualize 引用的 HTML 是内联可视化的源文件。会话轮尾不再为同一文件显示
-HTML 网站卡片，也不把它计入文件变更摘要的文件数、增加行数、删除行数和展开列表。
-过滤后没有普通文件时，整块变更摘要（含撤销按钮）不显示；混合修改时保留普通文件。
+O HTML de uma referência visualize válida é o arquivo-fonte da visualização inline. O
+final do turno da sessão deixa de exibir um cartão de site HTML para o mesmo arquivo, e
+também deixa de contá-lo no número de arquivos, linhas adicionadas, linhas removidas e na
+lista expandida do resumo de alterações de arquivos.
+Quando, após o filtro, não restam arquivos comuns, o bloco inteiro do resumo de alterações
+(inclusive o botão de desfazer) não é exibido; em modificações mistas, os arquivos comuns
+são mantidos.
 
-识别复用 Gen UI 引用解析器，支持 Unicode、key=value 和 JSON 三种写法。只匹配
-当前轮正文中完整且通过 schema 校验的绝对路径；代码示例、无效或未闭合引用不生效。
-完整引用即可用于去重，不提前挂载流式可视化。路径按完整路径匹配，兼容 Windows
-分隔符，不按 basename、扩展名或名为 visualizations 的目录批量隐藏文件。
-普通 HTML、Markdown、Office/PDF 和 localhost 网站卡片沿用原行为。
+O reconhecimento reutiliza o parser de referências Gen UI e dá suporte às três formas:
+Unicode, `key=value` e JSON. Apenas casa caminhos absolutos completos e aprovados pelo
+schema no corpo do turno atual; exemplos de código, referências inválidas ou não
+fechadas não têm efeito.
+Uma referência completa já serve para desduplicação, sem montar a visualização em streaming
+antecipadamente. Os caminhos são comparados por caminho completo, compatíveis com
+separadores do Windows, e não são ocultados em lote por basename, extensão ou por diretórios
+chamados `visualizations`.
+HTML comum, Markdown, Office/PDF e cartões de site em localhost mantêm o comportamento
+original.
 
-## 数据与时序
+## Dados e temporização
 
 ```text
-当前轮 assistant 正文 → 既有 Gen UI parser → HTML 源文件路径
-                                              ├→ 过滤轮尾预览卡片
-CLI fileChanges → 既有详情读取与缓存 → UI 过滤 ─┴→ 重算可见摘要
-CLI rewind preview / apply ─────────────────────→ 原有整轮撤销
+corpo assistant do turno atual → parser Gen UI existente → caminho do arquivo-fonte HTML
+                                              ├→ filtra o cartão de prévia do final do turno
+CLI fileChanges → leitura e cache de detalhes existentes → filtro da UI ─┴→ recalcula o resumo visível
+CLI rewind preview / apply ─────────────────────→ desfazer do turno inteiro original
 ```
 
-摘要只含聚合值，无法从 header 判断具体源文件。存在有效引用时，折叠态也读取既有
-fileChanges 详情；读取完成前暂不显示摘要，避免先显示包含源文件的统计再消失。
-切换 turn、运行态转终态、摘要计数变化或撤销后，仅使用当前请求对应的详情。
-请求失败保留原摘要与重试读取入口，避免误隐藏普通文件；错误走 UI logger。
+O resumo contém apenas valores agregados; não é possível saber pelo header quais são os
+arquivos-fonte. Quando há referência válida, o estado colapsado também lê os detalhes de
+`fileChanges` já existentes; enquanto a leitura não termina, o resumo não é exibido, para
+evitar mostrar e depois remover estatísticas que incluam o arquivo-fonte.
+Ao trocar de turno, ao passar de em execução para estado final, ao mudar a contagem do
+resumo ou após um desfazer, apenas são usados os detalhes da requisição atual.
+Se a requisição falhar, o resumo original e a entrada de re-tentativa de leitura são
+mantidos, para evitar ocultar indevidamente arquivos comuns; erros seguem para o logger da UI.
 
-CLI 原始变更轨迹、持久化数据、撤销预检和 apply 不修改。混合修改的撤销仍是整轮
-撤销，预检弹窗展示完整操作范围。不改变文件读取授权、Gen UI 挂载与沙箱生命周期。
+O rastro bruto de alterações da CLI, os dados persistidos, a pré-verificação de desfazer e o
+apply não são modificados. O desfazer de modificações mistas continua sendo o desfazer do
+turno inteiro, e o diálogo de pré-verificação mostra o escopo completo da operação. Não
+alteram-se a autorização de leitura de arquivos, a montagem de Gen UI nem o ciclo de vida do
+sandbox.
 
-桌面和手机 Web 共用过滤规则；手机仍遵守既有 HTML 预览限制，不新增 Gen UI
-运行环境。desktop-continuous 与 web-remote-replayable 的传输、恢复、owner 和队列
-均不改变。远程路径在原 workspaceIdentity / remoteSessionId 上下文中匹配与读取。
+Desktop e Web mobile compartilham as regras de filtro; o mobile continua respeitando as
+limitações existentes de prévia de HTML e não ganha um novo ambiente de execução de Gen
+UI. desktop-continuous e web-remote-replayable mantêm inalterados transporte, recuperação,
+owner e fila. Caminhos remotos são comparados e lidos no mesmo contexto de
+`workspaceIdentity` / `remoteSessionId`.
 
-## 验证
+## Verificação
 
-| 场景                                              | 断言                                           |
-| ------------------------------------------------- | ---------------------------------------------- |
-| 仅 visualize HTML                                 | 可视化保留，HTML 卡片和整个变更摘要消失        |
-| visualize 与普通 HTML/源码混合                    | 普通卡片保留，统计和展开列表仅包含普通文件     |
-| 三种引用、代码示例、无效/不完整引用、同名不同目录 | 只排除有效引用的完整路径                       |
-| 异步详情、旧请求晚到、终态/撤销状态变化、读取失败 | 不闪回源文件统计，不使用旧详情；失败保留原入口 |
-| 390px / 桌面、深浅主题、手机 compact 模式         | 过滤语义一致，普通文件仍可展开查看             |
+| Cenário                                                   | Asserção                                                             |
+| --------------------------------------------------------- | -------------------------------------------------------------------- |
+| Apenas visualize HTML                                    | A visualização permanece; o cartão HTML e todo o resumo somem       |
+| visualize misturado com HTML/código-fonte comum            | Cartões comuns permanecem; estatísticas e lista expandida só com arquivos comuns |
+| Três formas de referência, exemplos de código, referências inválidas/incompletas, mesmo nome em diretórios diferentes | Só se exclui o caminho completo da referência válida                |
+| Detalhes assíncronos, requisição antiga chegando tarde, mudança de estado final/desfazer, falha de leitura | Não há flash de volta das estatísticas do arquivo-fonte, não se usam detalhes antigos; em caso de falha a entrada original permanece |
+| 390px / desktop, temas claro e escuro, modo compact do mobile | Semântica de filtro consistente; arquivos comuns ainda expandíveis |
 
-单测覆盖卡片候选、摘要异步投影及轮尾接线；现有
-`node packages/desktop/scripts/gen-ui-e2e.mjs` 使用真实 Electron、Gen UI 沙箱与文件摘要
-组件验证显示和展开行为。夹具不代表真实 SSH 或手机网络恢复验证。
+Testes unitários cobrem os candidatos a cartão, a projeção assíncrona do resumo e a
+ligação no final do turno; o existente
+`node packages/desktop/scripts/gen-ui-e2e.mjs` usa Electron real, sandbox de Gen UI e o
+componente de resumo de arquivos para validar a exibição e a expansão. Fixtures não
+representam validação real de recuperação por SSH ou pela rede do mobile.

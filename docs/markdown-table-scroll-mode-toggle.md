@@ -1,45 +1,45 @@
-# Markdown table scroll mode toggle
+# Alternância de modo de rolagem da tabela Markdown
 
-## 背景
+## Contexto
 
-Markdown 表格现在使用虚拟横向滚动条隐藏原生滚动条，并支持把表格滚动区域向左借位、向右延伸到 chat root 可用边界。增强滚动适合很宽的表格，但普通表格默认占用额外横向空间会改变阅读节奏。
+As tabelas Markdown agora usam uma barra de rolagem horizontal virtual que oculta a barra nativa e permitem que a área de rolagem da tabela TOMBE para a esquerda e se estenda para a direita até o limite disponível da raiz do chat. A rolagem aprimorada é adequada para tabelas muito largas, mas tabelas comuns que ocupam espaço horizontal extra por padrão alteram o ritmo de leitura.
 
-## 目标
+## Objetivo
 
-- 表格从最近的 `data-markdown-table-layout-root` 消息内容根节点计算可借用横向空间；旧 `chat-view` 选择器仅作为兼容路径。
-- 每个 markdown 表格都有独立的横向滚动模式开关。
-- 表格根容器显式设置 `my-0`，覆盖 Markdown 排版上下文可能注入的块级外边距。
-- 默认关闭增强滚动，但仍保留虚拟滚动条。
-- 关闭增强滚动时，滚动槽宽按 `data-markdown-table-frame` 宽度计算，不向左借位，不向右延伸。
-- 开启增强滚动时，复用现有扩展逻辑：滚动槽宽为 `frameRect.width + rightDistance - rightInset`，允许向左借位，并把内容最大宽度补上左借位宽度。
-- 长表格 sticky 滚动条规则保持不变：只有表格自身高度超过纵向可视区域 80% 时才吸底，并继续避让底部输入区/面板。
-- V4 虚拟行通过 `transform` 定位，浏览器原生 `position: sticky` 无法相对 timeline 生效；长表格滚动条必须按 timeline 可视底边和实际 `data-v4-composer-dock` 高度计算纵向补偿，并将补偿限制在当前表格上下边界内。旧 ChatView 继续兼容 `--chat-bottom-dock-height`。
-- `data-markdown-table-virtual-scroll-sticky` 是 sticky 模式的稳定语义合同；E2E 必须读取该状态并结合滚动后的几何位置验证吸底，不得用 `getComputedStyle().position` 判断，因为 V4 的实现刻意使用 `relative + translateY`。
-- “短表不吸底、长表吸底”的对照必须在固定且足够高的窗口中执行，避免短表因测试窗口过矮也超过 `80%` 可视高度，使 case 实际验证了错误的前置条件；目标尺寸超过当前显示器工作区时，E2E 必须按工作区上限收敛，不能等待操作系统不会接受的窗口尺寸。
-- 虚拟滚动条因横向 overflow 出现而切回可见时，必须重新绑定纵向 timeline 监听和几何观察；不能只依赖 sticky 模式状态。
-- V4 composer dock 可能因输入框、附件或面板动态增高，sticky 补偿必须直接观察 dock 尺寸，并在 dock 节点条件挂载/替换时重新绑定观察。
-- timeline 离底时出现的 `data-v4-back-to-bottom-anchor` 浮动按钮也属于底部避让区；sticky 补偿需额外扣除按钮高度和 `8px` 间距，按钮挂载/卸载必须触发重算。
-- 同一轮几何测量中，虚拟滚动条的可见性必须只由稳定的浮点布局槽宽决定，不能改读条件挂载后的 DOM track 宽度。
-- 横向 overflow 状态变化只能切换虚拟滚动条的可见性和交互状态，不得挂载/卸载节点或改变纵向占位，以免扰动 V4 timeline 的 `scrollHeight` / `scrollTop`、底部跟随状态或会话滚动记忆。
-- V4 composer 渐隐遮罩必须挂在 timeline 全宽的消息遮罩层上；正文列宽、居中和横向 panel 偏移由 `data-v4-timeline-virtual-history` 与 live tail 各自承担。遮罩层不能复用正文列的 `max-width`，否则增强模式向两侧越出正文列的部分会被 CSS mask 裁剪。
+- A tabela calcula o espaço horizontal que pode tomar emprestado a partir da raiz de conteúdo de mensagem `data-markdown-table-layout-root` mais próxima; o seletor antigo `chat-view` permanece apenas como caminho de compatibilidade.
+- Cada tabela Markdown tem um botão independente de modo de rolagem horizontal.
+- O contêiner raiz da tabela define explicitamente `my-0`, sobrescrevendo as margens de bloco que o contexto de tipografia Markdown possa injetar.
+- A rolagem aprimorada vem desativada por padrão, mas a barra de rolagem virtual é mantida.
+- Quando a rolagem aprimorada está desligada, a largura do slot de rolagem é calculada pela largura de `data-markdown-table-frame`, sem tombar para a esquerda nem se estender para a direita.
+- Quando a rolagem aprimorada está ligada, a lógica de extensão existente é reutilizada: a largura do slot de rolagem é `frameRect.width + rightDistance - rightInset`, com queda para a esquerda permitida e a largura máxima do conteúdo acrescida da largura tomada à esquerda.
+- A regra de barra de rolagem fixa (sticky) para tabelas longas permanece inalterada: ela só fixa no fundo quando a altura da própria tabela ultrapassa 80% da área visível vertical, e continua desviando da área de entrada inferior/do painel.
+- As linhas virtuais da V4 são posicionadas por `transform`, então o `position: sticky` nativo do navegador não funciona em relação ao timeline; a barra de rolagem de tabelas longas deve calcular a compensação vertical a partir da borda inferior visível do timeline e da altura real de `data-v4-composer-dock`, limitando essa compensação aos limites superior e inferior da tabela atual. O ChatView antigo mantém compatibilidade com `--chat-bottom-dock-height`.
+- `data-markdown-table-virtual-scroll-sticky` é o contrato semântico estável do modo sticky; o E2E deve ler esse estado e, combinado com a posição geométrica após a rolagem, validar a fixação no fundo, sem usar `getComputedStyle().position`, porque a implementação da V4 usa deliberadamente `relative + translateY`.
+- O contraste entre "tabela curta não fixa no fundo e tabela longa fixa" precisa ser executado em uma janela fixa e suficientemente alta, para evitar que a tabela curta também ultrapasse `80%` da altura visível por causa de uma janela de teste baixa e o caso valide na verdade a pré-condição errada; quando o tamanho alvo excede a área de trabalho do monitor atual, o E2E deve convergir para o limite da área de trabalho, sem esperar tamanhos de janela que o sistema operacional não aceitaria.
+- Quando a barra de rolagem virtual volta a ficar visível por causa de um overflow horizontal, os listeners verticais do timeline e a observação geométrica precisam ser religados; não se pode depender apenas do estado do modo sticky.
+- O composer dock da V4 pode crescer dinamicamente por causa da caixa de entrada, anexos ou painéis, então a compensação sticky deve observar diretamente o tamanho do dock e religar a observação quando o nó do dock for montado/substituído condicionalmente.
+- O botão flutuante `data-v4-back-to-bottom-anchor`, que aparece quando o timeline está longe do fundo, também faz parte da área de desvio inferior; a compensação sticky precisa descontar a altura do botão e o espaçamento de `8px`, e a montagem/desmontagem do botão deve disparar o recálculo.
+- Na mesma rodada de medição geométrica, a visibilidade da barra de rolagem virtual deve ser decidida apenas pela largura do slot de layout em ponto flutuante estável, e não pela largura do track do DOM após a montagem condicional.
+- A mudança no estado de overflow horizontal só pode alternar a visibilidade e o estado de interação da barra de rolagem virtual; não pode montar/desmontar nós nem alterar a ocupação vertical, para não perturbar o `scrollHeight` / `scrollTop` do timeline da V4, o estado de acompanhamento do fundo nem a memória de rolagem da sessão.
+- A máscara de esmaecimento do composer da V4 deve ficar na camada de máscara de mensagem com a largura total do timeline; a largura da coluna de texto, o centralismo e o deslocamento horizontal do painel ficam a cargo de `data-markdown-table-vimeline-virtual-history` e da live tail, cada um por si. A camada de máscara não pode reutilizar o `max-width` da coluna de texto, senão a parte que ultrapassa a coluna nos dois lados no modo aprimorado será recortada pela CSS mask.
 
-## 交互
+## Interação
 
-工具栏在“预览表格”按钮右侧增加模式按钮：
+A barra de ferramentas ganha um botão de modo à direita do botão "Visualizar tabela":
 
-- 只有普通 frame 宽度下表格横向溢出，并且增强模式能提供额外可视宽度或左借位空间时显示。
-- 关闭时按钮含义是展开表格滚动区域。
-- 开启时按钮含义是收回到普通表格滚动区域。
-- 模式只影响当前表格实例，不影响其他表格。
-- 开启后按钮持续显示，方便用户收回；收回后如果当前尺寸下增强模式没有收益，按钮会隐藏。
-- 虚拟横向滚动条节点始终挂载并保留固定纵向占位；没有横向 overflow 时只切换为不可见、不可交互，不能卸载节点。存在横向 overflow 时仍只在 hover 到当前 `data-markdown-table-frame` 后显示，避免常态阅读时占用视觉注意力。
-- 点击展开或收回时，只有未发生向左借位的表格内容最大宽度变化会使用轻量过渡；一旦发生向左借位，内容层的位移与最大宽度都即时生效，避免表格向左滑动或补宽拉伸。虚拟滚动条槽宽度仍使用轻量过渡；系统开启 reduced motion 时取消过渡。
+- Só aparece quando a tabela transborda horizontalmente na largura comum do frame e o modo aprimorado pode fornecer largura visível extra ou espaço à esquerda para tomar emprestado.
+- Quando desligado, o significado do botão é expandir a área de rolagem da tabela.
+- Quando ligado, o significado do botão é recolher de volta para a área de rolagem comum da tabela.
+- O modo afeta apenas a instância atual da tabela, não outras tabelas.
+- Depois de ligado, o botão permanece visível para facilitar que o usuário recolha; após recolher, se o modo aprimorado não trouxer ganho no tamanho atual, o botão é ocultado.
+- O nó da barra de rolagem horizontal virtual fica sempre montado e preserva uma ocupação vertical fixa; quando não há overflow horizontal, ele apenas fica invisível e não interativo, sem ser desmontado. Quando existe overflow horizontal, ele ainda só aparece ao passar o mouse sobre o `data-markdown-table-frame` atual, evitando ocupar a atenção visual durante a leitura normal.
+- Ao clicar para expandir ou recolher, apenas a mudança da largura máxima do conteúdo de tabelas que não sofreram queda para a esquerda usa uma transição leve; assim que ocorre queda para a esquerda, tanto o deslocamento da camada de conteúdo quanto a largura máxima passam a valer imediatamente, evitando que a tabela deslize para a esquerda ou estique por compensação de largura. A largura do slot da barra de rolagem virtual continua usando uma transição leve; quando o sistema tem reduced motion ligado, a transição é cancelada.
 
-## 计算
+## Cálculo
 
-V4 timeline 滚动视口必须标记 `data-markdown-table-layout-root="true"`。该标记只表达表格可扩展到的横向布局边界，不承担会话状态语义。根节点通过 `--markdown-table-layout-left-inset` / `--markdown-table-layout-right-inset` 提供响应式安全边距；存在 Conversation turn map 时左边距必须至少覆盖其 `48px` 占用宽度，右边距保持桌面 `16px`、手机 Web `8px`。表格不能把居中的消息内容列误当成扩展边界。
+O viewport de rolagem do timeline da V4 precisa ser marcado com `data-markdown-table-layout-root="true"`. Essa marca expressa apenas o limite de layout horizontal até onde a tabela pode se estender e não carrega semântica de estado da sessão. A raiz fornece margens seguras responsivas por `--markdown-table-layout-left-inset` / `--markdown-table-layout-right-inset`; quando existe um mapa de turnos da conversa, a margem esquerda precisa cobrir pelo menos a largura ocupada de `48px` dele, e a margem direita permanece `16px` no desktop e `8px` no Web no celular. A tabela não pode confundir a coluna centralizada de conteúdo da mensagem com o limite de extensão.
 
-普通模式：
+Modo comum:
 
 - `scrollbarWidth = frameRect.width`
 - `viewportMaxWidth = frameRect.width`
@@ -48,13 +48,13 @@ V4 timeline 滚动视口必须标记 `data-markdown-table-layout-root="true"`。
 - `virtualScrollLeft = realScrollLeft`
 - `virtualScrollMax = tableWidth - scrollbarWidth`
 
-精度不变量：
+Invariantes de precisão:
 
-- `scrollbarWidth` 保留 `getBoundingClientRect()` 的子像素精度，并以同一数值写入 CSS 宽度和 `virtualScrollMax` 计算。
-- 沿用现有 `virtualScrollMax > 1px` 的显示阈值；修复不扩大或缩小横向 overflow 的产品语义。
-- DOM track 的实际宽度只参与 thumb 比例与视觉位置计算，不得反向决定 track 自身是否挂载。
+- `scrollbarWidth` preserva a precisão de subpixel de `getBoundingClientRect()` e o mesmo valor é usado tanto na largura CSS quanto no cálculo de `virtualScrollMax`.
+- Mantém-se o limite de exibição existente `virtualScrollMax > 1px`; a correção não amplia nem reduz a semântica de produto do overflow horizontal.
+- A largura real do track do DOM participa apenas do cálculo da proporção do thumb e da posição visual, e não pode decidir por sua conta se o próprio track está montado.
 
-增强模式：
+Modo aprimorado:
 
 - `scrollbarWidth = frameRect.width + rightDistance - rightInset`
 - `viewportMaxWidth = scrollbarWidth`

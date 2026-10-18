@@ -1,83 +1,83 @@
-# Provider 配置纯读取去锁 TODO
+# TODO de remoção de lock na leitura pura da configuração de Provider
 
-- 状态：实现、回归与自审完成；提交后推送并建立到 hotfix/3.12.2 的 MR。
-- 反馈：ZCT-2099792881319157760；[调查报告](./2026-09-15-provider-config-lock-investigation.md)。
-- 范围裁决：本次只处理锁竞争。读取失败保留有效配置、恢复通知与诊断明天一起设计；不修改设置持久化。
+- Status: implementação, regressão e auto-revisão concluídas; push após o commit e criação de MR para `hotfix/3.12.2`.
+- Feedback: ZCT-2099792881319157760; [relatório de investigação](./2026-09-15-provider-config-lock-investigation.md).
+- Decisão de escopo: desta vez tratamos apenas a competição de locks. Falhas de leitura preservando a configuração válida, notificações de recuperação e diagnóstico serão desenhadas em conjunto amanhã; a persistência das configurações não é modificada.
 
-## 目标与原因
+## Objetivo e motivo
 
-多个 Host/Agent 默认约每秒读取同一份 Personal 配置，却都参与排他目录锁，纯读也产生锁目录/owner 文件写入和删除。
-应用写入已使用同目录临时文件加 rename 替换；正常读者可以观察上一次或新一次已提交文档，无需等待写者准备新文件。
-普通 read 同时承担 Legacy 导入与格式规范化，不能直接删除整个读取入口的锁。
+Vários Host/Agent leem por padrão a mesma configuração Personal cerca de uma vez por segundo, mas todos participam do lock de diretório exclusivo, e até uma leitura pura gera escrita e remoção de arquivos de lock/owner.
+A escrita da aplicação já usa arquivo temporário no mesmo diretório seguido de rename para substituição; um leitor normal pode observar o documento já submetido anterior ou o novo, sem esperar o escritor preparar o novo arquivo.
+O read comum também é responsável pela importação Legacy e pela normalização de formato, portanto não se pode simplesmente remover o lock da entrada de leitura completa.
 
-## 本次行为契约
+## Contrato de comportamento desta vez
 
 ```text
-显式 read -> 无锁读取、解码
-             ├─ 正式规范文件 -> 返回快照
-             ├─ 文件缺失且没有 importer -> 沿用现有空配置行为
-             └─ 需要导入/规范化 -> 原有写锁 -> 重读最新文件 -> 按当前内容决定是否写回
+explicit read -> leitura sem lock, decodificação
+             ├─ arquivo canônico -> retorna o snapshot
+             ├─ arquivo ausente e sem importer -> mantém o comportamento atual de config vazia
+             └─ precisa de importação/normalização -> lock de escrita original -> relê o arquivo mais recente -> decide pela conteúdo atual se reescreve ou não
 
-poll -> 无锁读取、解码 -> 比较内容版本 -> 沿用现有变化通知
+poll -> leitura sem lock, decodificação -> compara a versão do conteúdo -> mantém a notificação de mudança existente
 
-update -> 原有写锁 -> 重读最新文件 -> transform/校验 -> 临时文件 + rename -> updated
+update -> lock de escrita original -> relê o arquivo mais recente -> transform/validação -> arquivo temporário + rename -> updated
 ```
 
-- `NodePersonalProviderConfigRepository` 继续是唯一文件 IO 与轮询 owner；不增加跨进程读写锁或另一份配置缓存。
-- 正常读取、纯轮询不创建锁目录，不写 owner，不因另一个正常 writer 持锁而等待；未规范化文档的显式读取仍可能等待写锁。
-- 首次导入、规范化写回及修改必须在原锁内重新读取；无锁阶段的旧文档不能拿来直接覆盖写入。
-- 无锁解析使用与现有读取完全相同的 decoder、encoder、内容 revision；不修改 schema、迁移脚本或文件路径。
-- 写入协议、排队、锁预算、锁回收、私有临时文件及 rename 重试保持不变；兼容仍使用原锁的旧版本写者。
-- 单轮 poll 完成后再安排下一轮。显式 read/update 的 finally 不能在 poll 在飞期间再排入第二轮。
-- 本 Repository 有新的成功写入时，丢弃此前启动的 poll 结果，避免旧读取晚返回导致 observedRevision 倒退和重复变更通知。
-  只用进程内写入代次，不修改磁盘 revision，不新增配置同步协议。
-- 读者仅保证观察完整已提交版本，不增加严格的跨进程线性读取或发送前同步屏障。
-- 普通读取失败后的空配置降级、poll-error 与同版本恢复规则保持现状；本次减少触发源，不宣称完整解决故障恢复。
-- 不修改 Registry、UI、账号、默认选择语义或远程同步协议。默认选择、Host/Worker/Standalone 复用本 Repository；
-  手机仍通过 shared-host，远程仍使用所属 Environment，desktop continuous / mobile replayable 无变化。
+- `NodePersonalProviderConfigRepository` continua sendo o único owner de file IO e de polling; não se adiciona lock de leitura/escrita entre processos nem uma segunda cache de configuração.
+- Leitura normal e polling puro não criam diretório de lock, não escrevem owner e não aguardam por causa de outro writer normal com o lock; a leitura explícita de um documento ainda não normalizado pode continuar aguardando o lock de escrita.
+- A primeira importação, a escrita de normalização e a modificação devem reler dentro do lock original; o documento antigo da fase sem lock não pode ser usado para sobrescrever diretamente a gravação.
+- A parsing sem lock usa exatamente o mesmo decoder, encoder e revision de conteúdo da leitura existente; não modifica schema, scripts de migração ou caminho de arquivo.
+- Protocolo de escrita, fila, orçamento de lock, reciclagem de lock, arquivo temporário privado e retry de rename permanecem inalterados; a compatibilidade com escritores antigos que usam o lock original permanece.
+- A próxima rodada de poll é agendada somente após o término da rodada atual. O finally de read/update explícito não pode enfileirar uma segunda rodada enquanto um poll está em voo.
+- Quando este Repository tem uma nova escrita bem-sucedida, os resultados de polls iniciados anteriormente são descartados, evitando que uma leitura antiga retornando tarde faça o observedRevision retroceder e gere notificações de mudança duplicadas.
+  Usa-se apenas uma geração de escrita em processo, sem modificar a revision em disco e sem adicionar protocolo de sincronização de configuração.
+- O leitor apenas garante observar uma versão submetida completa; não se adiciona leitura linear estrita entre processos nem barreira de sincronização antes do envio.
+- O fallback de config vazia após falha de leitura comum, o poll-error e a regra de recuperação na mesma versão permanecem como estão; desta vez reduzimos as fontes de gatilho e não alegamos resolver completamente a recuperação de falhas.
+- Não modifica Registry, UI, conta, semântica de seleção padrão ou protocolo de sincronização remota. A seleção padrão e Host/Worker/Standalone reutilizam este Repository;
+  o mobile continua passando por shared-host, o remoto continua usando o Environment pertencente, e desktop continuous / mobile replayable não mudam.
 
-## 边界与验证
+## Limites e verificação
 
-- 生产实现限定 `packages/provider-node/src/personal-provider-config-repository.ts`，复用 shared 公共文件工具。
-- 无 UI 交互或页面结构修改；回归放在 Repository 及真实子进程文件 IO 层，复用现有 Provider 保存/默认选择/同步测试。
-- Linux 本机运行验证；Windows/macOS 实机结果不得以 Linux 测试替代。Node/libuv Windows 普通文件打开包含共享删除能力，
-  rename 使用替换目标文件的操作；跨平台验证仍要覆盖并发读取及替换失败。外部程序原地写坏文件、权限失败不属于本次保证。
+- A implementação de produção fica restrita a `packages/provider-node/src/personal-provider-config-repository.ts`, reutilizando as ferramentas públicas de arquivo do shared.
+- Sem interação de UI ou alteração de estrutura de página; a regressão fica no Repository e na camada real de file IO de subprocesso, reutilizando os testes existentes de salvamento/seleção padrão/sincronização de Provider.
+- Verificação executada no Linux local; resultados reais em Windows/macOS não podem ser substituídos por testes Linux. A abertura normal de arquivos no Windows pelo Node/libuv inclui a capacidade de delete compartilhado,
+  e o rename usa a operação que substitui o arquivo de destino; a verificação multiplataforma ainda precisa cobrir leitura concorrente e falha de substituição. Corruption escrita no local por programas externos e falhas de permissão não fazem parte da garantia desta vez.
 
-## 执行 TODO
+## TODO de execução
 
-- [x] 明确只修锁竞争及必要的并发边界，后两项留待联合设计。
-- [x] 落盘本次行为契约、验证场景及后续联合设计待办。
-- [x] 先添加回归测试，并确认旧实现失败。
-  - 另一进程或 writer 持锁时，正常 read 仍读到完整配置；不产生锁元数据操作。
-  - 纯轮询在 writer 持锁时可观察正式文件的新版本，保持默认字段与规则一致。
-  - 首次导入与规范化排队期间，另一 writer 已保存的新数据不会被旧读取覆盖。
-  - 两个进程并发保存 Provider/默认选择，继续完整保留双方更新。
-  - 慢 poll 与显式 read 交错不产生重叠 poll；晚到旧 poll 不覆盖新写入版本。
-  - 坏文件和真实写入失败沿用原错误行为，文件原文不受破坏。
-- [x] 实现纯读与写回分流，补中文原因注释。
-- [x] 运行聚焦回归、相关现有测试、typecheck、lint、格式和架构门禁。
-- [x] 自审实际 diff，记录测试与平台限制，提交独立 commit。
+- [x] Deixar claro que apenas a competição de locks e os limites de concorrência necessários serão corrigidos, com os dois últimos itens reservados para o design conjunto.
+- [x] Registrar em disco o contrato de comportamento, os cenários de verificação e os TODOs de design conjunto subsequentes.
+- [x] Adicionar primeiro os testes de regressão e confirmar que a implementação antiga falha.
+  - Com outra processo ou writer segurando o lock, o read normal ainda lê a configuração completa; nenhuma operação de metadados de lock é produzida.
+  - O polling puro, com o writer segurando o lock, consegue observar a nova versão do arquivo canônico, mantendo a coerência dos campos e regras padrão.
+  - Durante a primeira importação e a fila de normalização, dados novos já salvos por outro writer não são sobrescritos pela leitura antiga.
+  - Dois processos salvando Provider/seleção padrão em paralelo continuam preservando integralmente as atualizações de ambos.
+  - Poll lento intercalado com read explícito não gera polls sobrepostos; um poll antigo que chega tarde não sobrescreve a versão da nova escrita.
+  - Arquivo corrompido e falha real de escrita mantêm o comportamento de erro original, sem danificar o conteúdo do arquivo.
+- [x] Implementar o desvio entre leitura pura e escrita de retorno, com comentários em chinês explicando o motivo.
+- [x] Executar regressão focada, testes existentes relacionados, typecheck, lint, formatação e o portão de arquitetura.
+- [x] Fazer auto-revisão do diff real, registrar testes e limitações de plataforma e gerar um commit isolado.
 
-## 明天必须一起设计的两项（本次不实现）
+## Os dois itens que precisam ser desenhados em conjunto amanhã (não implementados desta vez)
 
-1. 读取失败保留最后有效 Personal 数据：明确唯一 owner；区分新用户无文件、启动从未读成功、运行中失败、合法空文件、
-   文件突然消失；默认选择与规则来自同一快照；保存和远程分发必须校验真实文件，不能把旧缓存当作最新写入依据。
-2. 恢复通知与诊断：区分文件读取恢复和 Registry 应用完成；内容版本不变也要收敛错误状态；处理 Facade/UI 的版本去重、
-   首次 start 失败未订阅、并发过期结果、Environment 换代；失败/恢复事件低频，锁排队/获取/持有/释放分阶段，
-   已提交但释放失败不得伪装成未提交；不自动重放用户保存，不泄露凭据。
+1. Preservar os últimos dados Personal válidos quando a leitura falhar: definir um owner único; distinguir usuário novo sem arquivo, falha na inicialização em que nunca houve leitura bem-sucedida, falha em execução, arquivo legitimamente vazio,
+   desaparecimento súbito do arquivo; a seleção padrão e as regras vêm do mesmo snapshot; o salvamento e a distribuição remota devem validar o arquivo real, sem tomar o cache antigo como base da escrita mais recente.
+2. Notificações de recuperação e diagnóstico: distinguir recuperação de leitura de arquivo e aplicação pelo Registry concluída; o estado de erro deve convergir mesmo quando a versão do conteúdo não muda; tratar deduplicação de versão em Facade/UI,
+   primeira falha de start sem inscrição, resultado concorrente expirado, troca de Environment; eventos de falha/recuperação de baixa frequência, lock enfileirado/obtained/held/released em fases separadas,
+   falha de liberação após submissão não pode ser disfarçada de não submetido; não reproduzir automaticamente o salvamento do usuário e não vazar credenciais.
 
-这两项先共同确定状态模型与影响面，再更新 spec/测试及实现，不以逐个 catch 兜底推进。
+Esses dois itens devem primeiro definir em conjunto o modelo de estado e a superfície de impacto, e só então atualizar spec/testes e a implementação, sem avançar com blocos try/catch isolados como remendo.
 
-## 本次执行结果
+## Resultado desta execução
 
-- 生产变更仅 Personal Repository：正常 read/poll 去锁；导入、规范化及 update 保留写锁内重读。
-- 新增 10 个 IO/并发测试，包括真实子进程持锁读取、旧轮询成功/错误晚返回和 ENOSPC 保存失败。
-  旧实现的持锁读取测试已确认失败；过期错误测试也先确认失败再修复。
-- 聚焦 Repository / Runtime / 默认选择 / 服务配置回归：5 文件、46 测试通过。
-- 扩大 Provider Node 与配置分发回归：31 文件、277 测试中 276 通过。
-  唯一失败为 `zcode-builtin-map-formatting.test.ts` 的内置 Map 换行断言；对应测试、
-  `config/provider/zcode-builtin.json` 和 `packages/model-option-map` 与 hotfix 基线完全相同，本次未修改。
-- `pnpm typecheck`、`pnpm lint`（0 error）、`pnpm architecture:check --changed` 通过；修改文件格式检查通过。
-- 自审补齐 poll 在飞保护及成功写入代次校验（同时丢弃过期成功与失败），未增加第二份配置缓存。
-- Linux 文件 IO 和子进程验证通过；Windows/macOS 实机及桌面/手机端到端未执行，不宣称覆盖。
-- 本次不解决其他真实 IO 故障导致的空配置降级或同版本恢复漏通知。
+- A mudança de produção ficou apenas no Personal Repository: read/poll normais sem lock; importação, normalização e update mantêm a releitura dentro do lock de escrita.
+- Foram adicionados 10 testes de IO/concorrência, incluindo leitura com lock real em subprocesso, retorno tardio de poll antigo com sucesso e com erro, e falha de salvamento por ENOSPC.
+  Os testes de leitura com lock da implementação antiga foram confirmados como falhando; o teste de erro expirado também falhou antes de ser corrigido.
+- Regressão focada de Repository / Runtime / seleção padrão / configuração de serviço: 5 arquivos, 46 testes aprovados.
+- Regressão ampliada de Provider Node e distribuição de configuração: 31 arquivos, 277 testes, 276 aprovados.
+  A única falha foi a asserção de quebra de linha do Map embutido em `zcode-builtin-map-formatting.test.ts`; o teste correspondente,
+  `config/provider/zcode-builtin.json` e `packages/model-option-map` são idênticos à baseline do hotfix e não foram modificados desta vez.
+- `pnpm typecheck`, `pnpm lint` (0 error), `pnpm architecture:check --changed` aprovados; a verificação de formatação dos arquivos modificados passou.
+- A auto-revisão completou a proteção de poll em voo e a verificação de geração de escrita bem-sucedida (descartando sucessos e falhas expirados), sem adicionar uma segunda cache de configuração.
+- A verificação de file IO e de subprocesso no Linux passou; não foram executados testes reais em Windows/macOS nem e2e de desktop/mobile, e não se alega essa cobertura.
+- Esta execução não resolve o fallback de config vazia nem a falta de notificação de recuperação na mesma versão causados por outras falhas reais de IO.

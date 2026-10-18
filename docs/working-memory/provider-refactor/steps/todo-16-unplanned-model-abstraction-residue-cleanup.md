@@ -1,17 +1,17 @@
-# 16 未规划 Model 抽象残留归零
+# 16 Eliminação dos Resíduos de Abstração de Model Não Planejados
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-25
+> Data: 2026-08-25
 >
-> 来源审查：Provider Refactor 完成后的旧抽象差集复查
+> Origem da revisão: reexame do diferencial das abstrações antigas após a conclusão do Provider Refactor
 >
-> 相关任务：[`01`](./todo-01-core-model-adapter-boundary-cleanup.md)、
+> Tarefas relacionadas: [`01`](./todo-01-core-model-adapter-boundary-cleanup.md)、
 > [`08`](./todo-08-legacy-model-catalog-retirement.md)、
 > [`13`](./todo-13-target-host-model-selection-authority.md)、
 > [`14`](./todo-14-post-refactor-mechanical-zero.md)
 >
-> 相关设计：[`../design/model/contract.md`](../design/model/contract.md)、
+> Designs relacionados: [`../design/model/contract.md`](../design/model/contract.md)、
 > [`../design/model/model.md`](../design/model/model.md)、
 > [`../design/registry/model-creation.md`](../design/registry/model-creation.md)、
 > [`../design/registry/registry.md`](../design/registry/registry.md)、
@@ -19,13 +19,12 @@
 > [`../design/interaction/interaction.md`](../design/interaction/interaction.md)、
 > [`../design/interaction/selection-state.md`](../design/interaction/selection-state.md)
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-本文只收纳 2026-08-25 代码复查中确认、且尚未被 Todo 11–15 明确覆盖的旧 Model/Provider 抽象残留。
-已经由 Todo 13 规划的目标 Host、结构化 `ModelSelection`、临时 App 和字符串选择旧链，以及已经由 Todo 14
-规划的 MCS、`RuntimeModelFactoryInput`、Legacy Provider Store DTO 和已知死文件，不在本文重复规划。
+Este documento reúne apenas os resíduos de abstrações antigas de Model/Provider confirmados na revisão de código de 2026-08-25 e que ainda não estão explicitamente cobertos pelos Todos 11–15.
+O Target Host planejado pelo Todo 13, o `ModelSelection` estruturado, o App temporário e a antiga cadeia de seleção por string, assim como o MCS, o `RuntimeModelFactoryInput`, o DTO de Legacy Provider Store e os arquivos mortos conhecidos planejados pelo Todo 14, não são replanejados aqui.
 
-本 Todo 不建立新领域抽象。所有改动都是既有设计的遗漏修复或公共契约归零：
+Este Todo não cria novas abstrações de domínio. Todas as mudanças são correções de lacunas em designs existentes ou a redução a zero de contratos públicos:
 
 ```text
 Target Host / Submission
@@ -51,132 +50,114 @@ Importer-private parser/types
 Current Personal Provider / Model Config
 ```
 
-## 1. 已确认问题与裁决
+## 1. Problemas confirmados e decisões
 
-### 1.1 删除 Core 的假 Model Selection 与可选 ModelFactory
+### 1.1 Remover a falsa Model Selection e o ModelFactory opcional do Core
 
-当前 `AgentRuntimeDeps.modelFactory` 仍为可选；`AgentRuntime` 在缺少 `config.modelSelection` 时会制造
-`zcode-unconfigured/missing-model`，Contracts 仍公开导出同值 `DEFAULT_MODEL`。这与 Todo 01 已确认的生产边界
-不一致：所有根执行 Model 必须来自正式 ModelFactory，Core 不得制造假 Model、假 Selection 或 fallback Model。
+Atualmente `AgentRuntimeDeps.modelFactory` ainda é opcional; o `AgentRuntime` fabrica `zcode-unconfigured/missing-model` quando `config.modelSelection` está ausente, e os Contracts ainda exportam publicamente o `DEFAULT_MODEL` de mesmo valor. Isso é inconsistente com o limite de produção já confirmado no Todo 01: todo Model de execução raiz deve vir de um ModelFactory oficial, e o Core não pode fabricar Model falso, Selection falsa ou Model de fallback.
 
-裁决如下：
+Decisão:
 
-- 生产 `AgentRuntime` 构造必须取得 `RuntimeModelFactory`；类型上改为必填；
-- 生产 `AgentRuntimeConfig` 必须取得结构化 `ModelSelection`；Todo 13 的目标 Host initial selection 负责提供；
-- 删除 `zcode-unconfigured/missing-model`、`DEFAULT_MODEL` 及围绕它们建立的解析、展示和测试断言；
-- 删除 Runtime 内“未配置 ModelFactory”才可能触发的延迟运行期分支；
-- 低层测试显式注入 Fake ModelFactory 或 Unavailable ModelFactory，并显式提供测试 Selection；
-- 不建立新的 `stateOnly`、`unconfigured`、`default` 或 sentinel Model 类型；
-- `Model.bind()` 继续是从已有 Active Model 派生绑定 Model 的合法路径，不受本项影响。
+- A construção de produção do `AgentRuntime` precisa obter um `RuntimeModelFactory`; no tipo, passa a ser obrigatório;
+- O `AgentRuntimeConfig` de produção precisa obter um `ModelSelection` estruturado; a initial selection do Target Host planejado pelo Todo 13 é quem a fornece;
+- Remover `zcode-unconfigured/missing-model`, `DEFAULT_MODEL` e a resolução, exibição e asserções de teste construídas ao redor deles;
+- Remover do Runtime os ramos de execução tardia que só podem ser acionados quando o ModelFactory não está configurado;
+- Testes de nível baixo injetam explicitamente um Fake ModelFactory ou um Unavailable ModelFactory e fornecem explicitamente a Selection de teste;
+- Não criar novos tipos `stateOnly`, `unconfigured`, `default` ou Model sentinel;
+- `Model.bind()` continua sendo um caminho legítimo para derivar um Model vinculado a partir de um Active Model existente; este item não o afeta.
 
-本项依赖 Todo 13 先删除生产临时 App/state-only Runtime；若实施时仍发现生产构造无法取得目标 Host Selection，
-应回到 Todo 13 修正来源，不能保留假 Selection 兜底。
+Este item depende de o Todo 13 remover antes o App temporário/state-only Runtime de produção; se, na implementação, ainda for descoberto que a construção de produção não consegue obter a Selection do Target Host planejado, é preciso voltar ao Todo 13 e corrigir a origem, sem manter uma Selection falsa de fallback.
 
-### 1.2 删除 `reasoning.enabled` 冗余状态
+### 1.2 Remover o estado redundante `reasoning.enabled`
 
-当前 Protocol 的 `ZCodeModelReasoningOptions` 同时具有 `enabled` 和 `levels`，但生产 Mapper 只会在 Reasoning
-Option Spec 存在时创建该对象，并固定写入 `enabled: true`。是否存在 Reasoning 选择能力已经由对象/Option Spec
-是否存在完整表达，额外布尔值没有独立状态。
+Atualmente o `ZCodeModelReasoningOptions` do Protocol tem simultaneamente `enabled` e `levels`, mas o Mapper de produção só cria esse objeto quando existe uma Reasoning Option Spec e sempre escreve `enabled: true`. A existência da capacidade de seleção de Reasoning já é expressada de forma completa pela existência do objeto/Option Spec; o booleano adicional não tem estado independente.
 
-裁决如下：
+Decisão:
 
-- 从 `zcodeModelReasoningOptionsSchema` 和 `ZCodeModelReasoningOptions` 删除 `enabled`；
-- Bootstrap Mapper、Agent Model State、UI Projection 和测试不再读取或生成该字段；
-- `reasoning === undefined` 表示没有 Reasoning 选项；存在时使用其 `levels/defaultLevel`；
-- 不用空 levels、disabled enum 或另一个布尔字段替代；
-- Legacy importer 对已发布旧字段 `reasoning.enabled` 的读取可以保留，但只作为 importer 私有输入，立即投影为
-  当前 Personal Model Config Rule；
-- 不改变 `ModelSelection.options.reasoningLevel`、Option Spec 默认值和 Adapter `reasoningMapping`。
+- Remover `enabled` de `zcodeModelReasoningOptionsSchema` e de `ZCodeModelReasoningOptions`;
+- O Bootstrap Mapper, o Agent Model State, a UI Projection e os testes deixam de ler ou gerar esse campo;
+- `reasoning === undefined` significa não haver opções de Reasoning; quando presente, usar seu `levels/defaultLevel`;
+- Não substituir por levels vazios, enum desabilitado ou outro campo booleano;
+- O Legacy importer pode manter a leitura do campo antigo publicado `reasoning.enabled`, mas apenas como entrada privada do importer, projetada imediatamente como a Regra atual de Personal Model Config;
+- Não alterar `ModelSelection.options.reasoningLevel`, os valores padrão da Option Spec nem o `reasoningMapping` do Adapter.
 
-### 1.3 删除 ZCode Protocol 中零引用的旧 Provider DTO
+### 1.3 Remover os DTOs antigos de Provider sem referência no ZCode Protocol
 
-`packages/shared/src/zcode-protocol/index.ts` 仍公开一套没有生产消费者的旧 Provider 输入/输出 Schema，包括：
+`packages/shared/src/zcode-protocol/index.ts` ainda expõe publicamente um conjunto de Schemas antigos de entrada/saída de Provider sem consumidores de produção, incluindo:
 
-- `ZCodeModelProviderKind`；
-- `ZCodeModelProviderSource`；
-- `ZCodeModelProviderModel`；
-- `ZCodeModelProviderConfig`；
-- `ZCodeModelProviderInput`；
-- 仅被上述 DTO 使用的 Secret Input/Ref、API Format 和 Schema；
-- `models-dev`、`apiKeyRequired`、`providerOptions`、`modelsDevProviderId` 等旧字段。
+- `ZCodeModelProviderKind`;
+- `ZCodeModelProviderSource`;
+- `ZCodeModelProviderModel`;
+- `ZCodeModelProviderConfig`;
+- `ZCodeModelProviderInput`;
+- os Secret Input/Ref, API Format e Schema usados apenas pelos DTOs acima;
+- campos antigos como `models-dev`、`apiKeyRequired`、`providerOptions`、`modelsDevProviderId`.
 
-裁决如下：
+Decisão:
 
-- 先用 `pnpm dep:refs` 逐 export 复核零引用，再直接删除 Schema、类型和只服务它们的测试；
-- 不把它们迁入另一个 Shared 文件，不新增 deprecated alias；
-- 保留当前仍在使用的 `ZCodeAccountAccess` 及其独立 Schema；不得因源文件相邻而误删；
-- 若发现某个旧 DTO 只被测试 fixture 使用，fixture 改用当前 Provider Config 契约；
-- 若发现真实 Legacy importer 消费者，只把所需最小 serialized shape 移入 importer 私有模块，不恢复公共协议。
+- Primeiro reexame cada export com `pnpm dep:refs` para confirmar zero referência e então remover diretamente os Schemas, os tipos e os testes que servem apenas a eles;
+- Não migrá-los para outro arquivo Shared, nem adicionar alias deprecated;
+- Manter o `ZCodeAccountAccess` atualmente em uso e seu Schema independente; não removê-lo por proximidade do arquivo de origem;
+- Se algum DTO antigo for usado apenas por fixture de teste, fazer o fixture usar o contrato atual de Provider Config;
+- Se houver consumidor real do Legacy importer, mover apenas o formato serializado mínimo necessário para o módulo privado do importer, sem restaurar o protocolo público.
 
-### 1.4 将 Legacy CLI Model Config 收入 importer 私有边界
+### 1.4 Recolher o Legacy CLI Model Config para a fronteira privada do importer
 
-Contracts 仍公开 `ModelProviderKind`、`ModelTargetConfig` 和 `RuntimeModelConfig`。它们描述旧 CLI 的
-`main/lite/available`、`kind/baseURL/apiKey/apiKeyRequired/headers/providerOptions` 格式，当前只服务 Legacy CLI
-Personal Config importer，不属于正式 Runtime 或 Provider Domain。
+Os Contracts ainda expõem `ModelProviderKind`、`ModelTargetConfig` e `RuntimeModelConfig`. Eles descrevem o formato antigo do CLI, `main/lite/available`、`kind/baseURL/apiKey/apiKeyRequired/headers/providerOptions`, hoje servindo apenas ao importer de Personal Config do Legacy CLI, e não pertencem ao domínio oficial de Runtime ou Provider.
 
-裁决如下：
+Decisão:
 
-- 将 importer 确实需要的最小 serialized DTO、Zod parser 和 normalize helper 移入 Legacy CLI importer 私有目录；
-- 私有类型不得从 Contracts、Adapters、Bootstrap 或 Services barrel 导出；
-- Legacy 文件读取后立即转换为当前 Personal Provider Config / Personal Model Config Rules；
-- Runtime、Registry、ModelFactory、UI 和新持久化不得接触旧 DTO；
-- 保留已发布旧 CLI 配置的兼容读取，不在本 Todo 结束兼容窗口；
-- importer 测试直接构造旧 JSON fixture，不为测试重新公开旧类型。
+- Mover para o diretório privado do Legacy CLI importer o DTO serializado mínimo de que ele realmente precisa, o parser Zod e o helper de normalização;
+- Os tipos privados não podem ser exportados pelos barrels de Contracts, Adapters, Bootstrap ou Services;
+- Após ler os arquivos Legacy, converter imediatamente para as Regras atuais de Personal Provider Config / Personal Model Config;
+- Runtime, Registry, ModelFactory, UI e a nova persistência não podem tocar os DTOs antigos;
+- Manter a leitura compatível das configurações antigas do CLI já publicadas, sem encerrar a janela de compatibilidade neste Todo;
+- Os testes do importer constroem diretamente o fixture JSON antigo, sem reexpor os tipos antigos por causa dos testes.
 
-### 1.5 删除 Runtime 的第二模型事实通道
+### 1.5 Remover o segundo canal de fatos do Model no Runtime
 
-Todo 14 已要求从 `RuntimeModelFactoryInput` 删除无效的 `contextWindow/properties/providerOptions` 等字段，但当前
-`AgentRuntimeConfig` 仍保存和传播 `modelProviderOptions`，Compact 等执行路径仍会从 Active Model 回退
-`AgentRuntimeConfig.contextWindow/maxOutputTokens`。如果只清理 Factory 入参，旧通道仍会留在 Runtime 内部。
+O Todo 14 já exigiu a remoção de campos inválidos como `contextWindow/properties/providerOptions` do `RuntimeModelFactoryInput`, mas o `AgentRuntimeConfig` atual ainda guarda e propaga `modelProviderOptions`, e caminhos de execução como o Compact ainda fazem fallback de `AgentRuntimeConfig.contextWindow/maxOutputTokens` para o Active Model. Se apenas os argumentos do Factory forem limpos, o canal antigo continuará existindo dentro do Runtime.
 
-既有事实归属已经足够明确：
+A atribuição de fatos existente já está suficientemente clara:
 
 ```text
-执行静态事实       -> Active Model.properties
-执行绑定选项       -> Active Model.options
-未来选择意图       -> ModelSelection
-空闲候选/默认展示  -> Target Host ModelSelectionView
+Fatos estáticos de execução       -> Active Model.properties
+Opções vinculadas de execução     -> Active Model.options
+Intenção futura de seleção        -> ModelSelection
+Exibição ociosa/padrão de展示       -> Target Host ModelSelectionView
 ```
 
-裁决如下：
+Decisão:
 
-- 删除 `AgentRuntimeConfig.modelProviderOptions`、Title/Memory/Compact/Workflow/Subagent 的同名透传、getter、更新器
-  和只验证该通道的测试；
-- 正常请求、Microcompact、Full/Reactive Compact、Memory、Title、Goal、Child Agent 在取得本次 Model 后，只读取
-  `Model.properties.contextWindow` 和 `Model.options.maxOutputTokens`；
-- 上述执行路径不得使用 `runtimeConfig ?? model` 或 `model ?? runtimeConfig` 兜底；如果语义要求执行 Model，类型上
-  将 Model 改为必填并在调用边界创建；
-- `model.selected` 等执行事件从实际创建的 Model 投影模型事实，不从 Runtime Config 复制；
-- 空闲态模型展示与 configured default 由 Todo 13 的目标 Host View 提供，不以保留 Runtime 副本解决；
-- 完成消费者迁移后，若 `AgentRuntimeConfig.contextWindow/maxOutputTokens` 已无独立非执行语义，直接删除；
-- 若仍发现真实非执行消费者，必须证明其权威来源和生命周期，并改为显式、窄范围 DTO；不得继续让它参与模型
-  请求、Compact 或 ModelFactory 创建。
+- Remover `AgentRuntimeConfig.modelProviderOptions`, o repasse de mesmo nome em Title/Memory/Compact/Workflow/Subagent, os getters, os atualizadores e os testes que validam apenas esse canal;
+- Requisições normais, Microcompact, Compact Completo/Reativo, Memory, Title, Goal e Child Agent, após obter o Model desta rodada, leem apenas `Model.properties.contextWindow` e `Model.options.maxOutputTokens`;
+- Os caminhos de execução acima não podem usar `runtimeConfig ?? model` nem `model ?? runtimeConfig` como fallback; se a semântica exigir o Model de execução, mudar o Model para obrigatório no tipo e criá-lo na fronteira de chamada;
+- Eventos de execução como `model.selected` projetam os fatos do Model a partir do Model realmente criado, não copiando do Runtime Config;
+- A exibição de Model em estado ocioso e o default configurado são fornecidos pela View do Target Host do Todo 13, sem resolver o problema mantendo uma cópia no Runtime;
+- Concluída a migração dos consumidores, se `AgentRuntimeConfig.contextWindow/maxOutputTokens` já não tiver semântica independente e não-execução, removê-lo diretamente;
+- Se ainda for encontrado um consumidor real não-execução, é preciso provar sua origem autoritativa e seu ciclo de vida e convertê-lo em um DTO explícito e de escopo estreito; ele não pode continuar participando de requisições de Model, Compact ou criação de ModelFactory.
 
-这项不改变 `ModelSelection.options.maxOutputTokens`：它仍表达用户明确选择意图；ModelFactory 根据 Option Specs
-补齐的最终值只存在于 Active Model.options。
+Isso não altera `ModelSelection.options.maxOutputTokens`: ele continua expressando a intenção explícita de escolha do usuário; o valor final preenchido pelo ModelFactory a partir das Option Specs existe apenas em Active Model.options.
 
-### 1.6 修正仍被当作当前事实的旧设计文档
+### 1.6 Corrigir os documentos de design antigos ainda tratados como fatos atuais
 
-当前文档有两类问题：一类仍描述 Catalog、models.dev、Provider/modelId 推断或平铺媒体 capability；另一类
-虽然已经进入 Provider Refactor Design，却仍把旧的 Registry/Model 关系写成当前契约。
+Os documentos atuais têm dois tipos de problema: um deles ainda descreve Catalog, models.dev, inferência de Provider/modelId ou capability de mídia achatada; o outro, embora já tenha entrado no Provider Refactor Design, ainda escreve as relações antigas de Registry/Model como contrato atual.
 
-第一类包括：
+O primeiro tipo inclui:
 
-- `apps/zcode-cli/docs/design/v2/model/model-capability-resolution.md`；
-- `docs/chat/manual-model-switch-resolution-chain.md`；
-- `docs/model-request-output-tokens.md`；
-- `docs/compact-media-capability-projection.md`；
-- `apps/dev-docs/src/data/productCapabilityMap.ts` 中的旧 Catalog/Modality 节点。
+- `apps/zcode-cli/docs/design/v2/model/model-capability-resolution.md`;
+- `docs/chat/manual-model-switch-resolution-chain.md`;
+- `docs/model-request-output-tokens.md`;
+- `docs/compact-media-capability-projection.md`;
+- os antigos nós de Catalog/Modality em `apps/dev-docs/src/data/productCapabilityMap.ts`.
 
-第二类包括：
+O segundo tipo inclui:
 
-- `design/model/model.md` 仍用 `registry.createModel()` 作为直接入口，并让公共 `Model` 暴露
-  `providerConfig/modelConfig`；
-- `design/interaction/interaction.md`、`design/registry/registry.md` 和 `design/registry/runtime.md` 仍把
-  `createModel(selection)` 画成 Provider Registry 索引本身的方法；
-- 上述表述与当前 `Model` 契约及 `design/registry/model-creation.md` 已确认的边界不一致。
+- `design/model/model.md` ainda usa `registry.createModel()` como entrada direta e faz o `Model` público expor `providerConfig/modelConfig`;
+- `design/interaction/interaction.md`、`design/registry/registry.md` e `design/registry/runtime.md` ainda desenham `createModel(selection)` como um método do próprio índice do Provider Registry;
+- essasformulações são inconsistentes com o contrato de `Model` atual e com os limites confirmados em `design/registry/model-creation.md`.
 
-当前唯一准确关系为：
+A única relação correta atualmente é:
 
 ```text
 Provider Registry
@@ -198,45 +179,38 @@ Active Model
 └─ generateText / streamText
 ```
 
-完整 `RegistryProviderConfig/RegistryModelConfig` 是 ModelFactory 交给 Adapter 的私有创建输入，不是公共
-`Model` 的可查询字段。`Model.bind()` 继续是从已有 Model 派生绑定 Model 的合法入口。
+O `RegistryProviderConfig/RegistryModelConfig` completo é a entrada privada de criação que o ModelFactory entrega ao Adapter, não um campo consultável do `Model` público. `Model.bind()` continua sendo uma entrada legítima para derivar um Model vinculado a partir de um Model existente.
 
-裁决如下：
+Decisão:
 
-- 仍承担当前设计入口的文档改写为 Provider Config + Model Config Rules + Registry + ModelFactory + Active Model；
-- 纯历史文档在标题和开头明确标记 historical/retired，并链接当前 Design；
-- 删除会让读者继续实现 Catalog、models.dev fallback、modelId hardcode 或 capability map 的规范性措辞；
-- 不全仓删除历史计划、迁移记录和 Git 考古证据；历史材料只需明确不能作为当前实现依据；
-- 同步修正开发文档能力图，避免把已退役文件重新列为当前 owner。
+- Os documentos que ainda servem de entrada do design atual são reescritos como Provider Config + Model Config Rules + Registry + ModelFactory + Active Model;
+- Documentos puramente históricos são marcados claramente como historical/retired no título e na abertura, com link para o Design atual;
+- Remover formulações normativas que fariam o leitor continuar implementando Catalog, fallback de models.dev, hardcode de modelId ou capability map;
+- Não apagar do repositório inteiro planos históricos, registros de migração e evidências de arqueologia Git; o material histórico precisa apenas deixar claro que não pode servir de base para a implementação atual;
+- Corrigir em conjunto o mapa de capacidades da documentação de desenvolvimento, evitando relistar arquivos já aposentados como owner atual.
 
-### 1.7 收紧当前 Model Option Protocol 的无效投影
+### 1.7 Restringir projeções inválidas do Protocolo atual de Model Option
 
-旧 Provider DTO 之外，当前 `zcodeModelOptionSchema` 仍保留一组没有形成有效产品语义的字段：
+Além dos DTOs antigos de Provider, o `zcodeModelOptionSchema` atual ainda mantém um conjunto de campos que não formam semântica de produto válida:
 
-- `providerSource`、`providerLogoUrl` 没有生产者，也没有 Renderer/Services 消费者；
-- `supportsTools`、`supportsStructuredOutput` 由 Bootstrap 从完整 Model Properties 平铺生成，但 Renderer 没有
-  消费；它们同时形成了 `Model.properties` 之外的第二份 capability 投影；
-- 旧 `zcodeModelProviderModelSchema` 中的同名字段仍按 1.3 的旧 Provider DTO 整体删除，不与当前
-  `zcodeModelOptionSchema` 混为一个兼容理由。
+- `providerSource` e `providerLogoUrl` não têm produtor nem consumidor em Renderer/Services;
+- `supportsTools` e `supportsStructuredOutput` são gerados pelo Bootstrap de forma achatada a partir das Model Properties completas, mas o Renderer não os consome; eles formam ao mesmo tempo uma segunda projeção de capability fora de `Model.properties`;
+- os campos de mesmo nome no antigo `zcodeModelProviderModelSchema` são removidos integralmente como os DTOs antigos de Provider do item 1.3, sem se misturarem ao `zcodeModelOptionSchema` atual como justificativa de compatibilidade.
 
-裁决如下：
+Decisão:
 
-- 从当前 `zcodeModelOptionSchema/ZCodeModelOption` 删除 `providerSource`、`providerLogoUrl`、`supportsTools`、
-  `supportsStructuredOutput`；
-- 删除 Bootstrap 内部重复的 `ZCodeModelOption` DTO 和中间投影；保留从 Registry 到当前 Protocol 所需的唯一直接投影，并删除上述无效字段及其专属测试；
-- 不把 `supportsTools/supportsStructuredOutput` 搬到另一套展示 DTO；未来若有真实 UI 场景，先基于当前
-  Model Properties 契约设计最小投影；
-- 保留 `properties.input_format/output_format` 的同结构 Protocol 契约；本项不退回平铺媒体字段；
-- `ref`、`label`、`providerLabel`、Reasoning options、context/output 展示事实等已有真实消费者的字段不受影响；
-- 实施前再次用全仓引用扫描确认字段没有被并发工作引入新的真实消费者。
+- Remover `providerSource`、`providerLogoUrl`、`supportsTools` e `supportsStructuredOutput` do `zcodeModelOptionSchema/ZCodeModelOption` atual;
+- Remover o DTO `ZCodeModelOption` duplicado dentro do Bootstrap e as projeções intermediárias; manter a única projeção direta necessária do Registry para o Protocolo atual e remover esses campos inválidos e seus testes exclusivos;
+- Não mover `supportsTools/supportsStructuredOutput` para outro conjunto de DTOs de exibição; se houver um cenário real de UI no futuro, projetar primeiro a menor projeção possível com base no contrato atual de Model Properties;
+- Manter o contrato de Protocolo de mesma estrutura para `properties.input_format/output_format`; este item não volta a campos de mídia achatados;
+- `ref`、`label`、`providerLabel`, as opções de Reasoning e os fatos de exibição de context/output, que já têm consumidores reais, não são afetados;
+- Antes da implementação, executar novamente uma varredura de referências de todo o repositório para confirmar que os campos não ganharam novos consumidores reais de trabalhos concorrentes.
 
-### 1.8 删除 Bootstrap 的 Built-in Provider 展示名硬编码
+### 1.8 Remover o hardcode de nome de exibição de Built-in Provider no Bootstrap
 
-`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-mapper.ts` 仍维护 `BUILTIN_PROVIDER_LABELS`，按
-Provider ID 硬编码 Z.AI、BigModel、ZAPI 等展示名。这是 ZCode Built-in Provider Config 之外的第二份静态
-Provider 元数据来源。
+`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/model-mapper.ts` ainda mantém `BUILTIN_PROVIDER_LABELS`, com os nomes de exibição de Z.AI、BigModel、ZAPI etc. hardcoded por Provider ID. Essa é a segunda fonte estática de metadados de Provider fora da ZCode Built-in Provider Config.
 
-裁决如下：
+Decisão:
 
 ```text
 Registry Provider Config.label
@@ -244,16 +218,16 @@ Registry Provider Config.label
               v
 Protocol providerLabel
 
-label 缺失 -> providerId
+label ausente -> providerId
 ```
 
-- 删除 `BUILTIN_PROVIDER_LABELS` 及按 Provider ID 查展示名的逻辑；
-- Mapper 优先使用 Registry 已提供的 Provider label，缺失时只回退 `providerId`；
-- 不在 Bootstrap、UI 或 Protocol 新建另一张 Built-in Provider label map；
-- Coding Plan 商品、购买、用量、账号 family 等产品分支继续按自己的业务 Provider ID 工作，不属于本项；
-- 本项只收口展示元数据来源，不改变 Provider ID、候选顺序、可见性、启停、鉴权或模型执行。
+- Remover `BUILTIN_PROVIDER_LABELS` e a lógica de busca do nome de exibição por Provider ID;
+- O Mapper prioriza o label de Provider já fornecido pelo Registry e, quando ausente, faz fallback apenas para `providerId`;
+- Não criar outro mapa de Built-in Provider label no Bootstrap, na UI ou no Protocol;
+- Os ramos de produto de Coding Plan (produto, compra, uso, família de conta) continuam trabalhando com seus próprios IDs de Provider de negócio e não pertencem a este item;
+- Este item apenas unifica a origem dos metadados de exibição, sem alterar Provider ID, ordem de candidatos, visibilidade, ativação/desativação, autenticação ou execução do Model.
 
-## 2. 与 Todo 13、14 的边界
+## 2. Limites em relação aos Todos 13 e 14
 
 ```text
 Todo 13
@@ -284,176 +258,168 @@ Todo 16
 `- current Design/document correction
 ```
 
-- Todo 13/14 已修改同一文件时，本 Todo 以最新实现做零引用复核，不恢复被删除代码；
-- Todo 16 不复制 Todo 13/14 的测试、改动清单或完成定义；
-- Todo 16.1 依赖 Todo 13；其余项目可在文件冲突可控时独立实施；
-- Todo 11 的 Provider Runtime composition/lifecycle 草案不属于本 Todo；
-- Todo 15 的真实环境与发布验证不属于本 Todo。
+- Quando os Todos 13/14 já modificaram o mesmo arquivo, este Todo faz a verificação de zero referência sobre a implementação mais recente e não restaura código removido;
+- O Todo 16 não duplica os testes, listas de mudança nem definições de conclusão dos Todos 13/14;
+- O Todo 16.1 depende do Todo 13; os demais itens podem ser implementados de forma independente quando os conflitos de arquivo forem controláveis;
+- O rascunho de composição/ciclo de vida do Provider Runtime do Todo 11 não pertence a este Todo;
+- A validação em ambiente real e de lançamento do Todo 15 não pertence a este Todo.
 
-## 3. 补充差集 Impact Brief
+## 3. Complemento do Differential de Impacto
 
-### 3.1 Feature Summary
+### 3.1 Resumo da Funcionalidade
 
-| 字段             | 结论                                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| Developer intent | 补齐 Todo 16 对正式 Design、当前 Model Option Protocol 和 Provider label 来源的遗漏               |
-| Capability       | Model/Provider Config、Registry/ModelFactory、模型候选 Protocol projection                        |
-| Change layer     | `presentation`、`option-source`；文档部分属于架构契约修正                                         |
-| Operating mode   | planning                                                                                          |
-| Primary seeds    | `design/model/model.md`、`zcode-protocol/index.ts`、`zcode-protocol/model-mapper.ts`              |
-| Out of scope     | 模型候选状态、Selection 默认值、提交、执行、配置持久化、remote/continuous/replayable 和 Telemetry |
+| Campo                  | Conclusão                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Intenção do desenvolvedor | Preencher as lacunas do Todo 16 em relação ao Design oficial, ao Protocolo atual de Model Option e à origem do label de Provider |
+| Capacidade             | Model/Provider Config、Registry/ModelFactory、projeção de Protocol de candidatos de Model                    |
+| Camada de mudança      | `presentation`、`option-source`; a parte de documentação é correção de contrato de arquitetura                |
+| Modo de operação       | planning                                                                                                     |
+| Sementes principais    | `design/model/model.md`、`zcode-protocol/index.ts`、`zcode-protocol/model-mapper.ts`                        |
+| Fora de escopo         | Estado de candidatos de Model、default de Selection、submissão、execução、persistência de configuração、remote/continuous/replayable e Telemetria |
 
-### 3.2 UI Surface Matrix
+### 3.2 Matriz de Superfícies de UI
 
-| 用户场景       | UI 入口       | 共享实现                 | 展示 owner                | 默认/校验/提交                      | 模式边界                | 必须隔离                         |
-| -------------- | ------------- | ------------------------ | ------------------------- | ----------------------------------- | ----------------------- | -------------------------------- |
-| 查看模型候选组 | 模型选择控件  | `zcodeSessionProjection` | Target Host Protocol View | 本项只收口字段和 label 来源；无提交 | Desktop/Web/Mobile 同构 | Draft、Recent、Session Selection |
-| 编辑 Provider  | Provider 设置 | Provider Settings Facade | Effective Provider Config | 无字段、保存或测试连接行为变化      | Local/Remote 不变       | Personal Config 与账号状态       |
+| Cenário do usuário     | Entrada de UI       | Implementação compartilhada | Owner de exibição        | Default/validação/submissão                     | Limite de modo             | Deve permanecer isolado              |
+| ---------------------- | ------------------- | -------------------------- | ------------------------- | ----------------------------------------------- | -------------------------- | ------------------------------------ |
+| Ver grupo de candidatos de Model | Controle de seleção de Model | `zcodeSessionProjection` | Target Host Protocol View | Este item apenas consolida campos e origem de label; sem submissão | Desktop/Web/Mobile isomórficos | Draft、Recent、Session Selection |
+| Editar Provider        | Configurações de Provider | Provider Settings Facade | Effective Provider Config | Sem mudança em campos, salvamento ou teste de conexão | Local/Remote inalterado   | Personal Config e estado da conta     |
 
-### 3.3 Shared And Divergent Behavior
+### 3.3 Comportamento Compartilhado e Divergente
 
-| 关注点         | 共享规则                                             | 保持差异                                       |
-| -------------- | ---------------------------------------------------- | ---------------------------------------------- |
-| Provider label | 所有模型候选都从 Registry Provider Config 取得展示名 | 商品/用量界面可保留自己的商业文案              |
-| Model facts    | 执行事实只由完整 Model Properties/Options 表达       | Protocol 只传当前 UI 实际需要的最小展示投影    |
-| Model 创建     | Registry lookup/validate 后由 ModelFactory 创建      | `Model.bind()` 仍合法派生已有 Model            |
-| 状态与持久化   | 无变化                                               | 各产品原有 Draft、commit sink 和持久化继续隔离 |
+| Ponto de atenção      | Regra compartilhada                                                        | Divergência preservada                                       |
+| --------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Label do Provider     | Todos os candidatos de Model obtêm o nome de exibição do Registry Provider Config | As telas de produto/uso podem manter seu próprio texto comercial |
+| Fatos do Model        | Fatos de execução são expressos apenas por Model Properties/Options completas | O Protocolo transmite apenas a menor projeção de exibição de que a UI atual precisa |
+| Criação de Model      | Após lookup/validate do Registry, a criação é feita pelo ModelFactory      | `Model.bind()` continua legadamente derivada de um Model existente |
+| Estado e persistência | Sem mudanças                                                                | Draft, commit sink e persistência existentes de cada produto continuam isolados |
 
-### 3.4 Feature Relationships
+### 3.4 Relacionamentos da Funcionalidade
 
-| 等级           | From                           | 关系                 | To                            | 原因                                     |
-| -------------- | ------------------------------ | -------------------- | ----------------------------- | ---------------------------------------- |
-| must-inspect   | Provider Registry/ModelFactory | creates-through      | Adapter private execution     | 修正文档不能再次合并 Registry 与 Factory |
-| must-inspect   | Registry Provider Config       | projects-to          | Protocol `providerLabel`      | 删除 Bootstrap 静态名称旁路              |
-| must-inspect   | Active Model Properties        | projects-to          | Current Model Option Protocol | 删除未消费的平铺 capability 副本         |
-| invariant-only | Model selection products       | must-not-mutate      | Draft/Session/product records | 本项不改变选择意图或提交语义             |
-| invariant-only | Local/remote delivery          | must-remain-isolated | continuous/replayable runtime | 无请求、队列、快照或恢复改动             |
+| Nível            | De                             | Relação             | Para                          | Motivo                                                    |
+| ---------------- | ------------------------------- | ------------------- | ----------------------------- | --------------------------------------------------------- |
+| must-inspect     | Provider Registry/ModelFactory | creates-through     | Execução privada do Adapter   | Corrigir a documentação não pode unir novamente Registry e Factory |
+| must-inspect     | Registry Provider Config       | projects-to         | `providerLabel` do Protocol   | Remover o desvio de nomes estáticos do Bootstrap           |
+| must-inspect     | Active Model Properties        | projects-to         | Protocolo atual de Model Option | Remover a cópia achatada de capability não consumida      |
+| invariant-only   | Produtos de seleção de Model   | must-not-mutate     | Draft/Session/registros de produto | Este item não altera a intenção de seleção nem a semântica de submissão |
+| invariant-only   | Entrega local/remota           | must-remain-isolated | runtime continuous/replayable | Sem mudanças em requisições, filas, snapshots ou recuperação |
 
-### 3.5 State Owners And Commit Sinks
+### 3.5 Owners de Estado e Destinos de Commit
 
-| 事实            | 权威 owner                      | Commit/Persistence                | 本项后边界                        |
-| --------------- | ------------------------------- | --------------------------------- | --------------------------------- |
-| Provider 展示名 | Registry Provider Config        | Built-in/Personal Provider Config | Protocol 只投影，不再按 ID 硬编码 |
-| Model 执行能力  | Active Model properties/options | Model Config Rules                | 不产生未消费的平铺 Protocol 副本  |
-| 用户模型选择    | 各产品 Draft/Submission/Session | 各自既有 sink                     | 完全不变                          |
+| Fato                  | Owner autoritativo                | Commit/Persistência                | Limite após este item                              |
+| --------------------- | --------------------------------- | --------------------------------- | ------------------------------------------------- |
+| Nome de exibição do Provider | Registry Provider Config | Built-in/Personal Provider Config | O Protocolo apenas projeta, sem hardcode por ID   |
+| Capacidade de execução do Model | properties/options do Active Model | Model Config Rules | Não gera cópia achatada de Protocol não consumida |
+| Seleção de Model do usuário | Draft/Submission/Session de cada produto | seus sinks existentes | Completamente inalterado                          |
 
-### 3.6 Must-Preserve Invariants
+### 3.6 Invariantes a Preservar
 
-- 不改变候选集合、排序、Provider 分组、enabled/visibility 或 fallback；
-- 不改变 `ModelSelection` Schema、默认值解析或 ModelFactory 最终校验；
-- 不把完整 Provider/Model Config 暴露到公共 Model 或 Protocol；
-- 不改变 Desktop、Web、Mobile、Local、Remote、continuous 或 replayable 行为；
-- 不把商品、账号、用量和鉴权分支误当作静态 Provider label 配置清理。
+- Não alterar o conjunto de candidatos, a ordenação, o agrupamento de Provider, enabled/visibility nem o fallback;
+- Não alterar o Schema de `ModelSelection`, a resolução de defaults nem a validação final do ModelFactory;
+- Não expor o Provider/Model Config completo ao Model público ou ao Protocolo;
+- Não alterar o comportamento de Desktop, Web, Mobile, Local, Remote, continuous ou replayable;
+- Não tratar ramos de produto, conta, uso e autenticação como limpeza de configuração estática de label de Provider.
 
-### 3.7 Codegraph Evidence And Graph Delta
+### 3.7 Evidências de Codegraph e Delta do Grafo
 
-- 当前环境没有可调用的 codegraph 工具；以 feature graph seed、`rg`、`dep:refs` 和 `knip` 做深度 2 的静态替代；
-- 直接路径为 Registry Provider/Model -> Bootstrap Model Mapper -> ZCode Protocol -> UI Session Projection；
-- `supportsTools/supportsStructuredOutput` 只有生产端写入，没有 Renderer 读取；
-- `providerSource/providerLogoUrl` 在当前 Model Option 链中没有生产者和消费者；
-- feature graph 已正确声明 Model Properties 与 Provider Registry 的权威关系，本轮没有新的产品语义节点，
-  graph delta 为 `none`；旧/stale seed 的删除继续由 Todo 14/16 的文档机械归零处理。
+- O ambiente atual não possui uma ferramenta de codegraph que possa ser chamada; usam-se feature graph seed, `rg`、`dep:refs` e `knip` como substituto estático de profundidade 2;
+- O caminho direto é Registry Provider/Model -> Bootstrap Model Mapper -> ZCode Protocol -> UI Session Projection;
+- `supportsTools/supportsStructuredOutput` só são escritos na produção, sem leitura pelo Renderer;
+- `providerSource/providerLogoUrl` não têm produtor nem consumidor na cadeia atual de Model Option;
+- O feature graph já declara corretamente a relação autoritativa entre Model Properties e Provider Registry; nesta rodada não há novos nós de semântica de produto, e o graph delta é `none`; a remoção de seeds antigas/stale continua sendo tratada pela redução mecânica a zero de documentação dos Todos 14/16.
 
-### 3.8 Unresolved Questions
+### 3.8 Questões em Aberto
 
-无。上述八项均为既有决策的机械收口，不需要新的产品裁决。
+Nenhuma. Os oito itens acima são apenas o fechamento mecânico de decisões existentes e não exigem nova decisão de produto.
 
-## 4. 实施顺序
+## 4. Ordem de Implementação
 
-### Step A：建立归零测试与依赖证据
+### Etapa A: estabelecer testes de redução a zero e evidências de dependência
 
-1. 为 Required ModelFactory/Selection、无 `reasoning.enabled`、Active Model-only Compact 建立失败测试；
-2. 用 `pnpm dep:refs`、`rg` 和 `knip` 固定 Protocol DTO、当前 Model Option 字段、Legacy CLI 类型与 sentinel
-   的消费者清单；
-3. 更新本 Todo 涉及的正式 Design，先固定最终契约再修改代码；
-4. 记录 Todo 13/14 已经删除的重叠项，不重复恢复 fixture。
+1. Escrever testes falhando para Required ModelFactory/Selection, ausência de `reasoning.enabled` e Compact apenas com Active Model;
+2. Fixar com `pnpm dep:refs`、`rg` e `knip` a lista de consumidores dos DTOs de Protocol, dos campos atuais de Model Option, dos tipos Legacy CLI e dos sentinels;
+3. Atualizar primeiro o Design oficial envolvido neste Todo, para fixar o contrato final antes de alterar o código;
+4. Registrar os itens sobrepostos que os Todos 13/14 já removeram, sem restaurar fixtures.
 
-### Step B：收紧 Core Runtime
+### Etapa B: restringir o Core Runtime
 
-1. 在 Todo 13 初始 Selection 链完成后，将 ModelFactory 与 ModelSelection 改为生产构造必填；
-2. 删除 sentinel Selection、`DEFAULT_MODEL` 和延迟失败分支；
-3. 测试统一显式注入 Factory/Selection；
-4. 删除 `modelProviderOptions` 整条 Runtime 状态；
-5. 执行消费者改为只读本次 Active Model，删除 Runtime Config fallback。
+1. Depois da cadeia de initial Selection do Todo 13, tornar ModelFactory e ModelSelection obrigatórios na construção de produção;
+2. Remover a Selection sentinel, o `DEFAULT_MODEL` e os ramos de falha tardia;
+3. Fazer os testes injetarem Factory/Selection explicitamente de forma unificada;
+4. Remover todo o estado `modelProviderOptions` do Runtime;
+5. Fazer os consumidores de execução lerem apenas o Active Model desta rodada, removendo o fallback do Runtime Config.
 
-### Step C：收紧 Protocol 与 Reasoning Projection
+### Etapa C: restringir o Protocol e a projeção de Reasoning
 
-1. 删除零引用旧 Provider Protocol DTO；
-2. 保留并回归 `ZCodeAccountAccess`；
-3. 删除 `reasoning.enabled` 的 Schema、Mapper、UI 与测试字段；
-4. 删除当前 Model Option 中零消费字段及 Bootstrap 的平铺 capability 输出；
-5. 删除 `BUILTIN_PROVIDER_LABELS`，确认 `providerLabel = config label ?? providerId`；
-6. 验证 Desktop、Web/Remote 与 Agent 严格协议解析一致。
+1. Remover os DTOs de Provider antigos sem referência do Protocol;
+2. Manter e cobrir com regressão o `ZCodeAccountAccess`;
+3. Remover o campo `reasoning.enabled` do Schema, do Mapper, da UI e dos testes;
+4. Remover os campos sem consumo do Model Option atual e a saída de capability achatada do Bootstrap;
+5. Remover `BUILTIN_PROVIDER_LABELS` e confirmar `providerLabel = config label ?? providerId`;
+6. Verificar que Desktop, Web/Remote e Agent têm uma análise estrita de Protocolo consistente.
 
-### Step D：私有化 Legacy CLI Config
+### Etapa D: privatizar o Legacy CLI Config
 
-1. 提取 importer 最小旧 serialized shape；
-2. 迁移 parser、adapter、importer 和专项 fixture；
-3. 从 Contracts/Adapters 公共 barrel 删除旧类型和入口；
-4. 验证旧配置仍单向生成等价的当前 Personal Config。
+1. Extrair o formato serializado antigo mínimo do importer;
+2. Migrar parser, adapter, importer e fixtures dedicados;
+3. Remover os tipos e pontos de entrada antigos dos barrels públicos de Contracts/Adapters;
+4. Verificar que a configuração antiga ainda gera de forma unidirecional o Personal Config atual equivalente.
 
-### Step E：文档与机械验收
+### Etapa E: documentação e verificação mecânica
 
-1. 更新当前态文档或标记历史状态，并统一 Registry -> ModelFactory -> Adapter private execution -> Model；
-2. 重跑零引用和禁用符号扫描；
-3. 执行定向单测、`pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`；
-4. 更新 Todo 状态并提交独立 Conventional Commit。
+1. Atualizar os documentos de estado atual ou marcá-los como históricos, e unificar Registry -> ModelFactory -> execução privada do Adapter -> Model;
+2. Reexecutar a varredura de zero referência e de símbolos proibidos;
+3. Executar os testes direcionados, `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`;
+4. Atualizar o status do Todo e enviar um Conventional Commit independente.
 
-## 5. Accepted Cases
+## 5. Casos Aceitos
 
-| Case ID | 场景                                    | 预期                                                          |
-| ------- | --------------------------------------- | ------------------------------------------------------------- |
-| RZ-01   | 生产创建 AgentRuntime                   | 类型上必须提供 ModelFactory 与结构化 ModelSelection           |
-| RZ-02   | 测试构造不可执行 Runtime                | 显式使用 Unavailable ModelFactory，不存在 sentinel Model      |
-| RZ-03   | 模型无 Reasoning Option Spec            | Protocol/UI 中 `reasoning` 缺失，不出现 `enabled=false`       |
-| RZ-04   | 模型有 Reasoning Option Spec            | 只传 levels/defaultLevel，不出现固定 `enabled=true`           |
-| RZ-05   | Shared Protocol export scan             | 旧 ZCode Provider DTO 和仅属其字段为零                        |
-| RZ-06   | 读取已发布旧 CLI 配置                   | importer 私有解析并生成当前 Personal Config                   |
-| RZ-07   | 正常请求、Compact、Memory、Title、Child | context/output facts 只来自本次 Active Model                  |
-| RZ-08   | Model Config 默认 max output 更新       | 只影响后来创建的 Model，不反写旧 Selection/Runtime snapshot   |
-| RZ-09   | 本地与远程模型执行                      | 各自由目标 Environment ModelFactory 创建，无本地 fallback     |
-| RZ-10   | 阅读当前模型设计文档                    | 不再把 Catalog、models.dev 或 capability map 当作当前权威     |
-| RZ-11   | 读取当前 Model Option Protocol          | 不包含零消费字段或平铺的 tools/structured capability          |
-| RZ-12   | Built-in Provider 有 label              | 候选展示 Registry Config label                                |
-| RZ-13   | Provider label 缺失                     | 候选只回退 providerId，不查询 Bootstrap 静态名称表            |
-| RZ-14   | 阅读 Model 创建 Design                  | Registry lookup/validate 与 ModelFactory/Adapter 创建边界清晰 |
+| Case ID | Cenário                                                     | Expectativa                                                                 |
+| ------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| RZ-01   | Criação de AgentRuntime em produção                         | ModelFactory e ModelSelection estruturado devem ser fornecidos no tipo     |
+| RZ-02   | Construção de teste de Runtime não executável                | Usar explicitamente o Unavailable ModelFactory; nenhum Model sentinel existe |
+| RZ-03   | Model sem Reasoning Option Spec                             | `reasoning` ausente no Protocol/UI; não aparece `enabled=false`             |
+| RZ-04   | Model com Reasoning Option Spec                             | Apenas levels/defaultLevel são transmitidos; não aparece `enabled=true` fixo |
+| RZ-05   | Varredura de export do Protocol compartilhado                | DTOs antigos de ZCode Provider e seus campos exclusivos são zero            |
+| RZ-06   | Leitura de configuração antiga do CLI já publicada           | O importer analisa de forma privada e gera o Personal Config atual          |
+| RZ-07   | Requisição normal, Compact, Memory, Title, Child            | Fatos de context/output vêm apenas do Active Model desta rodada             |
+| RZ-08   | Atualização do max output padrão do Model Config             | Afeta apenas Models criados depois; não reescreve Selection/snapshot antigo |
+| RZ-09   | Execução de Model local e remota                            | Cada uma criada pelo ModelFactory do Environment alvo, sem fallback local   |
+| RZ-10   | Leitura dos documentos atuais de design de Model             | Catalog、models.dev ou capability map deixam de ser autoridade atual        |
+| RZ-11   | Leitura do Protocol atual de Model Option                    | Não contém campos sem consumo nem capability achatada de tools/structured  |
+| RZ-12   | Built-in Provider com label                                 | O candidato exibe o label do Registry Config                               |
+| RZ-13   | Label do Provider ausente                                   | O candidato faz fallback apenas para providerId, sem consultar a tabela de nomes estática do Bootstrap |
+| RZ-14   | Leitura do Design de criação de Model                       | Os limites entre lookup/validate do Registry e criação por ModelFactory/Adapter ficam claros |
 
-## 6. 完成定义
+## 6. Definição de Conclusão
 
-1. `AgentRuntimeDeps.modelFactory?`、`zcode-unconfigured/missing-model`、公共 `DEFAULT_MODEL` 为零；
-2. 当前 Protocol/Projection 中 `ZCodeModelReasoningOptions.enabled` 为零；
-3. 零引用旧 ZCode Provider Protocol DTO 和公共 Schema/export 为零；
-4. 公共 Contracts/Adapters 中 Legacy CLI `RuntimeModelConfig/ModelTargetConfig` 为零；
-5. `AgentRuntimeConfig.modelProviderOptions` 及其传递链为零；
-6. 已取得 Active Model 的执行路径对 Runtime `contextWindow/maxOutputTokens` fallback 为零；
-7. Legacy CLI 兼容只存在 importer 私有边界，正式 Config/Registry/Runtime 不读旧结构；
-8. 当前态文档不再宣称旧 Catalog/Capability 推断是正式架构；
-9. 当前 Model Option Protocol 的 `providerSource/providerLogoUrl/supportsTools/supportsStructuredOutput` 为零；
-10. Bootstrap `BUILTIN_PROVIDER_LABELS` 及等价 Provider ID -> label 静态表为零；
-11. 正式 Design 不再让公共 Model 暴露完整 Provider/Model Config，也不再把 Model 创建描述成 Registry 索引方法；
-12. Todo 13/14 已规划范围没有在本 Todo 中生成第二套实现；
-13. 定向测试、类型检查、Lint 和格式检查通过。
+1. `AgentRuntimeDeps.modelFactory?`、`zcode-unconfigured/missing-model` e o `DEFAULT_MODEL` público são zero;
+2. `ZCodeModelReasoningOptions.enabled` no Protocol/Projection atual é zero;
+3. DTOs antigos de ZCode Provider sem referência e Schema/export públicos são zero;
+4. `RuntimeModelConfig/ModelTargetConfig` do Legacy CLI nos Contracts/Adapters públicos são zero;
+5. `AgentRuntimeConfig.modelProviderOptions` e sua cadeia de repasse são zero;
+6. O fallback do Runtime para `contextWindow/maxOutputTokens` em caminhos de execução que já obtiveram o Active Model é zero;
+7. A compatibilidade do Legacy CLI existe apenas na fronteira privada do importer; Config/Registry/Runtime oficiais não leem a estrutura antiga;
+8. Os documentos de estado atual não afirmam mais que a inferência antiga de Catalog/Capability é a arquitetura oficial;
+9. `providerSource/providerLogoUrl/supportsTools/supportsStructuredOutput` no Protocol atual de Model Option são zero;
+10. `BUILTIN_PROVIDER_LABELS` no Bootstrap e qualquer tabela estática equivalente de Provider ID -> label são zero;
+11. O Design oficial não faz mais o Model público expor o Provider/Model Config completo, nem descreve a criação de Model como um método de índice do Registry;
+12. O escopo já planejado pelos Todos 13/14 não gerou uma segunda implementação neste Todo;
+13. Os testes direcionados, a verificação de tipos, o lint e a verificação de formatação passam.
 
-## 7. 明确不做
+## 7. Fora de Escopo
 
-- 不重新设计 ModelSelection、Provider Config、Model Config Rules 或 Access；
-- 不修改 Todo 11 的 Host/Agent Provider Runtime composition；
-- 不结束已发布 Legacy CLI/Provider Store 的兼容读取窗口；
-- 不建立新的 Model identity、capability DTO、Runtime model snapshot 或 fallback model；
-- 不修改 Queue、Goal、Off-Peak 调度、desktop continuous、mobile replayable 或 remote recovery 语义；
-- 不把历史文档和 Git 考古证据全部删除。
+- Não redesenhar ModelSelection、Provider Config、Model Config Rules ou Access;
+- Não modificar a composição de Host/Agent Provider Runtime do Todo 11;
+- Não encerrar a janela de leitura compatível do Legacy CLI/Provider Store já publicado;
+- Não criar nova identidade de Model, DTO de capability, snapshot de Model do Runtime ou Model de fallback;
+- Não modificar a semântica de Queue、Goal、agendamento Off-Peak、desktop continuous、mobile replayable ou recuperação remota;
+- Não apagar por completo documentos históricos e evidências de arqueologia Git.
 
-## 8. 实施记录（2026-08-25）
+## 8. Registro de Implementação (2026-08-25)
 
-- Core 生产构造已要求真实 `ModelSelection` 与 `ModelFactory`；测试通过显式 helper 注入测试事实，生产
-  sentinel、`DEFAULT_MODEL` 与延迟缺少 Factory 分支已删除。
-- Runtime 的 `modelProviderOptions/contextWindow/maxOutputTokens` 第二事实链及 Compact、Memory、Child、Workflow
-  透传已删除；执行期统一读取本次 Active Model。
-- Shared Protocol 已删除零引用旧 Provider DTO、`reasoning.enabled` 和当前 Model Option 的无消费平铺字段；
-  Bootstrap 直接从 Registry View 投影当前协议，并从 Provider Config 取得 label。
-- 旧 CLI Provider/Model JSON 的最小 Zod Schema 与类型已移入 bootstrap importer 私有模块；Contracts、Adapters
-  的公共类型、parser 与 barrel export 已删除。Adapter 测试不再把一次性 importer 当作正式 Config parser。
-- 当前 Design 已统一为 `Registry lookup/validate -> ModelFactory -> Adapter private create -> Active Model`；旧
-  Model Catalog 文档已明确标记退役，能力图和相关运行文档已切到 Model Config Rules / Active Model。
-- 依赖扫描确认被删除 Shared DTO 无生产引用；定向 Protocol、Legacy importer、Adapter Config、Core Runtime
-  测试和 Contracts/Adapters/Core/Bootstrap package typecheck 通过。全仓机械验证记录在本 Todo 对应提交中。
+- A construção de produção do Core já exige um `ModelSelection` e um `ModelFactory` reais; os testes injetam os fatos de teste por helper explícito, e o sentinel de produção, o `DEFAULT_MODEL` e o ramo de Factory ausente tardio foram removidos;
+- A segunda cadeia de fatos `modelProviderOptions/contextWindow/maxOutputTokens` do Runtime e o repasse em Compact、Memory、Child、Workflow foram removidos; a execução lê uniformemente o Active Model desta rodada;
+- O Protocol compartilhado já removeu os DTOs antigos de Provider sem referência, o `reasoning.enabled` e os campos achatados sem consumo do Model Option atual; o Bootstrap projeta o Protocolo atual diretamente a partir da View do Registry e obtém o label a partir do Provider Config;
+- O Schema Zod mínimo e os tipos do JSON antigo de Provider/Model do CLI foram movidos para o módulo privado do importer no bootstrap; os tipos públicos, o parser e o barrel export de Contracts e Adapters foram removidos. Os testes do Adapter não tratam mais um importer de uso único como parser de Config oficial;
+- O Design atual foi unificado em `Registry lookup/validate -> ModelFactory -> Adapter private create -> Active Model`; a documentação antiga de Model Catalog foi claramente marcada como aposentada, e o mapa de capabilities e a documentação de execução foram migrados para Model Config Rules / Active Model;
+- A varredura de dependências confirmou que os DTOs Shared removidos não têm referências de produção; os testes direcionados de Protocol, Legacy importer, Adapter Config e Core Runtime e o typecheck de Contracts/Adapters/Core/Bootstrap passaram. O registro de verificação mecânica de todo o repositório está no commit correspondente a este Todo.

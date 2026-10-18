@@ -1,24 +1,24 @@
-# Task Item Title Overflow
+# Overflow do Título do Item de Task
 
-Workspace task item 和 timeline task item 的任务标题超出可用宽度时，不显示 `...` 省略号。
+Quando o título de uma task item do workspace ou de uma timeline task item ultrapassa a largura disponível, não deve ser exibida a reticência `...`.
 
-实现规则：
+Regras de implementação:
 
-- 标题保持单行展示，避免长标题把侧栏 task 列表撑高。
-- 只有浏览器真实排版结果满足 `scrollWidth > clientWidth` 时，才启用右侧渐隐 mask；完整可见的短标题不挂载 mask。
-- 标题或容器尺寸变化后重新测量：从未溢出变为溢出时添加 mask，从溢出恢复为完整可见时移除 mask。
-- 超出部分使用和 grouped task row 一致的右侧渐隐效果，保留文字连续性。
-- 鼠标 hover 到整个 task item 满 1 秒后，溢出标题切换为单向无缝走马灯：轨道内容为“完整标题 + 固定间距 + 标题副本”。鼠标在行内的时间、状态或操作区域上时也应保持滚动；等待期间或滚动期间离开整行，都应取消等待并立即恢复静止状态。
-- 走马灯移动一个“完整标题宽度 + 间距”后，标题副本恰好回到原标题起点；在这个画面停留 2 秒，再直接重置到起始帧并继续下一轮。因为两份文字相同，所以视觉上不反向、不跳变。
-- 走马灯速度按完整标题宽度计算，避免不同长度标题使用固定时长后速度差异过大；鼠标移出后立即恢复标题起始位置和右侧渐隐。
-- 静止状态只在标题右侧渐隐；走马灯开始移动后的 150ms 内恢复左侧渐隐，让文字从左侧离场、从右侧入场时都不会出现硬切边缘。
-- 第一份标题的尾部到达左边缘时，左侧渐隐立即消失，不在标题与副本之间的 24px 间距内做淡出过渡。副本进入、对齐及随后 2 秒停留期间只保留右侧渐隐，确保标题开头完整可见。循环重置后再随下一轮移动恢复左侧渐隐。
-- 标题副本必须设置 `aria-hidden`，避免辅助技术重复朗读任务名称。
-- `prefers-reduced-motion: reduce` 下禁用走马灯，只保留静态渐隐。
-- task 名称不渲染原生 `title` 属性，hover 时只使用走马灯展示完整内容，避免浏览器提示框遮挡标题。
-- 渐隐只作用在任务标题文本自身，不影响右侧时间、变更摘要、权限标签和 hover 操作按钮。
-- Workspace header task name 不使用此规则，保留原有 `truncate` / `...` 截断方案。
+- O título permanece em uma única linha, evitando que títulos longos aumentem a altura da lista de tasks da barra lateral.
+- A máscara de esmaecimento à direita só é aplicada quando o resultado real de layout do navegador satisfaz `scrollWidth > clientWidth`; títulos curtos totalmente visíveis não recebem máscara.
+- A medição é refeita após mudanças no título ou nas dimensões do contêiner: ao passar de sem overflow para com overflow, a máscara é adicionada; ao voltar de overflow para totalmente visível, a máscara é removida.
+- A parte excedente usa o mesmo efeito de esmaecimento à direita das grouped task rows, preservando a continuidade do texto.
+- Quando o mouse passa 1 segundo inteiro sobre o item de task, o título com overflow muda para uma marquee (letreiro rolante) unidirecional e sem emenda: o conteúdo da trilha é "título completo + espaçamento fixo + cópia do título". O scroll também deve ser mantido quando o mouse está sobre as áreas de tempo, status ou ações dentro da linha; sair da linha inteira durante a espera ou durante o scroll deve cancelar a espera e voltar imediatamente ao estado parado.
+- Depois que a marquee percorre uma "largura do título completo + espaçamento", a cópia do título retorna exatamente ao ponto de partida do título original; esse quadro é mantido por 2 segundos e então reiniciado diretamente no quadro inicial para continuar a próxima volta. Como os dois textos são idênticos, visualmente não há inversão nem salto.
+- A velocidade da marquee é calculada com base na largura do título completo, evitando que títulos de comprimentos diferentes, usando uma duração fixa, tenham velocidades muito diferentes; ao retirar o mouse, o título volta imediatamente à posição inicial e ao esmaecimento à direita.
+- No estado parado há esmaecimento apenas à direita; nos 150ms seguintes ao início do movimento da marquee, o esmaecimento à esquerda é restaurado, para que o texto que sai pela esquerda e entra pela direita não tenha bordas com corte duro.
+- Quando a cauda da primeira cópia do título chega à borda esquerda, o esmaecimento à esquerda desaparece imediatamente, sem transição de fade dentro do espaçamento de 24px entre o título e a cópia. Durante a entrada e o alinhamento da cópia e nos 2 segundos de permanência, mantém-se apenas o esmaecimento à direita, garantindo que o início do título fique totalmente visível. Após o reset do ciclo, o esmaecimento à esquerda é restaurado junto com o movimento da próxima volta.
+- A cópia do título deve ter `aria-hidden`, para evitar que tecnologias assistivas leiam o nome da task duas vezes.
+- Com `prefers-reduced-motion: reduce`, a marquee é desabilitada e apenas o esmaecimento estático é mantido.
+- O nome da task não renderiza o atributo nativo `title`; no hover, apenas a marquee é usada para mostrar o conteúdo completo, evitando que a caixa de dica do navegador cubra o título.
+- O esmaecimento atua somente no próprio texto do título da task, sem afetar o tempo à direita, o resumo de alterações, os rótulos de permissão e os botões de ação do hover.
+- O task name do header do Workspace não segue esta regra e mantém a solução de truncamento original com `truncate` / `...`.
 
-这个约束同时适用于桌面侧栏和手机 Web 远控任务列表，因为两端复用同一个 `TaskListItem` UI。
+Essa restrição vale tanto para a barra lateral do desktop quanto para as listas de tasks do controle remoto Web em dispositivos móveis, porque as duas pontas reutilizam o mesmo componente de UI `TaskListItem`.
 
-Grouped task row 复用同一套溢出测量与渐隐组件，避免默认列表、timeline 和 grouped view 出现不同的标题截断语义。
+A grouped task row reutiliza o mesmo conjunto de medição de overflow e componente de esmaecimento, evitando que a lista padrão, a timeline e a grouped view tenham semânticas de truncamento de título diferentes.

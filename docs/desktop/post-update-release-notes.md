@@ -1,9 +1,9 @@
-# Post-Update Release Notes
+# Release Notes Pós-Atualização
 
-发布日志由 infra 通过 API 直接编辑 runner 共享目录中的 `latest.yml`，并保留 electron-updater 兼容的 `releaseName` / `releaseNotes`。z-code CI 不再生成单版本 `changelogs/vX.Y.Z*.md`、不读取根目录 `CHANGELOG.md` 注入日志，也不生成独立的 `latest-en.yml`；approve 放行后先校验共享目录中的清单，校验通过后才上传。
+O changelog é editado pela infra diretamente, via API, no `latest.yml` do diretório compartilhado do runner, preservando o `releaseName` / `releaseNotes` compatíveis com electron-updater. O CI do z-code não gera mais `changelogs/vX.Y.Z*.md` de versão individual, não lê o `CHANGELOG.md` da raiz para injetar notas e não gera mais um `latest-en.yml` separado; depois do approve, o manifesto do diretório compartilhado é primeiro validado e só então enviado.
 
-自动更新下载完成后，main 进程会把当前版本说明持久化到 `pendingPostUpdateReleaseNotes`，并把同一份 payload 随 `update-downloaded` 状态广播给 renderer。左上角更新按钮 hover 时按当前 UI 语言选择 `releaseNotesByLocale` 中的 Markdown 展示；若旧 feed 没有多语言字段，则回退到默认 `releaseNotes`。如果用户尚未安装就重启应用，且 pending 版本仍高于当前应用版本，main 会用这份 payload 恢复待安装状态，但不会提前把它作为安装后的说明发给 renderer 确认。
+Quando o download da atualização automática é concluído, o processo main persiste as notas da versão atual em `pendingPostUpdateReleaseNotes` e transmite o mesmo payload ao renderer junto com o estado `update-downloaded`. Ao passar o mouse sobre o botão de atualização no canto superior esquerdo, o Markdown correspondente em `releaseNotesByLocale` é exibido conforme o idioma atual da UI; se o feed antigo não tiver o campo multilíngue, há fallback para o `releaseNotes` padrão. Se o usuário ainda não tiver instalado e reiniciar o aplicativo, e a versão pending ainda for superior à versão atual do app, o main usa esse payload para restaurar o estado pendente de instalação, mas não o entrega antecipadamente ao renderer para confirmação como notas pós-instalação.
 
-若用户未通过本次自动更新链路安装（例如官网安装包跳级升级），磁盘里可能仍残留**更低版本**的待展示说明；启动时若 semver 判定该版本低于当前 `app.getVersion()`，会丢弃该 pending，避免弹出旧版更新日志。
+Se o usuário não tiver instalado por esta via de atualização automática (por exemplo, um instalador do site oficial com upgrade de salto de versão), podem restar no disco notas pendentes de exibição de uma versão **mais baixa**; na inicialização, se a comparação de semver indicar que essa versão é inferior à `app.getVersion()` atual, o pending é descartado, evitando que um changelog antigo seja exibido.
 
-当前 Root 收到安装后待展示说明时会静默 ack，避免弹窗打断用户。Markdown 渲染沿用现有消息渲染能力。
+Atualmente, quando o Root recebe as notas pendentes de exibição pós-instalação, ele faz um ack silencioso, evitando que um popup interrompa o usuário. A renderização do Markdown reaproveita a capacidade de renderização de mensagens já existente.

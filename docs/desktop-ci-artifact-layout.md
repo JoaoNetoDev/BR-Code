@@ -1,12 +1,20 @@
-# Desktop CI Artifact Layout
+# Layout de Artefatos do CI Desktop
 
-## 背景
+## Contexto
 
-桌面端 CI 会把 Electron 安装包先写入共享目录，再由后续 upload / publish job 读取。旧结构中 macOS 产物写在 release 根目录，Windows 和 Linux 同时写根目录与架构子目录，导致根目录混合多个平台的安装包、更新清单、远程 runtime manifest 和 components。并行构建时也更容易出现 `latest*.yml` 覆盖或人工验收拿错目录的问题。
+O CI desktop grava primeiro os pacotes de instalação do Electron em um diretório compartilhado, e depois os jobs
+seguintes de upload / publish leem esse diretório. Na estrutura antiga, os artefatos de macOS eram gravados na raiz do
+release, enquanto Windows e Linux gravavam simultaneamente na raiz e em subdiretórios de arquitetura, fazendo com que
+a raiz misturasse instaladores de várias plataformas, manifests de atualização, manifest remoto de runtime e
+components. Em builds paralelos também era mais frequente haver sobrescrita de `latest*.yml` ou a validação manual
+pegar o diretório errado.
 
-## 目标结构
+## Estrutura desejada
 
-`TARGET_OUTPUT_DIR` 仍由 workflow 统一决定，例如 MR 到 `staging` 使用 `@electron/dev/$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME/`。桌面安装包、blockmap、更新清单和平台本地 `manifest.json` 只写入平台架构目录；release 根目录只保留 remote assets：
+`TARGET_OUTPUT_DIR` continua sendo definido uniformemente pelo workflow, por exemplo um MR para `staging` usa
+`@electron/dev/$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME/`. Os instaladores desktop, blockmaps, manifests de atualização e o
+`manifest.json` local da plataforma são gravados apenas no diretório de plataforma/arquitetura; a raiz do release
+mantém apenas os remote assets:
 
 ```text
 <shared-root>/<TARGET_OUTPUT_DIR>/
@@ -20,20 +28,27 @@
   components/
 ```
 
-每个 `<platform>-<arch>/` 子目录内只放对应平台架构的安装包、blockmap、`latest*.yml` 和该目录自己的 `manifest.json`。远程 runtime 的 `manifest-*.json` 与 `components/` 继续保留在 release 根目录，供 `release:upload:macos:arm64` 附带上传。
+Dentro de cada subdiretório `<platform>-<arch>/` ficam somente o instalador daquela plataforma/arquitetura, o blockmap,
+o `latest*.yml` e o `manifest.json` do próprio diretório. O `manifest-*.json` e `components/` do runtime remoto
+continuam na raiz do release, para o upload adjunto de `release:upload:macos:arm64`.
 
-## 读取规则
+## Regras de leitura
 
-- `release:upload:macos:*` 读取 `macos-* /` 对应子目录。
-- `release:upload:macos:arm64` 额外通过 `EXTRA_UPLOAD_SOURCE_DIR` 读取 release 根目录中的 remote assets。
-- `release:upload:windows:*` 读取 `windows-* /` 对应子目录。
-- `release:upload:linux:*` 读取 `linux-* /` 对应子目录。
-- `release:preload:cdn` 同时依赖 macOS、Windows、Linux 的 x64/arm64 上传结果，确保服务端 manifest 发布前平台/架构目录已经完成 CDN 预热。
-- `release:publish:gray` 与 `release:publish:stable` 只消费 upload 阶段产出的 `release-meta-*.json`，不再回读共享目录或上传 stable feed。
+- `release:upload:macos:*` lê o subdiretório correspondente `macos-* /`.
+- `release:upload:macos:arm64` lê adicionalmente os remote assets da raiz do release via `EXTRA_UPLOAD_SOURCE_DIR`.
+- `release:upload:windows:*` lê o subdiretório correspondente `windows-* /`.
+- `release:upload:linux:*` lê o subdiretório correspondente `linux-* /`.
+- `release:preload:cdn` depende simultaneamente dos uploads x64/arm64 de macOS, Windows e Linux, garantindo que os
+  diretórios de plataforma/arquitetura já tenham sido pré-aquecidos na CDN antes da publicação do manifest no
+  servidor.
+- `release:publish:gray` e `release:publish:stable` consomem apenas o `release-meta-*.json` produzido na etapa de upload,
+  sem reler o diretório compartilhado nem fazer upload do feed stable.
 
-## 验证点
+## Pontos de verificação
 
-- 每个平台 build job 只能把安装包、blockmap、`latest*.yml` 和 `manifest.json` 写入对应平台架构目录。
-- 复用共享目录时，build job 必须清理根目录历史安装包副本，但不能删除 remote assets 的 `manifest-*.json` 和 `components/`。
-- upload job 的 `SOURCE_DIR` 必须指向平台架构子目录。
-- remote assets 上传继续读取 release 根目录下的 `manifest-*.json` 和 `components/`。
+- cada build job de plataforma só pode gravar instalador, blockmap, `latest*.yml` e `manifest.json` no diretório
+  correspondente de plataforma/arquitetura.
+- ao reutilizar o diretório compartilhado, o build job deve limpar as cópias históricas de instaladores da raiz, mas
+  não pode remover os `manifest-*.json` e `components/` dos remote assets.
+- o `SOURCE_DIR` do upload job deve apontar para o subdiretório de plataforma/arquitetura.
+- o upload dos remote assets continua lendo os `manifest-*.json` e `components/` da raiz do release.

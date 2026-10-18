@@ -1,10 +1,6 @@
-# Conversation Query Navigator
+# Navegador de Turnos da Conversa
 
-V4 conversation query navigator 是聊天时间线左侧的紧凑跳转 rail。它不是按
-真实消息高度映射的 scroll minimap，而是按用户可见 query 顺序均匀堆叠的小横条入口。目录必须覆盖
-当前有效分支里的全部用户 query：首帧继续使用有界 tail snapshot，宽屏存在更早 rows 时通过既有
-`rows/range` 只读分页补齐完整 rows，再从 renderer projection 派生目录。它不新增第二份 session
-事实、replayable queue、relay 或 main process 状态。
+O navegador de queries da conversa V4 é o rail compacto de salto rápido à esquerda da linha do tempo do chat. Não é um minimap de rolagem mapeado pela altura real das mensagens, mas entradas em barras horizontais empilhadas uniformemente conforme a ordem das queries visíveis ao usuário. O catálogo deve cobrir todas as queries do usuário na branch válida atual: o primeiro frame continua usando um tail snapshot limitado, e em telas largas, quando existem rows anteriores, eles são completados pela paginação somente-leitura `rows/range` já existente, deriving o catálogo a partir da projection do renderer. Não cria uma segunda fonte de verdade da sessão, fila replayable, relay ou estado do main process.
 
 ```text
 CLI full projection
@@ -22,51 +18,39 @@ CLI full projection
              click: mount unitIndex -> align exact rowId
 ```
 
-## 变更边界与确认记录
+## Limites de mudança e registro de confirmações
 
-| 决策 | 产品语义 |
+| Decisão | Semântica de produto |
 | --- | --- |
-| 导航粒度 | 每条 timeline 可见的 `UserInputRow(origin=realUser)` 独立建项；普通 query 与 accepted steer/guide 等价 |
-| 同一 product turn | 初始 query、guide 1、guide 2 可以共享 `turnId` / `unitIndex`，但必须拥有不同 `rowId`、导航项和落点 |
-| Tooltip | 第一段显示该条 user query；第二段沿用所属 product turn 的 assistant text 摘要或运行中/空结果 fallback；不拼接 tool、reasoning、subagent 或 marker 正文 |
-| Queue 边界 | 仍在 pending queue 的输入没有 timeline row/anchor，不进入导航；消费并投影为可见 real user row 后才进入 |
-| 完整目录 | 2026-07-24 用户确认：目录不能只覆盖当前 tail window；必须补齐当前有效分支的全部 rows，直到 `window[0].rowId === firstRowId` |
-| 虚拟化 | 完整目录只挂载 rail viewport 与 overscan 内的按钮；`data-item-count` 表示全量 query 数，DOM button 数不再等于目录总数 |
-| 多端边界 | desktop continuous 与 web remote replayable 共用既有 `rows/range` 只读 query；不增加跨端 FIFO、snapshot 字段或恢复状态；`conversation < 864px` 时不发请求，宽屏 tail 不足两个 query 时向前探测 |
-| Composer 命中 | rail 位于 sticky composer 的左侧透明留白时仍必须 hover/click；composer dock 透明外壳不得截获事件，实际 composer 内容保持可交互 |
+| Granularidade da navegação | Cada `UserInputRow(origin=realUser)` visível na timeline vira uma entrada independente; query comum e steer/guide aceito são equivalentes |
+| Mesmo product turn | A query inicial, o guide 1 e o guide 2 podem compartilhar `turnId` / `unitIndex`, mas devem ter `rowId`s distintos, entradas de navegação e pontos de chegada distintos |
+| Tooltip | O primeiro parágrafo mostra a query de usuário daquela entrada; o segundo usa o resumo do texto do assistant do product turn dono, com fallback de em execução/vazio; não concatena corpo de tool, reasoning, subagent ou marker |
+| Limite da fila | Entradas ainda na fila pendente não têm row/âncora na timeline e não entram na navegação; só entram depois de consumidas e projetadas como real user row visível |
+| Catálogo completo | Confirmação do usuário em 2026-07-24: o catálogo não pode cobrir apenas a janela tail atual; é preciso completar todas as rows da branch válida atual, até `window[0].rowId === firstRowId` |
+| Virtualização | O catálogo completo monta apenas os botões dentro do viewport do rail e do overscan; `data-item-count` representa o total de queries, e o número de botões no DOM não é mais igual ao total do catálogo |
+| Limite multiplataforma | desktop continuous e web remote replayable compartilham a query somente-leitura `rows/range` já existente; não se adiciona FIFO multiplataforma, campo de snapshot ou estado de recuperação; abaixo de `conversation < 864px` nenhuma requisição é feita, e em tela larga com tail de menos de duas queries há sondagem para trás |
+| Acerto no Composer | O rail precisa continuar respondendo a hover/click quando estiver sobre a margem transparente à esquerda do composer sticky; a casca transparente do composer dock não pode capturar eventos, e o conteúdo real do composer permanece interativo |
 
-## Scope
+## Escopo
 
-- navigator 不通过 JavaScript 测量 pane 与主输入列的几何距离；宽窄 pane、分屏和手机
-  `/remote` 的最终显隐与占位由 CSS container query 负责。renderer 只观察具名 conversation
-  容器是否达到同一个 `864px` 数据加载阈值，避免不可见 rail 触发高成本完整历史补拉。
-- 仅当存在 2 个及以上可导航 query 且具名 `conversation` 容器宽度达到 `864px` 时显示；低于 `864px` 时由 CSS 隐藏，不增加 JavaScript 测宽状态。
-- 每根横条表示一条可见 `UserInputRow(origin=realUser)`；同一
-  `ConversationTurnRenderUnit` 内的多个 steer/guide query 分别建项。
-- marker-only 的 `timelineOnly` unit v1 不进入 minimap，避免 compact/fork/goal boundary
-  被误读成用户和助手的一轮对话。
-- navigator 达到 `864px` 且 snapshot 仍有更早 rows 时，在后台探测完整有效分支；完整历史达到 2 条可导航 query 才一次性合并并显示目录，只有一条时扫描到起点但不常驻探测 rows。补齐期间目录标记
-  `aria-busy=true`；成功后必须显示全量 query，失败时保留当前窗口并等待新的 cursor/显式重试机会，
-  不进入 conversation error 状态。
+- O navegador não mede via JavaScript a distância geométrica entre o pane e a coluna principal de entrada; a exibição e a reserva de espaço finais para pane largo/estreito, split e `/remote` em celular são responsabilidade das CSS container query. O renderer apenas observa se o container nomeado da conversa atingiu o mesmo limiar de carregamento de dados de `864px`, evitando que um rail invisível dispare uma busca de histórico completo de alto custo.
+- Só é exibido quando existem 2 ou mais queries navegáveis e o container nomeado `conversation` atinge `864px` de largura; abaixo de `864px` é ocultado por CSS, sem adicionar estado de medição de largura em JavaScript.
+- Cada barra horizontal representa uma `UserInputRow(origin=realUser)` visível; múltiplas queries de steer/guide dentro da mesma `ConversationTurnRenderUnit` viram entradas separadas.
+- A unit `timelineOnly` apenas com markers (v1) não entra no minimap, evitando que limites de compact/fork/goal sejam lidos como um turno de conversa entre usuário e assistente.
+- Quando o navegador atinge `864px` e o snapshot ainda tem rows anteriores, ele sonda em segundo plano a branch válida completa; só quando o histórico completo alcança 2 queries navegáveis o catálogo é mesclado e exibido de uma vez; com apenas uma, ele varre até o início mas não mantém sondagem permanente de rows. Durante a completude, o catálogo é marcado com `aria-busy=true`; em caso de sucesso deve exibir todas as queries, e em caso de falha mantém a janela atual aguardando um novo cursor ou uma nova chance explícita de retry, sem entrar em estado de erro de conversa.
 
-## Data Boundary
+## Limite de Dados
 
-Navigator 仍只消费 `buildConversationTurnRenderUnits(rows)`，但目录会先让同一个
-`ConversationProjectionStore` 通过既有 `rows/range` 补齐 rows：
+O Navegador continua consumindo apenas `buildConversationTurnRenderUnits(rows)`, mas o catálogo primeiro faz a mesma `ConversationProjectionStore` completar as rows pelo `rows/range` já existente:
 
-- `visibleUserInputs` 中 `origin=realUser` 的每一行提供一个导航项和问题摘要。
-- `assistantTextRows` 沿用旧逻辑提供所属 product turn 的助手回复摘要；同一 turn
-  内的多个 query item 可以共享这段 assistant 摘要。
-- `rowId` 是 query 的精确 DOM 锚点；`unitIndex` 只负责先挂载所属虚拟 turn。
-- `isRunning` 只强调 running unit 的最后一条 real user query。
-- tool、reasoning、subagent、compact marker 的正文不进入 hover 摘要。
-- 全量补拉使用 `rowsRangeMaxLimit` 分页，在全部请求成功后一次性前插，避免每页触发一次
-  `buildConversationTurnRenderUnits` 和 virtualizer 重建。
-- 补拉期间若 `logEpoch` 变化、首行 cursor 被 snapshot/resync 改写，整批结果丢弃，禁止复活旧分支 rows。
-- 完整目录探测返回 `hydrated / not-enough-queries / retryable-failure / stale` 判别结果；
-  `hydrated` 与 `not-enough-queries` 按 `sessionId + logEpoch` 记为终态，普通 `loadOlder`
-  改变 renderer 首行不得触发重复扫描。暂时失败最多按 `250ms / 1000ms` 退避重试两次；
-  stale 不写完成标记，等待新 snapshot/epoch 重新触发。
+- Cada linha de `visibleUserInputs` com `origin=realUser` fornece uma entrada de navegação e um resumo da questão.
+- `assistantTextRows` segue a lógica antiga para fornecer o resumo da resposta do assistente do product turn dono; múltiplos query items do mesmo turn podem compartilhar esse resumo do assistente.
+- `rowId` é a âncora DOM exata da query; `unitIndex` serve apenas para montar primeiro o turno virtual dono.
+- `isRunning` apenas enfatiza a última query de real user da unit em execução.
+- O corpo de tool, reasoning, subagent e compact marker não entra no resumo de hover.
+- A busca completa usa paginação `rowsRangeMaxLimit`, pré-inserida de uma só vez após o sucesso de todas as requisições, evitando disparar um `buildConversationTurnRenderUnits` e uma reconstrução do virtualizer por página.
+- Se durante a busca o `logEpoch` mudar ou o cursor da primeira linha for reescrito por snapshot/resync, todo o lote é descartado, ficando proibido ressuscitar rows de branches antigas.
+- A sondagem do catálogo completo retorna o resultado discriminante `hydrated / not-enough-queries / retryable-failure / stale`; `hydrated` e `not-enough-queries` são registrados como estado terminal por `sessionId + logEpoch`, e um `loadOlder` comum que altera a primeira linha do renderer não pode disparar uma varredura repetida. Falhas temporárias são repetidas no máximo duas vezes com backoff de `250ms / 1000ms`; stale não grava marcador de conclusão e aguarda um novo snapshot/epoch para novo disparo.
 
 ```text
 desktop-continuous stream
@@ -80,64 +64,44 @@ web-remote-replayable restore
   -> navigator items
 ```
 
-两条链路共享同一个 CLI projection 与只读 query。navigator 不持久化独立目录，不把全量 rows
-塞回 wire snapshot，也不会恢复或拼接 minimap 自己的历史。
+As duas cadeias compartilham a mesma projection do CLI e a query somente-leitura. O navegador não persiste um catálogo independente, não enfia rows completas de volta no snapshot do wire e também não restaura nem concatena um histórico próprio do minimap.
 
-## Interaction
+## Interação
 
-- Hover 或键盘 focus 横条时显示 `HoverCard`：第一段是该条用户 query，第二段是
-  所属 product turn 的 assistant text 前几段；没有终态正文时显示运行中/空结果文案。
-- 点击时若 row 已挂载，直接按 `rowId` 对齐；未挂载则先调用
-  `virtualizer.scrollToIndex(unitIndex, { align: "start" })`，再在后续 animation frame
-  按 `rowId` 精确对齐，不回退到同 turn 的第一条 query。
-- 若用户开启 `prefers-reduced-motion: reduce`，点击使用 instant/auto 滚动；否则使用 smooth。
-- 当前 viewport 顶部附近正在显示的 real user row 推导为 active query。默认状态下 active 只通过
-  color/opacity 表达，不改变横条宽度或高度。
-- 横条位置不使用 `getOffsetForIndex()` 或真实滚动比例，只用 virtualizer 可见窗口判断 active。
-- hover/focus 时，该横条临时接管视觉焦点并呈现“山峰”效果：中心横条最长最亮，邻近
-  1-2 根只按距离递减变长，不做阶梯式颜色渐变。mouseleave/blur 后山峰消失，只保留
-  scroll active 的颜色状态。
-- rail 使用固定行高虚拟滚动，只渲染可视项与少量 overscan；timeline active query 变化时，
-  rail 用 public virtualizer API 把对应目录项滚入自身 viewport。
-- 只动画 transform、opacity、color 或 height，并支持 `motion-reduce:transition-none`。
+- Ao passar o mouse ou focar a barra horizontal por teclado, exibe-se o `HoverCard`: o primeiro parágrafo é a query de usuário daquela entrada, e o segundo são os primeiros parágrafos do texto do assistant do product turn dono; sem corpo em estado final, mostra o texto de em execução/vazio.
+- Ao clicar, se a row já estiver montada, alinha direto pelo `rowId`; se não estiver montada, chama primeiro `virtualizer.scrollToIndex(unitIndex, { align: "start" })` e depois alinha com precisão pelo `rowId` em um frame de animação subsequente, sem recuar para a primeira query do mesmo turno.
+- Se o usuário tiver `prefers-reduced-motion: reduce` ativo, o clique usa rolagem instant/auto; caso contrário, usa smooth.
+- A real user row exibida perto do topo do viewport atual é deduzida como a query ativa. No estado padrão, a ativa é expressada apenas por cor/opacidade, sem alterar a largura ou altura da barra horizontal.
+- A posição das barras horizontais não usa `getOffsetForIndex()` nem proporção real de rolagem; apenas a janela visível do virtualizer determina a ativa.
+- Em hover/focus, a barra horizontal assume temporariamente o foco visual e apresenta um efeito de "picos de montanha": a barra central é a mais longa e brilhante, e as 1-2 barras vizinhas crescem apenas de forma decrescente por distância, sem gradiente de cor em degraus. Após mouseleave/blur os picos desaparecem e resta apenas a cor de scroll active.
+- O rail usa rolagem virtual com altura de linha fixa, renderizando apenas itens visíveis e um pequeno overscan; quando a query ativa da timeline muda, o rail usa a API pública do virtualizer para rolar a entrada correspondente do catálogo para dentro do próprio viewport.
+- Animar apenas transform, opacity, color ou height, e suportar `motion-reduce:transition-none`.
 
 ## Layout
 
-- rail 固定在 timeline viewport 内左侧，使用紧凑等距纵向 stack；条间距不随消息高度变化。
-- rail 在 `conversation < 864px` 时使用 `visibility + opacity + translateX` 隐藏，达到 `864px` 后淡入并滑回原位；过渡必须支持 `prefers-reduced-motion`。隐藏时 Markdown 表格不得继续预留 rail 的 `48px` 左侧占位。
-- rail 的完整交互区宽度保持 `48px`；React 不测量主输入列和 timeline 的几何距离，也不通过
-  `ResizeObserver` 决定 rail 挂载；ResizeObserver 只提供完整历史补拉的容器资格，不参与布局。
-- rail 的 stack 在所属 `ConversationTimeline` 容器内垂直居中。分屏时每个 pane 使用自己的
-  timeline 容器中线，不按整个 app/window 高度定位。
-- 相邻按钮 hit area 必须连续贴合，不使用 CSS `gap` 留空隙，避免鼠标纵向滑动经过空白区域时
-  hover 状态断开。
-- sticky composer dock 的全宽透明外壳使用 `pointer-events:none`，只在实际内容列恢复
-  `pointer-events:auto`；rail 即使延伸到 composer 的纵向区间也必须保持 hover、focus 和 click。
-- 右侧状态面板 inline 展开不改变 rail 的左侧贴边位置。rail 不参与正文列宽度和消息高度计算。
-- 不使用 raw color；横条和 hover card 使用语义 token，例如 `bg-popover`、
-  `text-popover-foreground`、`border-popover-border`、`foreground-subtle/subtlest`。
+- O rail é fixo no lado esquerdo dentro do viewport da timeline, usando um stack vertical compacto e equidistante; o espaçamento entre barras não varia com a altura das mensagens.
+- O rail é ocultado com `visibility + opacity + translateX` quando `conversation < 864px`, e após atingir `864px` ele aparece com fade e desliza de volta ao lugar; a transição deve suportar `prefers-reduced-motion`. Quando oculto, as tabelas Markdown não podem continuar reservando o espaço à esquerda de `48px` do rail.
+- A largura da área de interação completa do rail permanece em `48px`; o React não mede a distância geométrica entre a coluna principal de entrada e a timeline, nem decide a montagem do rail via `ResizeObserver`; o ResizeObserver apenas fornece a elegibilidade do contêiner para a busca do histórico completo e não participa do layout.
+- O stack do rail é centralizado verticalmente dentro do container `ConversationTimeline` dono. Em split, cada pane usa a linha central do próprio container de timeline, sem posicionamento pela altura do app/window inteiro.
+- As hit areas de botões adjacentes devem encostar continuamente, sem usar `gap` de CSS para deixar vácuo, evitando que o estado de hover se rompa quando o mouse desliza verticalmente por uma área em branco.
+- A casca transparente de largura total do composer dock sticky usa `pointer-events:none` e restaura `pointer-events:auto` apenas na coluna de conteúdo real; mesmo que o rail se estenda na faixa vertical do composer, ele deve manter hover, focus e click.
+- A expansão inline do painel de status à direita não altera a posição do rail colado à esquerda. O rail não participa do cálculo da largura da coluna de texto nem da altura das mensagens.
+- Não usar raw color; barras horizontais e hover card usam tokens semânticos, como `bg-popover`, `text-popover-foreground`, `border-popover-border`, `foreground-subtle/subtlest`.
 
-## Testing
+## Testes
 
-覆盖项登记在 `docs/conversation-session-case-catalog.md` 的 `TN` 分组和
-`docs/testing/conversation-session-e2e-coverage-matrix.md`。单测覆盖逐 query item 派生、同 turn
-多 query 的 active row 推导、全量分页单次合并和 hover-only 山峰视觉等级；E2E 覆盖宽 pane
-显示、窗口收窄后的窄 pane 隐藏与恢复、紧凑左贴连续 hit area、composer 纵向覆盖区命中、
-query + assistant tooltip、目录虚拟化和点击精确跳转。
+A cobertura está registrada no grupo `TN` de `docs/conversation-session-case-catalog.md` e em `docs/testing/conversation-session-e2e-coverage-matrix.md`. Os testes unitários cobrem a derivação por query item, a dedução de active row para múltiplas queries no mesmo turno, a mesclagem única da paginação completa e os níveis visuais de "picos de montanha" apenas no hover; os E2E cobrem exibição em pane largo, ocultação e restauração ao estreitar a janela em pane estreito, hit area contínua colada à esquerda em modo compacto, acerto na área de sobreposição vertical do composer, tooltip de query + assistant, virtualização do catálogo e salto preciso ao clicar.
 
-## Impact Brief 与剪枝
+## Impact Brief e podas
 
-| 字段 | 结论 |
+| Campo | Conclusão |
 | --- | --- |
-| 改动层级 | `presentation + recovery(read-only pagination)` |
-| UI surface | `ConversationTimeline -> ConversationTurnNavigator` |
-| 展示 owner | renderer `ConversationProjectionStore` 与 React virtualizer |
-| 权威 owner | CLI `ProductProjection`；目录不成为新事实源 |
-| commit/effect | 无写 command；只调用现有 `v4/conversation/rowsRange` |
-| 必查下游 | scroll prepend 锚定、conversation find、active query、sticky composer 命中、宽窄 pane gate |
-| 隔离不变量 | 不扩大 wire snapshot；不修改 queue/owner/lease；不混淆 continuous/replayable；窄 pane 零请求；tail 的局部 query 数不作为完整分支计数 |
+| Camada de mudança | `presentation + recovery(read-only pagination)` |
+| Superfície de UI | `ConversationTimeline -> ConversationTurnNavigator` |
+| Dono de exibição | renderer `ConversationProjectionStore` e o virtualizer do React |
+| Dono autoritativo | CLI `ProductProjection`; o catálogo não se torna nova fonte de verdade |
+| commit/efeito | Nenhum comando de escrita; apenas chama o `v4/conversation/rowsRange` existente |
+| Downstream obrigatório | ancoragem de prepend de scroll, conversation find, active query, acerto no composer sticky, gate de pane largo/estreito |
+| Invariantes de isolamento | Não ampliar o snapshot do wire; não modificar queue/owner/lease; não misturar continuous/replayable; pane estreito sem requisições; a contagem parcial de queries do tail não vale como contagem da branch completa |
 
-剪枝结论：completed 大会话作为全量与虚拟化代表；running 只增加 epoch/cursor 并发 guard，不与
-model/provider、queue、goal、compact、theme、locale 做笛卡尔积。desktop wide 代表 pointer hit-test；
-普通 Web 与手机共用 DOM/CSS，手机窄屏由 hydration eligibility gate 剪枝。remote 只验证复用既有 `rows/range` 和
-epoch 边界，不复制一套目录业务状态。
+Conclusão de poda: sessões concluídas grandes representam o caso de catálogo completo e virtualização; em execução, apenas acrescentam guard de concorrência de epoch/cursor, sem produto cartesiano com model/provider, queue, goal, compact, theme ou locale. Desktop largo representa o pointer hit-test; Web comum e celular compartilham DOM/CSS, e a tela estreita do celular é podada pelo gate de elegibilidade de hydration. Remote verifica apenas a reutilização do `rows/range` existente e a fronteira de epoch, sem duplicar um conjunto próprio de estado de negócio do catálogo.

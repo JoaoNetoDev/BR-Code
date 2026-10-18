@@ -1,21 +1,21 @@
-# Desktop Profile Usage Navigation E2E
+# E2E de Navegação para Uso de Perfil no Desktop
 
-## Scope
+## Escopo
 
-头像菜单里的 `使用统计` 入口是设置页导航入口，必须覆盖两个页面上下文：
+A entrada `使用统计` do menu do avatar é um ponto de entrada de navegação da página de configurações e precisa cobrir os dois contextos de página:
 
-- 工作区 sidebar footer 头像菜单。
-- 设置页 sidebar footer 头像菜单。
+- O menu do avatar no footer da sidebar do workspace.
+- O menu do avatar no footer da sidebar da página de configurações.
 
-这组 case 只验证导航语义，不验证 Coding Plan 权益、额度或 Team Plan 数据。用量数据类断言继续留在 Team Plan / Coding Plan 专用 E2E 中。
+Este conjunto de cases verifica apenas a semântica de navegação, e não os benefícios do Coding Plan, a cota ou os dados do Team Plan. As asserções de dados de uso continuam nos E2Es exclusivos de Team Plan / Coding Plan.
 
 ## Cases
 
-| Case | 前置 | 操作 | 期望 |
+| Case | Pré-condição | Ação | Esperado |
 | --- | --- | --- | --- |
-| ECR-usage-01 | 桌面默认 workspace 已打开 | 点击 workspace 头像菜单里的 `使用统计` | 打开设置页，并选中 `usage` 分区 |
-| ECR-usage-02 | 桌面默认 workspace 已打开；当前已在设置页 `general` 分区 | 点击 settings 头像菜单里的 `使用统计` | 仍停留设置页，并切换到 `usage` 分区，不返回 workspace |
+| ECR-usage-01 | O workspace padrão do desktop está aberto | Clicar em `使用统计` no menu do avatar do workspace | Abre a página de configurações e seleciona a seção `usage` |
+| ECR-usage-02 | O workspace padrão do desktop está aberto; já está na seção `general` das configurações | Clicar em `使用统计` no menu do avatar das configurações | Permanece na página de configurações e muda para a seção `usage`, sem voltar ao workspace |
 
-## Test Placement
+## Posicionamento dos testes
 
-这两条 case 放在 `packages/desktop/test/e2e/e2ecase-regression.test.ts`，使用默认 workspace 前置。测试通过共享 test id 点击当前可见头像菜单和 `使用统计` 菜单项，避免 settings 页面保留的隐藏 workspace DOM 影响断言。
+Esses dois cases ficam em `packages/desktop/test/e2e/e2ecase-regression.test.ts`, usando a pré-condição de workspace padrão. O teste clica no menu do avatar atualmente visível e no item de menu `使用统计` por meio do test id compartilhado, evitando que o DOM de workspace oculto retido pela página de configurações afete as asserções.

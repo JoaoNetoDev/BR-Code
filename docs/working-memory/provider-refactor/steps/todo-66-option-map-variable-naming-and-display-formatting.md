@@ -1,19 +1,19 @@
-# Todo 66：Option Map 变量命名与展示排版收口
+# Todo 66: Consolidação da nomenclatura de variáveis e da formatação de exibição do Option Map
 
-> 状态：已完成
+> Status: concluído
 >
-> 2026-09-09 补充：后续 Todo95 引入部分单行排版回归，由 [Todo98](todo-98-builtin-option-map-formatting-regression.md) 修复；当前写作准则见 [Option Map 写作风格](../design/model/option-map-writing-style.md)，简单三目保持同行。下文示例为历史实施记录，不要求恢复已被简化的重复分支。
+> Complemento de 2026-09-09: o Todo95 seguinte introduziu algumas regressões de formatação em linha única, corrigidas pelo [Todo98](todo-98-builtin-option-map-formatting-regression.md); a diretriz de escrita atual está em [Estilo de escrita do Option Map](../design/model/option-map-writing-style.md), e ternários simples permanecem na mesma linha. Os exemplos abaixo são registros históricos de implementação e não exigem restaurar os ramos duplicados que já foram simplificados.
 >
-> 日期：2026-09-02
+> Data: 2026-09-02
 >
-> 前置：Todo 54 已将请求 Option 映射收口到 Option Spec 的 `map`；Todo 60 已固定 Reasoning Option 的完整性和 GUI 编辑边界。本 Todo 只改善 Map 表达式的命名与可读性，不改变 Option、Model Config、Adapter 或请求参数的职责。
+> Pré-requisito: o Todo 54 já consolidou o mapeamento de Options de requisição no `map` do Option Spec; o Todo 60 já fixou a completude do Reasoning Option e os limites de edição na GUI. Este Todo apenas melhora a nomenclatura e a legibilidade das expressões Map, sem alterar a responsabilidade de Options, Model Config, Adapter ou parâmetros de requisição.
 
-## 1. 目标
+## 1. Objetivo
 
-完成两项小范围收口：
+Concluir duas consolidações de pequeno escopo:
 
-1. Option Map 不再使用含义模糊的通用变量 `value`，改为使用所属 Option 的正式名称；
-2. Built-in Option Map 的换行和缩进以设置页 GUI 中的阅读体验为准，不再为了让配置文件内容保持单行而牺牲可读性。
+1. O Option Map deixa de usar a variável genérica de significado ambíguo `value` e passa a usar o nome oficial da Option à qual pertence;
+2. As quebras de linha e a indentação do Built-in Option Map passam a priorizar a experiência de leitura na GUI da página de configurações, sem sacrificar a legibilidade para manter o conteúdo do arquivo de configuração em linha única.
 
 ```text
 optionSpecs.<optionName>.map
@@ -25,9 +25,9 @@ optionSpecs.<optionName>.map
 编译为本次请求的 JSON Merge Patch
 ```
 
-## 2. 变量命名
+## 2. Nomenclatura de variáveis
 
-当前写法：
+Escrita atual:
 
 ```ts
 value == "high"
@@ -35,7 +35,7 @@ value == "high"
   : { "reasoning_effort": "max" }
 ```
 
-目标写法：
+Escrita desejada:
 
 ```ts
 reasoningLevel == "high"
@@ -43,7 +43,7 @@ reasoningLevel == "high"
   : { "reasoning_effort": "max" }
 ```
 
-具体对应关系：
+Correspondências concretas:
 
 ```text
 optionSpecs.reasoningLevel.map
@@ -53,19 +53,19 @@ optionSpecs.maxOutputTokens.map
 └─ 变量：maxOutputTokens
 ```
 
-规则：
+Regras:
 
-- 变量名直接取所属 Option 的正式字段名，大小写一致；
-- 每个 Map 只消费自己的 Option 值，不顺便暴露其他 Option；
-- 删除 `value` 变量，不保留别名、兼容读取或双语法；
-- 未发布配置不增加迁移器；
-- Map 的输出仍然是当前请求使用的 JSON Merge Patch，职责不变。
+- O nome da variável é exatamente o nome oficial do campo da Option à qual pertence, com a mesma capitalização;
+- Cada Map consome apenas o valor da sua própria Option e não expõe outras Options por baixo pano;
+- A variável `value` é removida, sem manter alias, leitura compatível ou sintaxe dupla;
+- Configurações não publicadas não recebem migrador;
+- A saída do Map continua sendo o JSON Merge Patch usado pela requisição atual, com a mesma responsabilidade.
 
-## 3. Built-in Map 排版
+## 3. Formatação dos Map embutidos
 
-Built-in Map 的字符串内容应优先保证设置页文本框中的可读性。
+O conteúdo de string dos Map embutidos deve priorizar a legibilidade na caixa de texto da página de configurações.
 
-复杂条件和嵌套对象使用换行与缩进，例如：
+Condições complexas e objetos aninhados usam quebras de linha e indentação, por exemplo:
 
 ```ts
 reasoningLevel == "low"
@@ -87,77 +87,77 @@ reasoningLevel == "low"
     }
 ```
 
-简单表达式可以保持单行：
+Expressões simples podem permanecer em uma linha:
 
 ```ts
 { "max_tokens": maxOutputTokens }
 ```
 
-排版原则：
+Princípios de formatação:
 
-- 使用统一的两空格缩进；
-- 复杂条件分支分行；
-- 多层对象展开，避免 GUI 中出现很长的一行；
-- 简单 Map 不机械展开；
-- 允许 `zcode-builtin.json` 中出现换行转义，物理文件的紧凑程度不是目标；
-- GUI 继续原样展示字符串中的换行和缩进，不增加第二套格式化结果；
-- Personal Map 不强制自动重排，避免在保存时意外改写用户输入。
+- Usar indentação uniforme de dois espaços;
+- Colocar em linhas separadas os ramos de condição complexos;
+- Expandir objetos de múltiplos níveis, evitando uma linha muito longa na GUI;
+- Não expandir mecanicamente Map simples;
+- Permitir quebras de linha escapadas em `zcode-builtin.json`; a compactação do arquivo físico não é o objetivo;
+- A GUI continua exibindo as quebras de linha e a indentação da string como são, sem criar um segundo resultado de formatação;
+- O Personal Map não é reordenado automaticamente de forma obrigatória, evitando reescrever por acidente a entrada do usuário ao salvar.
 
-## 4. 实施范围
+## 4. Escopo de implementação
 
-1. 修改 Option Map 编译环境，使变量名来自所属 Option 名称；
-2. 更新 Schema、类型和当前 Design 中仍把变量写成 `value` 的说明；
-3. 将 Built-in Config 中所有 `value` 引用切换为对应的 Option 名称；
-4. 整理 Built-in 中较长的 Reasoning Map 的换行和缩进；
-5. 保持简单 Max Output Map 为紧凑单行；
-6. 更新 GUI placeholder/value 相关测试，证明格式会在文本框中保留；
-7. 删除只服务于旧 `value` 名称的常量、测试 Fixture 和错误文案。
+1. Modificar o ambiente de compilação do Option Map para que o nome da variável venha do nome da Option à qual ela pertence;
+2. Atualizar o Schema, os tipos e as descrições do Design atual que ainda escrevem a variável como `value`;
+3. Trocar todas as referências a `value` no Built-in Config pelo nome da Option correspondente;
+4. Reorganizar as quebras de linha e a indentação dos Reasoning Map mais longos do Built-in;
+5. Manter o Max Output Map simples como uma linha única compacta;
+6. Atualizar os testes de placeholder/value da GUI, provando que o formato é preservado na caixa de texto;
+7. Remover as constantes, os fixtures de teste e as mensagens de erro que existiam apenas para atender ao nome antigo `value`.
 
-## 5. 测试边界
+## 5. Limites de teste
 
-本轮不做每条 Built-in Map 在迁移前后逐一执行、逐字段比较的全量等价性测试。变量替换和排版都是确定性修改，不建立一次性、维护成本较高的迁移证明框架。
+Esta rodada não faz um teste de equivalência completa, executando cada Map embutido antes e depois da migração e comparando campo a campo. A substituição de variáveis e a formatação são modificações determinísticas, e não se cria um quadro de prova de migração de alto custo de manutenção.
 
-只保留必要证据：
+Mantém-se apenas a evidência necessária:
 
-- 编译器接受所属 Option 名称；
-- 编译器拒绝旧 `value`；
-- `reasoningLevel` 和 `maxOutputTokens` 各有代表性 Map 编译与请求 Patch 测试；
-- Built-in Config 能通过正式 Schema 和 Map 编译检查；
-- 设置页能保留 Built-in Map 的换行和缩进；
-- Personal Map 的原始排版不会在读取或保存时被自动改写；
-- `pnpm typecheck`、`pnpm lint`、相关单测和 `git diff --check` 通过。
+- O compilador aceita o nome da Option à qual pertence;
+- O compilador rejeita o antigo `value`;
+- `reasoningLevel` e `maxOutputTokens` têm, cada um, um Map representativo com teste de compilação e de Patch da requisição;
+- O Built-in Config passa nas verificações do Schema oficial e de compilação de Map;
+- A página de configurações preserva as quebras de linha e a indentação dos Map embutidos;
+- A formatação original do Personal Map não é reescrita automaticamente na leitura ou no salvamento;
+- `pnpm typecheck`, `pnpm lint`, os testes unitários relacionados e `git diff --check` passam.
 
-## 6. 非目标
+## 6. Não-alvos
 
-- 不改变 Option Spec 的字段结构；
-- 不改变 Reasoning 档位顺序；
-- 不改变 `maxOutputTokens.max` 的能力上限语义；
-- 不新增 Map DSL、Formatter Service 或版本化表达式协议；
-- 不允许一个 Option Map读取其他 Option；
-- 不重新设计 Model 设置弹窗；
-- 不为未发布的 `value` 语法增加兼容层。
+- Não alterar a estrutura de campos do Option Spec;
+- Não alterar a ordem dos níveis de Reasoning;
+- Não alterar a semântica de limite de capacidade de `maxOutputTokens.max`;
+- Não adicionar DSL de Map, Formatter Service ou protocolo de expressões versionado;
+- Não permitir que um Option Map leia outras Options;
+- Não reprojetar o diálogo de configurações de Model;
+- Não adicionar camada de compatibilidade para a sintaxe `value`, que nunca foi publicada.
 
-## 7. 完成标准
+## 7. Critérios de conclusão
 
-- 正式代码、Built-in Config、测试和当前 Design 中不再使用 Option Map 通用变量 `value`；
-- `reasoningLevel` Map 使用 `reasoningLevel`，`maxOutputTokens` Map 使用 `maxOutputTokens`；
-- Built-in 复杂 Map 在 GUI 中具有清晰换行和缩进；
-- 简单 Map 保持简洁，Personal Map 不被自动重排；
-- 没有新增兼容分支、第二份 Map 表达或过度的全量等价测试设施。
+- O código oficial, o Built-in Config, os testes e o Design atual não usam mais a variável genérica `value` do Option Map;
+- O Map de `reasoningLevel` usa `reasoningLevel`, e o de `maxOutputTokens` usa `maxOutputTokens`;
+- Os Map complexos do Builtin têm quebras de linha e indentação claras na GUI;
+- Map simples continuam concisos, e o Personal Map não é reordenado automaticamente;
+- Não há novos ramos de compatibilidade, uma segunda expressão de Map nem instalações de equivalência total excessivas.
 
-## 8. 实施与验收记录
+## 8. Registro de implementação e aceitação
 
-- 编译器现在按所属 Option 注入唯一变量名，并将变量名纳入编译缓存键；同一表达式不能借缓存绕过另一 Option 的变量边界。
-- Schema、完整性校验、Built-in Config、CLI/Service/UI 测试夹具和当前 Design 已统一到 `reasoningLevel` / `maxOutputTokens`；旧 `value` 只保留在拒绝测试和历史记录中。
-- Built-in 的复杂 Reasoning Map 已改为两空格多行格式，简单 Max Output Map 保持单行；Personal Map 没有新增格式化步骤。
-- Provider Node 中原先锁死单行空白的断言已改为验证变量和映射内容，避免把展示排版误当运行时契约。
+- O compilador agora injeta um único nome de variável conforme a Option à qual pertence e inclui o nome da variável na chave de cache de compilação; a mesma expressão não pode contornar, pelo cache, a fronteira de variáveis de outra Option.
+- O Schema, a validação de integridade, o Built-in Config, os fixtures de teste de CLI/Service/UI e o Design atual foram unificados em `reasoningLevel` / `maxOutputTokens`; o antigo `value` só permanece nos testes de rejeição e nos registros históricos.
+- Os Reasoning Map complexos do Builtin passaram a usar o formato de múltiplas linhas com dois espaços, e o Max Output Map simples permanece em uma linha; o Personal Map não ganhou nenhuma etapa de formatação.
+- As asserções do Provider Node que antes travavam espaços em branco de linha única foram alteradas para validar as variáveis e o conteúdo do mapeamento, evitando tratar a formatação de exibição como contrato de runtime.
 
-验证结果：
+Resultados da verificação:
 
-- `@zcode/model-option-map`：26 tests passed；typecheck passed。
-- `@zcode/provider`：167 tests passed；typecheck passed。
-- `@zcode/provider-node`：47 tests passed；typecheck passed。
-- CLI Adapter 定向：54 tests passed。
-- CLI Bootstrap Registry/Model 定向：83 tests passed。
-- UI、Services、Server 定向：144 tests passed；UI 默认配置展示补充用例 11 tests passed。
-- `git diff --check` passed。
+- `@zcode/model-option-map`: 26 tests passed; typecheck passed.
+- `@zcode/provider`: 167 tests passed; typecheck passed.
+- `@zcode/provider-node`: 47 tests passed; typecheck passed.
+- Adaptador de CLI, testes direcionados: 54 tests passed.
+- Bootstrap Registry/Model da CLI, direcionados: 83 tests passed.
+- UI, Services e Server, direcionados: 144 tests passed; casos complementares de exibição de config padrão na UI: 11 tests passed.
+- `git diff --check` passed.

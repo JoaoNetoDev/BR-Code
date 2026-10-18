@@ -1,38 +1,38 @@
-# ZAI Backend OAuth Token Implementation Plan
+# Plano de Implementação do Token OAuth do Backend ZAI
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Change ZAI desktop OAuth login so the app opens z.ai authorization, exchanges callback `code/state` through `https://zcode.z.ai/api/v1/oauth/token`, and stores the returned backend JWT as the ZAI OAuth token.
+**Objetivo:** Alterar o login OAuth do ZCode Desktop para que o app abra a autorização do z.ai, troque o `code/state` do callback através de `https://zcode.z.ai/api/v1/oauth/token` e armazene o JWT de backend retornado como o token OAuth do ZAI.
 
-**Architecture:** Keep the existing provider-aware OAuth architecture. The UI and `OAuthService` continue to use `ZaiProviderAdapter`; only the ZAI provider protocol mapping changes. BigModel and shared OAuth service behavior stay unchanged.
+**Arquitetura:** Manter a arquitetura OAuth existente, ciente de provider. A UI e o `OAuthService` continuam usando `ZaiProviderAdapter`; apenas o mapeamento de protocolo do provider ZAI muda. BigModel e o comportamento do serviço OAuth compartilhado permanecem inalterados.
 
-**Tech Stack:** TypeScript, Vitest, Electron deep link platform bridge, existing `ApiClient` / `readApiJson`, provider namespaced credentials.
+**Stack tecnológico:** TypeScript, Vitest, ponte de plataforma de deep link do Electron, `ApiClient` / `readApiJson` existentes, credenciais com namespace de provider.
 
 ---
 
-## File Structure
+## Estrutura de Arquivos
 
-- Modify `packages/services/test/oauthService.test.ts`
-  - Update the ZAI authorize URL and token exchange assertions.
-  - Add failure coverage for backend business errors and missing `data.token`.
-- Modify `packages/services/src/oauth/providers/zaiProviderConfig.ts`
-  - Change ZAI default authorize and token endpoints.
-- Modify `packages/services/src/oauth/providers/zaiProviderAdapter.ts`
-  - Replace direct ZAI token exchange with backend JSON token exchange.
-  - Map backend JWT and user payload into `OAuthTokenSet` and `OAuthUserProfile`.
-- Modify `docs/oauth/oauth-multi-provider-implementation.md`
-  - Record the ZAI backend JWT exchange behavior.
+- Modificar `packages/services/test/oauthService.test.ts`
+  - Atualizar as asserções de URL de autorização do ZAI e de troca de token.
+  - Adicionar cobertura de falha para erros de negócio do backend e para `data.token` ausente.
+- Modificar `packages/services/src/oauth/providers/zaiProviderConfig.ts`
+  - Alterar os endpoints padrão de autorização e de token do ZAI.
+- Modificar `packages/services/src/oauth/providers/zaiProviderAdapter.ts`
+  - Substituir a troca direta de token do ZAI pela troca de token JSON do backend.
+  - Mapear o JWT do backend e o payload do usuário para `OAuthTokenSet` e `OAuthUserProfile`.
+- Modificar `docs/oauth/oauth-multi-provider-implementation.md`
+  - Registrar o comportamento de troca de JWT do backend ZAI.
 
-## Task 1: Write Failing ZAI Backend OAuth Tests
+## Tarefa 1: Escrever testes OAuth do backend ZAI que falham
 
-**Files:**
-- Modify: `packages/services/test/oauthService.test.ts:96`
-- Modify: `packages/services/test/oauthService.test.ts:110`
-- Test: `packages/services/test/oauthService.test.ts`
+**Arquivos:**
+- Modificar: `packages/services/test/oauthService.test.ts:96`
+- Modificar: `packages/services/test/oauthService.test.ts:110`
+- Testar: `packages/services/test/oauthService.test.ts`
 
-- [ ] **Step 1: Update the ZAI authorize URL test**
+- [ ] **Passo 1: Atualizar o teste de URL de autorização do ZAI**
 
-Replace the existing `builds zai authorize URL with provider-specific params` assertions with:
+Substituir as asserções existentes de `builds zai authorize URL with provider-specific params` por:
 
 ```ts
 it("builds zai authorize URL with backend-token flow params", async () => {
@@ -49,9 +49,9 @@ it("builds zai authorize URL with backend-token flow params", async () => {
 });
 ```
 
-- [ ] **Step 2: Update the successful ZAI callback test**
+- [ ] **Passo 2: Atualizar o teste de callback ZAI bem-sucedido**
 
-In `stores zai credential keys and active provider after callback`, replace the mocked responses and expectations with a single backend token response:
+Em `stores zai credential keys and active provider after callback`, substituir as respostas mockadas e as expectativas por uma única resposta de token do backend:
 
 ```ts
 fetchMock.mockResolvedValueOnce(
@@ -117,9 +117,9 @@ expect(await credentialServiceStub.load("oauth:zai:user_info")).toBe(
 expect(await credentialServiceStub.load("oauth:active_provider")).toBe(ZAI_PROVIDER_ID);
 ```
 
-- [ ] **Step 3: Add a business-error test**
+- [ ] **Passo 3: Adicionar um teste de erro de negócio**
 
-Add this test near the other ZAI callback tests:
+Adicionar este teste perto dos demais testes de callback do ZAI:
 
 ```ts
 it("fails zai backend token exchange when business code is not zero", async () => {
@@ -149,9 +149,9 @@ it("fails zai backend token exchange when business code is not zero", async () =
 });
 ```
 
-- [ ] **Step 4: Add a missing-token test**
+- [ ] **Passo 4: Adicionar um teste de token ausente**
 
-Add this test after the business-error test:
+Adicionar este teste após o teste de erro de negócio:
 
 ```ts
 it("fails zai backend token exchange when response misses data token", async () => {
@@ -187,15 +187,15 @@ it("fails zai backend token exchange when response misses data token", async () 
 });
 ```
 
-- [ ] **Step 5: Add a direct adapter expires_in conversion test**
+- [ ] **Passo 5: Adicionar um teste direto de conversão de expires_in do adapter**
 
-Update the import block to include the adapter:
+Atualizar o bloco de importações para incluir o adapter:
 
 ```ts
 import { ZaiProviderAdapter } from "../src/oauth/providers/zaiProviderAdapter.js";
 ```
 
-Add this test near the other ZAI tests:
+Adicionar este teste perto dos demais testes do ZAI:
 
 ```ts
 it("maps zai backend expires_in into OAuthTokenSet expiresAt", async () => {
@@ -240,26 +240,26 @@ it("maps zai backend expires_in into OAuthTokenSet expiresAt", async () => {
 });
 ```
 
-- [ ] **Step 6: Run the focused test and verify RED**
+- [ ] **Passo 6: Executar o teste focado e verificar RED**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/services/test/oauthService.test.ts
 ```
 
-Expected: FAIL. The failures should point to old ZAI authorize URL, form-encoded token body, old access token fields, and old extra userinfo request.
+Esperado: FAIL. As falhas devem apontar para a URL de autorização antiga do ZAI, para o body de token codificado em form, para os campos antigos de access token e para a requisição extra antiga de userinfo.
 
-## Task 2: Implement ZAI Backend OAuth Token Exchange
+## Tarefa 2: Implementar a troca de token OAuth do backend ZAI
 
-**Files:**
-- Modify: `packages/services/src/oauth/providers/zaiProviderConfig.ts:5`
-- Modify: `packages/services/src/oauth/providers/zaiProviderAdapter.ts:13`
-- Test: `packages/services/test/oauthService.test.ts`
+**Arquivos:**
+- Modificar: `packages/services/src/oauth/providers/zaiProviderConfig.ts:5`
+- Modificar: `packages/services/src/oauth/providers/zaiProviderAdapter.ts:13`
+- Testar: `packages/services/test/oauthService.test.ts`
 
-- [ ] **Step 1: Update ZAI provider default endpoints**
+- [ ] **Passo 1: Atualizar os endpoints padrão do provider ZAI**
 
-In `packages/services/src/oauth/providers/zaiProviderConfig.ts`, change the default config to:
+Em `packages/services/src/oauth/providers/zaiProviderConfig.ts`, alterar a config padrão para:
 
 ```ts
 export const ZAI_OAUTH_PROVIDER_CONFIG: Omit<OAuthProviderRuntimeConfig, "appSecret"> = {
@@ -276,9 +276,9 @@ export const ZAI_OAUTH_PROVIDER_CONFIG: Omit<OAuthProviderRuntimeConfig, "appSec
 };
 ```
 
-- [ ] **Step 2: Replace ZAI token payload types**
+- [ ] **Passo 2: Substituir os tipos de payload de token do ZAI**
 
-In `packages/services/src/oauth/providers/zaiProviderAdapter.ts`, replace `ZaiTokenPayload` with:
+Em `packages/services/src/oauth/providers/zaiProviderAdapter.ts`, substituir `ZaiTokenPayload` por:
 
 ```ts
 interface ZaiBackendTokenPayload {
@@ -299,9 +299,9 @@ interface ZaiBackendUserPayload {
 }
 ```
 
-- [ ] **Step 3: Replace expiry helper and add backend response helpers**
+- [ ] **Passo 3: Substituir o helper de expiração e adicionar helpers de resposta do backend**
 
-Replace the old `normalizeExpiresAt` helper with:
+Substituir o helper antigo `normalizeExpiresAt` por:
 
 ```ts
 function normalizeExpiresIn(raw: number | undefined, now: () => number): number | undefined {
@@ -333,9 +333,9 @@ function toBackendUserProfile(user: ZaiBackendUserPayload | undefined): OAuthUse
 }
 ```
 
-- [ ] **Step 4: Add a backend user cache field**
+- [ ] **Passo 4: Adicionar um campo de cache de usuário do backend**
 
-Inside `ZaiProviderAdapter`, below `readonly apiClient: ApiClient;`, add:
+Dentro de `ZaiProviderAdapter`, abaixo de `readonly apiClient: ApiClient;`, adicionar:
 
 ```ts
 private lastBackendUserProfile: {
@@ -344,9 +344,9 @@ private lastBackendUserProfile: {
 } | null = null;
 ```
 
-- [ ] **Step 5: Replace `exchangeToken` implementation**
+- [ ] **Passo 5: Substituir a implementação de `exchangeToken`**
 
-Replace the full `exchangeToken` method with:
+Substituir o método `exchangeToken` inteiro por:
 
 ```ts
 async exchangeToken(
@@ -364,12 +364,12 @@ async exchangeToken(
   });
 
   if (tokenPayload.code !== 0) {
-    throw new Error(tokenPayload.msg?.trim() || "ZAI 后端 token 交换失败");
+    throw new Error(tokenPayload.msg?.trim() || "Falha na troca de token do backend ZAI");
   }
 
   const accessToken = tokenPayload.data?.token;
   if (!accessToken) {
-    throw new Error("Token 交换失败：响应缺少 data.token");
+    throw new Error("Falha na troca de token: resposta sem data.token");
   }
 
   this.lastBackendUserProfile = {
@@ -385,9 +385,9 @@ async exchangeToken(
 }
 ```
 
-- [ ] **Step 6: Make callback user mapping available to `fetchUserInfo`**
+- [ ] **Passo 6: Tornar o mapeamento de usuário do callback disponível para `fetchUserInfo`**
 
-At the beginning of `fetchUserInfo`, before the remote `readApiJson` call, add:
+No início de `fetchUserInfo`, antes da chamada remota `readApiJson`, adicionar:
 
 ```ts
 if (this.lastBackendUserProfile?.state === _context.state) {
@@ -397,26 +397,26 @@ if (this.lastBackendUserProfile?.state === _context.state) {
 }
 ```
 
-Keep the old remote `fetchUserInfo` implementation after that branch for `restoreSession()` compatibility. The state guard prevents a ZAI subscription OAuth callback from leaving a stale cached profile that a later login or restore flow could consume.
+Manter a implementação remota antiga de `fetchUserInfo` após esse branch, por compatibilidade com `restoreSession()`. A guarda de state evita que um callback OAuth de assinatura do ZAI deixe um perfil em cache obsoleto que um login ou fluxo de restauração posterior consuma.
 
-- [ ] **Step 7: Run the focused test and verify GREEN**
+- [ ] **Passo 7: Executar o teste focado e verificar GREEN**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/services/test/oauthService.test.ts
 ```
 
-Expected: PASS for `packages/services/test/oauthService.test.ts`.
+Esperado: PASS para `packages/services/test/oauthService.test.ts`.
 
-## Task 3: Update OAuth Documentation
+## Tarefa 3: Atualizar a documentação de OAuth
 
-**Files:**
-- Modify: `docs/oauth/oauth-multi-provider-implementation.md:62`
+**Arquivos:**
+- Modificar: `docs/oauth/oauth-multi-provider-implementation.md:62`
 
-- [ ] **Step 1: Update ZAI runtime config notes**
+- [ ] **Passo 1: Atualizar as notas de runtime config do ZAI**
 
-Under `## 3. 运行时配置说明（Host Process）`, after the ZAI environment variable list, add:
+Sob `## 3. 运行时配置说明（Host Process）`, após a lista de variáveis de ambiente do ZAI, adicionar:
 
 ```md
 ZAI 默认登录链路已切换为后端 JWT token 交换：
@@ -427,9 +427,9 @@ ZAI 默认登录链路已切换为后端 JWT token 交换：
 - 本地保存的 `oauth:zai:access_token` 是后端返回的 `data.token`
 ```
 
-- [ ] **Step 2: Add an incremental section**
+- [ ] **Passo 2: Adicionar uma seção incremental**
 
-Before the current `## 4. 验证结果`, add:
+Antes do `## 4. 验证结果` atual, adicionar:
 
 ```md
 ## 4. ZAI 后端 JWT 登录链路（增量）
@@ -439,71 +439,71 @@ ZAI OAuth 登录不再由桌面端直接请求三方 ZAI token 接口。桌面�
 后端完成 z.ai token 交换、userinfo 拉取、用户创建与 JWT 签发。客户端把响应中的 `data.token` 保存为 `oauth:zai:access_token`，把 `data.user` 映射为 `oauth:zai:user_info`，并把 `oauth:active_provider` 设置为 `zai`。
 ```
 
-Then renumber these existing headings exactly:
+Depois, renumerar exatamente estes títulos existentes:
 
 ```md
 ## 4. 验证结果
 ```
 
-to:
+para:
 
 ```md
 ## 5. 验证结果
 ```
 
-and continue increasing each later top-level numeric heading by one, so old `## 7. OAuth 后预置模型供应商补齐（ZAI）` becomes `## 8. OAuth 后预置模型供应商补齐（ZAI）`.
+e continuar incrementando em um cada título numérico de primeiro nível posterior, de modo que o antigo `## 7. OAuth 后预置模型供应商补齐（ZAI）` passe a ser `## 8. OAuth 后预置模型供应商补齐（ZAI）`.
 
-- [ ] **Step 3: No focused doc test required**
+- [ ] **Passo 3: Nenhum teste de doc focado é necessário**
 
-This is a documentation-only task. Verification happens in Task 4.
+Esta é uma tarefa somente de documentação. A verificação acontece na Tarefa 4.
 
-## Task 4: Run Required Verification
+## Tarefa 4: Executar a Verificação Obrigatória
 
-**Files:**
-- Verify all changed files.
+**Arquivos:**
+- Verificar todos os arquivos alterados.
 
-- [ ] **Step 1: Run focused OAuth tests**
+- [ ] **Passo 1: Executar os testes OAuth focados**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/services/test/oauthService.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 2: Run typecheck**
+- [ ] **Passo 2: Executar o typecheck**
 
-Run:
+Executar:
 
 ```bash
 pnpm typecheck
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 3: Run lint**
+- [ ] **Passo 3: Executar o lint**
 
-Run:
+Executar:
 
 ```bash
 pnpm lint
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 4: Inspect git diff**
+- [ ] **Passo 4: Inspecionar o git diff**
 
-Run:
+Executar:
 
 ```bash
 git diff -- packages/services/test/oauthService.test.ts packages/services/src/oauth/providers/zaiProviderConfig.ts packages/services/src/oauth/providers/zaiProviderAdapter.ts docs/oauth/oauth-multi-provider-implementation.md
 ```
 
-Expected: diff only contains the ZAI backend OAuth token changes and documentation.
+Esperado: o diff contém apenas as alterações de token OAuth do backend ZAI e a documentação.
 
-## Self-Review
+## Auto-revisão
 
-- Spec coverage: the plan covers authorize URL, backend token URL, JSON request body, JWT persistence, user mapping, business errors, missing token errors, docs, `typecheck`, and `lint`.
-- Placeholder scan: no unfinished placeholders or unspecified implementation steps are intentionally left.
-- Type consistency: test payload names use backend response fields (`token`, `expires_in`, `user_id`, `email`, `avatar`); implementation maps those into existing `OAuthTokenSet` and `OAuthUserProfile`.
+- Cobertura da spec: o plano cobre URL de autorização, URL de token do backend, body da requisição JSON, persistência do JWT, mapeamento de usuário, erros de negócio, erros de token ausente, documentação, `typecheck` e `lint`.
+- Varredura de placeholders: nenhum placeholder inacabado ou passo de implementação não especificado foi deixado de propósito.
+- Consistência de tipos: os nomes de payload dos testes usam campos de resposta do backend (`token`, `expires_in`, `user_id`, `email`, `avatar`); a implementação mapeia esses campos para o `OAuthTokenSet` e o `OAuthUserProfile` existentes.

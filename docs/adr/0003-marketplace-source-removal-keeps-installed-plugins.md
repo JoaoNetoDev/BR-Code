@@ -1,18 +1,15 @@
-# 删除 Marketplace Source 时保留已安装插件
+# Manter plugins instalados ao remover a Marketplace Source
 
-- 状态：Accepted
-- 日期：2026-07-15
+- Status: Accepted
+- Data: 2026-07-15
 
 ## Context
 
-Personal Source 同时承担“可发现目录”和“未来更新来源”，但已安装插件已经复制到用户级
-插件存储，并可能拥有配置、启停状态和数据。删除来源若隐式级联卸载，会把一个看似只管理
-目录的操作变成破坏性数据删除；若完全隐藏插件，又会让磁盘中的有效安装失去管理入口。
+O Personal Source exerce simultaneamente o papel de "catálogo descobrível" e de "fonte de atualizações futuras", mas os plugins instalados já foram copiados para o armazenamento de plugins em nível de usuário e podem ter configuração, estado de ativação/desativação e dados. Se a remoção da fonte causar implicitamente uma desinstalação em cascata, uma operação que aparenta apenas gerenciar um catálogo se transforma em exclusão destrutiva de dados; se o plugin for totalmente ocultado, uma instalação válida em disco perde seu ponto de entrada de gerenciamento.
 
 ## Decision
 
-删除 Personal Source 只删除 marketplace 记录和目录投影，不删除安装、配置、启停状态、
-缓存或插件数据。仍存在的安装进入 `Orphaned Installed Plugin` 状态：
+Remover o Personal Source apaga apenas o registro do marketplace e a projeção do catálogo; não remove instalações, configurações, estado de ativação/desativação, caches nem dados de plugins. As instalações que continuam existentes entram no estado `Orphaned Installed Plugin`:
 
 ```text
 source present + installed
@@ -24,17 +21,15 @@ orphaned installed -------------------+
   | uninstall                          | re-add same source
   | update unavailable                 |
   +------------------------------------+
-                       source-associated installed
+                      source-associated installed
 ```
 
-孤立插件继续出现在 Installed Strip、详情和 Manage Installed View。UI 必须诚实展示来源缺失，
-且来源重新添加前不得执行更新。重新添加同一 marketplace id/source 后重新关联当前安装，恢复
-listing 和更新能力；不能自动改写用户配置或 enabled 状态。
+Plugins órfãos continuam aparecendo no Installed Strip, nos detalhes e na Manage Installed View. A UI deve mostrar honestamente a ausência da fonte e não deve executar atualizações antes de a fonte ser adicionada novamente. Readicionar o mesmo marketplace id/source reassoci a instalação atual, restaurando a listagem e a capacidade de atualização; não se pode reescrever automaticamente a configuração ou o estado enabled do usuário.
 
 ## Consequences
 
-- 来源删除成为可逆的目录管理操作，不会造成隐式数据丢失。
-- 安装状态和来源状态必须独立建模，UI 不能以“目录中不存在”推导“未安装”。
-- 更新检测需要来源存在；孤立状态下只能使用当前安装版本。
-- 用户仍可从管理页显式卸载孤立插件，并按普通卸载规则清理数据。
-- Lifecycle E2E 必须覆盖来源删除、孤立状态、继续使用、重新关联和显式卸载路径。
+- A remoção da fonte se torna uma operação reversível de gerenciamento de catálogo, sem perda implícita de dados.
+- O estado de instalação e o estado da fonte devem ser modelados de forma independente; a UI não pode deduzir "não instalado" a partir de "inexistente no catálogo".
+- A detecção de atualizações exige a existência da fonte; no estado órfão só é possível usar a versão instalada atual.
+- O usuário ainda pode desinstalar explicitamente plugins órfãos pela página de gerenciamento, limpando os dados conforme as regras normais de desinstalação.
+- O Lifecycle E2E deve cobrir os caminhos de remoção da fonte, estado órfão, uso contínuo, reassociação e desinstalação explícita.

@@ -1,37 +1,37 @@
-# staging cc580ba72a 合并记录
+# Registro de merge do staging cc580ba72a
 
-## 基线与范围
+## Baseline e escopo
 
-- 本地合并前：`cf6777b82d`，分支 `provider-schema-refinement-20260910`，工作区干净。
-- 本次 fetch 固定 staging：`cc580ba72a`，共 17 个上游提交（9 个非 merge 提交），增量涉及 49 个文件。
-- 正常 `merge --no-ff` 保留双方提交，不整文件 ours/theirs，不自动推送；不执行待开发 Todo105–113。
+- Antes do merge local: `cf6777b82d`, branch `provider-schema-refinement-20260910`, workspace limpo.
+- Este fetch fixou o staging: `cc580ba72a`, com 17 commits upstream (9 commits sem merge), com incremento envolvendo 49 arquivos.
+- O `merge --no-ff` normal preserva os commits dos dois lados, não usa ours/theirs de arquivo inteiro e não faz push automático; não executa os Todo105–113 ainda em desenvolvimento.
 
-## 功能裁决与冲突
+## Decisões funcionais e conflitos
 
-| 上游来源 | 行为与处理 |
+| Origem upstream | Comportamento e tratamento |
 | --- | --- |
-| `758fc8568c`、`da708b7d4a`、`8108d4e4db` | 保留 Account 不可用原因分类、shared 严格 schema、两家个人套餐缺 Key 重试。原因属于运行态，Host 为 owner；UI 使用公共结果，不重新查询权益，不把缺 Key 当作 OAuth 失效。 |
-| `2e26360bc9` | 保留 BigModel 内嵌官网的既有 zcode JWT 注入补齐，不改登录/鉴权体系。 |
-| `0fedd3c4a2` | 保留 Adapter 的同服务 Coding Plan 历史身份回放兼容；只影响请求局部的 thinking 投影，不映射当前选择、不改历史身份。 |
-| `0aa4cc61ae` | 保留 Runtime 的 PDF 端口透传；不恢复旧模型连接接口。 |
-| `f5a802f929` | 保留分享组件默认值及回调引用稳定化，Session 归属不变。 |
-| `7ef23cfad3`、`12cddd0f87` | 保留 pre-push 不强制 mise 与飞书通知服务改造，验证仍走原门禁；不发送真实通知、不调整外部 CI 凭据。 |
+| `758fc8568c`, `da708b7d4a`, `8108d4e4db` | Preservar a classificação de motivos de Account indisponível, o schema shared estrito e o retry de falta de Key nos dois planos pessoais. O motivo pertence ao runtime e o Host é o owner; a UI usa o resultado público, não consulta novamente os benefícios e não trata falta de Key como OAuth inválido. |
+| `2e26360bc9` | Preservar a complementação da injeção do zcode JWT já existente no site oficial embutido no BigModel, sem alterar o sistema de login/autenticação. |
+| `0fedd3c4a2` | Preservar a compatibilidade de replay de identidade histórica do Coding Plan do mesmo serviço no Adapter; afeta apenas a projeção de thinking local à requisição, sem mapear a seleção atual e sem alterar a identidade histórica. |
+| `0aa4cc61ae` | Preservar o repasse de porta PDF no Runtime; não restaurar a antiga interface de conexão de modelo. |
+| `f5a802f929` | Preservar os valores padrão do componente de compartilhamento e a estabilização da referência de callback, com a atribuição de Session inalterada. |
+| `7ef23cfad3`, `12cddd0f87` | Preservar o pre-push sem imposição de mise e a reformulação do serviço de notificação Feishu; a verificação continua passando pelo gate original; não enviar notificações reais nem ajustar credenciais de CI externas. |
 
-显式冲突仅在 `steps/steps.md`：保留双方新增记录。上游 Todo105 与本分支模型精简 Todo105 重号，将上游账号状态记录改为 Todo114，更新引用；历史 T105 用例及证据路径不改。
+Conflitos explícitos existem apenas em `steps/steps.md`: preservar os registros adicionados pelos dois lados. O upstream Todo105 e o Todo105 de simplificação de modelos deste branch têm o mesmo número; o registro de estado de conta do upstream passou a Todo114, com as referências atualizadas; os casos e caminhos de evidência históricos do T105 não mudam.
 
-隐式交集：上游 `runtime-reasoning-provider-replay.test.ts` 调用 Todo109 已删除的 `migrateLegacyModelSelection`，首次 16 个用例均报 TypeError。按本分支正式 migration 裁决修测试：临时空库播种旧格式，冷重开执行 0020；断言迁移保留所有旧成员和 reasoning parts，后续两轮请求不改写迁移后的历史行。没有恢复旧运行接口，也没有放宽思考内容断言。
+Interseção implícita: o upstream `runtime-reasoning-provider-replay.test.ts` chama o `migrateLegacyModelSelection`, já removido pelo Todo109, e os primeiros 16 casos falharam com TypeError. O teste foi corrigido conforme a decisão formal de migration deste branch: semear temporariamente um banco vazio com o formato antigo, reabrir a frio executando 0020; afirmar que a migração preserva todos os membros antigos e as reasoning parts, e que as duas rodadas seguintes de requisição não reescrevem as linhas históricas já migradas. Não foi restaurada a antiga interface de runtime nem afrouxada a asserção sobre o conteúdo de pensamento.
 
-## 验证与复审
+## Verificação e revisão
 
-- App/共享配置/账号/通知/数据库：11 文件、361 测试通过。
-- 分享组件：4 文件、48 测试通过。
-- CLI Adapter/Runtime/PDF/会话 migration/回滚读取：修正上述测试后 6 文件、101 测试通过。
-- 合计 21 文件、510 测试通过；根 `pnpm typecheck`、Agent adapters/core 各自 `tsc --noEmit` 通过。
-- `pnpm lint`：0 error / 41 warning；架构检查 0 violation / 0 baseline / 0 new；修改测试格式检查与 diff 空白检查通过。
-- 上游新增行为逐组有保留去向；本分支 migration、历史原值保护、正常读取不再补迁、请求局部兼容、Account 事实同步等边界未恢复旧实现。自动合并的 design 文档保留双方条款。
-- 使用 architecture-governance 与 React best-practices 复审；模块当前均 unmanaged，无新增 owner 或新跨层 IO。
-- 本次不重跑 Pro、完整 Electron、真实手机/SSH 或官方模型网络验签；沿用上游已记录的组件浏览器证据，不把它计入本次 510 条，也不宣称全端全量回归通过。
+- App/config compartilhado/conta/notificação/banco: 11 arquivos, 361 testes passando.
+- Componente de compartilhamento: 4 arquivos, 48 testes passando.
+- CLI Adapter/Runtime/PDF/migration de sessão/leitura de rollback: após corrigir os testes acima, 6 arquivos, 101 testes passando.
+- Total de 21 arquivos, 510 testes passando; `pnpm typecheck` da raiz e `tsc --noEmit` dos Agent adapters/core passaram.
+- `pnpm lint`: 0 error / 41 warning; verificação de arquitetura com 0 violation / 0 baseline / 0 new; verificação de formatação dos testes modificados e verificação de espaços em branco do diff passaram.
+- Cada comportamento novo do upstream tem um destino de preservação; as fronteiras deste branch (migration, proteção do valor original do histórico, leitura normal sem nova migração, compatibilidade local à requisição, sincronização de fatos do Account) não restauraram a implementação antiga. Documentos de design mesclados automaticamente preservam as cláusulas dos dois lados.
+- Reavaliação feita com architecture-governance e React best-practices; os módulos estão atualmente unmanaged, sem novo owner nem nova IO entre camadas.
+- Nesta rodada não foram reexecutados Pro, Electron completo, aparelho real/SSH ou a validação de assinatura de rede de modelos oficiais; reutiliza-se a evidência de navegador em componente já registrada pelo upstream, sem contá-la entre as 510 verificações desta rodada e sem alegar regressão completa em todos os alvos.
 
-## 交付
+## Entrega
 
-形成双亲 merge 提交，staging 全部提交进入当前分支；仅额外修正合并测试接线和文档编号/记录。不推送远端，不改真实用户数据。
+Formado um merge commit com dois pais, com todos os commits do staging entrando no branch atual; as únicas correções adicionais foram a fiação dos testes de merge e a numeração/registro da documentação. Sem push para o remoto e sem alteração de dados reais de usuário.

@@ -1,18 +1,17 @@
-# Todo 25：ZAPI 产品入口与专属兼容退役
+# Todo 25: Aposentadoria da Entrada de Produto ZAPI e de Compatibilidades Exclusivas
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-27
+> Data: 2026-08-27
 >
-> 前置关系：基于 Todo 21 已完成的 ZCode Built-in Config / Registry 权威链；不改变通用 Provider、Model、
-> Account Family 或远程工作区模型选择语义。
+> Pré-requisitos: baseia-se na cadeia autoritativa ZCode Built-in Config / Registry já concluída no Todo 21; não altera a semântica de seleção de modelos nem de Provider, Model, Account Family ou workspace remoto em geral.
 
-## 1. 产品裁决
+## 1. Decisão de produto
 
-`builtin:zapi` 不再是 ZCode 产品中的 Provider。设置页、模型选择、运行时、Telemetry、当前共享类型、当前文档和测试
-不得继续把 ZAPI 表达为可用入口，也不得在目标 Host Registry 缺少它时由 Renderer 静态制造占位 Provider。
+`builtin:zapi` deixa de ser um Provider nos produtos ZCode. A página de configurações, a seleção de modelos, o runtime, a Telemetry, os tipos compartilhados atuais, a documentação atual e os testes
+não podem continuar apresentando o ZAPI como uma entrada disponível, e o Renderer também não pode fabricar estaticamente um Provider placeholder quando o Registry do Host de destino não o possui.
 
-删除后的事实链为：
+Após a remoção, a cadeia de fatos é:
 
 ```text
 ZCode Built-in Release / Personal Config / Account Overlay
@@ -26,46 +25,43 @@ ZCode Built-in Release / Personal Config / Account Overlay
 Renderer 不再维护 builtin:zapi 身份或内网可见性门禁。
 ```
 
-## 2. 删除范围
+## 2. Escopo da Remoção
 
-- 从当前 `BUILTIN_MODEL_PROVIDER_IDS` 与 `BuiltinModelProviderId` 删除 ZAPI；
-- 删除设置页静态 ZAPI Preset、空状态、内部可见性 Hook、专属图标/名称/URL 与模型选择展示特判；
-- 删除仅服务 ZAPI 的 internal-only gate、Runtime Override、Vite 注入和对应测试；
-- 删除 ZAPI Telemetry 标签、Composer family 特判和其他运行时硬编码；
-- Desktop 与 CLI Legacy Provider importer 识别历史 `builtin:zapi` 后直接丢弃，不把它迁移为 Personal Provider
-  或 Environment Configured Default；随之删除旧 ZAPI Anthropic Endpoint、模型格式和 Reasoning 规范化特例；
-- 当前 Design、设置说明和产品文档删除 ZAPI 入口描述；Changelog、历史实施日志和归档计划继续作为历史证据保留；
-- 仅把 ZAPI 当任意 Provider ID 使用的测试改用中性测试 ID，避免测试继续暗示产品支持。
+- Remover o ZAPI do `BUILTIN_MODEL_PROVIDER_IDS` e do `BuiltinModelProviderId` atuais;
+- Remover da página de configurações o ZAPI Preset estático, o estado vazio, o Hook de visibilidade interna, os ícones/nomes/URLs exclusivos e os casos especiais de exibição na seleção de modelos;
+- Remover o internal-only gate, o Runtime Override, a injeção do Vite e os testes correspondentes que servem apenas ao ZAPI;
+- Remover os rótulos de Telemetry do ZAPI, os casos especiais de family no Composer e outros hardcodes de runtime;
+- Os importers de Legacy Provider do Desktop e do CLI, ao reconhecer o histórico `builtin:zapi`, o descartam diretamente, sem migrá-lo para Personal Provider nem para Environment Configured Default; com isso, os antigos casos especiais de Endpoint Anthropic, formato de modelo e normalização de Reasoning do ZAPI são removidos;
+- Os Design, instruções de configurações e documentos de produto atuais removem a descrição da entrada ZAPI; Changelog, logs históricos de implementação e planos arquivados continuam preservados como evidência histórica;
+- Os testes que usavam ZAPI apenas como um ID de Provider arbitrário passam a usar um ID de teste neutro, evitando que os testes continuem sugerindo suporte do produto.
 
-通用 `SystemService.probeIntranet`、内网依赖下载地址和 `INTRANET_MACHINE_HOST` 不属于 ZAPI，继续保留。
+O `SystemService.probeIntranet` genérico, o endereço de download das dependências internas e o `INTRANET_MACHINE_HOST` não pertencem ao ZAPI e continuam mantidos.
 
-## 3. 兼容边界
+## 3. Limites de Compatibilidade
 
-- 不提供 ZAPI alias、隐藏入口、Feature Flag 或重新启用路径；
-- Bundled Config 当前没有 ZAPI，不新增 tombstone Provider；
-- Remote / Active / LKG Release 如果包含 `builtin:zapi`，整份 Release 视为不兼容并回落到其他兼容候选；
-- 旧物理配置中的 ZAPI 在一次性 importer 边界被忽略；其他 Provider 原样迁移；
-- 远端 ZCode Built-in Release 应停止下发 ZAPI。客户端不再为缺失的 ZAPI 创建幽灵入口。
+- Não fornecer alias do ZAPI, entrada oculta, Feature Flag ou caminho de reativação;
+- A Bundled Config atual não tem ZAPI, e nenhum Provider tombstone é adicionado;
+- Se um Release Remote / Active / LKG contiver `builtin:zapi`, o Release inteiro é considerado incompatível e cai para outros candidatos compatíveis;
+- O ZAPI em configurações físicas antigas é ignorado na fronteira do importer de uso único; os demais Providers são migrados como estão;
+- O ZCode Built-in Release remoto deve parar de distribuir o ZAPI. O cliente não cria mais entradas fantasma para o ZAPI ausente.
 
-## 4. 验收
+## 4. Aceitação
 
-- 当前源代码、正式配置和非历史文档不再出现 `builtin:zapi` / `ZAPI` 产品入口；
-- `isBuiltinModelProviderId("builtin:zapi")` 返回 `false`；
-- Settings Preset 列表不包含 ZAPI；
-- Legacy Store 同时包含 ZAPI 和普通 Provider 时，仅普通 Provider 被导入；
-- Desktop、Web 与 Remote Settings 都只消费目标 Host Registry，不执行 ZAPI 内网探测；
-- 定向单测、`pnpm typecheck` 与 `pnpm lint` 通过。
+- O código-fonte atual, as configurações oficiais e a documentação não histórica não contêm mais as entradas de produto `builtin:zapi` / `ZAPI`;
+- `isBuiltinModelProviderId("builtin:zapi")` retorna `false`;
+- A lista de Settings Preset não contém ZAPI;
+- Quando o Legacy Store contém tanto ZAPI quanto Providers comuns, apenas os Providers comuns são importados;
+- Desktop, Web e Remote Settings consomem apenas o Registry do Host de destino, sem executar a detecção de rede interna do ZAPI;
+- Os testes unitários direcionados, `pnpm typecheck` e `pnpm lint` passam.
 
-## 5. 实施结果
+## 5. Resultado da Implementação
 
-- 当前 Built-in 身份、Settings Preset、模型选择展示、Telemetry 与 Composer 已删除 ZAPI；
-- ZAPI 专属 internal-only gate、Renderer Hook、Runtime Override 与 Vite 注入已删除；
-- ZCode Built-in Release 解码拒绝包含退役 ID 的 Remote、Active 或 LKG 候选，避免远端旧配置重新发布 ZAPI；
-- Desktop Legacy Store Reader 与 CLI importer 仅保留私有 retired ID，并在任何归一化前直接丢弃旧 ZAPI
-  Provider 和默认选择；
-- 当前 Provider、内网探测、设置页和模型选择文档已同步，历史日志与 Changelog 不改写；
-- Bootstrap 定向测试 39/39 与 ZAPI Legacy 远程权威用例通过；Todo 24 收口后的 CLI
-  Provider/Adapter/Bootstrap 合并回归 228/228 通过；
-- 根 `pnpm lint` 为 0 error（34 条既有 warning），根 `pnpm typecheck` 通过；
-- 根全量 Unit 仅受宿主缺少系统 `zip` 的两个无关 Windows ZIP 用例阻塞；隔离补入兼容命令后对应 17/17 通过；
-- 本轮修改文件定向格式检查通过；根 `pnpm fmt:check` 仍被仓库既有二进制文件和 Electron 上游示例 HTML 解析错误阻塞。
+- A identidade Built-in atual, os Settings Preset, a exibição na seleção de modelos, a Telemetry e o Composer já removeram o ZAPI;
+- O internal-only gate exclusivo do ZAPI, o Hook do Renderer, o Runtime Override e a injeção do Vite foram removidos;
+- A decodificação do ZCode Built-in Release rejeita candidatos Remote, Active ou LKG que contenham o ID aposentado, evitando que uma configuração remota antiga volte a publicar o ZAPI;
+- O Desktop Legacy Store Reader e o importer do CLI mantêm apenas o ID privado retired e descartam antes de qualquer normalização o antigo Provider ZAPI e a seleção padrão;
+- Os Providers atuais, a detecção de rede interna, a página de configurações e a documentação de seleção de modelos foram sincronizados, enquanto logs históricos e o Changelog não são reescritos;
+- Os testes direcionados de Bootstrap 39/39 e o caso de autoridade remota ZAPI Legacy passaram; a regressão de merge de Provider/Adapter/Bootstrap do CLI após o fechamento do Todo 24 passou 228/228;
+- O `pnpm lint` raiz tem 0 error (34 warnings pré-existentes), e o `pnpm typecheck` raiz passou;
+- A suíte unitária completa da raiz só foi bloqueada por dois casos ZIP do Windows sem relação, por falta do utilitário de sistema `zip` no host; com a inclusão isolada de um comando compatível, os casos correspondentes passaram 17/17;
+- A verificação de formatação direcionada dos arquivos alterados nesta rodada passou; o `pnpm fmt:check` raiz continua bloqueado por arquivos binários já existentes no repositório e por erro de parsing de HTML de exemplo upstream do Electron.

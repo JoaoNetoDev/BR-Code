@@ -1,32 +1,25 @@
-# Desktop 未读 Badge
+# Badge de não lidas no Desktop
 
-## 目标
+## Objetivo
 
-Desktop 把 ZCode task 的未读数显示到应用 Dock / launcher badge，口径以 task meta 的 `unreadAt` 为准，也就是“后台完成后还没点开看的 task 数”。
+O Desktop exibe a contagem de não lidas das tasks do ZCode no Dock / badge do launcher do aplicativo, com base no `unreadAt` do meta da task, ou seja, "o número de tasks que concluíram em segundo plano e ainda não foram abertas".
 
-## 数据流
+## Fluxo de dados
 
-1. task 的持久未读权威是 tasks-index meta `unreadAt`。V4 `sessions-index` 不携带这个组织态字段，列表通过
-   `taskListMembershipSets` 平行读取后 join 到 session summary。
-2. UI 的 `countAllUnreadTasks` 从各 workspace 可见 task meta 统计未读，并用
-   `workspaceIdentity?.trim() || workspacePath + taskId` 去重；只有列表尚未加载时才兼容旧临时 map。
-3. `useRootPlatformEffects` 调用 `IPlatformService.syncWindowUnreadCount(count)`，只同步当前窗口总数，
-   不让 UI 直接感知 Electron。
-4. Desktop preload / renderer bridge 通过 `PlatformChannels.SyncWindowUnreadCount` 发给 main。
-5. Main 维护 `windowId -> unreadCount` map，窗口更新或关闭时重算应用总数，再调用
-   `app.setBadgeCount(totalUnread)`；Windows 当前由平台实现决定是否展示，不在 UI 分支写特例。
+1. A autoridade persistida de não lida de uma task é o `unreadAt` do meta do tasks-index. O `sessions-index` do V4 não carrega esse campo de estado organizacional, então a lista faz uma leitura paralela via `taskListMembershipSets` e faz join com o session summary.
+2. O `countAllUnreadTasks` da UI conta as não lidas a partir do meta das tasks visíveis em cada workspace e deduplica usando `workspaceIdentity?.trim() || workspacePath + taskId`; o map temporário antigo só é usado por compatibilidade quando a lista ainda não foi carregada.
+3. `useRootPlatformEffects` chama `IPlatformService.syncWindowUnreadCount(count)`, sincronizando apenas o total da janela atual, sem fazer a UI perceber o Electron diretamente.
+4. O preload / renderer bridge do Desktop envia ao main por `PlatformChannels.SyncWindowUnreadCount`.
+5. O main mantém um map `windowId -> unreadCount`, recalcula o total do aplicativo quando uma janela é atualizada ou fechada e chama `app.setBadgeCount(totalUnread)`; no Windows, decidir se o badge é exibido fica a cargo da implementação de plataforma, sem casos especiais na UI.
 
-## 约束
+## Restrições
 
-- Badge 不混入失败红点、permission request 等其他 UI 状态，避免语义漂移。
-- automation 的 schedule / manual run 收到与本轮 `traceId` 匹配的 `succeeded`、`failed` 或 `stopped`
-  终态后，host 必须通过 `setTaskUnread(..., true)` 持久化关联 task 的 `unreadAt`。该规则不使用
-  renderer 的 active session 推断“正在阅读”；用户显式点击 task 后由
-  `useWorkspaceTaskNavigation` 清除持久状态，并同步 task query cache 的乐观值。
-- Web 平台保持空实现，保证 desktop / web 共享同一套 `IPlatformService` 接口。
-- 窗口关闭时会清理对应 unread 记录，防止 badge 卡住。
+- O badge não mistura outros estados de UI, como ponto vermelho de falha ou permission request, para evitar deriva de semântica.
+- Quando o schedule / manual run da automation recebe o estado final `succeeded`, `failed` ou `stopped` correspondente ao `traceId` da rodada, o host deve persistir o `unreadAt` da task associada via `setTaskUnread(..., true)`. Essa regra não infere "está sendo lido" a partir da sessão ativa do renderer; após o usuário clicar explicitamente na task, `useWorkspaceTaskNavigation` limpa o estado persistido e sincroniza o valor otimista do cache de query da task.
+- A plataforma Web mantém uma implementação vazia, garantindo que desktop / web compartilhem a mesma interface `IPlatformService`.
+- Ao fechar uma janela, o registro de não lidas correspondente é limpo, evitando que o badge fique travado.
 
-## 当前代码入口
+## Pontos de entrada no código atual
 
 - `packages/ui/src/lib/unreadTaskCount.ts`
 - `packages/ui/src/lib/taskListMembershipSets.ts`

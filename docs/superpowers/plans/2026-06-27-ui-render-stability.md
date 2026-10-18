@@ -1,93 +1,93 @@
-# UI Render Stability Implementation Plan
+# Plano de implementação: estabilidade de renderização da UI
 
-> 状态（2026-07-15）：已实施，本文保留为历史实施计划。当前实现以 `packages/ui/src/TaskList.tsx`、
-> `packages/ui/src/TaskListItem.tsx` 和 `packages/ui/src/app-shell/WorkspaceShellLayout.tsx` 为准；
-> 下文复选框是计划模板，不代表当前完成度，旧 `ChatMessage` 相关步骤也不代表 V4 会话渲染结构。
+> Status (2026-07-15): implementado; este documento é mantido como plano de implementação histórico. A implementação atual segue `packages/ui/src/TaskList.tsx`,
+> `packages/ui/src/TaskListItem.tsx` e `packages/ui/src/app-shell/WorkspaceShellLayout.tsx`;
+> os checkboxes abaixo são um template de plano e não representam o progresso atual; os antigos passos relacionados a `ChatMessage` também não representam a estrutura de renderização de sessões V4.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentic:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Reduce repeated workspace UI renders in large sessions without changing task, shell, menu, or composer behavior.
+**Goal:** reduzir renderizações repetidas da UI de workspace em sessões grandes, sem alterar o comportamento de tasks, shell, menus ou composer.
 
-**Architecture:** Stabilize props at existing component boundaries and defer heavy per-row context-menu content until the menu opens. Keep business state in current stores; use refs only to read latest values inside stable event callbacks.
+**Architecture:** estabilizar as props nas fronteiras de componentes existentes e adiar o conteúdo pesado do menu de contexto por linha até o menu abrir. Manter o estado de negócio nos stores atuais; usar refs apenas para ler valores mais recentes dentro de callbacks de evento estáveis.
 
-**Tech Stack:** React 19, TypeScript, Zustand, Radix context menus/tooltips, Vitest.
+**Tech Stack:** React 19, TypeScript, Zustand, menus de contexto/tooltips do Radix, Vitest.
 
-## Global Constraints
+## Restrições globais
 
-- UI changes must follow `DESIGN.md`; no visual redesign is part of this work.
-- Desktop continuous task flow and web remote replayable task flow must remain separate.
-- UI logging, if added, must use `packages/ui/src/logger.ts`; this plan does not require new logging.
-- Import paths must stay absolute.
-- Run `pnpm typecheck` and `pnpm lint` before commit.
+- Mudanças de UI devem seguir o `DESIGN.md`; nenhum redesenho visual faz parte deste trabalho.
+- O fluxo continuous de tasks no desktop e o fluxo replayable de tasks no web remoto devem permanecer separados.
+- O logging da UI, se adicionado, precisa usar `packages/ui/src/logger.ts`; este plano não exige novo logging.
+- Os caminhos de import precisam permanecer absolutos.
+- Executar `pnpm typecheck` e `pnpm lint` antes do commit.
 
 ---
 
-### Task 1: TaskList row action stability
+### Task 1: Estabilidade das ações de linha do TaskList
 
 **Files:**
 - Modify: `packages/ui/src/TaskList.tsx`
 - Test: `packages/ui/test/taskListRenderStability.test.ts`
 
 **Interfaces:**
-- Produces stable props for `MemoTaskItem`: `onArchiveTaskInline`, `onCancelArchiveConfirm`, `onTogglePinTask`, `onStartRenameTask`, `onArchiveTask`, `onMarkTaskAsUnread`.
+- Produz props estáveis para `MemoTaskItem`: `onArchiveTaskInline`, `onCancelArchiveConfirm`, `onTogglePinTask`, `onStartRenameTask`, `onArchiveTask`, `onMarkTaskAsUnread`.
 
-- [ ] Add a failing test that re-renders `TaskList` with changed local state inputs while task data is unchanged, then asserts unchanged row action props keep reference identity.
-- [ ] Run the specific test and verify it fails because the current row action props change.
-- [ ] Refactor `TaskList` callbacks to read latest mutable values through refs where necessary and keep callback references stable.
-- [ ] Run the specific test and verify it passes.
+- [ ] Adicionar um teste que falha, re-renderizando `TaskList` com entradas de estado local alteradas enquanto os dados das tasks não mudam, e então afirmar que as props de ação de linha inalteradas mantêm a identidade de referência.
+- [ ] Executar o teste específico e verificar que ele falha porque as props de ação de linha atuais mudam.
+- [ ] Refatorar os callbacks de `TaskList` para ler valores mutáveis mais recentes por refs onde necessário e manter as referências dos callbacks estáveis.
+- [ ] Executar o teste específico e verificar que ele passa.
 
-### Task 2: TaskListItem menu and hover content deferral
+### Task 2: Atraso de menu e conteúdo de hover no TaskListItem
 
 **Files:**
 - Modify: `packages/ui/src/TaskListItem.tsx`
 - Test: `packages/ui/test/taskListItemHoverActions.test.ts`
 
 **Interfaces:**
-- Keeps the current `TaskListItemContextMenu` open-only rendering behavior covered by a focused test.
-- Keeps `loadTaskPaths` and `loadProviderConfig` tied to the open state.
-- Defers hover-only archive tooltip/action content until the row is hovered or already confirming archive.
+- Mantém o comportamento atual de renderização apenas-when-open do `TaskListItemContextMenu`, coberto por um teste focado.
+- Mantém `loadTaskPaths` e `loadProviderConfig` vinculados ao estado de abertura.
+- Adia o conteúdo de tooltip/ação de arquivamento exclusivo de hover até a linha ter o mouse sobre ela ou já estar confirmando o arquivamento.
 
-- [ ] Add a test proving closed task rows do not render `TaskListItemContextMenu`.
-- [ ] Add a test proving opening the row context menu renders menu content once.
-- [ ] Add a failing test proving idle rows do not mount the hover-only archive tooltip/action.
-- [ ] Gate hover-only action content behind hover/archive-confirming state while preserving `ContextMenu` trigger behavior.
-- [ ] Run the specific tests and verify they pass.
+- [ ] Adicionar um teste comprovando que linhas de task fechadas não renderizam `TaskListItemContextMenu`.
+- [ ] Adicionar um teste comprovando que abrir o menu de contexto da linha renderiza o conteúdo do menu uma única vez.
+- [ ] Adicionar um teste que falhe comprovando que linhas ociosas não montam o tooltip/ação de arquivamento exclusivo de hover.
+- [ ] Condicionar o conteúdo de ação exclusivo de hover ao estado de hover/confirmação de arquivamento, preservando o comportamento de trigger do `ContextMenu`.
+- [ ] Executar os testes específicos e verificar que passam.
 
-### Task 3: Workspace shell stable reset/callback props
+### Task 3: Props estáveis de reset/callback no shell do workspace
 
 **Files:**
 - Modify: `packages/ui/src/app-shell/WorkspaceShellLayout.tsx`
-- Test: existing render-stability tests or a focused new test if the component boundary can be isolated cheaply.
+- Test: os testes existentes de estabilidade de renderização, ou um novo teste focado se a fronteira do componente puder ser isolada com baixo custo.
 
 **Interfaces:**
-- Stabilizes `resetKeys` arrays and render callback props passed to boundaries and mobile shell.
+- Estabiliza os arrays de `resetKeys` e as props de callback de renderização passadas às fronteiras e ao shell mobile.
 
-- [ ] Memoize reset key arrays by their semantic values.
-- [ ] Memoize render callbacks that are passed as props.
-- [ ] Run affected UI tests.
+- [ ] Memoizar os arrays de reset key pelos seus valores semânticos.
+- [ ] Memoizar os callbacks de renderização que são passados como props.
+- [ ] Executar os testes de UI afetados.
 
-### Task 4: Chat composer and toolbar stable props
+### Task 4: Props estáveis no composer e na barra de ferramentas do chat
 
 **Files:**
 - Inspect/modify: `packages/ui/src/ChatView.tsx`
 - Inspect/modify: `packages/ui/src/ChatView/ChatViewComposer.tsx`
 - Inspect/modify: `packages/ui/src/ChatView/ChatPromptEditor.tsx`
-- Inspect/modify: related toolbar controls if they own the unstable props.
+- Inspect/modify: controles relacionados da barra de ferramentas, caso sejam eles os donos das props instáveis.
 
 **Interfaces:**
-- Stabilizes equivalent `attachmentAction`, submit control, `initialConfig`, and toolbar callbacks where they cross memoized component boundaries.
+- Estabiliza `attachmentAction`, o controle de submit, `initialConfig` e os callbacks da barra de ferramentas equivalentes, onde eles cruzam fronteiras de componentes memoizados.
 
-- [ ] Add or extend a focused render-stability test if an existing composer test can isolate the boundary.
-- [ ] Memoize equivalent action objects and callbacks.
-- [ ] Run affected UI tests.
+- [ ] Adicionar ou estender um teste focado de estabilidade de renderização, se um teste existente de composer conseguir isolar a fronteira.
+- [ ] Memoizar os objetos de ação e callbacks equivalentes.
+- [ ] Executar os testes de UI afetados.
 
-### Task 5: Final verification
+### Task 5: Verificação final
 
 **Files:**
-- All changed code and docs.
+- Todo o código e a documentação alterados.
 
-- [ ] Run targeted tests for the changed UI files.
-- [ ] Run `pnpm typecheck`.
-- [ ] Run `pnpm lint`.
-- [ ] Review `git diff`.
-- [ ] Commit with a Conventional Commits message.
+- [ ] Executar os testes direcionados dos arquivos de UI alterados.
+- [ ] Executar `pnpm typecheck`.
+- [ ] Executar `pnpm lint`.
+- [ ] Revisar o `git diff`.
+- [ ] Commitar com uma mensagem de Conventional Commits.

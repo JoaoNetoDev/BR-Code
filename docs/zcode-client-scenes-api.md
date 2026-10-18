@@ -1,81 +1,69 @@
-# ZCode Client Scenes 接口
+# API de ZCode Client Scenes
 
-## 目标
+## Objetivo
 
-App 服务层注册 ZCode Client Scenes 接口，供后续场景消费方通过统一的
-`ApiClient` 请求出口读取服务端场景配置，避免业务代码硬编码测试域名或绕过 ZCode
-通参注入。
+A camada de serviço do App registra a API de ZCode Client Scenes, para que os consumidores de cenas possam ler a configuração de cenas do servidor pela saída de requisição unificada
+`ApiClient`, evitando que o código de negócio faça hardcode de domínios de teste ou contorne a injeção de parâmetros comuns do ZCode.
 
-## 请求契约
+## Contrato da requisição
 
-- 方法：`GET`
-- 路径：`/api/v1/client/scenes`
-- 测试环境示例：`https://zcode.z.ai/api/v1/client/scenes`
-- URL 必须通过 `buildRuntimeZCodeApiUrl(process.env, path)` 构造，使生产、测试以及
-  运行时 endpoint override 继续遵循现有环境切换规则。
-- 调用方必须使用注入的 `ApiClient` 发起请求。`NodeApiClient` 在请求命中当前 ZCode
-  endpoint 时统一注入来源通参、设备标识和 request id；调用方不得重复手写这些
-  headers。
-- 本接口不要求新增 query 参数或 Authorization header。
+- Método: `GET`
+- Caminho: `/api/v1/client/scenes`
+- Exemplo de ambiente de teste: `https://zcode.z.ai/api/v1/client/scenes`
+- A URL deve ser construída por `buildRuntimeZCodeApiUrl(process.env, path)`, para que produção, teste e
+  o override de endpoint em runtime continuem seguindo as regras existentes de troca de ambiente.
+- O chamador deve usar o `ApiClient` injetado para disparar a requisição. O `NodeApiClient` injeta uniformemente os parâmetros comuns de origem, o identificador de dispositivo e o request id quando a requisição atinge o endpoint ZCode atual; o chamador não deve reescrever à mão esses
+  headers.
+- Esta API não exige novos query params nem header de Authorization.
 
-## 响应边界
+## Limites da resposta
 
-接口成功响应使用 `ClientSceneResponseBody<ClientSceneConfig[]>`：`{ code, msg, data }`。
-`data` 是服务端动态下发的场景数组，允许为空。Service 层不解释具体 scene；各 UI 消费方
-只匹配自己声明的 scene 与 option key，未知配置必须忽略。
+A resposta de sucesso da API usa `ClientSceneResponseBody<ClientSceneConfig[]>`: `{ code, msg, data }`.
+`data` é o array de cenas enviado dinamicamente pelo servidor e pode estar vazio. A camada de Service não interpreta scenes específicas; cada consumidor de UI
+apenas casa as scenes e option keys que declarou, e configurações desconhecidas devem ser ignoradas.
 
-- `ClientSceneConfig`：`namespace`、`scene`、`options`；`created_at` / `updated_at` 可选。
-- `ClientSceneOption`：i18n `contents`；`prompts`、`items`、`templates` 与级联筛选的
-  `refer` / `cascades` 均按 scene 可选。
-- `ClientSceneItem`：i18n `contents` / `labels`；`descs`、完成事件、Lucide 图标名、兼容保留的
-  `imgs` 及分享链接按 scene 可选。
-- `on_finish`、`img` 可缺省或为 `null`；`imgs` 以及其中的 `cn` / `en` 均为可选字段。
+- `ClientSceneConfig`: `namespace`, `scene`, `options`; `created_at` / `updated_at` são opcionais.
+- `ClientSceneOption`: `contents` de i18n; `prompts`, `items`, `templates` e o `refer` / `cascades` de filtro em cascata são opcionais conforme a scene.
+- `ClientSceneItem`: `contents` / `labels` de i18n; `descs`, evento de conclusão, nome de ícone Lucide, os `imgs` mantidos por compatibilidade e o link de compartilhamento são opcionais conforme a scene.
+- `on_finish` e `img` podem estar ausentes ou ser `null`; `imgs` e, dentro dele, `cn` / `en` são todos campos opcionais.
 
-## 范围
+## Escopo
 
-App 服务层通过独立的 `clientScenesService.list()` 暴露只读查询；服务内部使用统一
-`ApiClient`，UI 不直接调用 `fetch`，也不接触 Host 端点常量。
+A camada de serviço do App expõe a consulta somente-leitura por meio de um `clientScenesService.list()` independente; internamente o serviço usa o `ApiClient` unificado, e a UI não chama `fetch` diretamente nem toca em constantes de endpoint do Host.
 
-Renderer 的多个 React 消费方通过共享 `useClientScenesResource()` 读取同一份原始
-`ClientSceneConfig[]`。该资源使用 SWR 的 renderer-memory cache，以当前注入的
-`IClientScenesService` 实例作为 authority 隔离边界：相同 Service 实例的并发挂载只发出一次
-`list()`，Service/Host attachment 替换后使用新的 cache key，不复用旧 authority 的结果。
-缓存不写入 localStorage、automation、off-peak 或 session 持久化。
+Vários consumidores React do Renderer leem o mesmo `ClientSceneConfig[]` bruto através do `useClientScenesResource()` compartilhado. Esse recurso usa o cache em memória do renderer do SWR, tendo a instância de `IClientScenesService` injetada atualmente como fronteira de isolamento de authority: montagens concorrentes da mesma instância de Service emitem apenas um
+`list()`, e após a troca do attachment de Service/Host passa-se a usar uma nova cache key, sem reutilizar o resultado da authority anterior.
+O cache não é gravado em localStorage, automação, off-peak ou persistência de sessão.
 
-模板配置属于低频更新数据。成功结果在 10 分钟 dedupe 窗口内直接复用；不轮询，窗口重新聚焦或
-网络恢复时允许 SWR 在窗口外重新校验。冷启动没有缓存时消费方进入 loading；已有缓存时立即展示
-last-known-good 数据并在需要时后台重验，不退回骨架。网络错误或 `code !== 0` 均视为本次重验失败：
-保留已有缓存；冷启动失败才降级为空目录，且不得阻断 Composer 或任务的手动创建入口。
+A configuração de templates é dado de atualização de baixa frequência. Resultados bem-sucedidos são reutilizados diretamente dentro de uma janela de dedupe de 10 minutos; não há polling, e ao regaindo o foco da janela ou da rede o SWR pode revalidar fora da janela. Na cold start sem cache o consumidor entra em loading; com cache já existente, exibe imediatamente os dados
+last-known-good e revalida em segundo plano quando necessário, sem voltar ao esqueleto. Erro de rede ou `code !== 0` são considerados falha desta revalidação:
+o cache existente é mantido; somente a falha na cold start degrada para um catálogo vazio, e ela não pode bloquear a entrada de criação manual do Composer ou de tasks.
 
-Desktop macOS 点击关闭按钮时主窗口会被隐藏而不是销毁，renderer 及其内存缓存仍存活。共享资源层
-必须监听 Page Visibility：只有实际经历 `hidden -> visible` 才把当前 Scene 缓存标记为失效，并按
-Service authority + SWR cache authority 合并为一次强制重验；普通 focus 且未隐藏仍沿用 10 分钟节流。
-强制重验绕过去重窗口，但请求期间继续展示 last-known-good，失败也不清空已有目录。Web 标签页与
-手机浏览器从后台恢复时使用同一语义；仅首次收到 visible、重复 hidden 或重复 visible 均不得额外请求。
+No Desktop macOS, ao clicar no botão de fechar a janela principal é ocultada em vez de destruída, e o renderer e seu cache em memória continuam vivos. A camada de recurso compartilhada
+precisa observar o Page Visibility: somente quando ocorre de fato `hidden -> visible` o cache da Scene atual é marcado como inválido e, por Service authority + SWR cache authority, combinado em uma única
+revalidação forçada; um focus comum sem ocultação continua usando o throttle de 10 minutos.
+A revalidação forçada ignora a janela de dedupe, mas durante a requisição os dados last-known-good continuam sendo exibidos e a falha também não esvazia o catálogo existente. Abas Web e navegadores de celular retomando do
+fundo usam a mesma semântica; apenas receber visible pela primeira vez, hidden repetido ou visible repetido não podem gerar requisições extras.
 
-`ConversationDraftSuggestedPromptsContainer` 在当前 workspace RPC 就绪后调用
-`clientScenesService.list()`，并把 `scene === "draft-suggestion"` 的 `options.prompts.items` 映射为推荐提示词；
-旧的 `ai-writing` 不再作为该入口的 fallback。
-映射细节和失败边界见 `docs/ui/conversation-draft-suggested-prompts.md`。
+`ConversationDraftSuggestedPromptsContainer` chama `clientScenesService.list()` depois que a RPC do workspace atual está pronta e mapeia `options.prompts.items` das cenas com `scene === "draft-suggestion"` como prompts sugeridos;
+o antigo `ai-writing` deixa de ser o fallback dessa entrada.
+Os detalhes de mapeamento e os limites de falha estão em `docs/ui/conversation-draft-suggested-prompts.md`.
 
-`AutomationsSection` 与 `OffPeakNewTaskEntry` 还消费两个明确 scene：
+`AutomationsSection` e `OffPeakNewTaskEntry` também consomem duas scenes explícitas:
 
-- `scheduled-task`：prompt item 的 `labels` 是标题、`contents` 是 description/instructions；
-  `defaults.cronExpr` 反向引用 `options.cronExpr.items`，cron 只取被引用 item 的 `contents`，
-  UI 先校验 Service 合法性和 Automation 编辑器无损往返能力，再用本地调度描述器展示，忽略 cron item `labels`。
-- `off-peak-task`：prompt item 的 `labels` 是标题；仅 New task 首页卡片 description 按 locale
-  优先取 `descs`，对应语言缺失或空白时回退 `contents`；Automations 卡片 description 与创建草稿的
-  instructions 始终取 `contents`；
-  Automations 只展示远程目录并在空目录时显示「无可用模板」；New task 首页在远程映射后追加本地
-  Customize，若远程目录已经包含 Customize 则不重复追加。
-  Customize 的稳定标题和描述只通过 `offPeak.newTask.template.customize.title` /
-  `.description` 在渲染时走 intl，目录映射不再保存另一份 cn/en 文案。
+- `scheduled-task`: os `labels` do prompt item são o título e os `contents` são description/instructions;
+  `defaults.cronExpr` referencia inversamente `options.cronExpr.items`, e o cron usa apenas os `contents` do item referenciado;
+  a UI primeiro valida a legalidade do Service e a capacidade de round-trip sem perdas do editor de Automations, depois exibe com o descritor de agendamento local, ignorando os `labels` do cron item.
+- `off-peak-task`: os `labels` do prompt item são o título; apenas a description do card da página inicial New task prioriza `descs` por locale,
+  com fallback para `contents` quando o idioma correspondente estiver ausente ou em branco; a description dos cards de Automations e as instructions de criação de rascunho sempre usam `contents`;
+  Automations exibe apenas o catálogo remoto e mostra «无可用模板» quando o catálogo está vazio; a página inicial New task acrescenta o Customize local após o mapeamento remoto e não o duplica se o catálogo remoto já contiver Customize.
+  O título e a descrição estáveis do Customize passam apenas por intl na renderização, via `offPeak.newTask.template.customize.title` /
+  `.description`, e o mapeamento do catálogo não guarda mais uma segunda cópia dos textos cn/en.
 
-`draft-suggestion`、`scheduled-task` 与 `off-peak-task` 的 prompt item 均把 `img` 解释为 Lucide
-canonical 名称（kebab-case，例如 `file-text`），不得再把它作为图片 URL 请求。首页与 Automations 面板
-按名称动态加载 SVG，图标使用 `currentColor` 继承所在图标槽的语义字色；`img` 缺失、空白、名称不属于
-当前 Lucide 版本或模块加载失败时，必须回退到各入口已有的本地 Lucide 语义图标。`imgs` 不参与这些
-入口的图标选择。
+Nas scenes `draft-suggestion`, `scheduled-task` e `off-peak-task`, o prompt item interpreta `img` como um nome canônico Lucide
+(kebab-case, por exemplo `file-text`) e não deve mais tratá-lo como URL de imagem a ser requisitada. A página inicial e o painel de Automations carregam o SVG dinamicamente pelo nome, e o ícone usa `currentColor`
+herdando a cor semântica do slot de ícone onde está; quando `img` está ausente, em branco, o nome não pertence à versão atual do Lucide ou o módulo falha ao carregar, é obrigatório voltar ao ícone semântico Lucide local já existente em cada entrada. `imgs` não participa da escolha de ícone dessas
+entradas.
 
 ```text
 ClientSceneItem.img
@@ -84,23 +72,20 @@ ClientSceneItem.img
      -> missing/unknown/load failure ----------> surface-local Lucide fallback
 ```
 
-两种 scene 中 `labels.cn` / `labels.en` 均为空的 prompt item 必须拒绝，不得进入卡片或创建表单。
+Prompt items com `labels.cn` / `labels.en` ambos vazios em qualquer uma das duas scenes devem ser rejeitados e não podem entrar em cards nem em formulários de criação.
 
-两者都只提供候选模板。点击只把当前 locale 的普通字符串复制到表单草稿；scene/item/default
-元数据不进入 automation 或 off-peak 持久化。请求失败不得阻断手动创建。
+Ambas oferecem apenas templates candidatos. O clique apenas copia a string simples do locale atual para o rascunho do formulário; os metadados de scene/item/default não entram na persistência de automation nem de off-peak. Falha na requisição não pode bloquear a criação manual.
 
 ```text
 React consumer mount / workspace attachment change
   -> useClientScenesResource(service authority)
-     -> cache hit --------------------------> 立即返回 last-known-good scenes
+     -> cache hit --------------------------> retorna imediatamente as scenes last-known-good
      -> cold miss -> SWR dedupe -> clientScenesService.list()
-                                  -> Host ApiClient + ZCode 通参
+                                  -> Host ApiClient + parâmetros comuns do ZCode
                                   -> GET /api/v1/client/scenes
-  <- success: 更新共享内存缓存 -> 各消费方独立映射自己的 scene
-  <- failure: 热缓存保持旧值；冷缓存返回空目录
-  -> Service authority 已切换：旧 key 的迟到结果不能进入新 key
+  <- success: atualiza o cache de memória compartilhado -> cada consumidor mapeia sua própria scene
+  <- failure: cache quente mantém o valor antigo; cache frio retorna catálogo vazio
+  -> Service authority trocada: resultado tardio da key antiga não pode entrar na nova key
 ```
 
-本次不改变 Desktop/Web/手机远控的 session、stream 或 workspace 状态链路。桌面本地
-workspace 与 desktop-attached remote workspace 都使用桌面 Host 的 app-global scenes
-服务；server remote 使用 server 权威服务。
+Esta alteração não muda as cadeias de session, stream ou workspace estado do controle remoto Desktop/Web/celular. O workspace local do desktop e o remote workspace anexado ao desktop usam o serviço de scenes app-global do Host do desktop; o remote do servidor usa o serviço autoritativo do servidor.

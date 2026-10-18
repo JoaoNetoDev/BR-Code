@@ -1,32 +1,36 @@
-# Web Remote Control Relay Message Logging (Disabled)
+# Web Remote Control Relay Message Logging (Desativado)
 
-## 目的
-记录远控 relay 消息链路的历史设计与当前关闭策略，避免高频消息摘要继续落盘到 `~/.zcode/v2/logs/web-remote-control`。
+## Objetivo
 
-## 生效环境
-桌面端当前在开发环境和生产环境都不启用 relay message trace，不再写入 `~/.zcode/v2/logs/web-remote-control/web-remote-control-relay-YYYY-MM-DD.log`。
+Registrar o desenho histórico do encadeamento de mensagens do relay de controle remoto e a atual estratégia de desligamento, evitando que resumos de mensagens de alta frequência continuem sendo gravados em `~/.zcode/v2/logs/web-remote-control`.
 
-普通 Web 远控生命周期日志不受影响，仍写入主日志 `~/.zcode/v2/logs/YYYY-MM-DD.log`。
+## Ambiente de vigência
 
-## 覆盖范围
-- 桌面端：`packages/desktop/src/main/webRemoteControlTransport.ts`
+O desktop atualmente não ativa o relay message trace nem em ambiente de desenvolvimento nem em produção, e não grava mais `~/.zcode/v2/logs/web-remote-control/web-remote-control-relay-YYYY-MM-DD.log`.
 
-## 日志内容
-历史 trace 只允许输出消息摘要，不允许输出完整 payload。若未来要重新启用，必须先更新本文件并重新评估日志体积与敏感信息风险。
+Os logs de ciclo de vida normais do Web remote control não são afetados e continuam sendo gravados no log principal `~/.zcode/v2/logs/YYYY-MM-DD.log`.
 
-历史摘要字段包括：
+## Escopo de cobertura
+- Desktop: `packages/desktop/src/main/webRemoteControlTransport.ts`
+
+## Conteúdo dos logs
+
+O trace histórico permite somente a saída de resumos de mensagem, nunca o payload completo. Caso se queira reativá-lo no futuro, é preciso primeiro atualizar este arquivo e reavaliar o volume de logs e o risco de informações sensíveis.
+
+Campos dos resumos históricos incluem:
 - `type`
-- `pair_status`（若有）
-- `role`（若有）
-- `code`（若有）
-- `payload` 摘要：`zcode_type` / `requestId` / `bridgeSessionId`
-- 桌面端 `recv` 额外带 `bytes`
+- `pair_status` (se houver)
+- `role` (se houver)
+- `code` (se houver)
+- Resumo de `payload`: `zcode_type` / `requestId` / `bridgeSessionId`
+- No desktop, `recv` traz ainda `bytes`
 
-## 不记录内容
-当前不记录 relay message trace。未来即使重新启用，也必须继续禁止输出 `data.payload` 全量正文，避免：
-- 日志体积随消息流线性膨胀
-- 敏感信息泄露（文本内容、路径、请求参数）
-- 生产环境 I/O 压力与性能抖动
+## O que não é registrado
 
-## 典型日志前缀
-- 桌面端已禁用：`[web-remote-control][relay-message]`
+Atualmente não se registra o relay message trace. Mesmo que seja reativado no futuro, continua proibido gerar a saída do corpo completo de `data.payload`, evitando:
+- O volume de logs crescer linearmente com o fluxo de mensagens
+- Vazamento de informações sensíveis (conteúdo de texto, caminhos, parâmetros de requisição)
+- Pressão de I/O e oscilações de desempenho em produção
+
+## Prefixo típico de log
+- Desktop desativado: `[web-remote-control][relay-message]`

@@ -1,29 +1,29 @@
-# Coding Plan Plan Card Renew Time
+# Tempo de Renovação do Plan Card do Coding Plan
 
-## 背景
+## Contexto
 
-Model Settings 的 Coding Plan 已购买态 plan card 会展示 5h、1w、MCP 三个剩余额度卡片，但没有展示各额度桶的 renew/reset 时间。Sidebar 的“剩余额度”面板已经通过 `UsageQuotaLimit.nextResetTime` 展示同一类时间，导致同一份额度信息在两个入口口径不一致。
+O plan card do Coding Plan já comprado em Model Settings exibe três cartões de cota restante — 5h, 1w e MCP —, mas não mostra o tempo de renew/reset de cada bucket de cota. O painel "cota restante" da Sidebar já exibe esse mesmo tipo de tempo via `UsageQuotaLimit.nextResetTime`, o que faz a mesma informação de cota aparecer de forma inconsistente em dois pontos de entrada.
 
-## 目标
+## Objetivos
 
-- Coding Plan plan card 的 5h、1w、MCP 剩余额度卡片需要展示 renew 时间。
-- renew 时间展示在剩余百分比右侧，和百分比同一行，避免在进度条下方额外增加一行信息。
-- 时间来源使用对应 `UsageQuotaLimit.nextResetTime`，不从订阅续费时间或过期时间推导。
-- 格式复用 sidebar 剩余额度：
-  - 5h 使用 dateTime，今天内只显示时间，否则显示月日和时间。
-  - 1w 使用 date。
-  - MCP 使用 date。
-- 未返回 `nextResetTime` 或时间非法时，不展示 renew 时间占位。
+- Os cartões de cota restante 5h, 1w e MCP do plan card do Coding Plan precisam exibir o tempo de renew.
+- O tempo de renew é exibido à direita da porcentagem restante, na mesma linha da porcentagem, evitando adicionar uma linha extra de informação abaixo da barra de progresso.
+- A origem do tempo é o `UsageQuotaLimit.nextResetTime` correspondente, e não é derivado do tempo de renovação da assinatura ou do tempo de expiração.
+- O formato reaproveita o da cota restante da sidebar:
+  - 5h usa dateTime: dentro do dia mostra apenas a hora, caso contrário mostra mês/dia e hora.
+  - 1w usa date.
+  - MCP usa date.
+- Quando `nextResetTime` não é retornado ou o tempo é inválido, nenhum placeholder de tempo de renew é exibido.
 
-## 非目标
+## Não objetivos
 
-- 不改变导航侧状态卡片的字段结构。
-- 不改变 Start Plan 模型余额卡片。
-- 不新增服务端字段或协议字段。
+- Não alterar a estrutura de campos do cartão de status da navegação lateral.
+- Não alterar o cartão de saldo de modelos do Start Plan.
+- Não adicionar novos campos de servidor nem de protocolo.
 
-## 验收
+## Aceitação
 
-- 已购买 Coding Plan 详情页中，5h、1w、MCP 三张用量卡在有 `nextResetTime` 时显示对应 renew 时间。
-- renew 时间位于百分比右侧；小屏或长语言环境下允许在同一 flex 行内截断，不撑开卡片。
-- 展示格式与 sidebar 剩余额度一致。
-- `pnpm typecheck` 与 `pnpm lint` 通过。
+- Na página de detalhes do Coding Plan já comprado, os três cartões de uso 5h, 1w e MCP exibem o tempo de renew correspondente quando há `nextResetTime`.
+- O tempo de renew fica à direita da porcentagem; em telas pequenas ou idiomas longos, é permitido truncar dentro da mesma linha flex, sem esticar o cartão.
+- O formato de exibição é consistente com o da cota restante da sidebar.
+- `pnpm typecheck` e `pnpm lint` passam.

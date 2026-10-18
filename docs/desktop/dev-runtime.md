@@ -1,21 +1,18 @@
-# Desktop 开发运行时目录
+# Diretório de runtime de desenvolvimento do Desktop
 
-## 规则与所有者
+## Regras e responsável
 
-- macOS 开发启动脚本 `packages/desktop/scripts/dev.mjs` 指定仓库根目录下的
-  `.zcode-runtime/desktop-dev` 为 Electron 开发副本目录。
-- `prepareDevElectronAppBundle` 通过现有 `runtimeRoot` 参数接收目录，并负责创建、
-  校验和复用 `<Electron 版本>-<架构>/ZCode Dev.app`。
-- 副本保留现有应用身份与 `zcode` 协议声明；Windows、Linux 和打包版本的启动逻辑不变。
-- `.zcode-runtime/` 是可重建的本地产物，必须由 `.gitignore` 忽略。
+- O script de inicialização de desenvolvimento no macOS `packages/desktop/scripts/dev.mjs` define `.zcode-runtime/desktop-dev`, na raiz do repositório, como o diretório da cópia de desenvolvimento do Electron.
+- `prepareDevElectronAppBundle` recebe o diretório pelo parâmetro `runtimeRoot` já existente e é responsável por criar, validar e reutilizar `<Versão do Electron>-<Arquitetura>/ZCode Dev.app`.
+- A cópia preserva a identidade atual do aplicativo e a declaração do protocolo `zcode`; a lógica de inicialização no Windows, no Linux e nas versões empacotadas não muda.
+- `.zcode-runtime/` é um artefato local reconstruível e deve ser ignorado pelo `.gitignore`.
 
-## 切换与失败边界
+## Trocas e limites de falha
 
-启动脚本只使用新目录，不自动迁移或删除旧缓存。新目录不存在时，现有准备函数创建
-副本；创建失败时沿用现有错误传播行为，不回退到旧目录。
+O script de inicialização usa apenas o novo diretório e não migra nem remove caches antigos automaticamente. Quando o novo diretório não existe, a função de preparação existente cria a cópia; se a criação falhar, mantém-se o comportamento existente de propagação do erro, sem recorrer ao diretório antigo.
 
-## 验收
+## Aceitação
 
-1. 启动脚本传入的目录与 `.gitignore` 中的目录一致。
-2. 路径仍按 Electron 版本和架构隔离，准备函数的缓存复用和协议声明逻辑不变。
-3. 通过脚本语法检查、类型检查、Lint 和架构检查。
+1. O diretório informado pelo script de inicialização é o mesmo que está no `.gitignore`.
+2. Os caminhos continuam isolados por versão do Electron e arquitetura, e a lógica de reutilização de cache e de declaração de protocolo da função de preparação permanece inalterada.
+3. Aprovado na verificação de sintaxe do script, na verificação de tipos, no lint e na verificação de arquitetura.

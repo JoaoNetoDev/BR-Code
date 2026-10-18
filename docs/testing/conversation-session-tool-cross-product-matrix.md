@@ -1,39 +1,37 @@
-# Conversation Session Tool Cross Product Matrix
+# Matriz Cruzada Conversation Session × Tool
 
-目标：补齐 conversation-session 的 compact、fork、goal 在“含工具调用历史”下的覆盖。旧口径只用 `Read /tmp/zcode-e2e-readonly-tool.txt` 证明单一只读工具存在，无法代表文件编辑、命令、网络失败态、计划模式、用户问询、session-local 状态和失败态 tool block。
+Objetivo: completar a cobertura de compact, fork e goal da conversation-session no cenário “com histórico de chamadas de ferramentas”. A abordagem antiga usava apenas `Read /tmp/zcode-e2e-readonly-tool.txt` para provar que existe uma única ferramenta somente-leitura, o que não representa edição de arquivos, comandos, estados de falha de rede, modo de planejamento, perguntas ao usuário, estado local da sessão nem tool block em estado de falha.
 
-## 覆盖边界
+## Fronteira de cobertura
 
-强叉乘工具名以 `packages/shared/src/tool-identity.ts`、`apps/zcode-cli/packages/core/src/tool/handlers/index.ts` 和计划模式工具为边界。默认 active 工具要覆盖成功态；条件注册或当前未注册工具也要进入 UI 叉乘，但可以用快速失败态收束，不把工具业务成功率混进 conversation UI spec。没有暴露到本链路的工具不纳入本矩阵。
+Os nomes de ferramentas do叉乘 forte têm como fronteira `packages/shared/src/tool-identity.ts`, `apps/zcode-cli/packages/core/src/tool/handlers/index.ts` e as ferramentas do modo de planejamento. Ferramentas ativas por padrão precisam cobrir o estado de sucesso; ferramentas de registro condicional ou atualmente não registradas também entram no叉乘 da UI, mas podem ser fechadas com um estado de falha rápida, sem misturar a taxa de sucesso de negócio da ferramenta na spec de UI de conversation. Ferramentas não expostas neste encadeamento ficam fora desta matriz.
 
-| 工具                 | 默认状态                     | E2E 输入策略                                                    | 结果形态                     | 清理要求                          |
-| -------------------- | ---------------------------- | --------------------------------------------------------------- | ---------------------------- | --------------------------------- |
-| `Read`               | active                       | 读取专用 fixture 文件                                           | success                      | 删除专用目录                      |
-| `Write`              | active                       | 新建专用文件                                                    | success                      | 删除专用目录                      |
-| `Edit`               | active                       | 用空 `old_string` 新建专用文件                                  | success                      | 删除专用目录                      |
-| `Bash`               | active                       | `printf` 输出 marker                                            | success                      | 无文件写入                        |
-| `Glob`               | active                       | 匹配专用目录下 fixture 文件                                     | success                      | 删除专用目录                      |
-| `Grep`               | search-branch conditional    | direct 分支搜索专用 fixture；embedded search 分支用 registry miss 快速失败 | success / failed tool result | 删除专用目录                      |
-| `WebFetch`           | active                       | 使用合法但非公开 loopback URL 触发受控快速失败；业务成功闭环由 `WF/O10` 覆盖 | failed tool result           | 无外部写入                        |
-| `TodoRead`           | active                       | 读取当前 session todo                                           | success                      | session-local；goal 后用 renderer store 断言历史 toolCalls |
-| `TodoWrite`          | active                       | 写入当前 session todo                                           | success                      | session-local                     |
-| `GoalRead`           | 当前未注册                   | 空输入；若未来注册则读当前 session goal                         | failed tool result / success | session-local                     |
-| `EnterPlanMode`      | active                       | 空输入进入 plan mode                                            | success                      | 后续动作和下一 case 前重设 `yolo` |
-| `ExitPlanMode`       | active                       | 非 plan mode 下调用，验证快速失败 tool block                    | failed tool result           | 无                                |
-| `AskUserQuestion`    | active                       | 单题双选项，测试自动选择第一项                                  | success                      | session-local                     |
-| `ReadSessionContext` | active                       | 读取不存在 session id                                           | success fallback             | session-local                     |
-| `SendMessage`        | conditional                  | 指向不存在的 `agent_*`，或未注册时快速失败                      | failed tool result           | session-local                     |
-| `Agent`              | conditional/default subagent | 非法 `subagent_type`，避免真的派生子 agent                      | failed tool result           | 无                                |
-| `Skill`              | active                       | 加载不存在 skill，验证快速失败 tool block                       | failed tool result           | 无                                |
-| `Workflow`           | 当前未注册                   | 空输入，若未来注册也因缺少 script/name/resumeFromRunId 快速失败 | failed tool result           | 无                                |
+| Ferramenta             | Estado padrão                     | Estratégia de entrada E2E                                           | Forma do resultado               | Requisito de limpeza                  |
+| ---------------------- | --------------------------------- | ------------------------------------------------------------------- | -------------------------------- | ------------------------------------- |
+| `Read`                 | active                            | ler um arquivo fixture dedicado                                     | success                          | apagar o diretório dedicado           |
+| `Write`                | active                            | criar um arquivo dedicado                                           | success                          | apagar o diretório dedicado           |
+| `Edit`                 | active                            | criar arquivo dedicado com `old_string` vazio                      | success                          | apagar o diretório dedicado           |
+| `Bash`                 | active                            | `printf` de um marker                                                | success                          | sem escrita de arquivo                |
+| `Glob`                 | active                            | casar arquivos fixture em um diretório dedicado                    | success                          | apagar o diretório dedicado           |
+| `Grep`                 | condicional no ramo de busca      | ramo direct buscando fixture dedicado; ramo de busca embedded com falha rápida por registry miss | success / failed tool result | apagar o diretório dedicado           |
+| `WebFetch`             | active                            | usar uma URL loopback válida mas não pública para disparar uma falha rápida controlada; o ciclo de sucesso de negócio é coberto por `WF/O10` | failed tool result | sem escrita externa                    |
+| `TodoRead`             | active                            | ler o todo da sessão atual                                          | success                          | session-local; após o goal, afirmar o histórico de toolCalls pelo renderer store |
+| `TodoWrite`            | active                            | escrever no todo da sessão atual                                    | success                          | session-local                         |
+| `GoalRead`             | atualmente não registrado         | entrada vazia; se vier a ser registrado, ler o goal da sessão atual | failed tool result / success     | session-local                         |
+| `EnterPlanMode`        | active                            | entrada vazia para entrar em plan mode                              | success                          | redefinir `yolo` antes da ação seguinte e do próximo case |
+| `ExitPlanMode`         | active                            | chamado fora do plan mode, validando um tool block de falha rápida  | failed tool result               | nenhum                                |
+| `AskUserQuestion`      | active                            | uma pergunta com duas opções, o teste escolhe automaticamente a primeira | success                  | session-local                         |
+| `ReadSessionContext`   | active                            | ler um session id inexistente                                       | success fallback                 | session-local                         |
+| `SendMessage`          | condicional                       | apontar para um `agent_*` inexistente, ou falha rápida quando não registrado | failed tool result    | session-local                         |
+| `Agent`                | condicional / subagent padrão     | `subagent_type` inválido, evitando realmente derivar um subagent    | failed tool result               | nenhum                                |
+| `Skill`                | active                            | carregar um skill inexistente, validando um tool block de falha rápida | failed tool result           | nenhum                                |
+| `Workflow`             | atualmente não registrado         | entrada vazia; se vier a ser registrado, também falha rápido por falta de script/name/resumeFromId | failed tool result | nenhum                                |
 
-快速失败态也纳入本矩阵，是因为本矩阵验证的是 conversation UI 对 tool block + 后续 compact/fork/goal 的稳定性，不验证外部网络、子 agent、skill registry 的业务成功率。工具自身成功语义应在对应 tool/service 测试中覆盖。
+Estados de falha rápida entram nesta matriz porque ela valida a estabilidade da UI de conversation diante de tool block + compact/fork/goal subsequente, e não a taxa de sucesso de negócio da rede externa, do subagent ou do registry de skills. A semântica de sucesso da própria ferramenta deve ser coberta nos testes da tool/service correspondente.
 
-## 未注册工具终态闭合
+## Fechamento de estado terminal de ferramenta não registrada
 
-工具是否出现在 provider schema 与执行时 registry 是两个时间点的事实。模型仍可能返回已被 capability
-分支隐藏、配置热切换后失效或自行生成的工具名；registry miss 不能只返回 provider-visible error，必须同步
-闭合 conversation projection。
+Se uma ferramenta aparece no schema do provider e no registry em tempo de execução são fatos de dois momentos distintos. O modelo ainda pode devolver um nome de ferramenta que foi ocultado por um ramo de capability, que ficou inválido após uma troca quente de configuração, ou que ele mesmo gerou; um registry miss não pode retornar apenas um erro visível ao provider, é preciso fechar a projection da conversation de forma sincronizada.
 
 ```text
 provider tool_use(id)
@@ -45,29 +43,25 @@ provider tool_use(id)
   -> cold snapshot / replay profile: terminal
 ```
 
-| Case ID | 代表状态 | 关键断言 | 覆盖层 |
+| Case ID | Estado representado | Asserções-chave | Camada de cobertura |
 | --- | --- | --- | --- |
-| TLT-01 | `Grep` 在 embedded search 分支未注册 | handler 前失败仍发布同 `toolCallId` 的 `ToolCallError` | core executor focused test |
-| TLT-02 | terminal 前仍有 `inputStreaming/pendingApproval/running` foreground tool，或父 turn 先于 background subagent child tool 结束 | `TurnComplete` 把遗漏的 foreground 行收口为 error/cancelled；显式 background child tool 不伪收口，并允许迟到 terminal 收口同一行 | bootstrap projection/profile test |
-| TLT-03 | 单 turn 超过 60 行，cold tail 缺 `turnHeader` | terminal `session.phase` 压住行级 running fallback，不显示 ChatLoading | UI focused test + desktop cold snapshot E2E |
+| TLT-01 | `Grep` não registrado no ramo de busca embedded | a falha antes do handler ainda publica um `ToolCallError` com o mesmo `toolCallId` | core executor focused test |
+| TLT-02 | ainda há ferramenta de foreground em `inputStreaming/pendingApproval/running` antes do terminal, ou o turn pai termina antes da ferramenta child de um subagent em background | `TurnComplete` fecha as rows de foreground esquecidas como error/cancelled; a ferramenta child de background explícita não é falsamente fechada, e um terminal tardio pode fechar a mesma row | bootstrap projection/profile test |
+| TLT-03 | um único turn passa de 60 linhas e o cold tail não tem `turnHeader` | o `session.phase` terminal pressiona o fallback de running por linha, sem exibir ChatLoading | UI focused test + desktop cold snapshot E2E |
 
-剪枝：desktop E2E 用 60 个 embedded-search `Grep` registry miss 加 1 个必定未注册的 Grep
-sentinel 代表所有未注册工具，并用 61 个同类 call 稳定越过 60 行尾窗；`Workflow` 继续不进入正式
-TX 工具集合。手机 replayable 只复用 TLT-02 的 profile convergence，不复制 GUI 或 relay 重连排列。
+Poda: o E2E de desktop usa 60 registry misses de `Grep` em embedded-search mais 1 sentinel de Grep garantidamente não registrado para representar todas as ferramentas não registradas, e 61 chamadas do mesmo tipo para cruzar de forma estável a janela final de 60 linhas; `Workflow` continua fora do conjunto oficial de ferramentas do TX. O replayable do celular reaproveita apenas a convergência de profile do TLT-02, sem replicar arranjos de GUI ou reconexão via relay.
 
-## 叉乘场景
+## Cenários de叉乘
 
-| 场景                 | 初始动作                                                                        | 后续动作                                         | 关键断言                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `compact-after-tool` | 发送带工具 marker 的 prompt，replay 返回指定 tool_use，再返回 `upstream-e2e-ok` | `/compact`                                       | 原 tool block 存在；compact marker `started` -> `completed`；compact 请求包含 tool marker                      |
-| `fork-after-tool`    | 同上                                                                            | fork 包含 `upstream-e2e-ok` 的 assistant message | 新 task/session id 不同；派生会话保留原 user prompt、assistant token 和对应 tool block                         |
-| `goal-after-tool`    | 同上                                                                            | `/goal E2E_TOOL_CROSS_PRODUCT_GOAL_*`            | target objective 更新；原工具历史仍存在；不会把 `/goal` 当普通可见 user message 泄漏内部 goal continuation；`EnterPlanMode` 保留计划态语义，只断言 target 更新，不要求 provider continuation；`TodoRead` 空结果可只保留为 renderer store toolCalls |
+| Cenário                | Ação inicial                                                                 | Ações subsequentes                        | Asserções-chave                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `compact-after-tool`   | enviar um prompt com marker de ferramenta, o replay devolve o `tool_use` especificado e depois `upstream-e2e-ok` | `/compact`                                 | o tool block original existe; marker de compact `started` -> `completed`; a requisição de compact contém o marker da ferramenta |
+| `fork-after-tool`      | idem                                                                           | fork contendo a assistant message com `upstream-e2e-ok` | novo task/session id diferente; a sessão derivada preserva o user prompt original, o token de assistant e o tool block correspondente |
+| `goal-after-tool`      | idem                                                                           | `/goal E2E_TOOL_CROSS_PRODUCT_GOAL_*`       | o target objective é atualizado; o histórico original de ferramentas continua existindo; `/goal` não vaza a continuação interna do goal como uma user message comum visível; `EnterPlanMode` mantém a semântica de estado de planejamento, apenas afirmando a atualização do target, sem exigir continuação do provider; `TodoRead` vazio pode permanecer apenas como toolCalls no renderer store |
 
-## Guide × Tool Result Batch 覆盖
+## Cobertura Guide × Tool Result Batch
 
-guide 的消费 guard 依赖“一次 model step 的完整 tool result batch 是否已提交”，不依赖具体
-tool 名。因此不把上表每个工具与 guide 做全排列；用成功单工具、成功 parallel batch、失败 tool
-result 三个等价类证明共同不变量。
+O guard de consumo do guide depende de “o batch completo de tool result de um model step já foi commitado”, e não do nome concreto da ferramenta. Por isso não fazemos o produto cartesiano completo de cada ferramenta da tabela acima com o guide; provamos o invariante comum com três classes de equivalência: ferramenta única com sucesso, batch paralelo com sucesso e tool result com falha.
 
 ```text
 tool calls emitted: T1, T2, ... Tn
@@ -79,30 +73,26 @@ tool calls emitted: T1, T2, ... Tn
   -> next provider request in the same product turn
 ```
 
-| Case ID | Tool shape | Guide timing | 关键断言 | 状态 |
+| Case ID | Forma das ferramentas | Momento do guide | Asserções-chave | Estado |
 | --- | --- | --- | --- | --- |
-| GTB-01 | single readonly `Read` success | tool call 前已 admission | `ToolCallResult` 先于 `TurnSteerDrained`，drain 后才发下一 provider request | pending：GS/P06 controlled-stream |
-| GTB-02 | two parallel readonly tool calls | 两个 sibling 执行期间已有 guide | 单个 sibling 完成不 drain；全部 results 提交后最多 drain 一条 | missing |
-| GTB-03 | deterministic failed tool result | tool call 前或执行中已有 guide | failed result 仍是 batch terminal 的组成部分；失败事实先提交，再 drain 一条 | missing |
-| GTB-04 | text-only model step，no tool | guide 已 admission | text-only assistant 先提交；随后最多 drain 一条 guide，以 user role 追加并在同一 active turn 发起下一 provider request | core covered；desktop pending：GS/P06 |
-| GTB-05 | two guides + two tool batches | guides 均在对应 batch terminal 前 admission | 每批最多一条，按 admission FIFO；任何一批都不能清空两条 | missing |
+| GTB-01 | `Read` somente-leitura única com sucesso | guide já admitido antes da chamada de ferramenta | `ToolCallResult` vem antes de `TurnSteerDrained`; só após o drain a próxima provider request é enviada | pendente: GS/P06 controlled-stream |
+| GTB-02 | duas chamadas de ferramenta somente-leitura em paralelo | já havia guide durante a execução dos dois siblings | a conclusão de um único sibling não faz drain; depois que todos os results são commitados, no máximo um guide é drenado | ausente |
+| GTB-03 | tool result com falha determinística | já havia guide antes da chamada ou durante a execução | o result com falha ainda faz parte do batch terminal; o fato de falha é commitado primeiro e só então um guide é drenado | ausente |
+| GTB-04 | model step apenas de texto, sem ferramenta | guide já admitido | o assistant apenas de texto é commitado primeiro; em seguida no máximo um guide é drenado, anexado com role de user, e a próxima provider request é iniciada no mesmo turn ativo | coberto no core; pendente no desktop: GS/P06 |
+| GTB-05 | dois guides + dois batches de ferramentas | ambos os guides admitidos antes do terminal do batch correspondente | no máximo um por batch, em FIFO por admissão; nenhum batch pode drenar os dois | ausente |
 
-剪枝：`Write/Edit/Bash/WebFetch/AskUserQuestion/Agent` 等具体工具继续由本矩阵原有
-compact/fork/goal 叉乘证明 tool block 稳定性；guide 只增加 batch-ordering invariant。interaction
-tool 的用户等待态不单独排列，直到它形成 tool result 才进入相同 batch terminal。desktop
-continuous 用 controlled-stream E2E 证明时序，mobile replayable 用同一 CLI facts 的 cold/live
-projection 等价测试代表，不复制工具业务矩阵。
+Poda: ferramentas concretas como `Write/Edit/Bash/WebFetch/AskUserQuestion/Agent` continuam provadas pela estabilidade de tool block através do叉乘 de compact/fork/goal original desta matriz; o guide acrescenta apenas o invariante de ordenação de batch. O estado de espera do usuário em ferramentas de interação não é combinado separadamente: até formar um tool result ele entra no mesmo batch terminal. O desktop contínuo prova a temporização com um E2E controlled-stream, e o replayable do celular é representado por um teste de equivalência de projection cold/live sobre os mesmos CLI facts, sem replicar a matriz de negócio das ferramentas.
 
-## Replay 约束
+## Restrições de replay
 
-`provider-conversation-tool-cross-product.json` 使用 `response.toolUse` 和 `response.text` 简写生成 Anthropic SSE。首段 fixture 匹配 latest user message 中的 `E2E_TOOL_CROSS_PRODUCT_<TOOL>`；第二段通用 final fixture 匹配 `E2E_TOOL_CROSS_PRODUCT` + `toolu_e2e_tool_cross_product`，并排除 compact/title/goal continuation。这样不会被系统提示词里的 `tool_result` 文案误伤，每个工具名也能重复用于 compact、fork、goal 三个场景，不依赖 `maxMatches` 次数。
+`provider-conversation-tool-cross-product.json` usa as abreviações `response.toolUse` e `response.text` para gerar SSE da Anthropic. O primeiro fixture casa com `E2E_TOOL_CROSS_PRODUCT_<TOOL>` na latest user message; o segunda fixture final genérico casa com `E2E_TOOL_CROSS_PRODUCT` + `toolu_e2e_tool_cross_product` e exclui a continuação de compact/title/goal. Assim não há falso positivo com o texto `tool_result` do prompt de sistema, e cada nome de ferramenta pode ser reutilizado nos três cenários (compact, fork e goal) sem depender do número de `maxMatches`.
 
-## 清理约束
+## Restrições de limpeza
 
-所有文件系统副作用必须落在：
+Todos os efeitos colaterais no sistema de arquivos precisam cair em:
 
 ```text
 /tmp/zcode-e2e-tool-cross-product
 ```
 
-测试在每个工具 turn 前创建 fixture，`afterEach` 和 `after` 都执行 recursive cleanup。任何新增写文件工具或 shell 写入 case，都必须先进入这个目录，再补矩阵里的清理说明。
+O teste cria fixtures antes de cada turn de ferramenta, e tanto `afterEach` quanto `after` executam uma limpeza recursiva. Qualquer nova ferramenta que escreva arquivos ou novo caso de escrita via shell precisa primeiro entrar nesse diretório e depois ter a nota de limpeza correspondente adicionada à matriz.

@@ -1,91 +1,91 @@
-# ZCode JWT 过期重新认证
+# Reautenticação por Expiração do JWT do ZCode
 
-## 状态
+## Status
 
-- 本文定义桌面端与 Web 端在 `zcodejwttoken` 过期后的认证恢复语义。
-- `zcodejwttoken` 的签名与最终有效性仍由服务端负责；客户端只解析 JWT `exp`，用于避免恢复明显过期的本地会话。
+- Este documento define a semântica de recuperação de autenticação do desktop e da Web depois que o `zcodejwttoken` expira.
+- A assinatura e a validade final do `zcodejwttoken` continuam sendo responsabilidade do servidor; o cliente apenas faz o parse do JWT `exp`, usado para evitar restaurar sessões locais claramente expiradas.
 
-## 问题
+## Problema
 
-旧实现使用缓存的 `user_info` 恢复登录展示态，只检查 `zcodejwttoken` 是否存在，不检查 JWT `exp`。因此 JWT 过期后，UI 仍显示已登录，但余额、模型和其他业务请求会继续携带过期凭据并失败。
+A implementação antiga restaurava o estado de exibição de login a partir do `user_info` em cache, verificando apenas se o `zcodejwttoken` existia, sem checar o `exp` do JWT. Assim, depois que o JWT expirava, a UI continuava mostrando o usuário como autenticado, mas o saldo, os modelos e as demais requisições de negócio continuavam carregando credenciais expiradas e falhavam.
 
-旧的 `useTokenRefresh` 只暴露回调，没有实际监听 401；同时 Z.AI / BigModel 当前没有可用于续期 `zcodejwttoken` 的客户端 refresh 实现，所以已确认过期时必须重新登录。
+O antigo `useTokenRefresh` expunha apenas um callback, sem realmente escutar 401; além disso, Z.AI / BigModel atualmente não possuem uma implementação de refresh no cliente capaz de renovar o `zcodejwttoken`, portanto, quando a expiração é confirmada, é obrigatório fazer login novamente.
 
-## 产品语义
+## Semântica de produto
 
-缓存会话恢复返回三种结构化状态：
+A restauração da sessão em cache retorna três estados estruturados:
 
-- `authenticated`：缓存用户完整，且 JWT 没有被客户端判定为过期。
-- `signed-out`：没有完整缓存会话；不显示过期提示。
-- `reauthentication-required`：JWT 含有效 `exp`，并且在当前时间（含时钟偏差）已经过期。
+- `authenticated`: usuário em cache completo e o JWT não foi julgado como expirado pelo cliente.
+- `signed-out`: não há sessão em cache completa; não exibe aviso de expiração.
+- `reauthentication-required`: o JWT contém um `exp` válido e já expirou em relação ao horário atual (incluindo desvio de relógio).
 
-JWT 无法解析或缺少 `exp` 时，客户端不能证明它已经过期，继续按兼容缓存处理；服务端仍可在后续请求中拒绝它。服务端 401/403 的统一失效广播属于后续独立工作，不在本次修复中用字符串匹配扩散到所有 provider。
+Quando o JWT não pode ser interpretado ou não possui `exp`, o cliente não consegue provar que ele expirou e continua tratando-o conforme a compatibilidade com o cache; o servidor ainda pode rejeitá-lo em requisições posteriores. A transmissão unificada de invalidação por 401/403 do servidor é um trabalho separado e posterior, e não será espalhada por correspondência de string para todos os providers nesta correção.
 
-## 状态与时序
+## Estados e sequência
 
 ```text
-持久化 OAuth 会话
+Sessão OAuth persistida
         |
         v
-读取 user_info + zcodejwttoken
+Ler user_info + zcodejwttoken
         |
-        +-- 会话不完整 ----------------------> signed-out
+        +-- sessão incompleta ----------------------> signed-out
         |
-        +-- JWT 无可用 exp / 尚未过期 --------> authenticated
+        +-- JWT sem exp utilizável / ainda não expirado --------> authenticated
         |
-        +-- JWT exp 已过期
+        +-- exp do JWT já expirado
                 |
                 v
-        在 mutation 队列内复核 provider、user_info、
-        zcodejwttoken 与会话 generation 是否仍匹配读取快照
+        Dentro da fila de mutations, reverificar se provider, user_info,
+        zcodejwttoken e a generation da sessão ainda correspondem ao snapshot lido
                 |
-                +-- 快照已变化（新登录/provider 切换）
+                +-- o snapshot mudou (novo login / troca de provider)
                 |       |
                 |       v
-                |   放弃旧清理并重新读取当前会话
+                |   Abandona a limpeza antiga e relê a sessão atual
                 |
-                +-- 快照仍一致
+                +-- o snapshot continua igual
                 |       |
                 |       v
-        原子清理 active provider、OAuth token、
-        zcodejwttoken 和缓存 user_info
+        Limpeza atômica do provider ativo, do token OAuth,
+        do zcodejwttoken e do user_info em cache
                 |
                 v
-        尽力清理派生 Coding / Start Plan provider
-        （失败只记录 warn，不得恢复旧登录态）
+        Melhor esforço de limpeza dos providers derivados Coding / Start Plan
+        (a falha apenas registra warn e não pode restaurar o antigo estado de login)
                 |
                 v
         reauthentication-required
                 |
                 v
-        UI 显示“登录已过期，请重新登录”
+        A UI exibe "登录已过期，请重新登录"
                 |
                 v
-        用户点击“重新登录” -> Welcome 登录页
+        O usuário clica em "重新登录" -> página de login Welcome
 ```
 
-## 交互约束
+## Restrições de interação
 
-- 认证过期不是用户主动退出，不显示“确认断开连接”或运行中会话二次确认。
-- 清理认证事实发生在提示框显示前；提示框不能成为继续使用旧 JWT 的阻塞点。
-- 用户点击“重新登录”后直接打开现有 Welcome 登录入口，不触发主动退出 telemetry 或 App relaunch。
-- provider 启动门禁只能关闭自己打开的 `startup-provider-required`；不得以 `open=false` 覆盖 JWT 过期流程写入的 `session-expired`。
-- 同一次启动恢复最多显示一次过期提示。
-- 桌面 Root 使用支持中英文和亮暗主题的统一 AlertDialog；Web 登录入口清理过期 localStorage 后直接回到登录页，不恢复伪登录态。
+- A expiração de autenticação não é um logout iniciado pelo usuário; não exibe "确认断开连接" nem a confirmação secundária de sessão em execução.
+- A limpeza dos fatos de autenticação acontece antes da exibição do diálogo; o diálogo não pode se tornar um ponto de bloqueio para continuar usando o JWT antigo.
+- Depois que o usuário clica em "重新登录", a entrada de login Welcome existente é aberta diretamente, sem disparar telemetry de logout ativo nem relaunch do App.
+- O gate de inicialização de provider só pode fechar o `startup-provider-required` que ele próprio abriu; não pode sobrescrever com `open=false` o `session-expired` escrito pelo fluxo de expiração do JWT.
+- No máximo um aviso de expiração é exibido por restauração de inicialização.
+- O Root do desktop usa um AlertDialog unificado, com suporte a chinês e português e aos temas claro e escuro; a entrada de login da Web, depois de limpar o localStorage expirado, volta direto para a página de login, sem restaurar um pseudo estado de login.
 
-## 进程与多端边界
+## Limites de processo e de múltiplos clientes
 
-- Local Host OAuth service 是桌面本地 OAuth 凭据的权威 owner；renderer 只消费结构化恢复结果。
-- Web 登录使用浏览器 localStorage，但复用相同的 JWT `exp` 判定语义。
-- 远程 workspace 不创建独立认证状态；过期处理不修改 task/session、relay、stream、snapshot 或 owner 状态。
-- 本次变更不改变 `desktop-continuous` 与 `web-remote-replayable` 消息链路。
+- O Local Host OAuth service é o owner autoritativo das credenciais OAuth locais do desktop; o renderer apenas consome o resultado estruturado da restauração.
+- O login da Web usa o localStorage do navegador, mas reaproveita a mesma semântica de decisão baseada no `exp` do JWT.
+- O workspace remoto não cria um estado de autenticação independente; o tratamento de expiração não modifica task/session, relay, stream, snapshot nem estado de owner.
+- Esta alteração não muda o caminho de mensagens de `desktop-continuous` nem de `web-remote-replayable`.
 
-## 验证要求
+## Requisitos de verificação
 
-- 过期 JWT 不得恢复缓存用户，并清除 OAuth 会话凭据。
-- 未过期 JWT 继续恢复缓存用户，且启动时不请求远端 userinfo。
-- 无 `exp` 的历史/测试 token 保持兼容。
-- 派生 provider 清理失败时仍返回 `reauthentication-required`。
-- 过期恢复与新 OAuth callback 并发时，不得清除新登录或新切换 provider 的凭据。
-- Web localStorage 中的过期 JWT 被清除且不恢复用户。
-- UI 对 `reauthentication-required` 显示一次提示，确认后进入登录页。
+- Um JWT expirado não pode restaurar o usuário em cache e deve limpar as credenciais da sessão OAuth.
+- Um JWT não expirado continua restaurando o usuário em cache e não solicita userinfo remoto na inicialização.
+- Tokens históricos/de teste sem `exp` continuam compatíveis.
+- Mesmo quando a limpeza dos providers derivados falha, o retorno é `reauthentication-required`.
+- Quando a recuperação por expiração ocorre em paralelo com um novo callback OAuth, as credenciais do novo login ou do provider recém-trocado não podem ser limpas.
+- O JWT expirado no localStorage da Web é limpo e o usuário não é restaurado.
+- A UI exibe o aviso uma única vez para `reauthentication-required` e, após a confirmação, entra na página de login.

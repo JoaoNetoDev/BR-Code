@@ -1,39 +1,48 @@
-# 我的反馈返回按钮 Implementation Plan
+# Botão de voltar em Meus Feedbacks Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado)
+> ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de
+> checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 在“我的反馈”页面 header 左侧增加返回按钮，点击后回到“提交反馈”页面。
+**Objetivo:** adicionar um botão de voltar no lado esquerdo do header da página “Meus Feedbacks”, que retorna à
+página “Enviar feedback” ao ser clicado.
 
-**Architecture:** `FeedbackCenter` 继续作为反馈 Dialog 的 tab 控制层。仅当 tab 为 `tickets` 时在 header 标题前渲染一个低强调 icon button，点击复用 `setTab("submit")`；i18n 新增返回提交页 aria-label。
+**Arquitetura:** o `FeedbackCenter` continua sendo a camada de controle de tabs do Dialog de feedback. Quando o
+tab é `tickets`, renderiza-se um icon button de baixa ênfase antes do título no header, e o clique reutiliza
+`setTab("submit")`; o i18n ganha um novo aria-label de retorno à página de envio.
 
-**Tech Stack:** React 19, Zustand, Vitest, lucide-react, existing `Button`/`DialogHeader` primitives.
+**Stack:** React 19, Zustand, Vitest, lucide-react, primitives existentes `Button`/`DialogHeader`.
 
-## Global Constraints
+## Restrições Globais
 
-- 先保留 spec，再实现代码；spec 已提交到 `docs/superpowers/specs/2026-06-17-feedback-tickets-back-button-design.md`。
-- 修改 `packages/ui` 已读取并遵守根目录 `DESIGN.md`；使用现有 Button 和语义 token，不新增可见样式体系。
-- import 路径使用 `@/` 或包名绝对路径。
-- 不改变工单列表加载、刷新、复制 ID、选中高亮、提交反馈或反馈上传逻辑。
-- 不修改远控 relay、main 进程、session/task stream、snapshot、queue、replayable 恢复语义。
-- 完成后执行 `pnpm typecheck` 和 `pnpm lint`。
+- Preservar primeiro o spec e só então implementar o código; o spec já foi commitado em
+  `docs/superpowers/specs/2026-06-17-feedback-tickets-back-button-design.md`.
+- Ao modificar `packages/ui`, ler e respeitar o `DESIGN.md` da raiz; usar os Buttons e tokens semânticos
+  existentes, sem criar um novo sistema de estilos visíveis.
+- Caminhos de import usam `@/` ou caminho absoluto com nome de pacote.
+- Não alterar a lógica de carregamento, refresh, cópia de ID, destaque de seleção, envio de feedback ou upload de
+  feedback da lista de tickets.
+- Não modificar o relay de controle remoto, o processo main, o stream de sessão/task, snapshot, queue nem a
+  semântica de restauração replayable.
+- Ao final, executar `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: Feedback Center Tickets Back Button
+### Task 1: Botão de voltar nos tickets do Feedback Center
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/feedback/FeedbackCenter.tsx`
 - Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
 - Modify: `packages/ui/src/i18n/locales/en-US.ts`
 - Modify: `packages/ui/test/feedbackCenter.test.ts`
 
 **Interfaces:**
-- Consumes: `useFeedbackStore((state) => state.setTab)` and current `tab`.
-- Produces: tickets header back button with aria-label `feedback.center.backToSubmit`.
+- Consumes: `useFeedbackStore((state) => state.setTab)` e o `tab` atual.
+- Produces: botão de voltar no header de tickets com aria-label `feedback.center.backToSubmit`.
 
-- [x] **Step 1: Write the failing test**
+- [x] **Step 1: Escrever o teste que falha**
 
-Update `packages/ui/test/feedbackCenter.test.ts`:
+Atualizar `packages/ui/test/feedbackCenter.test.ts`:
 
 ```ts
 expect(source).toContain("ArrowLeftIcon");
@@ -43,23 +52,23 @@ expect(source).toContain('feedback.center.backToSubmit');
 expect(source).toContain('setTab("submit")');
 ```
 
-Add localized copy assertions for `feedback.center.backToSubmit` in both locale files.
+Adicionar asserções de copy localizado para `feedback.center.backToSubmit` nos dois arquivos de locale.
 
-- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Executar o teste e verificar que ele falha**
 
 Run: `pnpm exec vitest run packages/ui/test/feedbackCenter.test.ts`
 
-Expected: FAIL because the tickets header does not render a back button or aria-label.
+Expected: FAIL porque o header de tickets não renderiza um botão de voltar nem o aria-label.
 
-- [x] **Step 3: Implement minimal UI and i18n**
+- [x] **Step 3: Implementar a UI e o i18n mínimos**
 
-Update `packages/ui/src/feedback/FeedbackCenter.tsx`:
+Atualizar `packages/ui/src/feedback/FeedbackCenter.tsx`:
 
 ```ts
 import { ArrowLeftIcon, XIcon } from "lucide-react";
 ```
 
-Replace the title section in `DialogHeader` with a left title group:
+Substituir a seção de título no `DialogHeader` por um grupo de título à esquerda:
 
 ```tsx
 <DialogHeader className="flex-row items-center justify-between gap-2 p-6 pb-0">
@@ -85,7 +94,7 @@ Replace the title section in `DialogHeader` with a left title group:
 </DialogHeader>
 ```
 
-Add locale entries near feedback center title keys:
+Adicionar as entradas de locale próximos às chaves de título do feedback center:
 
 ```ts
 "feedback.center.backToSubmit": "返回提交反馈",
@@ -95,7 +104,7 @@ Add locale entries near feedback center title keys:
 "feedback.center.backToSubmit": "Back to submit feedback",
 ```
 
-- [x] **Step 4: Run focused test to verify it passes**
+- [x] **Step 4: Executar o teste direcionado e verificar que ele passa**
 
 Run: `pnpm exec vitest run packages/ui/test/feedbackCenter.test.ts`
 
@@ -103,28 +112,28 @@ Expected: PASS.
 
 ---
 
-### Task 2: Full Verification And Commit
+### Task 2: Verificação Completa e Commit
 
-**Files:**
+**Arquivos:**
 - Verify all files changed by Task 1 and this plan.
 
 **Interfaces:**
-- Consumes: implementation from Task 1.
-- Produces: committed feature implementation.
+- Consumes: implementação da Task 1.
+- Produces: implementação da funcionalidade commitada.
 
-- [x] **Step 1: Run required typecheck**
+- [x] **Step 1: Executar o typecheck obrigatório**
 
 Run: `pnpm typecheck`
 
 Expected: PASS.
 
-- [x] **Step 2: Run required lint**
+- [x] **Step 2: Executar o lint obrigatório**
 
 Run: `pnpm lint`
 
-Expected: exit 0. Existing unrelated warnings may remain.
+Expected: exit 0. Warnings existentes e não relacionados podem permanecer.
 
-- [x] **Step 3: Inspect git diff**
+- [x] **Step 3: Inspecionar o git diff**
 
 Run:
 
@@ -133,9 +142,10 @@ git diff --stat
 git diff -- docs/superpowers/plans/2026-06-17-feedback-tickets-back-button.md packages/ui/src/feedback/FeedbackCenter.tsx packages/ui/src/i18n/locales/zh-CN.ts packages/ui/src/i18n/locales/en-US.ts packages/ui/test/feedbackCenter.test.ts
 ```
 
-Expected: only plan, feedback center header, locale strings, and focused tests changed.
+Expected: apenas o plano, o header do feedback center, as strings de locale e os testes direcionados foram
+alterados.
 
-- [x] **Step 4: Commit**
+- [x] **Step 4: Commitar**
 
 ```bash
 git add docs/superpowers/plans/2026-06-17-feedback-tickets-back-button.md packages/ui/src/feedback/FeedbackCenter.tsx packages/ui/src/i18n/locales/zh-CN.ts packages/ui/src/i18n/locales/en-US.ts packages/ui/test/feedbackCenter.test.ts

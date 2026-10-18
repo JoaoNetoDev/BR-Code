@@ -1,36 +1,36 @@
-# MCP 配置兼容解析与诊断
+# Parsing Compatível e Diagnóstico da Configuração MCP
 
-## 背景
+## Contexto
 
-`~/.zcode/cli/config.json` 可能来自旧版本、外部 Agent 导入或用户手写。历史配置里存在两类常见 MCP 字段：
+`~/.zcode/cli/config.json` pode vir de versões antigas, de uma importação de Agent externo ou ser escrito à mão pelo usuário. Existem dois campos MCP comuns em configurações históricas:
 
-- stdio server 使用 `environment` 表示环境变量。
-- HTTP remote server 使用 `type: "remote"`。
+- Servidores stdio usam `environment` para representar variáveis de ambiente.
+- Servidores HTTP remotos usam `type: "remote"`.
 
-当前运行态 schema 只接受 `env` 和 `type: "http" | "sse" | "stdio"`。如果任意一个 MCP server 校验失败，旧实现会让整份用户配置加载失败，进而丢失 `plugins.enabledPlugins` 等无关配置，导致插件管理界面状态异常。
+O schema de runtime atual aceita apenas `env` e `type: "http" | "sse" | "stdio"`. Se qualquer servidor MCP falhar na validação, a implementação antiga fazia o carregamento inteiro da configuração do usuário falhar, o que fazia perder configurações sem relação, como `plugins.enabledPlugins`, deixando a interface de gerenciamento de plugins em estado anormal.
 
-## 目标
+## Objetivo
 
-- 在配置入口兼容 `environment -> env`。
-- 在配置入口兼容 `type: "remote" -> "http"`。
-- MCP servers 按 server 粒度容错解析：单个 server 不合法时跳过该 server，并记录 diagnostics。
-- 其它非 MCP 配置仍保持原有强校验，不把未知运行态结构静默传入系统。
+- Compatibilizar `environment -> env` na entrada da configuração.
+- Compatibilizar `type: "remote" -> "http"` na entrada da configuração.
+- Fazer o parsing tolerante dos MCP servers na granularidade do server: quando um server é inválido, pular apenas aquele server e registrar diagnostics.
+- Manter a validação forte original para as demais configurações que não são MCP, sem passar silenciosamente estruturas de runtime desconhecidas para o sistema.
 
-## 行为约定
+## Convenções de comportamento
 
-- 合法的 legacy MCP server 会被归一化后进入 `RuntimeConfigPatch.mcp.servers`。
-- 不合法的单个 MCP server 不会阻断整份 `config.json`。
-- 被跳过的 MCP server 会写入配置解析 diagnostics，包含 JSON path 和具体 schema 问题。
-- `createConfig()` 会把配置文件加载失败与 MCP server 跳过 diagnostics 写入 warn 日志，便于用户导出日志后定位迁移问题。
-- 顶层配置错误仍会让该配置文件 `loaded=false`，以避免非法 provider/model/UI 等配置被部分应用。
-- `type: "remote"` 按外部导入约定归一化为 HTTP；若目标端点实际是 SSE，需要显式写成 `type: "sse"`。
-- 诊断文档与内置 diagnosing-mcp skill 必须区分两条链路：
-  - CLI 直接读取配置时会经过配置入口归一化，兼容 `environment -> env`、`http_headers -> headers`、`enable -> enabled`、`type: "remote" -> "http"`。
-  - 桌面端 Settings / app-managed session 下发 MCP 时，先由 UI 读取用户目录，再转换为 ZCode Protocol `mcpServers`。这条链路不应让用户依赖 legacy 字段；排障时优先建议改成 canonical 字段：`env`、`headers`、`enabled`、`type: "http"`。
-- JSON 编辑器粘贴外部 MCP 配置时，需要提示 `command` 必须是字符串，OpenCode 配置格式的 `command: ["npx", "-y", "server"]` 需要拆成 `command: "npx"` 与 `args: ["-y", "server"]`，否则设置表单会把 `command` 当字符串处理并触发运行时错误。
+- Um MCP server legacy válido é normalizado e entra em `RuntimeConfigPatch.mcp.servers`.
+- Um único MCP server inválido não bloqueia o `config.json` inteiro.
+- O MCP server pulado é registrado nos diagnostics de parsing da configuração, contendo o JSON path e o problema específico de schema.
+- `createConfig()` escreve em log `warn` tanto a falha de carregamento do arquivo de configuração quanto os diagnostics de MCP servers pulados, para que o usuário possa exportar os logs e localizar problemas de migração.
+- Erros de configuração de nível superior ainda deixam aquele arquivo de configuração com `loaded=false`, para evitar que configurações ilegais de provider/model/UI sejam aplicadas parcialmente.
+- `type: "remote"` é normalizado para HTTP conforme a convenção de importação externa; se o endpoint alvo for na verdade SSE, é preciso escrever explicitamente `type: "sse"`.
+- A documentação de diagnóstico e a skill diagnosing-mcp embutida precisam distinguir dois caminhos:
+  - Quando a CLI lê a configuração diretamente, ela passa pela normalização da entrada da configuração, compatível com `environment -> env`, `http_headers -> headers`, `enable -> enabled` e `type: "remote" -> "http"`.
+  - Quando o desktop envia MCP por Settings / session gerenciada pelo app, primeiro a UI lê o diretório do usuário e depois converte para `mcpServers` do ZCode Protocol. Esse caminho não deve levar o usuário a depender de campos legacy; na resolução de problemas, deve-se recomendar primeiro mudar para os campos canônicos: `env`, `headers`, `enabled`, `type: "http"`.
+- Ao colar uma configuração MCP externa no editor JSON, é preciso avisar que `command` deve ser uma string: o formato de configuração do OpenCode, `command: ["npx", "-y", "server"]`, precisa ser dividido em `command: "npx"` e `args: ["-y", "server"]`; caso contrário, o formulário de configurações vai tratar `command` como string e provocar um erro em runtime.
 
-## 验证
+## Verificação
 
-- 回归测试覆盖 legacy `environment`、legacy `remote` 和单个坏 server 不影响 `plugins.enabledPlugins`。
-- diagnosing-mcp skill 覆盖桌面端 app-managed 链路的兼容差异与用户自助修复话术。
-- `pnpm typecheck` 与 `pnpm lint` 作为边界检查。
+- Testes de regressão cobrem o `environment` legacy, o `remote` legacy e o caso de um único server ruim não afetar `plugins.enabledPlugins`.
+- A skill diagnosing-mcp cobre as diferenças de compatibilidade do caminho app-managed do desktop e o roteiro de autoatendimento para o usuário.
+- `pnpm typecheck` e `pnpm lint` como verificação de fronteira.

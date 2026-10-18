@@ -1,33 +1,33 @@
-# Coding Plan Entitlement Failure State
+# Estado de Falha de Entitlement do Coding Plan
 
-## 背景
+## Contexto
 
-Model Provider 设置页的 Z.ai / BigModel Start Plan 与 Coding Plan 内容区通过 `useUsageEntitlement` 查询权益状态。此前查询 promise 若在 Windows 网络、代理或系统证书链路下悬挂，Plan Card 会一直停留在 `Checking`，用户无法判断是仍在加载还是已经失败。
+Na página de configurações de Model Provider, as áreas de conteúdo de Z.ai / BigModel Start Plan e Coding Plan consultam o estado de entitlement via `useUsageEntitlement`. Anteriormente, se a promise de consulta ficasse pendurada por causa da rede do Windows, do proxy ou da cadeia de certificados do sistema, o Plan Card permaneceria em `Checking` e o usuário não conseguiria distinguir se ainda estava carregando ou se já tinha falhado.
 
-## 设计
+## Design
 
-- Plan Card 不新增整卡 skeleton，也不新增新的视觉层级。
-- 权益查询必须有前端超时边界，超时后复用现有 `unavailable` 状态，展示“获取失败 / Fetch failed”。
-- 已有缓存且静默刷新超时时，继续保留缓存快照，只退出 loading 并记录错误，避免网络抖动把可用套餐短暂打成空态。
-- 无缓存的首次查询超时时，清空快照并进入失败态，避免无限 `Checking`。
-- 失败态继续保留现有连接、重试或重新登录入口，不改变 Z.ai / BigModel family mode、provider id 和 entitlement 判断规则。
+- O Plan Card não ganha skeleton de card inteiro nem um novo nível visual.
+- A consulta de entitlement precisa ter um limite de timeout no frontend; após o timeout, reutiliza-se o estado `unavailable` existente, exibindo “获取失败 / Fetch failed” (Falha na obtenção / Fetch failed).
+- Havendo cache e timeout no refresh silencioso, o snapshot em cache é mantido: apenas se sai do loading e o erro é registrado, evitando que uma oscilação de rede transforme brevemente um plano disponível em estado vazio.
+- Na primeira consulta sem cache, um timeout limpa o snapshot e entra no estado de falha, evitando um `Checking` infinito.
+- O estado de falha continua preservando as entradas existentes de conexão, retry ou novo login, sem alterar o family mode de Z.ai / BigModel, o provider id nem as regras de julgamento de entitlement.
 
-## 影响面
+## Superfície de impacto
 
-- 桌面端、Web 端和手机远控共用 UI hook，超时只影响权益展示状态，不改变 provider registry、task realtime、stream 或 replayable/continuous 语义。
-- Windows/macOS/Linux 行为统一：底层请求未在超时内 settle 时，都从 `checking` 落到 `unavailable`。
+- Desktop, Web e mobile remote compartilham o hook de UI; o timeout afeta apenas o estado de exibição do entitlement, sem mudar o provider registry, o realtime de task, o stream ou a semântica replayable/continuous.
+- O comportamento é unificado em Windows/macOS/Linux: quando a requisição subjacente não faz settle dentro do timeout, o estado sai de `checking` para `unavailable`.
 
-## 个人套餐凭据失败后的主动重新登录
+## Novo login após falha de credencial do plano pessoal
 
-Z.ai / BigModel 个人 Coding Plan 的 `credential-failed` 状态，右侧操作为“重新登录”，说明为“获取套餐失败，请重新登录后重试。”。不将该状态解释为 OAuth 已过期，不自动退出账号。其他失败、未登录、未购买、Start/Team 状态保留原行为。已登录的 Start 套餐获取失败继续提供“重试”，沿用 Host 手动刷新；未登录的 Start 套餐仍走登录入口。
+No estado `credential-failed` do Coding Plan pessoal de Z.ai / BigModel, a ação à direita é "重新登录" (fazer login novamente), com a explicação "获取套餐失败，请重新登录后重试。" (Falha na obtenção do pacote, faça login novamente e tente de novo.). Esse estado não deve ser interpretado como OAuth expirado e não desloga a conta automaticamente. Outras falhas, não logado, não comprado e os estados Start/Team mantêm o comportamento original. Quando um Start Plan já logado falha na obtenção do plano, a opção "重试" (tentar de novo) continua sendo oferecida, usando o refresh manual do Host; um Start Plan sem login continua passando pelo fluxo de login.
 
 ```text
-Host Account State: credential-failed → 设置页展示失败提示
-用户点击重新登录 → onLogin({ forceOAuth: true })
-→ 既有 requestLoginEntry(当前 family) → 统一 OAuth 登录
-→ oauth-login-entitlement → Host 重新获取凭据和发布权益
+Host Account State: credential-failed → a página de configurações exibe a mensagem de falha
+usuário clica em refazer login → onLogin({ forceOAuth: true })
+→ requestLoginEntry(family atual) já existente → login OAuth unificado
+→ oauth-login-entitlement → o Host obtém as credenciais novamente e publica os direitos
 ```
 
-登录状态仍由统一登录流程管理；UI 不新增凭据缓存或状态 owner。桌面与手机共用组件，不修改 continuous/replayable 恢复边界。取消或失败沿用已有登录流程，允许再次操作。
+O estado de login continua gerenciado pelo fluxo de login unificado; a UI não ganha cache de credenciais nem um novo owner de estado. Desktop e celular compartilham o componente e os limites de restauração continuous/replayable não são modificados. Cancelamento ou falha seguem o fluxo de login já existente, permitindo nova operação a qualquer momento.
 
-验收：两家个人套餐展示重新登录与失败提示，点击必须传 forceOAuth（同 family 已登录也不能退化为静默刷新）；加载期间按钮禁用；其他套餐不出现本次专属操作。组件浏览器覆盖桌面/窄屏、中英文、深浅主题，组件 fixture 不等同完整 Electron/手机远控 OAuth E2E。
+Aceitação: os dois planos pessoais exibem o novo login e a mensagem de falha; o clique precisa passar forceOAuth (mesmo já logado no mesmo family não pode degradar para refresh silencioso); o botão fica desabilitado durante o loading; os outros planos não exibem esta ação exclusiva. A cobertura de navegador dos componentes cobre desktop/tela estreita, zh/en e temas claro/escuro; o fixture de componentes não equivale a um E2E completo de OAuth no Electron ou no mobile remote.

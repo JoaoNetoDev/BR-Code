@@ -1,49 +1,57 @@
-# staging pre-push 单测基线失败报告（2026-08-24）
+# Relatório de falhas de baseline de testes unitários no pre-push do staging (2026-08-24)
 
-> **环境复核说明：** 已通过 MacBook Pro 的受限 SSH 转发访问内网资产服务，并使用仓库锁定的
-> **Node v24.14.0 + pnpm 10.33.2** 成功执行完整 `pnpm bootstrap`。install、Desktop
-> `node-pty` rebuild、Agent/CUA bundle、native-search-tools 下载与校验、workspace build 和
-> Desktop build 均成功，bootstrap 最终 exit code 为 0。随后重跑下列 7 个文件，结果仍为
-> **30 条失败、128 条通过、4 条跳过**，失败集合完全不变。因此缺少 install、bootstrap 未完成、
-> 内网下载失败和 Node 小版本差异均已排除。
+> **Nota sobre a revisão do ambiente:** o acesso aos serviços de ativos da rede interna foi feito por
+> forwarding SSH restrito a partir de um MacBook Pro, e o `pnpm bootstrap` completo foi executado com
+> sucesso usando **Node v24.14.0 + pnpm 10.33.2**, as versões travadas no repositório. O install, o
+> rebuild de `node-pty` do Desktop, os bundles de Agent/CUA, o download e a verificação do
+> native-search-tools, o build do workspace e o build do Desktop todos passaram, e o exit code final do
+> bootstrap foi 0. Em seguida, os 7 arquivos abaixo foram executados novamente, com o mesmo resultado:
+> **30 falhas, 128 aprovações, 4 skips**, e o conjunto de falhas permaneceu inalterado. Portanto
+> falta de install, bootstrap incompleto, falha de download da rede interna e diferença de versão
+> menor do Node estão todos descartados.
 
-## 摘要
+## Resumo
 
-在 Linux 本地环境对最新 `origin/staging` 做独立 detached worktree 验证：
+Validação feita em um worktree detached e independente do `origin/staging` mais recente, em um
+ambiente Linux local:
 
-- staging SHA：`0e867f1323`（`Merge branch 'fix/tool-call-display-consistency' into 'staging'`）；
-- 定向运行 pre-push 全量测试中报错的 9 个测试文件；
-- staging 实际结果：**30 条失败**；
-- Provider Refactor 当前分支结果：**32 条失败，12,366 条通过，25 条跳过**；
-- 两者共有同样的 30 条 Windows packaging、macOS notarization 与 CUA 失败；
-- 当前分支额外的 2 条 Settings 源码守卫失败，已经由 staging 提交 `4f0b024f73` 修复；
-- 因此 Provider Refactor 的 pre-push 失败主体不是本次 Provider 改造引入，最新 staging 在同一环境下也无法通过该 gate。
+- SHA do staging: `0e867f1323` (`Merge branch 'fix/tool-call-display-consistency' into 'staging'`);
+- execução direcionada dos 9 arquivos de teste que falharam na suíte completa de pre-push;
+- resultado real do staging: **30 falhas**;
+- resultado do branch atual do Provider Refactor: **32 falhas, 12.366 aprovações, 25 skips**;
+- as duas situações compartilham as mesmas 30 falhas de packaging do Windows, notarização do macOS e
+  CUA;
+- as 2 falhas adicionais de guardas de código de Settings no branch atual já foram corrigidas pelo
+  commit do staging `4f0b024f73`;
+- portanto o corpo das falhas de pre-push do Provider Refactor não foi introduzido por esta reforma de
+  Provider, e o staging mais recente também não passa esse gate no mesmo ambiente.
 
-## 环境
+## Ambiente
 
 ```text
 OS: Linux
-首次验证 Node: v24.19.0
-复核 Node: v24.14.0（仓库锁定版本）
+Node da primeira validação: v24.19.0
+Node da revisão: v24.14.0 (versão travada no repositório)
 pnpm: 10.33.2
-仓库期望 Node: 24.14.0
+Node esperado pelo repositório: 24.14.0
 Vitest: 4.1.4
 staging: 0e867f1323
 ```
 
-验证使用独立 staging worktree，没有修改 Provider Refactor 当前工作区。CUA catalog 版本在 staging 与当前
-分支之间没有差异；Services CUA 测试复用同一份已安装 catalog 依赖。
+A validação usou um worktree de staging independente, sem modificar o workspace atual do Provider
+Refactor. Não há diferença de versão do catálogo CUA entre o staging e o branch atual; os testes de CUA
+de Services reaproveitam a mesma dependência de catálogo já instalada.
 
-## staging 的 30 条失败
+## As 30 falhas do staging
 
-### 1. Windows release packaging：2 条
+### 1. Packaging de release do Windows: 2
 
-文件：
+Arquivos:
 
 - `packages/zcode-server-cli/test/releaseInstaller.test.ts`
 - `packages/zcode-server-cli/test/packaging.test.ts`
 
-失败用例：
+Casos que falham:
 
 ```text
 release installer
@@ -53,17 +61,17 @@ stageRelease
   × stages a Windows target with a cmd launcher and zip archive
 ```
 
-代表性错误：
+Erro representativo:
 
 ```text
 Error: spawn zip ENOENT
 ```
 
-### 2. macOS notarization：3 条
+### 2. Notarização do macOS: 3
 
-文件：`packages/desktop/test/notarizeMacosScript.test.ts`
+Arquivo: `packages/desktop/test/notarizeMacosScript.test.ts`
 
-失败用例：
+Casos que falham:
 
 ```text
 × 测试环境 DMG 带 TEST 后缀时也应能进入公证流程
@@ -71,38 +79,39 @@ Error: spawn zip ENOENT
 × 正式 release 缺少安装后 app 验收路径时不应把 notarization 判定为成功
 ```
 
-代表性错误：
+Erro representativo:
 
 ```text
 scripts/notarize-macos.sh: line 92: integer expression expected
 [notarize] dmg not found ... for arch=arm64
 ```
 
-脚本在 Linux 上把 `stat` 输出当作整数处理，随后误判测试 DMG 不存在。
+O script trata a saída de `stat` como inteiro no Linux e depois julga incorretamente que o DMG de
+teste não existe.
 
-### 3. Desktop CUA identity：2 条
+### 3. Identidade CUA do Desktop: 2
 
-文件：`packages/desktop/test/cuaHelperDevIdentity.test.ts`
+Arquivo: `packages/desktop/test/cuaHelperDevIdentity.test.ts`
 
-失败用例：
+Casos que falham:
 
 ```text
 × skips import entirely when the identity is already trusted and listed
 × reuse-branch success returns without scope errors and reports persist state
 ```
 
-代表性错误：
+Erro representativo:
 
 ```text
 expected security import calls to have length 0, but got 1
 expected result.ok to be true, but got false
 ```
 
-### 4. Desktop CUA System Settings watcher：8 条
+### 4. Watcher de System Settings do CUA do Desktop: 8
 
-文件：`packages/desktop/test/cuaSystemSettingsWindowWatcher.test.ts`
+Arquivo: `packages/desktop/test/cuaSystemSettingsWindowWatcher.test.ts`
 
-失败用例：
+Casos que falham:
 
 ```text
 × parses a JSON line into the latest bounds
@@ -115,7 +124,7 @@ expected result.ok to be true, but got false
 × does not throw when the binary is missing (spawn throws synchronously)
 ```
 
-代表性错误：
+Erro representativo:
 
 ```text
 expected watcher.latest() to equal window bounds, received null
@@ -123,11 +132,11 @@ expected spawnProcess to be called once, received 0 calls
 expected error event not to throw, but Error: ENOENT was thrown
 ```
 
-### 5. Services CUA Node Helper：10 条
+### 5. Node Helper de CUA de Services: 10
 
-文件：`packages/services/test/cuaPermissionBrokerNodeHelper.test.ts`
+Arquivo: `packages/services/test/cuaPermissionBrokerNodeHelper.test.ts`
 
-失败用例：
+Casos que falham:
 
 ```text
 × does not expose missing or non-function raw-input/PiP exports from a legacy addon
@@ -142,7 +151,7 @@ expected error event not to throw, but Error: ENOENT was thrown
 × does not self-terminate once a client has authenticated (claimed)
 ```
 
-代表性错误：
+Erro representativo:
 
 ```text
 preventActivation must stay fail-closed: expected function to be undefined
@@ -150,11 +159,11 @@ expected captureWindowPng(...) to return PNG bytes, received null
 TypeError: native.probeAccessibility is not a function
 ```
 
-### 6. Services CUA Helper Host：5 条
+### 6. Helper Host de CUA de Services: 5
 
-文件：`packages/services/test/cuaPermissionBrokerHelperHost.test.ts`
+Arquivo: `packages/services/test/cuaPermissionBrokerHelperHost.test.ts`
 
-失败用例：
+Casos que falham:
 
 ```text
 × permission refresh 重启进程但复用 socket/token，成功验证后才删除 marker
@@ -164,7 +173,7 @@ TypeError: native.probeAccessibility is not a function
 × permission refresh 的 H2 launch 失败后 fail closed；下次只能 fresh 并返回 reused=false
 ```
 
-共同错误形态：
+Forma comum do erro:
 
 ```text
 CuaHelperError: Failed to verify the live ZCode Computer Use process identity
@@ -172,37 +181,38 @@ Caused by: ENOENT: no such file or directory,
 rename '<socket>.pending' -> '<socket>'
 ```
 
-## 当前 Provider Refactor 分支额外的 2 条失败
+## As 2 falhas adicionais do branch atual do Provider Refactor
 
-文件：
+Arquivos:
 
 - `packages/ui/test/settingsSubagentRowContent.test.ts`
 - `packages/ui/test/settingsSkillScopeBadge.test.ts`
 
-失败用例：
+Casos que falham:
 
 ```text
 × uses the shared scoped resource-list structure
 × does not repeat scope metadata beside the skill name in Plugin
 ```
 
-这两条在 `origin/staging@0e867f1323` 已通过。对应 staging 修复提交：
+Essas duas já passavam em `origin/staging@0e867f1323`. Commit de correção correspondente no staging:
 
 ```text
 4f0b024f73 fix(ui): 更新源码守卫断言到 resolvePluginDisplayName
 ```
 
-所以合入最新 staging 后预计从 32 条降为 30 条，但不能让 pre-push gate 整体变绿。
+Portanto, após mesclar o staging mais recente, a expectativa é cair de 32 para 30, mas isso não deixa o
+gate de pre-push verde por completo.
 
-## 复现命令
+## Comandos de reprodução
 
-全量 pre-push：
+Pre-push completo:
 
 ```bash
 pnpm verify:pre-push
 ```
 
-只运行 staging 仍失败的 7 个文件：
+Executando apenas os 7 arquivos que ainda falham no staging:
 
 ```bash
 pnpm exec vitest run \
@@ -215,26 +225,40 @@ pnpm exec vitest run \
   packages/services/test/cuaPermissionBrokerHelperHost.test.ts
 ```
 
-## 结论
+## Conclusão
 
-当前 Provider Refactor 的定向 Provider、Adapter、Bootstrap、Services、Protocol 与 UI 回归均已通过；阻止
-force-with-lease push 的是仓库 pre-push 对全量单测的硬门禁。最新 staging 在同一环境下也复现其中 30 条，
-因此需要单独修复或调整这些跨平台/CUA 基线测试，不能归因于 Provider Refactor。
+As regressões direcionadas de Provider, Adapter, Bootstrap, Services, Protocol e UI do Provider Refactor
+atual já passaram; o que bloqueia o force-with-lease push é o gate rígido do pre-push do repositório
+sobre a suíte completa de testes unitários. O staging mais recente reproduz 30 delas no mesmo ambiente,
+portanto esses testes de baseline cross-platform/CUA precisam ser corrigidos ou ajustados
+separadamente e não podem ser atribuídos ao Provider Refactor.
 
-## 修复设计
+## Design da correção
 
-这 30 条属于跨平台测试门禁缺陷，修复不改变 CUA、发布或 Provider 的产品语义：
+Essas 30 falhas são defeitos de gate de teste cross-platform, e a correção não muda a semântica de
+produto de CUA, de release ou de Provider:
 
-- Windows ZIP 归档改用仓库内的异步 Node 实现，不再要求测试机或发布机构建机预装 `zip` 命令；
-- notarize 脚本的 mtime 读取同时兼容 BSD/macOS 与 GNU/Linux `stat`；
-- macOS identity 与 System Settings watcher 测试的 platform seam 必须贯穿到内部 helper；
-- macOS Node Helper 契约测试显式固定 `darwin`，跨平台 broker 测试的 fake native 则补齐当前平台 ABI；
-- 不启动真实 broker socket 的 Helper Host 状态机测试显式关闭 transport rendezvous，避免临时目录长度决定测试分支；
-- 所有修复继续 fail-closed，不通过 skip 整组测试来隐藏跨平台失败。
+- o arquivamento ZIP do Windows passa a usar uma implementação assíncrona em Node dentro do próprio
+  repositório, sem exigir que a máquina de teste ou a de build da release tenha o comando `zip`
+  instalado;
+- a leitura de mtime do script de notarize passa a ser compatível tanto com `stat` de BSD/macOS quanto
+  de GNU/Linux;
+- a platform seam dos testes de identidade do macOS e do watcher de System Settings precisa atravessar
+  até os helpers internos;
+- os testes de contrato do Node Helper do macOS fixam `darwin` explicitamente, e o fake native dos
+  testes de broker cross-platform passa a cobrir a ABI da plataforma atual;
+- os testes da máquina de estados do Helper Host que não sobem um socket real de broker desligam
+  explicitamente o rendezvous de transporte, evitando que o tamanho do diretório temporário decida o
+  ramo do teste;
+- todas as correções continuam fail-closed e não escondem falhas cross-platform pulando o grupo
+  inteiro de testes.
 
-## 修复结果
+## Resultado da correção
 
-2026-08-24 已按上述设计完成修复：原 7 个失败文件在 Linux 上得到 `158 passed / 4 skipped`，
-原 30 条失败全部消失。与此同时将 Windows ZIP 的生成与安全解压统一改为进程内异步实现，移除了
-发布机对系统 `zip` 以及 GNU tar 读取 ZIP 的错误依赖。当前分支另外两条 UI 源码守卫漂移同步采用
-staging 已有修复 `4f0b024f73` 的断言结果，不改变 UI 产品实现。
+Em 2026-08-24 a correção foi concluída conforme o design acima: os 7 arquivos que falhavam passaram a
+dar `158 passed / 4 skipped` no Linux, e as 30 falhas originais desapareceram. Ao mesmo tempo, a
+geração do ZIP no Windows e a extração segura passaram a ser uma implementação assíncrona dentro do
+processo, removendo a dependência incorreta da máquina de release do comando `zip` do sistema e do GNU
+tar para leitura de ZIP. As outras duas drifts de guarda de código da UI no branch atual adotam
+simultaneamente o resultado das asserções da correção já existente no staging `4f0b024f73`, sem
+alterar a implementação de produto da UI.

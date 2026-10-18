@@ -1,130 +1,182 @@
-# 进程资源遥测复审修复：影响与验证
+# Correções da Revisão de Telemetria de Recursos de Processo: Impacto e Validação
 
-## Feature Summary
+## Resumo da Funcionalidade
 
-2026-09-15，基于 `3e6ac3d643` 修复 R1–R7、N1/N2。模式为 planning / implementation；
-改动层为 validation、commit-effect，瞬时内存分组与去重不属于 task 持久化或 recovery。
-行为契约见 [主 spec](./process-resource-telemetry.md#复审修复契约2026-09-15)。
-范围外：UI 提示、版本号硬门槛、RPC 框架重构、任务/队列/恢复协议、线上 ARMS 配置。
+2026-09-15, com base em `3e6ac3d643`, foram corrigidos R1–R7, N1/N2. O padrão é planning /
+implementation; as camadas alteradas são validation e commit-effect, e o agrupamento e a
+deduplicação de memória transitória não pertencem à persistência de task nem à recuperação.
+O contrato de comportamento está em
+[spec principal](./process-resource-telemetry.md#contrato-de-correcoes-da-revisao2026-09-15).
+Fora de escopo: dicas de UI, barreiras rígidas de versão, refatoração do framework RPC, protocolo
+de task/fila/recuperação e configuração de ARMS em produção.
 
-## UI Surface Matrix
+## Matriz de Superfície de UI
 
-| 场景 / 入口 | 共享实现与权威 owner | 校验与副作用 | 模式 / 隔离 |
-| --- | --- | --- | --- |
-| 桌面连接独立 Server | connectServerRemote → Host connection handle | server-info 能力决定旁路订阅 | 无能力仍连接；不改变 workspace 草稿或任务 |
-| 桌面本地及 SSH/WSL/Docker | Host services → main 遥测出口 | 配套进程维持订阅 | 不改对应 UI、运行态或 settings |
-| 多窗口同 Server Bash | CLI 单命令 owner → main | 完成标识校验、有界去重、ARMS 投影 | 不因连接数增加事件数 |
-| 手机远控 attachment | Agent connection scope | 遥测事件保持空 | continuous/replayable 恢复语义不变 |
+| Cenário / entrada                       | Implementação compartilhada e owner autoritativo | Validação e efeitos colaterais                | Padrão / isolamento                                    |
+| --------------------------------------- | ----------------------------------------------- | --------------------------------------------- | ------------------------------------------------------- |
+| Desktop conectando a um Server independente | connectServerRemote → handle de conexão do Host | a capacidade de server-info decide a assinatura derivada | ainda conecta sem a capacidade; não altera rascunhos de workspace nem tasks |
+| Desktop local e SSH/WSL/Docker           | Host services → saída de telemetria no main      | processos correspondentes mantêm a assinatura | não altera a UI, o runtime nem as settings correspondentes |
+| Vários janelas no mesmo Server via Bash | owner do único comando CLI → main                 | validação do identificador de conclusão, deduplicação limitada, projeção ARMS | o número de eventos não aumenta com o número de conexões |
+| Attachment de controle remoto do celular | Agent connection scope                            | os eventos de telemetria permanecem vazios  | a semântica de recuperação continuous/replayable não muda |
 
-## Shared And Divergent Behavior
+## Comportamento Compartilhado e Divergente
 
-UI、候选项、默认值、持久化均无改动。共享 Host 转发与 main 出口；Server 仅在明确支持能力时
-订阅，本地及配套部署路径保持既有能力。跨环境分别聚合，同环境多实例合计；缺新字段兼容旧生产者。
+Não houve alteração em UI, candidatos, valores padrão ou persistência. O encaminhamento
+compartilhado fica no Host e a saída fica no main; o Server só assina quando há suporte explícito
+de capacidade, e os caminhos local e de implantações correspondentes mantêm as capacidades
+existentes. A agregação é separada por ambiente, com múltiplas instâncias do mesmo ambiente somadas;
+campos ausentes do novo formato são compatíveis com produtores antigos.
 
-## Feature Relationships / State Owners And Commit Sinks
+## Relações da Funcionalidade / State Owners e Commit Sinks
 
-| 级别 | 链路 / owner | 原因与依据 |
-| --- | --- | --- |
-| must-inspect | shared server-info → 两种 Server → Host helper/index | 新能力的声明、解析与订阅门禁须一致 |
-| must-inspect | CLI Bash owner → shared protocol → services/Host → main | completionToken 在 fan-out 前生成，在唯一出口去重 |
-| must-inspect | Host 环境身份 → CLI/MCP 来源 → window aggregator | 隔离 key 贯穿，白名单投影不泄露身份 |
-| must-inspect | CLI source → external app totals | 到达时刻属于原读数；交付不能延长有效期 |
-| should-inspect | Host self heap / renderer heap | 同 tick 最大值与交付清空规则一致 |
-| invariant-only | terminal attachment / task realtime / CommandInbox | 无新会话订阅、队列、snapshot 或 replay 状态 |
-| evidence-only | telemetry tests / CI guard | 用触发场景断言验证契约，测试通过不外推实机 |
+| Nível          | Cadeia / owner                                                   | Motivo e fundamento                                                       |
+| -------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| must-inspect   | server-info compartilhado → dois tipos de Server → helper/index do Host | a declaração, o parsing e o gate de assinatura da nova capacidade devem ser consistentes |
+| must-inspect   | owner de Bash da CLI → protocolo compartilhado → services/Host → main | o completionToken é gerado antes do fan-out e deduplicado na saída única |
+| must-inspect   | identidade de ambiente do Host → origem CLI/MCP → agregador de janela | a chave de isolamento percorre a cadeia e a projeção de whitelist não vaza identidade |
+| must-inspect   | origem CLI → totais de apps externos                           | o instante de chegada pertence à leitura original; a entrega não estende a validade |
+| should-inspect | heap próprio do Host / heap do renderer                         | as regras de valor máximo por tick e de limpeza na entrega são consistentes  |
+| invariant-only | attachment de terminal / realtime de task / CommandInbox        | sem novas assinaturas de sessão, filas, snapshots ou estado de replay      |
+| evidence-only  | testes de telemetria / guard de CI                              | o contrato é validado por asserções de cenários disparadores; testes aprovados não extrapolam para máquina real |
 
-## Must-Preserve Invariants
+## Invariantes que Devem Ser Preservados
 
-- 一台运行环境的 CPU/RSS 只在自己的分组内相加；硬件规格不是身份。
-- 样本过期基于实际接收时间；定时器不产生新的读数事实。
-- 完成标识、环境身份仅用于旁路内存；事件属性白名单、20 属性限制不变。
-- main 无外部采样进程；没有新增周期定时器、磁盘队列或持久化。
-- 遥测异常不影响 Bash 完成、远端连接和桌面/手机任务交付。
+- CPU/RSS de um ambiente de execução só é somado dentro do próprio grupo; especificação de
+  hardware não é identidade.
+- A expiração da amostra é baseada no tempo real de recebimento; timers não produzem um novo fato de
+  leitura.
+- Identificador de conclusão e identidade de ambiente são usados apenas para memória transitória; a
+  whitelist de propriedades de evento e o limite de 20 propriedades não mudam.
+- O main não tem processo externo de amostragem; não há novos timers periódicos, filas em disco ou
+  persistência.
+- Anomalias de telemetria não afetam a conclusão de Bash, a conexão remota nem a entrega de tasks de
+  desktop/celular.
 
-## Codegraph Evidence
+## Evidência de Codegraph
 
-当前工具集无 codegraph，未执行 codegraph 影响扫描。以已固定 diff、直接调用搜索及架构 context
-替代，深度约两层：registerHostServiceResourceTelemetry 的 local/remote 入口、
-ingestCliResourceSample / ingestMcpResourceSamples 的 Host main 分发、
-ingestToolExecResource 的协议生产者与白名单出口。未将所有静态可达节点视为产品影响。
+O conjunto de ferramentas atual não possui codegraph, portanto não foi executado scan de impacto por
+codegraph. Em seu lugar foram usados o diff fixado, busca de chamadas diretas e contexto de
+arquitetura, com profundidade de cerca de duas camadas: as entradas local/remote de
+registerHostServiceResourceTelemetry, o despacho de ingestCliResourceSample /
+ingestMcpResourceSamples no Host main, e o produtor de protocolo e a saída com whitelist de
+ingestToolExecResource. Não se considerou todo nó estaticamente alcançável como impacto de produto.
 
-## Graph Drift Candidates / Graph Delta
+## Candidatos de Drift de Grafo / Delta de Grafo
 
-遥测 capability 的文档列表缺少主 process-resource spec；补该入口及环境隔离、完成标识不出网
-不变量。现有 UI surface 和 task state owner 不变。
+A lista documental de capacidades de telemetria não inclui a spec principal de
+process-resource; acrescentar essa entrada e o isolamento de ambiente, além do invariante de que o
+identificador de conclusão não sai para a rede. A superfície de UI existente e os state owners de
+task permanecem inalterados.
 
-## Unresolved Questions / Clarification Log
+## Questões Não Resolvidas / Registro de Esclarecimentos
 
-无阻碍本次修复的问题。用户已授权逐项修复；采用现有“一条事件描述一个运行环境”契约，
-旧 Server 能力缺省时保留连接。UI 提示或要求旧 Server 升级不属于必要修复。
+Não há questões que atrapalhem esta correção. O usuário autorizou correções item a item; adota-se o
+contrato existente de "um evento descreve um ambiente de execução", preservando a conexão quando a
+capacidade do Server antigo está ausente por padrão. Dicas de UI ou exigir a atualização do Server
+antigo não fazem parte das correções necessárias.
 
-## Planning Handoff / Accepted Cases
+## Handoff de Planejamento / Casos Aceitos
 
-| Case | 设置与动作 | 断言 | 证据 / 状态 |
-| --- | --- | --- | --- |
-| PRT-031 | 旧/新 server-info，建立 Host 遥测订阅 | 缺能力无订阅且服务端存活；有能力四条旁路正常 | schema / Host / localhost WS 集成通过；旧 Core 探针 exit 0 |
-| PRT-032 | 同一完成标识经不同 Host 重复到达；相同指标不同标识 | 前者一次、后者分别上报；集合有界且重置清空 | 协议 / CLI / main 回归通过；上限与 reset 已验证 |
-| PRT-033 | chat/aux 错相位，aux 停更，周期与退出 flush | 按组新读数交付；旧读数两个周期后退出总量 | 受控时钟回归通过，含同组实例到期和 CLI/MCP 预算 |
-| PRT-034 | 同规格不同环境及同环境多实例，CLI 与 MCP | 不跨环境相加；同环境合计；最终属性无身份 | Host / source / window / 出口回归通过 |
-| PRT-035 | 同 tick 两 Host heap 高→低、低→高 | 最大值一致，下一 tick 不重交 | selfHeap / 集成回归通过 |
-| PRT-036 | 实际来源路径、禁用调用与豁免 | 全部受保护，合法按需采样豁免仍有效 | guard / repo hygiene 通过，73 文件 / 2 项生效豁免 |
-| PRT-037 | 正则内反引号、字符类、除法、注释及模板 | 真调用命中，真注释忽略，整仓无状态漂移 | guard 31 项回归通过，含真实稳定性源码 |
+| Caso    | Configuração e ação                                                | Asserção                                                                | Evidência / status                                                          |
+| ------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| PRT-031 | server-info antigo/novo, estabelecendo assinatura de telemetria no Host | sem capacidade não há assinatura e o servidor continua vivo; com capacidade as quatro assinaturas derivadas funcionam | schema / Host / integração WS localhost aprovados; probe do Core antigo sai com 0 |
+| PRT-032 | o mesmo identificador de conclusão chegando por Hosts diferentes; mesmas métricas com identificadores diferentes | o primeiro é reportado uma vez, o segundo separadamente; o conjunto é limitado e o reset limpa | protocolo / CLI / regressão do main aprovados; limite e reset verificados |
+| PRT-033 | chat/aux em fases erradas, aux sem atualização, flush periódico e de saída | entrega nova leitura por grupo; a leitura antiga sai do total após dois períodos | regressão com relógio controlado aprovada, incluindo expiração de instância do mesmo grupo e orçamento de CLI/MCP |
+| PRT-034 | mesma especificação em ambientes diferentes e múltiplas instâncias do mesmo ambiente, CLI e MCP | não soma entre ambientes; soma no mesmo ambiente; as propriedades finais não têm identidade | regressões de Host / source / janela / saída aprovadas |
+| PRT-035 | dois Hosts no mesmo tick com heap alto→baixo e baixo→alto     | o valor máximo é consistente e não é entregue de novo no tick seguinte | regressões de selfHeap / integração aprovadas |
+| PRT-036 | caminhos reais de origem, chamadas desabilitadas e isenções      | tudo protegido; a amostragem legítima sob demanda continua isenta | guard / higiene do repo aprovados, 73 arquivos / 2 isenções em vigor |
+| PRT-037 | crases dentro de regex, classes de caracteres, divisão, comentários e templates | chamadas reais são atingidas, comentários reais ignorados, sem drift de estado no repo | regressão de 31 itens do guard aprovada, incluindo código-fonte real de estabilidade |
 
-## Dimensions / Pruning / Matrix Backfill
+## Dimensões / Poda / Complemento da Matriz
 
-高风险组合为 Server 能力 × 连接、实例 × 环境、读数相位 × 到期、Bash 完成 × 多 Host。
-主题/语言/屏幕尺寸因无 UI 改动剪枝；任务 stream/snapshot 因旁路被 attachment 隔离而只验证不变量。
-主 spec 同步新增字段的兼容、隐私及混装验收，旧测试文件按上述 case 补触发条件。
-E2E 以现有资源角色用例为入口，新增旁路去重/环境分组验证；不需要模型供应商录制。
+As combinações de alto risco são capacidade do Server × conexão, instância × ambiente, fase da
+leitura × expiração e conclusão de Bash × múltiplos Hosts. Tema/idioma/tamanho de tela foram podados
+por não haver mudança de UI; stream/snapshot de task apenas validam invariantes porque são isolados
+de attachment pelo caminho derivado. A spec principal recebe a compatibilidade dos campos novos, a
+privacidade e a aceitação de mistura; os arquivos de teste antigos recebem as condições de disparo
+conforme os casos acima. O E2E usa os casos de papel de recurso já existentes como entrada e adiciona
+validação de deduplicação derivada e de agrupamento por ambiente; não é necessária gravação com
+fornecedor de modelo.
 
-## 验证记录
+## Registro de Validação
 
-实施前 freshness、实施后 architecture:check --changed 均通过，无新增架构违规。
+Antes da implementação, a verificação de freshness passou; depois da implementação,
+`architecture:check --changed` passou sem novas violações de arquitetura.
 
-- 应用侧定向 Vitest：24 文件 / 268 项通过；随后补同组过期和来源预算回归，相关 3 文件 / 39 项通过；
-  shared 事件白名单与文档契约另 10 项通过。测试先失败后实现，未将旧断言改成错误行为。
-- CLI Bash 遥测与真实生命周期：2 文件 / 16 项通过；协议完成标识的旧/新输入兼容已验证。
-- pnpm typecheck、pnpm lint 与 desktop typecheck:e2e 通过；根 lint 为 0 error / 43 条既有 warning。
-- 门禁及 repo hygiene：73 个实际跟踪文件，0 违规，2 项生效豁免；graph YAML 解析、节点 ID 唯一性及
-  本次 capability 的文档/代码种子存在性检查通过。codegraph 工具不可用，未声称完成其索引扫描。
-- CLI 包额外全量检查未通过：55 项固定 HEAD 已有接口/fixture/迁移预期不一致，另 1 个 suite 导入
-  已删除模块；8 项并发失败在串行复验时通过，负载根因未确认。相关代码与基线逐字核对，本次 UUID
-  逻辑未进入这些失败路径。包 lint 的 26 项 max-lines 错误均位于未改文件，本次 Bash 源定向 lint 通过。
-- 首次 Electron 冒烟因并行 typecheck 覆盖 out/host bundle 而在 Host 启动阶段失败；隔离 utilityProcess
-  复现 ERR_MODULE_NOT_FOUND。串行完整重建后 PRT-023 通过：1 spec / 1 case，退出码 0，验证真实
-  main / renderer / Host 与系统事件。报告位于
-  `packages/desktop/.e2e-artifacts/desktop-e2e-20260915105255962-p18104-75dc094004a00c1b/summary.md`。
+- Vitest direcionado do lado da aplicação: 24 arquivos / 268 casos aprovados; depois foram
+  acrescentadas regressões de expiração no mesmo grupo e de orçamento de origem, com 3 arquivos /
+  39 casos aprovados; outros 10 casos aprovaram para a whitelist de eventos compartilhados e o contrato
+  documental. Os testes falharam antes da implementação, e as asserções antigas não foram alteradas
+  para codificar comportamento incorreto.
+- Telemetria de Bash da CLI e ciclo de vida real: 2 arquivos / 16 casos aprovados; a compatibilidade
+  antiga/nova de entrada do identificador de conclusão do protocolo foi verificada.
+- `pnpm typecheck`, `pnpm lint` e `typecheck:e2e` do desktop passaram; o lint da raiz ficou com 0 error
+  e 43 warnings já existentes.
+- Gates e higiene do repo: 73 arquivos realmente rastreados, 0 violações, 2 isenções em vigor; a
+  verificação de parsing do YAML do grafo, da unicidade de IDs de nós e da existência das sementes de
+  documentação/código desta capability passaram. A ferramenta codegraph não está disponível e não se
+  afirma que sua varredura de índice foi concluída.
+- A verificação completa adicional do pacote da CLI não passou: 55 itens já apresentavam divergência
+  de interface/fixture/migração no HEAD fixado, mais 1 suite que importa um módulo removido; 8
+  falhas por concorrência passaram na reverificação serial e a causa raiz de carga não foi confirmada.
+  O código relevante foi conferido palavra por palavra contra a baseline, e a lógica de UUID desta
+  rodada não entrou nesses caminhos de falha. Os 26 erros de max-lines do lint do pacote estão todos
+  em arquivos não alterados, e o lint direcionado aos fontes de Bash desta rodada passou.
+- O primeiro smoke do Electron falhou na fase de inicialização do Host porque um typecheck paralelo
+  sobrescrevia o bundle out/host; a reprodução isolada com utilityProcess deu
+  ERR_MODULE_NOT_FOUND. Após o rebuild completo e serial, o PRT-023 passou: 1 spec / 1 caso, código
+  de saída 0, validando o main / renderer / Host reais e os eventos de sistema. O relatório está em
+  `packages/desktop/.e2e-artifacts/desktop-e2e-20260915105255962-p18104-75dc094004a00c1b/summary.md`.
 
-R3 实施中补齐了原候选遗漏：设备总量改为按实例原始到达时刻更新，避免同组另一个活跃实例续存
-已退出进程。外部缓存预算从 64 调整为 128，保留原有 MCP 空间并容纳 64 个 CLI 实例，仍无新定时器。
-R2 采用 CLI 随机完成标识 + main 唯一出口去重，覆盖跨 window Host；未采用仍留下跨窗口重复的
-单 Host 引用计数方案。
+Durante a implementação do R3 foi corrigida uma lacuna dos candidatos originais: o total de
+dispositivos passou a ser atualizado pelo instante de chegada original de cada instância, evitando que
+outra instância ativa do mesmo grupo prolongue a vida de um processo já encerrado. O orçamento do
+cache externo foi ajustado de 64 para 128, preservando o espaço original de MCP e comportando 64
+instâncias de CLI, ainda sem novos timers. O R2 adotou identificador de conclusão aleatório na CLI
+com deduplicação na saída única do main, cobrindo múltiplos window Hosts; não foi adotada a solução
+de contagem de referências em um único Host, que ainda deixaria duplicatas entre janelas.
 
-回滚可撤销本修复提交；仅回滚 main 会失去去重/环境隔离，旧 strict consumer 也会丢弃新 CLI 字段，
-需要按同版本应用包回滚。无持久化格式或数据库迁移。真实 Windows/Linux、SSH/WSL/Docker 与完整
-旧 Server Desktop E2E 仍未验证，不以 mock 或 localhost 模块探针代替实机结论。
+O rollback pode reverter este commit de correção; reverter apenas o main perderia a deduplicação e o
+isolamento de ambiente, e o antigo strict consumer descartaria os novos campos da CLI, exigindo
+rollback do pacote de aplicativo na mesma versão. Não há formato de persistência nem migração de
+banco de dados. Windows/Linux reais, SSH/WSL/Docker e o E2E de Desktop completo com Server antigo
+ainda não foram validados, e mocks ou probes de módulo em localhost não substituem conclusões de
+máquina real.
 
-## PRT-031：Desktop 连接旧 Server 的 E2E 边界
+## PRT-031: Limite de E2E do Desktop se conectando a um Server antigo
 
-已接受的真实 Desktop 案例：在隔离 localhost 启动固定旧版独立 Server，从现有 preload
-`window.zcode.connectRemote` 发起连接，经过 Main → Window Host → `host/index.ts` 的正式能力门禁。
-旧 server-info 缺少资源能力时，不发送这组遥测订阅；Server 持续存活，连接成功返回 sessionId，
-既有业务 RPC 可用，最后通过正式 disposeRemoteSession 回收。本例不发送模型请求。
+Caso real de Desktop aceito: iniciar, em localhost isolado, um Server independente de versão antiga
+fixada e disparar a conexão pelo preload existente `window.zcode.connectRemote`, passando pelo gate
+oficial de capacidade de Main → Window Host → `host/index.ts`. Quando o server-info antigo não tem
+capacidade de recursos, essa assinatura de telemetria não é enviada; o Server continua vivo, a
+conexão retorna um sessionId com sucesso, as RPCs de negócio existentes continuam disponíveis e, ao
+final, a sessão é descartada pelo `disposeRemoteSession` oficial. Este caso não envia requisições de
+modelo.
 
-当前状态为 **待现成旧版 Server fixture，未新增 pending spec、未执行该 Desktop 远端 E2E**。
-仓库现有 E2E 没有可直接复用的 localhost 旧版独立 Server 夹具。正式连接在资源门禁之后还必须
-完成 Provider Provisioning 的 initialSync 和 renderer attachment；只暴露旧遥测事件面的窄桩
-不足以完成这些步骤。后续 provisioning 失败不能计作“连接成功”，也不能证明完整 Desktop 路径。
-为本次回归临时复制旧 Core/业务服务或新增生产测试后门，会超出该用例的必要边界，因此未引入。
+O status atual é **aguardando um fixture de Server antigo pronto para uso; nenhum spec pending novo
+foi adicionado e este E2E remoto de Desktop não foi executado**.
+Os E2Es existentes do repo não têm um fixture reutilizável de Server independente antigo em
+localhost. Além do gate de recursos, a conexão oficial ainda precisa concluir o initialSync do
+Provider Provisioning e o attachment do renderer; um stub estreito que exponha apenas a superfície
+de eventos de telemetria antiga não é suficiente para completar essas etapas. Uma falha posterior
+no provisioning não pode ser contada como "conexão bem-sucedida" nem prova o caminho completo de
+Desktop. Copiar temporariamente o Core antigo ou os serviços de negócio, ou adicionar backdoors de
+teste em produção, excederia o limite necessário deste caso, e por isso não foram introduzidos.
 
-目前已通过的证据包括：`serverRemoteConnection.test.ts` 的真实 localhost WebSocket 集成测试
-（能力缺失时跳过订阅、业务 RPC 继续可用；能力为 true 时正常转发），以及固定基准旧 Core 的
-隔离 WebSocket 探针。前者通过真实 connector/RPC/helper 验证能力语义，但门禁参数由测试传入，
-没有执行打包 Desktop 的 `host/index.ts`；后者同样不包含真实 Desktop。它们均不替代上述 E2E。
-既有 `process-resource-telemetry-roles.test.ts` 可验证本地真实 Electron 资源上报，覆盖范围也不含
-旧独立 Server 连接。
+A evidência já aprovada inclui o teste de integração WebSocket localhost real
+`serverRemoteConnection.test.ts` (pula a assinatura quando falta capacidade e as RPCs de negócio
+continuam disponíveis; encaminha normalmente quando a capacidade é true) e o probe de WebSocket
+isolado com o Core antigo de baseline fixada. O primeiro valida a semântica de capacidade pelo
+connector/RPC/helper reais, mas os parâmetros do gate são injetados pelo teste e o
+`host/index.ts` do Desktop empacotado não é executado; o segundo também não contém um Desktop real.
+Nenhum dos dois substitui o E2E acima. O `process-resource-telemetry-roles.test.ts` existente pode
+verificar o relatório de recursos de um Electron local real, mas seu escopo também não cobre a
+conexão com Server independente antigo.
 
-后续最小前置条件是提供固定版本、可在独立测试 HOME/cwd 启动并正确关闭的完整旧 Server 资产，
-保留该版本的真实 server-info、RPC 事件面和 Provider Provisioning 实现。届时再将 PRT-031 写入
-`packages/desktop/test/e2e/manual-review/pending/`，复用现有 Desktop 初始化和正式连接/释放接口，
-经实际运行及人工审阅后再决定晋升。
+O pré-requisito mínimo seguinte é fornecer um ativo de Server antigo completo, de versão fixada, que
+possa ser iniciado em um HOME/cwd de teste independente e encerrado corretamente, preservando a
+implementação real de server-info, da superfície de eventos RPC e do Provider Provisioning daquela
+versão. Nesse momento o PRT-031 poderá ser escrito em
+`packages/desktop/test/e2e/manual-review/pending/`, reutilizando a inicialização de Desktop existente e
+as interfaces oficiais de conexão/liberação, e a promoção será decidida após execução real e revisão
+humana.

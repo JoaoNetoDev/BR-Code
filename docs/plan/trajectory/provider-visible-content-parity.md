@@ -1,39 +1,39 @@
-# Provider-visible Content 组装
+# Montagem do Conteúdo Visível ao Provider
 
-## 范围
+## Escopo
 
-本轮调整已有 ZCode 模型可见表面：首轮非 tool-search 轨迹中的长版 communication、共享 act-don't-rederive、目标分支的 autonomy appendix、Harness 的 MCS 说明，以及 EnterPlanMode 中 research/exploration 的一句措辞；同时固定 request-level user context 和文本附件 reminder 的精确文案与分隔。Agent provider 内容不在范围内。
+Esta rodada ajusta superfícies já existentes de conteúdo visível ao modelo do ZCode: a communication longa na primeira volta de trajetórias sem tool-search, o act-don't-rederive compartilhado, o autonomy appendix do branch de objetivo, a descrição de MCS do Harness e a frase de research/exploration no EnterPlanMode; ao mesmo tempo, fixa o texto exato e os separadores do user context de nível de requisição e do reminder de anexos de texto. O conteúdo de provider do Agent não está no escopo.
 
-## 组装约束
+## Restrições de Montagem
 
-- 不修改 ZCode 原有 prompt 字符；原文保存在 `default`。
-- 新增内容保存在 `additional`，当前直接加载，不加入模型或 provider 判断。
-- communication 位于 action caution 之前。
-- communication、action caution 与稳定的 `# Harness` 独立于 output style 的 `keepCodingInstructions`；目标组装只用该字段控制独立的 doing-tasks coding instructions。ZCode 当前没有对应的独立段，因此 `keepCodingInstructions: false` 不应裁掉任何 `# Harness` 内容。
-- active output style 严格按 `# Output Style: <name>\n<prompt>` 组装，标题与正文之间不插入空行。
-- context management 后依次组装 act-don't-rederive 与四段 autonomy appendix；git context（若存在）继续位于其后。
-- EnterPlanMode 的 input schema 保持严格空对象，只将 research/exploration 句改为 `use the Agent tool instead`。
-- request-level user context 的末段 `IMPORTANT:` 保留六个前导空格。
-- 同一文本附件的合成 Read reminder body 用单换行连接，不同附件在同一个 MCS turn 中仍用双换行连接；live 与 resume 走相同组装规则。
+- Não modificar nenhum caractere do prompt original do ZCode; o texto original fica em `default`.
+- O conteúdo novo fica em `additional`, carregado diretamente, sem entrar em julgamento de modelo ou provider.
+- A communication fica antes do action caution.
+- A communication, o action caution e o `# Harness` estável são independentes do `keepCodingInstructions` do output style; a montagem de objetivo usa esse campo apenas para controlar as coding instructions de doing-tasks. O ZCode hoje não tem um parágrafo independente correspondente, portanto `keepCodingInstructions: false` não deve cortar nenhum conteúdo de `# Harness`.
+- O output style ativo é montado estritamente como `# Output Style: <name>\n<prompt>`, sem inserir linha em branco entre título e corpo.
+- Depois do context management são montados, nesta ordem, o act-don't-rederive e os quatro parágrafos do autonomy appendix; o git context (se existir) continua depois deles.
+- O input schema do EnterPlanMode permanece um objeto vazio estrito, e apenas a frase de research/exploration passa a ser `use the Agent tool instead`.
+- O parágrafo final `IMPORTANT:` do user context de nível de requisição mantém seis espaços iniciais.
+- O body do Read reminder sintetizado do mesmo anexo de texto é conectado com quebra de linha simples; anexos diferentes ainda são conectados com quebra dupla no mesmo MCS turn; live e resume seguem as mesmas regras de montagem.
 
-## Exact-word 基线
+## Linha de Base de Palavras Exatas
 
-- communication 使用长版文案，内部复用原有代码风格单句，原句只出现一次。
-- act-don't-rederive 是 277 字符，末尾没有句号。
-- autonomy appendix 是 1354 字符、四个段落。
-- Harness 使用 mid-conversation system turn 文案，不再描述 message/tool result 中的 tag 注入。
-- 默认上限截断的文本附件明确写 `first 2000 lines`，并提示按需继续读取该文件。
+- A communication usa o texto longo, reaproveitando internamente a frase única no estilo de código já existente; a frase original aparece apenas uma vez.
+- act-don't-rederive tem 277 caracteres e não termina com ponto.
+- autonomy appendix tem 1354 caracteres e quatro parágrafos.
+- O Harness usa o texto de system turn de mid-conversation e não descreve mais a injeção de tags em message/tool result.
+- O texto de anexo truncado pelo limite padrão diz explicitamente `first 2000 lines` e orienta a continuar lendo aquele arquivo sob demanda.
 
-## 非目标
+## Fora de escopo
 
-- 不调整 beta、产品专属内容、deferred tools、Agent provider catalog 或 system block 合并方式。
-- 不补充其他动态 section，不增加运行时开关或兜底。
+- Não ajustar beta, conteúdo exclusivo de produto, deferred tools, o catálogo de providers do Agent ou a forma de merge de system blocks.
+- Não acrescentar outras seções dinâmicas nem chaves de runtime nem fallbacks.
 
-## 验收
+## Aceitação
 
-- 单元测试校验 exact word、单次出现和相对顺序。
-- 单元测试覆盖 active output style 且 `keepCodingInstructions: false`，确认稳定的 `# Harness`、communication 与 action caution 均仍然存在。
-- 单元测试校验 output-style 标题与正文之间只有一个换行。
-- runtime 测试校验首轮最终 provider-visible request，而非只检查中间 section。
-- attachment 与 resume 测试分别校验同附件单换行、不同附件双换行、截断文案及恢复后一致性。
-- `prompt-trajectory` 以 mock provider 跑完整 runtime/proxy/derive 链路，并覆盖 MCS、memory、request-level context 与附件；生成轨迹后，按本节范围与 exact-word 基线校验。
+- Testes unitários validam palavras exatas, ocorrência única e ordem relativa.
+- Testes unitários cobrem output style ativo com `keepCodingInstructions: false`, confirmando que o `# Harness` estável, a communication e o action caution continuam presentes.
+- Testes unitários validam que há apenas uma quebra de linha entre o título do output style e o corpo.
+- Testes de runtime validam a requisição final visível ao provider na primeira volta, e não apenas seções intermediárias.
+- Testes de anexo e de resume validam respectivamente quebra simples para o mesmo anexo, quebra dupla para anexos diferentes, o texto de truncamento e a consistência após a retomada.
+- `prompt-trajectory` roda a cadeia completa runtime/proxy/derive com um mock provider e cobre MCS, memory, context de nível de requisição e anexos; após gerar a trajetória, a validação segue o escopo desta seção e a linha de base de palavras exatas.

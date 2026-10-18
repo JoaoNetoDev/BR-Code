@@ -1,14 +1,30 @@
-# Markdown 预览选区引用
+# Referência por Seleção no Markdown Preview
 
-## 产品行为
+## Comportamento do Produto
 
-Markdown Preview（文件 `.md` / `.markdown` 或直接传入的 Markdown 文本）的预览正文支持鼠标、键盘和触控选区。非空合法选区展示「添加到当前任务」，点击后把选中文字加入当前主任务的待发送引用，保留草稿、不自动发送。同时提供「在辅助对话中提问」，源码视图继续使用现有代码交互。
+O corpo da pré-visualização do Markdown Preview (arquivos `.md` / `.markdown` ou texto Markdown
+passado diretamente) oferece suporte a seleção com mouse, teclado e toque. Uma seleção válida e não
+vazia exibe "Adicionar à tarefa atual"; ao clicar, o texto selecionado é adicionado às referências a
+enviar da tarefa principal atual, preservando o rascunho e sem envio automático. Também é oferecido
+"Perguntar na conversa auxiliar", e a visualização de código-fonte continua usando as interações de
+código existentes.
 
-当前主任务尚未创建 session 时，引用进入该工作区 draft scope。引用复用对话引用 chip、删除、原子限额与发送序列化：单条最多 8,000 字符、最多 8 条、总计 16,000 字符；重复来源和文字不重复添加。Markdown 来源明确记录文件路径或文本预览身份，不伪造消息 row/session；发送复用 userselect 块：文件选段包含 path/text，无路径文本与对话选段仅含 text。
+Quando a tarefa principal atual ainda não criou sessão, a referência entra no escopo de rascunho
+desse workspace. A referência reaproveita o chip de referência da conversa, a remoção, os limites
+atômicos e a serialização de envio: no máximo 8.000 caracteres por item, no máximo 8 itens e 16.000
+caracteres no total; fontes e textos repetidos não são adicionados de novo. A origem Markdown registra
+explicitamente o caminho do arquivo ou a identidade da pré-visualização de texto, sem forjar row de
+mensagem ou sessão; o envio reaproveita o bloco userselect: a seleção de arquivo contém path/text, e
+texto sem caminho e a seleção da conversa contêm apenas text.
 
-选区两个端点必须都在同一预览正文内，拒绝空白、按钮/输入控件及跨预览选区。正文跨段落、表格有效。滚动、Escape、折叠选区、切换文件、正文更新、任务/工作区切换或隐藏预览后关闭浮层。浮层不得溢出窄屏，沿用主题 token 和中英文文案。
+Os dois extremos da seleção devem estar ambos dentro do mesmo corpo de pré-visualização; são
+recusados espaço em branco, botões/campos de entrada e seleção entre pré-visualizações. O corpo vale
+entre parágrafos e em tabelas. A camada flutuante é fechada ao rolar, ao pressionar Escape, ao
+recolher a seleção, ao trocar de arquivo, ao atualizar o corpo, ao trocar de task/workspace ou ao
+ocultar a pré-visualização. A camada flutuante não pode transbordar em telas estreitas e segue os
+tokens de tema e os textos em chinês e inglês.
 
-## 数据流与边界
+## Fluxo de Dados e Limites
 
 ```text
 AnimatedSidePanePanel (activeTaskId + workspaceKey)
@@ -19,34 +35,72 @@ AnimatedSidePanePanel (activeTaskId + workspaceKey)
                               -> user sends -> existing userselect serialization
 ```
 
-workspaceKey 严格使用 workspaceIdentity?.trim() || workspacePath；预览来源与目标工作区不匹配时不提供入口。「添加到当前任务」的目标是当前主任务，不按最近聚焦的辅助输入框猜测。全部变更位于 UI 待发送引用层；桌面 desktop-continuous 与手机 web-remote-replayable 继续使用各自原有传输与恢复边界，不新增 runtime/host 状态或队列。
+O workspaceKey usa estritamente workspaceIdentity?.trim() || workspacePath; quando a origem da
+pré-visualização não corresponde ao workspace de destino, nenhuma entrada é oferecida. O destino de
+"Adicionar à tarefa atual" é a tarefa principal atual, sem adivinhar pelo último input auxiliar
+focado. Todas as alterações ficam na camada de UI de referências a enviar; o desktop
+desktop-continuous e o celular web-remote-replayable continuam usando suas fronteiras próprias de
+transporte e recuperação, sem novo estado de runtime/host ou fila.
 
-## 验证合同
+## Contrato de Validação
 
-- MPS01：文件/文本预览选中正文后添加，保留草稿、正确 chip、可删除、不自动发送。
-- MPS02：来源区分、同源同文去重、限额原子拒绝、文件发送 path/text，无路径文本只含 text。
-- MPS03：跨区域/控件/空白拒绝，滚动、Escape、源或目标变化清除浮层。
-- MPS04：手机触控 selectionchange、窄屏布局、明暗主题及国际化。
-- MPS05：同路径不同远程 identity 隔离；草稿/任务之间隔离。
+- MPS01: adicionar após selecionar o corpo em um arquivo/pré-visualização de texto, preservando o
+  rascunho, com chip correto, removível e sem envio automático.
+- MPS02: distinção de origem, deduplicação de mesma origem e mesmo texto, rejeição atômica de limite,
+  envio de arquivo com path/text e texto sem caminho contendo apenas text.
+- MPS03: rejeição entre regiões/controles/espaço em branco; limpeza da camada flutuante ao rolar,
+  com Escape e quando a origem ou o destino muda.
+- MPS04: `selectionchange` por toque no celular, layout em tela estreita, tema claro/escuro e
+  internacionalização.
+- MPS05: isolamento entre mesmo caminho com identity remota diferente; isolamento entre rascunho e
+  task.
 
-以上语义 accepted；新增桌面 E2E 保留 manual-review/pending，正式转正独立遵循人工审核流程。
+Essas semânticas foram aceitas; os novos E2Es de desktop permanecem em manual-review/pending, e a
+promoção a caso oficial segue o processo de revisão humana.
 
-## 验证记录（2026-09-04）
+## Registro de Validação (2026-09-04)
 
-- 相关 UI 单测 80 条通过：包含来源/序列化/限额、触控 selectionchange、窄屏定位、草稿与远程 identity 隔离、源/目标变化及关闭行为，以及既有预览与对话选区回归。
-- macOS Desktop E2E 通过：从项目文件树打开真实 Markdown 文件，选中文字、添加引用、保留草稿、去重、移除；全程保持 draft，不自动发送。
-- E2E artifact：`desktop-e2e-20260904025826214-p12794-fec18ab46a7b3c1d`；已核对 `markdown-selection-tooltip.png` 和 `markdown-selection-composer.png`（暗色主题）。
-- `pnpm typecheck`、`pnpm --filter @zcode/desktop typecheck:e2e` 通过；`pnpm lint` 无错误，仓库既有 40 条 warning。
-- 待补环境验证：手机真机原生长按、真实远程 attachment 链路、Windows/Linux 和浅色主题目视。手机事件/窄屏与身份隔离有单测；两种主题使用现有语义 token，中英文复用现有文案。无 host/runtime/协议改动。
-- 新增 E2E 仍为 pending 候选，未进行正式用例转正或 Docker suite 准入。
+- 80 testes unitários de UI relevantes aprovados: incluindo origem/serialização/limite,
+  `selectionchange` por toque, posicionamento em tela estreita, isolamento de rascunho e identity
+  remota, mudanças de origem/destino e comportamento de fechamento, além da regressão das seleções
+  de pré-visualização e de conversa já existentes.
+- E2E de Desktop no macOS aprovado: abrir um arquivo Markdown real pela árvore de arquivos do projeto,
+  selecionar texto, adicionar referência, preservar o rascunho, deduplicar e remover; mantendo
+  rascunho do início ao fim, sem envio automático.
+- Artefato do E2E: `desktop-e2e-20260904025826214-p12794-fec18ab46a7b3c1d`; `markdown-selection-tooltip.png`
+  e `markdown-selection-composer.png` foram verificados (tema escuro).
+- `pnpm typecheck` e `pnpm --filter @zcode/desktop typecheck:e2e` passaram; `pnpm lint` sem erros,
+  com as 40 warnings já existentes do repo.
+- Validações de ambiente ainda pendentes: long-press nativo em aparelho real, cadeia de attachment
+  remoto real, Windows/Linux e inspeção visual no tema claro. Eventos em celular/tela estreita e
+  isolamento de identidade têm testes unitários; os dois temas usam os tokens semânticos existentes, e
+  os textos em chinês e inglês reaproveitam os existentes. Não houve mudança em host/runtime/protocolo.
+- Os novos E2Es continuam como candidatos pending, sem promoção a caso oficial nem admissão no suite
+  de Docker.
 
-## 辅助对话入口
+## Entrada pela Conversa Auxiliar
 
-MPS06（accepted）：Markdown 选区通过 workspaceKey + 当前主任务 sessionId 路由到已注册主 SessionPane，传入 Markdown 引用。沿用消息选区的 active child 复用、无 active child 新建、失效 child 替换和 pending 创建去重规则；保留主/辅助草稿，不自动发送。Markdown tab 激活时通常没有 active child，不猜测最近使用的辅助 tab。
+MPS06 (aceito): a seleção Markdown é roteada pelo workspaceKey + sessionId da tarefa principal atual
+até o SessionPane principal já registrado, passando a referência Markdown. Reaproveitam-se as regras
+de reaproveitamento do active child da seleção de mensagens, de criação de um novo quando não há
+active child, de substituição de child inválido e de deduplicação de criação pendente; os rascunhos
+principal e auxiliar são preservados, sem envio automático. Quando a tab Markdown está ativa
+normalmente não há active child, e não se adivinha a tab auxiliar usada recentemente.
 
-MPS07（accepted）：尚无主 session、只读/手机 viewport 或主控制器未就绪时禁用辅助动作并显示本地化说明；主任务或目标辅助对话存在阻塞交互时禁用引用动作。原「添加到当前任务」保持可用。既有无引用 launcher 仍强制新建，不受引用动作的阻塞状态影响。
+MPS07 (aceito): quando ainda não há sessão principal, em viewport somente leitura/no celular ou
+quando o controlador principal não está pronto, a ação auxiliar é desabilitada com uma explicação
+localizada; a ação de referência também é desabilitada quando a tarefa principal ou a conversa auxiliar
+de destino tem uma interação bloqueante. O "Adicionar à tarefa atual" existente continua disponível. O
+launcher sem referência continua forçando a criação de um novo e não é afetado pelo estado bloqueado
+da ação de referência.
 
-2026-09-07 合并复审：`0ed79bae571` 人工适配 SessionPane 时漏接了注册回调的引用参数及阻塞标记。恢复上述 MPS06/MPS07，不恢复旧 Provider Store、发送前 Registry 同步或账号批量切模。必须验证真实 SessionPane 注册的回调，而不只测试 Runtime helper；沿用正式 Markdown E2E 验证辅助输入框实际得到引用。Workspace Hook 的软审核不计入阻塞交互。
+Revisão de merge de 2026-09-07: ao adaptar manualmente o SessionPane em `0ed79bae571`, os parâmetros
+de referência e as marcações de bloqueio do callback registrado foram perdidos. MPS06/MPS07 foram
+restaurados, sem restaurar o antigo Provider Store, a sincronização de Registry antes do envio nem a
+troca em massa de modelo da conta. É obrigatório validar o callback registrado por um SessionPane
+real, e não apenas testar o helper de Runtime; usar o E2E oficial de Markdown para verificar que o
+input auxiliar realmente recebe a referência. A revisão suave do Workspace Hook não conta como
+interação bloqueante.
 
 ```text
 Markdown reference -> scoped registered main opener
@@ -55,47 +109,107 @@ Markdown reference -> scoped registered main opener
   -> child composer references; never auto-send
 ```
 
-仅扩展已有 renderer 控制器入口的可选引用参数；不新增协议、Host/CLI 状态，也不扩张手机辅助对话边界。
+Apenas se estende o parâmetro opcional de referência na entrada do controlador de renderer já
+existente; não se adiciona protocolo nem estado de Host/CLI, e não se expande a fronteira da conversa
+auxiliar no celular.
 
-### 辅助入口验证（2026-09-04）
+### Validação da Entrada Auxiliar (2026-09-04)
 
-- 相关单测 86 条通过，新增覆盖引用透传、workspace/parent 精确路由、未就绪禁用、阻塞只拒绝引用动作及无引用 launcher 兼容。
-- macOS Desktop E2E（case-local replay）通过；artifact `desktop-e2e-20260904031854602-p40021-80167b00527a3467`，已检查 `markdown-side-conversation.png`：主草稿保留，辅助会话输入框带一条 Markdown 引用且正文为空，不自动发送。
-- typecheck、E2E typecheck、lint 和 fixture check 通过；lint 仍为既有 40 条 warning。fixture 的未匹配 marker 对应未发送草稿/预览正文/回复断言。
-- 手机辅助对话沿用现有不可用边界；手机真机、真实远程 attachment、Windows/Linux、浅色主题目视仍未验证。无新增协议或运行时队列。
+- 86 testes unitários relevantes aprovados, com nova cobertura de repasse da referência, roteamento
+  preciso por workspace/parent, desabilitação quando não está pronto, bloqueio que rejeita apenas a
+  ação de referência e compatibilidade do launcher sem referência.
+- E2E de Desktop no macOS (replay case-local) aprovado; artefato
+  `desktop-e2e-20260904031854602-p40021-80167b00527a3467`, com `markdown-side-conversation.png`
+  verificado: o rascunho principal é preservado, o input da sessão auxiliar tem uma referência Markdown
+  e o corpo vazio, sem envio automático.
+- typecheck, E2E typecheck, lint e fixture check passaram; o lint continua com as 40 warnings já
+  existentes. Os markers sem correspondência do fixture correspondem a asserções de rascunho não
+  enviado/corpo de pré-visualização/resposta.
+- A conversa auxiliar no celular segue a fronteira de indisponibilidade já existente; aparelho real,
+  attachment remoto real, Windows/Linux e inspeção visual no tema claro continuam sem validação. Não
+  há novo protocolo nem fila de runtime.
 
-### 选区菜单视觉一致性（MPS08，accepted）
+### Consistência Visual do Menu de Seleção (MPS08, aceito)
 
-Markdown 与对话流复用同一个选区菜单：横向排列、自适应内容宽度、竖分隔线，统一字体、间距、主题、圆角和 hover/disabled 样式。根据菜单实际尺寸约束视口边界，窄屏保持横排且允许按钮文字换行。只共享菜单展示与定位，引用来源、路由和辅助动作禁用条件不变。
+Markdown e fluxo de conversa reutilizam o mesmo menu de seleção: disposição horizontal, largura de
+conteúdo adaptativa, separadores verticais, com fonte, espaçamento, tema, raio de canto e estilos de
+hover/disabled unificados. Os limites do viewport são restringidos conforme a dimensão real do menu, e
+em tela estreita a disposição horizontal é mantida, permitindo quebra de linha no texto dos botões.
+Apenas a exibição e o posicionamento do menu são compartilhados; a origem da referência, o
+roteamento e as condições de desabilitação da ação auxiliar permanecem inalterados.
 
-验证：扩展同一 pending E2E，检查两按钮横排、菜单自适应及视口边界；现有添加/辅助引用路径继续回归。
+Validação: estender o mesmo E2E pending, verificando os dois botões em linha, a adaptação do menu e
+os limites do viewport; os caminhos existentes de adição e de referência auxiliar continuam em
+regressão.
 
-- 相关单测 27 条、typecheck、E2E typecheck 和 macOS Desktop E2E 通过；lint 无错误，仍为既有 40 条 warning。
-- E2E artifact：`desktop-e2e-20260904033127818-p66016-259b1e7c9730d08e`；已目视核对 `markdown-selection-tooltip.png`，菜单横排且位于选区上方。draft 的辅助动作仍按原规则禁用。
-- 手机真机、Windows/Linux 和浅色主题目视未补测；沿用上述待补环境验证范围。E2E 保持 pending。
+- 27 testes unitários relevantes, typecheck, E2E typecheck e E2E de Desktop no macOS aprovados; lint
+  sem erros, continuam as 40 warnings já existentes.
+- Artefato do E2E: `desktop-e2e-20260904033127818-p66016-259b1e7c9730d08e`;
+  `markdown-selection-tooltip.png` foi verificado visualmente, com o menu em linha e acima da seleção.
+  A ação auxiliar do rascunho continua desabilitada pelas regras originais.
+- Aparelho real, Windows/Linux e inspeção visual no tema claro não foram complementados; segue o mesmo
+  escopo de validações de ambiente pendentes acima. O E2E permanece pending.
 
-### 英文按钮文案
+### Textos dos Botões em Inglês
 
-对话流与 Markdown 预览共用英文文案：`Add to chat`、`Add in side chat`。沿用同一国际化 key，仅调整英文展示，中文与动作行为不变。
+O fluxo de conversa e o Markdown Preview compartilham os textos em inglês: `Add to chat`,
+`Add in side chat`. Reaproveita-se a mesma chave de internacionalização, ajustando apenas a exibição
+em inglês; o chinês e o comportamento das ações não mudam.
 
-### 文件来源保留（MPS09，accepted）
+### Preservação da Origem de Arquivo (MPS09, aceito)
 
-文件 Markdown 引用显式携带可选 path（真实路径，不使用 workspaceIdentity 或 sourceKey 代替）。单条显示「文件名 · 引用」，多条包含文件时显示通用引用计数；详情展示每条路径与选段。无路径文本预览保持 text-only。发送仍复用 userselect 文本块，文件项为 {path,text}，对话项为 {text}；历史解析保留合法非空字符串 path，旧 text-only 与 legacy 格式兼容，非法结构不吞正文。
+A referência Markdown de arquivo carrega explicitamente um path opcional (caminho real, sem usar
+workspaceIdentity ou sourceKey como substituto). Em item único exibe "Nome do arquivo · Referência";
+com vários itens, quando há arquivos, exibe uma contagem genérica de referências; o detalhe mostra
+cada caminho e sua seleção. Pré-visualizações de texto sem caminho permanecem only-text. O envio
+continua reaproveitando o bloco de texto userselect, com item de arquivo `{path,text}` e item de
+conversa `{text}`; o parser do histórico preserva strings path legais e não vazias, a compatibilidade
+com text-only antigo e formatos legados é mantida, e estruturas ilegais não engolem o corpo.
 
 ```text
 preview source.path -> reference.path -> userselect JSON -> history parser -> shared chip
 ```
 
-无 Host/协议/队列变化，桌面 continuous 与手机 replayable 链路保持原样；路径只作来源，workspace scope 仍使用 identity 隔离。中英文、窄屏截断、Windows 路径分隔符均需兼容。MPS09 覆盖单测往返与无路径/非法数据，以及既有 pending E2E 的主/辅助文件名展示。
+Não há mudança em Host/protocolo/fila, e o链路 continuous de desktop e replayable de celular
+permanece como está; o caminho é usado apenas como origem, e o escopo de workspace continua isolado
+por identity. Chinês/inglês, truncamento em tela estreita e separadores de caminho do Windows precisam
+ser compatíveis. MPS09 cobre o round-trip de teste unitário e os casos sem caminho/dados ilegais,
+além da exibição do nome do arquivo no E2E pending existente para os casos principal e auxiliar.
 
-验证（2026-09-04）：35 条相关单测、typecheck、E2E typecheck、lint（既有 40 条 warning）及 macOS Desktop E2E 通过。artifact `desktop-e2e-20260904034329498-p80782-46211801b16015b3`，已目视文件名标签，并检查 provider capture 的 userselect 确实包含真实 path 与选段 text；E2E 同时断言主/辅助输入框与发送后历史文件名。无路径与非法路径由单测覆盖。手机真机、真实远程 attachment、Windows/Linux 和浅色主题目视未补测；E2E 仍保持 pending。
+Validação (2026-09-04): 35 testes unitários relevantes, typecheck, E2E typecheck, lint (as 40 warnings
+já existentes) e E2E de Desktop no macOS aprovados. Artefato
+`desktop-e2e-20260904034329498-p80782-46211801b16015b3`, com o rótulo de nome de arquivo verificado
+visualmente e conferência de que o userselect capturado do provider contém de fato o path real e o
+text da seleção; o E2E também faz asserção sobre os inputs principal e auxiliar e sobre o nome do
+arquivo no histórico após o envio. Caminho ausente e caminho ilegal são cobertos por testes unitários.
+Aparelho real, attachment remoto real, Windows/Linux e inspeção visual no tema claro não foram
+complementados; o E2E continua pending.
 
-MPS09 发送证据加强：E2E 从真实 provider 请求的 user 文本提取 userselect JSON，精确断言唯一引用等于 `{path: filePath, text: marker}`，拒绝缺失、错误路径、选段变化和额外内部字段；不以整份证据中出现文件名作为通过依据。
+Reforço da evidência de envio do MPS09: o E2E extrai o userselect JSON do texto de usuário da
+requisição real do provider e faz a asserção precisa de que a referência única é igual a
+`{path: filePath, text: marker}`, rejeitando ausência, path errado, alteração da seleção e campos
+internos extras; não se considera aprovado apenas porque o nome do arquivo aparece na evidência
+completa.
 
-精确断言验证（2026-09-04）：macOS Desktop E2E 通过，artifact `desktop-e2e-20260904040834255-p21311-c0e910d3b5a7b258`。首次运行在文件树入口失败，日志显示焦点触发按钮尚未挂载；测试改为等待 React 挂载后点击，重跑通过。typecheck、E2E typecheck、fixture check 与 lint 通过（既有 40 条 warning）。未变更产品代码、fixture 响应或正式用例准入状态。
+Validação da asserção precisa (2026-09-04): E2E de Desktop no macOS aprovado, artefato
+`desktop-e2e-20260904040834255-p21311-c0e910d3b5a7b258`. A primeira execução falhou na entrada da
+árvore de arquivos; o log mostrou que o botão de disparo por foco ainda não estava montado; o teste
+passou a aguardar a montagem do React antes de clicar e a reexecução passou. typecheck, E2E typecheck,
+fixture check e lint passaram (as 40 warnings já existentes). Não houve mudança em código de produto,
+respostas de fixture ou status de admissão de casos oficiais.
 
-### 正式用例转正（2026-09-04）
+### Promoção a Caso Oficial (2026-09-04)
 
-用户确认转正后，已通过 promote dry run/apply 与覆盖率准入审计，正式路径为 `packages/desktop/test/e2e/conversation-session/conversation-session-markdown-preview-selection.test.ts`。独立 common + case-local 回放通过（`desktop-e2e-20260904042625480-p37746-25eba58058f16338`），默认回放通过（`desktop-e2e-20260904042658298-p39023-d345d8e8f357eb39`）。fixture check、E2E typecheck、typecheck、lint 通过，lint 为既有 40 条 warning。
+Após a confirmação do usuário, a promoção foi feita com promote dry run/apply e auditoria de admissão
+de cobertura, e o caminho oficial é
+`packages/desktop/test/e2e/conversation-session/conversation-session-markdown-preview-selection.test.ts`.
+O replay com common + case-local isolado passou
+(`desktop-e2e-20260904042625480-p37746-25eba58058f16338`), e o replay padrão passou
+(`desktop-e2e-20260904042658298-p39023-d345d8e8f357eb39`). fixture check, E2E typecheck, typecheck e
+lint passaram, com o lint nas 40 warnings já existentes.
 
-准入审计发现既有 assistant-preview-cards 与 hooks-lifecycle 的 manifest 顺序/说明和 provider fixture 不一致，已按 provider fixture 机械同步，未改响应或测试行为。按用户要求不加入 Docker 验证集，未执行 Docker 准入；此前 pending 记录为历史状态，以本节为准。
+A auditoria de admissão encontrou inconsistências entre a ordem/descrição do manifesto e o fixture de
+provider em assistant-preview-cards e hooks-lifecycle já existentes; elas foram sincronizadas
+mecanicamente com o fixture de provider, sem alterar respostas ou comportamento de teste. Por pedido
+do usuário o caso não foi incluído no conjunto de verificação de Docker e a admissão em Docker não foi
+executada; o registro pending anterior é estado histórico e esta seção prevalece.

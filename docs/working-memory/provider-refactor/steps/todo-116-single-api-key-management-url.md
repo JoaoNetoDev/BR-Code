@@ -1,50 +1,50 @@
-# Todo116：移除团队专用 Key 链接，统一获取入口
+# Todo116: remover o link de Key exclusivo de equipe e unificar o ponto de obtenção
 
-> 状态：2026-09-12 全链路复审、本地整批门禁、Pro 真实设置页到系统浏览器的原生打开验收完成。手机登录控制台与远控联合实机未测，不冒称通过。实现提交：`5123ebc5a5`。
+> Status: revisão completa da cadeia em 2026-09-12, gate local do lote inteiro e aceitação da abertura nativa da página de Configurações real do Pro até o navegador do sistema concluídas. O console de login no celular e o controle remoto combinado não foram testados em aparelho real e não são declarados como aprovados. Commit de implementação: `5123ebc5a5`.
 >
-> 2026-09-11 用户纠正 Todo111：全面移除团队专用字段，不能只隐藏按钮。
+> 2026-09-11 correção do usuário ao Todo111: remover totalmente o campo exclusivo de equipe, não apenas esconder o botão.
 
-## 裁决与边界
+## Decisões e limites
 
-- Access 只保留 `apiKeyManagementUrl` 一个获取 Key 的链接字段；删除团队专用字段的 Schema、类型、Overlay、序列化、模板配置与 UI 透传。
-- 所有预设模板统一显示一个“获取 API Key / Get API Key”按钮；有无已填写 Key 都不影响入口显示，不根据账号、套餐、域名猜测链接。
-- 沿用各模板原有 `apiKeyManagementUrl`，个人／团队不再分入口。Z.ai Coding Plan 为 `https://z.ai/manage-apikey/apikey-list`，BigModel Coding Plan 为 `https://bigmodel.cn/coding-plan/personal/overview`；普通 API 及其他模板的现有主链接不变。不宣称控制台无需用户切换团队。
-- Built-in 模板仍是默认链接来源，现有配置解析与模板详情消费同一字段，复用平台打开外部链接的能力；不新增导航状态或服务路径。
-- 不为未上线的双入口中间态增加别名、迁移或宽松解析；不改真实用户文件。Schema 保持 strict，不再接受已删除字段。
-- 不改 Key 内容、Provider 身份、Access 类型、个人／团队签名、账号连接或模型配置；不顺便实施 Todo115。
-- 桌面、手机 Web 使用同一组件和本地化；不改变 Host attachment、continuous/replayable 或同步时序。
+- O Access mantém apenas `apiKeyManagementUrl` como campo de link para obter a Key; remover o Schema, o tipo, o Overlay, a serialização, a configuração de template e a passagem de valor do campo exclusivo de equipe na UI.
+- Todos os templates predefinidos exibem uniformemente um único botão "Obter API Key / Get API Key"; a presença ou ausência de uma Key preenchida não afeta a exibição do ponto de entrada, e o link não é adivinhado a partir de conta, plano ou domínio.
+- Reutiliza-se o `apiKeyManagementUrl` já existente em cada template; não há mais entrada separada para pessoal/equipe. Z.ai Coding Plan é `https://z.ai/manage-apikey/apikey-list` e BigModel Coding Plan é `https://bigmodel.cn/coding-plan/personal/overview`; a API comum e os links principais atuais de outros templates permanecem inalterados. Não se afirma que o console não exige a troca de equipe pelo usuário.
+- O template Built-in continua sendo a fonte padrão do link, e o parsing de configuração existente e o consumo dos detalhes do template usam o mesmo campo, reutilizando a capacidade da plataforma de abrir links externos; nenhum novo estado de navegação ou caminho de serviço é adicionado.
+- Não se adiciona alias, migração nem parsing tolerante para o estado intermediário de dupla entrada que nunca foi lançado; arquivos reais de usuário não são alterados. O Schema permanece strict e não aceita mais os campos removidos.
+- Não se altera o conteúdo da Key, a identidade do Provider, o tipo de Access, a assinatura pessoal/de equipe, a conexão de conta ou a configuração de modelos; o Todo115 não é implementado por conta própria.
+- Desktop e Web no celular usam o mesmo componente e a mesma localização; não se altera o Host attachment, continuous/replayable nem a temporização de sincronização.
 
-## 验证
+## Verificação
 
-- [x] 先更新并运行失败测试：旧字段被拒绝；唯一主链接 Overlay、清空、Registry 序列化和配置往返正确；发布模板均无额外链接字段。
-- [x] 删除产品代码及双按钮 props、翻译；Builtin revision 递增，现有主链接原样保留。
-- [x] 更新并运行浏览器交互：中英文、窄屏浅色／宽屏深色；有 Key 和无 Key 均只有一个入口，点击交付配置里的主 URL。
-- [x] 同步 Todo111、设计规范与用例矩阵，清除双入口的过时要求；全仓排查残留，负向测试和本次纠正说明不算实现残留。
-- [x] 批量执行定向单测、浏览器回归、typecheck、lint、架构检查及 E2E 类型检查；代码与当时记录已提交。
-- [x] 完成整项 review：重新核对全部裁决、字段删除影响面与 Provider 抽象边界，不以此前初步复审代替最终结论。
-- [x] 完成整项验收：核对实际应用中的单入口、目标 URL 及多端验证边界，明确剩余限制后再关闭 Todo。
+- [x] Atualizar e executar primeiro os testes que falham: o campo antigo é rejeitado; o Overlay do único link principal, a limpeza, a serialização no Registry e o round-trip de configuração estão corretos; os templates publicados não têm campo de link extra.
+- [x] Remover o código de produto, as props do botão duplo e as traduções; a revisão Built-in é incrementada e o link principal existente é preservado como está.
+- [x] Atualizar e executar a interação no navegador: chinês e inglês, tela estreita em tema claro e tela larga em tema escuro; com Key e sem Key há apenas um ponto de entrada, e o clique entrega a URL principal da configuração.
+- [x] Sincronizar o Todo111, as especificações de design e a matriz de casos, eliminando os requisitos obsoletos de dupla entrada; varrer o repositório inteiro em busca de resíduos, e os testes negativos e a nota desta correção não contam como resíduo de implementação.
+- [x] Executar em lote os testes unitários direcionados, a regressão de navegador, typecheck, lint, a verificação de arquitetura e a checagem de tipos de E2E; o código e o registro da época foram commitados.
+- [x] Concluir a revisão completa do item: reconferir todas as decisões, a superfície de impacto da remoção do campo e o limite da abstração de Provider, sem substituir a conclusão final pela revisão preliminar anterior.
+- [x] Concluir a aceitação completa do item: conferir o ponto de entrada único no aplicativo real, a URL de destino e os limites de verificação multiplataforma, explicitando as restrições restantes antes de fechar o Todo.
 
-## 实施与证据
+## Implementação e evidências
 
-- 删除 Schema、配置对象、Overlay、Registry 序列化及 UI 的团队专用链路；两处 Built-in 模板删除团队链接，发布 revision 19 → 20。全仓检索仅剩拒绝旧字段／断言模板不含该字段的测试。
-- 测试先红：两种手动 Access 仍接受旧字段、模板仍含旧字段，共三处预期失败；实施后 Provider / Provider Node 全套和 UI 链接、表单边界、Key 持久化、模板选择定向回归 **42 文件、454 项通过**。
-- 浏览器共享组件回归 **2/2 通过**：390px 中文浅色、1200px 英文深色，有 Key／空 Key 均一个按钮，交付原主链接；同时保留启停、横拖、删除失败重试及提示关闭断言。新增清空 Key 操作放到其他操作之后，避免测试自身的异步保存与删除门禁竞争；未为此修改产品保存逻辑。
-- `pnpm typecheck`、desktop `typecheck:e2e`、架构检查通过（0 violations）；`pnpm lint` 0 errors，41 项既有 warnings。Builtin 完整性测试的发布版本断言同步更新。
-- 当时初步复审记录（完整 review 仍待完成）：无新增账号判断、独立链接状态、签名分支或持久化迁移；除被删除字段外，原有主链接、Key、Access、模型和平台打开链路保持不变。
-- 验证边界：浏览器 fixture 使用真实共享组件和隔离写入路由，外部打开回调记录 URL；未在 Air／真实手机或登录后的控制台验证。未写真实用户数据，pending 用例未晋级正式 Electron 回归。
+- Removida a cadeia do campo exclusivo de equipe no Schema, no objeto de configuração, no Overlay, na serialização do Registry e na UI; dois templates Built-in tiveram o link de equipe removido, com a revisão publicada indo de 19 → 20. A busca em todo o repositório deixou apenas os testes que rejeitam o campo antigo e asseguram que os templates não o contêm.
+- Testes primeiro em vermelho: os dois tipos de Access manual ainda aceitavam o campo antigo e os templates ainda o continham, totalizando três falhas esperadas; após a implementação, a suíte completa de Provider / Provider Node e as regressões direcionadas de links de UI, limites de formulário, persistência da Key e seleção de template passaram com **42 arquivos, 454 itens aprovados**.
+- Regressão do componente compartilhado no navegador **2/2 aprovada**: 390px chinês tema claro, 1200px inglês tema escuro, com Key e com Key vazia há um único botão entregando o link principal original; as asserções de habilitação/desabilitação, arraste horizontal, retentativa de exclusão com falha e fechamento de aviso foram mantidas. A nova ação de limpar a Key foi colocada depois das outras ações para evitar corrida entre o salvamento assíncrono do próprio teste e o gate de exclusão; a lógica de salvamento do produto não foi alterada por isso.
+- `pnpm typecheck`, `typecheck:e2e` do desktop e a verificação de arquitetura passaram (0 violations); `pnpm lint` com 0 errors e 41 warnings já existentes. As asserções de versão publicada do teste de integridade Built-in foram atualizadas em conjunto.
+- Registro da revisão preliminar da época (a revisão completa ainda estava pendente): sem novos julgamentos de conta, estado de link independente, ramificação de assinatura ou migração de persistência; exceto o campo removido, o link principal existente, a Key, o Access, os modelos e a cadeia de abertura pela plataforma permanecem inalterados.
+- Limite de verificação: o fixture de navegador usa o componente compartilhado real e uma rota de escrita isolada, e o callback de abertura externa registra a URL; não foi validado no Air, em celular real ou no console após login. Nenhum dado real de usuário foi escrito e os casos pending não foram promovidos à regressão formal do Electron.
 
-## Goal 复审（2026-09-11）
+## Revisão do Goal (2026-09-11)
 
-全仓产品链再次检索，团队字段仅存于两处严格拒绝/模板不含字段的负例。Schema → Access 类/Overlay → Resolver 序列化 → 表单投影 → 单按钮 → 既有平台打开链均只有主 URL；没有前端硬编码第二链接、宽松读取或迁移。两类手动 Access 均保留主 URL/清空语义与 Key，账号身份和签名不变。
+Uma nova busca em toda a cadeia de produto do repositório mostrou que o campo de equipe existe apenas em dois casos negativos estritos (rejeição e template sem o campo). Do Schema às classes de Access/Overlay, à serialização do Resolver, à projeção do formulário, ao botão único e à cadeia existente de abertura pela plataforma, há apenas a URL principal; não há hardcode de segundo link no frontend, leitura tolerante nem migração. Os dois tipos de Access manual preservam a URL principal, a semântica de limpeza e a Key, e a identidade da conta e a assinatura permanecem inalteradas.
 
-六文件49项重跑通过（Provider schema/Overlay/Registry/模板、Node codec/实际发布配置）；本批18项浏览器全部通过，其中两项实际单入口、有/无 Key、点击交付 URL。根类型/lint/架构随131组通过。桌面原生打开和真实手机登录控制台未实跑，限制仍如上，不将浏览器回调当作实机证据；并入 Goal 最终应用验收。
+Seis arquivos com 49 itens foram reexecutados e passaram (Schema/Overlay/Registry/template de Provider, codec Node/configuração publicada real); os 18 itens de navegador deste lote passaram integralmente, sendo dois deles com ponto de entrada único real, com e sem Key, e com clique entregando a URL. O typecheck da raiz, o lint e a arquitetura passaram junto com o grupo 131. A abertura nativa no desktop e o console de login em celular real não foram executados em aparelho, e a limitação permanece a mesma; o callback de navegador não é tratado como evidência de aparelho real. Isso entra na aceitação final da aplicação do Goal.
 
-## Pro 原生链验收（2026-09-12）
+## Aceitação da cadeia nativa no Pro (2026-09-12)
 
-新增 pending `provider-key-native-open.test.ts`，K116-N01 通过：隔离真实 Personal Config → Settings View → 唯一按钮 → 平台接口/preload/main IPC → 未 mock 的 `shell.openExternal` → 系统默认浏览器 GET 到本机随机端口的唯一 canary 路径。普通 API Key（非空）及 Coding Plan API Key（空）两个模板实例均通过；点击前未访问、点击后精确命中，配置文件字节不变。不会请求模型、登录账号或读取浏览器其他页面；官方模板 URL 的精确值复用此前配置/Schema 测试。
+Novo pending `provider-key-native-open.test.ts`, K116-N01 aprovado: Personal Config real isolada → Settings View → botão único → interface da plataforma/preload/main IPC → `shell.openExternal` não mockado → GET do navegador padrão do sistema até o único caminho canary de porta aleatória local. Passaram as duas instâncias de template, API Key comum (não vazia) e Coding Plan API Key (vazia); antes do clique nada é acessado e depois do clique o alvo é atingido com precisão, com os bytes do arquivo de configuração inalterados. A execução não solicita modelos, não faz login de conta e não lê outras páginas do navegador; o valor exato das URLs dos templates oficiais é reaproveitado dos testes de configuração/Schema anteriores.
 
-日志 `/tmp/provider-20260912-pro-native-key2.log`，产物 `/Users/dev/provider-stabilization-pro.euQzIZ/packages/desktop/.e2e-artifacts/provider-20260912-pro-native-key2/summary.md`。复用上一轮从 `fc757c0ec9` 构建的 App；本轮无产品代码变更，新增测试及 manifest 单独同步。首次测试未写 templateId 而没有按钮，核对产品“仅模板显示入口”规则后修正夹具，不放宽 UI 或 Schema。未擅自晋级正式回归。
+Log `/tmp/provider-20260912-pro-native-key2.log`, artefato `/Users/dev/provider-stabilization-pro.euQzIZ/packages/desktop/.e2e-artifacts/provider-20260912-pro-native-key2/summary.md`. O App foi reaproveitado da rodada anterior, compilado a partir de `fc757c0ec9`; nesta rodada não houve mudança de código de produto, e o novo teste e o manifest foram sincronizados separadamente. O primeiro teste não escreveu templateId e portanto não tinha botão; após conferir a regra do produto de que o ponto de entrada só aparece para templates, o fixture foi corrigido, sem afrouxar a UI nem o Schema. Não houve promoção não autorizada à regressão formal.
 
-复审：canary 只能从真实点击后的系统浏览器抵达，非 Renderer 回调 stub 或测试主动 fetch；两类 Access 同一测试路径，未新增生产状态／同步／签名分支。手机宽度双主题真实组件点击已有通过证据，真实手机登录控制台仍不在本次证明范围。
+Revisão: o canary só pode ser alcançado pelo navegador do sistema após um clique real, e não por um stub de callback do Renderer nem por fetch ativo do teste; os dois tipos de Access usam o mesmo caminho de teste, sem novos ramos de estado/sincronização/assinatura em produção. Já existe evidência aprovada de clique no componente real em largura de celular nos dois temas; o console de login em celular real continua fora do escopo desta prova.
 
-最终补断言“canary 未进入任何 Electron WebContents、主设置页仍在”后重跑通过：`/tmp/provider-20260912-pro-native-key3.log`。该 run 的网络记录中模型请求为 0；未复跑无新增证明价值的整批业务测试。根 typecheck、desktop typecheck:e2e、lint（0 errors/42 既有 warnings）、architecture（0 violations）及 conversation coverage audit 通过。`e2e:fixture:check` 不支持 settings 目录，按工具限制保留未通过记录；另检查本例 manifest 的 no-provider 契约，未放宽检查器或晋级 pending。
+Após adicionar a asserção final de que "o canary não entrou em nenhum Electron WebContents e a página principal de configurações continua visível", a reexecução passou: `/tmp/provider-20260912-pro-native-key3.log`. O registro de rede desse run mostra 0 requisições de modelo; o lote inteiro de testes de negócio sem novo valor de prova não foi reexecutado. O typecheck da raiz, o typecheck:e2e do desktop, o lint (0 errors / 42 warnings já existentes), a architecture (0 violations) e a conversation coverage audit passaram. O `e2e:fixture:check` não suporta o diretório settings, e o registro de não aprovação foi mantido por limitação da ferramenta; o contrato no-provider do manifest deste caso também foi verificado, sem afrouxar o verificador nem promover o pending.

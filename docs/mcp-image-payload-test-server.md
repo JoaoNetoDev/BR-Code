@@ -1,25 +1,25 @@
 # MCP Image Payload Test Server
 
-## 目的
+## Objetivo
 
-`scripts/mcp-image-payload-test-server.mjs` 是本地调试用 stdio MCP server，用来验证 MCP 图片结果的 inline / artifact 分流逻辑。它会生成合法 PNG，并通过 PNG `tEXt` ancillary chunk 填充字节，让 image content 的 base64 payload 接近指定大小。
+`scripts/mcp-image-payload-test-server.mjs` é um MCP server stdio para debug local, usado para validar a lógica de roteamento entre inline e artifact dos resultados de imagem do MCP. Ele gera PNGs válidos e preenche bytes por meio de chunks ancillary `tEXt` do PNG, para que o payload base64 do image content fique próximo do tamanho especificado.
 
-## 工具
+## Ferramenta
 
-MCP server 名称建议配置为 `zcode_image_payload_test`，工具名为 `emit_image`。
+Recomenda-se configurar o MCP server com o nome `zcode_image_payload_test` e o nome de ferramenta `emit_image`.
 
-输入：
+Entradas:
 
-- `preset`：`tiny`、`below_limit`、`just_over_limit`、`large`、`huge`
-- `base64Bytes`：手动指定目标 base64 payload 字节数，会覆盖 `preset`
-- `label`：可选文本标签
-- `dataUrl`：可选；为 `true` 时在 image `data` 字段里返回 data URL
+- `preset`: `tiny`, `below_limit`, `just_over_limit`, `large`, `huge`
+- `base64Bytes`: especifica manualmente o número de bytes do payload base64 alvo e sobrescreve o `preset`
+- `label`: rótulo de texto opcional
+- `dataUrl`: opcional; quando `true`, retorna uma data URL no campo `data` da image
 
-默认 preset 是 `below_limit`，约 `180 KiB` base64；`just_over_limit` 约 `210 KiB` base64，用来验证超过 `200 KiB` 后被保存为二进制 artifact 并只返回 path/URI。
+O preset padrão é `below_limit`, com cerca de `180 KiB` de base64; `just_over_limit` tem cerca de `210 KiB` de base64 e serve para validar que, ao ultrapassar `200 KiB`, o resultado é salvo como artifact binário e apenas path/URI são retornados.
 
-## 本机 ZCode 配置
+## Configuração do ZCode na máquina local
 
-ZCode Agent MCP 用户配置位于 `~/.zcode/cli/config.json` 的 `mcp.servers`。本地测试可加入：
+A configuração de usuário de MCP do ZCode Agent fica em `mcp.servers`, dentro de `~/.zcode/cli/config.json`. Para testes locais, é possível adicionar:
 
 ```json
 {
@@ -35,4 +35,4 @@ ZCode Agent MCP 用户配置位于 `~/.zcode/cli/config.json` 的 `mcp.servers`�
 }
 ```
 
-修改配置后，需要新建或重启 ZCode Agent session，让 MCP 列表重新加载。
+Após alterar a configuração, é preciso criar ou reiniciar a session do ZCode Agent para que a lista de MCP seja recarregada.

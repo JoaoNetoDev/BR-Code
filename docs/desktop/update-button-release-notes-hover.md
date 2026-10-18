@@ -1,29 +1,60 @@
-# Update Button Release Notes Hover
+# Release Notes no Hover do Botão de Atualização
 
-## 背景
+## Contexto
 
-桌面端自动更新下载完成后，左上角更新按钮只展示“可安装更新”的入口。发布链路已经把单版本 changelog 注入到 update feed 的 `releaseNotes` 中，但 renderer 当前不会在按钮 hover 时展示这份内容。
+Depois que o download da atualização automática do desktop termina, o botão de atualização no canto
+superior esquerdo oferece apenas a entrada "atualização instalável". A cadeia de publicação já
+injeta o changelog de versão única no `releaseNotes` do update feed, mas o renderer atualmente não
+exibe esse conteúdo quando o usuário passa o mouse sobre o botão.
 
-## 目标
+## Objetivo
 
-- 更新按钮 hover 时展示当前正在下载或可安装版本的更新日志。
-- 展示内容跟随界面语言：`zh-CN` 优先展示中文 changelog，`en-US` 优先展示英文 changelog。
-- 不改变自动检查、下载、安装更新的主流程。
-- 不在 hover 时新增网络请求，避免 update feed/CDN 状态影响 UI 响应。
+- Exibir o changelog da versão que está sendo baixada ou que está pronta para instalação ao passar
+  o mouse sobre o botão de atualização.
+- O conteúdo acompanha o idioma da interface: `zh-CN` prioriza o changelog em chinês e `en-US`
+  prioriza o changelog em inglês.
+- Não alterar o fluxo principal de verificação automática, download e instalação da atualização.
+- Não adicionar requisições de rede no hover, evitando que o estado do update feed/CDN afete a
+  responsividade da UI.
 
-## 设计
+## Design
 
-CI 收集桌面产物时继续保留 electron-updater 兼容的 `releaseName` / `releaseNotes` 字段，同时在 update YAML 中追加 `releaseNotesByLocale`。该字段包含 `zh-CN` 与 `en-US` 的标题和 Markdown，供新版本客户端直接从 `update-downloaded` 事件 payload 读取。
+Ao coletar os artefatos do desktop, a CI continua mantendo os campos `releaseName` /
+`releaseNotes` compatíveis com o electron-updater e, ao mesmo tempo, acrescenta `releaseNotesByLocale`
+ao update YAML. Esse campo contém título e Markdown de `zh-CN` e `en-US`, para que clientes das
+novas versões leiam diretamente do payload do evento `update-downloaded`.
 
-main 进程在 `update-available` 时就把多语言 release notes 规范化为 `PostUpdateReleaseNotesPayload.releaseNotesByLocale`，并随 `update-available` / `download-progress` 状态广播给 renderer；下载完成后继续随 `update-downloaded` 状态广播，并持久化给安装后弹窗使用。旧的 `onUpdateReady(version)` 事件只保留兼容用途，按钮展示详细内容以 `UpdateStatePayload.releaseNotes` 为准。
+O processo principal já normaliza as release notes multilíngues em
+`PostUpdateReleaseNotesPayload.releaseNotesByLocale` no momento de `update-available` e as transmite
+ao renderer junto dos estados `update-available` / `download-progress`; após o download, continua
+transmitindo-as junto do estado `update-downloaded` e as persiste para o uso no pop-up pós-
+instalação. O evento antigo `onUpdateReady(version)` permanece apenas por compatibilidade; a
+exibição do conteúdo detalhado no botão segue `UpdateStatePayload.releaseNotes`.
 
-main 进程会把 electron-updater 当前读取到的 manifest 作为 `zh-CN` 内容；需要补齐英文说明时，会用同一个服务端 manifest 接口再次拉取并合并为 `en-US` 内容。补充请求沿用当前 `platform` / `device_mid` / `channel` 查询参数和 `X-Platform` / `X-Release-Channel` / `X-Device-Mid` header。这个补充读取只影响 release notes payload，不参与版本判断、下载 URL 解析或安装包校验，避免改变自动更新主流程。
+O processo principal usa como conteúdo de `zh-CN` o manifest atualmente lido pelo electron-updater;
+quando for necessário completar a descrição em inglês, ele busca novamente pela mesma interface de
+manifest do servidor e mescla como conteúdo de `en-US`. Essa requisição complementar reaproveita os
+parâmetros de consulta `platform` / `device_mid` / `channel` e os headers `X-Platform` /
+`X-Release-Channel` / `X-Device-Mid`. Essa leitura complementar afeta apenas o payload de release
+notes e não participa da decisão de versão, da resolução da URL de download nem da validação do
+pacote de instalação, evitando alterar o fluxo principal da atualização automática.
 
-UI 层复用现有 tooltip 与 Markdown 渲染能力：没有 release notes 时保持原来的短 tooltip；有 release notes 时，hover 下载中按钮或更新按钮展示一个紧凑的浮层，标题固定显示当前语言下的 `v{version} 更新日志` / `v{version} Release Notes`，标题下方仅显示按当前语言格式化后的 feed `releaseDate` 日期，不额外加“更新日期”或 “Release date” 前缀，正文渲染对应 Markdown。若当前语言没有对应内容，则回退到 payload 的默认 Markdown。按钮可见短文案、aria label、确认弹窗与下载中提示都走 i18n。
+A camada de UI reaproveita a capacidade de tooltip e de renderização Markdown já existente: sem
+release notes, mantém o tooltip curto original; com release notes, ao passar o mouse sobre o botão
+de download em andamento ou sobre o botão de atualização, exibe um popover compacto cujo título
+mostra sempre `v{version} 更新日志` / `v{version} Release Notes` no idioma atual; abaixo do título
+mostra apenas a data `releaseDate` do feed formatada no idioma atual, sem adicionar o prefixo
+"更新日期" ou "Release date"; e o corpo renderiza o Markdown correspondente. Se o idioma atual não
+tiver conteúdo correspondente, ocorre fallback para o Markdown padrão do payload. O texto curto
+visível do botão, o aria label, o pop-up de confirmação e o aviso de download em andamento passam
+todos por i18n.
 
-## 验证
+## Verificação
 
-- YAML 注入测试覆盖 `releaseNotesByLocale`。
-- 自动更新 main 进程测试覆盖 `update-available`、`download-progress`、`update-downloaded` 状态携带 release notes。
-- UI 单测覆盖 hover tooltip 按当前 locale 选择中文/英文 Markdown。
-- main 进程测试覆盖默认 feed 与英文 sibling feed 合并后随状态广播给 renderer。
+- O teste de injeção do YAML cobre `releaseNotesByLocale`.
+- Os testes de atualização automática do processo principal cobrem os estados `update-available`,
+  `download-progress` e `update-downloaded` carregando release notes.
+- Os testes unitários de UI cobrem o tooltip de hover escolhendo o Markdown em chinês ou em inglês
+  conforme o locale atual.
+- Os testes do processo principal cobrem a mesclagem do feed padrão com o feed sibling em inglês e a
+  sua transmissão ao renderer junto com o estado.

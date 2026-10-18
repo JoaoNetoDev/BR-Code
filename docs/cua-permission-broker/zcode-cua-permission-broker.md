@@ -1,68 +1,64 @@
 # ZCode CUA Permission Broker
 
-## Product boundary
+## Limite de produto
 
-### 2026-08 node_repl migration override
+### Overrides de migração do node_repl em 2026-08
 
-CUA 不再注册或启动独立 `zcode-cua` MCP。模型只看到 shared `node_repl` 的工具（成文时是三个，
-`js_reset` 与 `js_add_node_module_dir` 已于 2026-09-18 删除，现在只有 `js`）；
-`computer-use-client.mjs` 在 Worker 内注入 `agent.computerUse`，请求经一次性认证的本地
-bridge 路由到 shared-host `CuaControlPort`。broker socket/token 只恢复给可信 node_repl
-子进程，旧的 CUA argv/env 注入入口、旧 MCP aliases 和旧 server 配置均被 bootstrap 丢弃；
-历史段落中关于“注入 zcode-cua server”的描述仅保留为迁移前威胁模型，不是当前执行路径。
+O CUA não registra nem inicia um MCP `zcode-cua` independente. O modelo vê apenas as ferramentas do `node_repl` compartilhado (três no momento em que este texto foi escrito;
+`js_reset` e `js_add_node_module_dir` foram removidos em 2026-09-18, restando apenas `js`);
+`computer-use-client.mjs` injeta `agent.computerUse` dentro do Worker, e as requisições são roteadas, por uma bridge local com autenticação de uso único, até a `CuaControlPort` do shared-host. O socket/token do broker são restaurados apenas para o subprocesso confiável do node_repl;
+a antiga entrada de injeção de argv/env do CUA, os antigos aliases de MCP e a antiga configuração de server são todos descartados pelo bootstrap;
+as descrições nas seções históricas sobre "injetar o server zcode-cua" são mantidas apenas como modelo de ameaça anterior à migração, e não como caminho de execução atual.
 
-桌面链路保持 `desktop-continuous`，手机链路只能 `web-remote-replayable` attachment 到已有
-桌面 host。Helper、TCC、frame freshness、kill switch、input hold 和 `possibly_sent` 仍在
-runtime 内部执行，relay/main 不承载这些状态。
+O caminho de desktop permanece `desktop-continuous`, e o caminho de celular só pode se anexar como `web-remote-replayable` a um host de desktop já existente.
+Helper, TCC, validade de frames, kill switch, input hold e `possibly_sent` continuam executados dentro do runtime; relay/main não hospeda esse estado.
 
-Product CUA runs through the signed `ZCode Computer Use.app`. ZCode launches that helper with a freshly minted Unix socket and auth token, waits for `broker_info`, and injects the credentials into the shared `node_repl` host; the host's CuaControlPort is the only SDK-to-Helper execution bridge.
+O CUA de produto roda por meio do `ZCode Computer Use.app` assinado. O ZCode inicia esse helper com um socket Unix recém-gerado e um token de autenticação, aguarda o `broker_info` e injeta as credenciais no host do `node_repl` compartilhado; a CuaControlPort do host é a única bridge de execução entre SDK e Helper.
 
-The broker must fail closed:
+O broker precisa falhar de forma fechada (fail closed):
 
-- If the helper is missing, cannot launch, rejects the token, or does not become healthy, ZCode must not inject broker credentials.
-- If `broker_info.bundle_id` is present and is not `dev.zcode.cua-helper`, product startup must fail with `CuaHelperError`; a warning is not sufficient because TCC grants would belong to the wrong process identity.
-- Desktop product mode keeps the Helper as the TCC owner. Python/uvx must never become the implicit permission owner.
-- The broker token is a **bearer credential scoped to the target `zcode-cua` MCP server only**. It must be injected into that server's own `env`/args, must NOT be **retained/inherited** in the agent's global runtime env, and must NOT reach other MCP servers, hooks, or Bash/tool subprocesses (a leaked token lets any same-agent process drive the TCC-owning Helper — the confused-deputy this design prevents). The sole exception is a bounded _transitional_ delivery on the global-CLI path: `node.ts` places the socket/token in the agent spawn env, but the CLI entry sanitization **captures them into a process-private store and deletes them from `process.env` before any bootstrap/tool code runs** (see the two-path description below) — so they are never retained in the runtime global env nor inherited by any child. `sanitizeZCodeRuntimeEnv` strips `ZCODE_CUA_PERMISSION_BROKER_TOKEN`/`_SOCKET` from all spawned child envs (and the tool-env passthrough), while the desktop/CLI resolver re-injects them into the `zcode-cua` server env only. Two delivery paths, both sanitization-safe: (a) a **desktop-spawned** `zcode-cua` gets the socket/token via the `session/create` `mcpServers` per-server `env` (spread _after_ `buildMcpStdioEnv`), never touching `process.env`; (b) a `zcode-cua` declared in the **global `~/.zcode/cli/config.json`** arrives in the CLI child's `process.env`, where the CLI entry sanitization **captures** the socket/token into a process-private in-memory store _before_ deleting them from `process.env`, and the CLI bootstrap resolver reads that store (not `process.env`) to inject them into the `zcode-cua` server env. Reading `process.env` directly would fail closed here: without the captured broker tuple the global `zcode-cua` is **omitted entirely** rather than started raw. A token written to disk (one-shot `--token-file`) is a same-UID exposure, so the broker adds **peer verification** as a required second gate in product. Because `--launcher-pid` is caller-supplied, the ancestry gate only means something once the launcher is _proven_ to be ZCode — otherwise an attacker could pass their **own** pid as `--launcher-pid`, self-mint a `--token-file`, `open` the already-authorized `ZCode Computer Use.app`, and connect from their own process tree. So the Helper first verifies, via native `SecCodeCheckValidity` on the `--launcher-pid` process (`verifyProcessCodeSignature`), that the launcher satisfies ZCode's code-signing requirement — `anchor apple generic and identifier "dev.zcode.app" and certificate leaf[subject.OU] = "8A5X4JJ39T"` (bundle id + Team-pin, env-overridable via `ZCODE_CUA_LAUNCHER_BUNDLE_ID` / `ZCODE_CUA_HELPER_TEAM_ID`). Only then does it accept a connection whose peer (a) has the current uid and (b) is in the process tree of that verified ZCode launcher (native `getpeereid` + `LOCAL_PEERPID`, walked to `--launcher-pid`). Net: a same-UID process outside the _genuine_ ZCode's process tree is rejected, and a self-reported/forged launcher pid cannot stand in for ZCode. Product mode **fails closed** if any gate cannot be established (missing/unverifiable `--launcher-pid`, a native build without `verifyProcessCodeSignature`/`getPeerCredentials`, or a launcher not matching the ZCode requirement). Residual (tracked as issue #7): a genuine ZCode-descendant sibling that actively reads the token-file within its brief one-shot window is still inside the accepted tree; fully closing that requires pinning the token to the exact `zcode-cua` pid (a vouch/reverse-handshake), a follow-up on top of this ancestry + launcher-identity gate + the token env-scoping above.
-- The default launcher code requirement is `anchor apple generic and (identifier "dev.zcode.app" or identifier "dev.zcode.app.preview") and certificate leaf[subject.OU] = "8A5X4JJ39T"`. This supersedes the production-only requirement string retained in the historical threat-model narrative above. It must not be widened to a Team-only requirement because another app signed by the same Team is not an authorized CUA launcher. `ZCODE_CUA_LAUNCHER_BUNDLE_ID` remains a development-only single-id override.
-- The Helper is a **desktop-local macOS** authorization subject only. A `desktop-attached-remote` host (mobile `/remote`, SSH/WSL/container workspaces) must NOT auto-install or launch the Helper, run the orphan reaper, or wire the product MCP resolver — remote sessions attach through the shared desktop host rather than standing up a separate permission chain on the remote. `createLocalServices` enforces this via `shouldCreateDefaultCuaProductHelper` (false for `desktop-attached-remote`). Remote macOS support, if ever added, needs its own install/authorization/UI/failure spec first.
-- Product CUA is enabled by default on supported desktop platforms. `ZCODE_CUA_PRODUCT_HELPER=0|false|off`
-  is the explicit kill switch; disabled mode has zero footprint: no host object, orphan-reaper scan,
-  resolver injection, Helper process, or TCC prompt. The Helper remains demand-started and is installed
-  on first CUA use from the signed copy inside `ZCode.app/Contents/Resources/cua-helper/`; production never
-  downloads it and fails closed if that bundle is missing or invalid.
-- **Re-verify before every launch (not just at install).** The install verifies the bundle and clears its quarantine xattr, so `open` will not re-assess it via Gatekeeper. Verifying only at install checks one inode while a later `launch` could run a different one — a same-UID attacker can overwrite `…/computer-use/ZCode Computer Use.app/Contents/MacOS/…` after install and get it launched with TCC (peer/token gates only decide _who connects_, not _which binary started_). So `cuaHelperHost.doStart` re-runs `verifyInstalled` (signature / Team / bundle / version) on the resolved `Helper.app` immediately before `launcher.launch`, minimizing the TOCTOU window; a failing verify never launches.
-- A direct `zcode` CLI run (not launched by ZCode desktop) that has a global `zcode-cua` but no resolvable broker socket **omits `zcode-cua` (fail-closed) on macOS** rather than running it without the Helper-owned broker. This is unconditional — it does not require `ZCODE_CUA_PERMISSION_BROKER_UNAVAILABLE` to be set. A `zcode-cua` whose own per-server `env` already carries the broker socket (desktop `session/create` path) is kept; local dev can opt into running raw with `ZCODE_CUA_HELPER_ALLOW_UNAUTHENTICATED_LOCAL=1`.
-- The `zcode-cua` matcher (`@zcode/shared` `mcp.ts`, single source of truth for both injection entries) must recognize every form that resolves to the real package — including `python -m zcode_cua.server` (dot submodule) and local paths with a trailing separator (`…/zcode-cua/`) — because a missed match is fail-open (no broker injected → raw TCC owner), while an over-match is fail-closed (harmless broker injection).
+- Se o helper estiver ausente, não puder ser iniciado, rejeitar o token ou não ficar saudável, o ZCode não deve injetar credenciais do broker.
+- Se `broker_info.bundle_id` estiver presente e não for `dev.zcode.cua-helper`, a inicialização do produto deve falhar com `CuaHelperError`; um warning não é suficiente, porque as concessões do TCC pertenceriam à identidade de processo errada.
+- O modo de produto desktop mantém o Helper como proprietário do TCC. Python/uvx nunca deve se tornar o dono implícito das permissões.
+- O token do broker é uma **credencial bearer com escopo restrito ao server MCP `zcode-cua` alvo**. Ele deve ser injetado no `env`/args do próprio server, não deve ser **retido/herdado** no env global de runtime do agente e não deve alcançar outros servers MCP, hooks ou subprocessos de Bash/ferramentas (um token vazado permite que qualquer processo do mesmo agente controle o Helper dono do TCC — o confused-deputy que este design previne). A única exceção é uma entrega _transitória_ e delimitada no caminho global da CLI: `node.ts` coloca socket/token no env de spawn do agente, mas a sanitização da entry da CLI **os captura em um store privado do processo e os apaga de `process.env` antes de qualquer código de bootstrap/ferramenta rodar** (veja a descrição dos dois caminhos abaixo) — de modo que nunca ficam retidos no env global de runtime nem são herdados por nenhum filho. `sanitizeZCodeRuntimeEnv` remove `ZCODE_CUA_PERMISSION_BROKER_TOKEN`/`_SOCKET` de todos os envs de filhos abertos (e do passthrough de env de ferramenta), enquanto o resolver desktop/CLI os reinjeta apenas no env do server `zcode-cua`. Dois caminhos de entrega, ambos seguros quanto à sanitização: (a) um `zcode-cua` **iniciado pelo desktop** recebe socket/token pelo `env` por server em `mcpServers` do `session/create` (spread _depois_ de `buildMcpStdioEnv`), sem tocar em `process.env`; (b) um `zcode-cua` declarado no **`~/.zcode/cli/config.json` global** chega no `process.env` do filho da CLI, onde a sanitização da entry da CLI **captura** o socket/token em um store privado em memória _antes_ de apagá-los de `process.env`, e o resolver de bootstrap da CLI lê esse store (não `process.env`) para injetá-los no env do server `zcode-cua`. Ler `process.env` diretamente falharia de forma fechada aqui: sem o tuple capturado do broker o `zcode-cua` global é **omitido por completo**, em vez de iniciado cru. Um token gravado em disco (o `--token-file` de uso único) é uma exposição de mesmo UID, então o broker adiciona **verificação de par** como segunda barreira obrigatória em produto. Como `--launcher-pid` é fornecido pelo chamador, a barreira de ancestralidade só significa alguma coisa uma vez que o launcher seja _comprovadamente_ o ZCode — caso contrário um atacante poderia passar o _seu próprio_ pid como `--launcher-pid`, gerar seu próprio `--token-file`, fazer `open` do `ZCode Computer Use.app` já autorizado e conectar a partir da sua própria árvore de processos. Por isso o Helper primeiro verifica, via `SecCodeCheckValidity` nativo no processo de `--launcher-pid` (`verifyProcessCodeSignature`), que o launcher satisfaz o requisito de assinatura de código do ZCode — `anchor apple generic and identifier "dev.zcode.app" and certificate leaf[subject.OU] = "8A5X4JJ39T"` (bundle id + Team-pin, sobrescrevível via ambiente com `ZCODE_CUA_LAUNCHER_BUNDLE_ID` / `ZCODE_CUA_HELPER_TEAM_ID`). Só então aceita uma conexão cujo par (a) tem o uid atual e (b) está na árvore de processos desse launcher ZCode verificado (`getpeereid` nativo + `LOCAL_PEERPID`, percorridos até `--launcher-pid`). Resultado: um processo de mesmo UID fora da árvore do ZCode _genuíno_ é rejeitado, e um launcher pid autodeclarado/forjado não pode se passar pelo ZCode. O modo de produto **falha de forma fechada** se alguma barreira não puder ser estabelecida (`--launcher-pid` ausente ou não verificável, uma build nativa sem `verifyProcessCodeSignature`/`getPeerCredentials`, ou um launcher que não corresponde ao requisito do ZCode). Residual (registrado como issue #7): um irmão genuíno descendente do ZCode que lê ativamente o token-file dentro da sua breve janela de uso único ainda está dentro da árvore aceita; fechar isso completamente exige fixar o token ao pid exato do `zcode-cua` (um vouch/reverse-handshake), continuação desta barreira de ancestralidade + identidade do launcher + escopo de env do token acima.
+- O requisito de código padrão do launcher é `anchor apple generic and (identifier "dev.zcode.app" or identifier "dev.zcode.app.preview") and certificate leaf[subject.OU] = "8A5X4JJ39T"`. Isso substitui a string de requisito exclusiva de produção mantida na narrativa histórica de modelo de ameaça acima. Não deve ser ampliado para um requisito apenas de Team, porque outro app assinado pelo mesmo Team não é um launcher CUA autorizado. `ZCODE_CUA_LAUNCHER_BUNDLE_ID` permanece um override de desenvolvimento, de id único.
+- O Helper é um sujeito de autorização **exclusivamente macOS local de desktop**. Um host `desktop-attached-remote` (mobile `/remote`, workspaces SSH/WSL/container) NÃO deve auto-instalar nem iniciar o Helper, rodar o reaper de órfãos ou ligar o resolver MCP de produto — sessões remotas se anexam pelo host de desktop compartilhado, em vez de erguer uma cadeia de permissões separada no remoto. `createLocalServices` garante isso via `shouldCreateDefaultCuaProductHelper` (false para `desktop-attached-remote`). Suporte remoto a macOS, caso algum dia seja adicionado, precisa antes de um spec próprio de instalação/autorização/UI/falha.
+- O CUA de produto é habilitado por padrão nas plataformas de desktop suportadas. `ZCODE_CUA_PRODUCT_HELPER=0|false|off`
+  é o kill switch explícito; o modo desabilitado não tem pegada alguma: sem objeto host, varredura de reaper de órfãos,
+  injeção de resolver, processo Helper ou prompt de TCC. O Helper continua sob demanda e é instalado
+  no primeiro uso de CUA a partir da cópia assinada dentro de `ZCode.app/Contents/Resources/cua-helper/`; a produção nunca
+  o baixa e falha de forma fechada se esse bundle estiver ausente ou inválido.
+- **Reverificar antes de cada lançamento (não só na instalação).** A instalação verifica o bundle e remove seu xattr de quarantine, de modo que `open` não o reavalia pelo Gatekeeper. Verificar apenas na instalação checa um inode, enquanto um `launch` posterior poderia executar outro — um atacante de mesmo UID pode sobrescrever `…/computer-use/ZCode Computer Use.app/Contents/MacOS/…` depois da instalação e fazer com que ele seja iniciado com TCC (as barreira de par/token decidem apenas _quem conecta_, não _qual binário iniciou_). Por isso `cuaHelperHost.doStart` reexecuta `verifyInstalled` (signature / Team / bundle / version) no `Helper.app` resolvido imediatamente antes de `launcher.launch`, minimizando a janela TOCTOU; uma verificação que falha nunca lança.
+- Uma execução direta da CLI `zcode` (não iniciada pelo ZCode desktop) que tenha um `zcode-cua` global mas nenhum socket de broker resolvível **omite `zcode-cua` (fail-closed) no macOS**, em vez de rodá-lo sem o broker possuído pelo Helper. Isso é incondicional — não exige `ZCODE_CUA_PERMISSION_BROKER_UNAVAILABLE` definido. Um `zcode-cua` cujo próprio `env` por server já carrega o socket do broker (caminho desktop `session/create`) é mantido; o dev local pode optar por rodar cru com `ZCODE_CUA_HELPER_ALLOW_UNAUTHENTICATED_LOCAL=1`.
+- O matcher de `zcode-cua` (`@zcode/shared` `mcp.ts`, fonte única de verdade para ambas as entradas de injeção) precisa reconhecer toda forma que resolve para o pacote real — incluindo `python -m zcode_cua.server` (submódulo com ponto) e caminhos locais com separador final (`…/zcode-cua/`) — porque uma correspondência perdida é fail-open (nenhum broker injetado → dono TCC cru), enquanto um over-match é fail-closed (injeção inofensiva de broker).
 
-## `open_application` Result Contract
+## Contrato de Resultado de `open_application`
 
-`open_application` is allowed to report LaunchServices dispatch success before the AX
-application list has refreshed. This avoids a false negative where a browser visibly
-opens a URL but the immediate AX resolver cannot yet find the process.
+`open_application` tem permissão para reportar sucesso de dispatch do LaunchServices antes de a lista de aplicações AX ter sido atualizada. Isso evita um falso negativo em que um navegador abre visivelmente uma URL, mas o resolver AX imediato ainda não encontra o processo.
 
-The result has three trust levels:
+O resultado tem três níveis de confiança:
 
-- **AX resolved:** `pid` is positive and comes from the AX application resolver.
-  This is a process-scoped app reference.
-- **Launch pid hint:** `pid` is positive and comes from the platform launcher
-  hint. On macOS, when `bundle_id` is supplied, the hint must resolve the bundle's
-  `CFBundleExecutable` first and only then look up that executable's PID. It must
-  not use the display `name` as a fallback for a bundle launch because that can
-  select an unrelated running process.
-- **Dispatch-only acknowledgement:** `pid` is `null`, with the requested
-  `bundle_id` and/or `name`. This only proves that LaunchServices accepted the
-  open request. Callers must not treat it as a process-scoped reference for
-  app-scoped keyboard/input. They should re-observe or resolve by bundle/name
-  before sending process-scoped input.
+- **AX resolvido:** `pid` é positivo e vem do resolver de aplicações AX.
+  Esta é uma referência de app com escopo de processo.
+- **Hint de pid de lançamento:** `pid` é positivo e vem do hint de launcher da
+  plataforma. No macOS, quando `bundle_id` é fornecido, o hint deve resolver primeiro o
+  `CFBundleExecutable` do bundle e só então buscar o PID desse executável. Não deve
+  usar o `name` de exibição como fallback para um lançamento de bundle, porque isso
+  pode selecionar um processo em execução sem relação.
+- **Confirmação apenas de dispatch:** `pid` é `null`, com o `bundle_id` e/ou `name`
+  solicitado. Isso prova apenas que o LaunchServices aceitou a requisição de abertura.
+  Os chamadores não devem tratar isso como referência com escopo de processo para
+  teclado/input no escopo do app. Devem reobservar ou resolver por bundle/nome antes
+  de enviar input com escopo de processo.
 
-Actual launcher failure still fails closed with `permission_denied`. Only a
-successful dispatch may produce a `pid:null` acknowledgement.
+Falha real do launcher ainda falha de forma fechada com `permission_denied`. Somente um
+dispatch bem-sucedido pode produzir uma confirmação com `pid:null`.
 
-## Authorization Subject Diagnostics
+## Diagnósticos do Sujeito de Autorização
 
-`broker_info.authorization_subject` and `request_access.owner` expose the runtime identity that macOS will see for Accessibility, Screen Recording, and Automation prompts.
+`broker_info.authorization_subject` e `request_access.owner` expõem a identidade de runtime que o macOS verá nos prompts de Accessibility, Screen Recording e Automation.
 
-The helper default broker info must include the fields that can be reliably obtained without extra dependencies:
+O broker_info padrão do helper deve incluir os campos que podem ser obtidos de forma confiável sem dependências extras:
 
 - `kind`
 - `bundle_id`
@@ -76,34 +72,32 @@ The helper default broker info must include the fields that can be reliably obta
 - `stable_identity`
 - `warnings`
 
-In packaged macOS builds, `code_signing_identifier` and `team_identifier` come from `/usr/bin/codesign -dv --verbose=4`. In development or non-macOS tests, missing signing data is allowed, but it must be reported as diagnostics instead of silently pretending the identity is stable.
+Em builds macOS empacotadas, `code_signing_identifier` e `team_identifier` vêm de `/usr/bin/codesign -dv --verbose=4`. Em desenvolvimento ou testes não-macOS, dados de assinatura ausentes são permitidos, mas devem ser reportados como diagnósticos em vez de fingir silenciosamente que a identidade é estável.
 
-## Permission status query modes
+## Modos de consulta do status de permissão
 
-macOS permission status has two deliberately different modes:
+O status de permissão no macOS tem dois modos deliberadamente diferentes:
 
-- Omitted options or `includeFunctionalProbes:false` is read-only. Settings mount, timer polling,
-  window focus and ordinary refresh use this mode and must never perform pixel capture.
-- `includeFunctionalProbes:true` is an active pixel probe. The Settings surface may request it only
-  once after an explicit permission-return or successful Helper restart.
+- Opções omitidas ou `includeFunctionalProbes:false` é somente leitura. O montagem de Settings, o polling por timer,
+  o foco de janela e a atualização comum usam este modo e nunca devem fazer captura de pixels.
+- `includeFunctionalProbes:true` é uma sonda de pixel ativa. A superfície de Settings pode solicitá-la apenas
+  uma vez, após um retorno explícito de permissão ou um restart bem-sucedido do Helper.
 
-The renderer coalesces concurrent refresh requests with OR semantics. At most one queued query carries
-the active flag; later read-only refreshes cannot erase it. A workspace/context change invalidates the
-queued request and any late result. After one active result establishes readiness, the existing
-renderer-local sticky-ready snapshot may preserve that result while subsequent polling remains read-only.
-Remote/mobile attachment never originates this probe and never creates a Helper.
+O renderer faz coalesce de requisições de atualização concorrentes com semântica de OU. No máximo uma consulta enfileirada carrega
+a flag ativa; atualizações somente leitura posteriores não podem apagá-la. Uma mudança de workspace/contexto invalida a
+requisição enfileirada e qualquer resultado tardio. Depois que um resultado ativo estabelece prontidão, o snapshot
+sticky-ready local do renderer pode preservar esse resultado enquanto o polling subsequente permanece somente leitura.
+Anexação remota/mobile nunca origina essa sonda e nunca cria um Helper.
 
-## Shared node_repl SDK contract
+## Contrato do SDK node_repl compartilhado
 
-The bundled `@zcode/zcode-cua-plugin` is a skill/docs/SDK package. `scripts/computer-use-client.mjs`
-bootstraps `agent.computerUse` inside each fresh shared `node_repl` Worker. It never exposes broker
-socket/token/native modules to the Worker; the shared host validates the authenticated request context and
-delegates to the pinned `@zcode/zcode-cua` runtime. There is no independent CUA MCP launcher or model-visible
-`mcp__computer-use__*` projection. Release provenance remains owned by the signed SEA bundle,
-codesign/notarization and the existing Helper/runtime attestation gates.
+O `@zcode/zcode-cua-plugin` incluído é um pacote de skill/docs/SDK. `scripts/computer-use-client.mjs`
+faz bootstrap de `agent.computerUse` dentro de cada Worker `node_repl` compartilhado novo. Nunca expõe ao Worker socket/token/módulos nativos do broker; o host compartilhado valida o contexto de requisição autenticado e
+delega ao runtime fixado `@zcode/zcode-cua`. Não existe um launcher MCP CUA independente nem uma projeção
+`mcp__computer-use__*` visível ao modelo. A proveniência de release continua pertencendo ao bundle SEA assinado,
+a codesign/notarização e às barreiras existentes de atestação do Helper/runtime.
 
-The wrapper is now an SDK script and does not build a CUA `dist/mcp/server.js`. Browser Use alone owns
-the bundled `node_repl` MCP server; CUA seeding copies `scripts/computer-use-client.mjs`, docs and Skill.
-Do not restore a CUA `mcpServers` manifest entry or a second launcher.
+O wrapper agora é um script de SDK e não constrói um `dist/mcp/server.js` de CUA. Somente o Browser Use é dono do server MCP `node_repl` incluído; o seeding de CUA copia `scripts/computer-use-client.mjs`, docs e Skill.
+Não restaure uma entrada de manifest `mcpServers` de CUA nem um segundo launcher.
 
-`stable_identity=true` means the runtime identity is a signed app bundle whose signing identifier matches the expected bundle id and has a team identifier. Otherwise, `warnings` must explain which signal is missing or mismatched.
+`stable_identity=true` significa que a identidade de runtime é um app bundle assinado cujo signing identifier corresponde ao bundle id esperado e tem um team identifier. Caso contrário, `warnings` deve explicar qual sinal está ausente ou divergente.

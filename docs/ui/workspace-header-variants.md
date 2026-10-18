@@ -1,33 +1,47 @@
-# Workspace Header Variants
+# Variantes do Workspace Header
 
-## 目标
+## Objetivo
 
-桌面端 New Task 草稿与已有 Task 使用同一个 `WorkspaceHeader` 组件和同一套标题栏布局，避免草稿态维护第二份轻量 header，导致操作入口、窗口控制安全区和拖拽行为逐渐分叉。
+No desktop, o rascunho de New Task e uma Task existente usam o mesmo componente `WorkspaceHeader` e o mesmo layout de
+barra de título, evitando manter uma segunda versão leve de header para o estado de rascunho, que faria as entradas de
+ação, a área segura dos controles de janela e o comportamento de arraste divergirem gradualmente.
 
-## 状态模型
+## Modelo de estados
 
 ```text
 activeTaskId = null                       activeTaskId != null
         │                                        │
         ▼                                        ▼
 WorkspaceHeader variant="draft"  ─────▶  WorkspaceHeader variant="task"
-        │              首次提交创建 task             │
-        └──────────── 同一组件实例 / 同一布局骨架 ─────┘
+        │              primeira submissão cria a task        │
+        └──────────── mesma instância de componente / mesmo esqueleto de layout ─────┘
 ```
 
-- `variant="draft"`：保留 Header 高度、拖拽区、Help、Terminal、Side Pane 和平台 caption 菜单；不展示左侧任务标题、编辑器选择器及依赖稳定 task 的 workspace/branch 上下文、Task 更多菜单、日志、重命名、归档等操作。Side Pane 收起时 Header 底部分割线透明，展开时恢复默认分割线。
-- `variant="task"`：展示完整 Task 标题、workspace/branch 上下文和 Task 操作。
-- Draft 顶部文件拖拽复用主 Composer 暴露的 drop target controller，只在 Header 内显示遮罩，不注册第二套附件入口。
-- Header 的错误边界只按 workspace 重置，Draft 首次提交得到 `activeTaskId` 时不能因为 reset key 改变而重建 Header。
+- `variant="draft"`: mantém a altura do Header, a área de arraste, Help, Terminal, Side Pane e o menu de caption da
+  plataforma; não exibe o título da tarefa à esquerda, o seletor de editor, os contextos de workspace/branch que
+  dependem de uma task estável, o menu de mais ações da Task, logs, renomear, arquivar etc. Quando o Side Pane está
+  recolhido, a linha divisória inferior do Header fica transparente; quando expandido, volta-se à divisória padrão.
+- `variant="task"`: exibe o título completo da Task, o contexto de workspace/branch e as ações da Task.
+- O arraste de arquivos no topo do Draft reaproveita o drop target controller exposto pelo Composer principal; a máscara
+  aparece apenas dentro do Header e nenhuma segunda entrada de anexos é registrada.
+- A fronteira de erro do Header é reiniciada somente por workspace; o Header não pode ser recriado por causa de uma
+  mudança na reset key quando o primeiro envio do Draft obtém `activeTaskId`.
 
-## 多端边界
+## Limites multiplataforma
 
-- 桌面端本地与远程 workspace 都使用上述 variant 模型，并继续适配 macOS、Windows、Linux 和两种主题。
-- 手机 Web 远控沿用现有 side pane overlay 与 replayable 恢复边界；没有 active task 时不额外渲染桌面标题栏，也不创建独立 Agent runtime。
+- No desktop, tanto workspace local quanto remoto usam o modelo de variantes acima e continuam se adaptando a macOS,
+  Windows, Linux e aos dois temas.
+- O controle remoto Web no celular mantém o overlay de side pane existente e os limites de restauração replayable; sem
+  active task, não renderiza a barra de título do desktop adicionalmente nem cria um runtime de Agent separado.
 
-## 验收
+## Aceitação
 
-- New Task 页面存在 `WorkspaceHeader[data-workspace-header-variant="draft"]`，Side Pane 按钮可展开/收起已有 tabs。
-- Draft Header 不显示任务标题、编辑器选择器、Task 更多菜单和 workspace/branch 上下文；Side Pane 收起时底部分割线透明，展开时显示默认分割线。
-- 首次提交进入 Task 后，同一 Header 切换为 `variant="task"`，标题栏高度和右侧共享操作位置不跳变。
-- 单测覆盖 variant 透传与 Draft 内容裁剪；桌面 E2E 覆盖 Draft Header 和 Side Pane 交互。
+- a página de New Task possui `WorkspaceHeader[data-workspace-header-variant="draft"]`, e o botão do Side Pane pode
+  expandir/recolher as tabs existentes.
+- o Header do Draft não exibe o título da tarefa, o seletor de editor, o menu de mais ações da Task nem o contexto de
+  workspace/branch; com o Side Pane recolhido a linha divisória inferior fica transparente e, expandido, aparece a
+  divisória padrão.
+- após o primeiro envio entrar na Task, o mesmo Header muda para `variant="task"` e a altura da barra de título e a
+  posição das ações compartilhadas à direita não saltam.
+- testes unitários cobrem a propagação da variante e o corte de conteúdo do Draft; E2E desktop cobre o Header do Draft
+  e a interação com o Side Pane.

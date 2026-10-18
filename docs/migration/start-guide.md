@@ -1,18 +1,18 @@
-# 开发环境启动指南
+# Guia de inicialização do ambiente de desenvolvimento
 
-## ✅ 问题已解决
+## ✅ Problema resolvido
 
-我们已修复服务注册问题，现在应用应该可以正常启动了。
+Corrigimos o problema de registro dos serviços; agora o aplicativo deve iniciar normalmente.
 
-### 修复内容
+### O que foi corrigido
 
-在 `packages/services/src/node.ts` 中添加了：
-1. 导入三个新服务的接口和实现
-2. 在 `createLocalServiceCollection` 中注册服务实例
+Em `packages/services/src/node.ts` foi adicionado:
+1. Importação das interfaces e implementações dos três novos serviços
+2. Registro das instâncias de serviço em `createLocalServiceCollection`
 
-## 🚀 启动步骤
+## 🚀 Passos de inicialização
 
-1. **清理并重新构建**（推荐）：
+1. **Limpar e reconstruir** (recomendado):
 ```bash
 # 清理缓存
 cd packages/desktop
@@ -26,7 +26,7 @@ $env:NODE_OPTIONS="--max-old-space-size=4096"
 pnpm run dev:desktop
 ```
 
-2. **如果仍然遇到内存问题**：
+2. **Se ainda houver problemas de memória**:
 ```powershell
 # 关闭所有终端窗口
 # 打开新的 PowerShell
@@ -34,36 +34,36 @@ $env:NODE_OPTIONS="--max-old-space-size=4096"
 pnpm run dev:desktop
 ```
 
-## ✅ 已完成的功能
+## ✅ Funcionalidades concluídas
 
-所有核心架构已完成：
+Toda a arquitetura central foi concluída:
 
-### 服务层
-- ✅ Hooks 服务 - 管理 Claude Code hooks 配置
-- ✅ Memory 服务 - 管理 MEMORY.md 文件
-- ✅ OutputStyle 服务 - 管理输出样式
+### Camada de serviços
+- ✅ Serviço de Hooks - gerencia a configuração de hooks do Claude Code
+- ✅ Serviço de Memory - gerencia o arquivo MEMORY.md
+- ✅ Serviço de OutputStyle - gerencia os output styles
 
-### Store 层
-- ✅ hooksStore - Hooks 状态管理
-- ✅ memoryStore - Memory 状态管理
-- ✅ outputStyleStore - OutputStyle 状态管理
+### Camada de Store
+- ✅ hooksStore - gerenciamento de estado dos Hooks
+- ✅ memoryStore - gerenciamento de estado da Memory
+- ✅ outputStyleStore - gerenciamento de estado do OutputStyle
 
-### 配置文件位置
+### Localização dos arquivos de configuração
 - Hooks: `<workspace>/.claude/settings.json`
 - Memory: `<workspace>/MEMORY.md`
 - OutputStyle: `~/.claude/output-styles/`
 
-## 🎯 后续工作
+## 🎯 Trabalhos seguintes
 
-剩余工作主要是 UI 层：
-1. 迁移设置页面组件
-2. 集成测试验证完整功能
+O trabalho restante está principalmente na camada de UI:
+1. Migrar os componentes da página de configurações
+2. Integrar testes para validar a funcionalidade completa
 
-## 📝 检查应用是否正常
+## 📝 Verificar se o aplicativo está OK
 
-启动后，检查以下功能：
-- [ ] 应用能正常打开主界面
-- [ ] 没有 TypeScript 编译错误
-- [ ] 控制台没有服务相关的错误
+Após iniciar, verifique as seguintes funcionalidades:
+- [ ] O aplicativo abre a interface principal normalmente
+- [ ] Não há erros de compilação TypeScript
+- [ ] Não há erros relacionados a serviços no console
 
-如果遇到问题，请查看控制台错误日志。
+Se encontrar problemas, consulte os logs de erro do console.

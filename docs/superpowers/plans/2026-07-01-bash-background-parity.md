@@ -1,12 +1,12 @@
-# Bash Background Parity Plan Superseded
+# Plano de Paridade de Background do Bash - Substituído
 
-这份初版计划已被新的重构计划取代：
+Este plano inicial foi substituído pelo novo plano de refatoração:
 
 - `docs/superpowers/plans/2026-07-01-bash-background-refactor.md`
 
-最终方向：
+Direção final:
 
-- Bash timeout auto-background 是 Bash 自有执行路径。
-- 显式 `run_in_background: true` 和 timeout auto-background 复用已有 background completion / notification / runtime command queue。
-- 公共 execution contract 只保留既有 `run`、`start`、`getBackgroundTask`、`cancelBackgroundTask` 边界。
-- 不新增手动 background 操作入口、control tool、UI 2 秒提示或第二套 wake/notification 机制。
+- O timeout auto-background do Bash é um caminho de execução próprio do Bash.
+- O `run_in_background: true` explícito e o timeout auto-background reutilizam a completion / notification / runtime command queue de background já existente.
+- O execution contract público mantém apenas as fronteiras existentes `run`, `start`, `getBackgroundTask`, `cancelBackgroundTask`.
+- Não se adiciona nova entrada de operação manual de background, control tool, aviso de 2 segundos na UI nem um segundo mecanismo de wake/notification.

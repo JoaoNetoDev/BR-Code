@@ -1,76 +1,76 @@
-# SSH 断连场景反馈服务边界设计
+# Design da fronteira do serviço de feedback no cenário de desconexão SSH
 
-## 背景
+## Contexto
 
-反馈中心是桌面应用级能力。创建工单、读取设备信息、上传截图和打包诊断日志都由桌面本机 host process 提供的 `feedbackService` 完成，不依赖当前 workspace 的文件系统、Agent runtime 或 SSH 连接。
+O Centro de Feedback é uma capacidade de nível de aplicativo desktop. Criar ticket, ler informações do dispositivo, enviar capturas de tela e empacotar logs de diagnóstico são feitos pelo `feedbackService` fornecido pelo host process local do desktop, sem depender do sistema de arquivos do workspace atual, do runtime do Agent ou da conexão SSH.
 
-当前 `FeedbackHost` 从 workspace-scoped `services` 读取 `feedbackService`。SSH workspace 正常连接时，renderer 会把 base services 与 remote services 合并，`feedbackService` 恰好仍来自本机 base services；但在远程 session 尚未绑定或已经断开时，workspace service resolver 会返回断连代理。提交反馈的首个 `getDeviceSnapshot()` 调用因此在 renderer 内直接抛出 `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`，请求尚未到达反馈 API。
+Atualmente o `FeedbackHost` lê o `feedbackService` dos `services` de escopo de workspace. Quando o workspace SSH está normalmente conectado, o renderer mescla os base services com os remote services e o `feedbackService` acaba vindo ainda dos base services locais; mas quando a sessão remota ainda não está vinculada ou já foi desconectada, o resolvedor de serviços do workspace retorna um proxy de desconexão. A primeira chamada `getDeviceSnapshot()` do envio de feedback acaba lançando `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` direto no renderer, e a requisição nem chega à API de feedback.
 
-## 目标
+## Objetivo
 
-- 反馈中心始终显式使用桌面启动时注册的 base `feedbackService`。
-- SSH 正常连接、连接中和断连时均可提交反馈。
-- 保持本地 workspace 和 SSH 正常连接时的现有反馈行为不变。
-- 不改变远程文件、终端、Git、Agent、task 和 session 服务的 workspace 路由。
-- 不改变桌面 `desktop-continuous`、手机 `web-remote-replayable`、snapshot、queue 或 owner/lease 语义。
-- Web 远控继续使用现有 unsupported feedback fallback；本次不为 Web 新增反馈能力。
+- O Centro de Feedback sempre usa explicitamente o `feedbackService` base registrado na inicialização do desktop.
+- É possível enviar feedback com SSH normalmente conectado, conectando e desconectado.
+- O comportamento de feedback existente para workspace local e SSH normalmente conectado permanece inalterado.
+- Não altera o roteamento por workspace dos serviços de arquivos remotos, terminal, Git, Agent, task e session.
+- Não altera a semântica de `desktop-continuous` no desktop, `web-remote-replayable` no celular, snapshot, queue ou owner/lease.
+- O controle remoto Web continua usando o fallback de feedback unsupported existente; esta alteração não adiciona capacidade de feedback para Web.
 
-## 非目标
+## Não objetivos
 
-- 不修改 `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` 断连代理的保护规则。
-- 不让 workspace-scoped 服务在断连后普遍回退到本机 services。
-- 不调整反馈表单、截图、日志归档、附件上传或反馈 API 协议。
-- 不处理 SSH 自动重连或远程 session 生命周期问题。
+- Não modificar as regras de proteção do proxy de desconexão `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`.
+- Não fazer com que serviços de escopo de workspace voltem genericamente aos services locais após a desconexão.
+- Não ajustar o formulário de feedback, a captura de tela, o arquivamento de logs, o upload de anexos ou o protocolo da API de feedback.
+- Não tratar do reconexão automática do SSH nem de problemas de ciclo de vida da sessão remota.
 
-## 方案
+## Solução
 
-`Root` 已持有桌面 renderer 启动时注入的 base `IServiceAccessor`。它将其中的 `feedbackService` 作为独立依赖传给 workspace UI，最终交给 `FeedbackHost`。
+`Root` já detém o `IServiceAccessor` base injetado na inicialização do renderer do desktop. Ele repassa o `feedbackService` contido nele como dependência independente para a UI de workspace, que por fim o entrega ao `FeedbackHost`.
 
-`App` 继续接收 workspace-scoped `services`，供文件、任务、终端等 workspace 能力使用；反馈中心不再从该对象读取 `feedbackService`。这使依赖边界显式化：
+`App` continua recebendo `services` de escopo de workspace, usados pelas capacidades de workspace como arquivos, tasks e terminal; o Centro de Feedback deixa de ler o `feedbackService` desse objeto. Isso torna explícita a fronteira de dependências:
 
-- workspace 能力依赖 `workspaceScopedServices`；
-- 应用级反馈能力依赖 `baseFeedbackService`。
+- as capacidades de workspace dependem de `workspaceScopedServices`;
+- a capacidade de feedback de nível de aplicativo depende de `baseFeedbackService`.
 
-反馈中心的挂载位置、store、弹窗生命周期和当前任务/模型上下文读取方式保持不变，避免扩大 UI 行为变化。
+O ponto de montagem do Centro de Feedback, o store, o ciclo de vida do diálogo e a forma de ler o contexto da task/model atual permanecem inalterados, evitando ampliar as mudanças de comportamento da UI.
 
-## 数据流
+## Fluxo de dados
 
-1. Desktop renderer 收到本地 host service port，创建 base services。
-2. `Root` 接收 base services，并将 `baseServices.feedbackService` 作为独立 prop 向下传递。
-3. SSH tab 根据连接状态继续解析 workspace-scoped services：已连接时为合并 services，未连接时为断连代理。
-4. `FeedbackHost` 无论当前 workspace 状态如何，均调用第 2 步传入的 base feedback service。
-5. 设备快照、工单创建、截图上传和日志归档继续在本机 host 中完成。
+1. O renderer do desktop recebe a porta do service do host local e cria os base services.
+2. `Root` recebe os base services e repassa `baseServices.feedbackService` para baixo como prop independente.
+3. A tab SSH continua resolvendo os services de escopo de workspace conforme o estado da conexão: services mesclados quando conectado e proxy de desconexão quando não conectado.
+4. `FeedbackHost`, independentemente do estado atual do workspace, chama o base feedback service recebido no passo 2.
+5. O snapshot do dispositivo, a criação do ticket, o upload da captura de tela e o arquivamento dos logs continuam sendo concluídos no host local.
 
-## 错误处理
+## Tratamento de erros
 
-- SSH 断连不再成为反馈提交错误来源。
-- 反馈 API、附件上传或本机日志归档的真实错误继续按现有流程展示，不新增吞错或重试。
-- 远程 workspace 的其他 service 调用仍由断连代理返回 `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`，防止远程路径误路由到本机。
+- A desconexão do SSH deixa de ser uma fonte de erro no envio de feedback.
+- Erros reais da API de feedback, do upload de anexos ou do arquivamento de logs locais continuam sendo exibidos pelo fluxo existente, sem adicionar supressão de erros nem retry.
+- As demais chamadas de serviço de um workspace remoto continuam recebendo `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` do proxy de desconexão, evitando que caminhos remotos sejam roteados por engano para a máquina local.
 
-## 兼容性
+## Compatibilidade
 
-- 桌面本地 workspace：传入的实例与现有实际使用的 base feedback service 相同。
-- 桌面 SSH 已连接：当前合并 services 中的反馈实例本就来自 base services，改动后调用对象不变。
-- 桌面 SSH 连接中/已断开：由断连代理切换为 base feedback service，这是本次唯一预期行为变化。
-- 手机 Web 远控：继续使用入口注入的 unsupported feedback service，不新增远程业务状态，也不绕过 replayable 恢复边界。
-- macOS、Windows、Linux：仅调整依赖选择，不引入平台分支。
+- Workspace local do desktop: a instância passada é a mesma que o base feedback service já usado de fato hoje.
+- SSH do desktop conectado: a instância de feedback nos services mesclados atuais já vem dos base services, portanto o objeto chamado não muda após a alteração.
+- SSH do desktop conectando/desconectado: o proxy de desconexão passa a ser o base feedback service; essa é a única mudança de comportamento esperada nesta alteração.
+- Controle remoto Web no celular: continua usando o unsupported feedback service injetado na entrada, sem novos estados de negócio remoto e sem contornar a fronteira de restauração replayable.
+- macOS, Windows e Linux: apenas a escolha da dependência é ajustada, sem introduzir ramificações por plataforma.
 
-## 测试设计
+## Design dos testes
 
-新增回归测试验证反馈服务选择不依赖 workspace-scoped services：
+Novos testes de regressão verificam que a escolha do serviço de feedback não depende dos services de escopo de workspace:
 
-| 场景 | workspace services | feedback service | 预期 |
+| Cenário | workspace services | feedback service | Esperado |
 | --- | --- | --- | --- |
-| 本地 workspace | base services | base feedback | 行为不变 |
-| SSH 已连接 | merged remote services | base feedback | 行为不变 |
-| SSH session 尚未绑定 | disconnected proxy | base feedback | 可提交，不抛断连错误 |
-| SSH 已断开 | disconnected proxy | base feedback | 可提交，不抛断连错误 |
+| Workspace local | base services | base feedback | comportamento inalterado |
+| SSH conectado | merged remote services | base feedback | comportamento inalterado |
+| Sessão SSH ainda não vinculada | disconnected proxy | base feedback | envio possível, sem lançar erro de desconexão |
+| SSH desconectado | disconnected proxy | base feedback | envio possível, sem lançar erro de desconexão |
 
-测试应直接断言 `FeedbackHost` 接收显式的 base feedback service，并避免仅依赖对象展开恰好保留该字段。现有 feedback submission 测试继续覆盖 `getDeviceSnapshot`、工单创建、附件和日志流程。
+Os testes devem afirmar diretamente que `FeedbackHost` recebe o base feedback service explícito e evitar depender apenas da expansão do objeto preservar o campo por coincidência. Os testes existentes de envio de feedback continuam cobrindo `getDeviceSnapshot`, criação de ticket, anexos e fluxo de logs.
 
-## 验证
+## Verificação
 
-- 运行新增/相关 UI 单元测试。
-- 运行 `pnpm typecheck`。
-- 运行 `pnpm lint`。
-- 检查桌面本地与 SSH service 边界未发生额外 diff。
+- Executar os novos testes de UI relacionados.
+- Executar `pnpm typecheck`.
+- Executar `pnpm lint`.
+- Verificar que a fronteira de services local e SSH do desktop não sofreu diff adicional.

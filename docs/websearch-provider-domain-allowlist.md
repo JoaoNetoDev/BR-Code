@@ -1,16 +1,16 @@
-# WebSearch Provider Domain Allowlist
+# Allowlist de Domínios do Provider WebSearch
 
-## 背景
+## Contexto
 
-WebSearch 通过 provider-native `web_search` 发起内部模型请求。不是所有 Anthropic 兼容端点都支持这个服务端工具，因此运行时只在已确认的供应商域名下暴露 `WebSearch`。
+O WebSearch inicia requisições internas ao modelo por meio da ferramenta `web_search` nativa do provider. Nem todos os endpoints compatíveis com Anthropic suportam essa ferramenta do lado do servidor, portanto o runtime só expõe `WebSearch` em domínios de fornecedor já confirmados.
 
-## 规则
+## Regras
 
-- 只对 `providerKind === "anthropic"` 的连接启用 WebSearch。
-- 域名匹配以 `baseURL` 的 hostname 为准，不看 provider id 或模型名。
-- `bigmodel.cn`、`z.ai`、`deepseek.com`、`z.ai` 的根域和所有子域均允许。
-- 例如 `bigmodel.cn` 已由 `bigmodel.cn` 子域规则覆盖；`zcode.z.ai` 由 `z.ai` 子域规则覆盖。
+- O WebSearch só é habilitado para conexões com `providerKind === "anthropic"`.
+- A correspondência de domínio se baseia no hostname do `baseURL`, e não no id do provider nem no nome do modelo.
+- Os domínios raiz e todos os subdomínios de `bigmodel.cn`, `z.ai`, `deepseek.com`, `z.ai` são permitidos.
+- Por exemplo, `bigmodel.cn` já é coberto pela regra de subdomínio `bigmodel.cn`; `zcode.z.ai` é coberto pela regra de subdomínio `z.ai`.
 
-## 影响面
+## Superfície de Impacto
 
-这只影响 agent 侧工具暴露和 provider-native WebSearch 投影，不改变桌面端 continuous 链路、手机端 replayable 恢复语义，也不改变普通模型请求的 endpoint 解析。
+Isso afeta apenas a exposição de tools no lado do agent e a projeção do WebSearch nativo do provider; não altera a cadeia contínua do desktop, a semântica de restauração replayable do celular, nem a resolução de endpoint das requisições comuns de modelo.

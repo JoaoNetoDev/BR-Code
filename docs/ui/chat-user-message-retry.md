@@ -1,7 +1,7 @@
-# Retry Turn（当前事实）
+# Retry Turn (fatos atuais)
 
-Retry 入口位于 assistant turn actions，发送 V4
-`retryTurn { target: { rowId, entityId } }`，信封同时携带 `baseRevision/baseLogEpoch`。
-CLI 统一 resolver 负责解析 canonical input intent、裁决 CAS 并生成新的权威 turn；UI 不执行旧 rewind + resend 组合操作。
+A entrada de retry está nas ações do turno do assistente, enviando a V4
+`retryTurn { target: { rowId, entityId } }`, com o envelope carregando simultaneamente `baseRevision/baseLogEpoch`.
+O resolver unificado da CLI é responsável por resolver a intenção canônica da entrada, arbitrar o CAS e gerar o novo turno autoritativo; a UI não executa a antiga combinação de rewind + resend.
 
-User row 本身提供 edit/copy。编辑使用 `editUserQuery`，与 retry 是不同命令和产品语义。
+A própria linha do usuário oferece edit/copy. A edição usa `editUserQuery`, que é um comando diferente do retry e tem semântica de produto diferente.

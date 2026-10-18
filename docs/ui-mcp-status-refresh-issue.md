@@ -1,122 +1,145 @@
-# MCP servers 设置页：刷新按钮不刷新 MCP 连接状态
+# Página de configurações de MCP servers: o botão de refresh não atualiza o status de conexão do MCP
 
-> 类型：Bug（连接池 + UI）
-> 影响面：`packages/ui` 设置页 → 插件 → MCP servers；`apps/zcode-cli` MCP 连接池
-> 状态：已修复（见「修复」一节）
+> Tipo: Bug (pool de conexões + UI)
+> Superfície afetada: página de configurações de `packages/ui` → Plugins → MCP servers; pool de conexões MCP de `apps/zcode-cli`
+> Estado: Corrigido (ver a seção «Correção»)
 
-## 现象
+## Fenômeno
 
-1. 设置页 → 插件 → **MCP servers** tab，某个 MCP server 显示"已连接并可用"
-2. 停掉该 MCP server 进程/服务
-3. 点该 tab 工具栏的**刷新按钮**
-4. **状态仍显示"已连接并可用"**，且此后无论等待多久、点多少次都不会变
+1. Configurações → Plugins → aba **MCP servers**, um determinado MCP server exibe "conectado e disponível"
+2. O processo/serviço desse MCP server é encerrado
+3. Clica-se no **botão de refresh** da barra de ferramentas dessa aba
+4. **O status continua exibindo "conectado e disponível"**, e a partir daí, por mais tempo que se espere e por mais vezes que se clique, nunca muda
 
-唯一可靠的手动恢复：开关该 MCP server（关 → 开），或重启 app。
+A única recuperação manual confiável: alternar o MCP server (desligar → ligar), ou reiniciar o app.
 
-## 根因：进程级 lease 命中连接池复用，connect 模式根本没有重新探测
+## Causa raiz: o lease em nível de processo acerta a reutilização do pool de conexões, e o modo connect simplesmente não volta a sondar
 
-链路（改动前）：
+Cadeia (antes da alteração):
 
-1. `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-entrypoint.ts:115` —— 设置页用的
-   `mcpPort` 是**进程级**的单个 lease：`acquireLease({ leaseId: "protocol-settings" })`。
-2. `apps/zcode-cli/packages/adapters/src/mcp/pool.ts` 的 `connectionKey` =
-   `serverName + leaseId（默认 session 隔离）+ stableStringify(config)`。
-   同一个 lease + 配置未变 ⇒ **key 恒等**。
-3. `acquire` 命中已有 entry 时只做「清 closeTimer、加 ref」，然后
-   `return await entry.connecting` —— 返回**首次连接那个早已 resolve 的 promise**：
-   不 close、不重连、不探测、不打日志。
-4. 设置页的 `mcp/list` 虽然调 `connectConfiguredServers`，但走的是 **pool lease 的实现**，
-   不是 `McpAdapter` 里那个"先 closeRecord 再重连"的实现。也就是说
-   "connect 模式会真重连"只对直连 adapter 成立，对 pooled lease 不成立。
-5. 快照来自 `entry.adapter.status()`，即 adapter 的 records。stdio 子进程死亡有
-   `client.onclose` 兜底（`adapters/src/mcp/index.ts`）会翻成 `disconnected`；
-   **HTTP/SSE 服务被停掉时没有任何 close 事件**，record 永远停在 `connected`。
+1. `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-entrypoint.ts:115` — a `mcpPort`
+   usada pela página de configurações é um único lease em **nível de processo**:
+   `acquireLease({ leaseId: "protocol-settings" })`.
+2. O `connectionKey` de `apps/zcode-cli/packages/adapters/src/mcp/pool.ts` =
+   `serverName + leaseId (isolamento de sessão por padrão) + stableStringify(config)`.
+   O mesmo lease + configuração inalterada ⇒ **key idêntica**.
+3. Quando `acquire` acerta uma entry existente, ele apenas faz "limpar closeTimer, somar ref" e depois
+   `return await entry.connecting` — devolve o **promise já resolvido da primeira conexão**:
+   não fecha, não reconecta, não sonda, não registra log.
+4. Embora o `mcp/list` da página de configurações chame `connectConfiguredServers`, ele passa pela
+   **implementação do lease do pool**, e não pela implementação do `McpAdapter` que "fecha o record e
+   reconecta". Ou seja, "o modo connect realmente reconecta" só vale para o adapter conectado
+   diretamente, não para o lease com pool.
+5. O snapshot vem de `entry.adapter.status()`, isto é, dos records do adapter. A morte do subprocesso
+   stdio tem um fallback em `client.onclose` (`adapters/src/mcp/index.ts`) que vira `disconnected`;
+   **quando um serviço HTTP/SSE é parado, não há nenhum evento de close**, e o record fica
+   permanentemente em `connected`.
 
-叠加的第二个同形状缺陷：stdio 服务死亡被 onclose 标成 `disconnected` 后，点刷新也只会拿回
-那条陈旧 `disconnected`，**永远不会重试连接**。
+Um segundo defeito de mesma forma, sobreposto: depois que um serviço stdio morto é marcado como
+`disconnected` pelo onclose, clicar em refresh apenas devolve aquele `disconnected` obsoleto e
+**nunca tenta reconectar**.
 
-"会话侧已知失败不回灌设置页"也是同一条 key 规则的结果：session lease 用自己的 leaseId，
-拿到的是不同 entry、不同 adapter。
+"Uma falha conhecida do lado da sessão não é despejada de volta na página de configurações" também é
+resultado da mesma regra de key: o lease de sessão usa o seu próprio leaseId, recebendo uma entry
+diferente e um adapter diferente.
 
-### 实测证据
+### Evidência medida
 
-日志 `~/.zcode/cli/log/zcode-<日期>.jsonl`，`sess=-` 即设置页的 `protocol-settings` lease：
+Log `~/.zcode/cli/log/zcode-<data>.jsonl`, `sess=-` é o lease `protocol-settings` da página de configurações:
 
 ```text
 08:40:04.732  mcp.server.connect.started   sess=-   plugin:official-tools:server
-08:40:04.778  mcp.server.connected         sess=-   plugin:official-tools:server   ← 46ms，HTTP 特征
-（之后停服务并多次点刷新，零条新 MCP 事件）
+08:40:04.778  mcp.server.connected         sess=-   plugin:official-tools:server   ← 46ms, assinatura HTTP
+(depois o serviço é parado e o refresh é clicado várias vezes, zero novos eventos MCP)
 ```
 
-"零条事件"正是 entry 复用路径的特征：pool 复用分支只有 `previousKey !== key` 才打
-`mcp.pool.lease.acquired`，命中复用时一条日志都不产生。而且每次点刷新都会 clear closeTimer，
-entry 连 30s 空闲回收都不会走到 —— 于是状态永久冻结。
+"Zero eventos" é justamente a assinatura do caminho de reutilização de entry: o ramo de reuso do pool
+só registra `mcp.pool.lease.acquired` quando `previousKey !== key`; ao acertar o reuso, nenhuma linha
+de log é produzida. E cada clique em refresh limpa o closeTimer, de modo que a entry nem chega a ser
+reciclada por 30s de ociosidade — assim o estado fica congelado para sempre.
 
-UI 显示的"已连接并可用"来自 `settings.mcp.plugin.connectedDescription`
-（`zh-CN.ts`，"该插件 MCP 服务器已连接并可用。"），即 08:40 那份陈旧快照。
+O texto "conectado e disponível" exibido na UI vem de `settings.mcp.plugin.connectedDescription`
+(`zh-CN.ts`, "该插件 MCP 服务器已连接并可用。"), ou seja, do snapshot obsoleto das 08:40.
 
-## 已被上游修掉、不再是原因的一项
+## Um item que já foi corrigido a montante e deixou de ser causa
 
-早期分析认为刷新按钮绑的是 `PluginsSection.tsx` 的 `refreshAfterPluginChange()`（只刷插件清单）。
-这一条在 `f876db289e feat: settings page upgrage`（2026-08-14）之后不成立：
-`PluginsSection.tsx:508` 那个按钮属于 **plugins tab**（在 `PluginList` 内部渲染），
-mcps tab 渲染的是 `McpSettingsSection`，它有自己的 header actions 并调用
-`requestMcpServerStatusList()`。按 tab 分派已经做过了。
+A análise inicial considerava que o botão de refresh estava ligado ao `refreshAfterPluginChange()` de
+`PluginsSection.tsx` (que só atualiza a lista de plugins). Isso deixou de valer após
+`f876db289e feat: settings page upgrage` (2026-08-14): aquele botão em `PluginsSection.tsx:508`
+pertence à **aba plugins** (renderizado dentro de `PluginList`), e a aba mcps renderiza
+`McpSettingsSection`, que tem suas próprias header actions e chama
+`requestMcpServerStatusList()`. O despacho por aba já foi feito.
 
-## 修复
+## Correção
 
-### ① 连接池支持存活校验（P0，根因）
+### ① O pool de conexões suporta verificação de vivacidade (P0, causa raiz)
 
-- `contracts/src/interfaces/mcp.port.ts`：`McpConnectOptions` 增 `revalidate?: boolean`；
-  `McpPort` 增可选 `pingServer?(name, { timeoutMs })`。
-- `adapters/src/mcp/index.ts`：实现 `pingServer`，用 MCP 基础协议的 `client.ping()`（5s 上限）。
-  transport 级失败（`REQUEST_TIMEOUT` / `CONNECTION_CLOSED` / … 字符串 code 的 SdkError）判死，
-  同时把 record 翻成 `disconnected` 并记 `mcp.server.ping.failed`；
-  server 回了 JSON-RPC 错误（数字 code，例如未实现 ping）判活，不能据此拆掉可用连接。
-- `adapters/src/mcp/pool.ts`：`acquire` 命中已有 entry 且 `revalidate` 为真时先跑 `revalidateEntry`：
-  - `connected` → ping，活则复用（`mcp.pool.connection.revalidated`）；
-  - `connected` 但 ping 判死、或已是 `disconnected` / `failed` / 首连失败 →
-    在**同一个 entry 上原地重连**（`mcp.pool.connection.stale`）。保持 entry 身份是关键：
-    共享该连接的其他 lease 不会掉成 `MCP server is not leased by this session`；
-  - `connecting`（含 OAuth 待授权）/ `disabled` / `untrusted` → 原样返回，不打扰进行中的握手，
-    否则会作废浏览器里已打开的授权 URL 和 PKCE/state。
-  - 并发刷新共享同一次校验（`entry.revalidating`），不会重复 ping / 重复重连。
-- `bootstrap/src/zcode-protocol/mcp.ts`：默认/connect 模式传 `revalidate: true`；
-  `mode: "status"`（OAuth 1s 轮询）保持只读、不付 ping 成本。
+- `contracts/src/interfaces/mcp.port.ts`: `McpConnectOptions` ganha `revalidate?: boolean`;
+  `McpPort` ganha o opcional `pingServer?(name, { timeoutMs })`.
+- `adapters/src/mcp/index.ts`: implementa `pingServer`, usando o `client.ping()` do protocolo
+  básico do MCP (teto de 5s). Falha em nível de transport (SdkError com code em string, como
+  `REQUEST_TIMEOUT` / `CONNECTION_CLOSED` / …) é considerada morte; ao mesmo tempo o record vira
+  `disconnected` e é registrado `mcp.server.ping.failed`;
+  se o servidor devolveu um erro JSON-RPC (code numérico, por exemplo ping não implementado), é
+  considerado vivo, e a conexão disponível não pode ser derrubada por causa disso.
+- `adapters/src/mcp/pool.ts`: quando `acquire` acerta uma entry existente e `revalidate` é
+  verdadeiro, roda primeiro `revalidateEntry`:
+  - `connected` → ping; se vivo, reusa (`mcp.pool.connection.revalidated`);
+  - `connected` mas o ping julga morto, ou já está `disconnected` / `failed` / falha na primeira
+    conexão → reconecta **no lugar, na mesma entry** (`mcp.pool.connection.stale`). Manter a
+    identidade da entry é essencial: os outros leases que compartilham essa conexão não caem em
+    `MCP server is not leased by this session`;
+  - `connecting` (incluindo OAuth aguardando autorização) / `disabled` / `untrusted` → devolve como
+    está, para não atrapalhar um handshake em andamento, o que invalidaria a URL de autorização já
+    aberta no navegador e o PKCE/state.
+  - Refreshes concorrentes compartilham a mesma verificação (`entry.revalidating`), sem ping
+    duplicado nem reconexão duplicada.
+- `bootstrap/src/zcode-protocol/mcp.ts`: os modos padrão/connect passam `revalidate: true`;
+  `mode: "status"` (polling de OAuth de 1s) permanece somente leitura, sem pagar o custo do ping.
 
-### ② 手动刷新不再静默失败（P1）
+### ② O refresh manual deixa de falhar silenciosamente (P1)
 
-`packages/ui/src/settings/McpSettingsSection.tsx`：
+`packages/ui/src/settings/McpSettingsSection.tsx`:
 
-- `requestMcpServerStatusList` 增 `trigger: "auto" | "manual"`，guard 收敛到可测试的
-  `resolveMcpStatusListRefreshSkipReason`。workspace 一致性判断全部保留（不能把 A 的配置发给 B），
-  但 `serverStatusListKey` 为空只拦自动刷新——只有宿主/插件内置 MCP、没有任何用户 MCP 时
-  这个 key 就是空串，用户点了刷新必须真的发请求。
-- 被跳过时打 `[mcp] manual status refresh skipped` + reason，复现时能从日志判断
-  "没发请求"还是"发了但读到旧状态"。
-- `handleManualRefresh`：先 `loadMcpFromUserDirectory`，配置未就绪时补一次
-  `ensureLoadedForWorkspace`（并同步补写 refresh input ref，否则同一 tick 内的请求仍会被
-  `config-not-ready` 跳过），再以 manual 触发刷新；期间按钮进入 loading 态。
-- 请求失败弹 `settings.mcp.refreshFailed` toast。
+- `requestMcpServerStatusList` ganha `trigger: "auto" | "manual"`, e o guard é concentrado no
+  `resolveMcpStatusListRefreshSkipReason`, testável. Toda verificação de consistência de workspace é
+  mantida (não se pode enviar a configuração de A para B), mas um `serverStatusListKey` vazio
+  bloqueia apenas o refresh automático — quando há apenas MCP embutidos de host/plugin e nenhum MCP
+  do usuário, essa key é uma string vazia, e o usuário clicou em refresh: a requisição precisa
+  realmente sair.
+- Quando é pulado, registra `[mcp] manual status refresh skipped` + o motivo, para que, ao
+  reproduzir, seja possível distinguir pelo log entre "não enviou requisição" e "enviou mas leu um
+  estado antigo".
+- `handleManualRefresh`: primeiro `loadMcpFromUserDirectory`; quando a configuração ainda não está
+  pronta, complementa com um `ensureLoadedForWorkspace` (e sincroniza também a refresh input ref,
+  senão a requisição no mesmo tick ainda seria pulada por `config-not-ready`), e então dispara o
+  refresh em modo manual; durante isso o botão entra em estado de loading.
+- Falha na requisição exibe um toast `settings.mcp.refreshFailed`.
 
-### 回归测试
+### Testes de regressão
 
-- `apps/zcode-cli/packages/adapters/tests/mcp-connection-pool.test.ts`：ping 判活不重连 /
-  判死原地重连 / 已 disconnected 直接重连且不 ping / OAuth 握手不打扰 / 无 ping 能力视为活 /
-  未要求 revalidate 时不 ping / 并发刷新共享一次校验。
-- `apps/zcode-cli/packages/adapters/tests/mcp.test.ts`：ping 成功保持 connected；
-  transport 失败翻 disconnected 并告警；JSON-RPC 错误判活；未知 server 判死。
-- `apps/zcode-cli/packages/bootstrap/tests/mcp-protocol.test.ts`：connect 模式带 `revalidate`，
-  status 模式不触发 `connectConfiguredServers`。
-- `packages/ui/test/mcpSettingsSectionStatusList.test.ts`：manual 不受空 key 拦截，
-  workspace 一致性 guard 对 manual 仍然生效。
+- `apps/zcode-cli/packages/adapters/tests/mcp-connection-pool.test.ts`: ping vivo não reconecta /
+  morto reconecta no lugar / já disconnected reconecta direto e não faz ping / handshake OAuth não é
+  perturbado / ausência de capacidade de ping é considerada vida / sem revalidate não faz ping /
+  refreshes concorrentes compartilham uma única verificação.
+- `apps/zcode-cli/packages/adapters/tests/mcp.test.ts`: ping bem-sucedido mantém connected; falha de
+  transport vira disconnected e alerta; erro JSON-RPC é considerado vivo; server desconhecido é
+  considerado morto.
+- `apps/zcode-cli/packages/bootstrap/tests/mcp-protocol.test.ts`: modo connect carrega `revalidate`;
+  modo status não dispara `connectConfiguredServers`.
+- `packages/ui/test/mcpSettingsSectionStatusList.test.ts`: manual não é bloqueado por key vazia; o
+  guard de consistência de workspace continua valendo para manual.
 
-## 未做（可另开）
+## Não feito (pode ser aberto à parte)
 
-- **被动新鲜度**：`McpSettingsSection` 仍然没有面向连接状态的定时刷新；
-  focus / visibilitychange 刷新被 `!pendingMcpOAuthAuthorizationRefreshKey` 门控，
-  对无 OAuth 流程的 MCP 不通。可选方案：设置页可见时按低频（如 60s）跑 connect 模式刷新，
-  或让 agent 在 MCP 状态变化时推 notification、设置页订阅（更准且无轮询开销）。
-  注意 connect 模式会顺带重连已死的 server（stdio 会重新拉起进程），这是产品取舍。
-- 自动刷新的 `serverStatusListKey` 仍只由 servers/plugins **列表**算出，对连接状态变化不敏感。
-  手动刷新已绕开它；要做被动刷新时需要一并设计。
+- **Frescor passiva**: `McpSettingsSection` ainda não tem atualização periódica voltada ao status de
+  conexão; o refresh em focus / visibilitychange é bloqueado por
+  `!pendingMcpOAuthAuthorizationRefreshKey`, e portanto não funciona para MCP sem fluxo OAuth.
+  Opções possíveis: rodar um refresh em modo connect com baixa frequência (por exemplo 60s) enquanto a
+  página de configurações estiver visível, ou fazer o agent enviar uma notification quando o status do
+  MCP mudar e a página se inscrever (mais preciso e sem custo de polling).
+  Atenção: o modo connect também reconecta servers já mortos (stdio relança o processo), o que é uma
+  decisão de produto.
+- A `serverStatusListKey` do refresh automático ainda é calculada só a partir das **listas**
+  servers/plugins, e é insensível a mudanças de status de conexão. O refresh manual já a contorna; para
+  fazer a atualização passiva é preciso projetar isso junto.

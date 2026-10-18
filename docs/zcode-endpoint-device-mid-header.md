@@ -1,37 +1,36 @@
 # ZCode Endpoint DeviceMid Header
 
-## 背景
+## Contexto
 
-App 层访问 ZCode endpoint（默认 `https://zcode.z.ai`，或当前 `ZCODE_BASE_URL` / `ZCODE_PRODUCTION_BASE_URL` 派生 endpoint）时，需要统一携带设备标识 header，便于后端把 OAuth、client configs、billing、snapshot 等请求和既有 telemetry/ARMS 设备维度对齐。
+Quando a camada do App acessa o endpoint do ZCode (por padrão `https://zcode.z.ai`, ou o endpoint derivado do `ZCODE_BASE_URL` / `ZCODE_PRODUCTION_BASE_URL` atual), é preciso carregar de forma unificada um header de identificação de dispositivo, para facilitar o alinhamento, no backend, das requisições de OAuth, client configs, billing, snapshot etc. com a dimensão de dispositivo já existente em telemetry/ARMS.
 
-## 设计
+## Design
 
-- 设备标识复用既有 telemetry state 中的 `deviceMid`，即 `{appConfigDir}/telemetry-state.json` 的 `deviceMid` 字段。
-- `buildZCodeSourceHeadersFromContext()` 是跨 App/Agent 的纯来源 header 组装规则；
-  app 服务层 `buildZCodeSourceHeaders()` 继续负责读取已有 `deviceMid` 后调用该共享规则。
-- 只读取已存在且可作为 HTTP header 输出的 `deviceMid`；读取失败或字段缺失时不在该函数里生成新设备 ID，避免改变设备 ID 生命周期。
-- 通用规则里 `X-Device-Mid` 是“有值才带”，但 `/api/v1/zcode-plan/billing/balance` 服务端把它当必填（缺失返回 `400 code 3001 parameter error`）。因此任何会发起 Start Plan 权益查询的运行环境都必须在首次请求前确保 `deviceMid` 已落盘，不能依赖“可选头缺失也能成功”。
-- 设备 ID 的生成由各运行环境的生命周期所有者负责：Desktop main 在窗口创建前同步确保；远端 `zcode-server`（SSH/WSL/Docker 的 stdio entry）在握手完成、services 创建前调用 `ensureTelemetryDeviceMid()` 异步确保；独立 CLI 在首次模型请求时自行确保。三者读写同一个 `telemetry-state.json` 的 `deviceMid` 字段，并用同名 `telemetry-state.lock` 互斥。
-- `NodeApiClient` 仍只负责在命中当前 ZCode endpoint 时注入 `buildZCodeSourceHeaders()` 返回的 headers，并保留调用方显式传入的同名 header。
-- ZCode CLI 的 provider endpoint routing 配置 GET 通过独立 bootstrap source-header provider
-  异步读取同一 telemetry state，再调用共享组装规则；该读取不会进入模型 transport 或普通 tool HTTP 出口。
+- A identificação do dispositivo reaproveita o `deviceMid` já existente no estado de telemetry, ou seja, o campo `deviceMid` de `{appConfigDir}/telemetry-state.json`.
+- `buildZCodeSourceHeadersFromContext()` é a regra compartilhada de montagem de source headers entre App/Agent;
+  a camada de serviço do app, em `buildZCodeSourceHeaders()`, continua responsável por ler o `deviceMid` existente e então chamar essa regra compartilhada.
+- Só é lido um `deviceMid` que já existe e pode ser emitido como HTTP header; quando a leitura falha ou o campo está ausente, nenhum novo device ID é gerado dentro dessa função, evitando alterar o ciclo de vida do device ID.
+- Na regra geral, `X-Device-Mid` é "só vai se tiver valor", mas `/api/v1/zcode-plan/billing/balance` o trata como obrigatório no servidor (ausência retorna `400 code 3001 parameter error`). Portanto qualquer ambiente de execução que inicie uma consulta de benefícios do Start Plan precisa garantir que o `deviceMid` já esteja gravado em disco antes da primeira requisição, sem depender de "header opcional ausente ainda dá certo".
+- A geração do device ID é responsabilidade do dono do ciclo de vida de cada ambiente de execução: o main do Desktop garante de forma síncrona antes da criação da janela; o `zcode-server` remoto (stdio entry de SSH/WSL/Docker) chama `ensureTelemetryDeviceMid()` de forma assíncrona após o handshake e antes da criação dos services; a CLI independente garante por conta própria na primeira requisição de modelo. Os três leem e escrevem o campo `deviceMid` do mesmo `telemetry-state.json` e usam o `telemetry-state.lock` de mesmo nome como mutex.
+- O `NodeApiClient` continua responsável apenas por injetar os headers retornados por `buildZCodeSourceHeaders()` ao atingir o endpoint ZCode atual, preservando o header de mesmo nome passado explicitamente pelo chamador.
+- O GET de configuração de provider endpoint routing do ZCode CLI lê o mesmo estado de telemetry de forma assíncrona por meio de um bootstrap source-header provider independente, e então chama a regra compartilhada de montagem; essa leitura não entra no transporte do modelo nem na saída HTTP comum de tool.
 
-## 覆盖范围
+## Escopo de cobertura
 
-该收口覆盖 app services 里走 `NodeApiClient` 的 ZCode endpoint 请求，包括 OAuth token、client configs、release latest、Start Plan billing、feedback 等，以及 ZCode CLI 独立发起的 provider endpoint routing 配置 GET。其他直接绕过 `NodeApiClient` 的请求仍需在各自出口单独处理。
+Essa unificação cobre as requisições ao endpoint ZCode feitas pelos app services via `NodeApiClient`, incluindo OAuth token, client configs, release latest, Start Plan billing, feedback etc., além do GET de configuração de provider endpoint routing iniciado pelo próprio ZCode CLI. Outras requisições que contornam diretamente o `NodeApiClient` ainda precisam ser tratadas separadamente em cada saída.
 
-## 远端 server 的设备身份
+## Identidade de dispositivo do server remoto
 
-远程工作区（SSH/WSL/Docker）里只有 `zcode-server` 与 Agent 进程，没有 Desktop main。3.12.0 起 Start Plan 等账号权益由远端自己查询，而 `billing/balance` 服务端把 `X-Device-Mid` 视为必填；远端主机上若没有任何进程写过 `telemetry-state.json`，请求就会缺头并被拒绝为 `parameter error`，Start Plan 在远程工作区判成未开通。
+No workspace remoto (SSH/WSL/Docker) existem apenas `zcode-server` e o processo do Agent, sem main do Desktop. A partir da 3.12.0 os benefícios de conta como o Start Plan são consultados pelo próprio host remoto, mas `billing/balance` trata o `X-Device-Mid` como obrigatório no servidor; se na máquina remota nenhum processo tiver gravado o `telemetry-state.json`, a requisição ficará sem o header e será rejeitada como `parameter error`, e o Start Plan será considerado não contratado no workspace remoto.
 
 ```text
-桌面端                                   远端主机
+desktop                                   host remoto
 main ──ensureDesktopDeviceMidSync──┐     entry-stdio ──ensureTelemetryDeviceMid──┐
                                    ├─> ~/.zcode/v2/telemetry-state.json.deviceMid <─┤
 host ──buildZCodeSourceHeaders 读──┘     services ──buildZCodeSourceHeaders 读──────┤
                                           zcode-cli ──ensureCliDeviceMid──────────┘
 ```
 
-- 远端 server 在 `packages/server/src/entry-stdio.ts` 握手完成后、services 创建前调用 `ensureRemoteServerDeviceMid()`，内部复用 `@zcode/services/node` 的 `ensureTelemetryDeviceMid()`，与 telemetry 上报、CLI 使用同一个文件、字段与锁，同一主机上 server 与 Agent 得到同一个 `deviceMid`。
-- 远端拥有自己的设备身份，不借用也不下发桌面 `deviceMid`；同一远端被多台桌面连接时身份保持稳定。
-- 确保失败（文件系统或锁异常）只记录 warn 并继续启动；此时请求与修复前一样省略 `X-Device-Mid`，不伪造设备 ID。
+- O server remoto chama `ensureRemoteServerDeviceMid()` em `packages/server/src/entry-stdio.ts` após o handshake e antes da criação dos services; internamente ele reaproveita o `ensureTelemetryDeviceMid()` de `@zcode/services/node`, usando o mesmo arquivo, campo e lock do reporte de telemetry e do uso da CLI, de modo que server e Agent na mesma máquina obtêm o mesmo `deviceMid`.
+- O host remoto tem sua própria identidade de dispositivo, sem pegar emprestado nem receber o `deviceMid` do desktop; quando o mesmo remoto é conectado por vários desktops, a identidade permanece estável.
+- Se a garantia falhar (exceção de sistema de arquivos ou de lock), apenas registra-se um warn e a inicialização continua; nesse caso as requisições omitem `X-Device-Mid` exatamente como antes da correção, sem forjar um device ID.

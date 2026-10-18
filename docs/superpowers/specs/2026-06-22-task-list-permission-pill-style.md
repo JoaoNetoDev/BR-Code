@@ -1,16 +1,16 @@
-# Task List Permission Pill Style
+# Estilo da Pílula de Permissão na Lista de Tarefas
 
-## 背景
+## Contexto
 
-普通 TaskList 的“等待确认”状态使用 `Badge` 组件渲染，默认是 `rounded-full` pill。Grouped task row 里同一状态使用手写 `span rounded-sm`，导致同一个任务状态在不同列表视图里视觉不一致。
+O estado "aguardando confirmação" da TaskList comum é renderizado com o componente `Badge`, que por padrão usa a pílula `rounded-full`. Na grouped task row, o mesmo estado usa um `span rounded-sm` escrito à mão, deixando o mesmo status de tarefa visualmente inconsistente entre as diferentes visões de lista.
 
-## 目标
+## Objetivo
 
-- Grouped task row 的“等待确认”复用 `Badge` 组件。
-- 保持成功色语义和 hover 隐藏行为不变。
-- 不修改 task 选择、拖拽、归档、permission 状态判断逻辑。
+- Reutilizar o componente `Badge` para "aguardando confirmação" na grouped task row.
+- Manter inalteradas a semântica da cor de sucesso e o comportamento de ocultar no hover.
+- Não modificar a lógica de seleção de tarefas, arrastar, arquivamento ou verificação do estado de permissão.
 
-## 兼容约束
+## Restrições de Compatibilidade
 
-- 桌面侧栏、全局 grouped task 视图、浅色/深色主题使用一致 pill 样式。
-- 只调整 UI 标签外观，不改变 ZCode session / task realtime 消息流。
+- Barra lateral do desktop, visão global de grouped task e temas claro/escuro usam um estilo de pílula consistente.
+- Apenas a aparência do rótulo de UI é ajustada; o fluxo de mensagens realtime de sessão/tarefa do ZCode não muda.

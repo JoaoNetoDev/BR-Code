@@ -1,9 +1,9 @@
-# 模型切换 Toast
+# Toast de troca de modelo
 
-## 展示契约
+## Contrato de exibição
 
-- 已存在的会话完成模型切换后，展示顶部居中的默认 Toast。
-- 中文文案：`已从 {fromModel} 切换至 {toModel}`。
-- 英文文案：`Switched from {fromModel} to {toModel}`。
-- `fromModel` 与 `toModel` 沿用现有供应商/模型标签格式化规则。
-- Toast 只反馈切换结果，不追加性能影响说明；草稿重选相同模型等既有抑制规则保持不变。
+- Após a troca de modelo em uma sessão já existente, exibe-se o Toast padrão, centralizado no topo.
+- Texto em chinês: `已从 {fromModel} 切换至 {toModel}`.
+- Texto em inglês: `Switched from {fromModel} to {toModel}`.
+- `fromModel` e `toModel` seguem as regras existentes de formatação dos rótulos de fornecedor/modelo.
+- O Toast apenas informa o resultado da troca, sem acrescentar explicações sobre impacto de performance; as regras de supressão já existentes, como a de reselecionar o mesmo modelo no rascunho, permanecem inalteradas.

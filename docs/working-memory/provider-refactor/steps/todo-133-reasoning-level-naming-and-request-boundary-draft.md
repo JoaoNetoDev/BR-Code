@@ -1,50 +1,51 @@
-# Todo133：思考档位命名与请求构造边界
+# Todo133: nomenclatura das faixas de raciocínio e fronteira de construção da requisição
 
-> 状态：**Draft，仅记录讨论，未授权实施；命名方案尚未裁决。**
+> Estado: **Rascunho, apenas registro da discussão, sem autorização de implementação; o esquema de nomenclatura ainda não foi decidido.**
 >
-> 2026-09-12 用户要求先记草稿，转看其他问题。本项不属于此前已交付的19项，不自动恢复该 Goal，也不修改配置、迁移或 SDK。
+> 2026-09-12 o usuário pediu para registrar primeiro um rascunho e depois olhar outros problemas. Este item não faz parte das 19 entregas anteriores, não retoma automaticamente aquele Goal e não modifica configuração, migração nem SDK.
 >
-> 关联：[Todo95 关闭档位整理](./todo-95-builtin-reasoning-map-simplification-and-fallback.md)、[Todo113 第二轮目录与配置](./todo-113-round2-research.md)。
+> Relacionado: [Todo95 关闭档位整理](./todo-95-builtin-reasoning-map-simplification-and-fallback.md), [Todo113 第二轮目录与配置](./todo-113-round2-research.md).
 
-## 背景与已核实事实
+## Contexto e fatos já verificados
 
-- 用户关注的是新旧模型是否采用同一命名标准，不只是同一型号有没有来回改名。
-- Todo95 提交 `2c1addd3d8` 将24条规则的 `off`、1条规则的 `nothink` 改为 `disabled`；原有 GPT-5.6 的 `none` 保留。当前旧值转换入口只处理来源限定的 `off/nothink`。
-- Todo113 提交 `262c42e592` 为 GPT-5.4／Mini／Nano、Qwen3.8 Omni 新增包含 `none` 的专用值域。此前这些型号缺专用配置，可能落到只有 `disabled` 的通用兜底。
-- 因此存在“旧模型使用归一后的 `disabled`，新模型使用原生 `none`”的混用；未发现上述统一提交将原生 `none` 改掉后又恢复的情况。混用符合当时允许原生 `none` 的例外，但是否继续保留该例外需重新讨论。
-- 当前请求主链先校验档位合法性，SDK 构造请求体后，`model-option-map-fetch.ts` 才将 Reasoning Map 应用于最终 JSON。检查过的自有执行主链未发现按 `reasoningLevel === "none"` 选择消息打包分支；这不证明所有 SDK 内部都没有相关分支，也不是已确认的 SDK 故障。
+- O que preocupa o usuário é se modelos antigos e novos adotam o mesmo padrão de nomenclatura, e não apenas se um mesmo modelo já teve o nome trocado várias vezes.
+- O commit `2c1addd3d8` do Todo95 mudou `off` de 24 regras e `nothink` de 1 regra para `disabled`; o `none` original do GPT-5.6 foi mantido. Hoje o ponto de entrada de conversão dos valores antigos trata apenas o `off/nothink` qualificado por origem.
+- O commit `262c42e592` do Todo113 adicionou domínios de valores dedicados, contendo `none`, para GPT-5.4／Mini／Nano e Qwen3.8 Omni. Antes disso esses modelos não tinham configuração dedicada e podiam cair no fallback genérico, que só tem `disabled`.
+- Portanto existe uma mistura de "modelos antigos usando o `disabled` normalizado e modelos novos usando o `none` nativo"; não foi encontrado caso em que os commits de unificação acima tivessem alterado o `none` nativo e depois o restaurado. A mistura é compatível com a exceção que permitia o `none` nativo na época, mas é preciso discutir de novo se essa exceção deve ser mantida.
+- Na cadeia principal atual, a legalidade da faixa é validada primeiro, o SDK constrói o corpo da requisição e só então `model-option-map-fetch.ts` aplica o Reasoning Map ao JSON final. Nas cadeias de execução próprias que foram inspecionadas não foi encontrada seleção de ramo de empacotamento de mensagens por `reasoningLevel === "none"`; isso não prova que nenhum internamente do SDK tenha esse ramo, nem é uma falha de SDK confirmada.
 
 ```text
-Selection 档位 → 值域校验 → 保留为 Map 输入
+Faixa da Selection → validação de domínio → mantida como entrada do Map
                                  |
-SDK 构造消息／请求体               |
+SDK constrói mensagens/corpo da requisição |
           |                      |
-          +----→ 应用 Reasoning Map → 发出请求
+          +----→ aplicar o Reasoning Map → enviar a requisição
 
-若 SDK 在打包前需要思考状态：最终 JSON Patch 未必能覆盖该阶段行为。
+Se o SDK precisar do estado de raciocínio antes do empacotamento: um Patch no JSON final
+talvez não cubra o comportamento dessa etapa.
 ```
 
-## 用户关切
+## Preocupação do usuário
 
-不坚持必须使用我们自己的关闭名称，也可以考虑遵循原厂；但原厂可能没有可直接照搬的字符串档位，关闭可能由 `thinking.type`、布尔开关、字段省略或请求构造分支表达。仅统一名称或照抄原厂，都不能代替执行语义核对。
+Não é insistência no uso do nosso próprio nome de desligamento, e também se considera seguir o do fabricante; mas o fabricante pode não ter uma faixa de string diretamente copiável, e o desligamento pode ser expresso por `thinking.type`, por um interruptor booleano, pela omissão de um campo ou por um ramo na construção da requisição. Unificar apenas o nome, ou copiar o do fabricante, não substitui a conferência da semântica de execução.
 
-## 待讨论的方向（均不是实施裁决）
+## Direções a discutir (nenhuma é uma decisão de implementação)
 
-1. **统一内部关闭标识**：内置配置统一 `disabled`，原生参数由 Map 表达；撤销原生 `none` 例外。需评估已有选择与个人 Map 的影响。
-2. **优先原厂命名**：有原生档位则沿用；只有布尔开关、没有原生关闭名称时约定稳定命名。需接受或解决跨模型选择值不一致，明确新增型号采用标准，不能每次临时决定。
-3. **请求阶段边界**：先核实是否有具体 SDK／接口需要在打包前消费思考状态；如存在，明确其正确适配位置。不能靠改字符串名解决，也不在没有证据时新建全局状态或转换层。
+1. **Identificador interno único de desligamento**: configuração embutida unificada em `disabled`, com o parâmetro nativo expresso pelo Map; revogar a exceção do `none` nativo. É preciso avaliar o impacto nas escolhas existentes e nos Maps pessoais.
+2. **Priorizar a nomenclatura do fabricante**: usar a faixa nativa quando ela existir; quando houver apenas um开关 booleano e nenhum nome nativo de desligamento, convencionar uma nomenclatura estável. É preciso aceitar ou resolver a inconsistência entre valores de escolha entre modelos, declarar claramente qual padrão os modelos novos adotam e não decidir caso a caso.
+3. **Fronteira por etapa da requisição**: primeiro verificar se existe algum SDK／接口 específico que precise consumir o estado de raciocínio antes do empacotamento; se existir, definir onde ele deve ser adaptado corretamente. Isso não se resolve mudando o nome da string, e não se deve criar um estado global ou camada de conversão sem evidências.
 
-## 后续调查与验收范围
+## Investigação posterior e escopo de aceitação
 
-- [ ] 对照现有模型／API／站点规则，列出关闭值、实际请求字段，以及默认／关闭／低强度思考的区别；特别检查没有官方关闭枚举的模型。
-- [ ] 追踪所用 SDK 的真实构造过程，用有区分力的请求捕获验证是否存在 Map 应用过晚的问题；不能只验证最后 JSON 中出现了目标字段。
-- [ ] 明确选择命名、UI 文案、请求参数分别遵守的规则，再决定是否修改配置或适配代码。
-- [ ] 若改名，评估已保存 `none` 及原来兜底 `disabled` 的选择、个人值域和 Map；明确有限转换范围，不全局替换历史数据。
-- [ ] 方案裁决后先更新 spec、补失败测试，再实施；按实际影响面组织验证，不借草稿启动大回归。
+- [ ] Confrontar as regras existentes de modelo／API／site, listar os valores de desligamento, os campos reais da requisição e a diferença entre raciocínio padrão／desligado／de baixa intensidade; verificar em especial os modelos sem enumeração oficial de desligamento.
+- [ ] Rastrear o processo real de construção do SDK usado e validar, com capturas de requisição que distingam casos, se existe o problema de aplicação tardia do Map; não basta verificar que o campo alvo apareceu no JSON final.
+- [ ] Definir separadamente as regras que seguem a nomenclatura da escolha, o texto de UI e os parâmetros da requisição, e só então decidir se a configuração ou o código de adaptação devem ser modificados.
+- [ ] Se houver renomeação, avaliar as escolhas salvas com `none` e com o `disabled` de fallback, os domínios de valores pessoais e os Maps; delimitar um escopo de conversão limitado, sem substituição global de dados históricos.
+- [ ] Após a decisão do esquema, atualizar primeiro o spec e adicionar testes que falham, e só então implementar; organizar a verificação pelo impacto real, sem usar o rascunho para disparar uma regressão ampla.
 
-## 边界
+## Limites
 
-- `minimal/low` 不自动视为关闭；省略参数不自动等于关闭；不支持关闭的模型不能凭命名统一新增关闭能力。
-- 不让通用 Runtime 通过猜测厂商档位字符串分散决定行为；当前 Map 只负责其能表达的请求体变化，不能宣称覆盖所有打包阶段差异。
-- 不擅改用户自定义值域／Map、历史执行记录、正在运行的 Model；新旧选择处理方案需在本项正式裁决后明确。
-- 当前仅记录问题与候选方案，不宣告发现了新的请求故障，不实施 Kimi Code 套餐接入或其他延期功能。
+- `minimal/low` não são automaticamente considerados desligamento; omitir o parâmetro não equivale automaticamente a desligar; modelos que não suportam desligamento não podem ganhar essa capacidade só por unificar a nomenclatura.
+- Não deixar o Runtime genérico decidir comportamento de forma distribuída por adivinhamento de strings de faixa do fabricante; o Map atual responde apenas pelas mudanças de corpo de requisição que consegue expressar e não pode alegar cobrir todas as diferenças da etapa de empacotamento.
+- Não alterar por conta própria domínios de valores／Maps definidos pelo usuário, históricos de execução ou o Model em execução; o esquema de tratamento das escolhas antigas e novas precisa ser definido após a decisão formal deste item.
+- Atualmente apenas o problema e as opções são registrados; não se anuncia uma nova falha de requisição e não se implementa a integração de planos do Kimi Code nem outras funcionalidades adiadas.

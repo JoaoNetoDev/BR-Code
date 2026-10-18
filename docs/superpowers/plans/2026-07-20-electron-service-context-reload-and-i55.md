@@ -1,26 +1,26 @@
-# Electron Service Context Reload 与 I55 修复实施计划
+# Plano de implementação: Electron Service Context Reload e correção de I55
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentic:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 修复 6 个 Electron service ContextId preflight 超时、I38/I39/I42 的真实重启竞态，以及 I55 未显式建立 `high` 前置状态的问题。
+**Goal:** corrigir 6 timeouts de preflight de ContextId no service do Electron, as condições de corrida reais de restart em I38/I39/I42 e o problema de I55 não estabelecer explicitamente o estado anterior `high`.
 
-**Architecture:** 保留现有 `wdio-electron-service@9.2.1` launcher/capability 合同，并用项目 E2E service wrapper 把 main-process probe 纳入 `before` 完成条件；旧 service 吞掉首次 ContextId 失败时只重连 bridge 一次。真实 App reload 通过 `overwriteCommand` 把旧 PID 退出屏障插入 WebdriverIO `reloadSession` 内部 delete 与新 session 创建之间；wrapper 的 `onReload` 重新初始化 CDP bridge 和窗口绑定。I55 在创建 Session A 前通过真实 toolbar/V4 command 显式选择 `high`，再验证 B 继承和 A/B 隔离。
+**Architecture:** manter o contrato existente de launcher/capability do `wdio-electron-service@9.2.1` e, com o wrapper de service E2E do projeto, incluir o probe do main process na condição de conclusão de `before`; quando o service antigo engole a primeira falha de ContextId, reconectar o bridge apenas uma vez. O reload do App real usa `overwriteCommand` para inserir a barreira de saída do PID antigo entre o delete interno do `reloadSession` do WebdriverIO e a criação da nova session; o `onReload` do wrapper reinicializa o CDP bridge e o vínculo da janela. I55 seleciona explicitamente `high` por um comando real de toolbar/V4 antes de criar a Session A e então verifica a herança por B e o isolamento A/B.
 
-**Tech Stack:** WebdriverIO 9、`wdio-electron-service` 9.2.1、Electron 41、Mocha、Vitest、TypeScript。
+**Tech Stack:** WebdriverIO 9, `wdio-electron-service` 9.2.1, Electron 41, Mocha, Vitest, TypeScript.
 
-## Global Constraints
+## Restrições globais
 
-- 不增加固定 sleep；健康启动只允许一次 readiness probe。
-- bridge retry 最多一次，第二次失败必须传播为 infrastructure failure。
-- `reloadSession()` 内部 delete 完成后、创建新 session 前必须等待旧 Electron 主 PID 退出，之后必须通过 `onReload` 重建 service；禁止在外层重复 `deleteSession()`。
-- I55 的 `high` 只能由真实用户配置动作建立，不能靠 renderer 挂载后的 localStorage seed 伪造。
-- bug 原因与修复理由保留中文注释。
-- 执行 focused unit、fixture check、目标 E2E、desktop E2E typecheck、全量 typecheck 和 lint。
-- 最终提交 Conventional Commit。
+- Não adicionar sleep fixo; a inicialização saudável permite apenas um readiness probe.
+- Retry do bridge no máximo uma vez; a segunda falha precisa propagar como falha de infraestrutura.
+- Após o delete interno de `reloadSession()` e antes de criar a nova session, é obrigatório esperar o PID principal antigo do Electron encerrar, e depois é obrigatório reconstruir o service via `onReload`; é proibido repetir `deleteSession()` na camada externa.
+- O `high` de I55 só pode ser estabelecido por uma ação real de configuração do usuário, nunca falsificado com seed de localStorage após o mount do renderer.
+- Manter em comentários em português a causa do bug e a justificativa da correção.
+- Executar unit tests focados, verificação de fixture, E2E alvo, typecheck do desktop E2E, typecheck completo e lint.
+- Commit final com Conventional Commit.
 
 ---
 
-### Task 1: 锁定 Electron service readiness 与 reload 合同
+### Task 1: Travar o contrato de readiness e reload do service do Electron
 
 **Files:**
 
@@ -29,11 +29,11 @@
 - Create: `packages/desktop/test/e2eElectronServiceLifecycle.test.ts`
 - Modify: `packages/desktop/wdio.conf.ts`
 
-- [x] 先写失败测试：健康初始化只调用一次；首次 probe 失败会 reset/reconnect；第二次失败传播；service module 同时导出官方 launcher 与自定义 worker。
-- [x] 配置 WDIO 加载本地 reload-aware service module，保持原 `wdio-electron-service` launcher 能力和 rootDir 配置。
-- [x] wrapper 在 root preflight 前完成 main-process bridge probe，错误中区分 service readiness 与 renderer readiness。
+- [x] Escrever primeiro o teste que falha: a inicialização saudável chama o probe apenas uma vez; a primeira falha de probe faz reset/reconnect; a segunda falha propaga; o módulo do service exporta simultaneamente o launcher oficial e o worker customizado.
+- [x] Configurar o WDIO para carregar o service module local, consciente de reload, preservando a capacidade original do launcher `wdio-electron-service` e a configuração de rootDir.
+- [x] O wrapper conclui o probe do bridge do main process antes do preflight da root, distinguindo no erro service readiness de renderer readiness.
 
-### Task 2: 为真实 App reload 增加旧进程退出屏障和 service 重连
+### Task 2: Adicionar barreira de saída do processo antigo e reconexão do service para o reload do App real
 
 **Files:**
 
@@ -41,11 +41,11 @@
 - Create: `packages/desktop/test/e2eElectronReload.test.ts`
 - Modify: `packages/desktop/test/e2e/helpers/model-provider-restart.ts`
 
-- [x] 先写失败测试：quit 请求返回旧主 PID；等待存活进程退出；超时必须报出 PID；退出完成后才调用 reload。
-- [x] `restartIntoWorkspace()` 保存偏好后调用安全 reload helper；helper 包裹 WDIO 内部 delete，等待旧 PID 后再建新 session，随后恢复 localStorage 并 reload renderer。
-- [x] 修正 `waitForSelectedModel()` 诊断读取原子 `zcode-last-agent-config`，删除旧分离 key 的误导输出。
+- [x] Escrever primeiro o teste que falha: o pedido de quit retorna o PID principal antigo; esperar a saída do processo vivo; o timeout precisa reportar o PID; o reload só é chamado depois da saída concluída.
+- [x] `restartIntoWorkspace()` salva as preferências e então chama o helper de reload seguro; o helper encapsula o delete interno do WDIO, espera o PID antigo e só então cria a nova session, restaurando em seguida o localStorage e recarregando o renderer.
+- [x] Corrigir o diagnóstico de `waitForSelectedModel()` para ler o `zcode-last-agent-config` atômico, removendo a saída enganosa das keys separadas antigas.
 
-### Task 3: 按确认语义修复 I55
+### Task 3: Corrigir I55 conforme a semântica confirmada
 
 **Files:**
 
@@ -54,15 +54,15 @@
 - Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
 - Modify: `docs/testing/conversation-session-e2e-human-readable-cases.md`
 
-- [x] 在 `prepareV4ConversationE2E()` 后、首发 A 前，真实切换 DeepSeek thought 为 `high` 并等待 V4 projection。
-- [x] A 首发、B 继承、A→max、B/A 续发均保留 network capture 断言。
-- [x] 不修改 provider 默认档位和共享 localStorage seed 来迁就 case。
+- [x] Após `prepareV4ConversationE2E()` e antes do primeiro envio em A, alternar de verdade o thought do DeepSeek para `high` e aguardar a projection V4.
+- [x] O primeiro envio em A, a herança por B, o envio contínuo A→max e B/A mantêm as asserções de captura de rede.
+- [x] Não modificar o nível padrão do provider nem o seed compartilhado de localStorage para acomodar o caso.
 
-### Task 4: 验证与提交
+### Task 4: Verificação e commit
 
-- [x] 运行 Electron lifecycle/reload、window target、偏好 seed focused unit。
-- [x] 对 I55、Turbo switch/recovery 运行 fixture check。
-- [x] 分别运行 I55、I38/I39/I42 目标 E2E；I55 修复后连续 3 次通过，I38/I39/I42 真实 reload 3/3 通过。
-- [x] 运行 `pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm typecheck`、`pnpm lint`。
-- [x] 检查运行后无 Electron/host/agent/Chromedriver 残留并复核最终 diff。
-- [x] 仅暂存本任务文件并提交 Conventional Commit。
+- [x] Executar unit tests focados de lifecycle/reload do Electron, window target e seed de preferências.
+- [x] Rodar a verificação de fixture para I55 e para switch/recovery do Turbo.
+- [x] Executar separadamente os E2E de I55 e de I38/I39/I42; após a correção de I55, 3 execuções consecutivas aprovadas, e reload real de I38/I39/I42 com 3/3 aprovados.
+- [x] Executar `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm typecheck`, `pnpm lint`.
+- [x] Verificar que não sobraram processos residuais de Electron/host/agent/Chromedriver e revisar o diff final.
+- [x] Fazer stage apenas dos arquivos desta tarefa e criar o commit com Conventional Commit.

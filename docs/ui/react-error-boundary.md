@@ -1,16 +1,16 @@
 # React Error Boundary
 
-`packages/ui/src/ErrorBoundary.tsx` 现在提供共享的 `AppErrorBoundary`，由 desktop / web 两个 renderer 入口统一包裹 `ZCodeIntlProvider` 和 `Root`。
+`packages/ui/src/ErrorBoundary.tsx` agora oferece o `AppErrorBoundary` compartilhado, que envolve de forma unificada o `ZCodeIntlProvider` e o `Root` nas duas entradas de renderer, desktop e web.
 
-这样做的目的很简单：
+O objetivo disso é simples:
 
-- React render / lifecycle 异常不再直接把整棵树卸载成白屏
-- fallback 页面统一走 `packages/ui/src/logger.ts` 记录错误
-- 用户至少还能执行“重试”或“刷新应用”
+- Exceções de render/lifecycle do React não desmontam mais a árvore inteira em uma tela branca
+- A página de fallback registra o erro de forma unificada via `packages/ui/src/logger.ts`
+- O usuário ainda pode executar "Tentar novamente" ou "Atualizar o aplicativo"
 
-当前策略是“先保命，再恢复”：
+A estratégia atual é "primeiro sobreviver, depois recuperar":
 
-- `重试`：清空错误边界状态，重新尝试渲染当前树
-- `刷新应用`：直接刷新当前 renderer，适合 Provider 或初始化状态已经损坏的情况
+- `Tentar novamente`: limpa o estado do error boundary e tenta renderizar a árvore atual novamente
+- `Atualizar o aplicativo`: recarrega diretamente o renderer atual, adequado para casos em que o Provider ou o estado de inicialização já estão corrompidos
 
-如果后续要做更细粒度的隔离，可以继续在 workspace、侧边栏、右侧面板等局部区域增加二级 Error Boundary，但根级边界要保留，确保任何时候都不会回到白屏。
+Se mais tarde for feita uma isolamento de granularidade mais fina, é possível continuar adicionando Error Boundaries secundários em áreas locais como workspace, barra lateral e painel direito; mas a fronteira do nível raiz deve ser mantida, garantindo que nunca se volte a uma tela branca.

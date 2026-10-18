@@ -1,26 +1,26 @@
-# Provider 请求前历史读取性能
+# Leitura do Histórico Antes da Requisição ao Provider
 
-## 背景
+## Contexto
 
-Agent Runtime 在每个 model step 发送请求前，会多次读取同一份 `MessageHistory`。历史较长时，若每个只读点都通过 `toRuntimeEntries()` 深拷贝全部 entry，会重复分配消息、content block 和 metadata 对象；provider projection 入口再做一次全量深拷贝，又进一步放大同步 CPU 与 GC 成本。
+Antes de enviar a requisição em cada model step, o Agent Runtime lê várias vezes o mesmo `MessageHistory`. Quando o histórico é longo, se cada ponto somente-leitura fizer uma cópia profunda de todas as entries via `toRuntimeEntries()`, as mensagens, os content blocks e os objetos de metadata serão alocados repetidamente; e a entrada de projection do provider faz mais uma cópia profunda completa, amplificando ainda mais o custo de CPU síncrona e de GC.
 
-本次只收敛 Runtime 内部的历史读取和 provider projection 拷贝边界，不改变消息顺序、microcompact 结果、cache control、持久化格式、协议或 UI 行为。
+Desta vez apenas se consolidam as leituras de histórico internas do Runtime e a fronteira de cópia do provider projection, sem alterar a ordem das mensagens, o resultado do microcompact, o cache control, o formato de persistência, o protocolo ou o comportamento da UI.
 
-## 所有权合同
+## Contrato de Propriedade
 
-`MessageHistory` 是 Agent Runtime 内消息历史的唯一权威 owner。entry 写入历史后按不可变值使用；需要改变历史内容时，必须新增 entry、整体 replacement，或只对被修改的 entry 做 copy-on-write，禁止原地修改借出的 entry/message/content。
+`MessageHistory` é o único owner autoritativo do histórico de mensagens dentro do Agent Runtime. Depois que uma entry entra no histórico, ela é usada como valor imutável; quando for necessário mudar o conteúdo do histórico, deve-se adicionar uma nova entry, fazer uma substituição integral, ou fazer copy-on-write apenas nas entries modificadas. É proibido modificar in-place uma entry/message/content emprestada.
 
-历史提供三种不同生命周期的读取方式：
+O histórico oferece três formas de leitura com ciclos de vida distintos:
 
-| 读取方式                              | 成本          | 适用范围                                  | 合同                                                           |
-| ------------------------------------- | ------------- | ----------------------------------------- | -------------------------------------------------------------- |
-| `borrowReadOnlyRuntimeEntries()`      | O(1)          | 同步、即时只读                            | 直接返回当前权威 entries；调用方不得写入，也不得跨异步边界持有 |
-| `[...borrowReadOnlyRuntimeEntries()]` | O(n) 指针复制 | 需要固定成员集合的异步任务或 compact 边界 | 固定当时的数组成员；entry 仍共享不可变引用                     |
-| `toRuntimeEntries()`                  | O(n) 内容克隆 | 需要可变的独立副本或外部防御性快照        | 调用方可以修改返回值，不污染历史                               |
+| Forma de leitura                          | Custo          | Escopo de aplicação                              | Contrato                                                                 |
+| ----------------------------------------- | -------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
+| `borrowReadOnlyRuntimeEntries()`          | O(1)           | síncrono, somente leitura imediata               | retorna diretamente as entries autoritativas atuais; o chamador não pode escrever nem manter referência além de uma fronteira assíncrona |
+| `[...borrowReadOnlyRuntimeEntries()]`     | O(n) de ponteiros | tarefas assíncronas ou fronteira de compact que exigem conjunto fixo de membros | fixa os membros do array no momento; as entries continuam compartilhando referências imutáveis |
+| `toRuntimeEntries()`                      | O(n) de clonagem de conteúdo | quando é necessária uma cópia independente mutável ou um snapshot defensivo externo | o chamador pode modificar o valor retornado sem poluir o histórico |
 
-不引入 revision、版本缓存或失效协议。Runtime 在每一个即时读点重新调用 borrow，即可取得该时刻的权威数组。只有明确跨越 `await` 且要求保留调度时边界的代码，才在该读点做一次数组浅快照。
+Não se introduz revision, cache de versões nem protocolo de invalidação. O Runtime chama o borrow novamente em cada ponto de leitura imediata para obter o array autoritativo daquele instante. Somente o código que explicitamente atravessa `await` e exige preservar a fronteira de agendamento faz um snapshot superficial do array no ponto de leitura.
 
-## 时序
+## Sequência
 
 ```text
 同一个 model step
@@ -42,32 +42,32 @@ reminder 判断
   -> media/cache-control/request
 ```
 
-后台 memory agent 和 active compact 会在后续异步步骤继续使用调度时的成员集合，因此它们在入口做数组浅快照。浅快照之后即使 `MessageHistory` append 或 replacement，也不会改变该任务选中的 entry 集合。
+O memory agent em segundo plano e o compact ativo continuam usando o conjunto de membros do momento do agendamento em passos assíncronos posteriores, portanto eles fazem um snapshot superficial do array na entrada. Mesmo que depois do snapshot superficial haja append ou replacement em `MessageHistory`, o conjunto de entries escolhido pela tarefa não muda.
 
-这两处浅快照只固定数组成员边界，不会深冻结 entry/message/content：
+Esses dois snapshots superficiais apenas fixam a fronteira dos membros do array; eles não fazem deep-freeze de entry/message/content:
 
-- Project Memory Extraction/Dream 可能在调度后的其他 turn、compact 或 rewind 之后才消费 `providerEntries`。调度时的数组浅快照负责排除未来追加的消息，真正构建 Memory provider 请求时再由 render 克隆 message/content。
-- Active compact 会跨 summary 请求、重试和持久化等异步步骤保留 `activeEntries`。selection、provider render 和最终 `replaceMessages` 分别克隆自己需要拥有的数据。
-- 两条链路都依赖同一条不可变性约束：entry 进入 `MessageHistory` 后禁止原地修改其 entry/message/content；后续变化只能通过 append、整体 replacement 或对被修改 entry 的 copy-on-write 完成。违反该约束会让已经调度的异步快照观察到调度后的内容变化。
-- 若未来确实需要允许历史 entry 原地变化，必须先恢复调度时的内容级防御性克隆或引入等价的不可变快照机制，不能继续复用当前浅快照合同。
+- A Extração/Dream de Project Memory pode consumir `providerEntries` apenas em outros turns, após compact ou rewind, no mesmo turno do agendamento. O snapshot superficial do array feito no agendamento é responsável por excluir mensagens acrescentadas no futuro; ao construir de fato a requisição de Memory para o provider, o render clona message/content.
+- O compact ativo mantém `activeEntries` ao longo de passos assíncronos como a requisição de summary, retentativas e persistência. Selection, provider render e o `replaceMessages` final clonam cada um os dados de que precisa ser dono.
+- Ambos os caminhos dependem da mesma restrição de imutabilidade: depois que uma entry entra em `MessageHistory`, é proibido modificar in-place sua entry/message/content; mudanças posteriores só podem ocorrer por append, substituição integral ou copy-on-write da entry modificada. Violar essa restrição faz com que um snapshot assíncrono já agendado observe mudanças de conteúdo ocorridas após o agendamento.
+- Se no futuro for realmente necessário permitir mudanças in-place em entries do histórico, é preciso antes restaurar a clonagem defensiva de conteúdo no momento do agendamento ou introduzir um mecanismo equivalente de snapshot imutável; não se pode continuar reutilizando o contrato atual de snapshot superficial.
 
-## Projection 拷贝边界
+## Fronteira de Cópia do Projection
 
-- attachment reorder、mid-conversation system projection 和 legacy reminder 移动只重排引用或创建合成 entry，不得修改输入 entry。
-- `renderProjectedEntryToModelMessage` 为每条实际请求消息创建独立 message/content，隔离后续 media、cache-control 和序列化处理。
-- microcompact 未触发时直接返回只读输入；触发后才浅拷数组，并只为确实被清理的 tool result 创建新 entry 和新 message。
-- `toRuntimeEntries()` 保留原有防御性深拷贝语义，不作为 Runtime 内部普通只读 API 使用。
+- O reorder de attachments, a system projection no meio da conversa e a movimentação do legacy reminder apenas reordenam referências ou criam entries sintéticas; não podem modificar as entries de entrada.
+- `renderProjectedEntryToModelMessage` cria uma message/content independente para cada mensagem efetivamente enviada, isolando o processamento posterior de media, cache-control e serialização.
+- Quando o microcompact não é acionado, retorna-se diretamente a entrada somente leitura; quando é acionado, faz-se uma cópia superficial do array e criam-se novas entries e novas messages apenas para os tool results efetivamente removidos.
+- `toRuntimeEntries()` preserva a semântica original de cópia profunda defensiva e não é usada como API de somente leitura comum dentro do Runtime.
 
-## 复杂度与边界
+## Complexidade e Fronteiras
 
-优化后，历史读取本身为 O(1)，跨异步边界的成员快照为 O(n) 指针复制，provider message render 仍为必要的 O(n) 内容克隆。microcompact 检查和最终请求各自需要一次 render，但不再在每次 render 前重复克隆 runtime entries；同一个 model step 也不再为各个 reminder 读取重复克隆全历史。
+Após a otimização, a leitura do histórico em si é O(1), o snapshot de membros através da fronteira assíncrona é O(n) de cópia de ponteiros, e o render das mensagens do provider continua sendo a clonalgem de conteúdo O(n) necessária. A verificação de microcompact e a requisição final precisam cada uma de um render, mas já não clonam repetidamente as runtime entries antes de cada render; e um mesmo model step também não lê mais clonando o histórico inteiro de forma repetida para cada reminder.
 
-本次不处理 token 估算、context usage 字符串拼接、SQLite 冷恢复或 `ModelRequest` 事件载荷；这些成本需要独立测量，不能用本次改动推断已经消失。
+Desta vez não tratamos a estimativa de tokens, a concatenação de strings de uso de contexto, a recuperação fria do SQLite ou o payload dos eventos `ModelRequest`; esses custos precisam de medição independente e não se pode inferir que sumiram a partir desta mudança.
 
-## 验证
+## Verificação
 
-- 先用单测锁住防御性 clone、provider projection 隔离和 microcompact 不污染输入的行为。
-- borrow API 单测覆盖 append 后重新读取权威值、replacement 后旧 borrow 不再是权威数组，以及防御性 clone 仍可独立修改。
-- copy-on-write 单测覆盖只有被清理的 tool entry 更换引用，其他 entry 保持共享。
-- 定向测试、`pnpm typecheck` 与 `pnpm lint` 必须通过。
-- 使用长历史基准比较优化前后一次发送前 projection 的耗时；基准只作为性能证据，不作为跨机器的硬编码产品阈值。
+- Primeiro travar com testes unitários o comportamento da clonagem defensiva, do isolamento do provider projection e de o microcompact não poluir a entrada.
+- Os testes unitários da API de borrow cobrem: releitura do valor autoritativo após append, um borrow antigo deixar de ser o array autoritativo após replacement, e a clonagem defensiva continuar modificável de forma independente.
+- Os testes unitários de copy-on-write cobrem apenas a troca de referência dos tool entries removidos, com as outras entries mantendo o compartilhamento.
+- Testes direcionados, `pnpm typecheck` e `pnpm lint` devem passar.
+- Usar um benchmark com histórico longo para comparar o tempo de projection antes do envio antes e depois da otimização; o benchmark serve apenas como evidência de performance, não como um limite de produto fixo entre máquinas.

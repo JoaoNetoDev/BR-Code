@@ -1,42 +1,68 @@
-# Git Review File Context Menu Spec
+# Especificação do menu de contexto de arquivo do Git Review
 
-## 背景
+## Contexto
 
-Git 审查面板的文件行目前只能展开 diff。用户在审查某个文件时，常见的下一步是定位真实文件、复制路径，或者回到左侧文件树查看它在 workspace 中的位置。文件树已经提供类似能力，本改动把同一套文件操作接入 Git 审查文件行。
+As linhas de arquivo do painel de revisão do Git hoje só podem expandir o diff. Ao revisar um
+arquivo, o próximo passo comum do usuário é localizar o arquivo real, copiar o caminho ou voltar
+à árvore de arquivos à esquerda para ver onde ele fica no workspace. A árvore de arquivos já
+oferece capacidades equivalentes; esta mudança conecta as mesmas operações de arquivo às linhas
+de arquivo da revisão do Git.
 
-## 用户行为
+## Comportamento do usuário
 
-- 在 Git 审查文件行右键时展示上下文菜单。
-- 菜单包含：在系统文件管理器中显示、复制文件路径、在文件树中显示。
-- 点击文件行本身仍保持现有展开/收起 diff 行为。
+- Ao clicar com o botão direito em uma linha de arquivo da revisão do Git, exibe-se um menu de
+  contexto.
+- O menu contém: mostrar no gerenciador de arquivos do sistema, copiar caminho do arquivo, mostrar
+  na árvore de arquivos.
+- Clicar na própria linha do arquivo mantém o comportamento atual de expandir/recolher o diff.
 
-## 模块边界
+## Limites de módulo
 
-- `GitPaneChangeCard` 只负责展示文件行和菜单，不直接访问 Electron、`window.zcode` 或文件树状态。
-- `GitPane` 负责把 `GitPaneFileChange` 解析成文件动作目标，包括绝对路径、workspace 相对路径、deleted 状态。
-- 通用文件动作封装在 UI hook 中，统一处理 clipboard、系统文件管理器、日志和 toast。
-- `WorkspaceShellLayout` 只接收“在文件树中显示”的 intent，并复用现有 `fileTreeOpenRequest` 打开左侧文件树。
-- 平台能力继续通过 `IPlatformService`，UI 层不直接调用桌面 preload。
-- “系统文件管理器”能力由上层显式传入本地桌面端能力位，hook 内再叠加远程 workspace / deleted 状态判断，避免普通 Web 或手机 Web 误触本机文件管理器路径。
+- `GitPaneChangeCard` é responsável apenas por exibir a linha do arquivo e o menu, sem acessar
+  diretamente o Electron, `window.zcode` ou o estado da árvore de arquivos.
+- `GitPane` é responsável por resolver `GitPaneFileChange` no alvo da ação de arquivo, incluindo
+  caminho absoluto, caminho relativo ao workspace e estado deleted.
+- As ações genéricas de arquivo são encapsuladas em um hook de UI que trata de forma unificada
+  clipboard, gerenciador de arquivos do sistema, logs e toast.
+- `WorkspaceShellLayout` recebe apenas a intent de "mostrar na árvore de arquivos" e reaproveita o
+  `fileTreeOpenRequest` existente para abrir a árvore de arquivos à esquerda.
+- As capacidades de plataforma continuam passando por `IPlatformService`; a camada de UI não
+  chama o preload do desktop diretamente.
+- A capacidade de "gerenciador de arquivos do sistema" é passada explicitamente pela camada
+  superior como um bit de capacidade do desktop local, e o hook soma a ela a verificação de
+  workspace remoto / estado deleted, evitando que o Web comum ou o Web mobile acionem
+  inadvertidamente o caminho do gerenciador de arquivos local.
 
-## 路径规则
+## Regras de caminho
 
-- 真实文件操作路径使用 `change.path`；如果不是绝对路径，则用 `workspacePath` 拼接。
-- “在系统文件管理器中显示”对文件目标打开父目录，对目录目标打开目录自身；不要把文件路径直接交给系统默认打开逻辑。
-- 展示路径继续使用 `change.workspaceRelativePath`。
-- workspace 隔离语义沿用 `workspaceIdentity?.trim() || workspacePath`，不把 identity 当作实际文件路径。
+- O caminho usado nas operações reais de arquivo é `change.path`; se não for absoluto, ele é
+  concatenado com `workspacePath`.
+- "Mostrar no gerenciador de arquivos do sistema" abre o diretório pai para alvos de arquivo e o
+  próprio diretório para alvos de diretório; não passar o caminho do arquivo diretamente para a
+  lógica de abertura padrão do sistema.
+- O caminho exibido continua usando `change.workspaceRelativePath`.
+- A semântica de isolamento de workspace segue `workspaceIdentity?.trim() || workspacePath`, sem
+  tratar a identity como um caminho de arquivo real.
 
-## 平台边界
+## Limites de plataforma
 
-- macOS 本地桌面显示“在 Finder 中打开”。
-- Windows 本地桌面显示“在资源管理器中打开”。
-- Linux 本地桌面显示“在文件管理器中打开”。
-- 普通 Web、手机 Web 远控、远程 workspace 禁用系统文件管理器项，只保留复制路径和文件树定位；禁用依据不能只看 `workspaceRemoteSessionId`，还必须要求本地桌面端能力位为 true。
-- deleted 文件保留复制路径和文件树定位，禁用系统文件管理器项，避免尝试打开已不存在的本地文件。
+- Desktop local no macOS exibe "Abrir no Finder".
+- Desktop local no Windows exibe "Abrir no Explorer".
+- Desktop local no Linux exibe "Abrir no gerenciador de arquivos".
+- Web comum, controle remoto Web mobile e workspace remoto desabilitam o item do gerenciador de
+  arquivos do sistema, mantendo apenas copiar caminho e localização na árvore de arquivos; a
+  desabilitação não pode depender apenas de `workspaceRemoteSessionId`, sendo também necessário
+  exigir que o bit de capacidade do desktop local seja true.
+- Arquivos deleted mantêm copiar caminho e localização na árvore de arquivos, mas têm o item do
+  gerenciador de arquivos do sistema desabilitado, evitando tentar abrir um arquivo local que não
+  existe mais.
 
-## 验证
+## Verificação
 
-- 本地桌面：右键文件行可以复制路径、在文件管理器中显示、跳转文件树。
-- 远程 workspace / Web 远控：系统文件管理器项禁用，复制路径和文件树定位可用。
-- 深层路径：文件树应自动展开父目录并滚动到目标文件。
-- 执行 `pnpm typecheck` 与 `pnpm lint`。
+- Desktop local: clicar com o botão direito na linha do arquivo permite copiar o caminho, mostrar
+  no gerenciador de arquivos e navegar até a árvore de arquivos.
+- Workspace remoto / controle remoto Web: o item do gerenciador de arquivos do sistema está
+  desabilitado, e copiar caminho e localização na árvore de arquivos funcionam.
+- Caminhos profundos: a árvore de arquivos deve expandir automaticamente o diretório pai e rolar
+  até o arquivo alvo.
+- Executar `pnpm typecheck` e `pnpm lint`.

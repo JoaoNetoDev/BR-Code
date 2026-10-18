@@ -1,138 +1,155 @@
-# Model Tool Call Validation
+# Validação de Chamadas de Ferramentas do Modelo
 
-## 背景
+## Contexto
 
-provider 可能返回两类不同问题：
+O provider pode retornar dois tipos diferentes de problema:
 
-- 工具名为空，例如 `{ id: "call_x", name: "", input: {...} }`；
-- id 与非空工具名存在，但 final `tool-call.input` 是 malformed JSON 或 `null`。
+- nome de ferramenta vazio, por exemplo `{ id: "call_x", name: "", input: {...} }`;
+- id presente junto de um nome de ferramenta não vazio, mas com `tool-call.input` final sendo JSON malformado ou `null`.
 
-client-executed 调用的空字符串/纯空白工具名虽然无法命中 registry，但在 call id 可闭合时仍能
-生成配对的 error tool result。该分支保留 provider 原始名称，按稳定恢复行为处理，
-不猜测真实工具。参数损坏时同样保留调用身份，通过普通工具 schema / lookup 生成结果并让模型在
-当前 run 中恢复，而不是把错误升级成整个模型请求失败。
+O nome de ferramenta vazio/string apenas com espaços em uma chamada client-executed não consegue atingir o
+registry, mas, quando o id da chamada pode ser fechado, ainda é possível gerar um error tool result
+correspondente. Esse ramo preserva o nome original do provider, trata com um comportamento de recuperação
+estável e não adivinha a ferramenta real. Quando os argumentos estão corrompidos, a identidade da chamada
+também é preservada: o resultado é gerado pelo schema/lookup comum da ferramenta e o modelo se recupera no run
+atual, em vez de escalar o erro para uma falha de requisição do modelo inteiro.
 
-## 工具身份
+## Identidade da ferramenta
 
-- 本次只恢复 `typeof toolName === "string" && toolName.trim().length === 0` 的
-  client-executed 调用。原始空字符串或空白字符串必须保留，不得被 wire / storage 占位值覆盖。
-- `toolName` 缺失或为 `null`、数字、对象等非字符串时，继续返回
-  `invalid_model_response`。这是本次范围选择，不覆盖非字符串工具名的恢复。
-- `providerExecuted=true` 的空字符串/纯空白名称继续返回 `invalid_model_response`。
-- 合法非空名称继续 trim 后执行。
-- 非空工具名即使未注册，也继续进入既有 tool lookup。找不到工具时，executor 返回
-  `Tool not found: <name>`，runtime 生成与原 call id 配对的 `is_error=true` tool result。
-- 缺失 call id 的既有兼容行为不在本 ticket 中修改，也不能与 malformed 参数恢复混为一类。
-  `generateText` 继续使用现有 `toolCallId ?? id ?? crypto.randomUUID()`；streaming 不增加
-  新的 id fallback。空名称仅在当前路径已有可闭合 id 时恢复。
+- Nesta rodada só são recuperadas chamadas client-executed com
+  `typeof toolName === "string" && toolName.trim().length === 0`. A string vazia original ou de apenas espaços
+  deve ser preservada e não pode ser sobrescrita por um valor de placeholder de wire/storage.
+- Quando `toolName` está ausente ou é `null`, número, objeto ou outro tipo não string, continua sendo retornado
+  `invalid_model_response`. Essa é a escolha de escopo desta rodada e não cobre a recuperação de nomes de
+  ferramenta não string.
+- Nomes vazios ou de apenas espaços em `providerExecuted=true` continuam retornando `invalid_model_response`.
+- Nomes legítimos não vazios continuam sendo executados após o trim.
+- Um nome de ferramenta não vazio, mesmo não registrado, continua passando pelo tool lookup existente. Quando
+  a ferramenta não é encontrada, o executor retorna `Tool not found: <name>` e o runtime gera um
+  `tool_result` com `is_error=true` pareado ao id original da chamada.
+- O comportamento de compatibilidade existente para id de chamada ausente não é modificado neste ticket e não
+  pode ser confundido com a recuperação de argumentos malformados. `generateText` continua usando
+  `toolCallId ?? id ?? crypto.randomUUID()`; o streaming não ganha novo fallback de id. O nome vazio só é
+  recuperado quando o caminho atual já tem um id que possa ser fechado.
 
-空字符串/纯空白名称使用既有 registry-miss 生命周期：
+Nomes vazios ou de apenas espaços usam o ciclo de vida existente de registry-miss:
 
 ```text
-provider final tool call（原始名称）
+tool call final do provider（nome original）
                  │
                  ▼
-client-executed + name.trim()==="" + id 可闭合
+client-executed + name.trim()==="" + id fechável
                  │
-                 ├── 正常 finish ──> 强制 registry miss
-                 │                     ├── 不运行 Hook / permission / handler
-                 │                     ├── 同 id ToolCallError + error result
-                 │                     └── sibling batch 闭合后 continuation
+                 ├── fim normal ──> registry miss forçado
+                 │                     ├── não executa Hook / permission / handler
+                 │                     ├── ToolCallError + error result com o mesmo id
+                 │                     └── continuation após o fechamento do batch irmão
                  │
-                 └── finish 前断流 ──> 既有 stream_recovery_interrupted_tool
-                                       不改写为 registry-miss 错误
+                 └── interrupção antes do fim ──> stream_recovery_interrupted_tool existente
+                                       não reescrito como erro de registry-miss
 ```
 
-空名称 registry miss 使用两份明确分离的错误内容：
+O registry miss de nome vazio usa dois conteúdos de erro explicitamente separados:
 
-- UI / log error：`Model returned an invalid tool call: tool name is empty.`
-- provider `modelContent`：
+- UI / log de erro: `Model returned an invalid tool call: tool name is empty.`
+- `modelContent` do provider:
   `<tool_use_error>Error: No such tool available: ${rawToolName}</tool_use_error>`
 
-普通非空 unknown tool 继续使用 `Tool not found: <name>`，不改变既有文案。
+Uma ferramenta unknown comum com nome não vazio continua usando `Tool not found: <name>`, sem alterar o texto
+existente.
 
-## Provider、持久化与 App 投影
+## Provider, persistência e projeção no App
 
-runtime assistant/tool-result history 始终保存 provider 原始名称。只有协议要求非空的边界使用
-固定占位值 `empty_tool_name`：
+O histórico assistant/tool-result do runtime sempre preserva o nome original do provider. Somente as
+fronteiras em que o protocolo exige valor não vazio usam o placeholder fixo `empty_tool_name`:
 
-| API 格式 | assistant tool call | tool-result wire |
+| Formato de API | tool call do assistant | tool-result no wire |
 | --- | --- | --- |
-| `anthropic-messages` | 原始空字符串/空白字符串 | `tool_result` 不携带 name |
-| `openai-chat-completions` | `empty_tool_name` | tool message 不携带 name |
-| `openai-responses` | `empty_tool_name` | `function_call_output` 不携带 name |
+| `anthropic-messages` | string vazia/de espaços original | `tool_result` não carrega name |
+| `openai-chat-completions` | `empty_tool_name` | tool message não carrega name |
+| `openai-responses` | `empty_tool_name` | `function_call_output` não carrega name |
 
-- 显式 `apiFormat` 优先；格式缺失时仅 `providerKind="anthropic"` 保留原始名称，其他 provider
-  使用 `empty_tool_name`。不得根据 URL 猜测协议。
-- `ToolPart.tool` 保存 `empty_tool_name`，`ToolPart.metadata.providerToolName` 保存原始名称。
-  判断 metadata 是否存在必须使用 `providerToolName !== undefined`，不能使用 truthy 判断。
-- pending、running、completed/error 及 streaming synthetic 生命周期都保留同一 top-level
-  metadata。hydration 优先恢复原始名称，再由当前 provider 格式决定 wire 投影，因此 provider
-  切换不会把存储占位值误当成模型原始名称。
-- App 可见产品态只按空名恢复的结构化证据静默过滤，不能只比较固定占位字符串：live
-  `model.streaming` 中原始名称 trim 后为空时不生成 V4 `ToolCallRow`；持久化 `ToolPart` 只有在
-  `ToolPart.tool="empty_tool_name"` 且 `metadata.providerToolName` 存在并在 trim 后为空时，才不映射
-  legacy message tool part、cold hydration 工具行或可见 footprint。过滤同时适用于 desktop
-  continuous 与 web remote replayable。
-- 空名恢复调用不发布 `ToolCallScheduled`。scheduler、registry-miss、持久化 `ToolPart`、provider
-  error result 和 continuation 均保持不变；后续 `ToolCallError` / batch terminal 事件不会反向创建
-  产品工具行。
-- `empty_tool_name` 不是保留工具名。没有上述 metadata 的裸 `ToolPart.tool="empty_tool_name"`，以及
-  live 中模型原始返回的同名非空调用，都按普通合法工具名执行和展示。这样内置、alias、MCP 或插件
-  注册同名工具时不会发生“实际执行但产品静默”的身份碰撞。
-- App / remote mapper 不暴露 `providerToolName`；公共协议与旧 session 无需迁移。旧数据没有
-  metadata 时继续使用 `ToolPart.tool`，包括按普通工具展示裸 `empty_tool_name`。普通非空 unknown
-  tool 不经过静默过滤，仍显示既有 terminal error 工具行。
-- `tool_input_start` 与 `model.streaming` 保留原始空名称；占位值只用于要求合法非空名称的
-  App / storage 或 OpenAI-compatible wire 边界。
+- O `apiFormat` explícito tem prioridade; quando o formato está ausente, apenas `providerKind="anthropic"`
+  preserva o nome original e os demais providers usam `empty_tool_name`. Não é permitido adivinhar o protocolo
+  pela URL.
+- `ToolPart.tool` guarda `empty_tool_name` e `ToolPart.metadata.providerToolName` guarda o nome original. Para
+  verificar se o metadata existe é obrigatório usar `providerToolName !== undefined`; não se pode usar uma
+  verificação de truthiness.
+- Os ciclos de vida pending, running, completed/error e streaming synthetic preservam o mesmo metadata de
+  top-level. A hydration restaura primeiro o nome original e só depois decide a projeção no wire conforme o
+  formato do provider atual, portanto trocar de provider não faz o valor de placeholder armazenado ser
+  confundido com o nome original do modelo.
+- O estado de produto visível no App filtra silenciosamente apenas a evidência estruturada produzida pela
+  recuperação de nome vazio, e não apenas a comparação com a string de placeholder fixa: no `model.streaming`
+  ao vivo, quando o nome original fica vazio após o trim, não é gerado um `ToolCallRow` do V4; um `ToolPart`
+  persistido só não mapeia legacy message tool part, linha de ferramenta de cold hydration ou footprint
+  visível quando `ToolPart.tool="empty_tool_name"` e `metadata.providerToolName` existe e fica vazio após o trim.
+  O filtro vale tanto para desktop continuous quanto para web remote replayable.
+- Chamadas recuperadas de nome vazio não publicam `ToolCallScheduled`. Scheduler, registry-miss, `ToolPart`
+  persistido, error result do provider e continuation permanecem inalterados; eventos posteriores de
+  `ToolCallError` / batch terminal não criam retroativamente linhas de ferramenta no produto.
+- `empty_tool_name` não é um nome de ferramenta reservado. Um `ToolPart.tool="empty_tool_name"` sem o metadata
+  acima, assim como chamadas ao vivo não vazias com esse mesmo nome retornadas pelo modelo, são executados e
+  exibidos como nomes de ferramenta legítimos comuns. Assim, quando um plugin, alias, MCP ou interno registra
+  uma ferramenta com esse mesmo nome, não ocorre uma colisão de identidade em que a execução acontece mas o
+  produto a oculta silenciosamente.
+- O mapper do App/remote não expõe `providerToolName`; o protocolo comum e as sessões antigas não precisam de
+  migração. Dados antigos sem metadata continuam usando `ToolPart.tool`, incluindo exibir um
+  `empty_tool_name` puro como ferramenta comum. Uma ferramenta unknown comum não vazia não passa pelo filtro
+  silencioso e continua exibindo a linha de ferramenta com o erro terminal existente.
+- `tool_input_start` e `model.streaming` preservam o nome original vazio; o placeholder é usado apenas nas
+  fronteiras de App/storage ou de wire compatível com OpenAI que exigem um nome válido não vazio.
 
-## Malformed tool input JSON
+## JSON de entrada de ferramenta malformado
 
-Adapter 只解析 AI SDK final `tool-call.input`；流式 delta 仅用于展示。统一归一化规则为：
+O Adapter só faz parsing do `tool-call.input` final do AI SDK; deltas de streaming servem apenas para
+exibição. As regras de normalização unificada são:
 
-- `undefined`、缺失 input、空字符串 → `{}`，不记录 parse-fail；
-- string input 至多剥离一个前导 BOM，再使用严格 `JSON.parse`；
-- JSON 解析失败、解析结果为 `null`、或原生 input 为 `null` → warn 一次并降为 `{}`；
-- 其他非 string 值保持原值，由普通工具 schema 判断；
-- 不进行 partial JSON repair，不裁剪尾部或补括号猜测模型意图。
+- `undefined`, input ausente, string vazia → `{}`, sem registrar parse-fail;
+- input string tem no máximo um BOM inicial removido e depois usa `JSON.parse` estrito;
+- falha no parse do JSON, resultado do parse igual a `null` ou input nativo `null` → um warn e degradação para `{}`;
+- outros valores não string são mantidos como estão, para decisão pelo schema comum da ferramenta;
+- não há reparo de JSON parcial, nem corte de cauda, nem adição de colchetes para adivinhar a intenção do modelo.
 
 ```text
-AI SDK final tool-call(input)
+tool-call(input) final do AI SDK
               │
               ▼
-       严格归一化一次
+       normalização estrita única
         │             │
-        │ valid       │ malformed / null
+        │ válido      │ malformado / null
         ▼             ▼
-   parsed input    warn + input={}
+   input parseado    warn + input={}
         │             │
         └──────┬──────┘
                ▼
-       普通工具 lookup / schema
+       lookup / schema da ferramenta comum
         │                 │
-        │ reject          │ accept
+        │ rejeita         │ aceita
         ▼                 ▼
-same-id is_error=true   正常执行工具
-tool result
+tool result is_error=true  execução normal da ferramenta
+com o mesmo id
         │
         ▼
-同一 run 的下一次模型请求尝试恢复
+próxima requisição do modelo no mesmo run tenta se recuperar
 ```
 
-malformed 不增加 `inputIssue` 或 parse-failed 标记。如果工具 schema 接受 `{}`，工具仍正常执行；
-如果 schema 拒绝，使用现有 recoverable input-validation error。未知但非空工具名使用同一个
-`{}` 和 call id 进入既有 `Tool not found` 路径。
+Malformado não acrescenta `inputIssue` nem marca de parse falho. Se o schema da ferramenta aceita `{}`, a
+ferramenta ainda é executada normalmente; se o schema rejeita, usa-se o erro de validação de entrada
+recuperável já existente. Um nome de ferramenta desconhecido mas não vazio usa o mesmo `{}` e o mesmo id de
+chamada e entra no caminho existente de `Tool not found`.
 
-## Provider-visible input validation error
+## Erro de validação de entrada visível ao provider
 
-首次模型输入未通过 `inputSchema.safeParse` 时，runtime 格式化完整校验错误，
-并返回同一 tool call id 的 error tool result：
+Quando a primeira entrada do modelo não passa em `inputSchema.safeParse`, o runtime formata o erro de
+validação completo e retorna um error tool result com o mesmo tool call id:
 
 ```text
 <tool_use_error>InputValidationError: ${formattedError}</tool_use_error>
 ```
 
-Provider projection 必须保留以下字段和值，不增加内部 telemetry metadata：
+A projeção no provider precisa preservar os seguintes campos e valores, sem acrescentar metadata interna de
+telemetria:
 
 ```json
 {
@@ -140,7 +157,7 @@ Provider projection 必须保留以下字段和值，不增加内部 telemetry m
   "content": [
     {
       "type": "tool_result",
-      "tool_use_id": "<原 tool call id>",
+      "tool_use_id": "<tool call id original>",
       "is_error": true,
       "content": "<tool_use_error>InputValidationError: ...</tool_use_error>"
     }
@@ -148,13 +165,13 @@ Provider projection 必须保留以下字段和值，不增加内部 telemetry m
 }
 ```
 
-该 formatter 按以下顺序输出可识别的问题：
+O formatter emite os problemas identificáveis nesta ordem:
 
-1. missing：`invalid_type` 且 message 包含 `received undefined`；
-2. unexpected：`unrecognized_keys`，只输出 keys，不拼接 issue 自身 path；
-3. wrong type：其余 `invalid_type`。
+1. missing: `invalid_type` e a message contém `received undefined`;
+2. unexpected: `unrecognized_keys`, emitindo apenas as keys, sem concatenar o path da própria issue;
+3. wrong type: os demais `invalid_type`.
 
-精确行模板为：
+Os templates exatos de linha são:
 
 ```text
 The required parameter `${path}` is missing
@@ -162,138 +179,160 @@ An unexpected parameter `${key}` was provided
 The parameter `${path}` type is expected as `${expected}` but provided as `${received}`
 ```
 
-路径使用字符串字段的 `.` 与数字字段的 `[n]` 连接，空 path 输出空字符串。wrong type 的
-`received` 从 issue message 使用 `/received (\w+)/` 提取，无法提取时使用 `unknown`。
-存在任一可识别问题时，输出：
+O path une campos string com `.` e campos numéricos com `[n]`; um path vazio produz uma string vazia. O
+`received` de wrong type é extraído da message da issue com `/received (\w+)/` e, quando não pode ser extraído,
+usa-se `unknown`. Existindo qualquer problema identificável, a saída é:
 
 ```text
 ${toolName} failed due to the following ${count > 1 ? "issues" : "issue"}:
 ${lines.join("\n")}
 ```
 
-此时同一批 issues 中的其他错误类型不会显示。三类均不存在时，完整返回 Zod 4.0 error
-message：issues 数组使用英文默认 message、移除内部 `input` / `inst` / `continue` 字段，
-并通过带 bigint-to-string replacer 的 `JSON.stringify(issues, replacer, 2)` 序列化。
-provider-visible formatter 使用完整 issue 列表，不受内部日志最多保留 20 条错误的限制。
+Nesse momento, outros tipos de erro do mesmo lote de issues não são exibidos. Quando nenhuma das três
+categorias existe, a message de erro completa do Zod 4.0 é retornada: o array de issues usa a message padrão
+em inglês, remove os campos internos `input` / `inst` / `continue` e é serializado com
+`JSON.stringify(issues, replacer, 2)` usando um replacer de bigint para string. O formatter visível ao provider
+usa a lista completa de issues e não é afetado pelo limite interno de logs de no máximo 20 erros.
 
-首次模型输入同时存在 runtime normalization 与 provider JSON Schema 两个既有边界：
+A primeira entrada do modelo tem simultaneamente dois pontos de fronteira já existentes: a normalização do
+runtime e o JSON Schema do provider:
 
 ```text
 runtimeInputSchema.safeParse
        │
-       ├── success ──> normalized input
+       ├── sucesso ──> input normalizado
        │
-       └── failure ──> raw input + retained parser issues
+       └── falha ──-> input bruto + issues do parser retidas
                                       │
                                       ▼
-                         provider JSON Schema gate
+                         portão do JSON Schema do provider
                             │                   │
-                            │ success           │ failure
+                            │ sucesso           │ falha
                             ▼                   ▼
-                   hooks / permission     exact error modelContent
+                   hooks / permission     modelContent de erro exato
                                                    │
                                                    ▼
-                                 same-id, is_error=true tool result
+                                 tool result com mesmo id, is_error=true
 ```
 
-- JSON Schema 继续决定当前首次输入的接受/拒绝结果；保留 parser issues 不得新增拒绝。
-- runtime parse 成功但 JSON Schema 失败时，使用 JSON Schema issues。
-- runtime parse 与 JSON Schema 同时失败时，先将两侧证据投影成一份有序 canonical issues：
-  runtime parser 决定实际失败项与 fallback 顺序，匹配到的 JSON issue 只替换为目标版本字段结构；
-  provider-only required / unexpected 结构问题继续由 JSON issues 补充。
-- runtime parse 失败但 JSON Schema 成功时保持既有流程，不提前返回参数错误。
-- 没有 runtime schema 的动态工具继续使用完整 JSON Schema issues。
+- O JSON Schema continua decidindo o resultado de aceitação/rejeição da primeira entrada atual; reter parser
+  issues não pode acrescentar uma rejeição.
+- Quando o parse do runtime passa mas o JSON Schema falha, são usados os issues do JSON Schema.
+- Quando o parse do runtime e o JSON Schema falham ao mesmo tempo, as evidências dos dois lados são primeiro
+  projetadas em uma única lista canônica ordenada de issues: o parser do runtime decide o item que realmente
+  falhou e a ordem de fallback, e um issue de JSON correspondente apenas substitui pela estrutura de campos da
+  versão alvo; problemas estruturais de required/unexpected exclusivos do provider continuam sendo completados
+  pelos issues de JSON.
+- Quando o parse do runtime falha mas o JSON Schema passa, o fluxo existente é mantido e não se retorna antes
+  de tempo um erro de argumento.
+- Ferramentas dinâmicas sem schema de runtime continuam usando os issues completos do JSON Schema.
 
-这样默认值与 preprocess/transform 语义来自实际 parser，不在 JSON Schema validator 中重新
-推断；canonical projection 是 provider-visible 顺序的唯一归属，formatter 只消费该结果，
-不再自行合并或重排两套错误。参数类错误仍按 missing → unexpected → wrong type 分类输出；
-非参数 fallback 保持 runtime parser 的字段/自定义校验顺序，仅将本地 parser 的数组级
-bounds 调整到数组子项 issues 之后，以匹配目标版本遍历顺序。不得采用“JSON issues 全部在前、
-runtime-only issues 追加在后”的策略，否则会把更早字段的 regex/refine 错误移动到后续字段之后。
-该投影只改变错误表达，不改变 schema 接受范围。
+Assim, os valores padrão e a semântica de preprocess/transform vêm do parser real e não são reinferidos no
+validator de JSON Schema; a projeção canônica é a única autoridade da ordem visível ao provider, o formatter
+apenas consome esse resultado e não combina nem reordena mais os dois conjuntos de erros. Erros de argumento
+continuam saindo classificados como missing → unexpected → wrong type; o fallback não-argumento mantém a ordem
+de validação de campos/custom do parser do runtime, apenas ajustando a verificação de bounds de nível de array
+do parser local para depois dos issues dos itens do array, a fim de corresponder à ordem de travessia da
+versão alvo. Não é permitido adotar a estratégia “todos os issues de JSON primeiro e issues exclusivos do runtime
+depois”, pois isso moveria erros de regex/refine de campos mais antigos para depois de campos posteriores. Essa
+projeção altera apenas a expressão do erro, não o alcance de aceitação do schema.
 
-本契约仅对应模型原始 arguments 的首次 schema failure。schema 成功后可选执行的
-工具级 `validateInput` 属于语义/环境校验，失败内容不经过参数错误 formatter；PreToolUse hook 修改后的
-输入和 REPL inner tool call 也是独立调用点。ZCode 当前没有 deferred/discovered-tool
-surface，因此不生成延迟工具发现的 schema 提示。本修复不为这些分支新增接口或行为。
+Este contrato corresponde somente à primeira falha de schema dos arguments originais do modelo. O
+`validateInput` de nível de ferramenta, opcional após o sucesso do schema, pertence à validação semântica/de
+ambiente e seu conteúdo de falha não passa pelo formatter de erro de argumento; a entrada modificada por hook
+PreToolUse e a inner tool call do REPL são pontos de chamada independentes. O ZCode atualmente não tem
+superfície de deferred/discovered-tool e portanto não gera hints de schema para descoberta adiada de
+ferramentas. Esta correção não acrescenta interface nem comportamento para esses ramos.
 
-该逻辑没有 provider/model gate；所有支持工具调用的模型共用同一分支，不增加模型专属判断。
+Essa lógica não tem portão de provider/model; todos os modelos que suportam tool call compartilham o mesmo
+ramo e nenhuma verificação específica de modelo é acrescentada.
 
-实时执行与冷恢复必须向模型投影同一份 error content：
+A execução ao vivo e a recuperação a frio precisam projetar o mesmo error content para o modelo:
 
 ```text
 live ToolExecutionResult.modelContent
                 │
-                ├──> 当前 turn 的 provider history
+                ├──> histórico do provider do turno atual
                 │
-                └──> error tool part metadata.modelContent
+                └──> metadata.modelContent do error tool part
                                       │
                                       ▼
-                         resume / hydration provider history
+                         histórico do provider em resume / hydration
 ```
 
-- `ToolStateError.error` 继续保存通用 UI / log 错误，不改成 provider wrapper。
-- error result 仅在 `modelContent` 本身为 string 时将其附加保存到
-  `ToolStateError.metadata.modelContent`；本次不扩展结构化内容的持久化协议。
-- hydration 优先使用 string 类型的 `metadata.modelContent`，旧数据、缺失值或非 string 值继续
-  fallback 到 `state.error`，无需迁移。
-- `metadata.modelContent` 仅供 Agent 冷恢复使用，映射 App / remote 消息时必须移除，不改变
-  ZCode protocol 或 UI 可见 tool metadata。
-- hydration 不根据当前工具 schema 重新格式化历史错误，避免 schema 或 formatter 版本变化改写
-  模型当时实际看到的内容。
+- `ToolStateError.error` continua guardando o erro genérico de UI/log e não é convertido em wrapper de provider.
+- O error result é anexado a `ToolStateError.metadata.modelContent` somente quando o próprio `modelContent` é
+  string; esta rodada não estende o protocolo de persistência de conteúdo estruturado.
+- A hydration prefere o `metadata.modelContent` do tipo string; dados antigos, valores ausentes ou valores não
+  string continuam recorrendo a `state.error`, sem necessidade de migração.
+- `metadata.modelContent` serve apenas à recuperação a frio do Agent e precisa ser removido ao mapear mensagens
+  do App/remote, sem alterar o protocolo ZCode nem o tool metadata visível na UI.
+- A hydration não reformata erros históricos conforme o schema de ferramenta atual, evitando que mudanças de
+  versão de schema ou de formatter reescrevam o que o modelo realmente viu na época.
 
-## 数据与诊断边界
+## Limites de dados e diagnóstico
 
-- 原始 malformed string/null 不得进入 provider-visible history、持久化 tool part 或结构化 warn。
-- string 只记录真实 `inputLength`；原生 null 记录 `inputType: "null"`，不伪造长度。
-- warn 记录 `toolName`、`source`、parse error 类型和恢复方式，每个 final malformed call
-  只记录一次。
-- streamText、generateText 与 model-io 复用同一归一化结果，避免二次解析、重复 warn，
-  或诊断内容与 runtime 实际输入不一致。
-- AI SDK 为 invalid call 生成的 `tool-error.input` 按 call id 复用 final call 的归一化 input；
-  不允许 raw malformed string/null 从 `toolResults` 进入 runtime 或 model-io。
-- model-io 的结构化 `response.toolCalls` 与 `response.toolResults` 记录归一化后的 `{}`，
-  不记录 raw malformed input。
-- 空字符串/纯空白工具名的 model-io、runtime history 与内部持久化 metadata 保留原始值；
-  由空名投影产生的 `empty_tool_name` 仅用于上述非空边界，不得回流 registry lookup。provider 原始
-  返回的同名非空字符串仍是普通工具身份，可以正常 registry lookup。
-- 更底层 provider raw 取证继续遵守既有采集与脱敏边界。
+- A string/null malformada original não pode entrar no histórico visível ao provider, em tool part persistido ou
+  em warn estruturado.
+- Para string registra-se apenas o `inputLength` real; para null nativo registra-se `inputType: "null"`, sem
+  fabricar comprimento.
+- O warn registra `toolName`, `source`, o tipo do erro de parse e o modo de recuperação, apenas uma vez por
+  chamada final malformada.
+- streamText, generateText e model-io reutilizam o mesmo resultado de normalização, evitando segunda
+  passagem de parse, warn duplicado ou conteúdo de diagnóstico inconsistente com a entrada real do runtime.
+- O `tool-error.input` gerado pelo AI SDK para uma chamada inválida reutiliza o input normalizado da chamada
+  final com o mesmo call id; não se permite que raw string/null malformada entre no runtime ou no model-io a
+  partir de `toolResults`.
+- O `response.toolCalls` e `response.toolResults` estruturados do model-io registram o `{}` normalizado e não o
+  input malformado bruto.
+- O model-io, o histórico do runtime e o metadata interno persistido preservam o valor original do nome vazio
+  ou de apenas espaços; o `empty_tool_name` produzido pela projeção de nome vazio serve apenas às fronteiras não
+  vazias acima e não pode voltar ao registry lookup. Uma string não vazia com o mesmo nome retornada
+  originalmente pelo provider continua sendo uma identidade de ferramenta comum e pode fazer registry lookup
+  normalmente.
+- A coleta de evidências brutas em nível mais baixo do provider continua obedecendo às fronteiras existentes de
+  coleta e anonimização.
 
-## 验收标准
+## Critérios de aceitação
 
-- client-executed 空字符串/纯空白工具名生成同 id `is_error=true` tool result，模型收到
-  `<tool_use_error>Error: No such tool available: ${rawToolName}</tool_use_error>`，同一 turn
-  继续请求。
-- 空名称强制 registry miss，handler、Hook、permission 与 `ToolCallStarted` 均不运行；普通
-  非空 unknown tool 文案不变。
-- Anthropic assistant history 保留原始名称；Chat Completions 与 Responses 的 assistant
-  tool call 仅在 wire 边界使用 `empty_tool_name`，三者 tool-result wire 均不携带 name。
-- 正常 streaming finish 进入 registry miss；final 后、finish 前断流仍返回既有
-  `stream_recovery_interrupted_tool`。
-- live/cold hydration 都恢复 `providerToolName` 和精确 `modelContent`；App message/snapshot
-  不物化原始空名称或带空 `providerToolName` metadata 的占位工具行，也不暴露 provider 原始空名称
-  metadata。裸 `empty_tool_name` 无该 metadata 时按普通工具展示；旧 session 无需迁移。
-- 注册名或 alias 恰为 `empty_tool_name` 的合法调用正常发布 streaming/scheduled/result 生命周期、
-  执行 handler 并在 live/cold/legacy 产品态展示，不得被空名恢复静默逻辑误伤。
-- missing/非字符串名称、provider-executed 空名称、既有 id normalization 和一般 ToolCall Hook
-  lifecycle 均不改变。
-- 884 字符 malformed AskUserQuestion fixture 输出 `input={}`，只 warn 一次，不抛
-  `invalid_model_response`。
-- string `"null"`、原生 null、BOM、undefined、空字符串和合法 object 均按上述矩阵处理。
-- partial JSON 不修复。
-- required-schema 工具收到 `{}` 后生成同 id `is_error=true` tool result，并在同一 run
-  发起下一次模型请求。
-- 接受 `{}` 的工具正常执行。
-- 未注册但非空的工具名生成同 id `Tool not found` error result。
-- parallel batch 中 malformed、正常和未知调用都闭合后，再进入下一次模型请求。
-- provider-visible 下一轮消息使用 `tool_use.input={}` 和配对的
-  `tool_result.is_error=true`，不得出现 raw malformed string/null。
-- 首次 schema failure 的 `tool_result.content` 使用完整
-  `<tool_use_error>InputValidationError: ...</tool_use_error>`；不得退化为
-  `Tool input failed inputSchema validation`。
-- session 恢复后仍使用持久化的同一份 string provider content；旧 session 缺少该 metadata 时
-  保持使用既有 `state.error`。
-- missing、unexpected、wrong type 与非参数 fallback 的顺序、换行、单复数、路径及
-  Zod 4.0 JSON message 均以源码 golden 做 byte-for-byte 验证。
-- 同一输入同时包含 runtime-only 与 JSON 可表达约束时，较早字段不得被 JSON-first 合并移到
-  较晚字段之后；至少覆盖 regex + sibling bound、field refine + sibling enum 两类生产 schema。
+- Nome de ferramenta vazio ou de apenas espaços em chamada client-executed gera um tool result `is_error=true`
+  com o mesmo id, o modelo recebe
+  `<tool_use_error>Error: No such tool available: ${rawToolName}</tool_use_error>` e o mesmo turno continua
+  requisitando.
+- Nome vazio força registry miss; handler, Hook, permission e `ToolCallStarted` não são executados; o texto de
+  ferramenta unknown comum não vazio permanece inalterado.
+- O histórico assistant do Anthropic preserva o nome original; o assistant tool call de Chat Completions e de
+  Responses só usa `empty_tool_name` na fronteira de wire, e o tool-result wire dos três não carrega name.
+- Um fim normal de streaming entra em registry miss; interrupção após o final e antes do fim continua retornando
+  o `stream_recovery_interrupted_tool` existente.
+- Tanto live/cold hydration restauram `providerToolName` e o `modelContent` exato; mensagens/snapshots do App
+  não materializam o nome original vazio nem uma linha de ferramenta placeholder com metadata de
+  `providerToolName` vazio, nem expõem o metadata do nome original vazio do provider. Um `empty_tool_name` puro
+  sem esse metadata é exibido como ferramenta comum; sessões antigas não precisam de migração.
+- Uma chamada legítima cujo nome registrado ou alias seja exatamente `empty_tool_name` publica normalmente o
+  ciclo de vida streaming/scheduled/result, executa o handler e é exibida nos estados de produto live/cold/legacy,
+  sem ser atingida indevidamente pela lógica de recuperação de nome vazio.
+- Nome ausente/não string, nome vazio provider-executed, a normalização de id existente e o ciclo de vida geral
+  do ToolCall Hook permanecem inalterados.
+- A fixture malformada de AskUserQuestion de 884 caracteres produz `input={}`, gera apenas um warn e não lança
+  `invalid_model_response`.
+- string `"null"`, null nativo, BOM, undefined, string vazia e object legítimo são tratados conforme a matriz
+  acima.
+- JSON parcial não é reparado.
+- Uma ferramenta com schema required que recebe `{}` gera um tool result `is_error=true` com o mesmo id e
+  inicia a próxima requisição do modelo no mesmo run.
+- Uma ferramenta que aceita `{}` é executada normalmente.
+- Um nome de ferramenta não registrado mas não vazio gera um error result `Tool not found` com o mesmo id.
+- Em batch paralelo, malformadas, normais e desconhecidas fecham antes de a próxima requisição do modelo.
+- A mensagem seguinte visível ao provider usa `tool_use.input={}` e o `tool_result.is_error=true` pareado, sem
+  raw string/null malformada.
+- O `tool_result.content` da primeira falha de schema usa o
+  `<tool_use_error>InputValidationError: ...</tool_use_error>` completo e não pode degradar para
+  `Tool input failed inputSchema validation`.
+- Após restaurar a sessão, continua sendo usada a mesma string de conteúdo do provider que foi persistida;
+  sessões antigas sem esse metadata continuam usando o `state.error` existente.
+- A ordem, as quebras de linha, o singular/plural, os paths e a JSON message do Zod 4.0 para missing,
+  unexpected, wrong type e fallback não-argumento são verificados byte por byte contra o golden do código-fonte.
+- Quando a mesma entrada contém simultaneamente restrições exclusivas do runtime e expressáveis em JSON, campos
+  mais antigos não podem ser movidos para depois de campos posteriores pela combinação JSON-first; cobre-se pelo
+  menos os dois tipos de schema de produção: regex + bound irmão e field refine + enum irmão.

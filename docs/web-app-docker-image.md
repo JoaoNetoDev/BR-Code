@@ -1,10 +1,10 @@
-# Web App Docker Image Spec
+# Spec da imagem Docker do Web App
 
-## 目标
+## Objetivo
 
-提供一个本地可运行的完整 Web App Docker 镜像，包含 Web 静态资源、`@zcode/server` HTTP/WS 服务和 ZCode agent app-server。镜像用于本地 Docker 验证，不替代桌面端远控 shared-host 架构。
+Fornecer uma imagem Docker do Web App completa e executável localmente, contendo os assets estáticos do Web, o serviço HTTP/WS `@zcode/server` e o app-server do agente ZCode. A imagem é usada para validação local com Docker e não substitui a arquitetura de shared-host do controle remoto do desktop.
 
-## 运行结构
+## Estrutura de execução
 
 ```text
 browser
@@ -30,38 +30,38 @@ zcode.cjs app-server
   `-- cli       agent session DB, logs, rollout
 ```
 
-## 镜像内容
+## Conteúdo da imagem
 
-- 基础镜像通过 `NODE_BASE_IMAGE` build arg 指定，默认 `node:24-bookworm-slim`。
-- builder 阶段执行：
+- A imagem base é especificada pelo build arg `NODE_BASE_IMAGE`, com padrão `node:24-bookworm-slim`.
+- O estágio builder executa:
   - `pnpm install --frozen-lockfile`
   - `packages/desktop/scripts/prepare-agent-node-bundle.mjs`
   - `pnpm --filter @zcode/server build`
   - `pnpm --filter @zcode/web build`
-- runtime 阶段只暴露一个端口，默认 `3030`。
-- runtime 阶段保留 server 的 pnpm runtime 依赖，因为 `entry-http.js` 会外置 `ssh2`、`node-pty`、`undici` 等包。
+- O estágio de runtime expõe apenas uma porta, por padrão `3030`.
+- O estágio de runtime mantém as dependências de runtime do server via pnpm, porque `entry-http.js` externaliza pacotes como `ssh2`, `node-pty` e `undici`.
 
-## 数据与工作区
+## Dados e workspace
 
 - `HOME=/data`
 - `ZCODE_DATA_BASE_DIR=/data`
 - `ZCODE_STORAGE_DIR=/data/.zcode`
-- 默认工作区为 `/workspace`
+- O workspace padrão é `/workspace`
 
-启动脚本只在 `setting.json` 缺失或 workspace 列表为空时 seed `/workspace`，不会覆盖已有 volume 中的模型、账号或任务数据。
+O script de inicialização faz seed de `/workspace` somente quando `setting.json` está ausente ou a lista de workspaces está vazia; ele não sobrescreve dados de modelos, contas ou tarefas já existentes no volume.
 
-## 本地使用
+## Uso local
 
 ```bash
 pnpm docker:build:web-app
 pnpm docker:run:web-app
 ```
 
-可覆盖变量：
+Variáveis que podem ser sobrescritas:
 
 ```bash
 IMAGE=zcode-web-app:dev NODE_BASE_IMAGE=node:24-bookworm-slim pnpm docker:build:web-app
 PORT=3030 DATA_VOLUME=zcode-web-data WORKSPACE_DIR="$PWD" pnpm docker:run:web-app
 ```
 
-访问 `http://localhost:3030/`。
+Acesse `http://localhost:3030/`.

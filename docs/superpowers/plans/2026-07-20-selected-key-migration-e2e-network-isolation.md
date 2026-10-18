@@ -1,23 +1,23 @@
 # SelectedKey Migration E2E Network Isolation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIO: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 I32～I34 使用无 active OAuth 的本地 fake credentials fixture，避免 App reload 请求真实 Z.AI 网络。
+**Goal:** fazer com que I32～I34 usem um fixture local de fake credentials sem OAuth active, evitando que o reload do App faça requisição à rede real do Z.AI.
 
-**Architecture:** 用纯函数根据当前 worker spec 选择凭据：selectedKey migration 只保留 legacy fake `auth_token`，其他 spec 继续合并默认 restored OAuth 凭据。WDIO 保持 readiness/recovery 特殊 fixture 的既有优先级。
+**Architecture:** usar funções puras para escolher as credenciais conforme o spec do worker atual: a migração de selectedKey mantém apenas o fake `auth_token` legado, enquanto os demais specs continuam mesclando as credenciais OAuth restored padrão. O WDIO preserva a prioridade existente dos fixtures especiais de readiness/recovery.
 
-**Tech Stack:** TypeScript、Vitest、WebdriverIO、Electron E2E。
+**Tech Stack:** TypeScript, Vitest, WebdriverIO, E2E com Electron.
 
-## Global Constraints
+## Restrições Globais
 
-- 保留 I32～I34 的真实 App reload 和本地 `setting.json` 迁移。
-- 不修改产品 OAuth/provider 网络逻辑。
-- 不改变其他 E2E worker 的默认 OAuth fixture。
-- Shell 命令使用 `rtk`，编辑使用 `apply_patch`。
+- Preservar o reload real do App em I32～I34 e a migração do `setting.json` local.
+- Não modificar a lógica de rede de OAuth/provider do produto.
+- Não alterar o fixture OAuth padrão dos demais workers de E2E.
+- Usar `rtk` nos comandos de shell e `apply_patch` nas edições.
 
 ---
 
-### Task 1: 用 TDD 定义 credentials fixture 选择
+### Task 1: Definir a seleção do credentials fixture com TDD
 
 **Files:**
 
@@ -29,12 +29,12 @@
 - Consumes: `workerSpecsContain(specs: string[], marker: string): boolean`
 - Produces: `createE2EStartupCredentialSeed(params): Record<string, string>`
 
-- [ ] 新增单测：目标 spec 必须得到 `{ auth_token: "fake-auth-token" }`，普通 spec 必须保留 restored OAuth 字段。
-- [ ] 运行 `rtk pnpm exec vitest run packages/desktop/test/e2eStartupCredentials.test.ts`，确认 helper 不存在导致 RED。
-- [ ] 实现：命中 `conversation-session-model-provider-selected-key-migration.test.ts` 时只返回 legacy seed，否则返回 legacy seed 与 restored OAuth seed 的合并结果。
-- [ ] 重跑 focused test，确认 2 个测试通过。
+- [ ] Adicionar teste unitário: o spec alvo precisa receber `{ auth_token: "fake-auth-token" }`, e o spec comum precisa manter os campos OAuth restored.
+- [ ] Executar `rtk pnpm exec vitest run packages/desktop/test/e2eStartupCredentials.test.ts` e confirmar RED porque o helper ainda não existe.
+- [ ] Implementar: ao casar com `conversation-session-model-provider-selected-key-migration.test.ts`, retornar apenas o legacy seed; caso contrário, retornar a mesclagem do legacy seed com o restored OAuth seed.
+- [ ] Rodar novamente o focused test e confirmar que os 2 testes passam.
 
-实现签名：
+Assinatura da implementação:
 
 ```ts
 export function createE2EStartupCredentialSeed(params: {
@@ -44,7 +44,7 @@ export function createE2EStartupCredentialSeed(params: {
 }): Record<string, string>;
 ```
 
-### Task 2: WDIO 接入并验证真实 E2E
+### Task 2: Integrar no WDIO e validar o E2E real
 
 **Files:**
 
@@ -54,11 +54,11 @@ export function createE2EStartupCredentialSeed(params: {
 **Interfaces:**
 
 - Consumes: `createE2EStartupCredentialSeed`
-- Produces: I32～I34 worker 的 `credentials.json` 不含 OAuth active provider/access token/user info/JWT
+- Produces: o `credentials.json` dos workers I32～I34 sem provider/access token/user info/JWT OAuth active
 
-- [ ] 在 WDIO 默认 credential 分支调用纯函数；readiness `{}` 与 corrupt recovery fixture 的优先级不变。
-- [ ] 运行 focused Vitest 与 `@zcode/desktop typecheck:e2e`。
-- [ ] 运行 I32～I34 整个 spec，要求 3/3 通过。
-- [ ] 在该 run 日志中搜索 `model-provider.refreshCodingPlanApiKey`、`billing/balance`、`api/biz/customer/getCustomerInfo`，要求无匹配。
-- [ ] 运行 `rtk pnpm typecheck`、`rtk pnpm lint`、`rtk git diff --check`。
-- [ ] 提交 `fix(desktop-e2e): isolate selected-key migration from network`。
+- [ ] Chamar a função pura no branch padrão de credenciais do WDIO; a prioridade do fixture `{}` de readiness e do fixture de corrupt recovery permanece inalterada.
+- [ ] Executar o Vitest focado e `@zcode/desktop typecheck:e2e`.
+- [ ] Executar o spec completo I32～I34, exigindo 3/3 aprovados.
+- [ ] Procurar nos logs desse run por `model-provider.refreshCodingPlanApiKey`, `billing/balance` e `api/biz/customer/getCustomerInfo`, exigindo nenhuma ocorrência.
+- [ ] Executar `rtk pnpm typecheck`, `rtk pnpm lint` e `rtk git diff --check`.
+- [ ] Fazer commit de `fix(desktop-e2e): isolate selected-key migration from network`.

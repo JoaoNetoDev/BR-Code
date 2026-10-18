@@ -1,77 +1,90 @@
-# Conversation Session Case Coverage Audit
+# Auditoria de Cobertura de Cases de Sessão de Conversa
 
-目标：把会话区 case 数量和覆盖状态从“人工口头统计”变成可重复的机械检查，避免出现“WDIO 跑绿了，但形式化 catalog 里还有未覆盖 case”的错账。
+Objetivo: transformar a contagem de cases e o status de cobertura da área de sessão de "contagem
+manual e verbal" em uma verificação mecânica repetível, evitando o erro de contagem "o WDIO passou
+verde, mas ainda há cases não cobertos no catalog formalizado".
 
-关联文档：
+Documentos relacionados:
 
-- 主路径 catalog：[conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
-- 主路径覆盖矩阵：[conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
-- 外部环境故障 catalog：[conversation-session-environment-fault-catalog.md](./conversation-session-environment-fault-catalog.md)
-- 外部环境故障覆盖矩阵：[conversation-session-fault-e2e-coverage-matrix.md](./conversation-session-fault-e2e-coverage-matrix.md)
-- 待决策 backlog：[conversation-session-decision-backlog.md](./conversation-session-decision-backlog.md)
-- 待决策 E2E 路线图：[conversation-session-decision-e2e-roadmap.md](./conversation-session-decision-e2e-roadmap.md)
-- 待决策 review 队列：[conversation-session-decision-review-queue.md](./conversation-session-decision-review-queue.md)
-- 下一批待决策 review：[conversation-session-next-decision-review.md](./conversation-session-next-decision-review.md)
-- 下一批产品决策回答模板：[conversation-session-next-decision-answer-template.md](./conversation-session-next-decision-answer-template.md)
-- 产品决策回答草稿：[conversation-session-decision-answers.md](./conversation-session-decision-answers.md)
-- 产品决策回答状态：[conversation-session-decision-answers-status.md](./conversation-session-decision-answers-status.md)
-- 产品决策回写计划：[conversation-session-decision-backfill-plan.md](./conversation-session-decision-backfill-plan.md)
-- 产品决策工作流状态板：[conversation-session-decision-workflow-board.md](./conversation-session-decision-workflow-board.md)
+- Catalog do caminho principal: [conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
+- Matriz de cobertura do caminho principal: [conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
+- Catalog de falhas de ambiente externo: [conversation-session-environment-fault-catalog.md](./conversation-session-environment-fault-catalog.md)
+- Matriz de cobertura de falhas de ambiente externo: [conversation-session-fault-e2e-coverage-matrix.md](./conversation-session-fault-e2e-coverage-matrix.md)
+- Backlog de decisões pendentes: [conversation-session-decision-backlog.md](./conversation-session-decision-backlog.md)
+- Roadmap E2E de decisões pendentes: [conversation-session-decision-e2e-roadmap.md](./conversation-session-decision-e2e-roadmap.md)
+- Fila de review de decisões pendentes: [conversation-session-decision-review-queue.md](./conversation-session-decision-review-queue.md)
+- Próximo lote de review de decisões pendentes: [conversation-session-next-decision-review.md](./conversation-session-next-decision-review.md)
+- Template de resposta do próximo lote de decisões de produto: [conversation-session-next-decision-answer-template.md](./conversation-session-next-decision-answer-template.md)
+- Rascunho de respostas de decisões de produto: [conversation-session-decision-answers.md](./conversation-session-decision-answers.md)
+- Status das respostas de decisões de produto: [conversation-session-decision-answers-status.md](./conversation-session-decision-answers-status.md)
+- Plano de backfill das decisões de produto: [conversation-session-decision-backfill-plan.md](./conversation-session-decision-backfill-plan.md)
+- Quadro de status do workflow de decisões de produto: [conversation-session-decision-workflow-board.md](./conversation-session-decision-workflow-board.md)
 
-## 机械口径
+## Definição mecânica
 
-脚本：`scripts/audit-conversation-session-case-coverage.mjs`
+Script: `scripts/audit-conversation-session-case-coverage.mjs`
 
-运行边界：该审计用于 E2E case 规划、转正和覆盖盘点时显式执行，不挂入默认 `pnpm test` / `verify:pre-push`。原因是它会校验 catalog、coverage matrix、roadmap 与生成 Markdown 的即时统计；这些文件在一次 E2E 变更过程中常常分阶段更新，放进普通单测会让每次提交都承受过严的过程态门禁。
+Limite de execução: esta auditoria é executada explicitamente ao planejar, promover e inventariar
+cobertura de cases E2E; não é ligada ao `pnpm test` / `verify:pre-push` padrão. O motivo é que ela
+valida o catalog, a matriz de cobertura, o roadmap e as estatísticas instantâneas do Markdown
+gerado; esses arquivos são frequentemente atualizados em fases ao longo de uma mudança E2E, e
+colocá-los em um teste unitário comum faria cada commit passar por um gate de estado intermediário
+exigente demais.
 
-命令：
+Comandos:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check
 ```
 
-完成门禁：
+Gate de conclusão:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --require-complete
 pnpm audit:conversation-session-complete
 ```
 
-普通 `--check` 只证明 catalog、覆盖矩阵、待决策 backlog、worksheet、回答草稿和生成文档之间的统计口径一致；它可以在“还差产品决策”的阶段保持通过。`--require-complete` 才是最终覆盖门禁：只要还有 `undefined` / `decision-needed` 产品 case、missing accepted case，或 decision roadmap 仍停在 `blocked-by-product-decision`，该命令必须失败。
+Um `--check` comum apenas prova que as estatísticas entre o catalog, a matriz de cobertura, o
+backlog de decisões pendentes, a worksheet, o rascunho de respostas e o documento gerado são
+consistentes; ele pode continuar passando na fase "ainda faltam decisões de produto". É
+`--require-complete` que é o gate final de cobertura: enquanto houver product case
+`undefined` / `decision-needed`, accepted case ausente, ou o decision roadmap ainda parado em
+`blocked-by-product-decision`, o comando precisa falhar.
 
-生成给产品逐条 review 的 Markdown 队列：
+Markdown de fila gerado para review caso a caso pelo produto:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --review-queue-md
 ```
 
-只生成下一批 review：
+Gerar apenas o próximo lote de review:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --review-next-md
 ```
 
-只生成指定 case 或队列前 N 个：
+Gerar apenas um case específico ou os N primeiros da fila:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --review-queue-md --review-case F09
 node scripts/audit-conversation-session-case-coverage.mjs --check --review-queue-md --review-limit 3
 ```
 
-生成给产品直接填写的回答模板，默认使用下一批 review：
+Template de resposta para o produto preencher diretamente, usando por padrão o próximo lote de
+review:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --answer-template-md
 node scripts/audit-conversation-session-case-coverage.mjs --check --answer-template-md --review-case F09
 ```
 
-检查 answers 草稿哪些 case 已经填齐、哪些还缺答案：
+Verificar no rascunho de answers quais cases já estão preenchidos e quais ainda não têm resposta:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --answers-status-md
 ```
 
-生成已经填齐 case 的回写计划：
+Gerar o plano de backfill dos cases já preenchidos:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --backfill-plan-md
@@ -79,7 +92,7 @@ node scripts/audit-conversation-session-case-coverage.mjs --check --backfill-pat
 node scripts/audit-conversation-session-case-coverage.mjs --check --backfill-json
 ```
 
-使用临时 answers 草稿预览回写计划：
+Pré-visualizar o plano de backfill com um rascunho temporário de answers:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --answers-path /tmp/conversation-session-decision-answers.md --backfill-plan-md
@@ -88,26 +101,49 @@ node scripts/audit-conversation-session-case-coverage.mjs --check --answers-path
 node scripts/audit-conversation-session-case-coverage.mjs --check --answers-path /tmp/conversation-session-decision-answers.md --require-backfill-clean
 ```
 
-`--answers-path` 只替换本次审计读取的产品答案来源，适合在不污染真实 [conversation-session-decision-answers.md](./conversation-session-decision-answers.md) 的情况下预演某个 case 填完后的回写动作。`--backfill-plan-md`、`--backfill-patch-md` 和 `--backfill-json` 输出同一份回写计划的不同视角：`--backfill-plan-md` 按 case 展开，`--backfill-patch-md` 按文件展开，`--backfill-json` 给后续自动化消费。回写计划包含 ready case、产品结论、source status、roadmap status、建议 E2E spec 和四步回写动作。每个 ready case 还会带精确 target：`worksheetTargets` 指向协议题行，`sourceTargets` 指向 catalog / coverage matrix 的 case 行，`roadmapTarget` 指向 decision E2E roadmap 行，`e2eTarget` 指向建议 spec；target 会携带当前 `line` 和 `current` 值，作为后续自动 patch 前的防误改锚点。可替换的 Markdown 表格 target 还会在 JSON 中携带 `expectedLine` 与 `replacementLine`：前者是当前文件中的整行内容，后者是填入产品结论后的整行预览，后续自动回填必须先比对 `expectedLine` 再替换，避免把并发修改覆盖掉。`--backfill-json` 还会额外输出按文件聚合的 `patchPlan`，把所有可替换行集中到 `files[].replacements`，把待创建或更新的 E2E spec 集中到 `files[].createOrUpdate`，方便后续做自动回填或生成 diff；`--backfill-patch-md` 则把同一份 `patchPlan` 渲染成可人工 review 的表格。真实 answers 文件默认要求 backfill clean：只要某个 case 已经填齐答案但 worksheet / source coverage 还没回写，`--check` 就会失败；自定义 `--answers-path` 默认只预演，不触发该失败，除非显式加 `--require-backfill-clean`。使用自定义 answers path 时，脚本不会检查仓库里的生成 Markdown 是否 stale，因为生成文档只以 canonical answers 文件为准。
+`--answers-path` substitui apenas a origem das respostas de produto lida nesta auditoria, sendo
+adequado para simular a ação de backfill depois que um case é preenchido sem poluir o arquivo real
+[conversation-session-decision-answers.md](./conversation-session-decision-answers.md).
+`--backfill-plan-md`, `--backfill-patch-md` e `--backfill-json` exibem o mesmo plano de backfill sob
+diferentes perspectivas: `--backfill-plan-md` expande por case, `--backfill-patch-md` expande por
+arquivo e `--backfill-json` é consumido por automação posterior. O plano de backfill contém os cases
+ready, a conclusão do produto, o source status, o roadmap status, o spec E2E sugerido e as quatro
+ações de backfill. Cada case ready também traz um target preciso: `worksheetTargets` aponta para a
+linha da pergunta de protocolo, `sourceTargets` aponta para as linhas de case do catalog / matriz de
+cobertura, `roadmapTarget` aponta para a linha do decision E2E roadmap e `e2eTarget` aponta para o
+spec sugerido; os targets carregam o `line` e o valor `current` atuais, funcionando como âncoras
+antipASS para o patch automático posterior. Targets de tabela Markdown substituíveis também carregam
+no JSON `expectedLine` e `replacementLine`: o primeiro é o conteúdo da linha inteira no arquivo
+atual e o segundo é a prévia da linha inteira após inserir a conclusão do produto; o backfill
+automático posterior deve comparar `expectedLine` antes de substituir, evitando sobrescrever
+modificações concorrentes. `--backfill-json` também emite um `patchPlan` agregado por arquivo, que
+concentra todas as linhas substituíveis em `files[].replacements` e os specs E2E a criar ou atualizar
+em `files[].createOrUpdate`, facilitando backfill automático ou geração de diff; `--backfill-patch-md`
+renderiza o mesmo `patchPlan` em uma tabela revisável manualmente. O arquivo answers real exige por
+padrão backfill clean: assim que um case já tiver respostas preenchidas mas a worksheet / source
+coverage ainda não tiver sido revertida, o `--check` falha; um `--answers-path` customizado apenas
+simula por padrão e não dispara essa falha, a menos que `--require-backfill-clean` seja adicionado
+explicitamente. Quando se usa um answers path customizado, o script não verifica se o Markdown
+gerado no repositório está stale, pois os documentos gerados só seguem o arquivo answers canônico.
 
-生成把 answer draft / worksheet / source coverage / roadmap 串在一起的工作流状态板：
+Gera o quadro de status do workflow que liga answer draft / worksheet / source coverage / roadmap:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --workflow-board-md
 ```
 
-## V4 formal admission 机械边界
+## Limite mecânico da admissão formal V4
 
-历史 `A-J` coverage 统计回答“产品 case 曾有哪些自动化证据”；V4 formal admission
-回答“当前默认 formal 目录中的 spec 是否具备完整、可独立回放的合同”。两组统计彼此独立：
-spec 通过 admission 不会自动把 coverage 状态提升为 `covered`，pending legacy 证据也不会进入
-当前 formal admission 数量。
+As estatísticas históricas de cobertura `A-J` respondem "quais evidências de automação os product
+cases já tiveram"; a admissão formal V4 responde "se os specs do diretório formal padrão atual
+possuem contratos completos e reproduzíveis de forma independente". As duas estatísticas são
+independentes: um spec aprovado na admission não promove automaticamente o status de cobertura para
+`covered`, e evidências legacy pending também não entram na contagem de admissão formal atual.
 
-可复用 inspector 位于
-`scripts/lib/conversation-session-formal-admission.mjs`。它只把
-`packages/desktop/test/e2e/conversation-session/*.test.ts` 的 direct-root spec 送入
-formal 门禁；`manual-review/**` 递归统计为 pending，但其中的 legacy helper 不会让
-formal 门禁失败：
+O inspector reutilizável está em
+`scripts/lib/conversation-session-formal-admission.mjs`. Ele envia ao gate formal apenas os specs
+direct-root de `packages/desktop/test/e2e/conversation-session/*.test.ts`; `manual-review/**` é
+contado recursivamente como pending, mas seus legacy helpers não fazem o gate formal falhar:
 
 ```text
 conversation-session/*.test.ts
@@ -121,51 +157,59 @@ legacy + manifest + provider/file path + request ledger audit
 
 conversation-session/manual-review/**/*.test.ts
         |
-        +--> pending inventory --> 不进入 admitted/rejected
+        +--> pending inventory --> nao entra em admitted/rejected
 ```
 
-每个 direct-root formal spec 必须满足：
+Cada spec formal direct-root deve atender a:
 
-1. TypeScript AST 中不能出现精确指向 `helpers/conversation-session.js` 的
-   `ImportDeclaration`，也不能出现 callee 为 identifier `prepareConversationE2E` 的
-   `CallExpression`。文档字符串里的旧 import 不会误报，template expression 内的真实 call
-   仍会被发现；parenthesized、non-null、`as`、type assertion、`satisfies` 等透明 wrapper
-   会先递归 unwrap。审计不会粗略禁止所有 `TID_CHAT_*`；V4 仍可复用有效的
-   tool/history/toolbar/summary test id。
-2. case manifest 与 case-local provider fixture 都存在；manifest 是 version 1，且
-   `caseName`、`spec` 必须精确指回当前 formal spec。
-3. manifest 必须声明 case-local provider fixture。provider path 必须是无 traversal 的相对
-   路径且 containment 在 desktop DeepSeek fixture root；静态 file fixture 同样必须 containment
-   在 desktop fixture root，absolute 或 `..` 路径直接拒绝。对已存在路径还会比较 root 与
-   candidate 的 `realpath`，因此 root 内 symlink 不能逃逸到外部；不存在的路径继续报告
-   missing。运行时 file descriptor 只有同时
-   提供非空 `path`、`description`，且 `source` 属于
-   `created-by-spec` / `created-by-helper` / `created-by-provider-tool` 时才豁免存在检查。
-4. `providerRequestPolicy: "none"` 只能搭配空 `requests`；manifest 或 provider fixture
-   中 source/kind 为 `synthetic` 的请求必须有非空 `syntheticReason`。反向也成立：
-   case-local fixture 与 requests 同时为空时必须显式声明 policy `none`，不能把漏合同当纯 UI。
-5. provider fixture 必须是 version 1 + fixtures array；每项必须有非空 `id` 和 object
-   `match` / `response` / `metadata`，metadata 必须完整声明 kind/source/timing policy。
-6. manifest ledger 必须完整覆盖 case-local fixture 的 request id，保持相同数组顺序，
-   并逐项精确匹配 `kind`、`source`、`timingPolicy`、`syntheticReason`。额外 common request
-   只允许来自 canonical `upstream/common.json` 且 fixture `metadata.kind=common`；其它
-   provider/other-case fixture 不能冒充 common，manifest duplicate request id 也会拒绝。
+1. Na AST do TypeScript não pode aparecer um `ImportDeclaration` apontando exatamente para
+   `helpers/conversation-session.js`, nem uma `CallExpression` cujo callee seja o identifier
+   `prepareConversationE2E`. Imports antigos em strings de documentação não geram falso positivo,
+   mas calls reais dentro de template expression ainda são encontrados; wrappers transparentes como
+   parenthesized, non-null, `as`, type assertion e `satisfies` são desembrulhados recursivamente
+   antes. A auditoria não proíbe genericamente todos os `TID_CHAT_*`; o V4 ainda pode reutilizar test
+   ids válidos de tool/history/toolbar/summary.
+2. O case manifest e a provider fixture local do case existem; o manifest é versão 1, e `caseName`
+   e `spec` devem apontar exatamente de volta para o spec formal atual.
+3. O manifest precisa declarar a provider fixture local do case. O path do provider precisa ser um
+   caminho relativo sem traversal, com contenção na fixture root do desktop DeepSeek; fixtures de
+   arquivo estáticos também precisam estar contidos na fixture root do desktop, e caminhos absolutos
+   ou com `..` são recusados diretamente. Para caminhos já existentes também é comparada a
+   `realpath` de root e candidate, portanto um symlink dentro da root não pode escapar para fora;
+   caminhos inexistentes continuam sendo reportados como missing. O file descriptor em tempo de
+   execução só é isento da verificação de existência quando fornece simultaneamente `path` não vazio,
+   `description`, e `source` pertencente a `created-by-spec` / `created-by-helper` /
+   `created-by-provider-tool`.
+4. `providerRequestPolicy: "none"` só pode vir acompanhado de `requests` vazio; requisições com
+   source/kind `synthetic` no manifest ou na provider fixture precisam ter `syntheticReason` não
+   vazio. O inverso também vale: quando a fixture local do case e as requests estão ambas vazias,
+   a policy `none` precisa ser declarada explicitamente — não é permitido tratar uma lacuna de
+   contrato como UI pura.
+5. A provider fixture precisa ser versão 1 + array `fixtures`; cada item precisa ter `id` não vazio e
+   `match` / `response` / `metadata` como object, e metadata precisa declarar completamente a
+   kind/source/timing policy.
+6. O ledger do manifest precisa cobrir completamente os request ids da fixture local do case, manter
+   a mesma ordem de array e casar exatamente, item a item, `kind`, `source`, `timingPolicy` e
+   `syntheticReason`. Requests comuns extras só são permitidos a partir do canônico
+   `upstream/common.json` e com `metadata.kind=common` na fixture; outras fixtures de provider/other-case
+   não podem se passar por common, e request ids duplicados no manifest também são recusados.
 
-focused inspector 测试使用真实临时目录和真实 JSON/文件解析：
+Os testes focados do inspector usam diretórios temporários reais e parsing real de JSON/arquivos:
 
 ```bash
 node --test scripts/test/conversation-session-formal-admission*.test.mjs
 ```
 
-`conversation-session-formal-admission-audit.test.mjs` 会 spawn 实际 audit CLI，验证 JSON/text
-输出、精确 error 与 nonzero exit。它通过受控环境变量
-`ZCODE_CONVERSATION_SESSION_FORMAL_ADMISSION_ROOT` 只替换 inspector 的 synthetic root；该变量
-仅在子进程继承 Node test runner 的 `NODE_TEST_CONTEXT` 时可用，单独设置 `NODE_ENV=test` 会
-以 test-only 错误退出。catalog、coverage matrix 与所有其它 docs root 仍固定读取真实仓库，
-不会修改真实 formal 目录。
+`conversation-session-formal-admission-audit.test.mjs` faz spawn da CLI de audit real, validando a
+saída em JSON/texto, o error exato e o exit nonzero. Ele substitui apenas a synthetic root do
+inspector por meio da variável de ambiente controlada `ZCODE_CONVERSATION_SESSION_FORMAL_ADMISSION_ROOT`;
+essa variável só está disponível quando o subprocesso herda o `NODE_TEST_CONTEXT` do Node test runner,
+e definir apenas `NODE_ENV=test` faz o script sair com um erro test-only. O catalog, a matriz de
+cobertura e todas as outras roots de docs continuam lendo o repositório real, e o diretório formal
+real não é modificado.
 
-`--json` 在 `formalAdmission` 下输出完整 inventory。稳定的统计字段位于
-`formalAdmission.counts`：
+`--json` emite o inventory completo sob `formalAdmission`. Os campos de estatística estáveis ficam
+em `formalAdmission.counts`:
 
 ```json
 {
@@ -180,110 +224,157 @@ node --test scripts/test/conversation-session-formal-admission*.test.mjs
 }
 ```
 
-被拒绝项位于 `formalAdmission.formal.rejected[]`。每项包含 repo-relative `specPath`、
-`caseName` 与 `reasons[]`；每个 reason 的 schema 为
-`{ code, message, specPath, subjectPath }`。因此 `--check` 会用稳定 reason code 和精确
-spec/manifest/fixture 路径失败，而不是只给汇总数字。
+Os itens recusados ficam em `formalAdmission.formal.rejected[]`. Cada item contém o `specPath`
+relativo ao repo, o `caseName` e `reasons[]`; o schema de cada reason é
+`{ code, message, specPath, subjectPath }`. Portanto o `--check` falha com um reason code estável e o
+caminho exato de spec/manifest/fixture, em vez de apenas entregar números agregados.
 
-`--check` 会在这些情况失败：
+O `--check` falha nestas situações:
 
-- direct-root formal spec 被 admission inspector 拒绝，包括 legacy helper、manifest /
-  case-local fixture 缺失或身份错误、声明路径缺失、provider policy / synthetic reason
-  违规，或 manifest 与 case-local fixture 的 request id / 顺序 / metadata 不完全一致。
+- Um spec formal direct-root é recusado pelo admission inspector, incluindo legacy helper, manifest /
+  fixture local do case ausentes ou com identidade errada, path declarado inexistente, violação de
+  provider policy / synthetic reason, ou request id / ordem / metadata do manifest não totalmente
+  iguais aos da fixture local do case.
 
-- `A-J` 主路径 case 在 catalog 和 coverage matrix 之间缺失或多出。
-- catalog 中 `accepted` case 在 coverage matrix 中没有覆盖状态。
-- catalog 中 `undefined` case 在 coverage matrix 中被错误写成非 `undefined`。
-- coverage matrix 中 `covered` / `failing` / `partial` case 没有自动化缩写，或缩写没有在“测试缩写”表中定义。
-- “测试缩写”表里的 spec 文件不存在，或没有声明任何 `it(...)` / `test(...)`。
-- 被引用的 spec 文件包含 `describe.skip`、`it.skip`、`test.skip`、`describe.only`、`it.only`、`test.only`。
-- `undefined` case 填了自动化缩写，导致看起来像已有稳定断言。
-- coverage matrix 的“当前统计”表与实际 case 表格不一致。
-- environment fault catalog 的“当前统计”表与实际 fault 表格不一致。
-- fault coverage matrix 缺少或多出 environment fault catalog 中的产品 fault row。
-- fault coverage matrix 中 `covered` / `failing` / `partial` fault case 没有自动化缩写，或缩写没有在 fault “测试缩写”表中定义。
-- fault coverage matrix 中 `decision-needed` fault case 填了自动化缩写，导致看起来像已有稳定断言。
-- fault coverage matrix 里的 spec 文件不存在、没有声明任何 `it(...)` / `test(...)`，或包含 skip/only。
-- fault coverage matrix 的“当前统计”表与实际 fault 覆盖表格不一致。
-- `C01-C03` alias 没有对应到主路径 `F09/G11/G12` 这些 undefined case。
-- decision backlog 没有完整列出当前所有 `undefined` / `decision-needed` 产品 case，或仍保留了已经不再待决策的 case。
-- decision backlog 的“当前统计”表与实际待决策 case 分组不一致。
-- decision E2E roadmap 没有完整列出当前所有尚未 `covered` 的 case，仍保留了已经 `covered` 或未知的 case，状态不在允许集合内，或缺少建议 spec / fixture / 观察面。
-- decision E2E roadmap 状态和主路径 / fault coverage matrix 状态不一致，例如 coverage 仍是 `decision-needed` 但 roadmap 写成 `ready-to-write`，或 coverage 已是 `missing` 但 roadmap 仍写 `blocked-by-product-decision`。
-- decision E2E roadmap 的“当前统计”表与实际 roadmap case 表格不一致。
-- 三份 decision worksheet 没有完整覆盖当前全部待决策 case，或 worksheet 中仍保留了已经不再待决策的 case。
-- 三份 decision worksheet 没有完整列出当前 40 个待决策 case 的 49 个协议题、协议题状态不是 `answered` / `unanswered`，或“当前统计”表与实际协议题不一致。
-- 协议题缺少 `需要确认`、`候选答案摘要/验证关键词` 或 `回写目标`，导致 review queue 只能给出编号，不能直接进入产品确认。
-- 协议题 `Status=answered` 但 `产品结论` 仍是空 / `TBD` / `待确认` / `待产品确认`。
-- 协议题 `Status=unanswered` 但已经填了非占位 `产品结论`，导致产品结论和状态不一致。
-- decision answer draft 中的 question 编号不存在，或同一个 question 出现多次。
-- decision answer draft 必须至少为当前 49 个协议题保留可填写占位行；有占位但还没结论会被统计为 `placeholder-only`，真正缺少占位行才会进入 `missing`。
-- canonical decision answer draft 中某个 case 已经全部填齐，但 decision worksheet / source coverage 仍未回写；这会阻止“产品已经回答，但覆盖状态仍停留在 blocked”的漏账。自定义 `--answers-path` 只有显式 `--require-backfill-clean` 时才启用同一门禁。
-- decision worksheet 中某个 case 已经全部 `answered`，但源 catalog / coverage matrix 仍然停在 `undefined` / `decision-needed`。这表示产品结论已经进入 worksheet，却没有完成源事实回写。
-- decision readiness 的 case 集合和 decision backlog 不一致。只有当某个 case 的全部协议题都 `answered` 且有明确 `产品结论` 时，它才会进入 ready；否则保持 blocked。
-- decision review queue 会按 backlog 批次排序当前 blocked case，并在 `--json` 输出里带上每个 unanswered question 的问题文本、候选答案/验证关键词和回写目标。它不是产品结论，只是让下一步问题顺序和 review 内容都可重复。
-- 由脚本生成的 review queue、next review、answer template、answers status、backfill plan、workflow board 与当前脚本输出不一致，或文件缺失。这样可以避免 case 口径更新后，给产品 review 的文档仍停在旧版本。
-- `--require-complete` 打开时，如果合并去重后的 product case 仍有待产品决策 / 自动化，或者 accepted case 没有稳定覆盖，该命令会失败。这个门禁用于最终验收，不能用普通 `--check` 的通过来替代。
+- Um case do caminho principal `A-J` está ausente ou sobrando entre o catalog e a matriz de cobertura.
+- Um case `accepted` no catalog não tem status de cobertura na matriz de cobertura.
+- Um case `undefined` no catalog foi escrito incorretamente como não-`undefined` na matriz de
+  cobertura.
+- Um case `covered` / `failing` / `partial` na matriz de cobertura não tem abreviatura de automação, ou
+  a abreviatura não está definida na tabela de abreviaturas de teste.
+- O arquivo de spec da tabela de abreviaturas de teste não existe, ou não declara nenhum `it(...)` / `test(...)`.
+- O arquivo de spec referenciado contém `describe.skip`, `it.skip`, `test.skip`, `describe.only`,
+  `it.only` ou `test.only`.
+- Um case `undefined` recebeu abreviatura de automação, fazendo parecer que já existem asserções
+  estáveis.
+- A tabela "estatísticas atuais" da matriz de cobertura está inconsistente com a tabela de
+  cases real.
+- A tabela "estatísticas atuais" do catalog de falhas de ambiente está inconsistente com a tabela de faults real.
+- A matriz de cobertura de faults está faltando ou sobrando em relação às linhas de product fault do
+  catalog de falhas de ambiente.
+- Um fault case `covered` / `failing` / `partial` na matriz de cobertura de faults não tem abreviatura
+  de automação, ou a abreviatura não está definida na tabela de abreviaturas de teste de faults.
+- Um fault case `decision-needed` na matriz de cobertura de faults recebeu abreviatura de automação,
+  fazendo parecer que já existem asserções estáveis.
+- O arquivo de spec da matriz de cobertura de faults não existe, não declara nenhum
+  `it(...)` / `test(...)`, ou contém skip/only.
+- A tabela "estatísticas atuais" da matriz de cobertura de faults está inconsistente com a tabela de cobertura de
+  faults real.
+- Os aliases `C01-C03` não correspondem aos undefined cases do caminho principal `F09/G11/G12`.
+- O decision backlog não lista por completo todos os product cases `undefined` / `decision-needed`
+  atuais, ou ainda mantém cases que não estão mais pendentes de decisão.
+- A tabela "estatísticas atuais" do decision backlog está inconsistente com o agrupamento real dos cases
+  pendentes de decisão.
+- O decision E2E roadmap não lista por completo todos os cases ainda não `covered`, mantém cases já
+  `covered` ou desconhecidos, tem status fora do conjunto permitido, ou falta spec / fixture / face
+  de observação sugerida.
+- O status do decision E2E roadmap é inconsistente com o status da matriz de cobertura do caminho
+  principal / de faults, por exemplo a cobertura ainda `decision-needed` mas o roadmap escrito como
+  `ready-to-write`, ou a cobertura já `missing` mas o roadmap ainda `blocked-by-product-decision`.
+- A tabela "estatísticas atuais" do decision E2E roadmap está inconsistente com a tabela de cases real do
+  roadmap.
+- As três decision worksheets não cobrem por completo todos os cases pendentes de decisão atuais, ou
+  ainda mantêm cases que não estão mais pendentes de decisão.
+- As três decision worksheets não listam por completo as 49 perguntas de protocolo dos 40 cases
+  pendentes de decisão atuais, o status das perguntas de protocolo não é `answered` / `unanswered`, ou
+  a tabela "estatísticas atuais" está inconsistente com as perguntas de protocolo reais.
+- As perguntas de protocolo não têm `需要确认`, `候选答案摘要/验证关键词` ou `回写目标`, fazendo com
+  que a review queue só possa entregar números, sem entrar direto na confirmação do produto.
+- Uma pergunta de protocolo tem `Status=answered`, mas `产品结论` ainda está vazio / `TBD` /
+  `待确认` / `待产品确认`.
+- Uma pergunta de protocolo tem `Status=unanswered`, mas já tem `产品结论` não-placeholder, deixando a
+  conclusão do produto inconsistente com o status.
+- O número de question do decision answer draft não existe, ou o mesmo question aparece várias vezes.
+- O decision answer draft precisa reservar linhas de preenchimento para pelo menos as 49 perguntas de
+  protocolo atuais; placeholder sem conclusão é contado como `placeholder-only`, e só a falta real de
+  placeholder entra em `missing`.
+- No decision answer draft canônico, um case já está completamente preenchido, mas a decision
+  worksheet / source coverage ainda não foi revertida; isso bloqueia o erro de contagem "o produto já
+  respondeu, mas o status de cobertura continua parado em blocked". Um `--answers-path` customizado só
+  ativa o mesmo gate com `--require-backfill-clean` explícito.
+- Na decision worksheet, um case já está todo `answered`, mas o catalog / matriz de cobertura de
+  origem ainda está em `undefined` / `decision-needed`. Isso indica que a conclusão do produto já
+  entrou na worksheet, mas o backfill dos fatos de origem não foi concluído.
+- O conjunto de cases do decision readiness é inconsistente com o decision backlog. Um case só entra
+  como ready quando todas as suas perguntas de protocolo estão `answered` e há uma `产品结论`
+  explícita; caso contrário permanece blocked.
+- A decision review queue ordena os cases blocked atuais por lote de backlog e, na saída `--json`,
+  inclui o texto da pergunta, as respostas candidatas/keywords de verificação e o alvo de backfill
+  para cada question unanswered. Não se trata de uma conclusão de produto, apenas de tornar
+  repetíveis tanto a ordem das próximas perguntas quanto o conteúdo do review.
+- O review queue, next review, answer template, answers status, backfill plan e workflow board gerados
+  pelo script estão inconsistentes com a saída atual do script, ou os arquivos estão ausentes. Isso
+  evita que, depois de atualizar a definição dos cases, os documentos enviados ao produto para review
+  continuem em uma versão antiga.
+- Com `--require-complete` ativo, se os product cases mesclados e deduplicados ainda tiverem pendências
+  de decisão de produto / automação, ou se algum accepted case não tiver cobertura estável, o comando
+  falha. Este gate é usado para a aceitação final e não pode ser substituído pela aprovação de um
+  `--check` comum.
 
-## 当前基线
+## Baseline atual
 
-这不是产品完成定义，只是防止统计漂移的基线：
+Esta não é a definição de conclusão de produto, apenas uma linha de base para impedir a deriva das
+estatísticas:
 
-| 指标 | 当前值 |
+| Métrica | Valor atual |
 | --- | ---: |
-| 主路径 A-J case | 163 |
-| 主路径 accepted | 163 |
-| 主路径 undefined | 0 |
-| 主路径 covered | 113 |
-| 自动化缩写 | 93 |
-| 被 coverage matrix 引用的 spec | 62 |
-| 有测试声明的 spec | 93 |
-| referenced spec skip/only | 0 |
-| 新增外部故障 product case | 37 |
-| 外部故障 alias | 3 |
-| 外部故障 infra case | 4 |
-| Fault 覆盖矩阵 row | 40 |
-| Fault 覆盖矩阵 covered | 0 |
-| Fault 覆盖矩阵 decision-needed | 37 |
-| Fault 覆盖矩阵 missing accepted | 3 |
-| 待决策 backlog row | 37 |
-| 待决策 E2E roadmap row | 87 |
-| 待决策 E2E roadmap expected row | 87 |
-| 待决策 E2E roadmap blocked-by-product-decision | 37 |
-| 待决策 E2E roadmap ready-to-write | 29 |
-| 待决策 E2E roadmap implemented | 21 |
-| 决策工作单覆盖 row | 37 |
-| 协议题总数 | 37 |
-| 协议题 answered | 0 |
-| 协议题 unanswered | 37 |
-| Answer draft row | 37 |
-| Answer draft answered | 0 |
-| Answer draft pending placeholder | 37 |
-| Answer draft missing question row | 0 |
-| Answer draft ready-to-backfill case | 0 |
-| Answer draft placeholder-only case | 37 |
-| Answer draft partial case | 0 |
-| Answer draft missing case | 0 |
-| Backfill workflow draft-ready case | 0 |
-| Backfill workflow worksheet-ready case | 0 |
-| Backfill workflow source-backfill-needed case | 0 |
-| Decision workflow board case | 37 |
-| 决策 ready case | 0 |
-| 决策 blocked case | 37 |
-| Review queue case | 37 |
-| Review queue next | N01, N02, N03 |
-| Generated Markdown doc | 6 |
-| Generated Markdown stale | 0 |
-| Generated Markdown missing | 0 |
-| Compact P0 协议题 | 0 |
-| Network/SSE 协议题 | 16 |
-| Recovery/Isolation 协议题 | 21 |
-| 合并去重后 product case | 200 |
-| 合并去重后已覆盖 | 113 |
-| 合并去重后仍待产品决策 / 自动化 | 87 |
+| Cases do caminho principal A-J | 163 |
+| accepted do caminho principal | 163 |
+| undefined do caminho principal | 0 |
+| covered do caminho principal | 113 |
+| Abreviações de automação | 93 |
+| Specs referenciados pela matriz de cobertura | 62 |
+| Specs com declarações de teste | 93 |
+| Spec referenciado com skip/only | 0 |
+| Novos product cases de falha externa | 37 |
+| Aliases de falha externa | 3 |
+| Infra cases de falha externa | 4 |
+| Linhas da matriz de cobertura de Faults | 40 |
+| covered na matriz de cobertura de Faults | 0 |
+| decision-needed na matriz de cobertura de Faults | 37 |
+| missing accepted na matriz de cobertura de Faults | 3 |
+| Linhas do backlog pendente de decisão | 37 |
+| Linhas do roadmap E2E pendente de decisão | 87 |
+| Linhas esperadas do roadmap E2E pendente de decisão | 87 |
+| blocked-by-product-decision no roadmap E2E pendente de decisão | 37 |
+| ready-to-write no roadmap E2E pendente de decisão | 29 |
+| implemented no roadmap E2E pendente de decisão | 21 |
+| Linhas cobertas pela decision worksheet | 37 |
+| Total de perguntas de protocolo | 37 |
+| Perguntas de protocolo answered | 0 |
+| Perguntas de protocolo unanswered | 37 |
+| Linhas do answer draft | 37 |
+| answered no answer draft | 0 |
+| Placeholder pendente no answer draft | 37 |
+| Linhas de question ausentes no answer draft | 0 |
+| Cases ready-to-backfill no answer draft | 0 |
+| Cases placeholder-only no answer draft | 37 |
+| Cases partial no answer draft | 0 |
+| Cases missing no answer draft | 0 |
+| Cases draft-ready do workflow de backfill | 0 |
+| Cases worksheet-ready do workflow de backfill | 0 |
+| Cases source-backfill-needed do workflow de backfill | 0 |
+| Cases no decision workflow board | 37 |
+| Cases ready de decisão | 0 |
+| Cases blocked de decisão | 37 |
+| Cases da review queue | 37 |
+| Próximos da review queue | N01, N02, N03 |
+| Docs Markdown gerados | 6 |
+| Markdown gerado stale | 0 |
+| Markdown gerado ausente | 0 |
+| Perguntas de protocolo Compact P0 | 0 |
+| Perguntas de protocolo Network/SSE | 16 |
+| Perguntas de protocolo Recovery/Isolation | 21 |
+| Product cases após mesclagem e deduplicação | 200 |
+| Cobertos após mesclagem e deduplicação | 113 |
+| Ainda pendentes de decisão de produto / automação após mesclagem e deduplicação | 87 |
 | Completion gate required | no |
 | Completion gate coverage complete | no |
 | Completion gate covered | 113/200 |
 | Completion gate decision-needed | 37 |
 
-以后新增产品语义时，必须先进入 catalog，再让本 audit 报出新的缺口；对应 E2E 或产品决策补齐后，再更新覆盖矩阵。只要某条 case 还不能写稳定断言，它必须同时出现在 decision backlog，方便产品 review 和剪枝。
+Ao adicionar nova semântica de produto no futuro, ela precisa entrar primeiro no catalog e só então
+esta auditoria reporta a nova lacuna; depois que o E2E correspondente ou a decisão de produto for
+completado, a matriz de cobertura é atualizada. Enquanto um case qualquer não puder receber asserções
+estáveis, ele precisa também aparecer no decision backlog, para facilitar o review do produto e a
+poda.

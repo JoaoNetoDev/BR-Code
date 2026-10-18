@@ -1,32 +1,32 @@
-# Todo 40：Provider 设置与 Automation 模型交互收口
+# Todo 40: Fechamento das interações de Provider Settings e Automation com modelos
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização de atribuição de verificação (2026-09-09): as faltas de teste residuais, falhas e promoções manuais deste artigo foram transferidas uniformemente para [Todo102](todo-102-verification-debt-closeout.md), encerrando o cronograma de verificação independente aqui; as evidências históricas são mantidas e a transferência não significa que os testes passaram.
 
-> 后续 Desktop 图形 E2E 欠测统一由 Todo 78 收口，本 Todo 不再单独排期。
+> As faltas de E2E gráfico de Desktop posteriores são fechadas uniformemente pelo Todo 78, e este Todo deixa de ter cronograma próprio.
 
-> 状态：已完成（Desktop 实机 E2E 受当前 Linux 环境缺少 `xvfb-run` 阻塞）
+> Status: concluído (E2E de Desktop em máquina real bloqueado pela ausência de `xvfb-run` no ambiente Linux atual)
 >
-> 日期：2026-08-28
+> Data: 2026-08-28
 >
-> 来源：Provider Settings 实机体验、Team Plan 升级入口与 Automation 新建任务回归
+> Origem: experiência prática de Provider Settings, entrada de upgrade do Team Plan e regressão de criação de tasks em Automation
 
-## 1. 目标
+## 1. Objetivo
 
-本 Todo 收口五个已经完成裁决的交互问题，不新增 Provider、Model 或 Automation 中间抽象：
+Este Todo fecha cinco problemas de interação que já tinham decisão, sem adicionar abstrações intermediárias de Provider, Model ou Automation:
 
-1. 恢复 Coding Plan 升级入口原有的 Family、个人/团队 Audience 与具体 Team Plan 三维意图；
-2. Provider 设置页恢复标准 `max-w-4xl`，只保留 Model Config 弹窗的标准 `max-w-2xl` 加宽；
-3. 删除把模型编辑、启停、增删和连接测试捆绑在一起的 `modelsReadOnly`；
-4. Account Provider 只隐藏 Endpoint、API Schema 与账号凭据，模型继续使用标准 Effective Model 编辑能力；
-5. Automation 不再存在 `inherit/default model` 虚拟态，新建任务直接固化具体模型和 reasoning。
+1. Restaurar na entrada de upgrade do Coding Plan a intenção original de três dimensões: Family, Audience pessoal/equipe e Team Plan específico;
+2. Restaurar o `max-w-4xl` padrão na página de configurações do Provider, mantendo apenas o alargamento do `max-w-2xl` padrão no diálogo de Model Config;
+3. Remover o `modelsReadOnly`, que amarrava edição de modelo, ativação, adição/remoção e teste de conexão em um único item;
+4. No Account Provider, ocultar apenas Endpoint, API Schema e credenciais de conta, mantendo nos modelos a capacidade padrão de edição de Effective Model;
+5. O Automation deixa de ter o estado virtual `inherit/default model`; a criação de task passa a fixar diretamente o modelo e o reasoning específicos.
 
-## 2. Coding Plan 升级意图
+## 2. Intenção de upgrade do Coding Plan
 
 ```text
 Selected Account Provider
 ├─ provider family  -> Z.ai / BigModel
 ├─ plan audience    -> personal / team
-└─ team plan key    -> 具体 Team Plan（仅团队入口）
+└─ team plan key    -> Team Plan específico（somente entrada de equipe）
           |
           v
 CodingPlanUpgradeDialog
@@ -35,44 +35,44 @@ CodingPlanUpgradeDialog
 Embedded Website URL / Bridge
 ```
 
-- Team Provider ID 必须进入 Coding Plan 升级入口的规范化边界，不能在弹窗入口被归一化为 `null`；这不应把 Team Provider 加入静态套餐导航候选；
-- `providerId` 继续决定官网 Family；
-- `initialAudience` 继续决定个人或团队页；
-- `initialTeamPlanKey` 继续表达用户点击的具体团队套餐；
-- Status Card 不得把所有升级/续费入口写死为 `personal`；
-- WebView 必须显式接收购买启动意图，Telemetry 的 `purchase_audience` 不能兼任路由协议；
-- 管理入口继续使用 Family Spec 中的个人/团队管理地址，与购买 WebView 职责分离。
+- O Team Provider ID precisa entrar na fronteira de normalização da entrada de upgrade do Coding Plan e não pode ser normalizado para `null` na entrada do diálogo; isso não deve adicionar o Team Provider aos candidatos de navegação estática de planos;
+- `providerId` continua determinando a Family no site oficial;
+- `initialAudience` continua determinando a página pessoal ou de equipe;
+- `initialTeamPlanKey` continua expressando o plano de equipe específico clicado pelo usuário;
+- O Status Card não pode escrever todas as entradas de upgrade/renovação como `personal` fixo;
+- O WebView precisa receber explicitamente a intenção de início da compra; o `purchase_audience` do Telemetry não pode servir como protocolo de roteamento;
+- A entrada de gerenciamento continua usando o endereço de gerenciamento pessoal/equipe do Family Spec, separada da responsabilidade do WebView de compra.
 
-## 3. Provider 设置页模型行为
+## 3. Comportamento de modelos na página de configurações do Provider
 
 ```text
 model.builtin
-├─ true  -> Model ID 固定、不可删除
-└─ false -> Model ID 可编辑、可以删除
+├─ true  -> Model ID fixo, não removível
+└─ false -> Model ID editável, removível
 
-所有模型
-├─ 可以编辑 Personal Model Config Overlay
-├─ 可以切换 enabled
-├─ 可以参与排序
-└─ 存在正式测试 handler 时可以连接测试
+todos os modelos
+├─ podem editar o Personal Model Config Overlay
+├─ podem alternar enabled
+├─ podem participar da ordenação
+└─ podem ser testados quando existe um handler de teste oficial
 ```
 
-- 删除 `modelsReadOnly` 及其从 Account Detail 到 Model Row 的全部传递；
-- 删除模型测试对表单 API Key、`readOnly` 和 `model.executable` 的 UI 猜测门禁；
-- 测试按钮只在存在正式测试能力时显示，只在请求进行中禁用；
-- 执行失败由正式 Model/Registry 测试链返回明确错误；
-- Account Team / Individual / Start 页面不展示 Endpoint、API Schema 或账号凭据；
-- Account Provider 的模型列表直接展示 Effective Provider Config，并允许标准 Personal Overlay 编辑；
-- Built-in API Key Provider 仍可展示并锁定 Built-in-owned Endpoint/API Schema，字段级只读能力不删除。
+- Remover `modelsReadOnly` e toda a sua passagem do Account Detail até o Model Row;
+- Remover da UI os gates de adivinhação do teste de modelo baseados em API Key do formulário, `readOnly` e `model.executable`;
+- O botão de teste só aparece quando existe capacidade de teste oficial e só é desabilitado enquanto a requisição está em andamento;
+- Falhas de execução retornam um erro claro pela cadeia oficial de teste de Model/Registry;
+- As páginas Account Team / Individual / Start não exibem Endpoint, API Schema nem credenciais de conta;
+- A lista de modelos do Account Provider exibe diretamente o Effective Provider Config e permite a edição padrão do Personal Overlay;
+- O Built-in API Key Provider ainda pode exibir e travar o Endpoint/API Schema de propriedade Built-in, e a capacidade de somente leitura por campo não é removida.
 
-## 4. 布局
+## 4. Layout
 
-- Provider Settings 页面恢复共享 `max-w-4xl` 内容宽度；
-- Model Config 弹窗保持 `max-w-2xl`，不继续扩大；
-- 不通过扩宽整个页面修复弹窗或详情内部滚动；
-- Desktop、Web 和窄窗口继续使用现有响应式与独立滚动结构。
+- A página de Provider Settings recupera a largura de conteúdo compartilhada `max-w-4xl`;
+- O diálogo de Model Config mantém `max-w-2xl`, sem continuar alargando;
+- Não corrigir o scroll interno do diálogo ou do detalhe alargando a página inteira;
+- Desktop, Web e janela estreita continuam usando o responsivo e a estrutura de scroll independente existentes.
 
-## 5. Automation 具体模型
+## 5. Modelo concreto no Automation
 
 ```text
 Target Host ModelSelectionView ready
@@ -81,56 +81,53 @@ Target Host ModelSelectionView ready
 preferredSelection
               |
               v
-具体 providerId / modelId
+providerId / modelId específico
               |
               v
-模型 Option Spec 的默认 reasoning
+reasoning padrão do Option Spec do modelo
               |
               v
-保存完整 modelSelection
+salvar o modelSelection completo
 ```
 
-- 删除 `INHERIT_MODEL_VALUE` 与“默认模型/跟随 Workspace”文案；
-- 新建任务、缺少模型的旧编辑记录以及切换目标 Workspace 后，使用目标 Host 的
-  `preferredSelection` 初始化具体选择；
-- UI 始终显示具体模型和具体 reasoning；
-- 用户选择模型后不再被后续 View 更新覆盖；
-- 没有 `preferredSelection` 时保持明确不可提交状态，不创建隐式默认；
-- Create 输入始终写入完整 `modelSelection`；Update 继续允许 `null` 仅作为现有协议的显式清理值，
-  本表单不再生成该值；
-- 所选模型变化后，reasoning 按目标模型 Option Spec 校正；Automation 使用模型默认档位，
-  不复用辅助模型任务的最低档位规则。
+- Remover `INHERIT_MODEL_VALUE` e os textos "modelo padrão/seguir o Workspace";
+- Na criação de task, em registros de edição antigos sem modelo e após trocar o Workspace alvo, a seleção concreta é inicializada com o `preferredSelection` do Host alvo;
+- A UI sempre exibe o modelo e o reasoning específicos;
+- Depois que o usuário escolhe o modelo, atualizações posteriores da View não sobrescrevem mais;
+- Sem `preferredSelection`, mantém-se um estado explicitamente não submetível e não se cria um default implícito;
+- A entrada Create sempre grava o `modelSelection` completo; Update continua permitindo `null` apenas como valor explícito de limpeza do protocolo existente,
+  e este formulário não gera mais esse valor;
+- Quando o modelo selecionado muda, o reasoning é corrigido conforme o Option Spec do modelo alvo; o Automation usa o nível padrão do modelo e não
+  reutiliza a regra de nível mínimo das tasks de modelo auxiliar.
 
-## 6. 测试与完成标准
+## 6. Testes e critérios de conclusão
 
-- 单测证明 Team Provider 可以打开对应 Family、Audience 与 Team Plan Key 的 WebView；
-- 单测证明 Z.ai / BigModel、personal / team 的 URL 启动意图不串线；
-- Provider 单测证明 Account 模型可编辑、可启停、可测试，Builtin 模型仍不可删除或改 ID；
-- Automation 单测证明 `preferredSelection` 初始化、具体选择持久化、Workspace 切换和无可用模型失败态；
-- Desktop E2E 覆盖 Team 升级入口、Account 模型编辑/测试，以及 Automation 无手动选模即可提交；
-- 执行受影响单测、Desktop E2E typecheck、根 `pnpm typecheck`、`pnpm lint` 与 `git diff --check`；
-- Review 确认不存在新的 Provider 权限 DTO、默认模型 sentinel 或第二套模型事实。
+- Testes unitários provam que um Team Provider pode abrir o WebView com a Family, o Audience e o Team Plan Key correspondentes;
+- Testes unitários provam que a intenção de início de URL de Z.ai / BigModel e personal / team não se mistura;
+- Testes unitários de Provider provam que modelos de Account são editáveis, ativáveis e testáveis, e que modelos Built-in continuam não removíveis e com ID imutável;
+- Testes unitários de Automation provam a inicialização por `preferredSelection`, a persistência da escolha concreta, a troca de Workspace e o estado de falha sem modelo disponível;
+- E2E de Desktop cobre a entrada de upgrade de equipe, a edição/teste de modelos de Account e o envio de Automation sem seleção manual de modelo;
+- Executar os testes unitários afetados, o typecheck do E2E de Desktop, o `pnpm typecheck` da raiz, o `pnpm lint` e `git diff --check`;
+- A revisão confirma que não existe novo DTO de permissão de Provider, sentinel de modelo padrão nem um segundo conjunto de fatos de modelo.
 
-## 7. 实施结果
+## 7. Resultado da implementação
 
-- Coding Plan 升级入口恢复 `providerId + audience + teamPlanKey`，Z.ai / BigModel 与个人/团队入口不再串线；
-- Provider 设置页恢复 `max-w-4xl`，Model Config 弹窗保持 `max-w-2xl`；
-- 删除 `modelsReadOnly` 及模型测试对表单 API Key、只读状态和 executable 的 UI 预判；
-- Account Provider 继续隐藏 Endpoint、API Schema 与账号凭据，但模型使用标准编辑、启停和测试能力；
-- Automation 删除 `inherit/default model` 虚拟态，使用目标 Host preferred 初始化并保存具体模型与 reasoning；
-- Built-in 模型仍由 `model.builtin` 单独保证 ID 不可改、成员不可删除。
+- A entrada de upgrade do Coding Plan recuperou `providerId + audience + teamPlanKey`, e Z.ai / BigModel e as entradas pessoal/equipe não se misturam mais;
+- A página de configurações do Provider recuperou `max-w-4xl`, e o diálogo de Model Config manteve `max-w-2xl`;
+- Foram removidos `modelsReadOnly` e a pré-julgamento na UI do teste de modelo sobre API Key do formulário, estado somente leitura e `executable`;
+- O Account Provider continua ocultando Endpoint, API Schema e credenciais de conta, mas os modelos usam as capacidades padrão de edição, ativação e teste;
+- O Automation removeu o estado virtual `inherit/default model`, usando o preferred do Host alvo para inicializar e salvando o modelo e o reasoning concretos;
+- Os modelos Built-in continuam garantidos por `model.builtin` separadamente: ID imutável e membro não removível.
 
-## 8. 验证记录
+## 8. Registro de verificação
 
-- Provider / Coding Plan / Automation 定向单测：318 项通过；
-- 全量 Unit：1492 个测试文件、12730 项通过，另有 1 个测试文件 / 25 项既有 skip；
-- `packages/ui` TypeScript：通过；
-- Desktop E2E TypeScript：通过；
-- 根 `pnpm typecheck`：通过；
-- 根 `pnpm lint`：0 error（33 条既有 warning）；
-- 本轮 28 个文件格式检查：通过；根 `pnpm fmt:check` 被仓库既有二进制 `gb2312.js` 和 Electron
-  fiddle 的非法 HTML 阻塞，与本轮文件无关；
-- `git diff --check`：通过；
-- Automation Desktop E2E 已完成生产构建，但 WebDriver 启动阶段因本机缺少 `xvfb-run` 无法创建 Chrome
-  session；这是测试运行环境阻塞，不是场景断言失败。实机交互仍需在具备显示环境的 macOS 或安装 Xvfb
-  的 Linux 环境补跑。
+- Testes unitários direcionados de Provider / Coding Plan / Automation: 318 aprovados;
+- Unit completo: 1492 arquivos de teste, 12730 casos aprovados, mais 1 arquivo de teste / 25 skips pré-existentes;
+- TypeScript de `packages/ui`: aprovado;
+- TypeScript do E2E de Desktop: aprovado;
+- `pnpm typecheck` da raiz: aprovado;
+- `pnpm lint` da raiz: 0 erros (33 warnings pré-existentes);
+- Verificação de formatação dos 28 arquivos desta rodada: aprovada; o `pnpm fmt:check` da raiz foi bloqueado pelo `gb2312.js` binário já existente no repositório e pelo HTML inválido do Electron fiddle, sem relação com os arquivos desta rodada;
+- `git diff --check`: aprovado;
+- O E2E de Desktop do Automation concluiu a build de produção, mas na etapa de inicialização do WebDriver não foi possível criar uma session do Chrome por falta de `xvfb-run` na máquina;
+  esse é um bloqueio do ambiente de execução de testes, não uma falha de asserção de cenário. A interação em máquina real ainda precisa ser executada em macOS com ambiente gráfico ou em Linux com Xvfb instalado.

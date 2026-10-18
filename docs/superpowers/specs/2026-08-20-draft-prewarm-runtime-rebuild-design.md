@@ -1,51 +1,51 @@
-# 草稿预热会话在 runtime 换代后的重建
+# Reconstrução da sessão de prewarm de rascunho após a troca de runtime
 
-- 日期：2026-08-20
-- 分支：`fix/draft-prewarm-runtime-rebuild`（基于 `feat/cua-merge-0819`）
-- 状态：设计已确认，待实施
+- Data: 2026-08-20
+- Branch: `fix/draft-prewarm-runtime-rebuild` (baseado em `feat/cua-merge-0819`)
+- Status: design confirmado, aguardando implementação
 
-## 背景
+## Contexto
 
-用户报了两个现象，根因诊断确认它们是同一条链的两端：
+Os usuários relataram dois fenômenos, e o diagnóstico de causa-raiz confirmou que são as duas pontas da mesma cadeia:
 
-1. **图片无法上传**（dev）——附件加进输入框后静止，只能移除；日志中没有任何 `attachmentBeginV4`。
-2. **传完、电脑控制变绿后发不出去**（生产）——图片上传成功后点发送失败。
+1. **Imagem não sobe** (dev) — depois de adicionado o anexo à caixa de entrada, ele fica parado e só pode ser removido; não há nenhum `attachmentBeginV4` no log.
+2. **Depois de enviar, com o controle do computador ficando verde, o envio falha** (produção) — após o upload da imagem terminar com sucesso, clicar em enviar falha.
 
-### 根因
+### Causa-raiz
 
-CUA Helper 就绪会触发 agent runtime 无条件回收（`packages/services/src/node.ts:1094-1102` 的设计注释说明这是为了回收拿到 `BROKER_UNAVAILABLE` 的 stranded agent）。回收把 generation 1 里刚建立、尚未持久化的会话一并冲掉：
+O CUA Helper se tornar ready dispara a reciclagem incondicional do agent runtime (o comentário de design em `packages/services/src/node.ts:1094-1102` explica que isso serve para reciclar agents stranded que receberam `BROKER_UNAVAILABLE`). A reciclagem leva junto a sessão recém-criada na generation 1, ainda não persistida:
 
 ```
-10:42:46.139  attachmentCommitV4 OK                     图片上传完成（gen1）
+10:42:46.139  attachmentCommitV4 OK                     upload da imagem concluído (gen1)
 10:42:46.340  cua helper ready pid=33314                「电脑控制变绿」
-10:42:46.991  agent process exited pid=33308            回收 stranded agent
-10:42:49.531  agent process started runtimeGeneration=2 新 runtime
+10:42:46.991  agent process exited pid=33308            reciclagem do stranded agent
+10:42:49.531  agent process started runtimeGeneration=2 novo runtime
 10:42:50.091  attachmentBeginV4 FAIL  sessionNotFound: sess_e0b036a8
 10:42:50.129  subscribeConversationV4 FAIL  sessionNotFound: sess_e0b036a8
 ```
 
-草稿态的 `effectiveSessionId = sessionId ?? prewarmSessionId`（`SessionPane.tsx:1487`），`sessionId === null` 时完全依赖预热会话。预热会话消失后：
+No estado de rascunho, `effectiveSessionId = sessionId ?? prewarmSessionId` (`SessionPane.tsx:1487`); quando `sessionId === null` o resultado depende inteiramente da sessão de prewarm. Depois que a sessão de prewarm desaparece:
 
-- `SessionPane.tsx:1637` 在订阅报错时调 `prewarmBinding.discard()`；
-- `discard()` 会设 `blockedInvalidationVersion = current.invalidationVersion`（`useDraftSessionPrewarm.ts:354`）；
-- `reconcile()` 在 `blockedInvalidationVersion === requestedVersion` 时直接 return（`:313-315`），**同版本不再重建**；
-- 于是 `prewarmSessionId` 永久为 null，附件卡在 `waitingSession`，即现象 1。
+- `SessionPane.tsx:1637` chama `prewarmBinding.discard()` quando a assinatura dá erro;
+- `discard()` define `blockedInvalidationVersion = current.invalidationVersion` (`useDraftSessionPrewarm.ts:354`);
+- `reconcile()` retorna imediatamente quando `blockedInvalidationVersion === requestedVersion` (`:313-315`), **não reconstruindo mais na mesma versão**;
+- assim `prewarmSessionId` fica permanentemente null e o anexo trava em `waitingSession`, ou seja, o fenômeno 1.
 
-冷启动时 `createSession` 因 `ZCode Protocol client disposed` 失败（`useDraftSessionPrewarm.ts:139-144` 只 warn、无重试）会到达同样的终态。
+No cold start, `createSession` falha com `ZCode Protocol client disposed` (`useDraftSessionPrewarm.ts:139-144` só emite warn, sem retry) e chega ao mesmo estado terminal.
 
-## 方案选择
+## Escolha da abordagem
 
-已在讨论中确认：**容忍回收、事后补偿**，而不是在 services 侧避免回收。
+Já confirmado na discussão: **tolerar a reciclagem e compensar depois**, em vez de evitá-la no lado de services.
 
-理由：不改动 services 层的回收语义（那是本分支为修复「CUA 工具永远载入不了」而刻意引入的），风险集中在 renderer；代价是用户会看到一次短暂的重传。
+Motivo: não se altera a semântica de reciclagem da camada de services (que este branch introduziu de propósito para corrigir «as ferramentas CUA nunca carregam»), concentrando o risco no renderer; o custo é o usuário ver um reenvio breve.
 
-被否决/推迟的替代方案：
-- 在回收侧区分触发源（`onHelperHealthy` 冷启动首次就绪 vs `onHelperCredentialsRotated`），使正在服务的 workspace 不被回收；
-- 给 `ZCodeAgentService` 补活跃 turn 查询，把 `hasActiveTurnRef`（`node.ts:1467` 现为 `() => false`）真正接上。
+Alternativas rejeitadas/adiavadas:
+- distinguir a origem do gatilho no lado da reciclagem (`onHelperHealthy` primeiro ready de cold start vs `onHelperCredentialsRotated`), para que um workspace em serviço não seja reciclado;
+- acrescentar ao `ZCodeAgentService` uma consulta de turno ativo, conectando de fato `hasActiveTurnRef` (`node.ts:1467`, hoje `() => false`).
 
-这两条与本方案不冲突，可后续单独推进。
+As duas não conflitam com esta abordagem e podem ser avançadas depois separadamente.
 
-**回收触发源不止一个**，这是选择「事后补偿」而非「回收侧堵」的关键依据。除冷启动首次 ready 外，liveness watchdog 的恢复路径同样会回收。2026-08-20 12:26 的 dev 日志：
+**A origem do gatilho de reciclagem não é única**, e esse é o argumento decisivo para escolher «compensação posterior» em vez de «bloquear no lado da reciclagem». Além do primeiro ready de cold start, o caminho de recuperação do liveness watchdog também recicla. Log de dev de 2026-08-20 12:26:
 
 ```
 12:26:43.617  cua helper liveness: Helper unreachable (attempt 3); triggering resolver recovery
@@ -54,119 +54,119 @@ CUA Helper 就绪会触发 agent runtime 无条件回收（`packages/services/sr
               runtimeIdentity: /Users/dev/.zcode/workspace/default:4:57273
 ```
 
-helper ready 后 509ms 触发回收，且该 workspace 已到 generation 4。若改从回收侧堵，需同时覆盖 `onHelperHealthy`、`onHelperCredentialsRotated` 与 liveness 恢复三条路径，改动面显著大于 renderer 侧补偿。
+A reciclagem dispara 509ms após o helper ready, e o workspace já está na generation 4. Se o bloqueio fosse feito no lado da reciclagem, seria preciso cobrir simultaneamente os três caminhos `onHelperHealthy`, `onHelperCredentialsRotated` e a recuperação por liveness, com uma superfície de alteração significativamente maior que a da compensação no renderer.
 
-## 目标
+## Objetivos
 
-- runtime 换代后，草稿态能自动拿到在新 runtime 中有效的预热会话。
-- 换代期间禁止发送；重建成功或超时后解除。
-- 附件在换代后自动重传到新会话，不需要用户手工重来。
+- Após a troca de runtime, o estado de rascunho obtém automaticamente uma sessão de prewarm válida no novo runtime.
+- Durante a troca o envio é proibido; o bloqueio é removido após a reconstrução bem-sucedida ou o timeout.
+- Os anexos são reenviados automaticamente para a nova sessão após a troca, sem o usuário precisar refazer o trabalho manualmente.
 
-## 非目标
+## Não objetivos
 
-- 不修改 services 侧的回收语义，不触碰 `hasActiveTurn`。
-- 不处理正式会话态（`sessionId !== null`）的恢复——那条路径由 CLI 的 `cold-session-resume.ts` 负责。
-- 不改 `useDraftSessionPrewarm` 的对外接口。
+- Não alterar a semântica de reciclagem do lado de services nem mexer em `hasActiveTurn`.
+- Não tratar a recuperação do estado de sessão formal (`sessionId !== null`) — esse caminho é responsabilidade do `cold-session-resume.ts` da CLI.
+- Não mudar a interface pública de `useDraftSessionPrewarm`.
 
-## 设计
+## Design
 
-### 1. 触发与重建链路
+### 1. Gatilho e cadeia de reconstrução
 
-复用现成通路，不新建订阅：
+Reaproveita o caminho já existente, sem criar uma nova assinatura:
 
 ```
-transport.onRuntimeRestart                         SessionPane props:446，已按 workspaceKey 过滤
-  → 新增 effect（仅 sessionId === null）
-  → invalidateDraftRuntime(workspacePath, workspaceIdentity)    已存在：zcodeSessionStoreWorkspaceSlice.ts:408
+transport.onRuntimeRestart                         SessionPane props:446, já filtrado por workspaceKey
+  → novo effect (apenas sessionId === null)
+  → invalidateDraftRuntime(workspacePath, workspaceIdentity)    já existe: zcodeSessionStoreWorkspaceSlice.ts:408
   → draftRuntimeInvalidationVersion + 1
-  → reconcile()：清 blockedInvalidationVersion → retireCurrent → startCurrent
-  → onReady → 新 binding → prewarmSessionId → effectiveSessionId
+  → reconcile(): limpa blockedInvalidationVersion → retireCurrent → startCurrent
+  → onReady → novo binding → prewarmSessionId → effectiveSessionId
 ```
 
-**本节**的新增代码只有 SessionPane 里的那个 effect（门禁与附件改动见第 2、3、4 节）。重建、清闸、单飞、旧会话清理都是 coordinator 中已有的逻辑：
+O único código novo **desta seção** é o effect no SessionPane (o gate de envio e as mudanças de anexos estão nas seções 2, 3 e 4). A reconstrução, a liberação do gate, o single-flight e a limpeza da sessão antiga são lógica já existente no coordinator:
 
-- `reconcile()` 在 `requestedVersion` 变化时清掉 `blockedInvalidationVersion`（`useDraftSessionPrewarm.ts:297-302`），解除 `discard()` 设下的永久闸；
-- `retireCurrent()` → `controller.dispose()`，而 `dispose()` 只在 `promotionState === "draft"` 时才 `deleteSession`（`:169`）。**发送进行中（`pending`）遇到换代不会误删正在跑的会话**，这个保护已存在。
+- `reconcile()` limpa `blockedInvalidationVersion` quando `requestedVersion` muda (`useDraftSessionPrewarm.ts:297-302`), liberando o gate permanente definido por `discard()`;
+- `retireCurrent()` → `controller.dispose()`, e `dispose()` só faz `deleteSession` quando `promotionState === "draft"` (`:169`). **Um envio em andamento (`pending`) que encontre uma troca não apaga por engano a sessão em execução**; essa proteção já existe.
 
-**正式会话态不触发**：`sessionId !== null` 时不调 `invalidateDraftRuntime`。
+**O estado de sessão formal não dispara**: quando `sessionId !== null`, `invalidateDraftRuntime` não é chamado.
 
-### 2. 发送门禁
+### 2. Gate de envio
 
-在 SessionPane 内维护 `draftRebuilding` 状态，不改 hook 接口（`binding === null` 无法区分「重建中」与「永久回落」，但 SessionPane 知道 invalidate 是不是它自己触发的）。
+Mantém-se o estado `draftRebuilding` dentro do SessionPane, sem mudar a interface do hook (`binding === null` não consegue distinguir «em reconstrução» de «retorno permanente», mas o SessionPane sabe se o invalidate foi disparado por ele mesmo).
 
-- invalidate 时置 `true`；
-- 新 `prewarmBinding` 到达置 `false`；
-- **超时 5s** 后置 `false`，回落到既有的「发送时创建正式 session」路径（`SessionPane.tsx:1829` / `:1886` 的 `beginPromotion` 分支）；
-- 重建中再次换代 → 重置计时器；
-- 接入 `SessionPane.tsx:3494` 的 `disabled` 计算；
-- 配一句提示文案，避免按钮无声置灰。
+- define `true` ao invalidar;
+- define `false` quando um novo `prewarmBinding` chega;
+- **após timeout de 5s** define `false`, retornando ao caminho existente de «criar sessão formal no envio» (branch `beginPromotion` em `SessionPane.tsx:1829` / `:1886`);
+- nova troca durante a reconstrução → reinicia o timer;
+- conecta ao cálculo de `disabled` em `SessionPane.tsx:3494`;
+- acompanha um texto explicativo, para que o botão não fique cinza em silêncio.
 
-超时值依据：实测 agent `start → ready` 约 550-650ms，`createSession` 再数百 ms，5s 有充分余量且不至于让用户久等。
+Base do valor de timeout: medido `start → ready` do agent em torno de 550-650ms, e mais centenas de ms para `createSession`; 5s tem folga suficiente sem fazer o usuário esperar demais.
 
-**不允许永久禁用**：重建失败必须回落，否则 runtime 持续异常时用户无法发送任何消息。
+**Desabilitação permanente não é permitida**: uma reconstrução que falhe precisa ter retorno, senão, com o runtime continuamente anômalo, o usuário não consegue enviar nenhuma mensagem.
 
-超时与重建成功并非互斥：超时解除禁用后，迟到的 `prewarmBinding` 仍会正常到达并更新 `effectiveSessionId`，附件随之被唤醒重传。超时只解除门禁，不取消重建。
+Timeout e reconstrução bem-sucedida não são mutuamente exclusivos: depois que o timeout libera o envio, um `prewarmBinding` tardio ainda chega normalmente e atualiza o `effectiveSessionId`, e os anexos são despertados para reenvio. O timeout só libera o gate, não cancela a reconstrução.
 
-### 3. 附件重传的竞态
+### 3. Corrida no reenvio de anexos
 
-换代时有两条链同时动附件：
+Na troca, duas cadeias mexem nos anexos ao mesmo tempo:
 
-- `useComposerAttachments.ts:461` 的 `onRuntimeRestart` 回调——清 ref、`autoRetryCount + 1`、按 `target.sessionId` 入队；
-- `:441` 的 effect——`attachmentSessionId` 变为真值时把 `waitingSession` 重新入队。
+- o callback `onRuntimeRestart` em `useComposerAttachments.ts:461` — limpa o ref, `autoRetryCount + 1`, enfileira por `target.sessionId`;
+- o effect em `:441` — quando `attachmentSessionId` fica com valor verdadeiro, enfileira de novo o que está em `waitingSession`.
 
-问题在于 `:461` 读的是 `targetsRef.current`，那是**渲染期写入的旧值**（`:192-199`）。换代事件到达时它仍持有已失效的 sessionId，于是拿旧 id 入队——这正是日志里那次 `sessionNotFound` 的成因。
+O problema é que `:461` lê `targetsRef.current`, que é um **valor antigo escrito durante a renderização** (`:192-199`). Quando o evento de troca chega, ele ainda contém o sessionId já inválido, então enfileira com o id antigo — exatamente a origem do `sessionNotFound` no log.
 
-解耦两条链：
+Desacoplar as duas cadeias:
 
-- `:461` 不再依据 `target.sessionId` 决定入队，**一律置 `waitingSession`**（换代后旧 id 必然失效），由 `:441` 统一唤醒；
-- 新增 `restartEpoch`（hook 内部 state，`onRuntimeRestart` 回调中递增），加入 `:441` effect 的依赖，换代后强制重扫 `waitingSession` 并入队。
+- `:461` deixa de decidir o enfileiramento por `target.sessionId` e **sempre coloca em `waitingSession`** (após a troca o id antigo é necessariamente inválido), deixando a unificação com `:441`;
+- novo `restartEpoch` (state interno do hook, incrementado no callback `onRuntimeRestart`), adicionado às dependências do effect em `:441`, para forçar uma nova varredura de `waitingSession` e o enfileiramento após a troca.
 
-`restartEpoch` 是必需的：正式会话态 runtime 重启后 `attachmentSessionId` 不变，仅依赖它的 effect 不会重跑，附件会永久停在 `waitingSession`。
+`restartEpoch` é necessário: no estado de sessão formal, após o restart do runtime o `attachmentSessionId` não muda, então um effect que dependa só dele não reexecuta e o anexo ficaria permanentemente em `waitingSession`.
 
-不受影响的两类附件（`:470-476` 已跳过）：
-- `localZeroCopy`（本地文件拖入，`ref` 直接是本地路径，从不上传）——这解释了为什么问题集中在粘贴/截图的图片上，它们没有 `localPath`；
-- `referenceOwnership === "session"`（已随消息发出）。
+Duas categorias de anexo não são afetadas (já puladas em `:470-476`):
+- `localZeroCopy` (arquivo local arrastado, em que o `ref` é diretamente o caminho local e nunca é enviado) — isso explica por que o problema se concentra em imagens coladas ou capturadas, que não têm `localPath`;
+- `referenceOwnership === "session"` (já enviada junto com a mensagem).
 
-### 4. 重传配额
+### 4. Cota de reenvio
 
-`:481` 现为 `autoRetryCount >= 1` 即判 `failed`。换代重传不是「重试失败的上传」而是「换了会话重新传」，用同一个计数器会让换代烧掉用户可见的上传重试配额。
+Hoje `:481` considera `failed` assim que `autoRetryCount >= 1`. O reenvio após a troca não é «uma re-tentativa de upload que falhou», mas «um reenvio porque a sessão mudou»; usar o mesmo contador faria a troca consumir a cota de retentativa de upload visível ao usuário.
 
-**改为两个计数器分开计：**
+**Passa a haver dois contadores separados:**
 
-- `autoRetryCount` 保留原语义（上传本身失败的自动重试），上限维持 1，不动；
-- 新增 `runtimeRebuildRetryCount`，仅在草稿态因换代触发重传时递增，上限 5。
+- `autoRetryCount` mantém a semântica original (retentativa automática de upload que falhou), com limite 1, sem alteração;
+- novo `runtimeRebuildRetryCount`, incrementado apenas quando um reenvio é disparado por troca no estado de rascunho, com limite 5.
 
-不合并计数器的原因是换代次数比最初估计的多：2026-08-20 12:26 的 dev 日志中同一 workspace 已到 `runtimeGeneration=4`（3 次换代），且回收触发源不止一个（见「方案选择」），单一计数器上限 3 会在正常使用中被耗尽并误报失败。
+A razão para não mesclar os contadores é que o número de trocas foi maior do que a estimativa inicial: no log de dev de 2026-08-20 12:26 o mesmo workspace já está em `runtimeGeneration=4` (3 trocas), e a origem do gatilho de reciclagem não é única (ver «Escolha da abordagem»); um limite de 3 em um contador único seria esgotado no uso normal e geraria falha indevida.
 
-用 `restartEpoch` 去重，保证**同一次换代只触发一次重传**；上限 5 只作为 helper 反复崩溃时的兜底。
+A deduplicação por `restartEpoch` garante que **uma mesma troca dispare apenas um reenvio**; o limite 5 serve apenas como rede de segurança quando o helper falha repetidamente.
 
-### 5. 测试
+### 5. Testes
 
-| 层 | 用例 |
+| Camada | Caso |
 | --- | --- |
-| coordinator | `invalidationVersion` 递增时 retire + 重建；`blockedInvalidationVersion` 被清除 |
-| controller | `dispose()` 在 `pending` 态不删会话（回归保护） |
-| attachments | 换代后置 `waitingSession`；新 sessionId 到达后入队；正式态 sessionId 不变时也能被 `restartEpoch` 唤醒 |
-| attachments | 同一 `restartEpoch` 内不重复重传；`runtimeRebuildRetryCount` 达 5 才判 `failed`，且不影响 `autoRetryCount` |
-| 门禁 | 重建中禁用；新 binding 到达解除；超时解除并回落 |
+| coordinator | retire + reconstrução quando `invalidationVersion` incrementa; `blockedInvalidationVersion` é limpo |
+| controller | `dispose()` não apaga a sessão no estado `pending` (proteção contra regressão) |
+| attachments | coloca em `waitingSession` após a troca; enfileira quando o novo sessionId chega; também é despertado por `restartEpoch` quando o sessionId não muda no estado formal |
+| attachments | não reenvia dentro do mesmo `restartEpoch`; só considera `failed` ao atingir `runtimeRebuildRetryCount` = 5, sem afetar `autoRetryCount` |
+| Gate | desabilitado durante a reconstrução; liberado quando o novo binding chega; liberado no timeout com retorno |
 
-两个本地已知坑：
+Duas armadilhas locais conhecidas:
 
-- 超时计时器若 `unref`，缺陷会被 vitest runner 掩盖（runner 自身保活事件循环）；需要 tsx 子进程探针验证，不能只靠单测。
-- desktop 侧 `test/*.test.ts` 不在任何 tsconfig 归属内，根 `pnpm typecheck` 覆盖不到；改动涉及 desktop 时需单独核验。
+- se o timer de timeout for `unref`, o defeito fica mascarado pelo vitest runner (o próprio runner mantém o event loop vivo); é preciso validar com uma sonda em subprocesso tsx, não apenas com teste unitário.
+- no lado desktop, `test/*.test.ts` não pertence a nenhum tsconfig, e o `pnpm typecheck` da raiz não cobre; mudanças que envolvam o desktop exigem verificação separada.
 
-## 边界与失败模式
+## Fronteiras e modos de falha
 
-| 情况 | 行为 |
+| Situação | Comportamento |
 | --- | --- |
-| 重建期间再次换代 | `invalidationVersion` 再 +1，reconcile 重新 retire + 建；门禁计时器重置 |
-| 发送进行中换代 | `promotionState === "pending"`，`dispose()` 不删会话；正式 session 由 cold-resume 负责 |
-| 切换 workspace | `invalidateDraftRuntime` 按 `workspacePath` / `workspaceIdentity` 定向，不影响其他 workspace |
-| 重建失败 / 超时 | 解除禁用，回落无预热发送路径；附件保持 `waitingSession` 直到下次有有效 session |
-| 旧会话清理失败 | 无碍——旧 session 已随 runtime 消失，`deleteCreatedSession` 的 catch 已忽略失败 |
+| Nova troca durante a reconstrução | `invalidationVersion` +1 de novo; o reconcile faz retire + criação novamente; o timer do gate é reiniciado |
+| Troca com envio em andamento | `promotionState === "pending"`; `dispose()` não apaga a sessão; a sessão formal é responsabilidade do cold-resume |
+| Troca de workspace | `invalidateDraftRuntime` é direcionado por `workspacePath` / `workspaceIdentity`, sem afetar os outros workspaces |
+| Falha / timeout na reconstrução | libera a desabilitação e retorna ao caminho de envio sem prewarm; os anexos permanecem em `waitingSession` até que haja uma sessão válida |
+| Falha na limpeza da sessão antiga | sem impacto — a sessão antiga já desapareceu junto com o runtime e o catch de `deleteCreatedSession` já ignora falhas |
 
-## 风险
+## Riscos
 
-- **重传可见性**：用户会看到附件进度条回到 0 并重传一次。属预期行为，需确保文案（`chat.attachments.upload.runtimeRestarted`）读起来不像错误。
-- **门禁误报**：若 `onRuntimeRestart` 在非草稿态误触发，会无谓禁用发送 5s。effect 内以 `sessionId === null` 收紧，并在测试中覆盖。
-- **本方案不消除回收本身**：CUA Helper 冷启动仍会回收 agent，用户仍会经历一次会话换代。彻底消除需要前述被推迟的两条替代方案之一。
+- **Visibilidade do reenvio**: o usuário verá a barra de progresso do anexo voltar a 0 e reenviar uma vez. É comportamento esperado; é preciso garantir que o texto (`chat.attachments.upload.runtimeRestarted`) não pareça um erro.
+- **Falso positivo no gate**: se `onRuntimeRestart` for disparado indevidamente em um estado que não é de rascunho, o envio ficaria desabilitado à toa por 5s. O effect é restringido com `sessionId === null` e isso é coberto em teste.
+- **Esta abordagem não elimina a reciclagem em si**: o cold start do CUA Helper ainda recicla o agent, e o usuário ainda passa por uma troca de sessão. Eliminá-la por completo exige uma das duas alternativas adiadas acima.

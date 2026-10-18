@@ -1,33 +1,33 @@
-# Windows 安装器改造 Spec
+# Spec da reformulação do instalador Windows
 
-## 目标
+## Objetivo
 
-本 spec 约束 Windows NSIS 覆盖安装的四个用户问题：
+Este spec restringe quatro problemas de usuário da instalação por sobrescrita com NSIS no Windows:
 
-1. managed 更新不得因为 NSIS 默认的全树清理而删除安装目录中的无关文件；无 manifest 的历史升级不在本轮保证范围内。
-2. 对本版本之后生成的、带 ownership manifest 的更新链路，磁盘不足、权限不足和文件清理失败必须显示真实阶段和原因，不能统一伪装成“ZCode 正在运行”。历史版本卸载器不纳入本轮兼容承诺。
-3. 安装器需要显示可核对的阶段步骤，并保留离线日志。
-4. 更新后开始菜单、桌面快捷方式和 Windows AUMID 必须保持一致；用户主动删除的快捷方式不能被偷偷重建。
+1. A atualização gerenciada não pode apagar arquivos não relacionados no diretório de instalação por causa da limpeza padrão de árvore completa do NSIS; upgrades históricos sem manifest não estão no escopo de garantia desta rodada.
+2. Para a cadeia de atualização com ownership manifest gerada após esta versão, falta de espaço em disco, falta de permissão e falha na limpeza de arquivos precisam mostrar a fase e a causa reais, e não podem ser disfarçados uniformemente como "o ZCode está em execução". O desinstalador das versões antigas não entra na promessa de compatibilidade desta rodada.
+3. O instalador precisa exibir etapas verificáveis e manter logs offline.
+4. Após a atualização, o menu Iniciar, os atalhos da área de trabalho e o Windows AUMID precisam permanecer consistentes; atalhos apagados pelo usuário não podem ser recriados às escondidas.
 
-## 范围与不变量
+## Escopo e invariantes
 
-- 继续使用 `electron-updater` 下载/校验，Windows 目标继续使用 NSIS；本轮不迁移到 Squirrel 或 MSIX。
-- 安装目录是应用文件的执行目录，不是数据目录；只有检测到上一版本没有 ownership manifest、仍可能被旧卸载器全量删除时，命中安装目录或其子目录的 `.zcode` 数据才阻断覆盖安装。支持 manifest 的新卸载器只删除声明文件，不再因为 `.zcode` 阻断。
-- 只允许删除当前版本明确声明为应用所有的文件；未知文件默认保留，冲突时以新版本应用文件为准。
-- manifest cleanup 必须拒绝绝对路径、`..` 越界和卸载器自身条目；交互式目录保护扫描的 reparse point/junction 加固与访问预算作为后续收敛项。
-- 安装器对已实现阶段尽力留下日志；日志写入失败不得阻断安装，日志不得记录完整原始命令行、用户数据内容或凭据。
-- 快捷方式只在“已存在但目标失效/不一致”时原位修复；不存在的快捷方式继续尊重用户删除行为。
-- 打包态主进程 AUMID 必须等于 electron-builder `appId`；开发态保留独立 AUMID。
-- macOS/Linux 不进入 Windows 安装交接分支；桌面 continuous 与手机 web-remote replayable 状态链路不互相扩散。
+- Continua-se usando `electron-updater` para download/verificação, e o alvo Windows continua sendo NSIS; esta rodada não migra para Squirrel nem MSIX.
+- O diretório de instalação é o diretório de execução dos arquivos do aplicativo, não o de dados; só quando se detecta que a versão anterior não tem ownership manifest e ainda pode ter todos os arquivos apagados pelo desinstalador antigo, os dados `.zcode` que atingem o diretório de instalação ou seus subdiretórios bloqueiam a instalação por sobrescrita. O novo desinstalador com suporte a manifest apaga apenas os arquivos declarados e não bloqueia mais por causa de `.zcode`.
+- Só é permitido apagar arquivos que a versão atual declare explicitamente como pertencentes ao aplicativo; arquivos desconhecidos são preservados por padrão e, em caso de conflito, prevalece o arquivo do aplicativo da nova versão.
+- O cleanup por manifest precisa rejeitar caminhos absolutos, travessia `..` e a própria entrada do desinstalador; o reforço contra reparse point/junction na varredura interativa de proteção de diretórios e o orçamento de acesso são itens de convergência posterior.
+- O instalador se esforça para deixar logs das fases já implementadas; falha na escrita do log não pode bloquear a instalação, e o log não pode registrar a linha de comando original completa, conteúdo de dados do usuário nem credenciais.
+- Atalhos só são reparados no lugar quando "existem, mas o destino está inválido/inconsistente"; atalhos inexistentes continuam respeitando o comportamento de exclusão do usuário.
+- O AUMID do processo principal no estado empacotado precisa ser igual ao `appId` do electron-builder; o estado de desenvolvimento mantém um AUMID próprio.
+- macOS/Linux não entram nos ramos de instalação do Windows; as cadeias de estado desktop continuous e web-remote replayable do celular não se espalham uma para a outra.
 
-## 版本边界与前向收敛
+## Fronteira de versão e convergência para a frente
 
-- `.zcode-install-manifest` 是新旧卸载器之间的能力标记，不要求比较数字版本。更新调用旧卸载器前，安装器先检查旧安装目录是否存在该文件：存在即按 manifest cleanup，不触发 `.zcode` 保护扫描；缺失即按 legacy full-cleanup 风险处理，先执行 `.zcode` 保护扫描。
-- 首次从没有 manifest 的历史版本升级时，继续使用 electron-builder 的旧卸载器流程属于已知限制：旧卸载器可能全量清理安装目录、使用原生重试文案，或无法返回可分类的错误原因。本轮不为这条路径增加备份、恢复、回滚或定制卸载器兼容层。
-- 用户在历史版本升级失败时，可以通过卸载重装或手动迁移文件完成升级；这不改变新版本之间更新的可靠性目标。
-- 每个后续版本只收敛当前版本仍能观测到的失败，不以一次性兼容所有历史安装状态为目标。新增保证必须以真实安装器/卸载器 smoke 覆盖后再写入本 spec。
+- `.zcode-install-manifest` é um marcador de capacidade entre o desinstalador antigo e o novo, e não exige comparar versões numéricas. Antes de chamar o desinstalador antigo, o instalador verifica se o diretório de instalação antigo tem esse arquivo: se existir, faz cleanup por manifest e não dispara a varredura de proteção de `.zcode`; se faltar, trata como risco de legacy full-cleanup e executa primeiro a varredura de proteção de `.zcode`.
+- No primeiro upgrade a partir de uma versão histórica sem manifest, continuar usando o fluxo antigo de desinstalador do electron-builder é uma limitação conhecida: o desinstalador antigo pode limpar todo o diretório de instalação, usar textos nativos de retry ou não conseguir retornar uma causa de erro classificável. Esta rodada não adiciona backup, restauração, rollback ou camada de compatibilidade de desinstalador para esse caminho.
+- Quando um upgrade a partir de uma versão histórica falha, o usuário pode concluir o upgrade desinstalando e reinstalando ou migrando arquivos manualmente; isso não altera o objetivo de confiabilidade das atualizações entre versões novas.
+- Cada versão posterior apenas converge as falhas que ainda podem ser observadas na versão atual, sem buscar compatibilizar de uma vez todos os estados de instalação históricos. Novas garantias só podem ser escritas neste spec depois de cobertas por um smoke test real de instalador/desinstalador.
 
-## 安装状态与时序
+## Estado de instalação e sequenciamento
 
 ```text
 update-downloaded
@@ -60,51 +60,51 @@ extract new files -> repair existing shortcuts -> write AUMID/notify Shell
 installer-completed (日志可查，完成页直接启动 `$INSTDIR\\ZCode.exe`)
 ```
 
-## 文件所有权与迁移
+## Propriedade de arquivos e migração
 
-### 新版本
+### Nova versão
 
-打包阶段生成安装器可读的 ownership manifest，记录相对于 `$INSTDIR` 的应用文件（目录不单独列出）。清单随安装包落盘，供下一次更新使用；不额外承诺文件系统事务或回滚。`customRemoveFiles` 只处理 manifest 中声明的条目；未知条目不删除。
+A fase de empacotamento gera um ownership manifest legível pelo instalador, registrando os arquivos do aplicativo relativos a `$INSTDIR` (diretórios não são listados separadamente). A lista é gravada em disco junto com o pacote de instalação, para uso na próxima atualização; não há promessa adicional de transação de sistema de arquivos nem de rollback. `customRemoveFiles` processa apenas as entradas declaradas no manifest; entradas desconhecidas não são apagadas.
 
-### 从旧版本升级（后续增量设计）
+### Upgrade a partir de uma versão antiga (design incremental posterior)
 
-旧版本没有 manifest 时，目标方案是在调用旧卸载器前把未能证明为应用所有的条目移入独立临时备份；新版本安装完成后只恢复新版本不存在的条目。备份目录不放在 `$PLUGINSDIR`，回滚失败时保留路径并写入日志。本轮尚未接管 electron-builder 外层的 `uninstallOldVersion` 调用，因此无法改变“第一次从无 manifest 版本升级”时旧卸载器的全树清理行为；当前实现对新版本之间的后续更新生效，详见《Windows 更新：安装目录文件保留规范》。
+Quando a versão antiga não tem manifest, o plano alvo é mover, antes de chamar o desinstalador antigo, para um backup temporário separado as entradas que não foi possível provar como pertencentes ao aplicativo; após a instalação da nova versão, restaura-se apenas as entradas que não existem na nova versão. O diretório de backup não fica em `$PLUGINSDIR`, e, se o rollback falhar, o caminho é preservado e registrado no log. Esta rodada ainda não assumiu a chamada `uninstallOldVersion` da camada externa do electron-builder e, portanto, não consegue mudar o comportamento de limpeza de árvore completa do desinstalador antigo no "primeiro upgrade a partir de uma versão sem manifest"; a implementação atual vale para atualizações subsequentes entre versões novas, conforme detalhado em 《Windows 更新：安装目录文件保留规范》.
 
-### 失败与回滚
+### Falhas e rollback
 
-- manifest cleanup 的 Delete 失败必须记录 cleanup 阶段、失败原因和卸载器 PID，并以非零退出码返回；未处理的文件保持原状。
-- 管理版本之间更新时，SHELL_CONTEXT 和 HKCU 路径的旧卸载器返回非零都由外层安装器显示清理失败信息；electron-builder 的交互式重试顺序属于当前已知行为，不在本轮改写模板。
-- 无 manifest 的历史卸载器不要求返回可分类错误，也不要求执行备份/恢复/回滚。
-- 解压、复制和目录保护的细粒度 Win32 错误链路作为后续收敛项；当前不得把它们写成已实现的强保证。
+- Uma falha de Delete no cleanup por manifest precisa registrar a fase de cleanup, o motivo da falha e o PID do desinstalador, e retornar com código de saída diferente de zero; arquivos não tratados permanecem como estão.
+- Em atualizações entre versões gerenciadas, um retorno não zero do desinstalador antigo tanto em SHELL_CONTEXT quanto em caminhos HKCU é exibido pelo instalador externo como mensagem de falha de limpeza; a ordem de retry interativo do electron-builder é um comportamento conhecido atual e não é reescrita nesta rodada.
+- O desinstalador histórico sem manifest não precisa retornar erros classificáveis nem executar backup/restauração/rollback.
+- A cadeia detalhada de erros Win32 de extração, cópia e proteção de diretórios é um item de convergência posterior; no momento não se pode escrever isso como uma garantia forte já implementada.
 
-## 诊断与步骤显示
+## Diagnóstico e exibição de etapas
 
-- 本版本交互安装器始终显示 Details 区域（覆盖 electron-builder 默认的 `nevershow`），并把安装段的 `SetDetailsPrint none` 改为 `listonly`。安装详情按顺序显示安装开始、清理阶段、解压阶段、逐项 NSIS `File` 条目、快捷方式阶段和完成收尾；进程启动、初始化事件发生在 `.onInit`，以文件日志为准。
-- 上一版本卸载器是独立进程，外层详情先显示 cleanup 开始/完成，进程返回后回放本次卸载器日志；当前版本卸载器会将 manifest 中实际尝试删除的相对路径逐项写入 `%TEMP%\\ZCode-uninstaller.log`。
-- 静默更新不显示 UI，但写 `%TEMP%\\ZCode-installer.log`；UAC 提权内层直接尝试写 `%WINDIR%\\Logs\\ZCode-installer.log`。当前没有“外层临时日志按权限复制到 Windir”的实现，日志不可写不应阻断安装。
-- 日志 marker 使用数字 PID 和阶段枚举，不写 `$CMDLINE`。当前已实现安装阶段为 `install-started`、`cleanup-started/completed`、`extract-started/completed`、`shortcuts-started/completed`、`install-finalization-started` 和 `install-completed`；managed cleanup 的失败分类限于 `permission-or-disk-space` 和旧卸载器返回非零，`reparse-point`、`extract` 的 Win32 错误码作为后续收敛项。
-- 交互式更新在旧卸载器返回非零时，可能先经过 electron-builder 内置的最多 5 次重试和 `appCannotBeClosed` 提示，取消后才进入本项目的准确清理错误提示；静默路径以退出码和日志为准。
-- 清理失败错误框带 `/SD IDOK`，交互模式显示提示，静默模式自动确认并返回退出码 `2`，不得阻塞无人值守更新。
+- O instalador interativo desta versão sempre exibe a área Details (substituindo o `nevershow` padrão do electron-builder) e muda o `SetDetailsPrint none` do trecho de instalação para `listonly`. Os detalhes da instalação exibem em ordem o início da instalação, a fase de limpeza, a fase de extração, cada entrada `File` do NSIS, a fase de atalhos e o fechamento final; o início do processo e os eventos de inicialização acontecem em `.onInit` e valem o log de arquivo.
+- O desinstalador da versão anterior é um processo separado: os detalhes externos exibem primeiro o início/conclusão do cleanup e, depois que o processo retorna, reproduzem o log deste desinstalador; o desinstalador da versão atual grava em `%TEMP%\\ZCode-uninstaller.log` os caminhos relativos que realmente tentou apagar a partir do manifest, item a item.
+- A atualização silenciosa não exibe UI, mas escreve `%TEMP%\\ZCode-installer.log`; a camada interna de elevação UAC tenta escrever diretamente em `%WINDIR%\\Logs\\ZCode-installer.log`. Hoje não existe implementação de "cópia do log temporário externo para o Windir conforme as permissões", e um log não gravável não deve bloquear a instalação.
+- Os markers do log usam PID numérico e enumeração de fases, e não escrevem `$CMDLINE`. As fases de instalação já implementadas são `install-started`, `cleanup-started/completed`, `extract-started/completed`, `shortcuts-started/completed`, `install-finalization-started` e `install-completed`; a classificação de falhas do cleanup gerenciado se limita a `permission-or-disk-space` e ao retorno não zero do desinstalador antigo, e os códigos de erro Win32 de `reparse-point` e `extract` são itens de convergência posterior.
+- Na atualização interativa, quando o desinstalador antigo retorna não zero, pode haver antes as até 5 tentativas embutidas do electron-builder e a mensagem `appCannotBeClosed`; só após o cancelamento entra o aviso preciso de erro de limpeza deste projeto. O caminho silencioso se orienta pelo código de saída e pelo log.
+- A caixa de erro de falha de limpeza traz `/SD IDOK`: no modo interativo exibe o aviso e, no modo silencioso, confirma automaticamente e retorna o código de saída `2`, sem bloquear atualizações não assistidas.
 
-## 快捷方式与 AUMID
+## Atalhos e AUMID
 
-- 开始菜单/桌面 `.lnk` 目标正确时原样保留（包括参数）。
-- 目标错误但 `.lnk` 存在时原位修复，随后设置稳定 AUMID 并发送 `SHChangeNotify(SHCNE_UPDATEITEM)`。
-- 用户删除的 `.lnk` 不重建；完成页直接启动新安装目录的 exe。
-- `app.setAppUserModelId()` 在打包态使用生产/Preview 对应 `appId`，开发态使用 `cn.aminer.zcode`。
+- Atalhos `.lnk` do menu Iniciar/Área de Trabalho cujo destino está correto são preservados como estão (inclusive os argumentos).
+- Quando o destino está errado mas o `.lnk` existe, ele é reparado no lugar e, em seguida, define-se o AUMID estável e envia-se `SHChangeNotify(SHCNE_UPDATEITEM)`.
+- Um `.lnk` apagado pelo usuário não é recriado; a página de conclusão inicia diretamente o exe do novo diretório de instalação.
+- `app.setAppUserModelId()` usa o `appId` correspondente a produção/Preview no estado empacotado e `cn.aminer.zcode` no estado de desenvolvimento.
 
-## 接受用例
+## Casos de aceite
 
-| Case | 场景 | 必须观察到 |
+| Case | Cenário | O que precisa ser observado |
 | --- | --- | --- |
-| WIN-INSTALL-OWNERSHIP-001 | 更新前存在 `notes.txt`/自定义目录 | 更新后文件仍在，应用文件完成替换 |
-| WIN-INSTALL-OWNERSHIP-002 | 旧版本无 manifest | 非本轮保证；允许旧卸载器沿用原生行为，后续只在有明确收益时增加迁移支持 |
-| WIN-INSTALL-DIAG-001 | managed cleanup 遇到锁定/权限/磁盘错误 | cleanup 日志有阶段、分类和数字 PID；外层返回非零并显示清理失败 |
-| WIN-INSTALL-DIAG-003 | 旧版本无 manifest 或解压阶段失败 | 非本轮细粒度诊断保证；保留原生安装器结果，后续按真实问题逐步收敛 |
-| WIN-INSTALL-DIAG-002 | 静默 `/S` 更新 | 无 UI 但有阶段日志，日志 PID 为数字且无原始命令行 |
-| WIN-INSTALL-SHORTCUT-001 | 正确/失效/被删除的快捷方式 | 正确项保留参数，失效项修复，删除项不重建 |
-| WIN-INSTALL-AUMID-001 | 生产与 Preview 打包运行 | 主进程 AUMID 与 NSIS `appId` 相等，可被 Shell 正确索引/固定 |
+| WIN-INSTALL-OWNERSHIP-001 | Existe `notes.txt`/diretório personalizado antes da atualização | O arquivo continua depois da atualização e os arquivos do aplicativo foram substituídos |
+| WIN-INSTALL-OWNERSHIP-002 | Versão antiga sem manifest | Fora do escopo desta rodada; permite que o desinstalador antigo mantenha o comportamento nativo, e suporte à migração só é adicionado depois quando houver benefício claro |
+| WIN-INSTALL-DIAG-001 | O cleanup gerenciado encontra bloqueio/permissão/erro de disco | O log de cleanup tem fase, classificação e PID numérico; a camada externa retorna não zero e exibe falha de limpeza |
+| WIN-INSTALL-DIAG-003 | Versão antiga sem manifest ou falha na fase de extração | Não é garantia de diagnóstico granular desta rodada; preserva-se o resultado do instalador nativo e a granularidade converge depois conforme os problemas reais |
+| WIN-INSTALL-DIAG-002 | Atualização silenciosa `/S` | Sem UI, mas com log de fases; o PID do log é numérico e sem linha de comando original |
+| WIN-INSTALL-SHORTCUT-001 | Atalhos corretos/inválidos/apagados | Os corretos preservam os argumentos, os inválidos são reparados e os apagados não são recriados |
+| WIN-INSTALL-AUMID-001 | Execução empacotada de produção e Preview | O AUMID do processo principal é igual ao `appId` do NSIS e pode ser indexado/pinado corretamente pelo Shell |
 
-## 本轮实现边界
+## Limites de implementação desta rodada
 
-本轮保证 ownership cleanup、安装详情中的阶段和解压文件列表、卸载器日志中的逐文件清理记录、快捷方式/AUMID 一致性，并用真实 NSIS smoke 覆盖。完整旧卸载器结果回传、electron-builder 外层重试模板替换、reparse-safe 目录扫描、解压 Win32 错误码、Windir 日志复制和跨版本 manifest 迁移均属于后续收敛项；不得把这些未实现能力写成当前版本保证。
+Esta rodada garante ownership cleanup, as fases e a lista de arquivos extraídos nos detalhes da instalação, o registro de limpeza arquivo a arquivo no log do desinstalador e a consistência de atalhos/AUMID, cobrindo tudo isso com um smoke NSIS real. O retorno completo do resultado do desinstalador antigo, a substituição do template de retry da camada externa do electron-builder, a varredura de diretórios reparse-safe, os códigos de erro Win32 de extração, a cópia do log para o Windir e a migração de manifest entre versões são itens de convergência posterior; essas capacidades ainda não implementadas não podem ser escritas como garantia da versão atual.

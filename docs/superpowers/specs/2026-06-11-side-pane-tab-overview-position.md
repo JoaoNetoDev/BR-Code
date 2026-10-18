@@ -1,24 +1,24 @@
 # Side Pane Tab Overview Entry Position
 
-## 背景
+## Contexto
 
-Side pane 的 tab 条已有一个用于搜索当前打开标签和最近关闭标签的 overview 入口。入口原本位于 tab 条右侧工具区，图标为搜索类图标，和“新增标签”按钮的视觉层级不够贴近 tab 导航本身。
+A barra de tabs do side pane já possuía uma entrada de overview para buscar as abas abertas e as abas fechadas recentemente. A entrada ficava na área de ferramentas à direita da barra de tabs, com um ícone do tipo busca, e não tinha proximidade visual suficiente com a navegação de abas em si, nem com o botão "Nova aba".
 
-## 目标
+## Objetivos
 
-- 将 tab overview 入口移动到 side pane tabs 的左侧，让它成为 tab 导航的前置入口。
-- 将入口图标改为 `ChevronsDownIcon`，表达“展开/查看标签列表”的语义。
-- 保持原有搜索、切换、关闭、恢复最近关闭 tab 的行为不变。
-- Tabs 横向溢出时，根据当前滚动位置只在仍可继续滚动的一侧显示渐变 mask。
+- Mover a entrada de tab overview para o lado esquerdo das abas do side pane, tornando-a uma entrada precedente da navegação de abas.
+- Trocar o ícone da entrada para `ChevronsDownIcon`, expressando a semântica de "expandir/ver a lista de abas".
+- Manter inalterados os comportamentos existentes de busca, troca, fechamento e restauração de abas fechadas recentemente.
+- Quando houver overflow horizontal de tabs, exibir a máscara em gradiente apenas no lado que ainda pode continuar rolando, conforme a posição atual de rolagem.
 
-## 非目标
+## Não objetivos
 
-- 不改变 side pane tab 的数据结构。
-- 不改变新增标签菜单的位置和可选项。
-- 不改变移动端 side pane 布局语义。
+- Não altera a estrutura de dados das abas do side pane.
+- Não altera a posição nem as opções do menu de nova aba.
+- Não altera a semântica de layout do side pane no mobile.
 
-## 验证
+## Verificação
 
-- TypeScript 类型检查通过。
-- lint 通过。
-- 入口仍使用 `sidePane.tabOverview` / `sidePane.searchTabs` 等现有国际化文案。
+- A verificação de tipos do TypeScript passa.
+- O lint passa.
+- A entrada continua usando os textos de internacionalização existentes, como `sidePane.tabOverview` / `sidePane.searchTabs`.

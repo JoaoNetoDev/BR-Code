@@ -1,25 +1,25 @@
-# Permission Waiting Telemetry Implementation Plan
+# Plano de Implementação da Telemetria de Espera por Permissão
 
-> 状态（2026-07-15）：已实施，本文保留为历史实施计划。当前字段契约以
-> `packages/ui/src/lib/messageTelemetry.ts`、`docs/monitoring/business-monitoring.md` 和
-> `docs/monitoring/performance-telemetry-catalog.md` 为准；下文旧 task-stream hook 路径仅供追溯。
+> Status (2026-07-15): implementado; este documento é mantido como plano histórico de implementação. O contrato atual dos campos está em
+> `packages/ui/src/lib/messageTelemetry.ts`, `docs/monitoring/business-monitoring.md` e
+> `docs/monitoring/performance-telemetry-catalog.md`; o caminho antigo de hook task-stream abaixo serve apenas para rastreabilidade.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes de trabalho:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:** Restore permission waiting aggregation for `message_completion` and expose the same per-tool waiting time on existing `agent_step` events without adding a new step type.
+**Objetivo:** restaurar a agregação de espera por permissão para `message_completion` e expor o mesmo tempo de espera por ferramenta nos eventos `agent_step` existentes, sem adicionar um novo tipo de passo.
 
-**Architecture:** Keep permission interval state inside `messageTelemetry.ts`, keyed by `requestId` and associated with `toolCallId`. Settle each interval exactly once on permission response, tool termination, or task termination, updating both the prompt aggregate and the matching active tool step.
+**Arquitetura:** manter o estado dos intervalos de permissão dentro de `messageTelemetry.ts`, indexado por `requestId` e associado a `toolCallId`. Encerrar cada intervalo exatamente uma vez na resposta de permissão, na terminação da ferramenta ou na terminação da tarefa, atualizando tanto o agregado do prompt quanto o passo de ferramenta ativo correspondente.
 
-**Tech Stack:** TypeScript, React hooks, Vitest, pnpm.
+**Stack tecnológico:** TypeScript, React hooks, Vitest, pnpm.
 
 ---
 
-### Task 1: Add failing telemetry state-machine tests
+### Tarefa 1: adicionar testes que falham para a máquina de estados da telemetria
 
-**Files:**
-- Modify: `packages/ui/test/messageTelemetry.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/test/messageTelemetry.test.ts`
 
-- [x] Add tests that start a tool step, open/close permission intervals, and assert:
+- [x] Adicionar testes que iniciam um passo de ferramenta, abrem/fecham intervalos de permissão e verificam:
 
 ```ts
 expect(toolStep.eventExtraDetail).toMatchObject({
@@ -32,51 +32,51 @@ expect(completion.eventExtraDetail).toMatchObject({
 });
 ```
 
-- [x] Cover multiple tool calls, repeated request/response, unmatched tools, and terminal settlement.
-- [x] Run `pnpm vitest run packages/ui/test/messageTelemetry.test.ts`.
-- [x] Confirm RED failures are caused by the missing request-scoped waiting API and missing `agent_step.waiting_ms`.
+- [x] Cobrir múltiplas chamadas de ferramenta, requisição/resposta repetidas, ferramentas sem correspondência e encerramento terminal.
+- [x] Executar `pnpm vitest run packages/ui/test/messageTelemetry.test.ts`.
+- [x] Confirmar que as falhas RED são causadas pela ausência da API de espera com escopo de requisição e da `agent_step.waiting_ms`.
 
-### Task 2: Implement request-scoped waiting aggregation
+### Tarefa 2: implementar a agregação de espera com escopo de requisição
 
-**Files:**
-- Modify: `packages/ui/src/lib/messageTelemetry.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/lib/messageTelemetry.ts`
 
-- [x] Replace the single `permissionRequestedAt` field with a `Map` keyed by `requestId`.
-- [x] Add `waitingMs` to `ActiveAgentStep`.
-- [x] Make permission request registration idempotent and resolve `toolCallId` from the event payload.
-- [x] Settle intervals on response, tool terminal events, and task terminal events.
-- [x] Add `waiting_ms` to every finalized `agent_step`; non-tool steps remain `"0"`.
-- [x] Keep both existing `duration_ms` formulas unchanged.
-- [x] Run the focused test and confirm GREEN.
+- [x] Substituir o campo único `permissionRequestedAt` por um `Map` indexado por `requestId`.
+- [x] Adicionar `waitingMs` a `ActiveAgentStep`.
+- [x] Tornar o registro da requisição de permissão idempotente e resolver `toolCallId` a partir do payload do evento.
+- [x] Encerrar os intervalos na resposta, nos eventos terminais de ferramenta e nos eventos terminais de tarefa.
+- [x] Adicionar `waiting_ms` a todo `agent_step` finalizado; passos que não são de ferramenta permanecem `"0"`.
+- [x] Manter inalteradas as duas fórmulas existentes de `duration_ms`.
+- [x] Executar o teste focado e confirmar GREEN.
 
-### Task 3: Wire desktop and remote response paths
+### Tarefa 3: conectar os caminhos de resposta desktop e remoto
 
-**Files:**
-- Modify: `packages/ui/src/hooks/taskStreamEventHandlers.ts`
-- Modify: `packages/ui/src/hooks/useChatTaskControlActions.ts`
-- Modify: `packages/ui/src/lib/zcodeTaskRuntimeMonitor.ts`
-- Test: relevant UI handler/runtime monitor tests when needed
+**Arquivos:**
+- Modificar: `packages/ui/src/hooks/taskStreamEventHandlers.ts`
+- Modificar: `packages/ui/src/hooks/useChatTaskControlActions.ts`
+- Modificar: `packages/ui/src/lib/zcodeTaskRuntimeMonitor.ts`
+- Testar: testes relevantes de handlers do runtime/UI quando necessário
 
-- [x] Register permission requests with their full stream event.
-- [x] Settle successful local responses after the service call returns.
-- [x] Settle stream `permission_response` events so another client can complete the interval.
-- [x] Apply the same idempotent calls in the background runtime monitor.
-- [x] Run focused UI tests.
+- [x] Registrar as requisições de permissão com seu evento de stream completo.
+- [x] Encerrar respostas locais bem-sucedidas depois que a chamada de serviço retorna.
+- [x] Encerrar eventos `permission_response` do stream para que outro cliente possa concluir o intervalo.
+- [x] Aplicar as mesmas chamadas idempotentes no monitor de runtime em segundo plano.
+- [x] Executar os testes focados da UI.
 
-### Task 4: Update telemetry documentation
+### Tarefa 4: atualizar a documentação de telemetria
 
-**Files:**
-- Modify: `docs/monitoring/business-monitoring.md`
-- Modify: `docs/monitoring/performance-telemetry-catalog.md`
+**Arquivos:**
+- Modificar: `docs/monitoring/business-monitoring.md`
+- Modificar: `docs/monitoring/performance-telemetry-catalog.md`
 
-- [x] Document that `duration_ms` is wall-clock time and includes permission waiting.
-- [x] Document `agent_step.waiting_ms` and message-level summation.
+- [x] Documentar que `duration_ms` é tempo de relógio de parede e inclui a espera por permissão.
+- [x] Documentar `agent_step.waiting_ms` e a soma em nível de mensagem.
 
-### Task 5: Verify and commit
+### Tarefa 5: verificar e commitar
 
-- [x] Run `pnpm vitest run packages/ui/test/messageTelemetry.test.ts`.
-- [x] Run `pnpm typecheck`.
-- [x] Run `pnpm lint`.
-- [x] Run `git diff --check`.
-- [x] Review the diff against all cases in the design spec.
-- [ ] Commit with a Conventional Commit message.
+- [x] Executar `pnpm vitest run packages/ui/test/messageTelemetry.test.ts`.
+- [x] Executar `pnpm typecheck`.
+- [x] Executar `pnpm lint`.
+- [x] Executar `git diff --check`.
+- [x] Revisar o diff contra todos os casos da spec de design.
+- [ ] Commitar com uma mensagem de Conventional Commit.

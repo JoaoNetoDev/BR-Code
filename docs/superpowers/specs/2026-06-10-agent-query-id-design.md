@@ -1,26 +1,26 @@
-# Agent Query ID 设计
+# Design do Agent Query ID
 
-## 背景
+## Contexto
 
-`sessionId` 标识一整个会话，`traceId` 标识技术观测链路，`inputId` 主要用于 UI stop、队列和终态收口。模型请求还缺少一个面向用户语义的归因字段：从一条真实用户输入被消费开始，到下一条真实用户输入被消费前，中间所有模型请求都应该归属到同一个 query。
+`sessionId` identifica uma sessão inteira, `traceId` identifica a cadeia técnica de observabilidade e `inputId` é usado principalmente para o stop da UI, a fila e o fechamento de estado final. As requisições de modelo ainda carecem de um campo de atribuição com semântica de usuário: desde o consumo de uma entrada real do usuário até o consumo da próxima entrada real do usuário, todas as requisições de modelo intermediárias deveriam pertencer à mesma query.
 
-## 目标
+## Objetivo
 
-- 新增 `queryId`，表示“一条真实用户输入”的生命周期。
-- 普通 prompt、queued prompt drain、turn steer 都必须带 queryId。
-- 一条用户输入触发的多次模型请求、tool loop 后续请求、stream retry 继续沿用同一个 queryId。
-- 模型 adapter 层在 `generateText` 和 `streamText` 请求 header 中写入 `x-query-id`。
-- 旧调用没有 queryId 时，agent 侧回落到 `inputId`，避免历史客户端丢失主路径归因。
+- adicionar `queryId`, que representa o ciclo de vida de "uma entrada real do usuário".
+- prompt normal, drained de queued prompt e turn steer devem carregar queryId.
+- múltiplas requisições de modelo disparadas por uma entrada do usuário, requisições seguintes do tool loop e stream retry continuam usando o mesmo queryId.
+- a camada de adapter de modelo grava `x-query-id` no header das requisições de `generateText` e `streamText`.
+- quando chamadas antigas não têm queryId, o lado do agent faz fallback para `inputId`, evitando que clientes históricos percam a atribuição no caminho principal.
 
-## 非目标
+## Não objetivos
 
-- 不把 `queryId` 替代 `traceId`、`sessionId` 或 `inputId`。
-- 不改变 UI 终态收口、stop 路由和 task owner command 的 `inputId` 语义。
-- 不为纯辅助请求伪造新的用户 query。标题、压缩、goal verifier 等辅助模型请求只继承已有 traceContext 上的 queryId；没有真实用户 query 时可以为空。
+- não substituir `traceId`, `sessionId` ou `inputId` por `queryId`.
+- não alterar a semântica de `inputId` no fechamento de estado final da UI, no roteamento do stop e no task owner command.
+- não fabricar uma nova query de usuário para requisições puramente auxiliares. Requisições de modelo auxiliares como título, compactação e goal verifier apenas herdam o queryId já presente no traceContext; podem ficar vazias quando não há query real de usuário.
 
-## 语义
+## Semântica
 
-一条真实用户输入创建一个 queryId：
+Uma entrada real do usuário cria um queryId:
 
 ```text
 user message/query A
@@ -29,32 +29,32 @@ user message/query A
   -> tool results
   -> model request 2, x-query-id=A
   -> retry/recovery request, x-query-id=A
-until next consumed user message/query B
+até a próxima user message/query B consumida
 ```
 
-steer 是新的真实用户输入。它不是修改正在运行的模型请求，而是在 tool result 之后、下一次 model request 之前注入新的 user message。每条 steer 必须拥有自己的 queryId。
+Um steer é uma nova entrada real do usuário. Ele não modifica a requisição de modelo em andamento, e sim injeta uma nova user message depois do tool result e antes da próxima model request. Cada steer deve ter seu próprio queryId.
 
-## 传播规则
+## Regras de propagação
 
-- UI 创建普通输入时同时创建 `inputId` 和 `queryId`。
-- renderer-local queued prompt 保存 queryId，真正 drain 时继续使用原 queryId。
-- web remote replayable host command queue 保存 queryId，owner host 真正发送时继续使用原 queryId。
-- `session/send` 和 `session/steer` 协议参数新增可选 `queryId`，主路径调用必须传。
-- agent runtime 在 `executeTurn` 创建 turn traceContext 时写入 queryId。
-- `steerTurn` 把 queryId 保存到 pending input；drain 时把下一次 model request 的 traceContext 切到该 queryId。
-- model adapter 从 request traceContext/metadata 读取 queryId，并写入 `x-query-id`。
+- ao criar uma entrada normal, a UI cria `inputId` e `queryId` juntos.
+- o queued prompt local do renderer guarda o queryId e continua usando o queryId original no momento do drain.
+- a fila de host commands do web remote replayable guarda o queryId e o host owner continua usando o queryId original quando realmente envia.
+- os parâmetros de protocolo `session/send` e `session/steer` ganham um `queryId` opcional, obrigatório nas chamadas do caminho principal.
+- o agent runtime grava o queryId ao criar o traceContext do turn em `executeTurn`.
+- `steerTurn` salva o queryId no input pendente; no drain, o traceContext da próxima model request é trocado para esse queryId.
+- o model adapter lê o queryId do traceContext/metadata da requisição e grava `x-query-id`.
 
-## 兼容
+## Compatibilidade
 
-协议字段保持可选，原因是旧客户端、辅助请求和历史测试路径可能暂时没有 queryId。兼容策略：
+O campo de protocolo permanece opcional porque clientes antigos, requisições auxiliares e caminhos de teste históricos podem temporariamente não ter queryId. Estratégia de compatibilidade:
 
-- `session/send`：`queryId ?? inputId`。
-- `session/steer`：`queryId ?? inputId`。
-- adapter：只有 status context 中存在 queryId 时才写 `x-query-id`。
+- `session/send`: `queryId ?? inputId`.
+- `session/steer`: `queryId ?? inputId`.
+- adapter: grava `x-query-id` somente quando existe queryId no status context.
 
 ## Edge Cases
 
-- 多条 steer 连续到达：每条 steer 是独立 query，不能合并成一个 queryId。
-- steer 已经 drained：queryId 已进入模型请求，不能按“撤回 pending 输入”的语义撤回。
-- steer 仍在 pending queue：未来可按 `pendingInputId/queryId` 增加撤回协议。
-- tool call 和 tool result 中间不能插 user message；steer 只能在 tool result 之后、下一次模型请求之前注入。
+- múltiplos steers chegando em sequência: cada steer é uma query independente e não pode ser combinado em um único queryId.
+- steer já drenado: o queryId já entrou na requisição de modelo e não pode ser desfeito com a semântica de "retirar o input pendente".
+- steer ainda na fila pendente: no futuro pode ser adicionado um protocolo de retirada por `pendingInputId/queryId`.
+- não é possível inserir uma user message entre uma tool call e seu tool result; o steer só pode ser injetado depois do tool result e antes da próxima requisição de modelo.

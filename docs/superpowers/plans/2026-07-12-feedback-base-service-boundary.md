@@ -1,35 +1,35 @@
-# Feedback Base Service Boundary Implementation Plan
+# Plano de Implementação do Limite do Serviço Base de Feedback
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes de trabalho:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. As etapas usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:** Keep feedback submission available when an SSH workspace session is connecting or disconnected by wiring `FeedbackHost` to the renderer's base feedback service.
+**Objetivo:** Manter o envio de feedback disponível quando uma sessão de workspace SSH está conectando ou desconectada, ligando `FeedbackHost` ao serviço base de feedback do renderizador.
 
-**Architecture:** `Root` remains the authority for the startup/base `IServiceAccessor` and passes its `feedbackService` explicitly through `RootWorkspaceContent` into `App`. Workspace-scoped services continue to drive file, task, terminal, Git, Agent, and session behavior; the disconnected remote proxy remains unchanged.
+**Arquitetura:** `Root` permanece como a autoridade para o `IServiceAccessor` de inicialização/base e passa seu `feedbackService` explicitamente, através de `RootWorkspaceContent`, para `App`. Os serviços de escopo de workspace continuam dirigindo o comportamento de arquivos, tarefas, terminal, Git, Agente e sessão; o proxy remoto desconectado permanece inalterado.
 
-**Tech Stack:** TypeScript, React, Vitest, Electron renderer service accessors.
+**Pilha Tecnológica:** TypeScript, React, Vitest, acessores de serviço do renderizador do Electron.
 
-## Global Constraints
+## Restrições Globais
 
-- Update the spec before implementation; the approved design is `docs/superpowers/specs/2026-07-12-feedback-base-service-boundary-design.md`.
-- Do not modify the `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` proxy or allow remote workspace calls to fall back to local file/task services.
-- Preserve desktop `desktop-continuous` and mobile `web-remote-replayable` boundaries.
-- Keep Web remote feedback unsupported; pass through the feedback service already supplied by the Web root accessor.
-- Preserve macOS, Windows, Linux, light/dark themes, and internationalization behavior; this change introduces no visual or copy changes.
-- Bug-cause comments must be written in Chinese.
-- Run `pnpm typecheck` and `pnpm lint` before completion.
+- Atualize a especificação antes da implementação; o design aprovado é `docs/superpowers/specs/2026-07-12-feedback-base-service-boundary-design.md`.
+- Não modifique o proxy `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` nem permita que chamadas do workspace remoto caiam para serviços locais de arquivo/tarefa.
+- Preserve os limites desktop `desktop-continuous` e mobile `web-remote-replayable`.
+- Mantenha o feedback remoto do Web sem suporte; repasse o serviço de feedback já fornecido pelo accessor raiz do Web.
+- Preserve macOS, Windows, Linux, temas claro/escuro e o comportamento de internacionalização; esta mudança não introduz alterações visuais ou de texto.
+- Comentários sobre a causa do bug devem ser escritos em chinês.
+- Execute `pnpm typecheck` e `pnpm lint` antes de concluir.
 
 ---
 
-### Task 1: Lock the feedback service wiring with a regression test
+### Tarefa 1: Travar a ligação do serviço de feedback com um teste de regressão
 
-**Files:**
-- Create: `packages/ui/test/feedbackBaseServiceBoundary.test.ts`
+**Arquivos:**
+- Criar: `packages/ui/test/feedbackBaseServiceBoundary.test.ts`
 
 **Interfaces:**
-- Consumes: `RootProps.services: IServiceAccessor`, `RootWorkspaceContent`, `App`, and `FeedbackHost`.
-- Produces: a source-level boundary guard that fails until the base feedback service is passed independently of workspace-scoped services.
+- Consome: `RootProps.services: IServiceAccessor`, `RootWorkspaceContent`, `App` e `FeedbackHost`.
+- Produz: uma guarda de limite em nível de código-fonte que falha até que o serviço base de feedback seja passado independentemente dos serviços de escopo de workspace.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Passo 1: Escrever o teste que falha**
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -63,28 +63,28 @@ describe("feedback base service boundary", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails for the current bug**
+- [ ] **Passo 2: Executar o teste para verificar que ele falha para o bug atual**
 
-Run: `pnpm exec vitest run packages/ui/test/feedbackBaseServiceBoundary.test.ts --reporter=dot`
+Executar: `pnpm exec vitest run packages/ui/test/feedbackBaseServiceBoundary.test.ts --reporter=dot`
 
-Expected: FAIL because `Root` does not yet pass `baseFeedbackService` and `App` still renders `FeedbackHost` with `services?.feedbackService`.
+Esperado: FALHA porque `Root` ainda não passa `baseFeedbackService` e `App` ainda renderiza `FeedbackHost` com `services?.feedbackService`.
 
-### Task 2: Explicitly inject the base feedback service
+### Tarefa 2: Injetar explicitamente o serviço base de feedback
 
-**Files:**
-- Modify: `packages/ui/src/app-shell/types.ts`
-- Modify: `packages/ui/src/root/RootWorkspaceContent.tsx`
-- Modify: `packages/ui/src/Root.tsx`
-- Modify: `packages/ui/src/App.tsx`
-- Test: `packages/ui/test/feedbackBaseServiceBoundary.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/app-shell/types.ts`
+- Modificar: `packages/ui/src/root/RootWorkspaceContent.tsx`
+- Modificar: `packages/ui/src/Root.tsx`
+- Modificar: `packages/ui/src/App.tsx`
+- Teste: `packages/ui/test/feedbackBaseServiceBoundary.test.ts`
 
 **Interfaces:**
-- Consumes: `IFeedbackService` from `@zcode/services` and `RootProps.services.feedbackService`.
-- Produces: required `AppProps.baseFeedbackService: IFeedbackService`; `WorkspaceShellLayoutProps` excludes that application-level dependency.
+- Consome: `IFeedbackService` de `@zcode/services` e `RootProps.services.feedbackService`.
+- Produz: `AppProps.baseFeedbackService: IFeedbackService` obrigatório; `WorkspaceShellLayoutProps` exclui essa dependência de nível de aplicação.
 
-- [ ] **Step 1: Add the typed application-level dependency**
+- [ ] **Passo 1: Adicionar a dependência tipada de nível de aplicação**
 
-Change the service type import and props in `packages/ui/src/app-shell/types.ts`:
+Altere a importação de tipo do serviço e as props em `packages/ui/src/app-shell/types.ts`:
 
 ```ts
 import type { IFeedbackService, IServiceAccessor } from "@zcode/services";
@@ -98,11 +98,11 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
 }
 ```
 
-Insert `baseFeedbackService` immediately after `services`. Replace only the `extends AppProps` clause on `WorkspaceShellLayoutProps`; do not copy or remove its current members.
+Insira `baseFeedbackService` imediatamente após `services`. Substitua apenas a cláusula `extends AppProps` em `WorkspaceShellLayoutProps`; não copie nem remova seus membros atuais.
 
-- [ ] **Step 2: Thread the dependency through `RootWorkspaceContent`**
+- [ ] **Passo 2: Passar a dependência através de `RootWorkspaceContent`**
 
-Update the type import, prop declaration, destructuring, and `StableWorkspaceApp` invocation in `packages/ui/src/root/RootWorkspaceContent.tsx`:
+Atualize a importação de tipo, a declaração de props, a desestruturação e a invocação de `StableWorkspaceApp` em `packages/ui/src/root/RootWorkspaceContent.tsx`:
 
 ```ts
 import type { IFeedbackService, IServiceAccessor } from "@zcode/services";
@@ -124,11 +124,11 @@ export function RootWorkspaceContent({
 />
 ```
 
-Add the interface member after `workspaceScopedServices`, add the destructured parameter after the same field, and add the JSX prop immediately after `services`. Preserve all other current parameters and JSX props.
+Adicione o membro da interface após `workspaceScopedServices`, adicione o parâmetro desestruturado após o mesmo campo e adicione a prop JSX imediatamente após `services`. Preserve todos os outros parâmetros e props JSX atuais.
 
-- [ ] **Step 3: Pass the startup/base service from `Root`**
+- [ ] **Passo 3: Passar o serviço de inicialização/base a partir de `Root`**
 
-Add the prop at the existing `RootWorkspaceContent` call in `packages/ui/src/Root.tsx`:
+Adicione a prop na chamada existente de `RootWorkspaceContent` em `packages/ui/src/Root.tsx`:
 
 ```tsx
 <RootWorkspaceContent
@@ -137,11 +137,11 @@ Add the prop at the existing `RootWorkspaceContent` call in `packages/ui/src/Roo
 />
 ```
 
-Insert the new prop immediately after `workspaceScopedServices`; preserve the remaining call-site props.
+Insira a nova prop imediatamente após `workspaceScopedServices`; preserve as demais props do local de chamada.
 
-- [ ] **Step 4: Make `FeedbackHost` use only the explicit base dependency**
+- [ ] **Passo 4: Fazer `FeedbackHost` usar apenas a dependência base explícita**
 
-Update `App` destructuring and the feedback host in `packages/ui/src/App.tsx`:
+Atualize a desestruturação de `App` e o host de feedback em `packages/ui/src/App.tsx`:
 
 ```tsx
 export function App({
@@ -158,56 +158,56 @@ export function App({
 }
 ```
 
-Add the destructured prop after `services`. Replace the current one-line `FeedbackHost` expression with the Chinese cause comment and the new expression; preserve the surrounding command center and workspace shell JSX.
+Adicione a prop desestruturada após `services`. Substitua a expressão de uma linha atual do `FeedbackHost` pelo comentário de causa em chinês e pela nova expressão; preserve o JSX circundante do command center e do workspace shell.
 
-- [ ] **Step 5: Run the focused test to verify it passes**
+- [ ] **Passo 5: Executar o teste focado para verificar que ele passa**
 
-Run: `pnpm exec vitest run packages/ui/test/feedbackBaseServiceBoundary.test.ts --reporter=dot`
+Executar: `pnpm exec vitest run packages/ui/test/feedbackBaseServiceBoundary.test.ts --reporter=dot`
 
-Expected: PASS with 1 test passed.
+Esperado: PASSA com 1 teste aprovado.
 
-- [ ] **Step 6: Run related feedback and workspace service tests**
+- [ ] **Passo 6: Executar os testes relacionados de feedback e de serviços de workspace**
 
-Run: `pnpm exec vitest run packages/ui/test/feedbackSubmitForm.test.ts packages/ui/test/feedbackCenter.test.ts packages/ui/test/useWorkspaceServices.test.ts --reporter=dot`
+Executar: `pnpm exec vitest run packages/ui/test/feedbackSubmitForm.test.ts packages/ui/test/feedbackCenter.test.ts packages/ui/test/useWorkspaceServices.test.ts --reporter=dot`
 
-Expected: PASS with no failures. This verifies existing feedback submission behavior and confirms the remote disconnected proxy remains protected.
+Esperado: PASSA sem falhas. Isso verifica o comportamento existente de envio de feedback e confirma que o proxy remoto desconectado permanece protegido.
 
-- [ ] **Step 7: Commit the implementation**
+- [ ] **Passo 7: Fazer o commit da implementação**
 
 ```bash
 git add packages/ui/src/app-shell/types.ts packages/ui/src/root/RootWorkspaceContent.tsx packages/ui/src/Root.tsx packages/ui/src/App.tsx packages/ui/test/feedbackBaseServiceBoundary.test.ts
 git commit -m "fix(feedback): keep submissions on base service"
 ```
 
-### Task 3: Complete repository verification
+### Tarefa 3: Concluir a verificação do repositório
 
-**Files:**
-- Verify only; no production files should change.
+**Arquivos:**
+- Apenas verificação; nenhum arquivo de produção deve mudar.
 
 **Interfaces:**
-- Consumes: the implementation commit from Task 2.
-- Produces: fresh test, typecheck, lint, and diff evidence for handoff.
+- Consome: o commit de implementação da Tarefa 2.
+- Produz: evidências frescas de teste, typecheck, lint e diff para o handoff.
 
-- [ ] **Step 1: Run the focused regression test again**
+- [ ] **Passo 1: Executar novamente o teste de regressão focado**
 
-Run: `pnpm exec vitest run packages/ui/test/feedbackBaseServiceBoundary.test.ts --reporter=dot`
+Executar: `pnpm exec vitest run packages/ui/test/feedbackBaseServiceBoundary.test.ts --reporter=dot`
 
-Expected: PASS with 1 test passed.
+Esperado: PASSA com 1 teste aprovado.
 
-- [ ] **Step 2: Run TypeScript project checks**
+- [ ] **Passo 2: Executar as verificações de projeto do TypeScript**
 
-Run: `pnpm typecheck`
+Executar: `pnpm typecheck`
 
-Expected: exit code 0 with no TypeScript errors.
+Esperado: código de saída 0 sem erros de TypeScript.
 
-- [ ] **Step 3: Run lint**
+- [ ] **Passo 3: Executar o lint**
 
-Run: `pnpm lint`
+Executar: `pnpm lint`
 
-Expected: exit code 0 with no lint errors.
+Esperado: código de saída 0 sem erros de lint.
 
-- [ ] **Step 4: Inspect the final change set**
+- [ ] **Passo 4: Inspecionar o conjunto final de alterações**
 
-Run: `git status --short && git log -3 --oneline && git show --stat --oneline HEAD`
+Executar: `git status --short && git log -3 --oneline && git show --stat --oneline HEAD`
 
-Expected: clean worktree; the latest implementation commit contains only the four UI source files and the regression test, while the preceding documentation commits contain the approved spec and this plan.
+Esperado: árvore de trabalho limpa; o último commit de implementação contém apenas os quatro arquivos de origem da UI e o teste de regressão, enquanto os commits de documentação anteriores contêm a especificação aprovada e este plano.

@@ -1,77 +1,77 @@
-# 开发环境常见问题解决方案
+# Soluções para Problemas Comuns do Ambiente de Desenvolvimento
 
-## 问题：Vite 内存分配失败
+## Problema: falha na alocação de memória do Vite
 
 ```
 [vite] memory allocation of 668992 bytes failed
 ```
 
-### 解决方案 1：增加 Node.js 内存限制（推荐）
+### Solução 1: aumentar o limite de memória do Node.js (recomendado)
 
-在 Windows PowerShell 中运行：
+Execute no PowerShell do Windows:
 
 ```powershell
 $env:NODE_OPTIONS="--max-old-space-size=4096"
 pnpm run dev:desktop
 ```
 
-或者在 CMD 中运行：
+Ou execute no CMD:
 
 ```cmd
 set NODE_OPTIONS=--max-old-space-size=4096
 pnpm run dev:desktop
 ```
 
-### 解决方案 2：清理缓存
+### Solução 2: limpar o cache
 
 ```bash
-# 清理 Vite 缓存
+# limpar o cache do Vite
 cd packages/desktop
 rm -rf node_modules/.vite
 rm -rf .vite
 
-# 清理项目级缓存
+# limpar o cache de nível de projeto
 cd ../..
 rm -rf node_modules/.cache
 
-# 然后重新启动
+# depois reiniciar
 pnpm run dev:desktop
 ```
 
-### 解决方案 3：重启终端
+### Solução 3: reiniciar o terminal
 
-有时关闭当前终端窗口，打开新终端可以解决问题。
+Às vezes, fechar a janela atual do terminal e abrir um novo terminal resolve o problema.
 
-## 问题：类型错误
+## Problema: erros de tipo
 
-如果看到类型错误，先尝试：
+Se aparecer um erro de tipo, tente primeiro:
 
 ```bash
-# 重新构建依赖的包
+# reconstruir os pacotes dependentes
 pnpm run build
 
-# 或只构建 shared 包
+# ou reconstruir apenas o pacote shared
 cd packages/shared
 pnpm run build
 ```
 
-## 已迁移的功能
+## Funcionalidades já migradas
 
-我们已经成功迁移了以下功能的核心架构：
+A arquitetura central das seguintes funcionalidades já foi migrada com sucesso:
 
-- ✅ Hooks 服务和 Store
-- ✅ Memory 服务和 Store
-- ✅ OutputStyle 服务和 Store
+- ✅ Serviço e Store de Hooks
+- ✅ Serviço e Store de Memory
+- ✅ Serviço e Store de OutputStyle
 
-### 配置文件位置
+### Local dos arquivos de configuração
 
 - Hooks: `<workspace>/.claude/settings.json`
 - Memory: `<workspace>/MEMORY.md`
 - OutputStyle: `~/.claude/output-styles/`
 
-### 后续工作
+### Trabalhos seguintes
 
-剩余工作主要是：
-1. UI 组件迁移
-2. 服务实例注册
-3. 集成测试
+O trabalho restante é principalmente:
+1. Migração de componentes de UI
+2. Registro de instâncias de serviço
+3. Testes de integração

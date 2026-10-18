@@ -1,32 +1,32 @@
-# Slash Command Leading Dunhao Alias
+# Alias de vírgula ideográfica como primeiro caractere de slash command
 
-## 背景
+## Contexto
 
-中文输入法下，用户想在聊天输入框第一位输入 `/` 唤起 slash command 时，可能会打出中文顿号 `、`。如果直接把 `、` 纳入 slash command 匹配，会扩大命令解析边界，也容易影响正常中文标点输入。
+Com um método de entrada em Mandarin ativo, quando o usuário quer digitar `/` como primeiro caractere no campo de entrada do chat para invocar um slash command, pode acabar digitando a vírgula ideográfica `、`. Se `、` for incluído diretamente na correspondência de slash command, a fronteira de parsing de comandos é ampliada e a entrada normal de pontuação em chinês acaba sendo afetada.
 
-## 目标
+## Objetivos
 
-- 仅在聊天输入框中处理用户手输的首字符 `、`。
-- 当 `、` 会成为输入框全文第一个字符时，立即替换成 ASCII `/`。
-- 替换后继续复用现有 `/` slash command 面板、过滤、mention 插入和发送解析逻辑。
-- 不全局替换正文里的顿号，不处理粘贴或程序预填内容。
+- Tratar apenas o `、` digitado manualmente pelo usuário como primeiro caractere no campo de entrada do chat.
+- Quando `、` for tornar-se o primeiro caractere do texto inteiro do campo de entrada, substituí-lo imediatamente por `/` em ASCII.
+- Após a substituição, continuar reutilizando o painel de slash command `/` existente, o filtro, a inserção de mention e a lógica de parsing de envio.
+- Não substituir globalmente as vírgulas ideográficas do corpo do texto e não tratar colagem ou conteúdo pré-preenchido pelo programa.
 
-## 边界
+## Limites
 
-- 只处理浏览器 `beforeinput` 里的 `inputType === "insertText"` 且 `data === "、"` 的真实输入。
-- 光标不在编辑器全文开头时不替换，例如 `你好、` 保持原样。
-- 粘贴 `、goal`、历史草稿恢复、外部预填等程序化内容不替换。
-- slash command 的匹配和执行仍只识别标准 `/`，本功能只在输入进入编辑器前做一次纠正。
+- Apenas entradas reais com `inputType === "insertText"` e `data === "、"` no `beforeinput` do navegador são tratadas.
+- Não há substituição quando o cursor não está no início do texto inteiro do editor; por exemplo, `你好、` permanece como está.
+- Conteúdo programático, como colar `、goal`, restauração de rascunho histórico ou preenchimento externo, não é substituído.
+- A correspondência e a execução de slash commands continuam reconhecendo apenas o `/` padrão; esta funcionalidade faz uma única correção antes de a entrada entrar no editor.
 
-## 兼容性
+## Compatibilidade
 
-- 逻辑位于 `packages/ui` 的 Lexical 输入层，桌面端、本地 Web 和手机远控复用同一输入组件。
-- 不修改 `@zcode/protocol`，不影响 agent、session、continuous/replayable 消息流或远控 task command queue。
+- A lógica fica na camada de entrada Lexical de `packages/ui`; o desktop, a Web local e o controle remoto do celular reutilizam o mesmo componente de entrada.
+- Não modifica `@zcode/protocol` nem afeta agent, session, fluxo de mensagens continuous/replayable ou a task command queue do controle remoto.
 
-## 验收
+## Aceitação
 
-- 空输入框手输 `、` 后，输入内容变成 `/` 并自然唤起 slash command 面板。
-- 光标在已有内容开头手输 `、` 时，首字符被纠正成 `/`。
-- 光标不在全文开头时手输 `、` 不会被替换。
-- 粘贴或程序写入 `、goal` 不会被替换。
-- 原有 `/` slash command 行为保持不变。
+- Com o campo de entrada vazio, ao digitar `、` manualmente, o conteúdo passa a ser `/` e o painel de slash command é invocado naturalmente.
+- Com o cursor no início de um conteúdo existente, ao digitar `、` manualmente, o primeiro caractere é corrigido para `/`.
+- Com o cursor fora do início do texto inteiro, ao digitar `、` manualmente, nada é substituído.
+- Colar ou escrever programaticamente `、goal` não é substituído.
+- O comportamento original de slash command com `/` permanece inalterado.

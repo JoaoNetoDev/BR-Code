@@ -1,63 +1,63 @@
-# Todo 102：Provider / Selection 遗留验证与失败统一收口
+# Todo 102: Fechamento Unificado da Verificação Residual e das Falhas de Provider / Selection
 
-> 状态：待执行；2026-09-09 更新。本轮 Provider / Selection 所有残余欠测、既有失败及 pending 人工晋级的唯一入口；其他已批准开发 Todo 均收尾，不再独立挂验证事项。本次仅更新归属，不运行新验收或修改产品代码。
-> 用户裁决：建立一个欠测 Todo，关闭旧的分散验证入口；已有通过证据保留，未测、失败和人工晋级分别记账。
+> Status: pendente de execução; atualizado em 2026-09-09. Esta rodada é a única entrada para todo o teste devedor residual, as falhas existentes e as promoções manuais pendentes de Provider / Selection; os demais Todo de desenvolvimento já aprovados são encerrados e não mantêm mais itens de verificação separados. Desta vez apenas a atribuição é atualizada, sem executar novas aceitações nem modificar o código de produto.
+> Decisão do usuário: criar um Todo de teste devedor e fechar as entradas antigas e dispersas de verificação; evidências já aprovadas são preservadas, e itens não testados, com falha e promovidos manualmente são contabilizados separadamente.
 
-## 1. 唯一执行入口与范围
+## 1. Entrada Única de Execução e Escopo
 
-Todo52、57、64、78 的独立验证排期关闭；其他已实施 Todo 内的残余验证也只在本表推进。关闭表示转交，不表示原失败变为通过。旧文档保留历史结果和产物地址，发生矛盾时以本表及后续追加的证据为准。
+A programação de verificação independente dos Todo52, 57, 64 e 78 é encerrada; a verificação residual dentro de outros Todo já implementados também avança apenas nesta tabela. Encerrar significa transferir, e não significa que a falha original passou. Os documentos antigos preservam resultados históricos e endereços de artefatos; em caso de contradição, valem esta tabela e as evidências acrescentadas depois.
 
-- 接管 Todo34/40/58/60/62/68–79/83–100 中与本轮 Provider/Selection 有关的全部残余验证；不重新执行所有已通过场景，不接管全产品测试 backlog。
-- Todo95C、97 Wiki 迁移、98 排版及获批键盘隔离小修均已完成开发、逐项复审及本轮验收，原开发入口关闭。真实多端、pending 晋级等后续验证只在本表登记，不在原 Todo 重复挂账。
-- Todo11/22/45/80/86 及 Todo101、独立 CLI 账号装配不在本轮实施范围；不恢复已废弃 Todo15/19。
-- Web 发布继续由用户处理；W99-E05 保持用户明确延期。没有同版本页面不重复询问、不拿桌面结果替代。
-- 95C 不考虑未上线 Personal 配置兼容的裁决已经明确，不再作为待用户回答的阻塞；旧 Selection 最佳努力映射要求仍有效。
+- Assume toda a verificação residual relacionada a esta rodada de Provider/Selection nos Todo34/40/58/60/62/68–79/83–100; não reexecuta todos os cenários já aprovados e não assume o backlog de testes de todo o produto.
+- Todo95C, a migração do Wiki do 97, o 98 de layout e a pequena correção aprovada de isolamento de teclado já concluíram desenvolvimento, revisão item a item e a aceitação desta rodada; as entradas originais de desenvolvimento são encerradas. Verificações posteriores, como multi-plataforma real e promoções pendentes, são registradas apenas nesta tabela e não ficam duplicadas no Todo original.
+- Todo11/22/45/80/86, o Todo101 e a montagem de contas pela CLI independente não estão no escopo de implementação desta rodada; os Todo15/19 já descontinuados não são restaurados.
+- A publicação da Web continua sendo tratada pelo usuário; W99-E05 permanece com adiamento explícito do usuário. Não se repete a pergunta sobre páginas da mesma versão nem se substitui resultados de desktop por outros.
+- A decisão de que o 95C não considera compatibilidade com Personal Config ainda não lançado já está definida e deixa de ser um bloqueio à espera de resposta do usuário; os requisitos antigos de mapeamento de Selection no modo de melhor esforço continuam válidos.
 
-## 2. 待办表
+## 2. Tabela de Pendências
 
-| ID | 来源 / 事项 | 当前确切状态 | 下一步与关闭证据 |
+| ID | Origem / item | Estado exato atual | Próximo passo e evidência de encerramento |
 | --- | --- | --- | --- |
-| V102-01 | Todo78：闲时首页布局、额度前置门禁 | `off-peak-automations-home-layout`、`off-peak-limit-pre-gate` 的旧运行未进入业务断言，未找到后续通过记录 | 复用现有账号 entitlement/mock，先确认测试前置再运行；不改生产权益门禁让测试通过。保存两份 spec 的实际结果 |
-| V102-02 | Todo57/64/78/89 等：真实 SSH Provider 环境验证 | 旧真实 remote case 有跳过/凭据阻塞记录，不能由用户曾成功发消息推成全部通过 | 核实当前 spec、目标机器、制品版本与隔离数据；覆盖已登记的同步/重连/工作区隔离合同，区分基础部署失败与产品失败 |
-| V102-03 | Todo99 W99-E05：手机 shared-host＋SSH 同一 Session | 用户明确延期；同版本 Web 测试页未就绪 | 用户提供环境后再接续既有 W99-E05；不得另起手机 Host/Agent，不改变 continuous/replayable 边界 |
-| V102-04 | Todo89/90/92/93/94/95C/97/98 等：多端与视觉证据 | Pro 代表用例已通过；相关手机、Windows、中英/深浅代表组合尚未全部实测。Todo98 的 1200px / 390px 截图仅证明 Electron 布局，不证明真实手机 Web | 先按已有 case/matrix 去重，保留具体未覆盖项；只补相关代表组合，不生成全组合测试矩阵或一概重跑。真实手机 shared-host / SSH 联合功能验证归 V102-03，不重复登记 |
-| V102-05 | Todo85/87/89/90/92/95/96/97/98/99：pending 用例与 fixture 准入 | 部分已在 Air/Pro 运行通过；仍未人工晋级，不是正式 CI 覆盖。Todo98 的 SC90-01 / F98-03 已过；现有 fixture checker 不支持 settings spec 域，不能声称此项工具校验通过 | 列出相关 pending spec 与已有 artifact，人工确认后按技能执行 promotion dry-run、fixture 校验及正式回放；settings 校验工具支持范围先核实再按准入需要处理；Docker 准入单独留证据，不自动批量晋级 |
-| V102-06 | Todo88/99：远程 Cron denylist | 2026-09-09 定向重跑失败：预期 Bash＋四个 Cron，实际只有 Bash；设计文档仍要求 remote 默认禁用 Cron | 核对当前产品合同及历史变更；合同确认后先测试再局部修复，或记录明确撤回的裁决。不得删断言冒充通过，不扩成远程调度重构 |
-| V102-07 | Todo88 AS03：CLI SEA/TUI 依赖闭包 | 2026-09-09 定向重跑失败：提取的运行目录缺 `@zcode/shared/src/index.ts` | 核对构建输出与 package exports，复用现有构建流程修复闭包；实际执行提取运行目录的加载测试。与已延期的 CLI 账号架构改造无关 |
-| V102-08 | Todo69 等：完整旧 App 回滚与真实供应商范围 | 只有阶段存储兼容证明，未完成完整旧 App 回滚；mock 请求证据也不证明所有真实供应商可用 | 保留证据缺口，不自行新增发布门禁；若本轮要扩大到真实回滚或账号调用，先确认精确环境与范围。不触碰真实用户配置、不试探账号风控 |
+| V102-01 | Todo78: layout da home fora de pico, portão antecipado de cota | As execuções antigas de `off-peak-automations-home-layout` e `off-peak-limit-pre-gate` não chegaram às asserções de negócio, e não foi encontrado registro posterior de aprovação | Reutilizar as entitlement/mock de conta existentes, confirmar os pré-requisitos do teste antes de executar; não alterar o portão de entitlement de produção para fazer o teste passar. Salvar o resultado real das duas specs |
+| V102-02 | Todo57/64/78/89 etc.: verificação em ambiente real de Provider SSH | Os casos remotos reais antigos têm registros de bloqueio por skip/credenciais, e não se pode concluir que tudo passou só porque o usuário já conseguiu enviar mensagens | Verificar a spec atual, a máquina alvo, a versão dos artefatos e os dados isolados; cobrir os contratos já registrados de sincronização/reconexão/isolamento de workspace, distinguindo falha de implantação base de falha de produto |
+| V102-03 | Todo99 W99-E05: shared-host no celular + SSH na mesma Session | Adiamento explícito do usuário; a página de teste Web da mesma versão não está pronta | Retomar o W99-E05 existente quando o usuário fornecer o ambiente; não iniciar outro Host/Agent no celular nem alterar o limite continuous/replayable |
+| V102-04 | Todo89/90/92/93/94/95C/97/98 etc.: evidências multi-plataforma e visuais | Os casos representativos de Pro já passaram; as combinações representativas de celular, Windows, chinês/inglês e claro/escuro ainda não foram todas testadas de fato. As capturas de 1200px / 390px do Todo98 provam apenas o layout do Electron, não um celular Web real | Deduplicar primeiro pelos casos/matriz existentes, mantendo os itens concretos não cobertos; complementar apenas as combinações representativas relevantes, sem gerar uma matriz de todas as combinações nem reexecutar tudo. A verificação funcional conjunta de shared-host / SSH em celular real pertence a V102-03 e não é registrada de novo |
+| V102-05 | Todo85/87/89/90/92/95/96/97/98/99: admissão de casos pending e fixtures | Parte já passou em Air/Pro; ainda não foram promovidos manualmente e não constituem cobertura formal de CI. SC90-01 / F98-03 do Todo98 já passaram; o verificador de fixtures existente não suporta o domínio de specs de settings, portanto não se pode afirmar que a validação por ferramenta deste item passou | Listar as specs pending relevantes e os artefatos existentes; após confirmação manual, executar conforme a skill o promotion dry-run, a verificação de fixtures e a replay formal; primeiro conferir o escopo de suporte da ferramenta de validação de settings e então tratar conforme a necessidade de admissão; a admissão com Docker tem evidência separada e não é promovida em lote automaticamente |
+| V102-06 | Todo88/99: denylist de Cron remoto | Reexecução direcionada em 2026-09-09 falhou: esperava-se Bash + quatro Cron, mas havia apenas Bash; o documento de design ainda exige Cron desabilitado por padrão no remoto | Conferir o contrato atual de produto e as mudanças históricas; confirmado o contrato, testar primeiro e então corrigir localmente, ou registrar a decisão explicitamente revogada. Não se pode apagar asserções para fingir aprovação, nem ampliar para uma refatoração de agendamento remoto |
+| V102-07 | Todo88 AS03: fecho de dependências da CLI SEA/TUI | Reexecução direcionada em 2026-09-09 falhou: o diretório de execução extraído não tinha `@zcode/shared/src/index.ts` | Conferir a saída de build e os exports do pacote, corrigir o fecho reutilizando o fluxo de build existente; executar de fato o teste de carregamento do diretório de execução extraído. Sem relação com a remodelagem de arquitetura de contas da CLI, já adiada |
+| V102-08 | Todo69 etc.: reversão completa do App antigo e escopo de provedores reais | Há apenas prova de compatibilidade de armazenamento por estágio; a reversão completa do App antigo não foi concluída, e evidências de requisição com mock também não provam que todos os provedores reais funcionam | Preservar a lacuna de evidência e não criar por conta própria um novo portão de release; se esta rodada quiser ampliar para reversão real ou chamadas de conta, confirmar primeiro o ambiente e o escopo precisos. Não tocar em configurações reais de usuário nem sondar o controle de risco de contas |
 
-## 3. 已有证据，不重复列为失败
+## 3. Evidências Existentes, Não Listadas Novamente como Falhas
 
-Todo114（上游原 Todo105）补充欠测（2026-09-10）：Account 原因同步与个人套餐缺 Key 重试已通过 280 条定向测试和四组组件浏览器交互；完整 Electron 与真实手机 shared-host/SSH 尚未执行。后续在可表达“已登录 + 缺 Key / 无个人套餐”的业务 fixture 下补设置页重试与同快照可用套餐同步验证，原分支 fixture 限制见 `docs/coding-plan/connection-status-semantics.md` §8。它属于本 Todo 的剩余验证，不将组件结果冒充完整 App 通过，亦不要求重跑已过局部用例。
+O Todo114 (o antigo Todo105 upstream) complementa os testes devedores (2026-09-10): a sincronização por motivo de conta e a retentativa de pacote pessoal sem Key passaram por 280 testes direcionados e quatro grupos de interação de componente no navegador; o Electron completo e o shared-host/SSH real em celular ainda não foram executados. Mais adiante, sob fixtures de negócio que expressem “logado + sem Key / sem pacote pessoal”, devem ser acrescentadas a verificação de retentativa na página de configurações e a de sincronização dos pacotes disponíveis no mesmo snapshot; a limitação de fixture da branch original está em `docs/coding-plan/connection-status-semantics.md` §8. Isso pertence à verificação restante deste Todo, sem tomar o resultado de componente como aprovação do App completo e sem exigir a reexecução de casos locais já aprovados.
 
-- Todo78 中设置 polish、QR 提醒、Subagent 设置和套餐标签已有后续通过证据；早期失败不再独立排期。
-- 闲时 `off-peak-create-manage` 后由 Todo85 在 Air 通过 2/2：`desktop-e2e-20260907063653634-p19967-a275f6886f7e448a`。这不代表 V102-01 两份不同 spec 通过，也不证明跨账号换 Ticket（该行为不在合同内）。
-- Todo84 主动选择最高档由 Todo88 R11 完成；AS02 损坏选择按继承处理已获接受，不再作为必修。
-- Todo96 显式 Subagent 原阻塞由 Todo99 的 Worker 本地公共解析与 DI 装配完成；无需再讨论旧 Host RPC 方案。
-- Todo99 实现提交 `b4ffe44db0`；提交后 Pro 重建运行 `desktop-e2e-20260909112629814-p20925-4b9a692d8243878d`，Worker spec 3/3 通过。详情见 [Todo99 账本](../research/todo99-implementation-review.md)，不是 V102-03 的替代证据。
-- Todo95C `2c1addd3d8`：关闭档位统一及历史选择映射完成；Pro `desktop-e2e-20260909-121842-573` 3/3 通过，不再列为开发或测试失败。
-- Todo97 `9cd1ae31dd`：Wiki 一次落盘迁移完成；相关 146 单测及 Pro `desktop-e2e-20260909-122856-891` 1/1 通过，原 Wiki 迁移边界已关闭。
-- Todo98 `a5fb82ec4a`：65 条 Map AST / 505 组求值对照通过，相关 422 测试及 Pro `desktop-e2e-20260909-125010-082` 2/2 通过。早期键盘空格触发排序与版本冲突已复现修复，不作为仍待修失败；剩余范围仅归 V102-04 / V102-05。
+- No Todo78, o polish das configurações, o lembrete por QR, as configurações de Subagent e os rótulos de pacote já têm evidências posteriores de aprovação; as falhas iniciais deixam de ser agendadas separadamente.
+- No off-peak, `off-peak-create-manage` foi aprovado 2/2 em Air pelo Todo85: `desktop-e2e-20260907063653634-p19967-a275f6886f7e448a`. Isso não representa aprovação das duas specs diferentes de V102-01 nem comprova a troca de Ticket entre contas (comportamento fora do contrato).
+- A escolha ativa do nível mais alto no Todo84 foi concluída pelo R11 do Todo88; a seleção corrompida do AS02 ser tratada por herança foi aceita e deixa de ser obrigatória.
+- O bloqueio original do Subagent explícito no Todo96 foi resolvido pelo Worker do Todo99 com resolução pública local e montagem via DI; não é preciso discutir de novo o antigo esquema de RPC do Host.
+- Commit de implementação do Todo99 `b4ffe44db0`; após o commit, a execução reconstruída em Pro `desktop-e2e-20260909112629814-p20925-4b9a692d8243878d` passou a spec do Worker 3/3. Detalhes em [ledger do Todo99](../research/todo99-implementation-review.md), que não substitui a evidência de V102-03.
+- Todo95C `2c1addd3d8`: unificação dos níveis desligados e mapeamento das escolhas históricas concluídos; Pro `desktop-e2e-20260909-121842-573` 3/3 aprovado, deixa de ser listado como falha de desenvolvimento ou de teste.
+- Todo97 `9cd1ae31dd`: migração do Wiki em gravação única concluída; os 146 testes unitários relacionados e Pro `desktop-e2e-20260909-122856-891` 1/1 aprovados, e o limite original da migração do Wiki foi encerrado.
+- Todo98 `a5fb82ec4a`: 65 casos de AST de Map / 505 grupos de comparação de avaliação aprovados, com os 422 testes relacionados e Pro `desktop-e2e-20260909-125010-082` 2/2 aprovados. O disparo de ordenação pela tecla de espaço no início e o conflito de versão foram reproduzidos e corrigidos e não são falhas pendentes; o escopo restante pertence apenas a V102-04 / V102-05.
 
-## 4. 执行规则
+## 4. Regras de Execução
 
 ```text
-旧 Todo 的历史证据
-    -> 本表去重登记
-    -> 核实当前代码、既有 case 和测试前置
-    -> 已通过 / 未运行 / 环境阻塞 / 产品失败 / 待人工审阅
-    -> 补对应证据或明确延期；回写本表
+evidências históricas dos Todo antigos
+    -> registro deduplicado nesta tabela
+    -> verificação do código atual, dos casos existentes e dos pré-requisitos de teste
+    -> aprovado / não executado / bloqueio de ambiente / falha de produto / aguardando revisão manual
+    -> Complementar a evidência correspondente ou registrar o adiamento explícito; escrever de volta nesta tabela
 ```
 
-1. 优先已有可运行的局部失败与缺失前置；单项环境阻塞不停止其他独立验证。
-2. E2E 沿用现有 catalog、coverage matrix 与 `e2e-case-lifecycle`，新增测试前读取相关规范；不修改未知产品语义，不借机扩大同步架构。
-3. 优先 MacBook Pro 隔离目录，记录源码 commit/dirty 差异、构建版本、run ID、准确断言与 artifact。协议相关必须确认 Host/Worker 配套。
-4. 新产品 bug 先复现、补测试，再修；涉及新产品裁决先讨论。测试 fixture 错误与真实 bug 分开记，不能把“原基线也失败”当成修复完成。
-5. 涉及代码修改时执行相关测试、`pnpm typecheck`、`pnpm lint`；E2E 改动补 `typecheck:e2e` 和 fixture 检查。既有警告单列。
-6. 每项记清执行、复审、提交及排除范围；全部通过或获明确延期/取消裁决才可关闭本 Todo，不用“转交”无限丢失未决事项。
+1. Priorizar falhas locais executáveis já existentes e pré-requisitos ausentes; um bloqueio de ambiente de um item não interrompe outras verificações independentes.
+2. O E2E segue o catalog, a coverage matrix e o `e2e-case-lifecycle` existentes; ler as especificações relevantes antes de adicionar testes; não modificar semântica de produto desconhecida nem aproveitar para ampliar a arquitetura de sincronização.
+3. Priorizar o diretório isolado do MacBook Pro, registrando o commit/dirty do código-fonte, a versão de build, o run ID, as asserções exatas e os artefatos. Tudo relativo a protocolo precisa confirmar o par Host/Worker.
+4. Bugs novos de produto são primeiro reproduzidos, depois cobertos por teste e então corrigidos; decisões que envolvem um novo comportamento de produto são discutidas antes. Erros de fixture de teste e bugs reais são registrados separadamente, e “a baseline original também falhava” não conta como correção concluída.
+5. Quando houver alteração de código, executar os testes relevantes, `pnpm typecheck` e `pnpm lint`; alterações de E2E acrescentam `typecheck:e2e` e a verificação de fixtures. Avisos existentes são listados à parte.
+6. Cada item deve registrar claramente execução, revisão, commit e escopo excluído; este Todo só pode ser encerrado quando tudo passar ou houver uma decisão explícita de adiamento/cancelamento, sem usar “transferência” para perder itens em aberto indefinidamente.
 
-## 5. 本次交付
+## 5. Entregas Desta Rodada
 
-本次仅统一任务归属、订正文档状态。95C/97/98 已由上述独立提交完成，不是此次文档操作的新实现。没有删除历史测试、失败记录或用例，没有重跑桌面、没有晋级 pending，也没有合并分支或推送。延期 Draft 和范围外功能仍按原裁决保留，不因“其他收掉”误标为已实现。
+Esta rodada apenas unifica a atribuição de tarefas e corrige o status da documentação. 95C/97/98 foram concluídos pelos commits independentes acima, e não são uma nova implementação resultante desta operação documental. Nenhum teste histórico, registro de falha ou caso foi removido, o desktop não foi reexecutado, nenhum pending foi promovido e nenhuma branch foi mesclada ou enviada. O Draft adiado e as funcionalidades fora de escopo permanecem conforme a decisão original e não são marcados erroneamente como implementados por causa de “os outros foram encerrados”.
 
-文档收口校验：根 typecheck、lint（39 条既有 warning、0 error）、desktop typecheck:e2e 通过；检查相关文档 100 个本地 Markdown 链接有效，`git diff --check` 通过。这些仅证明本次文档变更的检查结果，不将表内欠测记为通过。
+Verificação de fechamento documental: typecheck da raiz, lint (39 avisos existentes, 0 erro) e desktop typecheck:e2e passaram; foram verificados 100 links Markdown locais válidos nos documentos relacionados e `git diff --check` passou. Isso prova apenas o resultado das verificações desta alteração documental, e não registra como aprovado nenhum teste devedor da tabela.

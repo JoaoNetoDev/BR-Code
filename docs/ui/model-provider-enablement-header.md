@@ -1,12 +1,12 @@
-# Model Provider Enablement Header
+# Cabeçalho de habilitação do Model Provider
 
-模型供应商详情页的启用状态与启停动作在同一标题行展示。
+Na página de detalhes do fornecedor de modelos, o estado de habilitação e as ações de ativar/desativar são exibidos na mesma linha de título.
 
-- 状态标识显示在 provider 名称后面。
-- “启用 / 禁用”按钮紧跟状态标识，避免和右侧次级动作混在一起。
-- 右侧动作区仅保留查看用量、删除等非启停操作。
+- O indicador de estado aparece depois do nome do provider.
+- O botão "Ativar / Desativar" vem logo em seguida ao indicador de estado, evitando se misturar com as ações secundárias à direita.
+- A área de ações à direita mantém apenas operações que não sejam de ativação, como ver uso e excluir.
 
-相关实现：
+Implementação relacionada:
 
 - `packages/ui/src/settings/model-provider-section/ProviderCardSections.tsx`
 - `packages/ui/test/modelProviderEnablementHeader.test.ts`

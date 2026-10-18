@@ -1,17 +1,17 @@
-# OpenTelemetry 概念与 ZCode 取舍
+# Conceitos de OpenTelemetry e escolhas do ZCode
 
-> 本文说明 CLI Agent Trace 使用的 OpenTelemetry 概念、结构关系和 ZCode 建模约束。整体设计
-> 与接入方式见 [CLI Agent Telemetry 设计与开发规范](../cli-agent-telemetry.md)。
+> Este documento explica os conceitos do OpenTelemetry usados pelo CLI Agent Trace, as relações entre eles e as restrições de modelagem do ZCode. O design
+> completo e a forma de integração estão em [CLI Agent Telemetry - Design e Especificação de Desenvolvimento](../cli-agent-telemetry.md).
 
-## 1. 总体模型
+## 1. Modelo geral
 
 ```text
 Resource
-    描述 Telemetry 生产者
+    Descreve o produtor de Telemetry
     |
     `-- TracerProvider
           |
-          `-- Tracer（Instrumentation Scope）
+          `-- Tracer (Instrumentation Scope)
                 |
                 `-- Trace
                       |
@@ -22,29 +22,29 @@ Resource
                       |    +-- Status
                       |    `-- Links
                       |
-                      `-- Parent/Child 拓扑
+                      `-- Topologia Parent/Child
 
 Context
-    进程内传播当前 Active Span 和 ZCode 私有关联快照
+    Propaga dentro do processo o Active Span atual e o snapshot privado de correlação do ZCode
 
 Metric
-    独立于单条 Trace 的跨请求聚合信号
+    Sinal agregado entre requisições, independente de uma única Trace
 ```
 
-这些概念在 OpenTelemetry 数据模型中承担不同职责，不存在逐层转换为 Attribute 的关系：
+Esses conceitos têm responsabilidades diferentes no modelo de dados do OpenTelemetry e não existe uma relação de conversão camada a camada para Attribute:
 
-- Resource 随导出数据附带，描述生产者；
-- Context 只存在于运行时传播过程中；
-- SpanContext 是 Span 的传播身份；
-- Attribute/Event/Status 是 Span 的数据；
-- Parent/Link 是 Span 之间的结构；
-- Metric 是另一类信号。
+- O Resource acompanha os dados exportados e descreve o produtor;
+- O Context existe apenas durante a propagação em runtime;
+- O SpanContext é a identidade de propagação do Span;
+- Attribute/Event/Status são os dados do Span;
+- Parent/Link são a estrutura entre Spans;
+- Metric é outra categoria de sinal.
 
-## 2. Resource、Provider 与 Instrumentation Scope
+## 2. Resource, Provider e Instrumentation Scope
 
 ### 2.1 Resource
 
-Resource 描述一个 Provider 生命周期内稳定的生产者属性，例如：
+O Resource descreve atributos do produtor que são estáveis ao longo do ciclo de vida de um Provider, por exemplo:
 
 ```text
 service.name
@@ -59,60 +59,53 @@ zcode.product.version
 zcode.runtime.surface
 ```
 
-它适合回答“哪一个服务、版本、进程和运行面产生了数据”。Session、Turn、登录用户会变化，不
-属于 Resource。
+Ele é adequado para responder "qual serviço, versão, processo e superfície de execução gerou os dados". Session, Turn e usuário autenticado mudam, portanto não pertencem ao Resource.
 
-同一个 Resource 会附在许多 Span 上，但不是业务代码给每个 Span 重复调用 Setter。OTel SDK
-在导出时组合 Resource 与 Span 数据。
+O mesmo Resource é anexado a muitos Spans, mas não é o código de negócio chamando o Setter repetidamente para cada Span. O SDK do OTel combina Resource e dados do Span na exportação.
 
-Trace Resource 包含 `service.instance.id` 和 `zcode.device.installation_id`，便于单次诊断。
-Metric Resource 刻意去掉这两个高基数值，否则每个短生命周期 CLI 进程都会制造新的时序。
+O Resource da Trace inclui `service.instance.id` e `zcode.device.installation_id`, facilitando o diagnóstico de uma execução. O Resource da Metric remove de propósito esses dois valores de alta cardinalidade, caso contrário cada processo de CLI de vida curta criaria uma nova série temporal.
 
-### 2.2 TracerProvider 与 Tracer
+### 2.2 TracerProvider e Tracer
 
-`TracerProvider` 拥有处理器、Exporter、Sampler 和 Resource。当前一个 CLI 进程只创建一个
-Owner，其中包含一个 TracerProvider 和一个 MeterProvider。
+O `TracerProvider` possui processadores, Exporters, Sampler e Resource. Atualmente um processo de CLI cria apenas um
+Owner, que contém um TracerProvider e um MeterProvider.
 
-Tracer 通过 Instrumentation Scope 标识“哪个库创建了这些 Span”：
+O Tracer é identificado pelo Instrumentation Scope para indicar "qual biblioteca criou estes Spans":
 
 ```text
 name    = @zcode/cli-agent-telemetry
 version = Telemetry Schema Version
 ```
 
-这个 OTel Instrumentation Scope 不等于业务代码里的 Typed Span Writer，也不等于
-`scope.run()` 的执行作用域。
+Esse Instrumentation Scope do OTel não é igual ao Typed Span Writer do código de negócio, nem ao escopo de execução de `scope.run()`.
 
-## 3. Trace、Span 与 SpanContext
+## 3. Trace, Span e SpanContext
 
 ### 3.1 Trace
 
-Trace 是共享同一 `traceId` 的 Span 集合。它不是一个需要单独创建的对象：创建 Root Span 时
-产生 traceId，Child Span 继承它。
+Uma Trace é o conjunto de Spans que compartilham o mesmo `traceId`. Ela não é um objeto que precise ser criado separadamente: o traceId nasce ao criar o Root Span, e os Spans Child o herdam.
 
-ZCode 通常以一个主 Agent Turn 为一条 Trace。后台任务或 Workflow 有独立生命周期时创建另一条
-Trace，通过 Link 保留因果关系。
+O ZCode costuma usar um Turn principal do Agente como uma Trace. Tarefas em background ou Workflows com ciclo de vida independente criam outra Trace, preservando a relação de causalidade por meio de Link.
 
 ### 3.2 Span
 
-Span 是一段有开始、结束和耗时的工作。它包含：
+Um Span é um trecho de trabalho com início, fim e duração. Ele contém:
 
 ```text
 name / kind / start time / end time
 attributes / events / status / links
 spanContext
-parentSpanId（如果是 Child）
+parentSpanId（se for Child）
 ```
 
-Span Name 是稳定、低基数的节点类型，例如 `agent_step`、`model_attempt`。ZCode 不再额外维护一个
-和 Span Name 重复的 `span_type` Attribute，也不把 Step Index 或 Model Name拼入 Span Name。
+O Span Name é um tipo de nó estável e de baixa cardinalidade, como `agent_step` ou `model_attempt`. O ZCode não mantém mais um Attribute `span_type` duplicado com o Span Name, nem concatena Step Index ou Model Name no Span Name.
 
-`SpanKind.INTERNAL` 用于 Turn、Step、Tool、Command、Compaction、Call 等进程内工作；
-`model_attempt` 使用 `SpanKind.CLIENT` 表示向 Provider 发出的请求。
+`SpanKind.INTERNAL` é usado para trabalho dentro do processo como Turn, Step, Tool, Command, Compaction e Call;
+`model_attempt` usa `SpanKind.CLIENT` para representar uma requisição enviada a um Provider.
 
 ### 3.3 SpanContext
 
-SpanContext 是 Span 的不可变传播身份：
+O SpanContext é a identidade de propagação imutável do Span:
 
 ```text
 traceId
@@ -122,63 +115,55 @@ traceState
 isRemote
 ```
 
-它不包含 Session ID、UID、Prompt 或 Span Attribute。Parent 和 Link 使用的是 SpanContext，
-不是整个 Span。
+Ele não contém Session ID, UID, Prompt nem Attributes do Span. Parent e Link usam o SpanContext, não o Span inteiro.
 
-`isRemote` 表示该上下文是否从远端传播边界提取；在当前 CLI 内从 Active Span 捕获的因果引用
-保持原值，不能为了“看起来像跨任务”随意改成 true。
+`isRemote` indica se aquele contexto foi extraído de uma fronteira de propagação remota; referências causais capturadas do Active Span dentro da CLI atual mantêm o valor original e não devem ser mudadas para true arbitrariamente só para "parecerem entre tarefas".
 
-## 4. Context 与 Active Span
+## 4. Context e Active Span
 
-OTel Context 是进程内不可变传播载体。Node SDK 使用
-`AsyncLocalStorageContextManager`，因此 Promise、`await`、Timer 和并发异步链能得到各自正确的
-Active Span。
+O Context do OTel é o container de propagação imutável dentro do processo. O SDK do Node usa
+`AsyncLocalStorageContextManager`, de modo que Promise, `await`, Timer e cadeias assíncronas concorrentes obtenham cada um o seu
+Active Span correto.
 
 ```text
 scope.run(callback)
     |
     +-- context.with(childContext, callback)
     |       |
-    |       `-- callback 内 startStep/startTool/startCall
-    |               自动读取正确 Active Span 作为 Parent
+    |       `-- startStep/startTool/startCall dentro do callback
+    |               lê automaticamente o Active Span correto como Parent
     |
-    `-- callback 结束后恢复调用者 Context
+    `-- ao final do callback, restaura o Context de quem chamou
 ```
 
-ZCode 在同一个 OTel Context 中还保存 Runtime 私有的 `ActiveWriterContext`，用于传递不可变的
-Execution Correlation、当前 Writer 和 Tool Call ID。业务代码不能访问私有 Context Key，也不
-应层层透传 Session/Turn/Provider 等字段。
+Dentro do mesmo Context do OTel, o ZCode também guarda um `ActiveWriterContext` privado de runtime, usado para passar Execution Correlation imutável, o Writer atual e o Tool Call ID. O código de negócio não pode acessar chaves privadas de Context e também não deve repassar campo a campo Session/Turn/Provider.
 
-Context 本身不会被导出，也不会自动变成 Attribute。哪些关联字段需要在 ARMS 搜索，必须由
-`executionProjection()` 明确投影。
+O Context em si não é exportado nem vira Attribute automaticamente. Quais campos de correlação precisam ser pesquisáveis no ARMS precisa ser explicitamente projetado por `executionProjection()`.
 
-### 4.1 Context 和 Span Context 的关系
+### 4.1 Relação entre Context e Span Context
 
 ```text
-Span ------持有------> SpanContext
+Span ------detém------> SpanContext
   |
-  `-- trace.setSpan(Context, Span) --> 新 Context
+  `-- trace.setSpan(Context, Span) --> novo Context
 
-Context --trace.getSpan()---------> 当前 Span
-Context --trace.getSpanContext()--> 当前 SpanContext
+Context --trace.getSpan()---------> Span atual
+Context --trace.getSpanContext()--> SpanContext atual
 ```
 
-Context 是“运行时容器”，SpanContext 是“可传播身份”，Span 是“可记录数据的工作对象”。
+O Context é o "container de runtime", o SpanContext é a "identidade propagável" e o Span é o "objeto de trabalho com dados registráveis".
 
-## 5. Parent、Link 与 Causation
+## 5. Parent, Link e Causalidade
 
 ### 5.1 Parent/Child
 
-Child Span 与 Parent 共享 traceId，Child 的 `parentSpanId` 指向 Parent。它表达同一个执行树中的
-所有权，而不要求 Parent 一定晚于 Child 结束。
+Um Span Child compartilha o traceId com o Parent, e o `parentSpanId` do Child aponta para o Parent. Isso expressa posse dentro da mesma árvore de execução, sem exigir que o Parent termine depois do Child.
 
-当前 Active Span 足够时，Writer 自动建 Child。只有延迟、并发边界或新 Runtime 不能依赖当前
-Context 时，才显式捕获 Causation。
+Quando o Active Span atual é suficiente, o Writer cria o Child automaticamente. A causalidade só é capturada explicitamente quando há atraso, fronteira de concorrência ou um novo runtime que não pode depender do Context atual.
 
 ### 5.2 Link
 
-Link 是新 Span 创建时指向另一个 SpanContext 的边。两个 Span 可以拥有不同 traceId。它用于
-“由它触发，但不是它拥有”的关系：
+Um Link é uma aresta que aponta para outro SpanContext no momento da criação de um novo Span. Dois Spans podem ter traceIds diferentes. Ele é usado para relações do tipo "disparado por ele, mas não pertencente a ele":
 
 ```text
 Trace A                                     Trace B
@@ -187,10 +172,9 @@ trigger span   --Link(triggered_by)-------> detached_operation(root)
 old run        --Link(resumed_from)-------> recovery root
 ```
 
-Link 必须在 Span 创建时写入。Root + Link 必须显式使用 `ROOT_CONTEXT` 创建，不能让当前 Active
-Span 偷偷成为 Parent。
+O Link precisa ser escrito na criação do Span. Root + Link deve ser criado explicitamente com `ROOT_CONTEXT`, sem deixar que o Active Span atual se torne o Parent por baixo dos panos.
 
-当前 Link Attribute：
+Atributos de Link atuais:
 
 ```text
 zcode.link.relation = spawned_by | triggered_by | resumed_from
@@ -198,7 +182,7 @@ zcode.link.relation = spawned_by | triggered_by | resumed_from
 
 ### 5.3 `AgentTelemetryCausation`
 
-ZCode 用一个严格类型保存延迟任务需要的因果引用：
+O ZCode usa um tipo estrito para guardar as referências causais necessárias a tarefas atrasadas:
 
 ```ts
 interface AgentTelemetryCausation {
@@ -213,48 +197,42 @@ interface AgentTelemetryCausation {
 }
 ```
 
-前五项是 OTel SpanContext；后三项是 ARMS 当前无法跨 Link Join 时的受控查询投影。它不携带
-Prompt、Tool 参数或任意业务对象。
+Os cinco primeiros itens são o SpanContext do OTel; os três últimos são a projeção de consulta controlada usada quando o ARMS ainda não consegue fazer Join através de Link. Não carrega Prompt, parâmetros de Tool nem objetos de negócio arbitrários.
 
-捕获必须发生在调度边界：
+A captura precisa ocorrer na fronteira de agendamento:
 
 ```text
 Active Span
     |
-    +-- captureCausation()  <- 入队/创建 child 时
+    +-- captureCausation()  <- ao enfileirar/criar o child
     |
-    `-- Parent 结束
+    `-- o Parent termina
 
-稍后执行任务
-    `-- 用已保存 Causation 创建 Child 或 Root + Link
+Tarefa executada mais tarde
+    `-- cria um Child ou Root + Link com a Causation já salva
 ```
 
-如果等到“稍后执行”才读取 `context.active()`，得到的可能是另一条任务的 Span。
+Se a leitura de `context.active()` for adiada até a "execução posterior", o resultado pode ser o Span de outra tarefa.
 
-### 5.4 当前跨进程边界
+### 5.4 Fronteiras entre processos hoje
 
-当前 Agent Telemetry 的 Causation 主要在共享 CLI Runtime 与内部 child runtime 之间传递；它还
-没有把 Desktop/RUM Trace 和 CLI Agent Turn 统一成一条 W3C 跨进程 Trace。协议中已有的
-`traceparent` 字段属于更广泛的 RPC tracing 基础设施，不能据此假定 CLI Agent Writer 已完成
-自动注入/提取。
+Hoje a Causalidade do Agent Telemetry trafega principalmente entre o CLI Runtime compartilhado e child runtimes internos; ela ainda não
+unificou as Traces de Desktop/RUM e o CLI Agent Turn em uma única Trace W3C entre processos. O campo `traceparent` já existente no protocolo pertence a uma infraestrutura de RPC tracing mais ampla, e não é possível assumir que o CLI Agent Writer já faz injeção/extração automática.
 
-若未来打通跨进程边界，应使用 OTel Propagator 注入和提取 `traceparent`/`tracestate`，并更新
-严格协议 Schema；不要手写另一套 Header。Agent Turn 是否继续作为 Root + Link，需要按执行
-所有权单独决定。
+Se no futuro a fronteira entre processos for atravessada, deve-se usar o Propagator do OTel para injetar e extrair `traceparent`/`tracestate`, atualizando o
+Schema estrito do protocolo; não escreva à mão um conjunto de Headers paralelo. Se o Agent Turn continua como Root + Link precisa ser decidido separadamente, com base na posse da execução.
 
-## 6. Attribute、Event、Status 与异常
+## 6. Attribute, Event, Status e Exceções
 
 ### 6.1 Attribute
 
-Attribute 描述 Span 的事实或终态摘要。适合 Provider、Model、Token、Exit Code、Outcome、
-Failure Stage 等需要过滤和聚合的值。
+Um Attribute descreve fatos sobre o Span ou um resumo de estado final. É adequado para valores que precisam de filtro e agregação, como Provider, Model, Token, Exit Code, Outcome e Failure Stage.
 
-Attribute 有类型和基数约束，不是日志文本容器。动态大对象、正文、Header 或完整 Error Stack
-不能塞入 Attribute。
+Attribute tem restrições de tipo e cardinalidade e não é um container de texto de log. Objetos dinâmicos grandes, corpos de mensagem, Headers ou stacks de erro completos não podem ser colocados em Attribute.
 
 ### 6.2 Event
 
-Event 是 Span 生命周期内的瞬时记录：
+Um Event é um registro instantâneo dentro do ciclo de vida do Span:
 
 ```text
 model_attempt
@@ -264,75 +242,73 @@ model_attempt
   10:00:05 end
 ```
 
-选择规则：
+Regras de escolha:
 
-- “是什么/最终是多少”通常是 Attribute；
-- “什么时候发生”通常是 Event；
-- “持续了多久且有独立结果”通常是 Child Span。
+- "o que é / qual foi o valor final" normalmente é um Attribute;
+- "quando aconteceu" normalmente é um Event;
+- "quanto durou e tem um resultado independente" normalmente é um Child Span.
 
-某些里程碑同时写 Event 和最终 Attribute，例如 `markFirstContent()` 写
-`first_content` Event，也写 `time_to_first_content_ms`。Event 用于单次时序，Attribute 用于快速
-筛选和下钻，无需在查询时重算。
+Alguns marcos escrevem Event e Attribute final ao mesmo tempo; por exemplo `markFirstContent()` escreve o
+Event `first_content` e também `time_to_first_content_ms`. O Event é usado para a sequência única no tempo e o Attribute para filtragem rápida e drill-down, sem necessidade de recalcular na consulta.
 
-### 6.3 Status 与业务 Outcome
+### 6.3 Status e Outcome de negócio
 
-OTel Status 只有 `UNSET/OK/ERROR`，不足以表达业务结果。ZCode 使用 Span 专属 `outcome`：
+O Status do OTel só tem `UNSET/OK/ERROR`, o que é insuficiente para expressar resultado de negócio. O ZCode usa um `outcome` exclusivo de Span:
 
-| Outcome        | OTel Status | 含义                        |
-| -------------- | ----------- | --------------------------- |
-| `completed`    | `OK`        | 业务正常完成                |
-| `failed`       | `ERROR`     | 业务失败                    |
-| `cancelled`    | `UNSET`     | 取消，不默认算系统错误      |
-| `denied`       | `UNSET`     | 权限或策略拒绝              |
-| `discarded`    | `UNSET`     | 结果被明确丢弃              |
-| `backgrounded` | `UNSET`     | 命令转后台，前台观测结束    |
-| `abandoned`    | `UNSET`     | Writer 未走正常终态，被回收 |
+| Outcome        | OTel Status | Significado                        |
+| -------------- | ----------- | ---------------------------------- |
+| `completed`    | `OK`        | Conclusão normal de negócio        |
+| `failed`       | `ERROR`     | Falha de negócio                   |
+| `cancelled`    | `UNSET`     | Cancelamento, não contado por padrão como erro de sistema |
+| `denied`       | `UNSET`     | Recusa por permissão ou política   |
+| `discarded`    | `UNSET`     | Resultado descartado explicitamente |
+| `backgrounded` | `UNSET`     | Comando enviado para background, a observação em foreground termina |
+| `abandoned`    | `UNSET`     | Writer não passou pelo estado final normal e foi recolhido |
 
-`failure_stage` 表示错误发生在该 Span 的哪个业务阶段，`error_category` 是低基数分类，
-`error_message` 保留脱敏后的来源信息。三者互补，不能只保留分类。
+`failure_stage` indica em qual fase de negócio o erro ocorreu naquele Span, `error_category` é uma classificação de baixa cardinalidade e
+`error_message` preserva a informação de origem já anonimizada. Os três são complementares; não se pode manter apenas a classificação.
 
 ## 7. Metric
 
-Trace 回答“哪一次为什么失败”，Metric 回答“总体失败率和 P95 是多少”。Metric Series 由
-Instrument 名和 Label 组合决定，高基数 Label 会造成成本与正确性问题。
+A Trace responde "por que aquela execução falhou"; a Metric responde "qual é a taxa geral de falha e o P95". Uma série de métrica é determinada pela
+combinação do nome do Instrument e dos Labels, e Labels de alta cardinalidade causam problemas de custo e de corretude.
 
-ZCode Writer 在事实确定时同时记录 Metric，不从导出的 Trace 离线猜测：
+O Writer do ZCode registra a Metric ao mesmo tempo em que o fato é determinado, sem tentar adivinhar offline a partir da Trace exportada:
 
 ```text
 Writer Setter / Terminal Latch
     +-- Span Attribute/Event
-    `-- OTel Metric（低基数标签）
+    `-- OTel Metric（rótulos de baixa cardinalidade）
 ```
 
-因此未来即使后端对 Trace 做采样，Metric 的计数和 Token 分母仍保持完整。Session、Turn、
-Request、用户、安装实例、Endpoint 和错误消息都禁止进入 Metric Label。
+Assim, mesmo que no futuro o backend faça sampling da Trace, a contagem e o denominador de tokens das Metrics continuam completos. Session, Turn,
+Request, usuário, instância de instalação, Endpoint e mensagens de erro são proibidos em Labels de Metric.
 
 ## 8. Baggage
 
-Baggage 是可随 Context 跨服务传播的任意键值，可能被自动注入下游请求。它不是“公共
-Attribute”，传播范围也比普通 Span Attribute 更危险。
+Baggage é um conjunto arbitrário de pares chave-valor que pode viajar com o Context entre serviços e ser injetado automaticamente em requisições a jusante. Não é um "Attribute público", e seu escopo de propagação é mais perigoso que o de um Attribute comum de Span.
 
-CLI Agent 当前不使用业务 Baggage：
+O CLI Agent atualmente não usa Baggage de negócio:
 
-- 不写 UID、安装 ID、Session ID、Prompt、文件路径或 Tool 参数；
-- 不向模型 Provider 注入 Baggage；
-- 新增任何 Baggage 字段必须单独评审接收方、生命周期和隐私。
+- não escreve UID, installation ID, Session ID, Prompt, caminhos de arquivo ou parâmetros de Tool;
+- não injeta Baggage nos Providers de modelo;
+- qualquer novo campo de Baggage precisa de uma revisão separada de destinatário, ciclo de vida e privacidade.
 
-需要在多个 Span 上查询的字段，优先使用 Resource、受控 Execution Projection 或 Trace 拓扑，
-不能因为“传起来方便”就放入 Baggage。
+Campos que precisam ser consultados em vários Spans devem priorizar Resource, Execution Projection controlada ou a topologia da Trace;
+não podem ir para Baggage só porque "é conveniente passar adiante".
 
-## 9. 常见误区
+## 9. Erros comuns
 
-1. **把 Context 当作公共字段集合。** Context 不导出；必须明确选择 Resource 或 Attribute。
-2. **把 SpanContext 当成 Span。** SpanContext 只能关联和传播，不能写 Attribute 或结束。
-3. **为 Parent/Child 重复所有父字段。** 拓扑已经表达结构，只投影后端确实需要搜索的 ID。
-4. **因为 Parent 先结束就改用 Link。** Parent 可以先结束；Link 的依据是独立生命周期。
-5. **用 Event 统计独立耗时。** Event 没有独立终态；需要 SLO 就建 Child Span。
-6. **把日志、Trace 和 Metric 混为一体。** 三者采集方式、隐私、基数和查询用途不同。
-7. **同时把动态值放进 Span Name。** 使用稳定 Span Name，动态事实进入受控 Attribute。
-8. **把 GenAI 字段当内部 Schema。** `zcode.*` 是权威字段，兼容字段由 Adapter 投影。
+1. **Tratar Context como um conjunto de campos públicos.** O Context não é exportado; é preciso escolher explicitamente entre Resource ou Attribute.
+2. **Tratar SpanContext como se fosse Span.** O SpanContext só serve para associar e propagar; não recebe Attribute nem é encerrado.
+3. **Duplicar todos os campos do pai em Parent/Child.** A topologia já expressa a estrutura; projete apenas os IDs que o backend realmente precisa pesquisar.
+4. **Trocar Parent/Child por Link só porque o Parent terminou antes.** O Parent pode terminar antes; o critério para Link é ciclo de vida independente.
+5. **Usar Event para medir duração independente.** Event não tem estado final próprio; se você precisa de SLO, crie um Child Span.
+6. **Misturar log, Trace e Metric.** Os três diferem em forma de coleta, privacidade, cardinalidade e uso em consulta.
+7. **Colocar valores dinâmicos também no Span Name.** Use Span Name estável e mantenha os fatos dinâmicos em Attributes controlados.
+8. **Tratar campos GenAI como um Schema interno.** `zcode.*` são os campos autoritativos; campos de compatibilidade são projetados pelo Adapter.
 
-## 10. 进一步阅读
+## 10. Leitura adicional
 
 - [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/)
 - [Context](https://opentelemetry.io/docs/specs/otel/context/)

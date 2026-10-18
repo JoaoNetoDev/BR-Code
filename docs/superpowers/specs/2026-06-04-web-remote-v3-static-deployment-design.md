@@ -1,36 +1,36 @@
-# Web Remote v3 静态资源并行部署设计
+# Design de implantação paralela dos assets estáticos do Web Remote v3
 
-## 背景
+## Contexto
 
-当前手机远控页是 `packages/web` 的 Vite SPA。生产发布链路是先执行
-`pnpm run build:web-remote-control`，把产物写入 `packages/web/dist`，再用
-`Dockerfile.web-remote-control` 将静态产物复制到 `nginx:alpine` 镜像中。现有服务路径是
-`/remote`，发布脚本默认推送 `uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-v2:<tag>`，
-并在 `cgx-dev-k8s` 仓库中更新 `zcode/frontend/deployment-remote.yaml`。
+Atualmente a página de controle remoto mobile é uma SPA Vite em `packages/web`. O fluxo de publicação em produção executa primeiro
+`pnpm run build:web-remote-control`, gravando o artefato em `packages/web/dist`, e depois usa
+`Dockerfile.web-remote-control` para copiar os arquivos estáticos para a imagem `nginx:alpine`. O caminho de serviço atual é
+`/remote`, e o script de publicação envia por padrão `uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-v2:<tag>`,
+atualizando `zcode/frontend/deployment-remote.yaml` no repositório `cgx-dev-k8s`.
 
-新版本需要使用新的服务路径 `/remote/v3`，同时保留原来的 `/remote` 资源、镜像、脚本、
-deployment 和服务行为不变。
+A nova versão precisa usar um novo caminho de serviço `/remote/v3`, mantendo inalterados os assets, a imagem, os scripts,
+o deployment e o comportamento de serviço do `/remote` original.
 
-## 目标
+## Objetivos
 
-1. 新版本手机远控静态资源部署到 `/remote/v3`。
-2. 原 `/remote` 资源构建、镜像构建、发布脚本和 k8s deployment 更新路径保持不变。
-3. v3 发布脚本最后只更新 `zcode/frontend/deployment-remote-v3.yaml`。
-4. 新版本桌面端默认二维码 URL 指向 `https://zcode.z.ai/remote/v3`。
-5. v3 静态资源继续由 nginx 托管，不引入 Node server、relay、agent runtime 或 desktop runtime 资源。
-6. `/remote` 与 `/remote/v3` 的浏览器资源路径互不依赖，避免任一版本发布影响另一版本。
+1. Implantar os assets estáticos do controle remoto mobile da nova versão em `/remote/v3`.
+2. Manter inalterados o build dos assets do `/remote` original, o build da imagem, o script de publicação e o caminho de atualização do k8s deployment.
+3. O script de publicação do v3 atualiza ao final apenas `zcode/frontend/deployment-remote-v3.yaml`.
+4. A URL padrão do QR Code do desktop da nova versão aponta para `https://zcode.z.ai/remote/v3`.
+5. Os assets estáticos do v3 continuam hospedados pelo nginx, sem introduzir Node server, relay, agent runtime ou recursos de desktop runtime.
+6. Os caminhos de assets no navegador de `/remote` e `/remote/v3` são independentes entre si, evitando que a publicação de uma versão afete a outra.
 
-## 非目标
+## Não objetivos
 
-1. 不修改外部 relay 协议、`rpc-frame` 透传、shared-host attachment、task stream 或 replayable 恢复语义。
-2. 不把 `/remote/v3` 做成 `/remote` 容器中的子路由复用。
-3. 不在 z-code 发布脚本里创建 k8s service、ingress 或 deployment 文件。
-4. 不改变旧 `/web-remote` OAuth 兼容入口。
-5. 不迁移或删除旧 `/remote` 镜像与部署。
+1. Não modificar o protocolo externo de relay, o repasse de `rpc-frame`, shared-host attachment, task stream ou a semântica de recuperação replayable.
+2. Não transformar `/remote/v3` em uma subrota reutilizada dentro do container do `/remote`.
+3. Não criar arquivos de service, ingress ou deployment no k8s a partir dos scripts de publicação do z-code.
+4. Não alterar a antiga entrada de compatibilidade OAuth `/web-remote`.
+5. Não migrar nem remover a antiga imagem e implantação do `/remote`.
 
-## 推荐方案
+## Abordagem recomendada
 
-采用并行 v3 发布链路，而不是复用或改写现有 v2 链路。
+Adotar um fluxo de publicação v3 paralelo, em vez de reutilizar ou reescrever o fluxo v2 existente.
 
 ```text
 v2:
@@ -52,53 +52,53 @@ v3:
   -> /remote/v3
 ```
 
-这样可以把发布失败、nginx 路由错误、资源 base 错误和 k8s image 更新错误限制在 v3 链路内，
-不会覆盖旧镜像，也不会改动旧 deployment。
+Dessa forma falhas de publicação, erros de rota nginx, erros de base dos assets e erros de atualização da imagem k8s ficam restritos ao fluxo v3,
+sem sobrescrever a imagem antiga e sem alterar o deployment antigo.
 
-## 构建脚本
+## Script de build
 
-根目录 `package.json` 保留现有脚本：
+O `package.json` da raiz mantém o script existente:
 
 ```bash
 pnpm run build:web-remote-control
 ```
 
-新增 v3 脚本：
+Adiciona-se o script v3:
 
 ```bash
 pnpm run build:web-remote-control:v3
 ```
 
-脚本内容使用 Vite base：
+O conteúdo do script usa o base do Vite:
 
 ```bash
 pnpm --filter @zcode/web exec vite build --base=/remote/v3/
 ```
 
-`packages/web/dist` 仍作为唯一静态产物目录。发布脚本顺序执行，所以 v2 和 v3 不需要同时保留两个
-dist 目录。Docker 构建前必须先执行对应版本的 build。
+`packages/web/dist` continua sendo o único diretório de artefatos estáticos. O script de publicação executa em sequência, então v2 e v3 não precisam manter dois
+diretórios dist ao mesmo tempo. O build da versão correspondente precisa ter sido executado antes do build Docker.
 
-## Web 入口判断
+## Detecção da entrada Web
 
-`packages/web/src/main.tsx` 当前只用 `window.location.pathname === "/remote"` 判断 QR 远控入口。
-v3 页面路径是 `/remote/v3`，如果不改这里，v3 页面会走普通 Web bootstrap。
+`packages/web/src/main.tsx` hoje usa apenas `window.location.pathname === "/remote"` para detectar a entrada de controle remoto via QR.
+O caminho da página v3 é `/remote/v3`; sem alterar esse ponto, a página v3 Passaria pelo bootstrap Web comum.
 
-设计上入口判断应基于当前构建产物的 Vite base 计算：
+No design, a detecção da entrada deve ser calculada com base no Vite base do artefato atual:
 
 ```text
 import.meta.env.BASE_URL = "/remote/"    -> 远控入口路径 "/remote"
 import.meta.env.BASE_URL = "/remote/v3/" -> 远控入口路径 "/remote/v3"
 ```
 
-这样 v2 构建只识别 `/remote`，v3 构建只识别 `/remote/v3`。它避免旧 v2 产物在被重新构建后意外识别
-`/remote/v3`，也避免 v3 产物接管旧 `/remote`。
+Assim o build v2 reconhece apenas `/remote` e o build v3 apenas `/remote/v3`. Isso evita que o artefato antigo do v2 reconheça inadvertidamente
+`/remote/v3` depois de ser reconstruído, e evita que o artefato v3 assuma o antigo `/remote`.
 
-## Nginx v3 配置
+## Configuração nginx do v3
 
-新增 `nginx.web-remote-control-v3.conf`，服务根目录仍是 `/usr/share/nginx/html`，但只对 v3 路径提供
-SPA fallback 和静态资源别名。
+Adiciona-se `nginx.web-remote-control-v3.conf`; o diretório raiz de serviço continua sendo `/usr/share/nginx/html`, mas o SPA fallback e os aliases de assets estáticos
+são oferecidos apenas para os caminhos v3.
 
-核心路由：
+Rotas principais:
 
 ```text
 /remote/v3                 -> /index.html, no-cache
@@ -108,30 +108,30 @@ SPA fallback 和静态资源别名。
 /                            -> 302 /remote/v3
 ```
 
-保留 `/assets/*` 和 `/material-icons/*` 直连兼容不是 v3 的目标。v3 产物的 HTML 应使用
-`/remote/v3/assets/...`，生产网关也应只需要转发 `/remote/v3` 前缀。
+Manter a compatibilidade de acesso direto a `/assets/*` e `/material-icons/*` não é objetivo do v3. O HTML do artefato v3 deve usar
+`/remote/v3/assets/...`, e o gateway de produção também deve precisar apenas encaminhar o prefixo `/remote/v3`.
 
-`/web-remote` 和 `/web-remote/callback` 是旧 OAuth 兼容入口，不属于 QR v3 静态部署的变更范围。
-v3 nginx 配置不需要新增 `/web-remote` 路由。
+`/web-remote` e `/web-remote/callback` são as antigas entradas de compatibilidade OAuth e não fazem parte do escopo de mudança da implantação estática QR v3.
+A configuração nginx do v3 não precisa adicionar rotas `/web-remote`.
 
-## Docker v3 镜像
+## Imagem Docker v3
 
-新增 `Dockerfile.web-remote-control-v3`：
+Adiciona-se `Dockerfile.web-remote-control-v3`:
 
-1. 以 `nginx:alpine` 为基础镜像。
-2. 复制 `packages/web/dist` 到 `/usr/share/nginx/html`。
-3. 复制 `nginx.web-remote-control-v3.conf` 到 `/etc/nginx/nginx.conf`。
-4. 暴露 80 端口。
-5. healthcheck 访问 `http://127.0.0.1/remote/v3`。
+1. Usa `nginx:alpine` como imagem base.
+2. Copia `packages/web/dist` para `/usr/share/nginx/html`.
+3. Copia `nginx.web-remote-control-v3.conf` para `/etc/nginx/nginx.conf`.
+4. Expõe a porta 80.
+5. O healthcheck acessa `http://127.0.0.1/remote/v3`.
 
-镜像内不安装 Node，不包含 `node_modules`，不包含 `packages/server`，不包含 relay，不包含 desktop runtime，
-不包含远端 agent 资源。
+A imagem não instala Node, não contém `node_modules`, não contém `packages/server`, não contém relay, não contém desktop runtime
+e não contém assets do agente remoto.
 
-## 发布脚本
+## Script de publicação
 
-保留 `scripts/docker-build-and-push-web-remote-control.sh` 原样服务 v2。
+`scripts/docker-build-and-push-web-remote-control.sh` é mantido como está, Continue serving v2.
 
-新增 `scripts/docker-build-and-push-web-remote-control-v3.sh`，沿用旧脚本结构，但默认值改为：
+Adiciona-se `scripts/docker-build-and-push-web-remote-control-v3.sh`, seguindo a estrutura do script antigo, mas com os valores padrão alterados para:
 
 ```text
 DOCKER_IMAGE_NAME=uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-v3
@@ -141,7 +141,7 @@ K8S_BRANCH_NAME=deploy/zcode-remote-mobile-v3-<tag>
 MR title=chore: update zcode remote v3 image to <tag>
 ```
 
-脚本执行顺序：
+Ordem de execução do script:
 
 ```text
 docker login
@@ -153,69 +153,69 @@ replace first image field in zcode/frontend/deployment-remote-v3.yaml
 commit and push MR branch
 ```
 
-如果 `deployment-remote-v3.yaml` 不存在，脚本直接失败并提示。原因是 service、ingress、deployment
-资源边界属于 k8s 仓库，不应由 z-code 发布脚本临时生成。
+Se `deployment-remote-v3.yaml` não existir, o script falha diretamente com uma mensagem. A razão é que a fronteira de recursos service, ingress e deployment
+pertence ao repositório k8s e não deve ser gerada temporariamente pelos scripts de publicação do z-code.
 
-## 桌面二维码 URL
+## URL do QR Code no desktop
 
-`packages/desktop/src/main/index.ts` 中 `mobileRemoteControlUrl` 的默认值改为：
+Em `packages/desktop/src/main/index.ts`, o valor padrão de `mobileRemoteControlUrl` passa a ser:
 
 ```text
 https://zcode.z.ai/remote/v3
 ```
 
-`ZCODE_WEB_REMOTE_CONTROL_URL` 环境变量继续保留最高优先级，用于本地调试或临时回退：
+A variável de ambiente `ZCODE_WEB_REMOTE_CONTROL_URL` continua mantendo a prioridade mais alta, para debug local ou reversão temporária:
 
 ```bash
 ZCODE_WEB_REMOTE_CONTROL_URL=https://zcode.z.ai/remote pnpm dev:desktop
 ```
 
-这样新桌面版本默认扫码进入 v3，老桌面版本仍然使用自己构建时的旧默认 `/remote`。
+Assim a nova versão do desktop entra por padrão no v3 ao escanear o QR Code, e as versões antigas do desktop continuam usando o `/remote` padrão antigo de quando foram compiladas.
 
-## k8s 配套要求
+## Requisitos complementares do k8s
 
-z-code 发布脚本只更新 v3 deployment 的 image。k8s 仓库需要独立准备：
+O script de publicação do z-code atualiza apenas a imagem do deployment v3. O repositório k8s precisa ser preparado separadamente:
 
 1. `zcode/frontend/deployment-remote-v3.yaml`
-2. 指向 v3 deployment 的 service，例如 `remote-mobile-v3`
-3. ingress 中 `/remote/v3` 前缀指向 v3 service
-4. ingress 中原 `/remote` 前缀继续指向 v2 service
+2. Um service apontando para o deployment v3, por exemplo `remote-mobile-v3`
+3. No ingress, o prefixo `/remote/v3` apontando para o service v3
+4. No ingress, o prefixo original `/remote` continuando apontando para o service v2
 
-因为 `/remote/v3` 是 `/remote` 的子路径，k8s ingress 必须保证更具体的 `/remote/v3` 匹配不会被
-旧 `/remote` 前缀吞掉。该行为应在 k8s 仓库的 ingress 配置中验证。
+Como `/remote/v3` é um subcaminho de `/remote`, o ingress do k8s precisa garantir que o casamento mais específico de `/remote/v3` não seja
+engolido pelo prefixo antigo `/remote`. Esse comportamento deve ser validado na configuração de ingress do repositório k8s.
 
-## 测试
+## Testes
 
-新增 v3 Docker smoke test：
+Adiciona-se o smoke test Docker do v3:
 
 ```bash
 bash scripts/test-web-remote-control-v3-docker-build.sh
 ```
 
-验证项：
+Itens de verificação:
 
-1. `pnpm run build:web-remote-control:v3` 成功。
-2. `packages/web/dist/index.html` 存在。
-3. `packages/web/dist/assets` 存在。
-4. `packages/web/dist/material-icons` 存在。
-5. HTML 首个 script 资源路径以 `/remote/v3/assets/` 开头。
-6. 容器内 `/remote/v3` 返回 200。
-7. 容器内 `/remote/v3/` 返回 301。
-8. `/remote/v3/assets/<built-js>` 返回 200。
-9. `/remote/v3/material-icons/typescript.svg` 返回 200。
-10. `/` 返回 302 到 `/remote/v3`。
+1. `pnpm run build:web-remote-control:v3` tem sucesso.
+2. `packages/web/dist/index.html` existe.
+3. `packages/web/dist/assets` existe.
+4. `packages/web/dist/material-icons` existe.
+5. O caminho do primeiro script do HTML começa com `/remote/v3/assets/`.
+6. `/remote/v3` dentro do container retorna 200.
+7. `/remote/v3/` dentro do container retorna 301.
+8. `/remote/v3/assets/<built-js>` retorna 200.
+9. `/remote/v3/material-icons/typescript.svg` retorna 200.
+10. `/` retorna 302 para `/remote/v3`.
 
-保留旧 smoke test：
+Mantém-se o smoke test antigo:
 
 ```bash
 bash scripts/test-web-remote-control-docker-build.sh
 ```
 
-旧 test 继续证明 `/remote` v2 链路没有被改坏。
+O test antigo continua provando que o fluxo v2 `/remote` não foi quebrado.
 
-## 回归验证
+## Verificação de regressão
 
-实现完成后执行：
+Após a implementação, executar:
 
 ```bash
 pnpm typecheck
@@ -224,22 +224,22 @@ bash scripts/test-web-remote-control-docker-build.sh
 bash scripts/test-web-remote-control-v3-docker-build.sh
 ```
 
-若当前机器缺少 Docker 或无法访问 registry，至少执行本地 Vite build 和脚本静态检查，并在提交说明中列出
-未补验证项。
+Se a máquina atual não tiver Docker ou não conseguir acessar o registry, executar ao menos o build Vite local e a verificação estática dos scripts, listando na
+descrição do commit os itens não verificados.
 
-## 风险与缓解
+## Riscos e mitigação
 
-1. `packages/web/dist` 是共享输出目录。缓解方式是发布脚本每次 docker build 前先执行对应版本 build。
-2. v3 页面被普通 Web bootstrap 接管。缓解方式是按 `import.meta.env.BASE_URL` 计算远控入口路径。
-3. k8s ingress 子路径被旧 `/remote` 前缀吞掉。缓解方式是在 k8s 仓库配置更具体的 `/remote/v3` 前缀，
-   并在 v3 deployment MR 中验证线上路由。
-4. 新桌面版本二维码仍指向旧路径。缓解方式是改桌面默认 `mobileRemoteControlUrl`，同时保留环境变量回退。
-5. v3 发布脚本误改旧 deployment。缓解方式是新增脚本并把默认 `K8S_DEPLOYMENT_FILE` 固定为
-   `zcode/frontend/deployment-remote-v3.yaml`。
+1. `packages/web/dist` é um diretório de saída compartilhado. Mitigação: o script de publicação executa o build da versão correspondente antes de cada docker build.
+2. A página v3 ser assumida pelo bootstrap Web comum. Mitigação: calcular o caminho da entrada de controle remoto por `import.meta.env.BASE_URL`.
+3. O subcaminho do ingress k8s ser engolido pelo prefixo antigo `/remote`. Mitigação: configurar o prefixo mais específico `/remote/v3` no repositório k8s
+   e validar o roteamento em produção no MR do deployment v3.
+4. O QR Code da nova versão do desktop continuar apontando para o caminho antigo. Mitigação: alterar o padrão `mobileRemoteControlUrl` no desktop, mantendo o fallback por variável de ambiente.
+5. O script de publicação v3 alterar por engano o deployment antigo. Mitigação: adicionar um novo script e fixar o `K8S_DEPLOYMENT_FILE` padrão como
+   `zcode/frontend/deployment-remote-v3.yaml`.
 
-## 待实施文件
+## Arquivos previstos para implementação
 
-z-code 仓库内预计改动：
+Mudanças previstas no repositório z-code:
 
 1. `package.json`
 2. `packages/web/src/main.tsx`
@@ -249,5 +249,4 @@ z-code 仓库内预计改动：
 6. `scripts/docker-build-and-push-web-remote-control-v3.sh`
 7. `scripts/test-web-remote-control-v3-docker-build.sh`
 8. `docs/web-remote-control/web-remote-control-architecture.md`
-9. 相关单元测试中对默认 `/remote` 的断言改为覆盖 v2 helper 和 v3 desktop 默认 URL
-
+9. Nos testes unitários relacionados, as asserções sobre o `/remote` padrão passam a cobrir o helper do v2 e a URL padrão do desktop v3

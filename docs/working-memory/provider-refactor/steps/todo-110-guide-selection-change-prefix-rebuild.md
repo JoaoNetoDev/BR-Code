@@ -1,84 +1,84 @@
-# Todo 110：Guide 同选择重新解析，但不触发切模 System 重建
+# Todo 110: Guide com a mesma seleção re-resolve, mas não dispara a reconstrução do prefixo System de troca de modelo
 
-> 状态：实现、真实 Runtime 请求验证与逐项复审完成；新增桌面 GS/P06 未实跑。2026-09-10。实施/测试证据、逐条边界复审及真实环境限制见 [本批交付复审](./provider-todos-105-113-delivery-review.md)。
+> Status: implementação, validação com requisições reais de Runtime e revisão item a item concluídas; o novo E2E de desktop GS/P06 não foi executado de fato. 2026-09-10. Evidências de implementação/teste, a revisão de cada fronteira e as limitações do ambiente real estão em [revisão de entrega deste lote](./provider-todos-105-113-delivery-review.md).
 
-## 目标与最高优先级裁决
+## Objetivo e decisão de prioridade máxima
 
-区分两个事实：**执行 Model 重新解析**与**ModelSelection 发生变化**。
+Distinguir dois fatos: **re-resolução do Model de execução** e **mudança de ModelSelection**.
 
-- Guide 携带 ModelSelection 时，即使选择没有变化，也必须通过当前统一入口重新解析配置、校验并创建执行 Model；相同 Provider、模型和档位不代表配置没有更新。
-- 新解析出的 Model 用于后续请求；不能因为 Selection 相同就复用旧 Model、跳过配置解析，或继续使用旧的执行参数。
-- 只有 Selection 本身发生变化，才触发 Guide 的切模 System 前缀重建。不得把“返回了 Model”“新 Model 对象与旧对象不同”当成切换的判断条件。
-- 本轮只修上述触发条件，不修输出风格冻结问题，不重构 Provider、Selection、账号同步或 Guide 调度架构。
+- Quando o Guide carrega uma ModelSelection, mesmo que a seleção não tenha mudado, ele precisa re-resolver a configuração pelo ponto de entrada unificado atual, validá-la e criar o Model de execução; mesmo Provider, modelo e nível não significam que a configuração não foi atualizada.
+- O Model recém-resolvido é usado nas requisições seguintes; não se deve reutilizar o Model antigo, pular a resolução de configuração ou continuar usando os parâmetros de execução antigos só porque a Selection é a mesma.
+- Somente uma mudança da própria Selection dispara a reconstrução do prefixo System de troca de modelo do Guide. Não se pode tomar "devolveu um Model" ou "o novo objeto Model é diferente do antigo" como condição de troca.
+- Esta rodada corrige apenas o gatilho acima; não corrige o problema de congelamento de estilo de saída, não refatora a arquitetura de Provider, Selection, sincronização de conta ou agendamento do Guide.
 
-本文明确取代讨论中“相同选择复用旧 Model，不调用模型工厂”的初稿；不得按该初稿实施。
+Este documento substitui explicitamente o rascunho inicial discutido de "reutilizar o Model antigo com a mesma seleção, sem chamar a fábrica de modelos"; não implemente conforme esse rascunho.
 
-## 当前问题与相关入口
+## Problema atual e pontos de entrada relacionados
 
-- `apps/zcode-cli/packages/core/src/runtime/methods/turn-model.ts` 的 `applySubmissionExecutionState()` 收到 Selection 后会创建并返回 Model。已有选择比较只控制 Session 模型选择事件，不阻止返回 Model。
-- `apps/zcode-cli/packages/core/src/runtime/methods/turn-guide-drain.ts` 当前只判断 `if (guideModel)`，随即替换执行 Model 并调用 `rebuildContextPrefix()`；错误在于把获得 Model 与发生切换混为一谈。
-- `apps/zcode-cli/packages/core/src/runtime/methods/turn.ts` 的新 Turn / compact 路径也使用上述公共函数，不能为 Guide 修改公共行为而破坏这些调用。
-- Session 保存的选择与当前 Loop 已绑定的执行模型可能不同：Bot 等入口可以更新 Session。因此，Guide 是否改变本次执行选择，应对比当前 Loop 的实际 Model，而非仅对比可变 Session 值。
+- `applySubmissionExecutionState()` em `apps/zcode-cli/packages/core/src/runtime/methods/turn-model.ts`, ao receber a Selection, cria e devolve um Model. A comparação de seleção existente apenas controla o evento de seleção de modelo da Session, não impede o retorno do Model.
+- `apps/zcode-cli/packages/core/src/runtime/methods/turn-guide-drain.ts` atualmente verifica apenas `if (guideModel)`, em seguida substitui o Model de execução e chama `rebuildContextPrefix()`; o erro está em confundir obter um Model com ocorrer uma troca.
+- O novo caminho de Turn / compact em `apps/zcode-cli/packages/core/src/runtime/methods/turn.ts` também usa essas funções públicas, então não se pode quebrar essas chamadas para modificar o comportamento público por causa do Guide.
+- A seleção salva na Session pode diferir do modelo de execução já vinculado ao Loop atual: pontos de entrada como o Bot podem atualizar a Session. Portanto, se o Guide alterou a seleção desta execução, deve-se comparar com o Model real do Loop atual, e não apenas com o valor mutável da Session.
 
-## 预期链路
+## Cadeia esperada
 
 ```text
-Guide 在既定的下一次 model-step 边界被消费
-  -> 正常追加 Guide 正文
-  -> 记录切换前的执行选择（来自当前 Loop Model）
-  -> 通过原有统一入口重新解析 / 校验 / 创建 Model
-  -> 更新后续请求使用的执行 Model
-  -> 比较 Guide 选择与切换前的执行选择
-       相同 -> 不触发切模 System 前缀重建
-       不同 -> 沿用现有切模 System 前缀重建
-  -> 正常完成输入归属、模式等其他 Guide 处理
+O Guide é consumido na próxima fronteira de model-step já estabelecida
+  -> o corpo do Guide é anexado normalmente
+  -> registra a seleção de execução anterior à troca (vinda do Model do Loop atual)
+  -> re-resolve / valida / cria o Model pelo ponto de entrada unificado já existente
+  -> atualiza o Model de execução usado nas requisições seguintes
+  -> compara a seleção do Guide com a seleção de execução anterior à troca
+       igual -> não dispara a reconstrução do prefixo System de troca de modelo
+       diferente -> segue a reconstrução existente do prefixo System de troca de modelo
+  -> conclui normalmente os demais tratamentos do Guide (atribuição de entrada, modo, etc.)
 
-已经发出的模型请求 -> 继续使用原绑定，不被中途改写
+Requisições de modelo já enviadas -> continuam usando o vínculo original, sem reescrita no meio do caminho
 ```
 
-## 实施要求
+## Requisitos de implementação
 
-1. 选择比较涵盖 `providerId`、`modelId`、`options.reasoningLevel`，遵循现有完整 Selection 契约；换 Provider、换模型、只换推理档位均算变化。不按显示名称、对象引用或整份模型配置比较。
-2. 在合适的现有边界分别表达解析所得 `model` 与 `selectionChanged`。可以通过小型返回结果或 Guide 局部计算实现；不要求为了一个布尔事实增加状态服务、缓存或重复持久化字段。
-3. `selectionChanged` 只控制本次切模专属前缀重建，不控制是否重新解析 Model。选择相同但配置更新时，后续实际请求必须使用新 Model 的配置。
-4. 不在公共应用函数开头用“选择相同”提前返回；不以旧 Model 作为 `preparedModel` 绕过本次解析。正常新 Turn 的模型创建及已有 prepared-model 用途不变。
-5. 保留 Session 选择提交、持久化及事件的既有语义；Session 变化事件与当前执行是否需要重建前缀不是同一判断，不能简单用同一个布尔值替换两者。常规 Session / 执行 / Guide 三者选择一致时，不产生虚假模型切换事件。
-6. Guide 的正文、模式更新、query / message 归属、工具限制合并、重复工具检测重置仍正常处理，不能因无需重建前缀而跳过。没有 Selection 的 Guide 沿用原行为。
-7. 真实换模型时继续使用现有工厂校验和切换边界，不偷偷替换为其他模型，不吞掉解析失败。执行级临时绑定、Off-Peak 和既有继承保护不变。
-8. 在修复处留中文注释，解释“配置重新解析不等于选择变化”。沿用统一 Model 下游消费机制，不新增第二套请求参数来源。
-9. 更新现有相关 spec / 功能图中“Guide 总是创建并重建模型上下文”的笼统表述，明确重新解析与前缀重建的不同条件；不修改整个上下文冻结契约。
+1. A comparação da seleção abrange `providerId`, `modelId` e `options.reasoningLevel`, seguindo o contrato completo de Selection já existente; trocar de Provider, trocar de modelo ou trocar apenas o nível de raciocínio contam como mudança. Não comparar por nome de exibição, referência de objeto ou pela configuração completa do modelo.
+2. Expressar separadamente, em fronteiras existentes adequadas, o `model` resultante da resolução e o `selectionChanged`. Pode-se fazer isso por meio de um pequeno resultado de retorno ou de um cálculo local do Guide; não se exige adicionar um serviço de estado, cache ou campo persistido duplicado para um único booleano.
+3. `selectionChanged` controla apenas a reconstrução do prefixo exclusivo desta troca de modelo; não controla se o Model é re-resolvido. Quando a seleção é a mesma mas a configuração foi atualizada, as requisições reais seguintes devem usar a configuração do novo Model.
+4. Não retornar cedo no início da função pública de aplicação com base em "seleção igual"; não usar o Model antigo como `preparedModel` para contornar a resolução desta vez. A criação de modelo de um novo Turn normal e os usos existentes de prepared-model permanecem inalterados.
+5. Preserve as semânticas existentes de commit, persistência e evento da seleção da Session; o evento de mudança da Session e a necessidade de reconstruir o prefixo para a execução atual não são o mesmo julgamento e não podem ser substituídos simplesmente pelo mesmo booleano. Quando Session / execução / Guide têm as três seleções coincidentes, não devem ser gerados eventos falsos de troca de modelo.
+6. O corpo do Guide, a atualização de modo, a atribuição de query / message, a mesclagem de restrições de ferramentas e o reset da detecção de ferramentas duplicadas continuam sendo tratados normalmente, sem serem pulados por não haver reconstrução de prefixo. Um Guide sem Selection mantém o comportamento original.
+7. Em uma troca real de modelo, continue usando a validação da fábrica existente e a fronteira de troca, sem trocar silenciosamente por outro modelo e sem engolir falhas de resolução. Vinculação temporária de escopo de execução, Off-Peak e as proteções de herança existentes permanecem inalterados.
+8. Deixe um comentário em chinês no ponto da correção explicando que "re-resolver a configuração não equivale a mudança de seleção". Mantenha o mecanismo unificado de consumo do Model a jusante e não crie uma segunda fonte de parâmetros de requisição.
+9. Atualize as formulações genéricas existentes em spec / diagramas funcionais que dizem que "o Guide sempre cria e reconstrói o contexto de modelo", explicitando as condições diferentes de re-resolução e de reconstrução de prefixo; não modifique todo o contrato de congelamento de contexto.
 
-## 明确不做
+## Fora de escopo explícito
 
-- 不修真正切模时，前缀构造器读取最新 output style、而 reminder 仍使用本轮冻结样式的第二个问题。此问题独立保留，不以本 Todo 完成宣称已解决。
-- 不通过删除 reminder、提前更新 reminder 或刷新全部冻结配置来掩盖上述第二个问题。
-- 不改变 Guide admission、FIFO、提交 / 保存时机、桌面 continuous 与手机 replayable 链路，不新增发送前同步屏障。
-- 不顺带修改数据库迁移、Bot 命令、Provider 配置规则或其他辅助调用策略。
+- Não corrigir o segundo problema, em que, em uma troca real de modelo, o construtor de prefixo lê o output style mais recente enquanto o reminder ainda usa o estilo congelado do turno. Este problema permanece independente e não se deve alegar que foi resolvido com a conclusão deste Todo.
+- Não mascarar o segundo problema removendo o reminder, atualizando-o mais cedo ou recarregando toda a configuração congelada.
+- Não alterar o admission do Guide, FIFO, os momentos de commit / salvamento, o fluxo desktop continuous nem o mobile replayable, e não adicionar nova barreira de sincronização antes do envio.
+- Não modificar de passagem migrações de banco, comandos do Bot, regras de configuração de Provider ou outras estratégias auxiliares de chamada.
 
-## 测试与验收
+## Testes e aceitação
 
-先补测试，再实现；按整批组织定向回归和复审，不为每个小项重复全量回归或 Pro 验证。
+Escreva primeiro os testes, depois implemente; organize a regressão dirigida e a revisão por lote inteiro, sem repetir regressão completa ou validação Pro para cada item pequeno.
 
-- [x] 相同完整 Selection、配置不变：模型工厂仍调用，后续使用重新解析所得 Model；不重建 System，Guide 正文正常进入请求。
-- [x] 相同完整 Selection、配置已改变：使用可观察的配置变化（如合法输出上限变化），断言后续实际请求采用新配置，同时 System 前缀不因切模逻辑改变。不能只断言工厂调用或只比较 Model 对象。
-- [x] 相同 Selection 加运行模式变化：模式正常应用，前缀不因切模逻辑重建；输入归属及 Guide 其他状态处理不丢。
-- [x] Provider、模型、推理档位分别变化：保持原有真实切换行为，后续请求使用新 Model，并按现有规则重建前缀。
-- [x] 连续 Guide A→B、B→B：两次均正常解析，只有第一次触发切模前缀重建。
-- [x] Session 保存选择与 Loop 执行选择不同：重建条件依据 Loop，Session 保存 / 事件仍遵循原提交语义，不混用两个变化判断。
-- [x] 没有 Selection、解析失败、执行级临时绑定，以及下一轮继续选相同模型的路径无回退。
-- [x] 用真实 Runtime 与不联网测试模型捕获前后请求：运行中改 output style 后提交相同选择的 Guide，正文出现，System 前缀不因此变化；不据此声称真实切模时的样式冻结问题也已修复。
-- [x] 核对现有 Guide 交互 E2E，补充或更新最小有区分力的用例；保留桌面 / 手机共享 CLI 消费边界，不将单端通过写成全端实机通过。
-- [x] 整批执行相关定向测试、`pnpm typecheck`、`pnpm lint`，复审公共调用、新 Model 下游使用、持久化与不在范围内的冻结语义。
-- [x] 更新实施、验证及剩余限制记录并提交；待测与已通过分开陈述。
+- [x] Selection completa igual, configuração inalterada: a fábrica de modelos ainda é chamada e o Model resultante da re-resolução é usado a seguir; o System não é reconstruído e o corpo do Guide entra normalmente na requisição.
+- [x] Selection completa igual, configuração alterada: usar uma mudança de configuração observável (como uma mudança válida no limite de saída), afirmar que a requisição real seguinte adota a nova configuração, enquanto o prefixo System não muda por causa da lógica de troca de modelo. Não basta afirmar apenas a chamada da fábrica ou apenas comparar objetos Model.
+- [x] Mesma Selection com mudança de modo de execução: o modo é aplicado normalmente, o prefixo não é reconstruído pela lógica de troca de modelo; a atribuição de entrada e os demais estados do Guide não se perdem.
+- [x] Mudanças分别 em Provider, modelo e nível de raciocínio, modelo e nível de raciocínio: o comportamento real de troca existente é preservado, as requisições seguintes usam o novo Model e o prefixo é reconstruído conforme as regras atuais.
+- [x] Guides consecutivos A→B, B→B: ambos resolvem normalmente e apenas o primeiro dispara a reconstrução do prefixo de troca de modelo.
+- [x] Seleção salva na Session diferente da seleção de execução do Loop: a condição de reconstrução se baseia no Loop; o salvamento / evento da Session continua seguindo a semântica original de commit, sem misturar os dois julgamentos de mudança.
+- [x] Ausência de Selection, falha de resolução, vinculação temporária de escopo de execução e o caminho em que o próximo turno continua escolhendo o mesmo modelo não têm regressão.
+- [x] Usar o Runtime real com um modelo de teste offline para capturar as requisições antes e depois: mudar o output style durante a execução e submeter um Guide com a mesma seleção; o corpo aparece e o prefixo System não muda por isso; não alegar com base nisso que o problema de congelamento de estilo na troca real de modelo também foi corrigido.
+- [x] Conferir os E2E de interação existentes do Guide e complementar ou atualizar os casos mínimos com poder discriminante; preservar a fronteira de consumo do CLI compartilhado entre desktop / celular e não escrever aprovação de um único dispositivo como aprovação real em todos.
+- [x] Executar no lote inteiro os testes dirigidos relacionados, `pnpm typecheck` e `pnpm lint`, revisando as chamadas públicas, o uso a jusante do novo Model, a persistência e as semânticas de congelamento fora de escopo.
+- [x] Atualizar os registros de implementação, validação e limitações restantes e commitar; separar o que está pendente de teste do que já passou.
 
-## 完成标准
+## Critério de conclusão
 
-同选择的 Guide 能获取更新后的模型配置，后续请求正确使用新 Model，但不误触发切模 System 重建；真实选择变化仍正常切换。相关测试和复审完成，未把输出风格冻结问题混入本次修复或完成声明。
+Um Guide com a mesma seleção obtém a configuração de modelo atualizada, as requisições seguintes usam corretamente o novo Model, sem disparar indevidamente a reconstrução do System de troca de modelo; uma mudança real de seleção ainda troca normalmente. Os testes e a revisão relacionados estão concluídos, sem ter misturado o problema de congelamento de output style para esta correção ou para a declaração de conclusão.
 
-## 实施与复审记录
+## Registro de implementação e revisão
 
-- 复用 `turn-model` 的完整选择比较，仅在 Guide 中控制重建；比较旧 Loop Model 与新 Model，而非可变 Session 或对象引用。Factory 和 Session 提交逻辑不变，没有提前返回或 prepared-model 旁路。
-- `guide-model-refresh.test.ts` 用真实 Runtime 捕获请求，旧实现 5 个同选择/连续 Guide 场景失败；修复后连同真实 Provider/模型/档位变化、双向 Session/Loop 差异共 9 场景通过。输出上限由 8,000 更新至 16,000，后续请求用新值而 System 保持旧值，Guide 文本/模式/归属正常。
-- 5 文件 186 条定向回归通过（上述测试、旧 Guide 测试、Runtime model lifecycle/selection、完整 tool loop），Core 类型检查通过。
-- 逐条复审：execution scope 分支不变；无选择、解析失败、新 Turn 与 prepared-model 仍走原路径；当前请求不受影响；工具限制、重复工具检测、message/query 更新仍在重建判断之外。没有增加同步/持久化/投影状态，也未触碰第二个输出风格冻结问题。
-- GS/P06 加实际首轮/连续 Guide 请求前缀断言，catalog/matrix 同步。该新增 E2E 断言尚待整批桌面验证，不能沿用旧 formal 标记冒充本次已通过。
+- Reutilizada a comparação completa de seleção de `turn-model`, controlando a reconstrução apenas no Guide; a comparação é entre o Model antigo do Loop e o novo Model, e não a Session mutável ou a referência de objeto. A lógica da Factory e do commit da Session não mudou; não há retorno antecipado nem bypass de prepared-model.
+- `guide-model-refresh.test.ts` captura requisições com o Runtime real; a implementação antiga falhava em 5 cenários de mesma seleção/Guide consecutivo; após a correção, passam 9 cenários, incluindo mudanças reais de Provider/modelo/nível e a divergência bidirecional Session/Loop. O limite de saída foi de 8.000 para 16.000, a requisição seguinte usa o novo valor enquanto o System mantém o antigo, e texto/modo/atribuição do Guide funcionam normalmente.
+- Regressão dirigida de 5 arquivos e 186 casos passou (os testes acima, os testes antigos de Guide, o lifecycle/selection de Model do Runtime e o tool loop completo); a checagem de tipos do Core passou.
+- Revisão item a item: o ramo de execution scope inalterado; sem seleção, falha de resolução, novo Turn e prepared-model seguem o caminho original; a requisição atual não é afetada; restrições de ferramentas, detecção de ferramentas duplicadas e atualização de message/query permanecem fora do julgamento de reconstrução. Nenhum estado de sincronização/persistência/projeção foi adicionado, e o segundo problema de congelamento de output style não foi tocado.
+- GS/P06 recebeu asserções reais de prefixo na primeira requisição / em Guides consecutivos, com catalog/matrix sincronizado. Essa nova asserção E2E ainda aguarda a validação de desktop do lote inteiro; não se pode reutilizar a antiga marcação formal para fingir que passou nesta rodada.

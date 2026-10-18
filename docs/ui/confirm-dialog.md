@@ -1,22 +1,22 @@
-# 二次确认弹窗
+# Diálogo de Confirmação Secundária
 
-## 目标
+## Objetivo
 
-- 为 `packages/ui` 提供一个全局可复用的二次确认弹窗。
-- 先覆盖两个高风险操作：删除 task、移除 project。
+- Fornecer a `packages/ui` um diálogo de confirmação secundária global e reutilizável.
+- Cobrir primeiro as duas operações de alto risco: excluir task e remover project.
 
-## 实现
+## Implementação
 
-- `packages/ui/src/store/confirmDialogStore.ts` 用 Zustand 管理单例确认请求，调用侧通过 Promise 等待结果。
-- `packages/ui/src/ConfirmDialog.tsx` 负责渲染弹窗，布局和按钮区对齐 `z-work` 的确认弹窗样式。
-- `packages/ui/src/Root.tsx` 在根节点挂载 `ConfirmDialogHost`，保证 desktop、web、本地、remote 都走同一套 UI 逻辑。
+- `packages/ui/src/store/confirmDialogStore.ts` gerencia com Zustand uma requisição de confirmação única; o lado chamador aguarda o resultado via Promise.
+- `packages/ui/src/ConfirmDialog.tsxé responsável por renderizar o diálogo, com layout e área de botões alinhados ao estilo do diálogo de confirmação do `z-work`.
+- `packages/ui/src/Root.tsx` monta o `ConfirmDialogHost` no nó raiz, garantindo que desktop, web, local e remote usem a mesma lógica de UI.
 
-## 接入点
+## Pontos de Integração
 
-- `packages/ui/src/TaskList.tsx` 删除 task 前先弹确认框。
-- `packages/ui/src/WorkspaceSidebar.tsx` 移除 project 前先弹确认框。
+- `packages/ui/src/TaskList.tsx` exibe a confirmação antes de excluir uma task.
+- `packages/ui/src/WorkspaceSidebar.tsx` exibe a confirmação antes de remover um project.
 
-## 交互约束
+## Restrições de Interação
 
-- `Esc` 取消，`Enter` 确认。
-- 关闭 project 只移除侧边栏项目，不影响磁盘文件。
+- `Esc` cancela, `Enter` confirma.
+- Fechar um project apenas remove o item da barra lateral, sem afetar os arquivos em disco.

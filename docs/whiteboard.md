@@ -1,17 +1,17 @@
 # Whiteboard
 
-右侧共享 pane 新增 `Whiteboard` tab，与 Browser、Review、Treemapping 使用同一套 side pane tabs。
+O pane compartilhado à direita ganha uma nova tab `Whiteboard`, usando o mesmo conjunto de side pane tabs de Browser, Review e Treemapping.
 
-## 行为
+## Comportamento
 
-- 新建画板时按当前 workspace 隔离，workspace key 使用 `workspaceIdentity?.trim() || workspacePath`。
-- 默认名称按当前语言生成，例如 `画板 1` / `Whiteboard 1`，同一 workspace 内不会重复。
-- 画板内容保存为笔画数据，包含工具、颜色、粗细和点位；关闭 tab 不会删除画板。
-- 聊天输入框的 `@` 面板会展示当前 workspace 的画板。用户选中画板时才把当前笔画导出为 PNG，并作为现有 `image` 附件加入 composer。
-- 画板 pane 工具栏提供“添加到对话区”按钮，点击后把当前画板导出为 PNG 并加入当前聊天输入框附件区。按钮只发起 UI 内事件，真正的导出、附件上限校验、草稿和焦点恢复仍由 composer 统一处理。
+- Novos quadros são isolados por workspace atual, e a workspace key usa `workspaceIdentity?.trim() || workspacePath`.
+- O nome padrão é gerado no idioma atual, por exemplo `画板 1` / `Whiteboard 1`, sem duplicar dentro do mesmo workspace.
+- O conteúdo do quadro é salvo como dados de traço, incluindo ferramenta, cor, espessura e pontos; fechar a tab não exclui o quadro.
+- O painel `@` da caixa de entrada do chat exibe os quadros do workspace atual. Só quando o usuário seleciona um quadro os traços atuais são exportados como PNG e adicionados ao composer como o anexo `image` já existente.
+- A barra de ferramentas do pane do quadro oferece o botão “Adicionar à conversa”, que, ao ser clicado, exporta o quadro atual como PNG e o adiciona à área de anexos da caixa de entrada do chat atual. O botão apenas dispara um evento dentro da UI; a exportação real, a validação do limite de anexos, o rascunho e a restauração de foco continuam sendo tratados uniformemente pelo composer.
 
-## 边界
+## Limites
 
-- 画板是 UI 层能力，不新增 Agent runtime、relay、main process 或服务端状态。
-- 图片发送复用现有 `ZCodePromptAttachment.kind === "image"` 路径；Agent 不支持图片时沿用现有错误处理。
-- Web 远控和桌面端都走同一条 composer 附件链路，不改变 desktop continuous 与 web remote replayable 的 task stream 边界。
+- O quadro é uma capacidade da camada de UI e não adiciona Agent runtime, relay, main process nem estado no servidor.
+- O envio de imagens reutiliza o caminho existente `ZCodePromptAttachment.kind === "image"`; quando o Agent não suporta imagens, vale o tratamento de erro já existente.
+- O controle remoto Web e o desktop usam a mesma cadeia de anexos do composer, sem alterar os limites do task stream de desktop continuous e web remote replayable.

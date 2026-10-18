@@ -1,16 +1,14 @@
-# Todo 45：Models API 发布者证据工具
+# Todo 45: Ferramenta de evidência do publicador para a Models API
 
-> 状态：待执行；真实目录校正受访问凭据阻塞
+> Status: a executar; a correção do catálogo real está bloqueada por falta de credenciais de acesso
 >
-> 日期：2026-08-28
+> Data: 2026-08-28
 >
-> 来源：Todo 41/43 完成后的 Built-in 模型事实复核
+> Origem: revisão dos fatos de modelos Built-in após a conclusão dos Todo 41/43
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-为 Built-in Provider Config 的维护者提供一个发布前证据工具。工具按正式 Provider 配置中的
-`Endpoint + API Schema`，结合执行时提供的访问材料调用厂商 Models API，生成当前访问材料可见模型与
-`builtinModelIds` 的差异报告。
+Fornecer aos mantenedores do Built-in Provider Config uma ferramenta de evidência pré-publicação. A ferramenta usa o `Endpoint + API Schema` da configuração oficial do Provider, combinado com o material de acesso fornecido na execução, para chamar a Models API do fabricante e gerar um relatório de diferenças entre os modelos visíveis com o material de acesso atual e `builtinModelIds`.
 
 ```text
 ZCode Built-in Provider Config
@@ -29,100 +27,95 @@ Publisher Models API Inspector <--- 执行期访问材料
 发布者人工复核并修改 Built-in Config
 ```
 
-它是发布者维护工具，不是客户端 Runtime、Registry、Config Source 或第四层 Config Overlay。工具默认只报告，
-不得自动改写 `zcode-builtin.json`。
+É uma ferramenta de manutenção do publicador, não o Runtime do cliente, o Registry, uma Config Source ou uma quarta camada de Config Overlay. Por padrão a ferramenta apenas relata e não pode reescrever automaticamente `zcode-builtin.json`.
 
-## 1. 放置与边界
+## 1. Localização e limites
 
-可复用实现放在：
+A implementação reutilizável fica em:
 
 ```text
 packages/provider-node/src/publisher/model-discovery/
 ```
 
-这里可以复用正式 Built-in Release Parser、Provider Schema 和 Node 网络能力，但不得从
-`@zcode/provider-node` 公共根入口导出，避免应用运行时依赖发布工具。
+Ali é possível reutilizar o Built-in Release Parser oficial, o Provider Schema e a capacidade de rede do Node, mas não se deve exportar pela raiz pública de `@zcode/provider-node`, evitando que o runtime da aplicação dependa da ferramenta de publicação.
 
-薄命令入口放在：
+O ponto de entrada fino do comando fica em:
 
 ```text
 scripts/provider/inspect-builtin-models.mjs
 ```
 
-命令入口只负责参数、访问材料输入和报告输出；协议请求、响应解析与差异计算必须是可测试实现。推荐命令名表达
-“采集和检查证据”，不使用会暗示完整业务校验的泛化 `validate`：
+O ponto de entrada do comando cuida apenas de argumentos, entrada do material de acesso e saída do relatório; requisições de protocolo, parsing de resposta e cálculo de diferenças precisam ser uma implementação testável. Recomenda-se um nome de comando que expresse “coletar e inspecionar evidências”, sem usar um `validate` genérico que sugira validação de negócio completa:
 
 ```bash
 pnpm provider:inspect-models --provider minimax
 ```
 
-## 2. 证据模式
+## 2. Modos de evidência
 
-工具应支持三种明确模式：
+A ferramenta deve oferecer três modos explícitos:
 
-1. `live`：使用真实访问材料调用 Models API，形成带时间、Endpoint、Schema 和 Provider 身份的实时证据；
-2. `fixture`：读取已脱敏、已审阅的响应 Fixture，验证协议解析和差异算法；
-3. `static`：只通过正式 Parser 检查 Built-in 成员、Rule 解析等静态事实，不访问网络。
+1. `live`: usa material de acesso real para chamar a Models API, formando evidência ao vivo com hora, Endpoint, Schema e identidade do Provider;
+2. `fixture`: lê um Fixture de resposta já anonimizado e revisado, validando o parsing de protocolo e o algoritmo de diferenças;
+3. `static`: verifica apenas fatos estáticos como a associação ao Built-in e o parsing de Rules, por meio do Parser oficial, sem acessar a rede.
 
-不同模式的报告必须显式标注证据等级。文档示例、Fixture 和实时响应不能混写为同一种“已验证”。
+O relatório de cada modo precisa marcar explicitamente o nível de evidência. Exemplos de documentação, Fixture e resposta ao vivo não podem ser misturados como se fossem a mesma coisa “verificada”.
 
-## 3. 凭据与安全边界
+## 3. Credenciais e limites de segurança
 
-大多数厂商 Models API 需要 API Key、OAuth Token 或账号访问材料。没有访问材料时通常只能得到
-`401/403`，不能证明该 Endpoint 当前真实可见的模型集合。
+A maioria das Models API dos fabricantes exige API Key, OAuth Token ou material de acesso de conta. Sem material de acesso, normalmente se obtém apenas
+`401/403`, o que não prova qual conjunto de modelos aquele Endpoint realmente enxerga no momento.
 
-访问材料只在执行期注入：
+O material de acesso é injetado apenas na execução:
 
-- 优先从环境变量或标准输入读取；
-- 禁止写入 Built-in Config、Fixture、差异报告或 Git；
-- 禁止通过普通命令行参数传递明文，避免进入 shell history 和进程列表；
-- 报告只记录凭据类型和不可逆标识，不记录原值；
-- 同一厂商的 OpenAI-compatible 与 Anthropic-compatible Endpoint 分别请求和记录，不从其中一条外推另一条；
-- Start/Individual/Team 等账号特定成员继续以 Account 产品接口和 Account Overlay 为准，通用 Models API
-  不取代账号权益接口。
+- Preferencialmente lido de variáveis de ambiente ou da entrada padrão;
+- Proibido gravar em Built-in Config, Fixture, relatório de diferenças ou Git;
+- Proibido passar em texto claro por argumentos comuns de linha de comando, para não entrar no histórico do shell nem na lista de processos;
+- O relatório registra apenas o tipo de credencial e um identificador irreversível, nunca o valor original;
+- Endpoints OpenAI-compatible e Anthropic-compatible do mesmo fabricante são requisitados e registrados separadamente, sem extrapolar de um para o outro;
+- Membros específicos de conta, como Start/Individual/Team, continuam sendo regidos pelas interfaces de produto de conta e pelo Account Overlay; a Models API genérica não substitui a interface de direitos da conta.
 
-厂商没有 Models API、当前 Endpoint 不支持目录查询或当前访问材料无权限时，报告必须返回明确的
-`unsupported`、`unauthorized` 或 `unavailable`，不得猜测目录。
+Quando o fabricante não tem Models API, quando o Endpoint atual não suporta consulta de catálogo ou quando o material de acesso atual não tem permissão, o relatório precisa retornar explicitamente
+`unsupported`, `unauthorized` ou `unavailable`, sem adivinhar o catálogo.
 
-## 4. 当前阻塞原因
+## 4. Motivo do bloqueio atual
 
-当前阻塞的是“用实时接口全面校正 Built-in Config”，不是离线工具代码本身：
+O que está bloqueado é “corrigir de forma abrangente o Built-in Config usando interfaces ao vivo”, e não o código offline da ferramenta em si:
 
-1. 当前工作环境没有各 Built-in 厂商对应的可用访问材料；
-2. Models API 返回的是“当前访问材料可见目录”，不同账号、区域和套餐可能不同，匿名请求不能替代；
-3. 各厂商的 Models 路径、认证方式与响应能力字段并不统一，必须逐个协议适配并用真实响应确认；
-4. OpenAI-compatible 响应通常只证明模型身份，不能据此校正上下文、输出上限和多模态等未返回能力；
-5. 在取得实时证据和人工审阅前，不能让工具自动修改发布配置。
+1. O ambiente de trabalho atual não tem material de acesso utilizável para cada fabricante Built-in;
+2. A Models API retorna o “catálogo visível pelo material de acesso atual”, que pode variar entre contas, regiões e planos, e requisições anônimas não substituem isso;
+3. Os caminhos de Models, a forma de autenticação e os campos de capacidade de resposta não são uniformes entre fabricantes, exigindo uma adaptação de protocolo por fabricante e confirmação por respostas reais;
+4. A resposta OpenAI-compatible costuma provar apenas a identidade do modelo e não serve para corrigir contexto, limite de saída e capacidades multimodais que não são retornadas;
+5. Antes de obter evidência ao vivo e revisão humana, a ferramenta não pode modificar automaticamente a configuração de publicação.
 
-因此当前 Built-in revision 仍属于“官网和产品事实校正版”，不能宣称已经过所有厂商 Models API 实时校正。
-解除实时校正阻塞需要维护者为目标厂商提供可用的测试访问材料，或提供由可信环境采集并脱敏的真实响应。
+Portanto, a revision Built-in atual continua sendo a “versão corrigida por fatos do site oficial e do produto”, e não se pode afirmar que ela já passou por correção ao vivo via Models API de todos os fabricantes.
+Para desbloquear a correção ao vivo, os mantenedores precisam fornecer ao fabricante-alvo material de acesso de teste utilizável, ou uma resposta real coletada e anonimizada em ambiente confiável.
 
-## 5. 实施范围
+## 5. Escopo de implementação
 
-- 定义统一的 discovery 结果、证据元数据和错误分类；
-- 实现 OpenAI-compatible 与 Anthropic-compatible Models API 适配器；
-- 从正式 Built-in Release 读取 Provider、Endpoint、Schema 和 `builtinModelIds`；
-- 生成新增、缺失、共同成员、大小写差异和重复成员报告；
-- 支持 JSON 与 Markdown 输出；
-- Fixture 必须脱敏并带来源 Endpoint、Schema、采集时间和证据状态；
-- 单个 Provider 失败不吞掉其他 Provider 的报告，但进程最终以非零状态表达未完成；
-- 不直接进入应用启动、Registry 刷新、模型选择或普通模型请求链路；
-- 不自动写 Config，不把接口返回的未知 capability 猜测映射进 Model Rules。
+- Definir um resultado de discovery unificado, metadados de evidência e classificação de erros;
+- Implementar adaptadores de Models API para OpenAI-compatible e Anthropic-compatible;
+- Ler Provider, Endpoint, Schema e `builtinModelIds` do Built-in Release oficial;
+- Gerar relatório de adições, ausências, membros em comum, diferenças de caixa e membros duplicados;
+- Suportar saída em JSON e Markdown;
+- Fixtures precisam estar anonimizados e trazer o Endpoint e o Schema de origem, o horário de coleta e o estado da evidência;
+- A falha de um Provider não engole o relatório dos outros, mas o processo termina com status não zero para expressar a conclusão incompleta;
+- Não entrar no startup do aplicativo, na atualização do Registry, na seleção de modelo ou na cadeia de requisição comum de modelo;
+- Não escrever Config automaticamente nem mapear por adivinhação capabilities desconhecidas retornadas pela interface para dentro de Model Rules.
 
-## 6. 测试与完成标准
+## 6. Testes e critérios de conclusão
 
-- 用 Fixture 覆盖 OpenAI-compatible、Anthropic-compatible、未授权、不支持、畸形响应和分页；
-- 使用真实 Domain Parser 读取 Built-in Release，不复制 Provider/Model Schema；
-- 证明报告不会包含输入的秘密值；
-- 证明模型目录差异只按 Provider 身份、Endpoint 和 Schema 比较，不跨 Provider 合并；
-- 至少取得一个 OpenAI-compatible 和一个 Anthropic-compatible Endpoint 的真实脱敏证据；
-- 为所有具备 Models API 且已提供访问材料的 Built-in Provider 生成并人工审阅报告；
-- 无访问材料或无 Models API 的 Provider 明确保留证据缺口，不伪装为通过；
-- 通过相关单测、`pnpm typecheck`、`pnpm lint`，并以 Conventional Commit 提交。
+- Usar Fixtures para cobrir OpenAI-compatible, Anthropic-compatible, não autorizado, não suportado, resposta malformada e paginação;
+- Usar o Domain Parser real para ler o Built-in Release, sem copiar o Schema de Provider/Model;
+- Provar que o relatório não contém o valor secreto da entrada;
+- Provar que as diferenças de catálogo de modelos são comparadas apenas por identidade de Provider, Endpoint e Schema, sem mesclar entre Providers;
+- Obter evidência real anonimizada de pelo menos um Endpoint OpenAI-compatible e um Anthropic-compatible;
+- Gerar e revisar manualmente relatórios para todos os Built-in Providers que têm Models API e material de acesso fornecido;
+- Providers sem material de acesso ou sem Models API mantêm a lacuna de evidência explícita, sem se passar por aprovado;
+- Passar nos testes unitários relacionados, `pnpm typecheck` e `pnpm lint`, e fazer o commit no formato Conventional Commit.
 
-## 7. 与历史发布门禁讨论的关系
+## 7. Relação com a discussão histórica de gates de publicação
 
-本 Todo 只解决“实时模型目录证据采集与差异报告”。已废弃的 Todo 19 曾讨论更大的 Built-in Release 业务完整性
-发布门禁，包括发布责任、静态完整性、误发布/回滚、CI 准入和客户端最小防线。
+Este Todo resolve apenas a “coleta de evidência do catálogo de modelos ao vivo e o relatório de diferenças”. O Todo 19, já descontinuado, discutia um gate de publicação de integridade de negócio do Built-in Release muito maior, incluindo responsabilidade de publicação, integridade estática, publicação errada/rollback, admissão em CI e a defesa mínima do cliente.
 
-如果未来重新建立发布门禁，Todo 45 的报告可以作为证据输入，但 Todo 45 本身不会升级为强制发布门禁。
+Se um gate de publicação for reestabelecido no futuro, o relatório do Todo 45 poderá servir de evidência de entrada, mas o próprio Todo 45 não será promovido a gate de publicação obrigatório.

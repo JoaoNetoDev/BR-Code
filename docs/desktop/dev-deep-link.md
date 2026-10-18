@@ -1,36 +1,31 @@
-# Desktop Dev deep link
+# Deep link do Desktop Dev
 
-## 状态
+## Status
 
-- 当前事实 spec，日期：2026-09-09。
-- 目标场景：先执行 `pnpm dev:desktop:test`，再从线上测试 Share 页面点击“去 ZCode 继续”。
-- 线上 Share 页面和 `zcode://share/import` 协议保持不变。
+- Spec de fato atual, data: 2026-09-09.
+- Cenário alvo: executar `pnpm dev:desktop:test` e depois clicar em "去 ZCode 继续" na página Share de teste online.
+- A página Share online e o protocolo `zcode://share/import` permanecem inalterados.
 
-## 问题边界
+## Fronteira do Problema
 
-线上 Share CTA 只能生成稳定的 `zcode://share/import?code=...`。macOS 的协议处理由
-LaunchServices 决定，不能感知哪个终端通过 pnpm 启动了项目。
+O CTA Share online só consegue gerar o `zcode://share/import?code=...` estável. O tratamento de protocolo no macOS é decidido pelo LaunchServices, que não tem como saber qual terminal iniciou o projeto via pnpm.
 
-当前 `pnpm dev:desktop:test` 直接启动 `node_modules/electron/dist/Electron.app`。这个 raw
-Electron bundle 的 `Info.plist` 没有 `CFBundleURLTypes`，系统登记后得到的 handler 是
-`com.github.electron`，冷启动或外部 URL 进入时可能只显示 Electron 默认页。
+Hoje `pnpm dev:desktop:test` inicia diretamente `node_modules/electron/dist/Electron.app`. O `Info.plist` desse bundle Electron cru não tem `CFBundleURLTypes`, então o handler registrado no sistema é `com.github.electron`, e no cold start ou ao entrar por uma URL externa pode aparecer apenas a página padrão do Electron.
 
-## 方案
+## Solução
 
-仅在 macOS Dev 启动脚本中准备一个本地 `ZCode Dev.app` bundle：
+Preparar um bundle local `ZCode Dev.app` apenas no script de inicialização Dev do macOS:
 
-1. 以当前 checkout 的 Electron runtime 为源，在 `.codex-runtime/desktop-dev/` 下准备副本。
-2. 只修改副本的 `Info.plist`，写入：
-   - `CFBundleIdentifier=dev.zcode.app.development`；
-   - `CFBundleName/CFBundleDisplayName=ZCode Dev`；
-   - `CFBundleURLTypes` 中的 `zcode` scheme。
-3. 仍以 `packages/desktop` 目录作为 Electron 的开发入口启动副本，保留 Vite、HMR、
-   `ELECTRON_RENDERER_URL`、`ZCODE_ENV` 和现有单实例锁语义。
-4. 现有 main process 继续调用 `registerDeepLinkProtocol`；由于当前进程已经来自带
-   `zcode` 声明的 Dev bundle，LaunchServices 注册的是 Dev bundle，而不是 raw Electron。
-5. `open-url`、`second-instance`、ShareImport 投递和导入持久化逻辑不变。
+1. Usando o runtime Electron do checkout atual como fonte, preparar uma cópia em `.codex-runtime/desktop-dev/`.
+2. Modificar apenas o `Info.plist` da cópia, gravando:
+   - `CFBundleIdentifier=dev.zcode.app.development`;
+   - `CFBundleName/CFBundleDisplayName=ZCode Dev`;
+   - o scheme `zcode` em `CFBundleURLTypes`.
+3. Iniciar a cópia ainda usando o diretório `packages/desktop` como entrada de desenvolvimento do Electron, preservando Vite, HMR, `ELECTRON_RENDERER_URL`, `ZCODE_ENV` e a semântica atual de instance lock única.
+4. O main process existente continua chamando `registerDeepLinkProtocol`; como o processo atual agora vem do bundle Dev com a declaração de `zcode`, o LaunchServices registra o bundle Dev, e não o Electron cru.
+5. `open-url`, `second-instance`, a entrega do ShareImport e a lógica de persistência da importação permanecem inalteradas.
 
-## 事件顺序
+## Ordem dos Eventos
 
 ```text
 pnpm dev:desktop:test
@@ -43,21 +38,18 @@ pnpm dev:desktop:test
   -> 现有 Desktop ShareImport 路由
 ```
 
-## 运行边界
+## Fronteiras de Execução
 
-- 只改变未打包 macOS Dev runtime；Windows/Linux 保持当前启动路径。
-- `pnpm dev:desktop:test` 继续使用测试环境 endpoint；`pnpm dev:desktop` 的 production
-  endpoint 语义不改变。
-- 该修复保证“Dev 已启动后点击线上页面”的场景。Dev 未启动时的 macOS 冷启动仍需要
-  独立的 packaged launcher，不在本次最小修复范围内。
-- 不删除或覆盖 `node_modules/electron`；生成的 `.codex-runtime/` 仅为可重建的本地产物。
+- Só o runtime Dev não empacotado do macOS muda; Windows/Linux mantêm o caminho de inicialização atual.
+- `pnpm dev:desktop:test` continua usando o endpoint do ambiente de teste; a semântica de endpoint de production de `pnpm dev:desktop` não muda.
+- A correção garante o cenário "clicar na página online depois que o Dev já está iniciado". O cold start do macOS com o Dev não iniciado ainda exige um launcher empacotado separado e está fora do escopo desta correção mínima.
+- Nada é removido nem sobrescrito em `node_modules/electron`; o `.codex-runtime/` gerado é apenas um artefato local recriável.
 
-## 验收标准
+## Critérios de Aceitação
 
-1. `pnpm dev:desktop:test` 启动日志记录 Dev bundle 路径和 `zcode` 注册成功。
-2. macOS LaunchServices 的 `zcode` handler 指向 `dev.zcode.app.development`，而不是
-   `com.github.electron`。
-3. 线上 Share 页面仍显示原 CTA 和原 `zcode://share/import` href。
-4. Dev 已运行时点击 CTA，不出现 Electron 默认页，现有 Dev 窗口收到 `ShareImport`。
-5. Dev endpoint 为 `https://zcode.z.ai`，导入请求与页面环境一致。
-6. 原有 deep-link parser/route 单测继续通过。
+1. O log de inicialização de `pnpm dev:desktop:test` registra o caminho do bundle Dev e o sucesso do registro de `zcode`.
+2. O handler de `zcode` do LaunchServices no macOS aponta para `dev.zcode.app.development`, e não para `com.github.electron`.
+3. A página Share online ainda exibe o CTA original e o href original `zcode://share/import`.
+4. Ao clicar no CTA com o Dev em execução, não aparece a página padrão do Electron e a janela Dev existente recebe `ShareImport`.
+5. O endpoint do Dev é `https://zcode.z.ai`, e a requisição de importação é consistente com o ambiente da página.
+6. Os testes unitários existentes de parser/route de deep link continuam passando.

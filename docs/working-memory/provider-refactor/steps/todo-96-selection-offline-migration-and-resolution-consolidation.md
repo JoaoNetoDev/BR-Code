@@ -1,156 +1,214 @@
-# Todo 96：Model Selection 离线迁移与有效选择解析收口
+# Tarefa 96: Migração offline de Model Selection e consolidação da resolução da seleção efetiva
 
-> 状态：实现已收口；2026-09-09。离线迁移、恢复原意图保护及目标派发已完成；最后的显式 Subagent 接入由 Todo99 通过 Worker 本地公共解析与 DI 完成，并有 Pro 执行证据，不再等待旧 Host RPC 方案裁决。原过程见 [执行记录](../research/todo94-97-execution-and-review.md)，后续见 [Todo99 账本](../research/todo99-implementation-review.md)。残余跨端验证统一转交 Todo102，不宣称全端通过。
-> 核心裁决：除闲时任务外，旧 Selection 的迁移不依赖当前连接、登录、权益或 Provider 模型配置。迁移保存原意图；当前可用性及账号对应统一通过 `getView({ selection })` 取得 View 和 effectiveSelection。Provider 临时异常不能破坏原选择，尤其是 SSH 远端场景。
+> Estado: implementação consolidada; 2026-09-09. A migração offline, a proteção da intenção original e o despacho ao destino foram concluídos; a integração final de Subagent explícito foi feita pela Tarefa99 por meio da resolução pública local do Worker e injeção de dependência, com evidência de execução Pro, sem mais esperar a decisão sobre o antigo esquema de Host RPC. O processo consta em [registro de execução](../research/todo94-97-execution-and-review.md); a continuação consta em [ledger da Tarefa99](../research/todo99-implementation-review.md). A verificação residual entre dispositivos foi transferida de forma unificada para a Tarefa102, sem alegar aprovação em todos os dispositivos.
+> Decisão central: exceto para tarefas ociosas, a migração da Selection antiga não depende da conexão atual, do login, dos direitos ou da configuração de modelos do Provider. A migração preserva a intenção original; a disponibilidade atual e o vínculo com a conta são obtidos de forma unificada via `getView({ selection })`, que retorna a View e a effectiveSelection. Uma falha temporária do Provider não pode destruir a seleção original, especialmente no cenário remoto SSH.
 
-> 后续裁决：[Todo 97](todo-97-subagent-markdown-in-place-migration-and-legacy-read-audit.md) 将用户数据目录里的 Subagent Markdown 改为在正式保留的 `model` / `thoughtLevel` 原字段中迁移，替代本文“Markdown 不自动重写”对用户目录的旧限制；项目、插件及其他来源全部不自动迁移或写回。未上线中间格式不做兼容，旧字段仅限迁移使用，并专项复审整个 Selection 迁移链路。本文“当前字段优先”只适用于最终正式格式，不能据此保留 Markdown `modelSelection` 中间态。有效选择执行接入仍由本 Todo 负责。
+> Decisão posterior: a [Tarefa 97](todo-97-subagent-markdown-in-place-migration-and-legacy-read-audit.md) passou a migrar o Markdown de Subagent no diretório de dados do usuário dentro dos campos originais `model` / `thoughtLevel`, que são mantidos oficialmente, substituindo a restrição antiga deste documento de que o Markdown não é reescrito automaticamente no diretório do usuário; projetos, plugins e todas as outras origens não têm migração nem escrita de retorno automática. Formatos intermediários nunca publicados não recebem compatibilidade; os campos antigos servem apenas à migração, e toda a cadeia de migração da Selection é reavaliada em uma revisão dedicada. O “campo atual tem prioridade” deste documento vale apenas para o formato oficial final e não autoriza manter o estado intermediário `modelSelection` do Markdown. A integração da execução da seleção efetiva continua sob responsabilidade desta Tarefa.
 
-## 1. 新裁决与范围
+## 1. Novas decisões e escopo
 
-- 旧 BigModel / Z.ai Coding Plan 固定迁为**同域 Individual Provider**，不再依据迁移时当前个人/Team 连接决定身份。Individual 只是旧意图的确定性迁移落点，不表示历史请求使用过个人套餐，不开通或切换账号连接。
-- 后续由已有有效选择解析对应到当前 Account Provider 的同模型、同档位；不另造 Provider 替代机制，不让 Registry 校验偷偷替换 Provider。
-- 当前不可选的模型、档位不妨碍旧意图迁入；临时有效结果仍可以为空或缺档位。
-- 闲时任务的迁移、Provider/Ticket 绑定本轮排除，不机械迁成个人套餐。
-- 不新增 Account / Off-Peak 两种逻辑 Selection 选项；该讨论已搁置。不新增 Selection 持久格式或存储版本来完成本项。
-- 不自动修复已经被旧实现写空的新版记录，不重新从旧文件覆盖当前字段。若需要恢复存量损坏数据，另行确认精确范围。
+- BigModel / Z.ai Coding Plan antigo migra fixamente para o **Individual Provider do mesmo domínio**, sem decidir mais a identidade com base na conexão pessoal/Team vigente no momento da migração. Individual é apenas o ponto de chegada determinístico da intenção antiga; não significa que as requisições históricas usaram plano pessoal, e não ativa nem troca a conexão da conta.
+- A resolução da seleção efetiva existente correlaciona depois ao Provider de Conta atual o mesmo modelo e o mesmo nível; não se cria um mecanismo substituto de Provider nem se deixa a validação do Registry trocar o Provider silenciosamente.
+- Modelos ou níveis atualmente indisponíveis não impedem a migração da intenção antiga; o resultado efetivo temporário ainda pode estar vazio ou sem nível.
+- A migração de tarefas ociosas e o vínculo Provider/Ticket ficam fora desta rodada; não migrar mecanicamente para plano pessoal.
+- Não criar novas opções lógicas de Selection Account / Off-Peak; essa discussão está suspensa. Não criar formato de persistência de Selection nem versão de armazenamento para concluir este item.
+- Não corrigir automaticamente registros novos que a implementação antiga já esvaziou, nem sobrescrever o campo atual a partir do arquivo antigo. Se for preciso recuperar dados corrompidos já existentes, confirmar o escopo exato separadamente.
 
-本 Todo 修改 [Todo 72](todo-72-legacy-builtin-provider-and-model-selection-migration.md) §3.2/§4 中“依赖当前已登录连接迁移旧 Coding Plan”的裁决；沿用 [Todo 87](todo-87-selection-view-unified-resolution.md) 的公共解析、原意图保护及目标 Host 权威，并补齐入口；衔接 [Todo 88](todo-88-provider-audit-regression-repair.md) 的历史恢复与 Subagent 边界。旧文档描述的是此前裁决/实现，不能将本计划标成已实现。
+Esta Tarefa altera as decisões em [Tarefa 72](todo-72-legacy-builtin-provider-and-model-selection-migration.md) §3.2/§4 sobre “migrar o Coding Plan antigo com base na conexão já conectada”; segue a resolução pública, a proteção da intenção original e a autoridade do Host de destino de [Tarefa 87](todo-87-selection-view-unified-resolution.md), e completa as entradas; conecta-se à recuperação histórica e à fronteira de Subagent da [Tarefa 88](todo-88-provider-audit-regression-repair.md). O documento antigo descreve decisões/implementações anteriores, portanto este plano não pode ser marcado como implementado.
 
-## 2. 已调查的当前问题
+## 2. Problemas atuais levantados na investigação
 
-| 入口/边界 | 当前事实 | 本项处理 |
+| Entrada/fronteira | Fato atual | Tratamento neste item |
 | --- | --- | --- |
-| 共享旧身份转换 | `legacy-model-provider-identity.ts` 的旧 Coding Plan 分支依赖 `currentAccountAccess` | 改为确定性映射，移除仅服务迁移的账号上下文 |
-| Host 装配 | `node.ts` 的 `readMigrationAccountAccess` 经过账号设置准备、登录身份；旧 Team 缺组织时还可能间接等待 OAuth 查询 | Selection 迁移不再走此链；独立连接迁移和真实鉴权仍保留 |
-| Session | 格式/身份迁移后，`create-app.ts` 恢复路径直接校验原 Selection，失败返回空 | 原意图必须到达公共解析，不能在入口前被丢掉；运行绑定仍严格校验 |
-| 定时任务 | 旧列导入不查模型名单，但旧 Built-in 回调仍依赖账号；SQL NULL 保留重试边界 | 纯导入、保留当前字段优先和 CAS；当前有效结果用于原有首次派发边界 |
-| Bot | 旧字符串必须命中当前候选名单；相同内容的结构化选择却不要求。首次导入写出 v3 后不再读旧文件 | 删除候选名单门禁，避免将暂不可用的明确意图永久写丢 |
-| Wiki/Subagent 存储 | 旧账号 ID 通过 Host 回调转换；未能确定时可保留旧意图 | 换用纯转换；实际执行接入另按第 5 节核实 |
+| Conversão de identidade antiga compartilhada | O ramo de Coding Plan antigo em `legacy-model-provider-identity.ts` depende de `currentAccountAccess` | Passar a um mapeamento determinístico, removendo o contexto de conta que existia só para a migração |
+| Montagem no Host | `readMigrationAccountAccess` em `node.ts` passa pela preparação de configurações de conta e pela identidade de login; no Team antigo sem organização, ele ainda pode esperar indiretamente por consultas OAuth | A migração da Selection não passa mais por essa cadeia; a migração de conexão independente e a autenticação real são mantidas |
+| Session | Após a migração de formato/identidade, o caminho de restauração em `create-app.ts` valida diretamente a Selection original e devolve vazio em caso de falha | A intenção original precisa chegar à resolução pública e não pode ser descartada antes da entrada; o vínculo de execução continua sendo validado estritamente |
+| Tarefas agendadas | A importação das colunas antigas não consulta a lista de modelos, mas o callback Built-in antigo ainda depende da conta; SQL NULL preserva a fronteira de retry | Importação pura, prioridade do campo atual e CAS; o resultado efetivo atual é usado na fronteira de despacho original |
+| Bot | A string antiga precisa acertar a lista de candidatos atual; a seleção estruturada de mesmo conteúdo não precisa. Após escrever v3 na primeira importação, o arquivo antigo não é mais lido | Remover o portão da lista de candidatos, evitando perder permanentemente uma intenção explícita apenas por indisponibilidade temporária |
+| Armazenamento Wiki/Subagent | A ID de conta antiga é convertida por callback do Host; quando não é possível determinar, a intenção antiga pode ser mantida | Usar uma conversão pura; a integração real da execução é verificada à parte pela seção 5 |
 
-只读调查的证据：已用纯函数/内存 SQLite 和注入 resolver 复现旧 Coding Plan 随当前连接变化、Bot 候选为空时丢旧字符串选择、Automation 身份确认后不检查旧模型/档位即可导入。没有对真实用户数据做写入；这些是现状复现，不是本 Todo 的实现验收。
+Evidências da investigação somente leitura: a conversão pura/O SQLite em memória e o resolver injetado reproduziram o Coding Plan antigo variando com a conexão atual, a perda da seleção antiga em string quando a lista de candidatos do Bot está vazia, e a importação de Automation sem checar modelo/nível antigo após confirmar a identidade. Nenhuma escrita foi feita em dados reais de usuário; essas são reproduções do estado atual, não a aceitação de implementação desta Tarefa.
 
-## 3. 迁移层：只转换确定的旧事实
+## 3. Camada de migração: converter apenas fatos antigos determinísticos
 
-| 输入身份 | 固定输出 |
+| Identidade de entrada | Saída fixa |
 | --- | --- |
 | `builtin:bigmodel-coding-plan` | `account:bigmodel-individual-coding-plan` |
 | `builtin:zai-coding-plan` | `account:zai-individual-coding-plan` |
-| `builtin:bigmodel` / `builtin:zai` | 沿用 `bigmodel-api` / `zai-api` |
-| 两域旧 Start Plan ID | 沿用对应的 `account:<family>-start-plan` |
-| 正式当前 ID、明确的自定义 Provider ID | 原样保留，不要求当前 Provider 存在 |
-| 无法解码、无法确认身份、退役且无对应的 ID | 保留既有未绑定/未完成边界，不猜 Provider，不回退默认 |
+| `builtin:bigmodel` / `builtin:zai` | Mantém `bigmodel-api` / `zai-api` |
+| IDs antigos de Start Plan dos dois domínios | Mantém o `account:<family>-start-plan` correspondente |
+| ID atual formal, IDs customizados explícitos de Provider | Preservados como estão, sem exigir que o Provider atual exista |
+| IDs indecodificáveis, identidade não confirmável, IDs aposentados sem correspondência | Mantém a fronteira não vinculada/incompleta existente; não adivinha Provider nem recorre ao padrão |
 
-1. 模型 ID 原样保留；只从真正旧格式中搬运可确定的推理档位。不能因当前配置不支持而删除或补默认档位。
-2. 迁移不得读取当前账号连接、登录身份、权益、Registry、Selection View 或模型候选；读取旧记录及静态身份映射是允许的。
-3. 取消迁移入口对完整 `ZCodeAccountAccess` 的依赖；静态转换不等待登录、网络、远端连通或 Provider 初始化。
-4. 保留格式校验。非法 JSON、错误字段类型不是“暂不可用模型”，不能借本项宽松解析全部吞掉。
-5. 已有当前字段优先，显式清空不复活；坏的新值不靠旁边旧字段修复。明确旧 `builtin:*` 身份即使存于结构化字段，仍按既定升级边界识别。
-6. 迁移幂等，保留旧文件/字段的既定回滚边界及原有 CAS/事务保护；不批量改写历史消息，不维护新旧持续双写。
-7. 当前 API/Team 连接设置迁移、OAuth 查询、凭据请求自身不取消。只删除它们与 Selection 格式/身份转换之间的依赖。
+1. A ID do modelo é preservada como está; apenas níveis de raciocínio determináveis são trazidos de formatos
+   realmente antigos. Não remover nem preencher nível padrão porque a configuração atual não o suporta.
+2. A migração não pode ler a conexão de conta atual, a identidade de login, os direitos, o Registry, a Selection
+   View nem os candidatos de modelo; ler registros antigos e mapeamentos estáticos de identidade é permitido.
+3. A entrada de migração deixa de depender de um `ZCodeAccountAccess` completo; a conversão estática não espera
+   login, rede, conectividade remota nem inicialização de Provider.
+4. A validação de formato é preservada. JSON inválido ou tipos de campo errados não são “modelo temporariamente
+   indisponível” e não podem ser engolidos por um parsing permissivo deste item.
+5. A prioridade do campo atual já existe; um apagamento explícito não ressuscita, e um valor novo corrompido não
+   é reparado pelo campo antigo ao lado. Identidades antigas `builtin:*` explícitas, mesmo armazenadas em campos
+   estruturados, continuam sendo reconhecidas conforme a fronteira de upgrade estabelecida.
+6. A migração é idempotente e preserva a fronteira de rollback já definida de arquivos/campos antigos e as
+   proteções CAS/transação originais; não reescreve mensagens históricas em massa nem mantém escrita dupla
+   contínua antiga/nova.
+7. A migração das configurações de API/Team da conta atual, a consulta OAuth e o próprio pedido de credenciais
+   não são cancelados. Remove-se apenas a dependência deles em relação à conversão de formato/identidade da Selection.
 
-## 4. 公共解析及三类状态
+## 4. Resolução pública e os três estados
 
 ```text
-旧记录
+Registro antigo
   |
   v
-离线格式 / 确定性身份迁移
+Migração de formato offline / identidade determinística
   |
   v
-持久原 Selection / 用户最新草稿 ---------------- 保留原意图
+Selection original persistida / rascunho mais recente do usuário ------------ preserva a intenção original
   |
-  + 目标 Host 当前已应用的配置与账号事实
+  + configuração e fatos de conta já aplicados no Host de destino
   v
 getView({ selection })
-  +--> 候选 View
-  `--> effectiveSelection / selectionIssue ------- 临时可用性
+  +--> View de candidatos
+  `--> effectiveSelection / selectionIssue ---------------------- disponibilidade temporária
                |
                v
-        接纳 / 首次派发，固定具体选择
+        aceitação / primeiro despacho, fixando a escolha concreta
                |
                v
-        ModelFactory / Registry 最终校验 -------- 执行权威
+        validação final por ModelFactory / Registry ------------ autoridade de execução
 ```
 
-- Account 对应、模型不可用置空、档位不可用只清档位，复用现有公共解析语义。普通 Provider 不因此获得跨 Provider 同名匹配；缺模型不取首项，失效档位不补最高档。
-- 清理恢复/展示入口中重复的可用性判断和提前置空，不能只删校验却继续丢失原输入。原意图须完整传到 `getView`。
-- 最终 Model 构建校验、运行时绑定保护保留；禁止为了“统一”把无效原选择直接塞进 Runtime。
-- 读取、刷新和失败不写空原意图。保存文本、标题等无关字段时，不把临时空 effectiveSelection 一并覆盖原选择。
-- Composer 中主动清空/改选只改变当前草稿意图，立即按新草稿重新解析；不能仅因菜单点击或 View 更新就写回 Session 的正式选择/Recent。
-- 下次发送成功被接纳时，才按该次实际提交的有效选择更新正式选择/Recent；不等待模型生成结束。未发送或提交失败不覆盖上一次正式选择。尚未完整的清空草稿不得自动补默认模型并提交。
-- 草稿自身的跨重启持久化是另一层：本项不顺带删除已有 Draft 保存机制；即使保存草稿，也只能保存用户草稿意图，不得拿临时空 effectiveSelection 替代，更不能因此更新正式会话选择。
-- 设置页、定时任务/Bot/Subagent 配置编辑仍以各自明确的保存/提交动作落盘，不强行改成“等待发送消息”。成功提交的写回检查原意图与 scope 未被后续编辑替换；不新增全局自动写回机制。
-- 定时任务长期配置只在原显式编辑保存边界改变；本次 run 在原首次派发边界冻结。已固定的 run、Active Model、历史请求不重解释。
-- “迁移未完成/原意图不可用”不等于“从未指定模型”；后者原有默认/继承规则保留，前者不能静默进入默认执行。
+- A correspondência de conta, o esvaziamento por modelo indisponível e a remoção de nível indisponível limpam
+  apenas o nível, reutilizando a semântica da resolução pública existente. Um Provider comum não ganha
+  correspondência por nome entre Providers; ausência de modelo não pega o primeiro item e nível inválido não
+  recebe o nível máximo.
+- Remover verificações de disponibilidade duplicadas e esvaziamentos antecipados nas entradas de restauração/
+  exibição; não basta apagar a validação e continuar perdendo a entrada original. A intenção original precisa
+  chegar intacta ao `getView`.
+- A validação final de construção do modelo e a proteção de vínculo em runtime são preservadas; é proibido
+  enfiar uma seleção original inválida diretamente no Runtime só por “unificar”.
+- Leitura, atualização e falha não escrevem vazio na intenção original. Ao salvar texto, título ou outros campos
+  irrelevantes, não sobrescrever a seleção original com uma effectiveSelection temporariamente vazia.
+- Limpar/alterar a escolha no Composer só muda a intenção do rascunho atual e resolve novamente imediatamente
+  com o novo rascunho; apenas o clique no menu ou a atualização da View não pode escrever de volta a
+  seleção/Recent formal da sessão.
+- A seleção formal/Recent só é atualizada com a seleção efetiva realmente enviada quando o envio seguinte for
+  aceito com sucesso, sem esperar a geração terminar. Envio não realizado ou envio com falha não sobrescrevem
+  a seleção formal anterior. Um rascunho de limpeza ainda incompleto não pode receber automaticamente um modelo
+  padrão e ser enviado.
+- A persistência do próprio rascunho entre reinícios é outra camada: este item não remove o mecanismo existente
+  de salvamento de Draft; mesmo salvando o rascunho, só se salva a intenção do rascunho do usuário, nunca uma
+  effectiveSelection temporariamente vazia como substituta, e jamais se atualiza por isso a seleção formal da sessão.
+- Página de configurações, edição de tarefas agendadas/Bot/Subagent continuam persistindo por suas próprias ações
+  explícitas de salvar/enviar, sem serem forçadas a “aguardar o envio de mensagem”. A verificação de escrita de
+  retorno após envio bem-sucedido confirma que a intenção original e o escopo não foram substituídos por edições
+  posteriores; não se cria um mecanismo global de escrita de retorno automática.
+- A configuração de longo prazo das tarefas agendadas só muda na fronteira original de edição e salvamento
+  explícitos; a execução desta rodada é congelada na fronteira original de primeiro despacho. Execuções já fixadas,
+  Active Model e requisições históricas não são reinterpretables.
+- “Migração incompleta / intenção original indisponível” não equivale a “nunca foi especificado um modelo”; as
+  regras originais de padrão/herança são preservadas, mas a primeira situação não pode entrar silenciosamente na
+  execução padrão.
 
-## 5. 逐入口实施清单（共享解析，不共享保存副作用）
+## 5. Lista de implementação por entrada (resolução compartilhada, sem efeitos colaterais de salvamento compartilhados)
 
-| 级别 / 入口 | 共享点、改动种子 | 展示/意图及提交落点 | 保留边界 |
+| Nível / entrada | Ponto compartilhado, sementes de mudança | Exibição/intenção e ponto de gravação | Fronteira preservada |
 | --- | --- | --- | --- |
-| 必改：Session/Composer | Agent `model-selection-migration.ts`、`create-app.ts`、Host 返回链、`SessionPane` 与共用 View hook | 清空/改选只改草稿；正式选择/Recent 在发送被接纳后更新，Draft 自身持久化单独处理 | 原选择不因 Runtime 暂不能绑定而丢失；并发编辑胜过迟到结果 |
-| 必改：Automation | `automationSelectionMigration.ts`、`automationRepo.ts`、`automationModelSelection.ts`、编辑页共享选择控件 | 旧列导入当前列；长期配置/每次 run 分离 | 首次派发消费有效结果，不重解析已冻结 run |
-| 必改：Bot | `storageMigration.ts`、`bots/repo.ts`、`botsService.ts`、选择交互 | Config/State 各自 v3 存储；有效结果只用于所属交互/执行 | 候选为空不抹去已解码意图，远端失联不采用本地状态 |
-| 必改：Wiki | `repoWikiStorage.ts`、Wiki 生成选择解析与共享控件 | 读取保留意图，新生成使用有效结果 | 不修改正文/输出预算（Todo 94）；旧文件一次落盘迁移由 Todo97 §8 接续，之后读取不写回 |
-| 必改并单列接入：Subagent | `subagentsService.ts`、Agent profile 初始化、显式模型启动路径 | 内置覆盖/Markdown 原意图与本次子任务实际模型分开 | 不能只改设置页；未指定模型继承父任务，Markdown 不自动重写 |
-| 检查：Recent/Default/其他草稿 | 现有 Reader、调用公共解析后的保存路径 | 原有偏好/草稿 owner | 只处理实际存在的旧格式，不凭共享类型造新迁移器，不改变全新默认行为 |
-| 排除：闲时 | 既有 Off-Peak 专用 resolver、Repo、Ticket | 保持原流程 | 不跨域重绑、换票或套用普通 Coding Plan 迁移 |
+| Obrigatório: Session/Composer | `model-selection-migration.ts` do Agent, `create-app.ts`, cadeia de retorno do Host, `SessionPane` e o hook de View compartilhado | Limpar/alterar a escolha só muda o rascunho; a seleção/Recent formal é atualizada após o envio ser aceito; a persistência do próprio Draft é tratada à parte | A seleção original não se perde porque o Runtime ainda não consegue vincular; edição concorrente vence resultado tardio |
+| Obrigatório: Automation | `automationSelectionMigration.ts`, `automationRepo.ts`, `automationModelSelection.ts`, controle de seleção compartilhado da página de edição | Importa colunas antigas nas colunas atuais; separa configuração de longo prazo de cada execução | O primeiro despacho consome o resultado efetivo e não reinterpreta execuções já congeladas |
+| Obrigatório: Bot | `storageMigration.ts`, `bots/repo.ts`, `botsService.ts`, interação de seleção | Config/State com armazenamento v3 próprio; o resultado efetivo é usado só pela interação/execução correspondente | Candidatos vazios não apagam a intenção já decodificada; perda de conexão remota não adota estado local |
+| Obrigatório: Wiki | `repoWikiStorage.ts`, resolução da seleção de geração de Wiki e controle compartilhado | A leitura preserva a intenção; a nova geração usa o resultado efetivo | Não altera corpo/orçamento de saída (Tarefa 94); a migração do arquivo antigo em uma única gravação é retomada pela Tarefa97 §8; depois da leitura não há escrita de retorno |
+| Obrigatório com integração à parte: Subagent | `subagentsService.ts`, inicialização do perfil do Agent, caminho de inicialização com modelo explícito | Separa a substituição interna/o Markdown da intenção original do modelo real desta subtarefa | Não basta alterar a página de configurações; modelo não especificado herda da tarefa pai e o Markdown não é reescrito automaticamente |
+| Verificar: Recent/Default/outros rascunhos | Reader existente, caminho de salvamento após chamar a resolução pública | Preferência/proprietário de rascunho existente | Trata apenas o formato antigo realmente existente, não cria novo migrador por causa de tipos compartilhados nem altera o comportamento de padrões totalmente novos |
+| Excluir: ocioso | Resolver, Repo e Ticket dedicados a Off-Peak existentes | Mantém o processo original | Não revincula entre domínios, não troca bilhete nem aplica a migração do Coding Plan comum |
 
-**Subagent 的额外边界：** 当前显式模型在 Agent 内独立校验，并非已经调用 Host `getView`。统一迁为 Individual 后，当前 Team 场景必须能取得正确的有效结果，不能把它当成“删除冗余检查”完成。先查清可复用的 Host/Agent 接入点；如需要新增或扩展 App–Agent 协议，提交具体契约供用户裁决，再实现。不得增加 Agent 内另一套账号解析，也不得宣布 UI 支持等于后台支持。此项未解决时不能将全入口统一标成完成。
+**Fronteira adicional do Subagent:** o modelo explícito atual é validado de forma independente dentro do Agent e
+não chama o `getView` do Host. Depois de migrar uniformemente para Individual, o cenário Team atual precisa
+obter o resultado efetivo correto; não se pode considerar isso concluído como “remover uma verificação redundante”.
+Primeiro é preciso esclarecer os pontos de integração reutilizáveis entre Host/Agent; se for necessário adicionar
+ou estender o protocolo App–Agent, submeter o contrato concreto para decisão do usuário e só então implementar.
+Não é permitido adicionar outro conjunto de resolução de conta dentro do Agent nem anunciar suporte de UI como
+suporte de backend. Enquanto este item não for resolvido, todas as entradas não podem ser marcadas como unificadas
+e concluídas.
 
-## 6. SSH / Web 的重点保护
+## 6. Proteções em destaque para SSH / Web
 
 ```text
-SSH 断开 / Provider 尚未同步 / 账号状态异常
+SSH desconectado / Provider ainda não sincronizado / estado da conta anormal
         |
-        +--> 旧数据仍可做纯迁移，原意图保留
-        `--> 目标 View 未就绪或有效结果不完整，不执行
+        +--> dados antigos ainda podem ser migrados de forma pura, a intenção original é preservada
+        `--> a View de destino não está pronta ou o resultado efetivo está incompleto: não executar
 
-目标 Host 恢复 / 配置事件到达
+Host de destino se recupera / chega um evento de configuração
         |
         v
-以保留的原 Selection 再次调用公共读取
+Chamar a leitura pública novamente com a Selection original preservada
         |
         v
-恢复当前有效结果，而不是依赖已被写空的值
+Recuperar o resultado efetivo atual, em vez de depender de valores já esvaziados
 ```
 
-- UI/后台消费目标 Host 的权威结果，不用本地 Provider 为失联远端补选；离线迁移也不主动建立 SSH 连接。
-- View 未就绪/读取错误与已就绪但不可选分开，沿用公共 hook 通知及恢复机制，不新增轮询、无限等待或发送前同步屏障。
-- 保持 `workspaceIdentity?.trim() || workspacePath` 的隔离和 remoteSessionId 边界。相同路径的本地/不同远端不能串选择。
-- 桌面 continuous、手机 web-remote replayable、shared-host attachment 不改；本项不重做消息恢复或跨 Host 调度。
+- A UI e o backend consomem o resultado autoritativo do Host de destino, sem usar o Provider local para
+  escolher por um remoto desconectado; a migração offline também não inicia ativamente uma conexão SSH.
+- Separar View não pronta/erro de leitura de View pronta porém indisponível, seguindo o hook público de
+  notificação e o mecanismo de recuperação, sem adicionar polling, espera infinita ou barreira de sincronização
+  antes do envio.
+- Preservar o isolamento `workspaceIdentity?.trim() || workspacePath` e a fronteira do remoteSessionId.
+  Locais com o mesmo caminho e remotos diferentes não podem misturar seleções.
+- Desktop continuous, celular web-remote replayable e shared-host attachment não mudam; este item não refaz a
+  recuperação de mensagens nem o agendamento entre Hosts.
 
-## 7. 验收用例与执行顺序
+## 7. Casos de aceitação e ordem de execução
 
-| 用例 | 条件 / 动作 | 必须证明 | 证据 |
+| Caso | Condição / ação | O que deve provar | Evidência |
 | --- | --- | --- | --- |
-| SM96-01 | 同一旧选择，分别在未登录、个人、Team、Start、另一账号域及空 Provider 配置下迁移 | 新 Selection 字节级等价；账号/Registry/网络依赖未被调用 | 参数化纯转换、各 importer 单测 |
-| SM96-02 | 旧 Coding Plan 固定迁为 Individual，当前 Team 有同模型/档位 | 经 `getView` 得到 Team 的有效选择；无需 Individual 可用 | 公共解析、Session 恢复集成与 UI E2E |
-| SM96-03 | Provider/模型暂缺或档位不支持，读取并保存其他内容，再恢复配置 | 原意图保留；有效结果按层级留空并可重新恢复；没有默认执行 | 存储前后对比、UI/服务测试 |
-| SM96-04 | Bot 首次导入时候选为空；分别使用旧字符串/结构化选择 | 明确的 Provider/模型/档位都保留到 v3，重启不丢；旧文件不变 | Bot 文件导入/重启测试 |
-| SM96-05 | 定时任务、Wiki、Bot 读取与派发；已有冻结 run | 读取不产生选择写回；各提交边界正确；冻结记录不改变 | 各业务集成、代表性交互 E2E |
-| SM96-06 | SSH 断连、配置尚未同步、账号失败后恢复；本地有不同模型 | 迁移不等 SSH、不借本地；原记录不变，恢复后可重新解析 | 隔离远端 fixture、协议/存储及实际有效选择 |
-| SM96-07 | 新字段存在、显式清空、损坏字段；迁移期间用户改选 | 不回读旧字段或猜默认；CAS/事务不覆盖新编辑 | 存储并发/优先级测试 |
-| SM96-08 | 显式 Subagent 的旧 Coding Plan，当前为 Team；另测未指定模型 | 实际 Agent 执行采用统一有效结果；继承行为保持 | 接入方案裁决后补 Agent 集成，不以设置页测试代替 |
-| SM96-09 | 已有闲时任务、Ticket、历史请求 | 此轮未改身份/票据/运行记录 | 差异审阅与现有回归 |
-| SM96-10 | Composer 改选/清空但未发送，提交失败，再成功发送；期间再次编辑草稿 | 点击和失败不更新正式选择/Recent；成功接纳才保存本次实际选择，迟到结果不覆盖新草稿；Draft 保存不与正式选择混用 | 草稿/Session/Recent 分层断言与交互 E2E |
+| SM96-01 | A mesma seleção antiga, migrada separadamente sem login, pessoal, Team, Start, outro domínio de conta e configuração de Provider vazia | Nova Selection equivalente byte a byte; dependências de conta/Registry/rede não chamadas | Conversão pura parametrizada, testes unitários de cada importer |
+| SM96-02 | Coding Plan antigo migra fixamente para Individual e o Team atual tem o mesmo modelo/nível | Seleção efetiva do Team obtida via `getView`; não é preciso Individual disponível | Resolução pública, integração de restauração de Session e E2E de UI |
+| SM96-03 | Provider/modelo ausente temporariamente ou nível sem suporte; ler e salvar outro conteúdo e então restaurar a configuração | Intenção original preservada; resultado efetivo esvaziado por camada e recuperável; sem execução padrão | Comparação antes/depois do armazenamento, testes de UI/serviço |
+| SM96-04 | Lista de candidatos vazia na primeira importação do Bot; usar seleção antiga em string e estruturada | Provider/modelo/nível explícitos preservados em v3, sem perda no reinício; arquivo antigo inalterado | Testes de importação/reinício de arquivos do Bot |
+| SM96-05 | Leitura e despacho de tarefas agendadas, Wiki e Bot; execução já congelada | A leitura não produz escrita de retorno de seleção; cada fronteira de envio correta; registros congelados não mudam | Integrações de cada área, E2E de interação representativa |
+| SM96-06 | Reconexão SSH, configuração ainda não sincronizada, falha de conta e posterior recuperação; modelo local diferente | A migração não espera SSH nem toma emprestado o local; registro original inalterado e nova resolução possível após recuperação | Fixture remota isolada, protocolo/armazenamento e seleção efetiva real |
+| SM96-07 | Campo novo presente, apagamento explícito, campo corrompido; usuário altera a escolha durante a migração | Não relê campos antigos nem adivinha o padrão; CAS/transação não sobrescrevem edições novas | Testes de concorrência/prioridade de armazenamento |
+| SM96-08 | Coding Plan antigo em Subagent explícito com Team atual; testar também modelo não especificado | A execução real do Agent adota o resultado efetivo unificado; comportamento de herança preservado | Integração do Agent após a decisão do esquema de integração, sem substituir por testes da página de configurações |
+| SM96-09 | Tarefas ociosas, Ticket e requisições históricas já existentes | Nesta rodada não houve mudança de identidade/bilhete/registro de execução | Revisão de diferenças e regressões existentes |
+| SM96-10 | Alterar/limpar a escolha no Composer sem enviar, envio com falha e depois envio bem-sucedido; editar o rascunho novamente nesse intervalo | Cliques e falhas não atualizam a seleção/Recent formal; só o envio aceito salva a escolha realmente enviada, e resultado tardio não sobrescreve o novo rascunho; o salvamento de Draft não se mistura com a seleção formal | Asserções em camadas de rascunho/Session/Recent e E2E de interação |
 
-1. 更新相关事实规范和 Todo 72/87/88 的被替代条款，保留历史裁决轨迹；记录 Subagent 接入方案。UI/API/存储不新增上轮搁置的逻辑选项。
-2. 先写纯迁移不依赖当前环境的测试，再修改共享转换及各调用方，删除 Bot 名单校验。
-3. 沿各入口的“原输入 -> View -> 有效结果 -> 保存/执行”核对，补测试后收口重复逻辑。不能把所有 Registry 校验一删了之。
-4. 接入 Subagent（如需协议变更先裁决）；核对后移除确实无消费者的迁移回调、参数和 RPC。清理前查引用，禁止为了删 RPC 保留半套后台行为。
-5. 实现阶段使用对应 AGENTS、UI DESIGN、E2E 技能；更新 Session 覆盖目录/矩阵，执行 `pnpm typecheck`、`pnpm lint`、相关单测及 MacBook Pro E2E。用隔离旧数据/模拟账号，不对真实用户数据进行破坏性验证。
-6. 二次复审数据写回、远端身份隔离和实际请求使用的选择。记录通过、未运行、环境失败与待裁决项，提交后再标完成。
+1. Atualizar a especificação de fatos relevante e as cláusulas substituídas da Tarefa 72/87/88, preservando o
+   rastro das decisões históricas; registrar o esquema de integração do Subagent. UI/API/armazenamento não recebem
+   novas opções lógicas suspensas na rodada anterior.
+2. Escrever primeiro os testes de migração pura sem dependência do ambiente atual e então modificar a conversão
+   compartilhada e cada chamador, removendo a validação de lista do Bot.
+3. Conferir ao longo de cada entrada o caminho “entrada original -> View -> resultado efetivo -> salvagem/execução”,
+   completando testes e consolidando a lógica duplicada. Não basta apagar todas as validações do Registry.
+4. Integrar o Subagent (se houver mudança de protocolo, decidir antes); após a conferência, remover callbacks,
+   parâmetros e RPCs de migração que realmente não têm consumidores. Consultar referências antes de limpar e
+   proibir manter metade do comportamento de backend só para preservar um RPC.
+5. Na fase de implementação usar os correspondentes AGENTS, UI DESIGN e E2E; atualizar o diretório/matriz de
+   cobertura de Session e executar `pnpm typecheck`, `pnpm lint`, os testes unitários relacionados e E2E em
+   MacBook Pro. Usar dados antigos isolados/conta simulada, sem validação destrutiva em dados reais de usuário.
+6. Fazer uma segunda revisão da escrita de retorno de dados, do isolamento de identidade remota e da seleção
+   realmente usada na requisição. Registrar o que passou, o que não foi executado, falhas de ambiente e itens
+   pendentes de decisão, e só marcar como concluído após a submissão.
 
-## 8. 执行与裁决记录
+## 8. Registro de execução e decisões
 
-| 项目 | 当前状态 | 收口要求 |
+| Item | Estado atual | Requisito de consolidação |
 | --- | --- | --- |
-| 统一离线迁移与 Individual 固定落点 | 已实现、定向回归通过 | 替代旧当前账号绑定规则，所有 importer 结果与环境无关 |
-| 公共 View 解析及原意图保护 | 已实现，显式 Subagent 由 Todo99 补齐 | 删除重复规则，保留最终执行校验及正常保存边界 |
-| Bot 首次导入依赖候选 | 已修复并验证 | 新版文件不再固化临时不可用为空 |
-| 显式 Subagent 执行接入 | Todo99 已完成并验证 | Worker 本地公共 Facade/DI；显式解析，隐式继承及内部 override 保持冻结，不采用旧的逐请求 Host RPC 提案 |
-| 闲时任务 / 逻辑 Account、Off-Peak 选项 | 排除 | 不顺带实现 |
-| 已写空新版记录的恢复 | 排除，必要时另行裁决 | 不自动重导入旧文件 |
-| 单测/集成/Pro E2E/二次审阅 | 核心通过，显式 Subagent 后续证据见 Todo99 | 真实 SSH/手机残余验证转交 Todo102，不再作为本 Todo 独立待办 |
+| Migração offline unificada e ponto de chegada Individual fixo | Implementada, regressão direcionada aprovada | Substitui a antiga regra de vínculo com a conta atual; o resultado de todos os importers é independente do ambiente |
+| Resolução pública de View e proteção da intenção original | Implementada; Subagent explícito concluído pela Tarefa99 | Remover regras duplicadas, preservando a validação final de execução e as fronteiras normais de salvamento |
+| Primeira importação do Bot dependente de candidatos | Corrigido e verificado | Arquivos novos não cristalizam mais a indisponibilidade temporária como vazio |
+| Integração de execução do Subagent explícito | Concluída e verificada pela Tarefa99 | Facade/DI público local do Worker; resolução explícita, herança implícita e override interno permanecem congelados; não se adota a antiga proposta de Host RPC por requisição |
+| Tarefas ociosas / opções lógicas Account e Off-Peak | Excluídos | Não implementados como efeito colateral |
+| Recuperação de registros novos já esvaziados | Excluída, decisão separada se necessário | Não reimporta automaticamente arquivos antigos |
+| Testes unitários/integração/E2E Pro/segunda revisão | Núcleo aprovado; evidência posterior do Subagent explícito na Tarefa99 | A verificação SSH/celular residual foi transferida para a Tarefa102 e deixa de ser pendência independente desta Tarefa |
 
-影响面梳理沿用 feature-boundary-planner 的 model-selection 种子和现有调用链。当前无 codegraph 工具，调查采用定向代码阅读和内存复现，未声称全量调用图验证。功能图只增加本计划引用，不将计划改写为已实现不变量；正式实施后同步 [Selection State](../design/interaction/selection-state.md) 与相关覆盖文档。Todo 95 的档位改名兼容仍是独立任务，不借本项顺带改模型档位。
+O mapeamento da superfície de impacto segue a semente model-selection do feature-boundary-planner e as cadeias de
+chamada existentes. Não há ferramenta de codegraph neste momento; a investigação usou leitura de código
+direcionada e reprodução em memória, sem alegar verificação de grafo de chamadas completo. O grafo funcional
+apenas adiciona a referência a este plano, sem reescrever o plano como invariante já implementada; após a
+implementação oficial, sincronizar o [Selection State](../design/interaction/selection-state.md) e a documentação
+de cobertura relacionada. A compatibilidade da renomeação de níveis da Tarefa 95 continua sendo uma tarefa
+independente; este item não altera os níveis de modelo por tabela.

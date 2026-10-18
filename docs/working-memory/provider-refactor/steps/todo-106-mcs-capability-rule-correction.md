@@ -1,41 +1,41 @@
-# Todo 106：MCS 与站点能力规则纠正
+# Todo 106: Correção das regras de capacidade MCS e por site
 
-> 状态：实现、真实 SDK wire 验证及逐项复审完成。2026-09-10。实施/测试证据、逐条边界复审及真实环境限制见 [本批交付复审](./provider-todos-105-113-delivery-review.md)。
+> Status: implementação, verificação wire com SDK real e revisão item a item concluídas. 2026-09-10. Evidências de implementação/teste, revisão de cada fronteira e limitações do ambiente real estão em [a revisão de entrega deste lote](./provider-todos-105-113-delivery-review.md).
 
-## 原则与目标
+## Princípios e objetivos
 
-遵循 [Design V2 的 Match 配置维护原则](../design-v2/design.md)：主流配置、官方优先，不为落后的第三方兼容实现降低默认能力；站点规则按一具体 URL 一条维护。
+Seguir [o princípio de manutenção da configuração Match do Design V2](../design-v2/design.md): configuração mainstream, oficial em primeiro lugar, sem reduzir a capacidade padrão para fins de compatibilidade com implementações de terceiros atrasadas; as regras por site são mantidas uma a uma, por URL concreta.
 
-## 已确认改动
+## Mudanças confirmadas
 
-1. 移除 Anthropic 官方站点对全部 `claude-*` 开启 MCS 的宽泛声明。按官方明确支持的型号及 API Schema 声明 MCS；不得让 Sonnet 5 被误开启，也不顺带关闭既有原生联网搜索。
-2. 恢复 `claude-opus-4-8` 在 Anthropic Messages 下的模型级 MCS 默认支持，覆盖既定前后缀形式，不要求代理站点另行放行。代理不支持时用户可在 Personal 中关闭；修正当前“未知站点上的 Opus 4.8 必须为 false”的测试。
-3. 以下两项分别写一条站点规则，API 为 `anthropic-messages`、模型不限，均声明 `supportsMidConversationSystem: true` 与 `supportsNativeWebSearch: true`：
+1. Remover a declaração ampla de MCS habilitado para todos os `claude-*` no site oficial da Anthropic. Declarar MCS conforme os modelos oficialmente suportados e o API Schema; o Sonnet 5 não pode ser habilitado por engano, e a busca nativa na web já existente não deve ser desligada junto.
+2. Restaurar o suporte padrão a MCS no nível de modelo para `claude-opus-4-8` sob Anthropic Messages, cobrindo as formas de prefixo/sufixo já estabelecidas, sem exigir que sites proxy liberem separadamente. Quando o proxy não suportar, o usuário pode desligar em Personal; corrigir o teste atual de "Opus 4.8 em site desconhecido deve ser false".
+3. Para os dois itens abaixo, escrever uma regra de site cada, com API `anthropic-messages`, sem restrição de modelo, declarando `supportsMidConversationSystem: true` e `supportsNativeWebSearch: true`:
    - `https://zcode.z.ai/api/v1/zcode-plan/anthropic`
    - `https://zcode.z.ai/api/v1/off-peak/anthropic`
-4. 对本次涉及的合并 URL 站点规则按 URL 拆开（包括普通 Z.ai / BigModel endpoint）；保留各 URL 的既有独立能力，不因拆规则给某站点增加另一站点的能力。不做无关规则或 Runtime 重构。
+4. Separar por URL as regras de site das URLs combinadas envolvidas nesta alteração (incluindo endpoints comuns Z.ai / BigModel); preservar as capacidades independentes existentes de cada URL, sem conceder a um site a capacidade de outro por causa da separação das regras. Não fazer refatorações de Runtime nem alterações de regras sem relação.
 
-## 核查依据及边界
+## Base de verificação e fronteiras
 
-- 当前实际 Built-in 解析已复核：官方 `claude-sonnet-5` 的 MCS 为 true；代理 Opus 4.8、Start 和 Off-Peak 的 MCS 为 false。
-- 改造前 `fe8a3159c7^` 的 `contracts/src/model/mid-conversation-system.ts` 和 `contracts/src/tools/websearch.ts` 都按 `z.ai` 等域名及子域放行；因此上述两个 endpoint 的 MCS、原生联网搜索原来均被声明为支持。此证据确认旧代码行为，不冒充真实网关测试通过。
-- [Anthropic 官方 MCS 文档](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)明确 Sonnet 5 不支持 MCS；实施时核对官方支持型号，不使用笼统 Claude 品牌匹配。
-- Runtime 继续只消费最终属性；不恢复旧 URL allowlist、fast model 特判，不修改 Selection、账号状态或请求失败后的重试策略。
-- Personal 显式关闭继续优先，不因模型或站点默认开启而失效。
+- A resolução Built-in atual foi revisada: o MCS do `claude-sonnet-5` oficial é true; o MCS do proxy Opus 4.8, Start e Off-Peak é false.
+- Antes da alteração, em `fe8a3159c7^`, tanto `contracts/src/model/mid-conversation-system.ts` quanto `contracts/src/tools/websearch.ts` liberavam por domínios como `z.ai` e subdomínios; portanto o MCS e a busca nativa na web dos dois endpoints acima eram declarados como suportados. Esta evidência confirma o comportamento do código antigo, sem se passar por teste de gateway real.
+- A [documentação oficial da Anthropic sobre MCS](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages) afirma explicitamente que o Sonnet 5 não suporta MCS; na implementação, conferir os modelos oficialmente suportados, sem usar correspondência ampla pela marca Claude.
+- O Runtime continua consumindo apenas os atributos finais; não restaurar a antiga allowlist de URLs nem o caso especial de fast model, e não modificar Selection, o estado da conta ou a estratégia de retry após falha de requisição.
+- O desligamento explícito em Personal continua prevalecendo e não é invalidado por habilitação padrão de modelo ou site.
 
-## 验收清单
+## Lista de aceitação
 
-- [x] 先补配置解析回归：官方支持／不支持型号、第三方 Opus 4.8、前后缀型号、API 类型隔离。
-- [x] 复核 BigModel / Z.ai 的 Start 与闲时共四个 Provider，最终 MCS 和原生联网搜索均开启；普通 Coding Plan 不回退。
-- [x] 验证 URL 规范化及负例，不误匹配无关域名／路径；个人关闭可覆盖默认。
-- [x] 在最终请求编码处验证开启时独立 system reminder、关闭时既有 user reminder，以及原生搜索的工具编码；不只检查配置布尔值。
-- [x] 按整批执行相关测试、复审规则层次和覆盖顺序，记录真实服务验证限制，不把本地请求捕获当作上游验收。
+- [x] Primeiro cobrir a regressão de parsing de configuração: modelos oficiais suportados/não suportados, Opus 4.8 de terceiros, modelos com prefixo/sufixo, isolamento por tipo de API.
+- [x] Revisar os quatro Providers BigModel / Z.ai (Start e off-peak), com MCS e busca nativa na web finalmente habilitados; o Coding Plan comum não sofre regressão.
+- [x] Validar a normalização de URL e os casos negativos, sem correspondência indevida com domínios/caminhos sem relação; o desligamento pessoal pode sobrescrever o padrão.
+- [x] Validar, no ponto final de codificação da requisição, o system reminder independente quando habilitado, o user reminder existente quando desabilitado e a codificação de ferramenta da busca nativa; não verificar apenas o booleano de configuração.
+- [x] Executar os testes relevantes do lote inteiro, revisar a hierarquia das regras e a ordem de cobertura, registrar as limitações da verificação em serviço real e não tomar captura local de requisição como aceitação do upstream.
 
-## 实施与复审证据
+## Evidências de implementação e revisão
 
-- 按官方 MCS 文档当前支持名单，在 `modelApiRules` 声明 Opus 4.8/5、Fable 5/5.1、Mythos 5/5.1；Sonnet 5 不开启。移除官方 URL 的宽泛 MCS，保留它的搜索声明。
-- 普通 Coding Plan、Start、Off-Peak 各 URL 分别维护 MCS/搜索；原三 URL 媒体规则也按 URL 拆分，未将媒体能力扩展到 Off-Peak。
-- `mcs-capability-rules.test.ts` + Builtin 完整性 + rule-collections：20 条通过，覆盖官方/代理、前后缀与点号别名、不同 API、精确路径负例、尾斜杠、Personal false 和八个 Account Provider。
-- `builtin-mcs-search-wire.test.ts` 经发布规则 → Core reminder 投影 → 实际 SDK/Adapter → mock fetch，7 场景通过；联合现有 MCS wire/WebSearch 共 14 条通过。确认四个 Start/Off-Peak 的 system reminder 与原生搜索工具编码，Sonnet 降为 user reminder，代理 Opus 开启及个人关闭。
-- 逐条复审：无 Runtime URL/模型 allowlist、无新鉴权或重试分支、无 Selection 写入；保持规则顺序与 Personal 最终覆盖。测试的 Key/网络全为夹具，未调用真实服务。
-- 官方证据：[MCS 支持型号](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)，2026-09-10 再核对。Fable 5.1 模板/其他能力由 Todo113 接续，不重复加模板。
+- Conforme a lista atual de modelos suportados na documentação oficial de MCS, declarar Opus 4.8/5, Fable 5/5.1 e Mythos 5/5.1 em `modelApiRules`; Sonnet 5 não é habilitado. Remover o MCS amplo da URL oficial e manter a declaração de busca dela.
+- Coding Plan comum, Start e Off-Peak mantêm MCS/busca separados por URL; as regras de mídia dos três URLs originais também foram separadas por URL, sem estender a capacidade de mídia ao Off-Peak.
+- `mcs-capability-rules.test.ts` + integridade Builtin + rule-collections: 20 casos passando, cobrindo oficial/proxy, modelos com prefixo/sufixo e apelidos com ponto, APIs distintas, casos negativos de caminho exato, barra final, Personal false e oito Account Providers.
+- `builtin-mcs-search-wire.test.ts` passando pelas regras publicadas → projeção de reminder do Core → SDK/Adapter real → mock fetch: 7 cenários aprovados; junto com os wire tests existentes de MCS/WebSearch, 14 casos aprovados. Confirmado o system reminder e a codificação da ferramenta de busca nativa nos quatro Start/Off-Peak, o Sonnet rebaixado para user reminder, o proxy Opus habilitado e o desligamento em Personal.
+- Revisão item a item: sem allowlist de URL/modelo no Runtime, sem novos ramos de autenticação ou retry, sem escrita em Selection; ordem das regras e sobreposição final de Personal preservadas. Keys/rede dos testes são fixtures; nenhum serviço real foi chamado.
+- Evidência oficial: [modelos com suporte a MCS](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages), reconferido em 2026-09-10. O template do Fable 5.1 e outras capacidades são continuados no Todo113, sem duplicar templates.

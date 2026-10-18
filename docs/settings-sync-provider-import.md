@@ -1,44 +1,44 @@
-# Settings Sync Provider Import
+# Importação de Providers no Settings Sync
 
-`settings-sync` 在导入 `providers` 分类时，会同时写入两条链路：
+Ao importar a categoria `providers`, o `settings-sync` escreve em dois encadeamentos ao mesmo tempo:
 
-1. 运行时配置镜像
-2. 设置页 `模型供应商` 的数据源 `~/.zcode/v2/model-providers.json`
+1. Espelho de configuração de runtime
+2. A fonte de dados de `模型供应商` (fornecedores de modelo) da página de Settings, `~/.zcode/v2/model-providers.json`
 
-## 导入策略
+## Estratégia de importação
 
-- 只导入缺失项，不覆盖已有 provider
-- 运行时配置仍按 agent 原生格式落到各自 workspace config 目录
-- 设置页可见的 provider 只导入“当前可识别的自定义 provider”
+- Importar apenas o que estiver ausente, sem sobrescrever providers existentes.
+- A configuração de runtime continua sendo gravada no formato nativo de cada agent, nos respectivos diretórios de config de cada workspace.
+- Só são importados para a página de Settings os providers “personalizados atualmente reconhecíveis”.
 
-## 当前映射范围
+## Escopo de mapeamento atual
 
 ### Claude Code
 
-- 从 `settings.json` 读取：
+- Lido de `settings.json`:
   - `env.ANTHROPIC_BASE_URL`
   - `env.ANTHROPIC_AUTH_TOKEN` / `env.ANTHROPIC_API_KEY`
   - `model`
-  - Claude 槽位映射相关 env
-- 若缺少自定义 endpoint 或 apiKey，则不会生成设置页 provider
+  - envs relacionados ao mapeamento dos slots do Claude
+- Se faltar um endpoint ou uma apiKey customizada, nenhum provider é gerado na página de Settings.
 
 ### Codex
 
-- 从 `config.toml` 读取当前 `model_provider`
-- 只导入当前选中的 provider table
-- 从 `auth.json` 读取 `OPENAI_API_KEY`
+- Lê-se o `model_provider` atual de `config.toml`.
+- Só a provider table atualmente selecionada é importada.
+- Lê-se `OPENAI_API_KEY` de `auth.json`.
 
 ### OpenCode
 
-- 从 `opencode.json` 的当前 `model` 反推 provider key
-- 只导入当前选中的 provider
-- 从 provider `options.baseURL` / `options.apiKey` 和 `models` 生成设置页 provider
+- O provider key é deduzido a partir do `model` atual de `opencode.json`.
+- Só o provider atualmente selecionado é importado.
+- O provider da página de Settings é gerado a partir de `options.baseURL` / `options.apiKey` e de `models` do provider.
 
-## 去重规则
+## Regras de deduplicação
 
-以下任一命中即视为已存在：
+Basta que qualquer um dos casos abaixo seja atendido para considerar que o item já existe:
 
-- provider id 相同
-- endpoint / apiKey / models / mapping / supportedFormats 的核心配置完全相同
+- id de provider igual
+- configuração central (endpoint / apiKey / models / mapping / supportedFormats) totalmente idêntica
 
-这样可以避免重复导入，也避免覆盖用户已经在设置页手动调整过的 provider。
+Dessa forma evita-se a importação duplicada e também evita sobrescrever providers que o usuário já ajustou manualmente na página de Settings.

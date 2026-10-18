@@ -1,27 +1,27 @@
 # Vercel React Best Practices Skill
 
-## 背景
+## Contexto
 
-项目级 Agent skills 目录新增 Vercel 官方 `react-best-practices` skill，用于在编写、审查或重构 React / Next.js 代码时引用 Vercel 的性能优化规则。
+O diretório de Agent skills de nível de projeto ganhou a skill oficial da Vercel `react-best-practices`, usada como referência das regras de otimização de performance da Vercel ao escrever, revisar ou refatorar código React / Next.js.
 
-## 来源
+## Origem
 
-- 仓库：`vercel-labs/agent-skills`
-- 路径：`skills/react-best-practices`
-- Skill 名称：`vercel-react-best-practices`
+- Repositório: `vercel-labs/agent-skills`
+- Caminho: `skills/react-best-practices`
+- Nome da skill: `vercel-react-best-practices`
 
-## 安装位置
+## Local de instalação
 
-安装到项目内：
+Instalada dentro do projeto:
 
 ```text
 .agents/skills/react-best-practices
 ```
 
-这样该 skill 随项目版本管理，不依赖单个开发者的全局 `~/.codex/skills`。
+Dessa forma a skill é versionada junto com o projeto e não depende do `~/.codex/skills` global de cada desenvolvedor.
 
-## 使用边界
+## Limites de uso
 
-- 适用于 React 组件、Next.js 页面、数据请求、bundle 优化、渲染性能和重渲染优化相关任务。
-- 修改 `packages/ui` 代码时，仍必须优先遵守项目根目录 `DESIGN.md` 与当前 `AGENTS.md` 中的 UI、日志、国际化、多端兼容约束。
-- 该 skill 只提供 React / Next.js 性能实践参考，不替代项目架构边界、远控链路、Workspace Identity 等项目级约束。
+- Aplicável a tarefas relacionadas a componentes React, páginas Next.js, requisições de dados, otimização de bundle, performance de renderização e otimização de re-renderizações.
+- Ao modificar o código de `packages/ui`, continuam prevalecendo as restrições de UI, logging, internacionalização e compatibilidade multiplataforma definidas no `DESIGN.md` da raiz do projeto e no `AGENTS.md` atual.
+- Esta skill oferece apenas referência de práticas de performance de React / Next.js; ela não substitui as restrições de nível de projeto, como os limites de arquitetura, o fluxo de controle remoto e o Workspace Identity.

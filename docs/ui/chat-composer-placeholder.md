@@ -1,19 +1,19 @@
-# Chat Composer Placeholder
+# Placeholder do Chat Composer
 
-聊天输入框 placeholder 现在按任务状态和终端宽度分流：
+O placeholder da caixa de entrada de chat agora é dividido por estado da tarefa e largura do terminal:
 
-- 空闲态，无历史消息（桌面端）：`Ask ZCode anything, @ for files, folders, or whiteboards, / for commands or agents, $ for skills, # for related conversations`
-- 空闲态，无历史消息（手机 Web 远控）：`Ask ZCode anything…`
-- 空闲态，有历史消息：`Ask for follow-up changes`
-- 处理任务中：`Keep typing to queue follow-up changes`
+- Estado ocioso, sem histórico de mensagens (desktop): `Ask ZCode anything, @ for files, folders, or whiteboards, / for commands or agents, $ for skills, # for related conversations`
+- Estado ocioso, sem histórico de mensagens (Web remoto no celular): `Ask ZCode anything…`
+- Estado ocioso, com histórico de mensagens: `Ask for follow-up changes`
+- Enquanto a tarefa está em processamento: `Keep typing to queue follow-up changes`
 
-设计约束：
+Restrições de design:
 
-- 新任务占位文案只在消息列表为空时显示
-- 历史任务只要已经有消息且当前不在处理，就显示 follow-up 文案
-- `submitting`、`creating`、`restoring`、`streaming` 统一视为处理态，避免任务启动瞬间 placeholder 闪回
-- 处理态不锁定输入，只改变 placeholder，明确告诉用户可以继续输入并进入队列
-- 手机 Web 远控的新任务文案保持精简，完整的 `@` / `/` / `$` / `#` 能力提示由输入框下方动作入口承载
-- 手机 Web 远控的 placeholder 最多展示两行，作为国际化文案扩展的布局防护；不能覆盖下方工具栏
-- 桌面端继续显示完整能力提示，不受手机端精简规则影响
-- 文案通过 i18n 配置，当前提供 `en-US` / `zh-CN`
+- O texto de placeholder de nova task aparece somente quando a lista de mensagens está vazia.
+- Uma task com histórico que já tenha mensagens e que não esteja em processamento exibe o texto de follow-up.
+- `submitting`, `creating`, `restoring` e `streaming` são tratados uniformemente como estado em processamento, evitando que o placeholder volte a piscar no instante em que a task é iniciada.
+- O estado em processamento não bloqueia a digitação, apenas muda o placeholder, deixando explícito ao usuário que ele pode continuar digitando e que a entrada irá para a fila.
+- O texto de nova task no Web remoto do celular permanece enxuto; as dicas completas de capacidade `@` / `/` / `$` / `#` ficam por conta dos pontos de entrada de ação abaixo da caixa de entrada.
+- O placeholder do Web remoto do celular exibe no máximo duas linhas, como proteção de layout para a extensão dos textos de internacionalização; ele não pode cobrir a barra de ferramentas abaixo.
+- O desktop continua exibindo a dica completa de capacidades, sem sofrer a regra de simplificação do celular.
+- Os textos são configurados por i18n, atualmente com `en-US` / `zh-CN`.

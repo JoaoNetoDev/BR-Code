@@ -1,21 +1,21 @@
 # Onboarding Session Unlimited Scan
 
-## 背景
+## Contexto
 
-设置页“引导”里的数据迁移向导会扫描本机 Claude Code 原生会话。此前会话步骤只提供 `30`、`50`、`100` 三个返回数量选项；底层扫描服务已经支持不传 `limit` 时返回全部候选。
+O assistente de migração de dados da seção "Guia inicial" (Onboarding) das configurações varre as sessões nativas do Claude Code na máquina local. Antes, a etapa de sessões oferecia apenas três opções de quantidade de retorno: `30`, `50` e `100`; o serviço de varredura já suportava, quando `limit` não é informado, devolver todos os candidatos.
 
-## 行为
+## Comportamento
 
-- Onboarding 会话步骤的返回数量下拉展示：
+- O menu suspenso de quantidade de retorno da etapa de sessões do Onboarding exibe:
   - `30`
   - `50`
   - `100`
-  - `不限制`
-- 选择 `不限制` 时，UI 不向 `scanImportableClaudeSessions` 传入 `limit`。
-- 服务层继续按现有逻辑扫描、过滤并按 `updatedAt` 倒序排序；只有传入正数 `limit` 时才截断结果。
+  - `Sem limite`
+- Ao selecionar `Sem limite`, a UI não passa `limit` para `scanImportableClaudeSessions`.
+- A camada de serviço continua varredendo, filtrando e ordenando por `updatedAt` em ordem decrescente conforme a lógica existente; os resultados só são truncados quando um `limit` positivo é informado.
 
-## 边界
+## Limites
 
-- 该改动只影响 onboarding 数据迁移向导的会话扫描选项。
-- 独立设置迁移页的数字输入仍保持当前最大 500 的交互。
-- 不改变导入逻辑、workspace 筛选、时间范围筛选或 desktop/web 支持边界。
+- A alteração afeta apenas as opções de varredura de sessões do assistente de migração de dados do Onboarding.
+- O campo numérico da página de migração das configurações independentes mantém a interação atual, com máximo de 500.
+- Não altera a lógica de importação, o filtro de workspace, o filtro de intervalo de tempo ou os limites de suporte entre desktop e web.

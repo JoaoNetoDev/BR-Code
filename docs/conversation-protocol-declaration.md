@@ -1,35 +1,35 @@
-# Conversation Behavior Protocol Declaration
+# Declaração do Protocolo de Comportamento de Conversa
 
-目标：先把“对话产品行为协议”声明清楚，再讨论录入和生成工具。协议声明要让产品、QA、开发能对齐同一套语义：一个 case 是怎么来的、树上的节点分别代表什么、哪些路径是产品规则剪枝、哪些路径是还没定义清楚。
+Objetivo: primeiro deixar清楚 o "protocolo de comportamento de produto de conversa" declarado, e só depois discutir as ferramentas de entrada e geração. A declaração do protocolo precisa fazer com que produto, QA e desenvolvimento alinhem a mesma semântica: como um case nasce, o que cada nó da árvore representa, quais caminhos são podados por regra de produto e quais caminhos ainda não estão bem definidos.
 
-## 协议分层
+## Camadas do protocolo
 
-协议不是一份 JSON，也不是一张流程图。它是几层产品语义的组合。
+O protocolo não é um JSON, nem um fluxograma. É uma composição de algumas camadas de semântica de produto.
 
-| 层         | 声明什么                      | 例子                                                                                               |
-| ---------- | ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| 状态维度   | 产品在某一刻的可观察上下文    | `runPhase=running`、`queue=empty`、`goal=active`                                                   |
-| 输入事件   | 用户或系统下一步可能发生什么  | 用户输入 `/compact`、系统返回 `assistantComplete`                                                  |
-| 目标对象   | 动作作用在哪个对象上          | latest turn、old turn、composer、goal control                                                      |
-| 规则 guard | 某个组合是否允许继续          | running 时不能 compact；running 时 fork 稳定 assistant target 可允许                               |
-| effect     | 被允许或拒绝后的产品结果      | enqueue、reject toast、进入 compacting                                                             |
-| 不变量     | 永远不能被破坏的产品原则      | running edit 必须先过 stop barrier；fork 只能复制稳定 assistant 历史，不复制 queue/background work |
-| trace case | 一条可 review、可转测试的路径 | Given running, when `/compact`, then reject                                                        |
+| Camada           | O que declara                            | Exemplo                                                                                                    |
+| ---------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Dimensão de estado | O contexto observável do produto em um dado momento | `runPhase=running`、`queue=empty`、`goal=active`                                            |
+| Evento de entrada | O que o usuário ou o sistema pode fazer a seguir | Usuário digita `/compact`, o sistema retorna `assistantComplete`                                  |
+| Objeto alvo      | Em qual objeto a ação incide             | latest turn、old turn、composer、goal control                                                          |
+| Regra guard      | Se determinada combinação pode prosseguir | Não é possível compactar enquanto running; fork de assistant target estável enquanto running pode ser permitido |
+| effect           | O resultado de produto após permitido ou recusado | enqueue、reject toast、entrar em compacting                                                          |
+| Invariante       | Princípios de produto que nunca podem ser violados | Um edit durante running precisa passar antes pelo stop barrier; fork só copia histórico assistant estável, não queue/background work |
+| trace case       | Um caminho revisável e conversível em teste | Given running, when `/compact`, then reject                                             |
 
-## Trace Tree 节点类型
+## Tipos de nó do Trace Tree
 
-Trace Tree 是协议展开后的视图。它不是协议本身，但它必须忠实表达协议语义。
+O Trace Tree é a visão expandida do protocolo. Ele não é o protocolo em si, mas precisa expressar fielmente a semântica do protocolo.
 
-| 节点类型    | 含义                 | 责任                                                              | 是否可转 E2E |
-| ----------- | -------------------- | ----------------------------------------------------------------- | ------------ |
-| `state`     | 一个产品上下文快照   | 说明当前所有状态维度的取值                                        | 否           |
-| `candidate` | 一个候选输入         | 表示用户动作或系统事件进入笛卡尔积枚举                            | 否           |
-| `guard`     | 命中的产品规则       | 说明这条组合由哪条规则裁决                                        | 否           |
-| `effect`    | 规则产生的结果       | 说明 allow/reject/enqueue/system/undefined 后的副作用和下一上下文 | 部分         |
-| `case`      | 需要人 review 的叶子 | 汇总完整路径、断言、review 状态                                   | 是           |
-| `summary`   | 画布预算折叠节点     | 只表示“这里还有很多节点未展开显示”                                | 否           |
+| Tipo de nó     | Significado                       | Responsabilidade                                                            | Conversível em E2E |
+| --------------- | --------------------------------- | --------------------------------------------------------------------------- | ------------------- |
+| `state`         | Um snapshot do contexto de produto | Descreve o valor de todas as dimensões de estado atuais                       | Não                  |
+| `candidate`     | Uma entrada candidata             | Representa a entrada de uma ação do usuário ou evento do sistema na enumeração cartesiana | Não  |
+| `guard`         | A regra de produto atingida        | Diz qual regra julga esta combinação                                         | Não                  |
+| `effect`        | O resultado produzido pela regra   | Descreve os efeitos colaterais e o próximo contexto após allow/reject/enqueue/system/undefined | Parcial |
+| `case`          | Uma folha que precisa de revisão humana | Consolida o caminho completo, as asserções e o status de review              | Sim                  |
+| `summary`       | Nó de dobra do canvas por orçamento | Apenas indica "aqui ainda há muitos nós não expandidos"                      | Não                  |
 
-节点之间的基本顺序：
+A ordem básica entre os nós:
 
 ```text
 state -> candidate -> guard -> effect -> state ...
@@ -37,46 +37,43 @@ state -> candidate -> guard -> effect -> state ...
                                  -> case
 ```
 
-## 输入事件类型
+## Tipos de evento de entrada
 
-输入事件分两类，不要混在一起。
+Os eventos de entrada se dividem em duas categorias; não as misture.
 
-| 类型           | 含义                    | 例子                                                  |
-| -------------- | ----------------------- | ----------------------------------------------------- |
-| `user-action`  | 用户主动触发的 GUI 行为 | sendText、slashCompact、setGoal、forkOld、editLatest  |
-| `system-event` | 系统异步推进的事件      | assistantComplete、compactComplete、autoCompactNeeded |
+| Tipo            | Significado                                | Exemplos                                                                                        |
+| --------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `user-action`   | Comportamento de GUI disparado pelo usuário | sendText、slashCompact、setGoal、forkOld、editLatest                                          |
+| `system-event`  | Eventos assíncronos de avanço do sistema   | assistantComplete、compactComplete、autoCompactNeeded                                          |
 
-每个输入事件至少要声明：
+Cada evento de entrada deve declarar no mínimo:
 
-- `id`：稳定标识，比如 `slashCompact`。
-- `actor`：`user` 或 `system`。
-- `surface`：发生在哪个产品入口，比如 composer、toolbar、turn actions。
-- `target`：作用对象，比如 latest turn、old turn、current session。
-- `payload class`：输入内容类别，比如 normal text、slash command、goal text。
-- `applicability`：这个事件在哪些上下文里应该被枚举。
+- `id`: identificador estável, como `slashCompact`.
+- `actor`: `user` ou `system`.
+- `surface`: em qual entrada do produto acontece, como composer, toolbar, turn actions.
+- `target`: objeto sobre o qual incide, como latest turn、old turn、current session.
+- `payload class`: categoria do conteúdo de entrada, como normal text、slash command、goal text.
+- `applicability`: em quais contextos este evento deve ser enumerado.
 
-## Decision 类型
+## Tipos de decision
 
-`guard` 的结果必须落到明确的 decision 类型里。
+O resultado de um `guard` precisa cair em um tipo de decision explícito.
 
-| decision    | 含义                           | 例子                               |
-| ----------- | ------------------------------ | ---------------------------------- |
-| `allow`     | 动作立即生效，并进入下一上下文 | completed 后 fork old turn         |
-| `reject`    | 动作被明确拒绝，路径剪枝       | running 时 `/compact`              |
-| `enqueue`   | 动作不立即执行，但被排队       | running 时继续发送文字             |
-| `system`    | 系统事件推进状态               | assistantComplete 后进入 completed |
-| `undefined` | 产品预期未声明                 | 某个组合没人定义过                 |
+| decision    | Significado                                    | Exemplo                                    |
+| ----------- | ---------------------------------------------- | ------------------------------------------- |
+| `allow`     | A ação vale imediatamente e segue para o próximo contexto | fork de old turn após completed    |
+| `reject`    | A ação é recusada explicitamente, podando o caminho | `/compact` enquanto running                   |
+| `enqueue`   | A ação não executa agora, mas é enfileirada   | Enviar mais texto enquanto running            |
+| `system`    | Um evento de sistema avança o estado          | assistantComplete leva a completed           |
+| `undefined` | A expectativa de produto não foi declarada   | Ninguém definiu aquela combinação            |
 
-`reject` 不是错误兜底。它必须有明确产品反馈，例如 toast、disabled reason、inline error，且必须声明“不能产生哪些副作用”。
+`reject` não é um fallback de erro. Precisa ter um feedback de produto explícito, como toast, disabled reason, inline error, e precisa declarar "quais efeitos colaterais não podem ocorrer".
 
-`undefined` 是最重要的 review 入口。它表示模型枚举到了一个真实可能的组合，但协议还没定义怎么处理。
+`undefined` é a principal porta de entrada do review. Indica que o modelo enumerou uma combinação realmente possível, mas o protocolo ainda não definiu como tratá-la.
 
-## Command ACK 声明
+## Declaração de Command ACK
 
-用户在 renderer/web 上触发的会话动作不应直接改写权威 conversation 状态。它们应先进入 command intent，
-由 CLI/runtime 根据当前 projection revision、guard 和幂等键裁决；owner host 只负责可信连接上下文、
-owned-subscription 与 owner/lease 路由，不能维护第二份 conversation queue。ACK 和后续
-projection/event 共同收口 UI。
+Ações de conversa disparadas pelo usuário em renderer/web não devem reescrever diretamente o estado autoritativo da conversa. Devem entrar primeiro como command intent, decididas pelo CLI/runtime conforme a projection revision atual, o guard e a chave de idempotência; o owner host é responsável apenas pelo contexto de conexão confiável, owned-subscription e roteamento owner/lease, e não deve manter uma segunda conversation queue. O ACK e a projection/event subsequente fecham a UI.
 
 ```text
 user action
@@ -93,20 +90,17 @@ user action
   -> projection revision update
 ```
 
-| ACK         | 含义                                                       | 必须声明的副作用                                      |
-| ----------- | ---------------------------------------------------------- | ----------------------------------------------------- |
-| `accepted`  | command 已被权威层接收，可能已立即执行或进入 command queue | command state 可恢复；UI 等待 projection 收口         |
-| `rejected`  | guard 明确拒绝 command                                     | reason、用户反馈、禁止副作用                          |
-| `stale`     | `baseRevision` 落后，当前状态可能已变                      | UI 必须先刷新 projection；非幂等动作不能静默重放      |
-| `duplicate` | 同一 `commandId` 已处理                                    | 返回既有结果，不能重复执行                            |
-| `failed`    | command accepted 后执行失败                                | fault catalog、恢复入口、是否保留 queue/command state |
+| ACK         | Significado                                                            | Efeitos colaterais que precisam ser declarados             |
+| ----------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `accepted`  | O command foi aceito pela camada autoritativa, já pode ter executado ou entrado na command queue | O command state pode ser recuperado; a UI espera o fechamento pela projection |
+| `rejected`  | O guard recusou explicitamente o command                              | reason、feedback ao usuário、efeitos proibidos                 |
+| `stale`     | `baseRevision` está atrasado, o estado atual pode ter mudado            | A UI deve atualizar a projection antes; ações não idempotentes não podem ser reaplicadas silenciosamente |
+| `duplicate` | O mesmo `commandId` já foi processado                                 | Retorna o resultado existente, não pode executar de novo      |
+| `failed`    | O command foi aceito mas falhou na execução                           | fault catalog、entrada de recuperação、se queue/command state são mantidos |
 
-`@zcode/rpc` 只承载 call/listen、连接、超时、日志和遥测；`commandId`、`baseRevision`、`projectionRevision`、
-`eventSeq`、`deliveryKind`、`accepted/rejected/stale/duplicate` 都是 conversation protocol 语义。
+`@zcode/rpc` carrega apenas call/listen, conexão, timeout, logs e telemetria; `commandId`, `baseRevision`, `projectionRevision`, `eventSeq`, `deliveryKind`, `accepted/rejected/stale/duplicate` são semântica do conversation protocol.
 
-桌面窗口（包含 SSH/WSL/Docker）由 host 可信标记为 `desktop-continuous`，手机 `/remote` 和 Web remote
-标记为 `web-remote-replayable`。UI-facing subscribe 不能自行选择 profile；每个 attachment 有独立
-`connectionId`、subscription registry 和清理生命周期。
+Janelas desktop (incluindo SSH/WSL/Docker) são marcadas pelo host com trusted como `desktop-continuous`; `/remote` no celular e Web remote são marcados como `web-remote-replayable`. O subscribe voltado à UI não pode escolher o profile por conta própria; cada attachment tem `connectionId`, registro de subscription e ciclo de vida de limpeza próprios.
 
 ```text
 desktop A / continuous ── owned sub-a ──┐
@@ -116,28 +110,13 @@ mobile  B / replayable ── owned sub-b ──┘
 sub-a frame -> port A only        sub-b overflow/resync -X-> port A
 ```
 
-ACK 丢失或重连时，`commands/query` 每次最多查询 64 个 `{sessionId, commandId}`。CLI 查找顺序固定为
-内存 LRU、transcript/message anchor、timeline marker、fork child metadata、discarded input ledger、
-`unknown`；同 key 查询与执行必须 single-flight。
+Em caso de ACK perdido ou de reconexão, `commands/query` consulta no máximo 64 `{sessionId, commandId}` por vez. A ordem de busca do CLI é fixa: memória LRU, transcript/message anchor, timeline marker, fork child metadata, discarded input ledger, `unknown`; consulta e execução com a mesma chave devem ser single-flight.
 
-`turn.steerQueued` 与 `turn.steerDrained` 的 shared strict schema 必须完整覆盖 CLI runtime 发出的
-additive 事实。queued payload 包括可选的 `delivery`、`intent`、`toolDisallowlist`；drained payload
-包括可选的 `drainedInputs[]`，每项保留 `pendingInputId`、持久化 `messageId`、文本及相同的投递元数据。
-Agent Service 不得因这些已声明字段触发 `unrecognized_keys` 并丢弃事件；queue/guide 的权威状态仍只
-由 CLI runtime 持有。
+O shared strict schema de `turn.steerQueued` e `turn.steerDrained` precisa cobrir por completo os fatos aditivos emitidos pelo CLI runtime. O payload queued inclui `delivery`, `intent` e `toolDisallowlist` opcionais; o payload drained inclui `drainedInputs[]` opcional, em que cada item preserva `pendingInputId`, `messageId` persistido, texto e os mesmos metadados de entrega. O Agent Service não pode descartar eventos gerando `unrecognized_keys` por causa desses campos já declarados; o estado autoritativo de queue/guide continua sendo mantido apenas pelo CLI runtime.
 
-`SessionResumed` 是 raw event sequence 的显式 runtime epoch 边界。Gateway 即使已持有旧 runtime
-的 continuous publisher，也必须在收到新的 `SessionResumed` 时清空旧 epoch 的 pending gap，并以
-该事件的 raw sequence 重新建立连续 cursor。旧 runtime 在 unsubscribe/重建窗口内遗漏的尾部事件不再
-可能补齐，禁止让这些 gap 阻塞新 epoch 的 `TurnStarted` projection authority；同时不得把这个本地
-desktop continuous 规则替代为手机 `web-remote-replayable` 的 snapshot/gap 恢复协议。
+`SessionResumed` é um limite explícito de epoch de runtime na sequência de eventos raw. O Gateway, mesmo que já detenha o publisher contínuo do runtime antigo, precisa limpar o gap pendente do epoch antigo ao receber um novo `SessionResumed` e reconstruir o cursor contínuo a partir da raw sequence desse evento. Eventos de cauda perdidos pelo runtime antigo na janela de unsubscribe/reconstrução não podem mais ser repostos, e é proibido deixar esses gaps bloqueando a autoridade de projection de `TurnStarted` do novo epoch; ao mesmo tempo, esta regra local de desktop continuous não pode substituir o protocolo de recuperação snapshot/gap do celular `web-remote-replayable`.
 
-`commands/query` 对 `fault.command.inputDiscardedOnRestart` 必须同时返回持久输入事实里的
-`delivery=startNow|queue|guide`。Renderer 的提交恢复账本只覆盖“上行是否被权威层接收”的短窗口，
-不是跨 runtime 的第二份 queue：一旦 snapshot 出现同 `sourceCommandId` 的 queue/guided item，立即清除
-对应 localStorage 记录；若 App/CLI 恰在 ACK 与 projection 之间重启，query 返回 `queue|guide` 时同样
-静默清账；权威层返回 `unknown` 时也删除 renderer 恢复线索且不呈现 UI 错误。只有 `startNow` 在重启后
-仍未进入 transcript，才保留显式重发入口，禁止自动重放。
+Para `fault.command.inputDiscardedOnRestart`, `commands/query` precisa retornar simultaneamente o `delivery=startNow|queue|guide` presente nos fatos de entrada persistidos. O ledger de recuperação de submissões do renderer cobre apenas a janela curta de "a ligação foi aceita pela camada autoritativa", e não é uma segunda queue entre runtimes: assim que um snapshot surgir com um item queue/guided de mesmo `sourceCommandId`, remova imediatamente o registro correspondente no localStorage; se o App/CLI reiniciar exatamente entre o ACK e a projection, o query retornando `queue|guide` também limpa a conta silenciosamente; quando a camada autoritativa retorna `unknown`, remova também a pista de recuperação do renderer sem exibir erro na UI. Somente `startNow` que após o reinício ainda não entrou no transcript mantém uma entrada explícita de reenvio; o replay automático é proibido.
 
 ```text
 renderer pre-uplink journal
@@ -148,30 +127,22 @@ renderer pre-uplink journal
   `-- restart query: delivery=startNow ---> show explicit resend decision
 ```
 
-恢复提示固定渲染在 conversation sticky bottom dock，并复用聊天区 error banner 的默认
-`surface + border + foreground` 颜色、圆角、间距与 wrapping；不得使用 warning 黄色背景，也不添加阴影。
+O aviso de recuperação é renderizado de forma fixa no conversation sticky bottom dock, reutilizando as cores padrão `surface + border + foreground`, raio, espaçamento e wrapping do error banner da área de chat; não deve usar fundo amarelo de warning nem adicionar sombra.
 
-`v4/conversation/plans` 是按 session 查询当前有效计划目录的只读、无状态 query：请求为
-`{ sessionId }`，响应为 `{ plans, atSeq, atLogEpoch }`。CLI 必须先复用 conversation 的 cold-resume /
-hydration 建立完整 projection，再从当前分支筛选 `toolName=ExitPlanMode`、状态属于
-`success/error/cancelled` 且含正文的 `ToolCallRow`，按 `rowId` 降序返回。它不能只扫描 wire snapshot 的
-tail window，也不能把完整普通历史下发给 renderer。renderer 用 `atLogEpoch` 和本地目录 revision 丢弃
-迟到读；`row.removed` 必须使旧目录失效。该 query 沿现有 workspace attachment 透传，身份 key 继续使用
-`workspaceIdentity?.trim() || workspacePath`，不改变 desktop continuous 或 web remote replayable 的订阅、
-owner、queue、snapshot/gap 语义。
+`v4/conversation/plans` é uma query somente leitura e sem estado que consulta, por session, o catálogo de planos vigentes: a requisição é `{ sessionId }` e a resposta é `{ plans, atSeq, atLogEpoch }`. O CLI precisa primeiro reutilizar o cold-resume/hydration da conversa para estabelecer a projection completa, e então filtrar, no branch atual, `ToolCallRow` com `toolName=ExitPlanMode`, status em `success/error/cancelled` e com corpo presente, retornando em ordem decrescente de `rowId`. Ele não pode apenas varrer a tail window do wire snapshot nem entregar ao renderer o histórico comum completo. O renderer usa `atLogEpoch` e a revision local do catálogo para descartar leituras tardias; `row.removed` precisa invalidar o catálogo antigo. Essa query é repassada pelo workspace attachment existente, a key de identidade continua sendo `workspaceIdentity?.trim() || workspacePath` e a semântica de subscription, owner, queue e snapshot/gap do desktop continuous e do web remote replayable não muda.
 
-## Rule 声明
+## Declaração de Rule
 
-一条 rule 由四部分组成。
+Uma rule é composta por quatro partes.
 
-| 字段            | 作用                                  |
-| --------------- | ------------------------------------- |
-| `match.context` | 匹配产品上下文                        |
-| `match.input`   | 匹配用户动作或系统事件                |
-| `decision`      | allow/reject/enqueue/system/undefined |
-| `assertion`     | 后续 E2E 需要验证的结果               |
+| Campo            | Função                                              |
+| ---------------- | --------------------------------------------------- |
+| `match.context`  | Casa o contexto de produto                          |
+| `match.input`    | Casa a ação do usuário ou o evento do sistema       |
+| `decision`       | allow/reject/enqueue/system/undefined               |
+| `assertion`      | O resultado que o E2E precisa verificar depois     |
 
-示例：
+Exemplo:
 
 ```text
 rule runningCompactQueues
@@ -191,78 +162,78 @@ assert:
   run remains running
 ```
 
-## 不变量声明
+## Declaração de invariantes
 
-不变量是比单条 rule 更高层的产品原则。它们用于检查规则之间是否冲突，也用于发现漏定义的路径。
+Os invariantes são princípios de produto de nível acima de uma única rule. Servem para verificar se as regras conflitam entre si e para descobrir caminhos que faltam definição.
 
-第一批对话不变量：
+Primeiro lote de invariantes de conversa:
 
-| 不变量 | 说明 |
+| Invariante | Descrição |
 | --- | --- |
-| sameSessionActiveTurnExclusive | 同一个 session 不能同时跑两条 active turn；并发只发生在不同 session 之间 |
-| runningStableAssistantForkAllowed | running 时可以 fork 更早 `completedSuccess` turn 最后一段 completed assistant；当前 streaming/interrupted/failed partial 和中间 assistant 段不能 fork |
-| latestQueryEditPreemptsActiveTurn | 只有最后一轮 real user query 可以 edit；running 时提交 edit 等价先 stop 当前 active work，再从最后一轮 query 重跑 |
-| latestAssistantRetryOnly | 底层 retry capability 仍先锁定当前投影里全时间线最后一条 `assistantText` row，再要求同一 product turn 存在 `origin=realUser` 的 canonical user input；background result/goal continuation/mailbox 等 synthetic 结果轮与更早真实用户轮均不得获得 capability。2026-07-15 产品裁决：桌面、Web 与手机 UI 统一隐藏普通 assistant retry 入口，但保留 `canRetry` 投影、`retryTurn` 命令及门禁，避免把 UI 收口误扩散为协议/恢复语义删除 |
-| runningPromptQueues | running 且 `followupMode=queue` 时发送普通消息必须进入该 session 的 queue，不打断当前轮 |
-| runningGoalQueues | running 时发送 `/goal xxx` 必须进入该 session 的 queue，消费时设置或更新 goal |
-| acceptedInputHasSingleAuthority | 桌面与手机已提交的 busy/running 输入统一按 CLI 串行 admission 顺序进入一个 CommandInbox/FIFO；host 和 UI 不保留第二份权威队列 |
-| acceptedInputAlwaysAccountedFor | 已提交输入必须且只能处于 queue、guided row、transcript、explicit rejected/failed/discarded 之一 |
-| acceptedInputProjectionSilenceRecovers | `sendText` 收到 `accepted` 或 `duplicate` ACK 后，发起端必须等待同一 `sourceCommandId` 的 queue item 或 real-user `userInput` row。若短暂宽限期内仍无任一权威可见事实，客户端只触发当前 owned subscription 的 single-flight same-sub resync；不得补造 user row、建立 renderer queue 或自动重放 command。恢复继续沿可信 attachment 保持 desktop continuous / mobile replayable 边界；`sendGoalCommand` 的 direct goal state 不以 user row 作为确认条件 |
-| promptRequiresTextOrAttachment | `sendText`、`createSession.firstInput`、`createSelectionSideSession.firstInput` 与 `editUserQuery` 的正文和有效附件至少存在一个；普通附件输入可以使用空正文，本功能的 child 首发只允许非空正文，二者同时为空必须明确 reject |
-| sourceCommandIdEndToEnd | queue item、drain/guided event、user row、message anchor、marker 与 fork child metadata 保留原始 sourceCommandId |
-| guideDrainsAfterCompletedToolBatch | eligible guide 可以在 tool 出现前等待；只有一次 model step 的全部 sibling tool results 已提交后，才最多内联消费一条 guide，并在同一 product turn 继续 |
-| acceptedGuideStartsWorkSegment | accepted guide 不切 product turn，但必须关闭上一 visual work segment，并以 guided user entity 开启独立工时/折叠段；最终 action target 不变 |
-| guideFallbackPreservesIntent | 当前 turn 无可用 tool batch 就终态，或 guide 不适用/被拒绝时，同一 intent 原地改投普通 queue；payload、client、IDs、admissionSeq 和 FIFO 不变 |
-| incompleteGoalBlocksQueueDrain | 普通 queue 自动消费必须同时满足 session ready，且 target 不存在或 `target.status=complete`；active/paused/budget_limited target 阻塞 text、goal、compact 全部 kind |
-| verifierFailOpenCompletesTarget | verifier 基础设施、输出格式或工具误用异常采用 `passed=true` fail-open，并通过正常 target complete 路径解锁 queue；禁止添加绕过 target 更新的 drain 分支 |
-| verifierCancelDoesNotPass | 手动 Stop/abort verifier 是 cancelled/failed + target paused，queue 保留且 `autoDrain=false`；不能当作 fail-open 或 pass。非流式 model provider 即使没有及时响应 `AbortSignal`，adapter 也必须以 abort race 立即结束本地 `generateText` 等待，禁止等上游自然返回后才收口 verifier |
-| restartDiscardRespectsDeliveryLifetime | CLI restart 后未进入终态的 admitted input 标记 discarded；`queue/guide` 属于旧 runtime 周期，按持久 delivery 静默结算且不保留 renderer 重发副本；`unknown` 同样静默清账且不显示 UI 错误；只有未进入 transcript 的 `startNow` 提示用户确认，禁止自动重放 |
-| runningCompactQueues | running 时 `/compact` 作为 `kind=compact` 的维护意图追加到 CLI FIFO；不打断当前 active work，也不能当普通消息 |
-| stopEndsAsInterruptedCompleted | 停止生成后没有“暂停态”；当前轮结束为 `completed(interrupted)` |
-| stopKeepsQueueAndDisablesAutoDrain | 停止后 queue 原样保留，且默认不自动消费 |
-| pausedQueueInputRequiresConfirmation | `completed` 且 `queue>0` 且 `autoDrain=false`（暂停队列）时，普通消息和 `/goal <新目标>` 不静默入队：保留正常发送按钮，提交后用确认弹窗选择「清空队列并发送」或「保留队列并立即发送」；`/compact` 仍直接追加到暂停队列（2026-07-15 UI 重裁决；v4 仍表达为 `inputRouting.mode=choice`） |
-| pausedQueueResumeDrainsFifo | 暂停队列的“继续”是 CLI 权威恢复命令：只设置 `autoDrain=true`；随后仍受 session ready 与 `target absent/complete` guard 约束。无未完成 target 时空闲态立即从队首启动、忙碌态先武装并在当前 active work 收口后启动；target 非 complete 时只武装不消费。满足 guard 后按 FIFO 自动消费到空，Stop/compact 失败等中断重新回到 `autoDrain=false` |
-| queueContentIndependence | queue 消息是未来用户意图，不绑定某一段历史上下文；edit 历史 query、compact、fork 都不改写 queue 内容 |
-| queuedEditRestoresComposerAfterAuthoritativeRemoval | 第一方 UI 编辑 queue item 时先以 `deleteQueueItem(baseRevision)` 权威移除；只有 `accepted/duplicate` 后才在发起端原 session/workspace composer 幂等恢复完整输入，失败/noop/stale 不恢复 |
-| compactingAcceptsFutureInput | compacting 时普通消息和 `/goal xxx` 追加 queue |
-| duplicateCompactRejected | 同一 session 已有 running 或 queued compact 时再次 compact 必须 reject，不重复入队 |
-| compactCanBeStopped | compacting 时允许停止；compact timeline 标记 interrupted，session 回到 `completed(interrupted)` |
-| forkAssistantOnly | 只能 fork assistant message；不能 fork user 或 tool message |
-| forkDoesNotCopyQueue | fork 新 session 时不复制父 session queue |
-| forkDoesNotCopyBackgroundWork | fork 新 session 时不复制父 session 的 live background bash/subagent 或 pending background result |
-| runningForkDoesNotRewindWorkspace | running fork 只复制稳定 conversation history；不 rewind 共享 workspace，父 session 继续运行 |
-| editUserOnly | 只能 edit user query；assistant 和 tool 不能 edit |
-| editKeepsQueue | edit 最后一轮 real user query 会从该轮重跑，但 queue 原样保留 |
-| sessionConfigScoped | 模型和思考深度是 session 级存储；切换历史 session 显示各自配置 |
-| providerRetryUsesLiveTurnTail | `control.apiRetry` 是 session-scoped runtime-memory 事实，只显示在当前 running turn 底部并替代 generic loading；有效模型进展或终态后清除，CLI 冷启不恢复。只读 child 可展示该状态，但不得因此开放手动 retry command |
-| freshSubagentInitialModelIsDurable | fresh child 在首轮输入前持久化实际解析模型 `model_change(undefined -> X)`，首轮显示无切换箭头的“正在使用 X”且冷启可重建；普通 Main 首轮静默，resume 不重复写入，旧 child 不回填，父 timeline 不镜像 |
-| newSessionInheritsLastSelection | 新建 session 使用用户上一次显式选择并由 runtime 确认生效的 `provider + model + thought` 配置元组；thought 不得脱离所属模型独立继承 |
-| draftCollaborationModeUsesRendererGlobalPreference | `build/edit/plan/yolo` 的记忆只作用于未发送草稿：同一 renderer 的新草稿读取全局 localStorage 偏好，已有 session 的打开或切换不得改写该偏好 |
-| queuedSubmissionPreservesSelection | queue item 保存完整 Submission；消费时使用入队时已经固定的 Provider、Model 与思考深度，后续 Session Selection 变化不改写已入队意图；Provider 配置在创建 Model 时读取最新事实 |
-| acceptedGuideSwitchesAtModelStepBoundary | guide 被当前 Loop 接收时，输入、Session Selection 与后续 Active Model 一起生效；已经发出的模型请求继续完成，下一个 model step 使用 guide 的 Selection |
-| crossSessionUnlimitedConcurrency | 不同 session 可以真实并发运行，产品层没有并发上限 |
-| sessionResidencyTargetIsSoft | 每个 CLI 可以用 LRU 维持 resident session 软目标；active/queued/background/pending/subscribed/operation-leased session 必须优先保活，受保护 session 超过目标时允许超额，禁止为满足容量而取消工作 |
-| deactivatedSessionEqualsColdSession | resident eviction 只删除 CLI 内存 record/publisher/runtime，不删除持久 session 或 task index、不发 `session.removed`；后续访问与 CLI 重启后的未加载 session 共用 cold-resume，renderer 不接收去激活业务通知 |
-| sessionContextFollowsActiveSession | 用户切换历史 session 后，右侧 sidebar、任务、上下文必须跟随 active session |
-| autoCompactIsSystemTurnPrefix | 自动 compact 是系统插入的前置维护步骤，不占用户 queue；成功后继续原本要执行的动作 |
-| cliOwnsConversationProjection | conversation product projection 由 CLI/runtime 基于 CLI facts 产生；owner host 只缓存、路由和恢复投影，UI 不用本地消息数组发明产品事实 |
-| productRowsRequireCompleteConsumerContract | CLI 只有在 row 的身份、session/turn/tool 落位、cold 恢复位置和 Renderer 已形成完整契约时，才能把 runtime fact 物化为 conversation product row。`HookRun*` 只投影 client-safe `hookInvocation` 摘要：按权威 `turnId` 进入轮尾 action，resume 中缺少 turnId 的 `SessionStart` 等待下一条真实 user-intent turn，禁止构造 `session-hooks:*` synthetic turn；admission-only blocked 不得被展示为“运行过”。live/cold、desktop continuous、mobile replayable 与 Renderer 必须在同一变更中闭环，不能只合入协议类型或 producer |
-| v4ColdResumeSeparatesActivationFromProjection | V4 历史会话冷订阅只复用 session runtime activation；历史 rows/goal/plan/queue/interaction 与首帧由 V4 durable materialization 和 ProductProjection 恢复。不得为了激活 runtime 或读取 usage 构建无人消费的 legacy 全量 snapshot；legacy `session/resume` 仍以 activation + legacy snapshot 保持响应兼容 |
-| turnIdAuthoritative | `turnId` 是 CLI/runtime 权威 turn 身份；`turnIndex` / `ordinal` 只能展示 |
-| stableHistoryTargetsPreferMessageId | fork、edit、rewind、file summary 等历史操作优先使用稳定 `messageId` 或 `turnId`，旧数据才 fallback 到 `turnIndex` |
-| timelinePlacementFromProjection | timeline 的位置必须来自 projection 的 `anchorTurnId` / `anchorMessageId` / `placement`，不能用最近 user/assistant 或数组下标推断 |
-| commandIdempotencyRequired | 所有会改变 conversation 的 command 必须有 `commandId`，支持 duplicate ACK，避免重试造成重复消息或重复停止 |
-| stopTargetsObservedForegroundExecution | Stop 必须携带用户点击时投影出的 `foregroundExecutionId`；同一 runtime command 内的 primary turn、goal verifier 与 goal continuation 共享身份。Runtime 只取消身份匹配的当前 execution；旧 execution 已终止并切到无关新 execution 时返回 noop，禁止误停新请求。命中 execution 后，本地 active work 的取消不能依赖 provider promise 是否遵守 abort；provider 的迟到结果只能被丢弃，不能延迟 UI/runtime 收口或复活旧 work |
-| trustedDeliveryBoundary | desktop（含 SSH/WSL/Docker）固定 continuous，mobile/Web remote 固定 replayable；client 不能伪造 profile |
-| subscriptionOwnedByConnection | subscription 和 buffer 按 connection 隔离，frame 只发给 owning attachment；慢手机不能影响桌面 |
+| sameSessionActiveTurnExclusive | A mesma session não pode rodar duas active turn ao mesmo tempo; a concorrência acontece apenas entre sessions diferentes |
+| runningStableAssistantForkAllowed | Durante running é possível fazer fork do último trecho assistant completed de um turn anterior `completedSuccess`; o partial atual streaming/interrupted/failed e os trechos assistant intermediários não podem ser forked |
+| latestQueryEditPreemptsActiveTurn | Só a última real user query pode ser editada; durante running, submeter o edit equivale a parar antes o active work atual e reexecutar a partir da última query |
+| latestAssistantRetryOnly | A capacidade de retry do runtime ainda bloqueia primeiro a última row `assistantText` de toda a timeline na projeção atual e só então exige que exista um canonical user input com `origin=realUser` no mesmo product turn; rodadas de resultado sintético como background result/goal continuation/mailbox e rodadas reais de usuário mais antigas não podem obter a capacidade. Decisão de produto de 2026-07-15: desktop, Web e celular ocultam de forma unificada a entrada comum de retry de assistant, mas mantêm a projeção `canRetry`, o comando `retryTurn` e o gate, para evitar que o recuo de UI se espalhe como remoção da semântica de protocolo/recuperação |
+| runningPromptQueues | Com running e `followupMode=queue`, enviar mensagem comum precisa entrar na queue daquela session, sem interromper a rodada atual |
+| runningGoalQueues | Durante running, enviar `/goal xxx` precisa entrar na queue daquela session e, no consumo, define ou atualiza o goal |
+| acceptedInputHasSingleAuthority | Entradas busy/running já submetidas no desktop e no celular entram, pela ordem de admissão serial do CLI, em um único CommandInbox/FIFO; host e UI não mantêm uma segunda fila autoritativa |
+| acceptedInputAlwaysAccountedFor | Uma entrada submetida precisa estar, e só pode estar, em um destes estados: queue, guided row, transcript, explicit rejected/failed/discarded |
+| acceptedInputProjectionSilenceRecovers | Após `sendText` receber ACK `accepted` ou `duplicate`, o originador precisa aguardar o queue item de mesmo `sourceCommandId` ou a row `userInput` de real user. Se dentro de uma curta janela de carência ainda não houver nenhum fato autoritativo visível, o cliente só dispara um resync single-flight de mesma subscription da owned subscription atual; não pode fabricar row de usuário, criar queue no renderer nem reaplicar o command automaticamente. A recuperação continua ao longo do attachment confiável preservando a fronteira desktop continuous / mobile replayable; o goal state direto de `sendGoalCommand` não usa row de usuário como condição de confirmação |
+| promptRequiresTextOrAttachment | Para `sendText`, `createSession.firstInput`, `createSelectionSideSession.firstInput` e `editUserQuery`, corpo e anexos válidos precisam ter pelo menos um presente; entrada de anexo comum pode usar corpo vazio, o primeiro envio do child desta feature só permite corpo não vazio, e ambos vazios devem ser explicitamente rejeitados |
+| sourceCommandIdEndToEnd | queue item, evento drain/guided, user row, message anchor, marker e fork child metadata preservam o `sourceCommandId` original |
+| guideDrainsAfterCompletedToolBatch | Um guide elegível pode esperar antes de a tool aparecer; só depois que todos os resultados de tools irmãs de um model step foram submetidos é que no máximo um guide é consumido inline, e o product turn continua |
+| acceptedGuideStartsWorkSegment | Um guide aceito não troca o product turn, mas precisa fechar o visual work segment anterior e abrir um segmento independente de tempo/colapso com uma guided user entity; o action target final não muda |
+| guideFallbackPreservesIntent | Quando o turn atual chega a um estado final sem tool batch utilizável, ou o guide não se aplica/é recusado, o mesmo intent é redirecionado no lugar para a queue comum; payload, client, IDs, admissionSeq e FIFO permanecem |
+| incompleteGoalBlocksQueueDrain | O consumo automático da queue comum exige simultaneamente session ready e target inexistente ou com `target.status=complete`; target active/paused/budget_limited bloqueia todas as kinds: text, goal, compact |
+| verifierFailOpenCompletesTarget | Exceções de infraestrutura do verifier, de formato de saída ou de uso indevido de tool adotam fail-open com `passed=true` e liberam a queue pelo caminho normal de target complete; é proibido adicionar um ramo de drain que contorne a atualização do target |
+| verifierCancelDoesNotPass | Stop/abort manual do verifier é cancelled/failed + target paused, a queue é mantida com `autoDrain=false`; não pode ser tratado como fail-open nem como pass. Mesmo que um model provider não respondig及时 ao `AbortSignal`, o adapter precisa encerrar imediatamente a espera local de `generateText` via corrida de abort; é proibido esperar o retorno natural do upstream para só então fechar o verifier |
+| restartDiscardRespectsDeliveryLifetime | Após restart do CLI, a entrada admitted que não chegou a um estado terminal é marcada discarded; `queue/guide` pertencem ao ciclo de vida do runtime antigo e são liquidados silenciosamente conforme o delivery persistido, sem manter cópia de reenvio no renderer; `unknown` também limpa a conta em silêncio e não mostra erro na UI; apenas `startNow` que não entrou no transcript pede confirmação ao usuário, e o replay automático é proibido |
+| runningCompactQueues | Durante running, `/compact` é anexado como intenção de manutenção com `kind=compact` ao FIFO do CLI; não interrompe o active work atual e não pode virar mensagem comum |
+| stopEndsAsInterruptedCompleted | Depois de parar a geração não existe "estado pausado"; o turno atual termina como `completed(interrupted)` |
+| stopKeepsQueueAndDisablesAutoDrain | Depois do stop, a queue é mantida como está e, por padrão, não é consumida automaticamente |
+| pausedQueueInputRequiresConfirmation | Com `completed` e `queue>0` e `autoDrain=false` (fila pausada), mensagens comuns e `/goal <novo objetivo>` não entram na fila silenciosamente: o botão normal de envio é preservado e, após o submit, uma caixa de confirmação permite escolher entre "limpar a fila e enviar" ou "manter a fila e enviar agora"; `/compact` continua sendo anexado direto à fila pausada (redecisão de UI de 2026-07-15; na v4 ainda é expresso como `inputRouting.mode=choice`) |
+| pausedQueueResumeDrainsFifo | O "continuar" da fila pausada é um comando de recuperação autoritativo do CLI: apenas define `autoDrain=true`; em seguida continua sujeito aos guards de session ready e `target absent/complete`. Sem target incompleto, no estado ocioso ele inicia imediatamente a partir do início da fila; no estado ocupado, apenas arma e inicia quando o active work atual fechar; quando o target não está complete, apenas arma e não consome. Satisfeitas as guards, consome automaticamente por FIFO até esvaziar; interrupções como Stop/compact falho voltam para `autoDrain=false` |
+| queueContentIndependence | Mensagens da queue são intenção futura do usuário e não ficam vinculadas a nenhum trecho de histórico; editar query de histórico, compact e fork não reescrevem o conteúdo da queue |
+| queuedEditRestoresComposerAfterAuthoritativeRemoval | Ao editar um queue item na UI de primeira parte, remove de forma autoritativa primeiro com `deleteQueueItem(baseRevision)`; só após `accepted/duplicate` o originator restaura idempotentemente a entrada completa no composer da session/workspace de origem; falha/noop/stale não restauram |
+| compactingAcceptsFutureInput | Durante compacting, mensagens comuns e `/goal xxx` são anexados à queue |
+| duplicateCompactRejected | Se a mesma session já tem compact running ou enfileirado, compactar de novo deve ser rejected, sem enfileirar duplicado |
+| compactCanBeStopped | Durante compacting é permitido parar; o timeline do compact é marcado como interrupted e a session volta para `completed(interrupted)` |
+| forkAssistantOnly | Só é possível fazer fork de assistant message; não de user nem de tool message |
+| forkDoesNotCopyQueue | Ao fazer fork de uma nova session, a queue da session pai não é copiada |
+| forkDoesNotCopyBackgroundWork | Ao fazer fork de uma nova session, não são copiados o bash/subagent de background ativo da session pai nem o resultado de background pendente |
+| runningForkDoesNotRewindWorkspace | Um fork durante running copia apenas o histórico de conversa estável; não faz rewind do workspace compartilhado e a session pai continua rodando |
+| editUserOnly | Só é possível editar user query; assistant e tool não podem ser editados |
+| editKeepsQueue | Editar a última real user query reexecuta a partir daquele turno, mas a queue é mantida como está |
+| sessionConfigScoped | Modelo e profundidade de pensamento são armazenados no nível da session; trocar para uma session histórica mostra a configuração de cada uma |
+| providerRetryUsesLiveTurnTail | `control.apiRetry` é um fato de runtime em memória com escopo de session, exibido apenas no fim do turn running atual e substituindo o loading genérico; é limpo após progresso válido do modelo ou estado terminal e não é restaurado por cold start do CLI. Um child somente-leitura pode exibir esse estado, mas isso não pode abrir o comando de retry manual |
+| freshSubagentInitialModelIsDurable | Um child novo persiste o modelo efetivamente resolvido `model_change(undefined -> X)` antes da primeira entrada; a primeira rodada exibe "正在使用 X" sem seta de troca e pode ser reconstruída no cold start; Main comum é silencioso na primeira rodada, resume não reescreve, child antigo não é preenchido retroativamente e a timeline pai não espelha |
+| newSessionInheritsLastSelection | Uma nova session usa a tupla de configuração `provider + model + thought` que o usuário escolheu explicitamente por último e que o runtime confirmou como vigente; o thought não pode ser herdado de forma independente do seu modelo |
+| draftCollaborationModeUsesRendererGlobalPreference | A memória de `build/edit/plan/yolo` só vale para rascunhos não enviados: um novo rascunho do mesmo renderer lê a preferência global do localStorage, e abrir ou trocar de uma session existente não pode reescrever essa preferência |
+| queuedSubmissionPreservesSelection | O queue item salva a Submission completa; no consumo são usados o Provider, o Model e a profundidade de pensamento já fixados no momento da entrada na fila, e mudanças posteriores de Session Selection não reescrevem a intenção já enfileirada; a configuração do Provider é lida no momento da criação do Model |
+| acceptedGuideSwitchesAtModelStepBoundary | Quando o guide é aceito pelo Loop atual, a entrada, a Session Selection e o Active Model seguinte valem em conjunto; requisições de modelo já despachadas continuam até o fim e o próximo model step usa a Selection do guide |
+| crossSessionUnlimitedConcurrency | Sessions diferentes podem rodar com concorrência real e não há limite de concorrência na camada de produto |
+| sessionResidencyTargetIsSoft | Cada CLI pode manter, com LRU, um alvo suave de sessions resident; sessions active/queued/background/pending/subscribed/operation-leased devem ter prioridade de manter viva, é permitido exceder o alvo quando há sessions protegidas, e é proibido cancelar trabalho para acomodar capacidade |
+| deactivatedSessionEqualsColdSession | A evicção de uma session resident remove apenas o record/publisher/runtime da memória do CLI, sem remover a session persistente ou o índice de tasks e sem emitir `session.removed`; acessos posteriores e sessions não carregadas após o restart do CLI compartilham o cold-resume, e o renderer não recebe notificação de negócio de desativação |
+| sessionContextFollowsActiveSession | Depois que o usuário troca para uma session histórica, a sidebar direita, as tasks e o contexto devem acompanhar a active session |
+| autoCompactIsSystemTurnPrefix | O compact automático é um passo de manutenção prefixal inserido pelo sistema, não ocupa a queue do usuário e, após o sucesso, continua a ação que本来 seria executada |
+| cliOwnsConversationProjection | A conversation product projection é produzida pelo CLI/runtime a partir dos CLI facts; o owner host apenas mantém cache, roteia e recupera a projeção, e a UI não inventa fatos de produto com um array local de mensagens |
+| productRowsRequireCompleteConsumerContract | O CLI só pode materializar um runtime fact como conversation product row quando a identidade da row, sua colocação em session/turn/tool, a posição de recuperação cold e o Renderer já formam um contrato completo. `HookRun*` projeta apenas o resumo client-safe `hookInvocation`: entra na ação de fim de turno pelo `turnId` autoritativo, e um `SessionStart` sem turnId durante o resume espera a próxima real user-intent turn; é proibido construir synthetic turn `session-hooks:*`, e um admission-only blocked não pode ser exibido como "executou". live/cold, desktop continuous, mobile replayable e Renderer precisam fechar o ciclo na mesma mudança; não basta mesclar apenas os tipos de protocolo ou o producer |
+| v4ColdResumeSeparatesActivationFromProjection | A cold subscription de sessão histórica na V4 reutiliza apenas a activation do session runtime; rows/goal/plan/queue/interaction históricas e o primeiro frame vêm da materialization durável da V4 e da ProductProjection. É proibido construir um legacy snapshot completo que ninguém consome só para ativar o runtime ou ler uso; o legacy `session/resume` continua usando activation + legacy snapshot para manter a compatibilidade de resposta |
+| turnIdAuthoritative | `turnId` é a identidade autoritativa de turn no CLI/runtime; `turnIndex` / `ordinal` são apenas para exibição |
+| stableHistoryTargetsPreferMessageId | Operações de histórico como fork, edit, rewind e file summary preferem o `messageId` ou `turnId` estáveis; dados antigos só fazem fallback para `turnIndex` |
+| timelinePlacementFromProjection | A posição na timeline precisa vir de `anchorTurnId` / `anchorMessageId` / `placement` da projeção, e não pode ser inferida do user/assistant mais próximo nem do índice do array |
+| commandIdempotencyRequired | Todo command que altera a conversa precisa ter `commandId`, suportar ACK duplicate e evitar que um retry gere mensagens duplicadas ou paradas duplicadas |
+| stopTargetsObservedForegroundExecution | O Stop precisa carregar o `foregroundExecutionId projetado no momento do clique; o primary turn, o goal verifier e o goal continuation dentro do mesmo command de runtime compartilham a identidade. O runtime cancela apenas a execution atual cuja identidade bate; quando a execution antiga já terminou e o sistema mudou para uma nova execution sem relação, retorna noop, para não parar a nova requisição por engano. Depois de atingir a execution, o cancelamento do trabalho ativo local não pode depender de o provider respeitar o abort; um resultado tardio do provider só pode ser descartado, sem atrasar o fechamento de UI/runtime nem ressuscitar trabalho antigo |
+| trustedDeliveryBoundary | Desktop (incluindo SSH/WSL/Docker) é fixo continuous; mobile/Web remote é fixo replayable; o client não pode forjar profile |
+| subscriptionOwnedByConnection | Subscription e buffer são isolados por conexão, e o frame é enviado apenas ao attachment dono; um celular lento não pode afetar o desktop |
 
-如果一条 rule 的 effect 违反不变量，Trace Tree 应该生成 `violation case`，而不是普通 accepted case。
+Se o effect de uma rule violar um invariante, o Trace Tree deve gerar um `violation case`, e não um accepted case comum.
 
-## 会话区已确认语义
+## Semântica já confirmada da área de conversa
 
-这一节记录当前已经确认的理想产品语义，不以现有代码实现为准。后续 case 枚举、剪枝和 E2E 生成都应该先对齐这里。
+Esta seção registra a semântica ideal de produto já confirmada, sem se basing na implementação atual de código. A enumeração de cases, a poda e a geração de E2E devem se alinhar aqui primeiro.
 
-### 状态维度
+### Dimensões de estado
 
 ```text
 session.phase =
@@ -300,17 +271,13 @@ collaborationMode =
   build | edit | plan | yolo
 ```
 
-当 `collaborationMode=plan` 时，composer 提交 parser 已识别的 goal 控制命令必须在 UI
-admission 边界 reject：提示“goal 无法在 Plan 模式下使用，请切换模式”，保留输入原文，且不得
-创建 session、发送 `sendGoalCommand` / `resumeGoal` 或写入 prompt history。该 guard 发生在
-draft promotion、running queue 和暂停队列裁决之前，因此 runtime phase 与 queue 状态不再
-扩大这条组合。
+Quando `collaborationMode=plan`, o parser de comandos de controle de goal já reconhecido pelo composer precisa ser rejeitado no limite de admissão da UI: mostrar "goal 无法在 Plan 模式下使用，请切换模式", preservar o texto original da entrada e não criar session, não enviar `sendGoalCommand` / `resumeGoal` e não escrever no histórico de prompts. Esse guard ocorre antes da promoção do draft, da queue running e da decisão da fila pausada, portanto a phase de runtime e o estado da queue não ampliam mais esta combinação.
 
-没有独立的 `paused` session phase。用户停止生成后，当前轮进入 `completed(interrupted)`；如果 queue 里还有消息，queue 保留且 `autoDrain=false`。UI 把这个组合称为“暂停队列”，并在队列项上方显示恢复提示条；产品文案不再暴露内部术语 `held queue`。
+Não existe uma phase de session `paused` independente. Depois que o usuário para a geração, o turno atual entra em `completed(interrupted)`; se ainda houver mensagens na queue, ela é mantida com `autoDrain=false`. A UI chama essa combinação de "fila pausada" e exibe uma barra de retomada acima dos itens da fila; o texto de produto não expõe mais o termo interno `held queue`.
 
-普通主 turn 进入 `error` 时同样只结束当前 turn，不撤销已经 accepted 的后续输入：queue 原样保留并切换为 `autoDrain=false`，暂停提示原因标记为错误；用户可以点击“继续”恢复队首 FIFO。错误路径禁止发出 `TurnSteerDiscarded(reason=turn_failed)`，也禁止在错误终态触发自动 drain。该恢复不变量同时适用于桌面 `desktop-continuous` 和手机 `web-remote-replayable` 的共享 CLI admission，后者仍必须遵守 replayable 的 snapshot/gap 边界。
+Quando um turn principal comum entra em `error`, isso também encerra apenas o turno atual, sem desfazer as entradas subsequentes já aceitas: a queue é mantida como está e passa para `autoDrain=false`, e o motivo do aviso de pausa é marcado como erro; o usuário pode clicar em "continuar" para retomar a partir do início da fila por FIFO. O caminho de erro proíbe emitir `TurnSteerDiscarded(reason=turn_failed)` e proibe disparar auto drain em um estado terminal de erro. Esse invariante de recuperação também se aplica à admissão CLI compartilhada do desktop `desktop-continuous` e do celular `web-remote-replayable`, e este último ainda deve respeitar a fronteira de snapshot/gap do replayable.
 
-暂停队列的确认与恢复时序：
+Sequência de confirmação e recuperação da fila pausada:
 
 ```text
 Stop
@@ -335,99 +302,78 @@ Stop
   -> Q1 -> Q2 -> ... -> queue 为空
 ```
 
-确认框的 `queueItemId` 集合校验是跨端并发保护：确认打开后若桌面端或手机端增删了队列项，原确认失效并基于最新投影重新确认；不能把用户没有看到的新队列项一并清空。撤回编辑会移除旧 queueItemId，因此必须使旧确认失效；仅重排同一批 ID 不扩大清空集合，可继续执行。底层兼容调用若以 `editQueueItem` 原地保留同一批 ID，也不使确认失效。
+A validação do conjunto de `queueItemId` na caixa de confirmação é uma proteção de concorrência entre dispositivos: se, depois de a confirmação ser aberta, itens forem adicionados ou removidos da fila pelo desktop ou pelo celular, a confirmação original fica inválida e é preciso confirmar novamente com base na projeção mais recente; não se pode limpar junto itens de queue que o usuário não viu. Uma edição desfeita remove o `queueItemId` antigo e portanto precisa invalidar a confirmação antiga; apenas reordenar o mesmo conjunto de IDs não amplia o conjunto a ser limpo, e a execução pode prosseguir. Uma chamada de compatibilidade de baixo nível que, via `editQueueItem`, mantém os mesmos IDs no lugar também não invalida a confirmação.
 
-`compacting` 和 `goalVerifying` 不是与 `running` 平级的顶层 phase。它们是 `running` 内部的
-completion-blocking active work，分别表达为 `activeWork.kind=compact` 和 `activeWork.kind=goalVerifier`。
+`compacting` e `goalVerifying` não são phases de nível superior equivalentes a `running`. São active works internos a `running` que bloqueiam a conclusão, expressos respectivamente como `activeWork.kind=compact` e `activeWork.kind=goalVerifier`.
 
-自动 compact 会围绕一个 `pendingAction` 运行。`pendingAction` 指触发自动 compact 的待执行动作，它不一定是一条消息。
+O compact automático roda em torno de um `pendingAction`. `pendingAction` é a ação pendente que disparou o compact automático e não necessariamente uma mensagem.
 
-`pendingAction` 的典型来源：
+Origens típicas de `pendingAction`:
 
-- 用户在 `completed, queue=0` 时直接发送的普通消息。
-- queue 自动消费时取出的队首消息。
-- queue 自动消费时取出的 `/goal xxx`。
-- edit user query 后准备重跑的那一轮输入。
+- Mensagem comum que o usuário enviou direto quando estava em `completed, queue=0`.
+- A mensagem do início da fila retirada no consumo automático da queue.
+- O `/goal xxx` retirado no consumo automático da queue.
+- A entrada do turno que vai reexecutar após um edit de user query.
 
 ### Running
 
-| 前置                                                                                                         | 用户动作                                 | 产品结果                                                                                                                                              |
-| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `running, followupMode=queue`                                                                                | 发普通消息                               | 追加到 queue，不打断当前轮                                                                                                                            |
-| `running, followupMode=guide`，满足模型/provider 无关的 runtime eligibility                                  | 发普通消息                               | admission 为 guide；等待完整 tool result batch 后最多内联消费一条，不启动第二个 turn                                                                  |
-| `running, followupMode=guide`，已有普通 queue                                                                | 发普通消息                               | guide 仍进入当前 active turn；既有 queue 作为未来 turn FIFO 保持原相对顺序，不构成 fallback guard                                                     |
-| `running, followupMode=guide`，无 tool batch 即终态，或因附件/Stop/不可 steer active work 不满足 eligibility | 发普通消息                               | 同一 intent 原地回退 queue；保留 payload、IDs 和 admission FIFO；模型/provider 不能作为 fallback guard                                                |
-| `running`                                                                                                    | 发 `/goal xxx`                           | 追加到 queue；消费时已有 goal 就更新，没有 goal 就设置                                                                                                |
-| `running`                                                                                                    | 发 `/compact`                            | 以 `kind=compact` 追加到 queue，不打断当前 active work；轮到时才启动 compact                                                                          |
-| `running`                                                                                                    | stop                                     | 当前轮结束为 `completed(interrupted)`；queue 原样保留；`autoDrain=false`                                                                              |
-| `running`                                                                                                    | fork stable assistant                    | allow；目标必须是更早 `completedSuccess` turn 的最后一段 completed assistant；child 只复制稳定对话历史，父 session 继续运行，共享 workspace 不 rewind |
-| `running`                                                                                                    | fork current streaming assistant partial | reject                                                                                                                                                |
-| `running`                                                                                                    | edit 最后一轮 real user query            | 先 stop 当前 active work，再从该 query 重跑；queue 原样保留且不自动消费                                                                               |
-| `running`                                                                                                    | edit 非最后一轮 user query               | reject 或入口 absent；不能 rewind 历史轮，也不能启动第二条 active turn                                                                                |
+| Pré-condição                                                                                                    | Ação do usuário                           | Resultado de produto                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `running, followupMode=queue`                                                                                    | Enviar mensagem comum                     | Anexa à queue, sem interromper o turno atual                                                                                                                           |
+| `running, followupMode=guide`, com runtime eligibility independente de modelo/provider | Enviar mensagem comum                     | A admissão é guide; aguarda o batch completo de tool result para consumir no máximo uma inline, sem iniciar um segundo turno                                          |
+| `running, followupMode=guide`, já com queue comum                                       | Enviar mensagem comum                     | O guide ainda entra no active turn atual; a queue existente permanece como FIFO de turnos futuros na mesma ordem relativa e não constitui guard de fallback          |
+| `running, followupMode=guide`, sem tool batch e estado final, ou sem eligibility por anexo/Stop/active work não steerável | Enviar mensagem comum                     | O mesmo intent volta para a queue no lugar; payload, IDs e FIFO de admissão são preservados; modelo/provider não podem servir de guard de fallback                          |
+| `running`                                                                                                       | Enviar `/goal xxx`                        | Anexa à queue; no consumo, atualiza se já houver goal e define se não houver                                                                                            |
+| `running`                                                                                                       | Enviar `/compact`                         | Anexa à queue com `kind=compact`, sem interromper o active work atual; o compact só inicia quando chegar a vez                                                        |
+| `running`                                                                                                       | stop                                      | O turno atual termina como `completed(interrupted)`; a queue é mantida como está; `autoDrain=false`                                                                    |
+| `running`                                                                                                       | fork de assistant estável                 | allow; o alvo precisa ser o último trecho assistant completed de um turn `completedSuccess` anterior; o child copia só o histórico de conversa estável, a session pai continua rodando e o workspace compartilhado não sofre rewind |
+| `running`                                                                                                       | fork do partial assistant em streaming    | reject                                                                                                                                                              |
+| `running`                                                                                                       | edit da última real user query            | Para antes o active work atual e reexecuta a partir daquela query; a queue é mantida como está e não é consumida automaticamente                                        |
+| `running`                                                                                                       | edit de user query que não é a última     | reject ou entrada ausente; não pode reverter turnos históricos nem iniciar um segundo active turn                                                                       |
 
 ### Completed
 
-| 前置                                                            | 用户动作            | 产品结果                                                                                                       |
-| --------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `completed(success), queue=0`                                   | 发普通消息          | 立即开始下一轮                                                                                                 |
-| `completed(interrupted), queue=0`                               | 发普通消息          | 立即开始下一轮                                                                                                 |
-| `completed(interrupted), queue>0, autoDrain=false`              | 发普通消息          | 保留正常发送按钮；提交后打开确认弹窗。选择清空则清空已确认旧队列后立即发送，选择发送则保留旧队列暂停并立即发送 |
-| `completed, queue>0, autoDrain=false`                           | `/goal <新目标>`    | 同普通消息，打开确认弹窗后按清空/保留裁决；`/goal resume` 等目标控制命令不进入本弹窗                           |
-| `completed, queue>0, autoDrain=false`                           | 队列“立即发送”      | reserve 目标项并开始 promote；启动成功才移除，失败释放 reservation 并原位保留                                  |
-| `completed, queue>0, autoDrain=false`                           | 撤回编辑 queue item | composer 为空时先权威删除，再仅向发起端原 session/workspace 恢复完整输入；不触发消费                           |
-| `completed, queue>0, autoDrain=false`                           | 重排、删除 queue    | 只修改 queue，不触发消费                                                                                       |
-| `completed, queue>0, autoDrain=false`                           | compact             | 不打开确认弹窗；追加到暂停队列末尾，保持 FIFO；仍不自动消费                                                    |
-| `completed, queue>0, autoDrain=false, target absent/complete`   | 点队列提示条“继续”  | `autoDrain=true`；立即从队首开始，按 FIFO 自动消费到空                                                         |
-| `running, queue>0, autoDrain=false, target absent/complete`     | 点队列提示条“继续”  | `autoDrain=true` 并武装；不抢占当前 active work，收口后按 FIFO 自动消费到空                                    |
-| `queue>0, autoDrain=false, target active/paused/budget_limited` | 点队列提示条“继续”  | 只设置 `autoDrain=true`；不得提升队首，等待 target complete 后再按 FIFO 自动消费；显式 `sendQueuedNow` 除外    |
+| Pré-condição                                                       | Ação do usuário              | Resultado de produto                                                                                                                                        |
+| ------------------------------------------------------------------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `completed(success), queue=0`                                      | Enviar mensagem comum        | Inicia o próximo turno imediatamente                                                                                                                         |
+| `completed(interrupted), queue=0`                                  | Enviar mensagem comum        | Inicia o próximo turno imediatamente                                                                                                                         |
+| `completed(interrupted), queue>0, autoDrain=false`                 | Enviar mensagem comum        | Mantém o botão normal de envio; após o submit abre a caixa de confirmação. Escolher limpar limpa a queue antiga já confirmada e envia; escolher enviar mantém a queue antiga pausada e envia |
+| `completed, queue>0, autoDrain=false`                              | `/goal <novo objetivo>`      | Igual à mensagem comum: abre a caixa de confirmação e decide entre limpar/manter; comandos de controle de goal como `/goal resume` não entram nesta caixa                             |
+| `completed, queue>0, autoDrain=false`                              | "Enviar agora" na fila       | Reserva o item alvo e inicia o promote; só o item é removido se o início tiver sucesso, e numa falha a reserva é liberada e o item permanece no lugar                                      |
+| `completed, queue>0, autoDrain=false`                              | Desfazer edição de queue item | Com o composer vazio, apaga de forma autoritativa primeiro e só então restaura a entrada completa apenas para o originator na session/workspace de origem; não dispara consumo                 |
+| `completed, queue>0, autoDrain=false`                              | Reordenar ou remover da queue | Só modifica a queue, sem disparar consumo                                                                                                                    |
+| `completed, queue>0, autoDrain=false`                              | compact                     | Não abre a caixa de confirmação; anexa ao fim da fila pausada, mantendo o FIFO e sem consumo automático                                                            |
+| `completed, queue>0, autoDrain=false, target absent/complete`      | Clicar em "continuar" na barra da fila | `autoDrain=true`; inicia imediatamente a partir do início e consome por FIFO até esvaziar                                                          |
+| `running, queue>0, autoDrain=false, target absent/complete`        | Clicar em "continuar" na barra da fila | `autoDrain=true` e arma; não sequestra o active work atual e, ao fechar, consome por FIFO até esvaziar                                   |
+| `queue>0, autoDrain=false, target active/paused/budget_limited`    | Clicar em "continuar" na barra da fila | Apenas define `autoDrain=true`; não promove o início da fila e espera o target ficar complete para então consumir por FIFO; exceto pelo `sendQueuedNow` explícito            |
 
 ### Queue
 
-queue item 是未来用户意图或维护意图，不绑定某一段历史上下文。因此：
+O queue item é uma intenção futura do usuário ou de manutenção e não fica vinculado a nenhum trecho de histórico. Portanto:
 
-- edit 最后一轮 real user query 不清空 queue。
-- compact 不改写 queue 内容。
-- fork 不复制 queue。
-- 普通用户输入入队时保存完整 Submission，其中的模型与思考深度表达该次提交的用户意图；真正消费时只重新读取最新 Provider 配置并创建 Model，不改用 Session 后来选择的模型。
+- Editar a última real user query não limpa a queue.
+- O compact não reescreve o conteúdo da queue.
+- O fork não copia a queue.
+- Quando a entrada comum do usuário entra na fila, é salva a Submission completa, e o modelo e a profundidade de pensamento nela expressam a intenção do usuário daquela submissão; no consumo real só se relê a configuração mais recente do Provider e se cria o Model, sem trocar para o modelo escolhido depois pela Session.
 
-所有端已提交的 busy/running 输入进入同一个 CLI/runtime `CommandInbox` FIFO，顺序以 CLI 串行 admission
-为准。queue item 自包含保存原始 `sourceCommandId`、稳定 `queueItemId`、`clientId`、kind（`sendText` / `sendGoalCommand` / `compact`）、原文、
-attachments、delivery、顺序以及 steer/dispatch 状态。guide 不适用、attachments、compact/verifier busy
-或 runtime steer reject 时按原字段回退普通 queue；empty、超限或 runtime reject 必须显式
-`rejected/failed`，UI 不得先清空 payload。`compact` 消费时必须走 compact lifecycle，只产生
-timeline marker，不生成 real-user row，也不进入 transcript query/edit/retry 语义。
+Todas as entradas busy/running já submetidas em qualquer dispositivo entram no mesmo FIFO `CommandInbox` do CLI/runtime, e a ordem segue a admissão serial do CLI. O queue item guarda de forma autossuficiente o `sourceCommandId` original, o `queueItemId` estável, o `clientId`, a kind (`sendText` / `sendGoalCommand` / `compact`), o texto original, os attachments, o delivery, a ordem e o estado de steer/dispatch. Quando o guide não se aplica, quando há attachments, quando compact/verifier está busy ou quando o runtime recusa o steer, há fallback para a queue comum com os campos originais; quando fica vazio, quando ultrapassa o limite ou quando o runtime recusa, é preciso `rejected/failed` explícito, e a UI não pode limpar o payload antes. O consumo de `compact` precisa passar pelo ciclo de vida do compact, produzindo apenas timeline marker, sem gerar real-user row e sem entrar na semântica de transcript query/edit/retry.
 
-第一方 UI 的 queue edit 固定为 `deleteQueueItem(baseRevision) -> accepted/duplicate -> local composer
-restore`。恢复 payload 包含输入 kind、可见文本和有序 `AttachmentRef[]`；goal 的可见文本是
-`/goal ...`，compact 不提供入口。composer 的 text、附件、网页上下文、会话引用或上传中状态任一非空时，
-本次撤回在 UI admission 边界拒绝且不得发 command。请求期间目标 row 与 composer 同时锁定，避免双击或
-ACK 前写入新草稿。
+A edição de queue na UI de primeira parte é fixamente `deleteQueueItem(baseRevision) -> accepted/duplicate -> local composer restore`. O payload de restauração contém a kind de entrada, o texto visível e o `AttachmentRef[]` ordenado; o texto visível de um goal é `/goal ...`, e o compact não oferece entrada. Se qualquer um entre texto do composer, attachments, contexto de página, referência de sessão ou estado de upload em andamento estiver não vazio, o desfeito é rejeitado no limite de admissão da UI e nenhum command é enviado. Durante a requisição, a row alvo e o composer ficam travados ao mesmo tempo, evitando clique duplo ou escrita de um novo rascunho antes do ACK.
 
-撤回的原 `sourceCommandId` 随 queue removal 结算；重新发送是新的用户提交，产生新的 commandId、
-queueItemId 和提交时间/排序。恢复草稿只属于发起端 renderer，不进入 snapshot 或 replayable 状态；其他端
-只看到 queue removal。请求必须绑定点击时的 sessionId 与
-`workspaceKey = workspaceIdentity?.trim() || workspacePath`，重复恢复幂等，切换 session/workspace 后不得
-串写。目标不存在时 `deleteQueueItem` 返回可判别 noop；stale/noop/rejected/failed 均不恢复旧投影。
+O `sourceCommandId` original do desfeito é liquidado junto com a remoção da queue; reenviar é uma nova submissão do usuário, produzindo novo commandId, novo queueItemId e novo horário/ordenação de submissão. O rascunho restaurado pertence apenas ao renderer de origem, não entra em snapshot nem no estado replayable, e os outros dispositivos só veem a remoção da queue. A requisição precisa estar ligada ao sessionId do clique e a `workspaceKey = workspaceIdentity?.trim() || workspacePath`; restaurações repetidas são idempotentes e, após trocar de session/workspace, não pode haver escrita cruzada. Quando o alvo não existe, `deleteQueueItem` retorna um noop discriminável; stale/noop/rejected/failed não restauram a projeção antiga.
 
-恢复的附件引用保持原顺序与完整字段，并标记为 session-owned；它们已由 session 接管，重发不得重新
-upload/adopt，删除、runtime restart 和 staged cleanup 也不得误清。没有本地 object URL 的图片退化显示
-文件名和类型图标，不扩展下载协议。
+As referências de attachment restauradas mantêm a ordem original e todos os campos, e são marcadas como session-owned; como já foram assumidas pela session, o reenvio não pode fazer upload/adopt de novo, e remoção, restart do runtime e staged cleanup também não podem limpá-las por engano. Imagens sem object URL local degradam para mostrar o nome do arquivo e um ícone de tipo, sem estender o protocolo de download.
 
-guide 与普通 queue 只共享输入事实和 admission FIFO，不共享消费触发器：
+Guide e queue comum compartilham apenas os fatos de entrada e o FIFO de admissão, e não o gatilho de consumo:
 
 ```text
 guide: tool batch committed -> drain at most one inline -> same product turn continues
 queue: session ready -> target absent/complete -> promote one head item as a future turn
 ```
 
-guide 在 tool call 出现前提交是合法的；runtime 等待下一次完整 tool result batch。parallel tool call
-必须等所有 sibling result（成功或失败）都落事实后才能消费一条 guide。guide 被接收时，它携带的
-ModelSelection 同时成为 Session Selection，并在下一个 model step 创建新的 Active Model；接收前已经
-发出的请求继续使用原 Model。当前 turn text-only complete、stop 或 interrupted 且未出现可用 batch 时，
-runtime 必须用明确的 delivery/fallback fact 把同一 Submission 原地改投 queue，保留 Selection、payload、
-IDs 与 admission 顺序；live projection 与 cold hydration 必须一致，不能用新 ID 重新入队。
+É válido enviar o guide antes de aparecer o tool call; o runtime aguarda o próximo batch completo de tool result. Uma parallel tool call precisa esperar que todos os resultados irmãos (com sucesso ou falha) virem fato antes de consumir um guide. Quando o guide é aceito, o `ModelSelection` que ele carrega se torna também a Session Selection e cria o novo Active Model no próximo model step; as requisições já despachadas antes da aceitação continuam usando o Model original. Quando o turn atual de texto puro completa, é parado ou é interrompido sem batch utilizável, o runtime precisa redirecionar a mesma Submission no lugar para a queue com um fato explícito de delivery/fallback, preservando Selection, payload, IDs e ordem de admissão; a projeção live e a cold hydration precisam concordar e não podem reentrar na fila com novos IDs.
 
-普通 queue 的自动 promotion 必须按以下 guard 串联判断，且对所有 kind 一视同仁：
+A promoção automática da queue comum precisa julgar em cadeia as guards a seguir, tratando todas as kinds da mesma forma:
 
 ```text
 head.dispatch=queued
@@ -436,59 +382,42 @@ head.dispatch=queued
   AND (target is absent OR target.status=complete)
 ```
 
-一次 `goal_verification completed` marker 或 `passed=false` 都不足以解除 guard。显式 pass 与 fail-open
-都先写 `passed=true`，再把 target 更新为 `complete`，之后才允许正常 queue promotion。手动终止
-verifier 则进入 cancelled/failed + target paused，并保持 queue 不自动消费。`sendQueuedNow` 是显式
-reservation + Stop barrier 路径，不属于自动 promotion guard。
+Um único marker de `goal_verification completed` ou um `passed=false` não bastam para liberar a guard. Tanto o pass explícito quanto o fail-open escrevem primeiro `passed=true` e só então atualizam o target para `complete`, e só depois a promoção normal da queue é permitida. Encerrar o verifier manualmente leva a cancelled/failed + target paused e mantém a queue sem consumo automático. `sendQueuedNow` é um caminho explícito de reservation + Stop barrier e não pertence às guards de promoção automática.
 
-V4 wire schema 不新增 command。底层 `editQueueItem` 继续作为兼容能力保留，可原地更新并保留 ID、位置、
-attachments 和来源 command，但第一方桌面、Web、手机 UI 不再调用。`sendQueuedNow` 固定为
-`reserve -> stop barrier -> start/promote -> remove`；多端只能有一个 reservation owner。
+O wire schema da V4 não adiciona commands. O `editQueueItem` de baixo nível continua mantido como capacidade de compatibilidade e pode atualizar no lugar preservando IDs, posição, attachments e command de origem, mas as UIs de primeira parte (desktop, Web, celular) deixam de chamá-lo. `sendQueuedNow` é fixamente `reserve -> stop barrier -> start/promote -> remove`; entre vários dispositivos só pode haver um dono da reservation.
 
-调度原子性：自动 promotion 发现 Bootstrap 或 Core foreground/runtime queue busy 时不得 reserve/stop，
-只在真正 idle 后重评；显式 `sendQueuedNow` 必须在 Stop 前取得 Core 进程内的一次性 promotion lease，
-并按原 `sourceCommandId/inputId` 让 promoted command 先于已等待的 notification 出队。lease 不持久化、
-不投影，也不改变 desktop continuous 与 mobile replayable 的交付边界。
+Atomicidade de agendamento: quando a promoção automática encontra Bootstrap ou a fila foreground/runtime do Core ocupada, ela não pode reservar/parar e só reavalia quando estiver realmente ociosa; o `sendQueuedNow` explícito precisa obter, antes do Stop, uma promotion lease única dentro do processo do Core e fazer o command promovido sair antes das notificações já aguardadas, respeitando o `sourceCommandId/inputId` original. A lease não é persistida, não é projetada e não muda a fronteira de entrega entre desktop continuous e mobile replayable.
 
-queue 只保证当前 CLI 进程内可靠。CLI restart 后仍未进入 transcript/终态的 admitted input 进入 discarded
-ledger，`commands/query` 返回 `fault.command.inputDiscardedOnRestart` 及持久 `delivery`。UI 的 24 小时
-pending registry 只覆盖权威投递未知窗口：queue/guided projection、restart query 的 `queue/guide` 或
-`unknown` 都会立即清账；只有未进入 transcript 的 `startNow` 保留人工确认重发，禁止自动重放。
+A queue só é confiável dentro do processo CLI atual. Após o restart do CLI, a entrada admitted que não entrou em transcript/estado terminal vai para o discarded ledger, e `commands/query` retorna `fault.command.inputDiscardedOnRestart` junto do `delivery` persistido. O pending registry de 24 horas da UI cobre apenas a janela em que a entrega autoritativa é desconhecida: queue/guided projection, `queue/guide` no restart query ou `unknown` limpam a conta imediatamente; apenas `startNow` que não entrou no transcript mantém a confirmação manual de reenvio, e o replay automático é proibido.
 
-如果 `completed, queue>0, autoDrain=false`，用户从输入框提交普通消息或 `/goal <新目标>`，UI 必须先弹确认框，不能用 composer 内联双按钮替换正常发送按钮。弹窗关闭、Esc 或点击遮罩都只取消本次提交，草稿、附件和 prompt history 不发生移交；`/compact` 例外，直接追加队尾并保持暂停。
+Se `completed, queue>0, autoDrain=false` e o usuário submeter uma mensagem comum ou `/goal <novo objetivo>` pela caixa de entrada, a UI precisa mostrar primeiro uma caixa de confirmação e não pode substituir o botão normal de envio por dois botões inline dentro do composer. Fechar a caixa, apertar Esc ou clicar no overlay só cancelam esta submissão, sem transferência de rascunho, attachments ou histórico de prompts; `/compact` é a exceção e é anexado direto ao fim da fila, mantendo a pausa.
 
 ### Edit
 
-| 前置                                               | 用户动作                         | 产品结果                                                         |
-| -------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------- |
-| `completed(success), queue=0`                      | edit 最后一轮 real user query    | 从该轮重跑，后续历史被新分支替换                                 |
-| `completed(interrupted), queue=0`                  | edit 最后一轮 real user query    | 从该轮重跑，当前 interrupted 结果被新分支替换                    |
-| `completed(interrupted), queue>0, autoDrain=false` | edit 最后一轮 real user query    | 从该轮重跑，queue 原样保留，`autoDrain` 仍为 false               |
-| edit 重跑导致 `running`                            | 再发普通消息                     | 追加 queue                                                       |
-| edit 重跑导致 `running`                            | 再发 `/goal xxx`                 | 追加 queue                                                       |
-| edit 重跑导致 `running`                            | 发 `/compact`                    | 追加 queue；轮到时执行 compact，不打断 edit 重跑                 |
-| edit 重跑导致 `running`                            | 再 edit 最后一轮 real user query | 先 stop 当前 edit 重跑，再用最新编辑文本重跑；queue 原样保留     |
-| edit 重跑导致 `running`                            | edit 非最后一轮 user query       | reject 或入口 absent；避免历史分支在 active turn 中被二次 rewind |
+| Pré-condição                                      | Ação do usuário                        | Resultado de produto                                                            |
+| ------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------- |
+| `completed(success), queue=0`                     | Editar a última real user query        | Reexecuta a partir daquele turno e o histórico seguinte é substituído pelo novo branch |
+| `completed(interrupted), queue=0`                 | Editar a última real user query        | Reexecuta a partir daquele turno e o resultado interrupted atual é substituído pelo novo branch |
+| `completed(interrupted), queue>0, autoDrain=false` | Editar a última real user query        | Reexecuta a partir daquele turno, a queue é mantida como está e `autoDrain` continua false |
+| O reexecute do edit levou a `running`             | Enviar mensagem comum                  | Anexa à queue                                                                    |
+| O reexecute do edit levou a `running`             | Enviar `/goal xxx`                     | Anexa à queue                                                                    |
+| O reexecute do edit levou a `running`             | Enviar `/compact`                      | Anexa à queue; na vez dele executa o compact sem interromper o reexecute do edit    |
+| O reexecute do edit levou a `running`             | Editar novamente a última real user query | Para antes o reexecute atual do edit e reexecuta com o texto editado mais recente; a queue é mantida como está |
+| O reexecute do edit levou a `running`             | Editar uma user query que não é a última | reject ou entrada ausente; evita que o branch histórico seja revertido de novo dentro do active turn |
 
-只能 edit user query。assistant 和 tool 不能 edit。
+Só é possível editar user query. Assistant e tool não podem ser editados.
 
-行内 edit 的附件是 canonical input intent 的一部分。第一方 UI 只允许从既有有序
-`AttachmentRef[]` 中删除，不新增或重新上传；提交时显式携带当前完整数组：字段缺省表示保留原附件，
-非空数组表示替换，`[]` 表示清空。空正文但仍有附件可以重跑；正文与 effective attachments
-同时为空必须在 branch cut 前 reject。删除只影响新 active branch，不物理清理旧 branch 的附件内容。
+Os attachments do edit inline fazem parte do canonical input intent. A UI de primeira parte só permite remover itens do `AttachmentRef[]` ordenado já existente, sem adicionar nem reenviar; na submissão carrega explicitamente o array completo atual: campo ausente significa manter os attachments originais, array não vazio significa substituir e `[]` significa limpar. Corpo vazio mas com attachments ainda pode reexecutar; corpo e effective attachments simultaneamente vazios precisam ser rejeitados antes do branch cut. A remoção só afeta o novo active branch e não limpa fisicamente o conteúdo de attachments do branch antigo.
 
-行内 edit 不复用普通 composer 的长粘贴转附件状态机；达到 5120 字符的粘贴仍作为
-`editUserQuery.newText`，避免为删除能力引入新的 host/remote 上传时序。
+O edit inline não reutiliza a máquina de estado de colagem longa para converter em attachment do composer comum; uma colagem que atinja 5120 caracteres continua sendo `editUserQuery.newText`, evitando introduzir um novo timing de upload host/remote por causa da capacidade de remoção.
 
 ### Fork
 
-只能 fork `completedSuccess` product turn 最后一段 completed assistant。不能 fork user、tool、timeline、
-当前 streaming/interrupted/failed partial 或同一 turn 的中间 assistant 段。新数据按持久化 turn anchor
-解析；旧数据只有无歧义时 fallback，否则返回 `guard.forkTargetAmbiguous`。
+Só é possível fazer fork do último trecho assistant completed de um product turn `completedSuccess`. Não é possível forkar user, tool, timeline, o partial atual streaming/interrupted/failed ou trechos assistant intermediários do mesmo turno. Dados novos são resolvidos pelo turn anchor persistido; dados antigos só fazem fallback quando não houver ambiguidade, caso contrário retornam `guard.forkTargetAmbiguous`.
 
-fork 新 session 时复制 fork 点之前的消息历史、fork 点持久化配置和 fork 点前 goal 状态，但不复制父 session 后续配置、queue、live background bash/subagent、pending background result 或 continuation inbox。primary turn、foreground subagent、goal continuation 或 goal verifier running 时都可 fork 更早稳定历史；compact 是 operation lock。父 session 如果仍在 running，当前 active work 继续归属父 session；child 只从稳定 fork 边界开始演进，不 rewind 共享 workspace。completed/idle 的既有 workspace checkpoint 行为本轮不扩大。同一 `sourceCommandId` 重试返回同一个 child。
+Ao fazer fork de uma nova session, copiam-se o histórico de mensagens anterior ao ponto de fork, a configuração persistida no ponto de fork e o estado de goal anterior ao fork, mas não a configuração posterior da session pai, a queue, o bash/subagent de background ativo, o resultado de background pendente ou a inbox de continuation. É possível fazer fork de histórico estável mais antigo enquanto primary turn, foreground subagent, goal continuation ou goal verifier está rodando; o compact é um operation lock. Se a session pai ainda estiver running, o active work atual continua pertencendo à session pai; o child só evolui a partir da fronteira estável do fork e não faz rewind do workspace compartilhado. O comportamento existente de checkpoint de workspace completed/idle não é ampliado nesta rodada. Um retry do mesmo `sourceCommandId` devolve o mesmo child.
 
-V4 conversation fork 的 model-only notice 按 `conversation_fork` Attachment 恢复：持久化正文不含标签，provider 投影时统一包一层 `<system-reminder>`。它与 side chat 一样不参与 MCS，始终保留在 fork 历史边界、子会话新问题之前；UI 仍只显示 `session_fork` timeline。既有 legacy/checkpoint fork 的 `rewind_notice` 路径保持原行为，不迁移旧消息或逐轮重复注入。
+O aviso model-only do fork de conversa na V4 é recuperado como um Attachment `conversation_fork`: o texto persistido não contém a tag e, na projeção do provider, tudo é envolvido uniformemente em `<system-reminder>`. Assim como no side chat, ele não participa do MCS, é sempre mantido na fronteira histórica do fork e antes da nova pergunta da sub-sessão; a UI continua exibindo apenas o timeline `session_fork`. O caminho `rewind_notice` do fork legacy/checkpoint existente mantém o comportamento anterior, sem migrar mensagens antigas nem injetar repetidamente a cada turno.
 
 ```text
 fork bundle: inherited history -> raw notice + Attachment metadata -> timeline boundary
@@ -499,21 +428,21 @@ child send:  inherited history -> user <system-reminder>notice</system-reminder>
 
 ### Compact
 
-compact 分为手动 compact 和自动 compact。
+O compact se divide em compact manual e compact automático.
 
-手动 compact：
+Compact manual:
 
-| 前置                                                                             | 用户动作                   | 产品结果                                                                                           |
-| -------------------------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `completed, queue=0`                                                             | `/compact` 或 compact 按钮 | 开始 compact，插入 timeline started                                                                |
-| `completed, queue>0, autoDrain=false`                                            | `/compact` 或 compact 按钮 | 追加到暂停队列末尾；`autoDrain=false`，用户恢复 drain 或点立即执行前不启动 compact                 |
-| `running`（含 primary/tool/foreground subagent/goal continuation/goal verifier） | `/compact` 或 compact 按钮 | 追加 queue，严格 FIFO；不打断当前 active work                                                      |
-| `compacting`                                                                     | 发普通消息                 | 追加 queue                                                                                         |
-| `compacting`                                                                     | 发 `/goal xxx`             | 追加 queue                                                                                         |
-| `compacting`                                                                     | 再次 `/compact`            | reject，不入队                                                                                     |
-| `compacting`                                                                     | stop                       | 停止压缩；timeline 标记 interrupted；session 进入 `completed(interrupted)`；queue 保留且不自动消费 |
+| Pré-condição                                                                           | Ação do usuário                   | Resultado de produto                                                                                                  |
+| -------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `completed, queue=0`                                                                    | `/compact` ou botão de compact    | Inicia o compact e insere o timeline started                                                                         |
+| `completed, queue>0, autoDrain=false`                                                   | `/compact` ou botão de compact    | Anexa ao fim da fila pausada; `autoDrain=false` e o compact não inicia até o usuário retomar o drain ou clicar em executar imediatamente |
+| `running` (incluindo primary/tool/foreground subagent/goal continuation/goal verifier)  | `/compact` ou botão de compact    | Anexa à queue em FIFO estrito; não interrompe o active work atual                                                     |
+| `compacting`                                                                            | Enviar mensagem comum            | Anexa à queue                                                                                                         |
+| `compacting`                                                                            | Enviar `/goal xxx`               | Anexa à queue                                                                                                         |
+| `compacting`                                                                            | Enviar `/compact` de novo        | reject, sem enfileirar                                                                                                 |
+| `compacting`                                                                            | stop                             | Interrompe a compressão; o timeline é marcado como interrupted; a session entra em `completed(interrupted)`; a queue é mantida e não é consumida automaticamente |
 
-自动 compact：
+Compact automático:
 
 ```text
 某个 pendingAction 即将执行
@@ -523,121 +452,94 @@ compact 分为手动 compact 和自动 compact。
   -> compact 成功后继续 pendingAction
 ```
 
-自动 compact 是系统调度插入的前置维护步骤，不占用户 queue。它可能出现在任意轮次之前，包括用户直接发送、queue 消费、goal 消费、edit 重跑之前。
+O compact automático é um passo de manutenção prefixal inserido pelo agendamento do sistema e não ocupa a queue do usuário. Pode aparecer antes de qualquer turno, inclusive antes de um envio direto do usuário, de um consumo de queue, de um consumo de goal e de um reexecute por edit.
 
-queued manual compact 即使在轮到前刚发生过 auto compact，也仍按用户显式意图执行；runtime 可以返回
-noop marker，但 UI/CLI 不能静默移除。queued manual compact 失败或被 Stop 后，后续 queue 进入 held，
-不能越过维护失败/取消继续自动消费。
+Um compact manual enfileirado continua sendo executado como intenção explícita do usuário mesmo que um auto compact tenha acabado de acontecer antes de sua vez; o runtime pode retornar um noop marker, mas a UI/CLI não pode removê-lo silenciosamente. Se o compact manual enfileirado falhar ou for parado pelo Stop, as queue items seguintes entram em held e não podem continuar o consumo automático atravessando a falha/cancelamento da manutenção.
 
-重试语义：
+Semântica de retry:
 
-- 自动 compact 最多重试 3 次。
-- 手动 compact 不自动重试。
-- 自动 compact 成功后，必须继续执行触发它的 `pendingAction`，除非用户在 compact 期间停止。
+- O compact automático faz no máximo 3 retries.
+- O compact manual não tem retry automático.
+- Depois que o compact automático tem sucesso, é preciso continuar executando o `pendingAction` que o disparou, a menos que o usuário o pare durante o compact.
 
-仍待确认的自动 compact 分支：
+ Ramos de compact automático ainda pendentes de confirmação:
 
-- 自动 compact 重试 3 次仍失败后，`pendingAction` 如何处理。
-- 自动 compact 被用户 stop 后，`pendingAction` 如何处理。
+- O que fazer com o `pendingAction` depois que o compact automático falha mesmo após 3 retries.
+- O que fazer com o `pendingAction` depois que o compact automático é parado pelo usuário.
 
 ### Goal
 
-`/goal xxx` 的语义是设置或更新 session goal：
+A semântica de `/goal xxx` é definir ou atualizar o goal da session:
 
-- Plan 模式下 goal 控制命令不可用；composer 只 toast 并保留原输入，不创建或更新 goal。
-- 如果之前没有 goal，就是设置 goal。
-- 如果之前已有 goal，就是更新目标。
-- 没有需要禁止用户操作的 `goal validating` 产品状态。
-- running 或 compacting 中发送 `/goal xxx` 时，不立即执行，追加 queue。
+- No modo Plan, comandos de controle de goal não estão disponíveis; o composer apenas mostra um toast e preserva a entrada original, sem criar ou atualizar goal.
+- Se não havia goal antes, está definindo o goal.
+- Se já havia goal antes, está atualizando o objetivo.
+- Não existe um estado de produto `goal validating` que precise bloquear o usuário.
+- Enviar `/goal xxx` durante running ou compacting não executa na hora e é anexado à queue.
 
-### Model 和思考深度
+### Modelo e profundidade de pensamento
 
-模型和思考深度是 session 级存储：
+Modelo e profundidade de pensamento são armazenados no nível da session:
 
-- renderer/configOptions 中需要把 `ZCodeModelRef` 暂时表示为字符串时，统一使用
-  `providerId/modelId$variant`；`$` 是该展示态编码的 variant 保留分隔符。`:` 始终属于
-  provider 原始 `modelId`，不得被 renderer 解释为 variant，例如 OpenRouter
-  `nvidia/nemotron-3-ultra-550b-a55b:free` 必须端到端保持完整。V4 命令、Agent snapshot
-  与持久化仍使用独立的 `provider` / `model` / `thought` 或结构化 `ZCodeModelRef`，
-  不得把该展示态字符串当作新的跨进程协议。
-- 切换历史 session 时，顶部/输入区配置显示该 session 自己的模型和思考深度。
-- 新建 session 时，使用用户上一次显式选择并由 runtime 确认生效的
-  `provider + model + thought` 配置元组。renderer 持久化的是一个不可拆分的元组，不能把
-  model 和 thought 作为两个互不关联的全局偏好分别恢复。
-- 打开或切换历史 session 只展示该 session snapshot，不得改写“上次显式选择”配置元组；否则浏览历史
-  会话会静默改变下一份新草稿的默认模型。
-- 用户跨模型切换时，源模型 thought 不代表目标模型意图。runtime 必须先按目标模型能力选择实际 thought，
-  renderer 收到权威结果后再整体持久化新元组；失败、stale 或尚未投影的请求值不得提前落盘。
-- 草稿预热的 `createSession.config` 只能引用当前 Environment Model Selection View 中的模型。Host
-  必须先等待本 Environment 的 Provider Registry readiness，再下发 `createSession`；不得用 Desktop
-  快照、`runtimeModel` 或跨 Environment Registry 推送填补未就绪窗口。只有当前 Registry 已确认移除
-  或禁用原 Provider 后，才进入正常的 Worker fallback 与 compare-and-set 持久化路径。
-- 模型身份变化必须同步清除草稿配置与 workspace default 中尚属源模型的 thought。即使目标模型支持
-  同名档位，也只能采用目标模型默认/实际档位；只有用户随后在目标模型上显式切 thought 才可覆盖。
-- 旧版分离的 model/thought localStorage 仅作迁移输入：只有两者能组成同一个模型配置时才迁移；孤立
-  thought 不得应用到其他模型。
-- queue 中的普通用户 Submission 使用入队时固定的模型和思考深度；Provider 配置、凭据和模型定义在执行时从当前 Environment 事实重新解析。
-- 普通 session 首轮使用 silent initial 模型基线，不生成 `modelChange`。fresh Subagent
-  child 发布 `ModelSelected(previousModelRef=null, modelRef=X)`，以通用 `∅→X` 模型边界
-  在首轮开始时生成 source 缺失的 `modelChange`，并通过 transcript 冷恢复。公共投影只
-  识别 silent initial、source-less、known 三态模型基线，不识别 Subagent 身份；不得仅从
-  旧 child 元数据或缺失的来源字段推断新边界。
-- `modelChange.fromProvider/fromModel` 必须共同存在或共同缺失；前者表示普通 A→B，后者只表示
-  Subagent 初始实际模型。renderer 只负责按该结构选择“模型已切换”或“正在使用”文案；source
-  缺失时不显示切换箭头，也不在 provider/model 标签后追加“模型”，普通 A→B 展示保持不变。
+- Quando `ZCodeModelRef` precisa ser representado temporariamente como string em renderer/configOptions, usa-se uniformemente `providerId/modelId$variant`; o `$` é o separador reservado da variant nessa codificação de exibição. O `:` sempre pertence ao `modelId` original do provider e nunca pode ser interpretado como variant pelo renderer; por exemplo, no OpenRouter, `nvidia/nemotron-3-ultra-550b-a55b:free` precisa permanecer completo de ponta a ponta. Os commands da V4, o snapshot do Agent e a persistência continuam usando `provider` / `model` / `thought` separados ou um `ZCodeModelRef` estruturado, e essa string de exibição não pode virar um novo protocolo entre processos.
+- Ao trocar para uma session histórica, a configuração do topo/da área de entrada mostra o modelo e a profundidade de pensamento daquela própria session.
+- Ao criar uma nova session, usa-se a tupla de configuração `provider + model + thought` que o usuário escolheu explicitamente por último e que o runtime confirmou como vigente. O renderer persiste uma tupla indivisível e não pode restaurar model e thought como duas preferências globais sem relação entre si.
+- Abrir ou trocar para uma session histórica apenas exibe o snapshot daquela session e não pode reescrever a tupla de configuração "última escolha explícita"; do contrário, apenas navegar pelo histórico mudaria silenciosamente o modelo padrão do próximo rascunho novo.
+- Quando o usuário troca entre modelos, o thought do modelo de origem não representa a intenção do modelo de destino. O runtime precisa primeiro escolher o thought real conforme a capacidade do modelo de destino, e o renderer só persiste a nova tupla por inteiro depois de receber o resultado autoritativo; valores de requisição que falharam, ficaram stale ou ainda não foram projetados não podem ser gravados antes.
+- O `createSession.config` do prewarm de rascunho só pode referenciar modelos da atual Environment Model Selection View. O Host precisa primeiro aguardar o Provider Registry readiness deste Environment antes de emitir `createSession`; não é permitido preencher a janela de não prontidão com snapshot do Desktop, `runtimeModel` ou pushes de Registry entre Environments. Só depois que o Registry atual confirmar a remoção ou desativação do Provider original é que se entra no caminho normal de fallback do Worker e persistência compare-and-set.
+- Uma mudança de identidade de modelo precisa limpar sincronamente, na configuração do rascunho e no default do workspace, o thought que ainda pertence ao modelo de origem. Mesmo que o modelo de destino aceite uma faixa com o mesmo nome, só pode ser adotado o default/faixa real do destino; só um switch explícito do usuário no modelo de destino depois disso pode sobrescrever.
+- O localStorage antigo separado de model/thought serve apenas como entrada de migração: só migra se os dois conseguirem formar a mesma configuração de modelo; um thought isolado não pode ser aplicado a outros modelos.
+- A Submission comum do usuário na queue usa o modelo e a profundidade de pensamento fixados no momento da entrada na fila; configuração de Provider, credenciais e definição de modelo são resolvidas de novo a partir dos fatos atuais do Environment no momento da execução.
+- A primeira rodada de uma session comum usa a baseline de modelo initial silent e não gera `modelChange`. Um child de Subagent novo publica `ModelSelected(previousModelRef=null, modelRef=X)` e gera, no início da primeira rodada, um `modelChange` de source ausente com a fronteira genérica de modelo `∅→X`, recuperável a frio pelo transcript. A projeção pública só reconhece três estados de baseline de modelo — silent initial, source-less e known — e não reconhece a identidade de Subagent; não é permitido inferir uma nova fronteira apenas de metadados antigos de child ou de campos de source ausentes.
+- `modelChange.fromProvider/fromModel` precisam existir juntos ou faltar juntos; o primeiro representa um A→B comum e o segundo representa somente o modelo real inicial do Subagent. O renderer só usa essa estrutura para escolher entre o texto "modelo trocado" e "usando"; quando o source está ausente, não exibe seta de troca e não acrescenta "模型" depois dos rótulos de provider/model, e a exibição do A→B comum permanece inalterada.
 
-### 草稿协作模式默认值
+### Default do modo de colaboração do rascunho
 
-`build/edit/plan/yolo` 的全局记忆只属于 renderer 草稿态，不是 workspace default，也不是
-session 恢复事实：
+A memória global de `build/edit/plan/yolo` pertence apenas ao estado de rascunho do renderer; não é default de workspace nem fato de restauração de session:
 
-- 同一 renderer 中，用户在任一未发送草稿显式选择模式后，写入一个不含 workspace 后缀的
-  localStorage 偏好；后续本地或 SSH/WSL/Docker workspace 的新草稿都以该值初始化。
-- 草稿预热和首发 `createSession.config.mode` 必须显式携带该值，不能先使用 Agent 的旧
-  workspace/project mode 再异步切换，避免首帧和首发竞态。
-- 打开历史 session、在已有 session 中切换模式、session snapshot 恢复，都只影响该 session；
-  不得改写草稿全局偏好。
-- localStorage 缺失、不可读或值非法时确定性回落 `build`；旧 workspace mode 不参与回落。
-- desktop renderer 与手机 Web renderer 的 localStorage 相互独立。本规则不声明跨设备同步；
-  手机新草稿只继承手机浏览器自己的偏好。
+- No mesmo renderer, depois que o usuário escolhe explicitamente um modo em qualquer rascunho não enviado, o renderer grava uma preferência de localStorage sem sufixo de workspace; rascunhos novos locais ou de workspace SSH/WSL/Docker são inicializados com esse valor.
+- O prewarm do rascunho e o `createSession.config.mode` do primeiro envio precisam carregar explicitamente esse valor, sem usar antes o mode antigo do Agent do workspace/projeto e trocar de forma assíncrona, para evitar corrida entre o primeiro frame e o primeiro envio.
+- Abrir uma session histórica, trocar de modo em uma session existente e restaurar o snapshot da session afetam apenas aquela session e não podem reescrever a preferência global do rascunho.
+- Quando o localStorage está ausente, ilegível ou com valor inválido, o fallback determinístico é `build`; o mode antigo do workspace não participa do fallback.
+- O localStorage do desktop renderer e o do Web renderer do celular são independentes. Esta regra não declara sincronização entre dispositivos; um rascunho novo no celular só herda a preferência do próprio navegador do celular.
 
-### 多 Session 并发
+### Concorrência entre múltiplas sessions
 
-不同 session 之间是真实并发：
+Entre sessions diferentes há concorrência real:
 
-- Session A running 时，用户可以切换到 Session B。
-- Session B 可以继续发送并进入 running。
-- 产品层没有并发上限。
-- 各 session 的 queue、模型、思考深度、context、右侧 sidebar 状态互相隔离。
+- Com a Session A running, o usuário pode trocar para a Session B.
+- A Session B pode continuar enviando mensagens e entrar em running.
+- Não há limite de concorrência na camada de produto.
+- A queue, o modelo, a profundidade de pensamento, o contexto e o estado da sidebar direita de cada session são isolados entre si.
 
-## Case Review 状态
+## Estados de review de case
 
-每个 `case` 节点最终需要被人标记。
+Cada nó `case` precisa ser marcado por uma pessoa ao final.
 
-| 状态      | 含义                       |
-| --------- | -------------------------- |
-| accepted  | 产品预期明确，可以生成测试 |
-| undefined | 需要补协议                 |
-| invalid   | 这个组合应通过前置条件剪掉 |
-| ignored   | 组合存在，但当前版本不覆盖 |
-| bug       | 当前实现和协议预期冲突     |
+| Estado      | Significado                                     |
+| ----------- | ----------------------------------------------- |
+| accepted    | A expectativa de produto está clara e o teste pode ser gerado |
+| undefined  | Falta complementar o protocolo                   |
+| invalid     | Essa combinação deve ser podada pela pré-condição |
+| ignored     | A combinação existe, mas não é coberta nesta versão |
+| bug         | A implementação atual conflita com a expectativa do protocolo |
 
-review 的输出不是“树好不好看”，而是这些产物：
+A saída do review não é "se a árvore está bonita", e sim estes artefatos:
 
-- 已确认的产品协议。
-- undefined case 清单。
-- invalid 剪枝条件。
-- bug 候选。
-- 可生成 E2E 的 accepted case。
+- Protocolo de produto confirmado.
+- Lista de cases undefined.
+- Condições de poda invalid.
+- Candidatos a bug.
+- Cases aceitos dos quais é possível gerar E2E.
 
-## 下一步
+## Próximos passos
 
-先不要做复杂录入 UI。下一步应该把当前工具里的节点和规则说明对齐这份协议声明：
+Não fazer ainda uma UI de entrada complexa. O próximo passo deve alinhar os nós e as descrições de regras da ferramenta atual a esta declaração de protocolo:
 
-- 第一批自然语言 case 见：[conversation-session-case-catalog.md](./conversation-session-case-catalog.md)。
-- MVP 验证矩阵见：[conversation-session-validation-matrix.md](./conversation-session-validation-matrix.md)。
-- 会话区 UI test id 合同见：[conversation-session-ui-testid-contract.md](./conversation-session-ui-testid-contract.md)。
-- Trace Tree 节点浮层展示 `node type`、`input type`、`decision`、`rule id`。
-- rule 列表按 `decision` 和 `invariant` 分类。
-- case 导出时带上完整协议字段，而不是只导出标题文本。
-- 如果出现 `undefined`，能直接看出缺的是哪一层协议：状态、输入、规则、effect 还是不变量。
+- O primeiro lote de cases em linguagem natural está em: [conversation-session-case-catalog.md](./conversation-session-case-catalog.md).
+- A matriz de validação do MVP está em: [conversation-session-validation-matrix.md](./conversation-session-validation-matrix.md).
+- O contrato de test id da UI da área de conversa está em: [conversation-session-ui-testid-contract.md](./conversation-session-ui-testid-contract.md).
+- O popover de nós do Trace Tree mostra `node type`, `input type`, `decision` e `rule id`.
+- A lista de rules é classificada por `decision` e `invariant`.
+- A exportação de case leva os campos completos do protocolo, e não apenas o texto do título.
+- Se aparecer um `undefined`, dá para ver diretamente qual camada do protocolo falta: estado, entrada, regra, effect ou invariante.

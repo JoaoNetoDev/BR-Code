@@ -1,36 +1,30 @@
-# Settings MCP list
+# Lista de MCPs das Configurações
 
-MCP server rows present ownership scope as compact metadata beside the server name.
+As linhas de MCP server nas configurações apresentam o escopo de posse como metadado compacto ao lado do nome do servidor.
 
-- User and Workspace scope use the shared `Badge` treatment from Skill rows.
-- The badge uses `rounded-full`, `border-border`, `bg-surface`, and `text-ui-sm`.
-- A 14px leading icon identifies the scope: `UserRound` for User and `Folder` for Workspace.
-- Scope labels remain the localized `User` / `Workspace` values.
-- Configured MCP rows do not display their backing configuration directory path; location data remains available to configuration and editing logic.
-- Runtime status dots and server names share a layout wrapper, but the name-only element owns `text-foreground`; status colors do not inherit from the server-name text style.
-- Disconnected or unknown status dots use the tertiary foreground token `text-foreground-subtlest`; connected, connecting, and error retain their semantic colors.
-- Hovering a status dot shows the reason. Configured servers use localized runtime explanations and prefer the actual server error when available; plugin servers reuse their resolved status description, including disabled and authorization-required explanations.
-- Status-reason tooltips use `max-w-64` so longer explanations wrap within a compact 256px width.
-- Item descriptions use `text-ui-sm text-foreground-subtle` as secondary copy.
-- Tool-count metadata uses `text-ui-sm` in both configured and plugin-provided MCP rows.
+- Os escopos User e Workspace usam o tratamento compartilhado de `Badge` das linhas de Skill.
+- O badge usa `rounded-full`, `border-border`, `bg-surface` e `text-ui-sm`.
+- Um ícone leader de 14px identifica o escopo: `UserRound` para User e `Folder` para Workspace.
+- Os rótulos de escopo permanecem os valores localizados `User` / `Workspace`.
+- Linhas de MCP configuradas não exibem o caminho do diretório de configuração que as sustenta; os dados de localização continuam disponíveis para a lógica de configuração e edição.
+- Os pontos de status de runtime e os nomes de servidor compartilham um wrapper de layout, mas o elemento apenas com nome é dono de `text-foreground`; as cores de status não são herdadas do estilo de texto do nome do servidor.
+- Pontos de status desconectado ou desconhecido usam o token de foreground terciário `text-foreground-subtlest`; conectado, conectando e erro mantêm suas cores semânticas.
+- Passar o cursor sobre um ponto de status mostra o motivo. Servidores configurados usam explicações de runtime localizadas e preferem o erro real do servidor quando disponível; servidores de plugin reutilizam sua descrição de status resolvida, incluindo explicações de desabilitado e de autorização necessária.
+- Tooltips de motivo de status usam `max-w-64`, para que explicações mais longas quebrem dentro de uma largura compacta de 256px.
+- As descrições dos itens usam `text-ui-sm text-foreground-subtle` como texto secundário.
+- Os metadados de contagem de ferramentas usam `text-ui-sm` tanto nas linhas de MCP configuradas quanto nas fornecidas por plugin.
 
-Plugin-provided MCP rows show plugin ownership beside the MCP server name.
+As linhas de MCP fornecidas por plugin mostram a posse do plugin ao lado do nome do MCP server.
 
-- Plugin ownership由所在分组标题表达，行内不重复显示 Plugin badge 或 marketplace。
-- Plugin names use the canonical display-name formatter, including converting slug-like names into title-cased words.
-- Plugin MCP 按稳定 `pluginId` 分组；同名不同 id 不合并。Plugin 分组按规范化 display name 排序，组内待处理项优先，其余保持声明顺序。
-- Runtime status is represented only by the status dot and its hover explanation; plugin MCP rows do not repeat status as a text badge. Tool count remains separate metadata.
-- Plugin MCP names reuse the configured-server status dot: connected is green, connecting is a yellow spinner, errors are red, disconnected or unknown is tertiary foreground, and authorization-required is a static yellow dot. Plugin-disabled is part of this status resolution and takes precedence over stale runtime state, always rendering a static tertiary-foreground dot.
+- A posse do plugin é expressa pelo título do grupo ao qual pertence; a linha não repete o badge de Plugin nem o marketplace.
+- Os nomes de plugin usam o formatador canônico de display name, incluindo a conversão de nomes em formato de slug para palavras em title case.
+- Os MCPs de plugin são agrupados por `pluginId` estável; nomes iguais com ids diferentes não são mesclados. Os grupos de plugin são ordenados pelo display name normalizado, com os itens pendentes primeiro dentro do grupo e os demais mantendo a ordem de declaração.
+- O status de runtime é representado apenas pelo ponto de status e sua explicação no hover; as linhas de MCP de plugin não repetem o status como badge de texto. A contagem de ferramentas permanece como metadado separado.
+- Os nomes de MCP de plugin reutilizam o ponto de status dos servidores configurados: conectado é verde, conectando é um spinner amarelo, erros são vermelhos, desconectado ou desconhecido é o foreground terciário, e autorização necessária é um ponto amarelo estático. Plugin desabilitado faz parte dessa resolução de status e tem precedência sobre o estado de runtime obsoleto, renderizando sempre um ponto estático de foreground terciário.
 
-Configured、Plugin MCP 共用一套失败展示：按 `failureKind` 国际化的摘要使用普通次要文字颜色，
-错误状态只由 status dot 使用红色。原始 `error` 通过摘要后方的小型信息按钮按需在 Popover 中显示；
-服务端 request id 已作为 ` - <requestId>` 后缀合并到这段可选择复制的详情文本，不再单独展示或提供第二个复制按钮。不得从 error 文本反解业务分类。
-连接成功、重新连接或 workspace 切换必须清除旧诊断。
+MCPs configurados e de plugin compartilham um único tratamento de falha: o resumo internacionalizado por `failureKind` usa a cor de texto secundário comum, e o estado de erro é representado em vermelho apenas pelo status dot. O `error` original é exibido sob demanda em um Popover por meio de um pequeno botão de informação depois do resumo; o request id do servidor já foi incorporated ao final desse texto de detalhes selecionável e copiável como um sufixo ` - <requestId>`, sem exibição separada nem um segundo botão de cópia. Não é permitido inferir a classificação de negócio a partir do texto do erro.
+Conexão bem-sucedida, reconexão ou troca de workspace devem limpar os diagnósticos anteriores.
 
-官方 Server MCP 的 JSON-RPC 错误码会先转换为稳定的设置页分类：`1006` 显示“未登录，请先登录
-ZCode”，`3101` 显示“当前账号没有 Coding Plan，请先购买或配置 Coding Plan”；这两类提示不再
-显示为笼统的“协议请求失败”。
+Os códigos de erro JSON-RPC do Server MCP oficial são primeiro convertidos em categorias estáveis da página de configurações: `1006` exibe "未登录，请先登录 ZCode" e `3101` exibe "当前账号没有 Coding Plan，请先购买或配置 Coding Plan"; essas duas categorias de aviso não são mais exibidas como o genérico "协议请求失败".
 
-MCP、Skills、Commands 共用 `SettingsResourceGroupHeader` 与 `SettingsResourceList`：分组间
-`space-y-6`、组内 `space-y-4`、标题 `h-7 text-ui-base`、数量 `text-ui-sm`、列表
-`rounded-xl bg-surface`，行间使用独立 `h-px bg-border/50`。
+MCPs, Skills e Commands compartilham `SettingsResourceGroupHeader` e `SettingsResourceList`: `space-y-6` entre grupos, `space-y-4` dentro do grupo, título `h-7 text-ui-base`, contagem `text-ui-sm`, lista `rounded-xl bg-surface` e separadores entre linhas com `h-px bg-border/50` independente.

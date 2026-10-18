@@ -1,41 +1,41 @@
-# Todo148：Z.AI 供应商复用系统 ZCode 图标
+# Todo148: Provedor Z.AI reutiliza o ícone do sistema ZCode
 
-状态：2026-09-15 按 Dock 截图纠正素材，开发与本轮验证完成。
+Status: em 2026-09-15 o material foi corrigido com base na captura de tela do Dock; desenvolvimento e verificação deste ciclo concluídos.
 
-## 规范与边界
+## Especificação e limites
 
-- 用户指定的是 Dock 黑底白 Z 应用图标，不是旧 `logo-zai.svg` 的灰色描边版本。
-- 原样复制现有 `packages/desktop/build/icons/128x128.png` 到 UI 静态资源
-  `model-provider-zai-app.png`；该尺寸版本无 Dock 大图的额外外围留白，不重画、不裁切、不反色。
-  UI 不跨层引用 Desktop 路径；单测验证打包副本与应用源文件字节相同。
-- 通过 `ProviderLogo` 的 `zai` 资源映射统一覆盖供应商列表、详情标题、添加模板等现有调用点；
-  不新增按 Provider ID 判断，不修改 Built-in JSON、Schema、个人配置或模型行为。
-- BigModel 蓝色图标及其他品牌不变；深浅主题、桌面及 Web 共用同一静态打包资源，保留尺寸与加载失败回退。
-- 来源清单指向实际使用的 PNG 及应用源路径；旧 SVG 和其他入口保持不变，不扩大素材清理。
+- O usuário especificou o ícone do aplicativo com Z branco sobre fundo preto do Dock, e não a versão com contorno cinza do antigo `logo-zai.svg`.
+- Copiar literalmente o `packages/desktop/build/icons/128x128.png` existente para o recurso estático da UI
+  `model-provider-zai-app.png`; essa versão de tamanho não possui a margem externa adicional da imagem grande do Dock, sem redesenho, sem recorte e sem inversão de cores.
+  A UI não referencia o caminho do Desktop entre camadas; o teste unitário verifica que a cópia empacotada é byte a byte idêntica ao arquivo de origem do aplicativo.
+- A cobertura unificada dos pontos de chamada existentes (lista de provedores, título de detalhes, modelos de adição etc.) vem do mapeamento de recursos `zai` do `ProviderLogo`;
+  sem nova verificação por Provider ID e sem alteração do JSON embutido, do Schema, da configuração pessoal ou do comportamento dos modelos.
+- O ícone azul do BigModel e as demais marcas permanecem inalterados; temas claro e escuro, desktop e web compartilham o mesmo recurso estático empacotado, preservando tamanho e fallback de falha de carregamento.
+- A lista de origem aponta para o PNG realmente utilizado e para o caminho de origem do aplicativo; o SVG antigo e as demais entradas permanecem inalterados, sem ampliar a limpeza de material.
 
-## 验收
+## Aceitação
 
-- [x] 单测确认 Z.AI 深浅主题都引用同一应用 PNG，副本字节相同；BigModel 仍引用原素材。
-- [x] 保留图片无障碍属性、既有尺寸和加载失败回退；图标资源检查通过。
-- [x] 浏览器验证模板、导航和详情实际加载 PNG，390 中文浅色／1200 英文深色截图复审；类型、lint、架构检查。
+- [x] O teste unitário confirma que Z.AI referencia o mesmo PNG do aplicativo em temas claro e escuro, com cópia idêntica byte a byte; BigModel continua referenciando o material original.
+- [x] Atributos de acessibilidade da imagem, tamanhos existentes e fallback de falha de carregamento preservados; verificação de recursos de ícone aprovada.
+- [x] Verificação no navegador de que modelos, navegação e detalhes carregam de fato o PNG; revisão das capturas de 390 em chinês claro / 1200 em inglês escuro; verificação de tipos, lint e arquitetura.
 
-本次只替换静态素材引用，无交互行为变化；补现有 Provider 浏览器 pending 用例，不宣称完整远控链路验收。
+Esta alteração substitui apenas a referência de material estático, sem mudança de comportamento de interação; foi complementado o caso pendente de navegador existente de Provider, sem alegar aceitação completa da cadeia de controle remoto.
 
-## 验证与复审（2026-09-15）
+## Verificação e revisão (2026-09-15)
 
-- 单测先红（4 项失败），替换后 `providerLogo`／`providerLogoAssets` 两文件 9 项通过。
-- Pro 隔离副本运行浏览器 `zai app icon` 两例通过，模板、导航、详情图片实际解码为 128×128，无反色、页面异常或额外保存。
-- 复审四张模板／详情截图：390 中文浅色与 1200 英文深色均使用指定的黑底白 Z。
-- 根目录 `pnpm typecheck`、Desktop `typecheck:e2e` 通过；`pnpm lint` 0 错误、42 条既有警告；architecture 0 违规。
-- 产品代码只替换 `ProviderLogo` 的静态素材引用；旧 SVG、BigModel、配置格式、Provider ID、交互和实时链路均未改。
-- 浏览器用例仍为 pending；未执行完整 Electron／手机 shared-host E2E。codegraph 不可用，未执行影响面扫描。
+- O teste unitário falhou primeiro (4 falhas); após a substituição, 9 casos passaram nos arquivos `providerLogo`/`providerLogoAssets`.
+- Cópia isolada Pro: execução dos dois casos de navegador `zai app icon` aprovada; as imagens de modelos, navegação e detalhes foram realmente decodificadas em 128×128, sem inversão de cores, sem exceção de página e sem gravação extra.
+- Revisão das quatro capturas de modelos/detalhes: tanto 390 em chinês claro quanto 1200 em inglês escuro usam o Z branco sobre fundo preto especificado.
+- `pnpm typecheck` na raiz e `typecheck:e2e` do Desktop aprovados; `pnpm lint` com 0 erros e 42 avisos já existentes; architecture com 0 violações.
+- O código de produto substitui apenas a referência de material estático do `ProviderLogo`; SVG antigo, BigModel, formato de configuração, Provider ID, interação e cadeia em tempo real não foram alterados.
+- Os casos de navegador permanecem pendentes; não foi executado o E2E completo de Electron/shared-host no celular. codegraph indisponível, não foi executada análise de impacto.
 
-## 验证与复审（2026-09-14）
+## Verificação e revisão (2026-09-14)
 
-以下是此前误选 SVG 的历史记录，不代表本轮 PNG 已验收。
+Abaixo está o registro histórico da seleção incorreta anterior do SVG, que não representa a aceitação do PNG deste ciclo.
 
-- 先补测试，旧 PNG 引用下新增 3 项断言失败；替换后 2 文件 8 项全部通过。
-- 根目录 typecheck 通过，lint 0 错误、42 条既有警告，architecture 0 违规。
-- 实际渲染系统 SVG 并查看放大图，原有直切端点、圆角底板、渐变和细描边均保留。
-- 复审确认系统 SVG 与 Built-in 配置均未修改，只有资源引用、来源清单、测试及本 Todo 有变更。
-- 未执行桌面／手机整页实机 E2E；本次使用共享组件单测和素材渲染检查，不声称已完成整页验收。
+- Testes adicionados primeiro; 3 novas asserções falharam sob a referência antiga de PNG; após a substituição, 8 casos em 2 arquivos passaram.
+- typecheck da raiz aprovado, lint com 0 erros e 42 avisos já existentes, architecture com 0 violações.
+- O SVG do sistema foi realmente renderizado e a imagem ampliada foi inspecionada: endpoints retos originais, placa de base arredondada, gradiente e contorno fino foram preservados.
+- A revisão confirmou que o SVG do sistema e a configuração embutida não foram modificados; apenas a referência de recurso, a lista de origem, os testes e este Todo foram alterados.
+- Não foi executado E2E de página inteira em máquina real de desktop/celular; desta vez foram usados teste unitário do componente compartilhado e verificação de renderização do material, sem alegar conclusão da aceitação de página inteira.

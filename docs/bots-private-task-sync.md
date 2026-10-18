@@ -1,51 +1,51 @@
-# 单聊绑定任务持续回传
+# Retorno contínuo de tasks vinculadas ao chat privado
 
-## 行为与边界
+## Comportamento e limites
 
-飞书/Lark、Telegram、微信 iLink 的私聊绑定 task 后，IM、桌面和手机输入产生的 AI 输出均回传至当前绑定用户。沿用渠道 replyMode，不额外转发桌面输入正文。审批/问答维持原输入的来源授权，不因为订阅常驻扩大权限。
+Após vincular uma task ao chat privado do Feishu/Lark, Telegram ou WeChat iLink, toda saída de IA produzida pelo IM, desktop e celular é retornada ao usuário vinculado no momento. Segue-se o `replyMode` do canal, sem retransmitir adicionalmente o corpo do input vindo do desktop. Aprovação/perguntas mantêm a autorização de origem do input original, sem ampliar permissões por causa da assinatura permanente.
 
-一轮完成、失败或停止只清理该轮状态，不释放绑定订阅。切换任务、工作区、用户、机器人身份或禁用/删除时使旧目标失效；已经发出的网络请求无法撤回。启用、启动和已连接工作区恢复时订阅后续事件，不重放历史、不为恢复主动连接远端。
+O fim de uma rodada (concluída, com falha ou parada) limpa apenas o estado daquela rodada e não libera a assinatura do vínculo. Trocar de task, workspace, usuário, identidade de robô, ou desabilitar/excluir invalida o destino anterior; requisições de rede já enviadas não podem ser revertidas. Ao habilitar, iniciar e ao restaurar workspaces já conectados, a assinatura passa a receber eventos subsequentes, sem replay de histórico e sem conectar ativamente a destinos remotos para a restauração.
 
-后台每 10 秒检查既有远端连接并恢复可用订阅，不主动重连；已建立订阅仍使用连续实时事件。
+O backend verifica a cada 10 segundos as conexões remotas existentes e restaura assinaturas disponíveis, sem reconectar ativamente; assinaturas já estabelecidas continuam usando eventos contínuos em tempo real.
 
-同一 workspaceIdentity（本地回退 workspacePath）和 task 共享一个 Bot continuous 事件源；各接收目标独立串行处理，失败不能阻塞其他目标。自动任务以 Host 派发的 runId 匹配该轮，仍使用终态摘要，与同目标普通回传合并，不重复发送。输入 admission、执行状态仍归现有 task owner，不新增 accepted queue；桌面 continuous 和手机 replayable 边界不变。
+O mesmo `workspaceIdentity` (com fallback local para `workspacePath`) e a mesma task compartilham uma única fonte de eventos contínua do Bot; cada destino de recebimento é processado de forma independente e serial, e a falha de um não bloqueia os outros. Tarefas automáticas são combinadas com o `runId` despachado pelo Host para aquela rodada e continuam usando o resumo de estado final, mescladas ao retorno comum do mesmo destino sem envio duplicado. A admissão de input e o estado de execução continuam pertencendo ao task owner existente, sem nova fila de aceitação; os limites de continuous no desktop e replayable no celular permanecem inalterados.
 
 ```mermaid
 sequenceDiagram
-  participant UI as 桌面/手机/IM
+  participant UI as Desktop/Celular/IM
   participant Task as task owner
   participant Bots as BotsService
-  participant IM as 渠道
-  UI->>Task: 现有输入命令
-  Task->>Bots: bot-channel-continuous 输出事件
-  Bots->>Bots: 校验当前绑定，按运行重置/收尾
-  Bots->>IM: 发送对应目标的回复
-  Note over Bots,IM: 一轮结束保留订阅；换绑后旧目标不得继续发送
+  participant IM as Canal
+  UI->>Task: Comandos de input existentes
+  Task->>Bots: evento de saída bot-channel-continuous
+  Bots->>Bots: valida o vínculo atual, reseta/encerra por rodada
+  Bots->>IM: envia a resposta do destino correspondente
+  Note over Bots,IM: ao fim da rodada a assinatura é mantida; após trocar o vínculo o destino antigo não pode continuar enviando
 ```
 
-## 微信及失败处理
+## WeChat e tratamento de falhas
 
-入站授权通过后按机器人账号和用户保存最新 context_token 至 CredentialService；发送时读取最新值，支持重启后复用，不假定固定有效期。不得在日志或 getBotStates 中输出 token。凭证缺失或平台拒绝时，通过现有 deliveryError 展示失败与重新在微信发消息的指引，task 输出仍保留。更新 token 仅恢复后续发送，不自动补发旧回复。
+Depois que a autorização de entrada é aprovada, o `context_token` mais recente é salvo no CredentialService por conta de robô e por usuário; no envio, o valor mais recente é lido, permitindo reutilização após restart e sem assumir prazo de validade fixo. É proibido imprimir o token em logs ou em `getBotStates`. Quando a credencial está ausente ou a plataforma recusa, a falha e as instruções para reenviar a mensagem no WeChat são exibidas via `deliveryError` existente, e a saída da task é preservada. Atualizar o token apenas restaura os envios seguintes, sem reenviar automaticamente respostas antigas.
 
-当前进程为每个机器人保留最近一轮失败回复，用户可显式以文本重发完整正文；界面提示可能重复已收到的内容。换绑后失效，进程重启不保留待重试正文。结果未知不得自动重发，避免重复消息。发送限流和业务错误必须保留，不能把 HTTP 成功等同于平台投递成功。
+O processo atual mantém, por robô, a última resposta com falha de cada rodada, e o usuário pode reenviar explicitamente o corpo completo como texto; a interface avisa que o conteúdo já recebido pode aparecer duplicado. O conteúdo pendente de retry é invalidado ao trocar o vínculo e não sobrevive a um restart do processo. Quando o resultado é desconhecido, não há reenvio automático, para evitar mensagens duplicadas. Limites de envio e erros de negócio devem ser preservados: não se pode tratar sucesso HTTP como entrega bem-sucedida na plataforma.
 
-## 验收
+## Aceitação
 
-- 三渠道：IM 首轮完成后，桌面、手机连续两轮都有一次回复，无前轮正文或卡片污染。
-- 多目标共享 task 时只建立一个底层订阅，各目标独立收到回复；一个目标失败不影响另一个。
-- 同目标自动任务只发终态摘要，不重复；随后普通输入恢复配置的 replyMode。
-- 换 task、工作区、解绑、禁用和删除阻止迟到输出；重新启用恢复订阅。相同路径不同 workspaceIdentity 不串线。
-- 重启恢复有效绑定但不补发历史；远端断开不主动连接，重连后恢复。
-- 微信最新 token 替换、重启读取、用户/机器人隔离、缺失或失效的可见失败；未经授权输入不能覆盖 token。
-- 飞书两轮流式卡片各自独立；Telegram 拒绝、限流、格式回退失败不能报告成功。
-- 桌面/手机触发的权限和问答不能因单聊订阅新增可操作的 IM 授权入口。
+- Três canais: após a primeira rodada no IM, desktop e celular recebem uma resposta em duas rodadas consecutivas, sem contaminação pelo corpo ou cartão da rodada anterior.
+- Quando várias task de destino compartilham a mesma task, apenas uma assinatura subjacente é criada e cada destino recebe a resposta de forma independente; a falha de um destino não afeta o outro.
+- Tarefas automáticas no mesmo destino enviam apenas o resumo de estado final, sem duplicação; depois, o input comum retoma o `replyMode` configurado.
+- Trocar de task, workspace, desvincular, desabilitar e excluir bloqueiam outputs atrasados; reabilitar restaura a assinatura. Caminhos iguais com `workspaceIdentity` diferentes não fazem crosstalk.
+- O restart restaura vínculos válidos sem reenviar histórico; desconexões remotas não conectam ativamente e a assinatura é restaurada após reconectar.
+- Substituição do token mais recente do WeChat, leitura após restart, isolamento por usuário/robô, falhas visíveis de credencial ausente ou inválida; input não autorizado não pode sobrescrever o token.
+- As duas rodadas de cartão em streaming no Feishu são independentes; recusa, limitação de taxa ou falha de fallback de formato no Telegram não podem ser reportadas como sucesso.
+- Permissões e perguntas disparadas por desktop/celular não podem ganhar novas vias de autorização acionáveis no IM por causa da assinatura de chat privado.
 
-## 证据
+## Evidências
 
-2026-09-17：
+2026-09-17:
 
-- 服务/provider/UI：`botsService.privateSync.test.ts` 覆盖持续多轮、多目标、自动任务 runId 隔离、微信凭证更新与服务重启读取、换绑、失败显式重试及 mirror batch；其他 Bot 回归与 UI 重试交互一起执行：28 文件、432 条用例通过。
-- Desktop runner：`BOT-E2E-PS-01` 三渠道 controlled-stream 用例通过（产物 `desktop-e2e-20260917035142993-p91509-fab905c1e30482ae`），证明服务 → HTTP 与合成 desktop/mobile 输入来源，不冒充真实手机/CLI 输入。同步复跑自动任务投递、飞书流式卡片用例，3 spec 全部通过。
-- 根 typecheck、E2E typecheck、架构检查通过；lint 0 error、48 个原有 warning。
-- 真实组件浏览器预览：390px/1280px、Zai 深浅主题、中英文；成功后按钮隐藏、失败后可再次操作，无横向溢出、无 console error。CLI agent-browser 未安装，使用内置浏览器完成。
-- 真实 IM 账号、微信长期无入站消息、Windows/Linux、真实手机与远端重连尚未实测；新 E2E 保留 pending，不转正或加入 CI。
+- Serviço/provider/UI: `botsService.privateSync.test.ts` cobre múltiplas rodadas contínuas, múltiplos destinos, isolamento por runId de tarefas automáticas, atualização de credencial WeChat e leitura após restart do serviço, troca de vínculo, retry explícito de falha e mirror batch; as demais regressões de Bot e a interação de retry da UI foram executadas juntas: 28 arquivos, 432 casos passando.
+- Runner de desktop: caso controlled-stream de três canais `BOT-E2E-PS-01` aprovado (artefato `desktop-e2e-20260917035142993-p91509-fab905c1e30482ae`), comprovando serviço → HTTP e origem de input sintética de desktop/mobile, sem se passar por input real de celular/CLI. Também foram reexecutados, junto, os casos de entrega de tarefa automática e cartão em streaming do Feishu: 3 specs, todas aprovadas.
+- Typecheck raiz, typecheck de E2E e verificação de arquitetura passaram; lint com 0 error e 48 warnings preexistentes.
+- Preview real de componente no navegador: 390px/1280px, tema claro e escuro Zai, zh e en; após sucesso o botão é ocultado, após falha é possível operar de novo, sem overflow horizontal e sem console error. O CLI agent-browser não está instalado; foi usado o navegador embutido.
+- Contas reais de IM, ausência prolongada de mensagens de entrada no WeChat, Windows/Linux, celular real e reconexão remota ainda não foram testados; os novos E2E permanecem pending, sem promoção nem entrada no CI.

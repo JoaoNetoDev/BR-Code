@@ -1,35 +1,72 @@
-# WSL 用户与文件 mention 权限
+# Permissões de usuário e de menção de arquivo no WSL
 
-## 背景
+## Contexto
 
-WSL remote workspace 通过 `wsl.exe` 启动远端 host 和 agent。WSL 不需要 SSH 密码鉴权，但每个命令仍然会在某个 Linux 用户身份下运行。默认情况下，ZCode 使用该 distro 的默认用户。
+O remote workspace do WSL inicia o host e o agent remotos por meio do `wsl.exe`. O WSL não
+precisa de autenticação por senha SSH, mas cada comando ainda roda sob alguma identidade de
+usuário Linux. Por padrão, o ZCode usa o usuário padrão da distro.
 
-文件 mention 的 `@` 菜单会从 workspace 根目录递归建立候选列表。Linux 列目录需要目录的 read/execute 权限；当某个子目录由 root 或其他用户创建且当前用户不可读时，`readdir` 会返回 `EACCES` / `EPERM`。
+O menu `@` das menções de arquivo monta recursivamente a lista de candidatos a partir da raiz
+do workspace. No Linux, listar um diretório exige permissão de read/execute no diretório;
+quando algum subdiretório foi criado por root ou por outro usuário e não é legível pelo
+usuário atual, o `readdir` retorna `EACCES` / `EPERM`.
 
-## 设计
+## Design
 
-- WSL 连接支持可选 `user` 字段。空值表示继续使用 distro 默认用户；填写 `root` 时以 root 身份启动 WSL host / agent / terminal 链路。
-- 空 `user` 是兼容旧版本的默认用户语义，不能生成新的 workspace identity，也不能让历史 WSL 连接因为新增用户选择而走全新部署路径。
-- WSL `user` 参与 remote workspace identity，避免默认用户和 root 用户连接同一路径时共用 session、缓存、队列或持久化 key。
-- WSL `user` 非空时只允许可展示的普通字符串：拒绝控制字符、冒号、斜杠和反斜杠，并限制长度，避免非法用户名延迟到连接阶段才失败，也避免污染 identity 和日志标签。
-- 开发态 remote assets 的 `mock-cdn` 只是离线缓存；当前版本缓存不存在时必须回退 CDN/cache，避免 WSL 重连旧地址时被本机缺包误判为连接失败。
-- 连接 UI 对 root 用户展示 warning，提示后续创建的文件可能属于 root。该 warning 不阻止连接。
-- 文件 mention 索引遇到单个不可读或已消失目录时跳过该目录，继续展示其余可访问文件。不可读目录不应让整个 `@` 菜单失败。
-- remote workspace 的 prompt 附件会先从 host 侧上传到远端用户私有目录 `~/.zcode/tmp/prompt-attachments/<trace>/<random>/...`，再把 prompt 中的 host 路径改写为远端路径。上传前会将目录 chmod 为 `700`，上传后会将文件 chmod 为 `600`，避免长文本粘贴、图片或本地缓存附件落到公共 `/tmp` 后被同机其他用户读取。
-- 当前版本不在 task 结束时自动删除远端 prompt 附件目录：这些文件位于当前远端用户的 `~/.zcode/tmp` 下，便于同一会话内重试/恢复时继续读取。后续如果引入自动清理，必须绑定 task/session 生命周期并只删除本次 trace 的随机私有目录，失败仅记录 warn。
+- A conexão WSL dá suporte a um campo opcional `user`. Valor vazio significa continuar usando
+  o usuário padrão da distro; ao preencher `root`, o host / agent / terminal do WSL são
+  iniciados com identidade de root.
+- Um `user` vazio é a semântica de usuário padrão compatível com versões antigas: não pode
+  gerar uma nova workspace identity nem fazer com que conexões WSL históricas sigam um
+  caminho de implantação totalmente novo por causa da nova escolha de usuário.
+- O `user` do WSL participa da remote workspace identity, evitando que conexões com usuário
+  padrão e com usuário root no mesmo caminho compartilhem session, cache, fila ou chave de
+  persistência.
+- Quando o `user` do WSL não é vazio, aceita-se apenas uma string comum exibível: recusa-se
+  caracteres de controle, dois-pontos, barras e contrabarras, e limita-se o comprimento, para
+  evitar que nomes de usuário inválidos só falhem na etapa de conexão e também evitar
+  poluição de identity e de rótulos de log.
+- O `mock-cdn` dos remote assets em modo de desenvolvimento é apenas um cache offline; nesta
+  versão, quando o cache não existe, é obrigatório recorrer ao CDN/cache, para evitar que uma
+  reconexão WSL a um endereço antigo seja interpretada como falha de conexão por falta de
+  pacote na máquina local.
+- A UI de conexão exibe um aviso para o usuário root, indicando que os arquivos criados
+  depois podem pertencer ao root. O aviso não impede a conexão.
+- Ao encontrar um único diretório ilegível ou já removido, o índice de menções de arquivo
+  pula esse diretório e continua exibindo os demais arquivos acessíveis. Um diretório
+  ilegível não deve fazer o menu `@` inteiro falhar.
+- Os anexos de prompt do remote workspace são enviados primeiro do lado do host para um
+  diretório privado do usuário remoto, `~/.zcode/tmp/prompt-attachments/<trace>/<random>/...`,
+  e depois os caminhos do host no prompt são reescritos como caminhos remotos. Antes do envio
+  o diretório recebe `chmod 700` e após o envio os arquivos recebem `chmod 600`, evitando que
+  textos longos colados, imagens ou anexos de cache local caiam no `/tmp` público e sejam
+  lidos por outros usuários da mesma máquina.
+- Nesta versão os diretórios remotos de anexos de prompt não são apagados automaticamente no
+  fim da task: esses arquivos ficam em `~/.zcode/tmp` do usuário remoto atual, para facilitar a
+  re-tentativa ou a recuperação dentro da mesma sessão. Se mais tarde for introduzida limpeza
+  automática, ela deve estar vinculada ao ciclo de vida da task/sessão e apagar apenas o
+  diretório privado aleatório deste trace; falhas devem ser registradas apenas como warn.
 
-## 非目标
+## Não objetivos
 
-- 不在 `@` 菜单中自动 sudo 或静默提权。
-- 不为 WSL user 增加密码字段；`wsl.exe --user` 要求目标 Linux 用户已存在，本身不消费密码。
-- 不改变桌面 `desktop-continuous` 与手机 `/remote` `web-remote-replayable` 的 realtime 边界。
-- 不在本次修复里自动清理历史已经写入 `/tmp/zcode-prompt-attachments` 的附件目录；旧目录需要用户或后续迁移脚本手动处理。
+- Não executar sudo automaticamente nem elevar privilégios silenciosamente no menu `@`.
+- Não adicionar um campo de senha para o usuário WSL; o `wsl.exe --user` exige que o usuário
+  Linux de destino já exista e, por si só, não consome senha.
+- Não alterar os limites de realtime do `desktop-continuous` do desktop e do
+  `web-remote-replayable` do `/remote` no mobile.
+- Não limpar automaticamente, nesta correção, os diretórios de anexos que já foram gravados
+  em `/tmp/zcode-prompt-attachments`; os diretórios antigos precisam de tratamento manual pelo
+  usuário ou por um script de migração posterior.
 
-## 验证点
+## Pontos de verificação
 
-- WSL 默认用户连接仍不带 `--user`。
-- WSL 自定义用户连接带 `--user <user>`。
-- WSL root 连接可以建立独立 workspace identity。
-- WSL 非法用户名（如包含 `/`、`:`、控制字符或超长）在 UI 和 schema 层被拒绝。
-- `@` 文件索引遇到 `EACCES` / `EPERM` / `ENOENT` 子目录时不中断。
-- remote prompt 附件上传前会创建远端私有目录并收紧到 `700`，上传后会把文件收紧到 `600`，且远端路径包含不可预测随机段。
+- A conexão com o usuário padrão do WSL continua sem `--user`.
+- A conexão com usuário customizado do WSL usa `--user <user>`.
+- Uma conexão do WSL com root consegue estabelecer uma workspace identity independente.
+- Nomes de usuário WSL inválidos (como os que contêm `/`, `:`, caracteres de controle ou
+  excessivamente longos) são recusados na camada de UI e de schema.
+- O índice de arquivos `@` não é interrompido ao encontrar subdiretórios com `EACCES` /
+  `EPERM` / `ENOENT`.
+- Antes do envio, os anexos de prompt remotos criam o diretório privado remoto e o restringem
+  a `700`; após o envio, os arquivos são restringidos a `600`, e o caminho remoto contém um
+  segmento aleatório imprevisível.

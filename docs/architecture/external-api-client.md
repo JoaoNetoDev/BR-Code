@@ -1,87 +1,95 @@
-# 外部 API 请求收拢
+# Consolidação das requisições de API externa
 
-## 范围
+## Escopo
 
-本次只收拢外部业务 API，请求统一经过 `ApiClient`：
+Esta rodada consolida apenas as APIs de negócio externas, com as requisições passando
+uniformemente por `ApiClient`:
 
-- OAuth provider 的 token / userinfo / 业务 API key 链路
-- model provider 的远端配置与 release 查询
+- Cadeias de token / userinfo / business API key do provider OAuth
+- Configuração remota e consultas de release do model provider
 
-明确不包含：
+Explicitamente não incluído:
 
-- 本地 `/api/*`
+- `/api/*` local
 - WebSocket
 - SSH
 - RPC / IPC
-- 浏览器本地资源读取
+- Leitura de recursos locais do navegador
 
-## 统一抽象
+## Abstração unificada
 
-共享层新增 `packages/shared/src/api.ts`，定义三类基础契约：
+A camada compartilhada adiciona `packages/shared/src/api.ts`, definindo três contratos básicos:
 
-- `ApiClient`：项目内唯一标准 HTTP 接口，保持 `fetch-compatible`
-- `ApiRequestInit`：基于 `RequestInit`，补充 `timeoutMs`
-- `ApiError`：统一承载 `url`、`method`、`status` 与错误消息
+- `ApiClient`: interface HTTP padrão e única do projeto, mantendo-se `fetch-compatible`
+- `ApiRequestInit`: baseado em `RequestInit`, complementado com `timeoutMs`
+- `ApiError`: carrega uniformemente `url`, `method`, `status` e a mensagem de erro
 
-这样 repo / adapter 只依赖共享契约，不感知 Node 专属实现细节。
+Assim, repo / adapter dependem apenas do contrato compartilhado e não percebem detalhes de
+implementação específicos do Node.
 
-## 默认实现
+## Implementação padrão
 
-Node/Desktop host 默认实现放在 `packages/services/src/providers/api/`：
+A implementação padrão do host Node/Desktop fica em `packages/services/src/providers/api/`:
 
-- `nodeApiClient.ts`：内部调用 Node 24 全局 `fetch`
-- `apiJson.ts`：统一处理 JSON 读取、非 2xx 错误与解析失败
-- `apiEndpoints.ts`：集中管理外部 API endpoint 常量
+- `nodeApiClient.ts`: chama internamente o `fetch` global do Node 24
+- `apiJson.ts`: trata de forma unificada a leitura de JSON, erros não-2xx e falhas de parsing
+- `apiEndpoints.ts`: concentra as constantes de endpoint de API externa
 
-当前 Node 24 的全局 `fetch` 底层就是 `undici`，因此：
+O `fetch` global do Node 24 atual tem como base o `undici`, portanto:
 
-- 我们享受 `undici` 的运行时能力
-- 业务层不直接 import `undici`
-- 后续若必须使用 `undici` 高级能力，只需调整 provider 实现层
+- Aproveitamos as capacidades de runtime do `undici`
+- A camada de negócio não importa `undici` diretamente
+- Se no futuro for obrigatório usar capacidades avançadas do `undici`, basta ajustar a camada de
+  implementação do provider
 
-## 注入方式
+## Forma de injeção
 
-按分层约束，`ApiClient` 作为横切能力只通过 `Providers` 注入：
+Por restrição de camadas, `ApiClient`, como capacidade transversal, é injetado apenas via
+`Providers`:
 
-- `packages/services/src/node.ts` 创建默认 `NodeApiClient`
-- desktop host 复用同一个 `NodeApiClient`
-- OAuth service / model provider service 通过依赖注入消费 `ApiClient`
-- 测试场景可替换成 mock client
+- `packages/services/src/node.ts` cria o `NodeApiClient` padrão
+- O host desktop reaproveita o mesmo `NodeApiClient`
+- O OAuth service / model provider service consome `ApiClient` via injeção de dependência
+- Cenários de teste podem substituí-lo por um client mock
 
-业务 repo / adapter 不再直接写裸 `fetch`，也不再暴露 `fetchImpl?: typeof fetch` 给业务层。
+Os repos / adapters de negócio não escrevem mais `fetch` cru e não expõem mais
+`fetchImpl?: typeof fetch` para a camada de negócio.
 
-## 已迁移链路
+## Cadeias já migradas
 
 - `packages/services/src/oauth/providers/*`
 - `packages/services/src/model-provider/repo/*`
 - `packages/services/src/model-provider/modelProviderService.ts`
 - `packages/services/src/model-provider/modelProviderConnectivityHelpers.ts`
 
-这些链路现在都通过 `ApiClient` 访问外部业务 API。
+Essas cadeias agora acessam as APIs de negócio externas por meio do `ApiClient`.
 
-## 当前边界
+## Limites atuais
 
-v1 仅统一以下能力：
+A v1 unifica apenas as seguintes capacidades:
 
 - timeout
-- headers 合并
-- 请求级 `x-request-id`
-- JSON / text 读取辅助
-- 非 2xx 错误归一
+- mesclagem de headers
+- `x-request-id` por requisição
+- Auxiliares de leitura de JSON / text
+- Normalização de erros não-2xx
 
-当前刻意不做：
+Deliberadamente não fazemos agora:
 
-- 重试
-- 拦截器
-- 连接池高级配置上抛到业务层
-- 非 HTTP 协议统一
+- retry
+- interceptors
+- Configurações avançadas de connection pool expostas à camada de negócio
+- Unificação de protocolos não-HTTP
 
-## 后续约束
+## Restrições futuras
 
-新增外部业务 API 时，遵循两条规则：
+Ao adicionar novas APIs de negócio externas, siga duas regras:
 
-1. 业务代码只依赖 `ApiClient`
-2. endpoint 常量集中放在 provider/config 层，不在 repo / service 中散落硬编码 URL
-3. 请求级诊断 ID 统一使用 `x-request-id`，由 `ApiClient` 出口生成；调用方显式传入时保留原值
+1. O código de negócio depende apenas de `ApiClient`
+2. As constantes de endpoint ficam concentradas na camada de provider/config, sem URLs hardcoded
+   espalhadas em repo / service
+3. O ID de diagnóstico por requisição usa uniformemente `x-request-id`, gerado na saída do
+   `ApiClient`; quando o chamador passar explicitamente, o valor original é preservado
 
-这样可以保持 desktop / web / remote 模式的实现边界稳定，也能避免把 Node 运行时语义泄漏到业务层。
+Assim mantemos estáveis os limites de implementação dos modos desktop / web / remote e evitamos
+vazar semântica de runtime do Node para a camada de negócio.

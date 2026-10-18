@@ -1,8 +1,8 @@
 # Subagents Tool Badge
 
-Settings 的子智能体列表只展示工具权限摘要，不展开真实工具清单。
+A lista de subagentes em Settings exibe apenas o resumo das permissões de ferramentas, sem expandir a lista real de ferramentas.
 
-- `tools` 缺失、为空数组或包含 `"*"` 时，表示该子智能体继承或允许全部工具，列表 badge 显示 `All tools` / `全部工具`。
-- 只有 `tools` 明确列出具体工具名且不包含 `"*"` 时，列表 badge 显示 `{count} tools` / `{count} 个工具`。
+- Quando `tools` está ausente, é um array vazio ou contém `"*"`, isso significa que o subagente herda ou permite todas as ferramentas, e o badge da lista exibe `All tools` / `全部工具`.
+- Somente quando `tools` lista explicitamente nomes de ferramentas e não contém `"*"`, o badge da lista exibe `{count} tools` / `{count} 个工具`.
 
-这样避免把通配符 `"*"` 误展示为 `1 个工具`。
+Isso evita exibir o curinga `"*"` indevidamente como `1 个工具`.

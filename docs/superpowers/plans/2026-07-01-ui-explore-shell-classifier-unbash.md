@@ -1,66 +1,66 @@
-# UI Explore Shell 分类 unbash 对齐 Implementation Plan
+# Plano de Implementação: alinhamento da classificação Shell do UI Explore com unbash
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 用 CLI 同源的 `unbash` AST 分析替换 UI Explore 聚合里的 Bash 正则扫字符串逻辑，避免 `pnpm install ... | tail -5` 这类真实执行命令被误展示到“探索”分组下。
+**Goal:** Substituir a lógica de varredura de strings por regex de Bash na agregação do UI Explore pela análise de AST `unbash` com a mesma origem da CLI, evitando que comandos reais de execução como `pnpm install ... | tail -5` sejam exibidos indevidamente no grupo "Explorar".
 
-**Architecture:** 把浏览器安全的 Bash 解析、只读策略和 Explore 展示分类抽到 `@zcode/shared/shell` 子路径，CLI core 和 UI 同时依赖 shared 纯函数。Node-only 的 git runtime guard 继续留在 `@zcode/core`，避免 Web/移动端 bundle 引入 `node:fs` / `node:path`。UI 的 PowerShell 分类保留现有规则，只把 Unix shell / Bash / sh / zsh 命令切到 shared classifier。
+**Architecture:** Extrair a análise de Bash segura para navegador, a política somente leitura e a classificação de exibição do Explore para o subpath `@zcode/shared/shell`; o core da CLI e a UI passam a depender das funções puras do shared. O guard de runtime git exclusivo de Node continua em `@zcode/core`, evitando que o bundle Web/mobile introduza `node:fs` / `node:path`. A classificação de PowerShell na UI mantém as regras atuais; apenas comandos Unix shell / Bash / sh / zsh passam a usar o shared classifier.
 
-**Tech Stack:** TypeScript, Vitest, `unbash@4.0.1`, `@zcode/shared`, `@zcode/core`, React UI tool-call aggregation.
+**Tech Stack:** TypeScript, Vitest, `unbash@4.0.1`, `@zcode/shared`, `@zcode/core`, agregação de tool-call da UI React.
 
-## Global Constraints
+## Restrições globais
 
-- 这是 UI 展示分类 bugfix，不改变 Bash runtime 执行、权限、sandbox、session stream、desktop continuous 或 web remote replayable 语义。
-- 涉及 `packages/ui`，实现前必须阅读并遵守根目录 `DESIGN.md`；本计划不做视觉重设计。
-- UI 层禁止直接依赖 `apps/zcode-cli/packages/core` 或 `@zcode/core`。
-- Node-only runtime guard（例如读取 `.git` 的逻辑）禁止从 shared 顶层或 browser-facing 子路径导出。
-- `packages/ui/src/lib/toolCallAggregation.ts` 继续只做聚合入口；真正修复应落在 `packages/ui/src/lib/exploreToolCall.ts` 和 shared classifier。
-- Import 路径保持绝对路径；UI 从 `@zcode/shared/shell` 导入，不写跨域相对路径。
-- 注释用中文，只解释 bug 原因和边界，不写空泛注释。
-- 不自动提交；只有用户在当前任务明确要求 commit 时才提交。实现完成后可给出 Conventional Commits 消息建议。
-- 验证必须至少运行 targeted Vitest、`pnpm typecheck`、`pnpm lint`；如果 Web build 无法完整运行，需要在交付说明列出原因和风险。
+- Esta é uma correção de bug na classificação de exibição da UI; não altera a semântica de execução do runtime Bash, permissões, sandbox, session stream, desktop continuous nem web remote replayable.
+- Envolve `packages/ui`; antes de implementar é obrigatório ler e respeitar o `DESIGN.md` da raiz; este plano não faz redesenho visual.
+- A camada de UI está proibida de depender diretamente de `apps/zcode-cli/packages/core` ou `@zcode/core`.
+- Guard de runtime exclusivo de Node (por exemplo, a lógica que lê `.git`) está proibido de ser exportado do topo do shared ou de subpaths voltados ao navegador.
+- `packages/ui/src/lib/toolCallAggregation.ts` continua sendo apenas o ponto de entrada da agregação; a correção real deve ocorrer em `packages/ui/src/lib/exploreToolCall.ts` e no shared classifier.
+- Caminhos de import permanecem absolutos; a UI importa de `@zcode/shared/shell`, sem caminhos relativos entre domínios.
+- Comentários em português, explicando apenas a causa do bug e os limites, sem comentários vazios.
+- Não commitar automaticamente; só commitar quando o usuário pedir explicitamente um commit na tarefa atual. Após a conclusão da implementação, pode-se sugerir uma mensagem de Conventional Commits.
+- A verificação deve executar no mínimo o Vitest direcionado, `pnpm typecheck` e `pnpm lint`; se o build Web não puder rodar por completo, é preciso listar a causa e o risco nas notas de entrega.
 
 ---
 
-## Phase 0: 范围锁定与现状复现
+## Fase 0: Travar o escopo e reproduzir a situação atual
 
-### Task 0.1: 锁定误判链路和不可变边界
+### Tarefa 0.1: Travar a cadeia de falso positivo e os limites imutáveis
 
-**Files:**
-- Read: `DESIGN.md`
-- Read: `docs/ui/tool-display-rendering.md`
-- Read: `packages/ui/src/lib/exploreToolCall.ts`
-- Read: `packages/ui/src/lib/toolCallAggregation.ts`
-- Read: `apps/zcode-cli/packages/core/src/tool/handlers/bash-command-parser.ts`
-- Read: `apps/zcode-cli/packages/core/src/tool/handlers/bash-semantics.ts`
+**Arquivos:**
+- Ler: `DESIGN.md`
+- Ler: `docs/ui/tool-display-rendering.md`
+- Ler: `packages/ui/src/lib/exploreToolCall.ts`
+- Ler: `packages/ui/src/lib/toolCallAggregation.ts`
+- Ler: `apps/zcode-cli/packages/core/src/tool/handlers/bash-command-parser.ts`
+- Ler: `apps/zcode-cli/packages/core/src/tool/handlers/bash-semantics.ts`
 
 **Interfaces:**
-- Consumes: 当前 UI 聚合入口 `shouldAggregateToolCall(toolCall)`。
-- Produces: 明确修复边界：只改 shell 展示分类，不改 runtime 执行和权限。
+- Consome: ponto de entrada de agregação da UI atual `shouldAggregateToolCall(toolCall)`.
+- Produz: limite de correção explícito: alterar apenas a classificação de exibição de shell, sem alterar execução de runtime nem permissões.
 
-- [ ] **Step 1: 阅读 UI 设计约束**
+- [ ] **Passo 1: Ler as restrições de design da UI**
 
-Run:
+Execute:
 
 ```bash
 sed -n '1,220p' DESIGN.md
 ```
 
-Expected: 能确认本次无视觉样式改动；如果本次实现中改 UI 组件，必须保持桌面/Web/移动、明暗主题和 i18n 兼容。
+Esperado: confirmar que não há mudança de estilo visual nesta rodada; se algum componente de UI for alterado na implementação, é preciso manter compatibilidade com desktop/Web/móvel, temas claro/escuro e i18n.
 
-- [ ] **Step 2: 阅读现有 UI 展示语义文档**
+- [ ] **Passo 2: Ler o documento atual de semântica de exibição da UI**
 
-Run:
+Execute:
 
 ```bash
 sed -n '28,44p' docs/ui/tool-display-rendering.md
 ```
 
-Expected: 能确认语义边界是“只读探查命令进入 Explore，非探查命令保持独立 Run / shell tool”。
+Esperado: confirmar que o limite semântico é "comandos de sondagem somente leitura entram no Explore; comandos que não são de sondagem permanecem como Run / shell tool independente".
 
-- [ ] **Step 3: 复现当前错误分类**
+- [ ] **Passo 3: Reproduzir a classificação errada atual**
 
-Run:
+Execute:
 
 ```bash
 node <<'NODE'
@@ -78,11 +78,11 @@ console.log(JSON.stringify({ segments, result }, null, 2));
 NODE
 ```
 
-Expected: `result` 是 `true`，且第三段因为包含 `tail -5` 被读命令正则命中。
+Esperado: `result` é `true`, e o terceiro segmento casa com a regex de comando de leitura por conter `tail -5`.
 
-- [ ] **Step 4: 用 core 现有 dist 验证同一命令在 CLI 语义里不是探查**
+- [ ] **Passo 4: Usar o dist atual do core para verificar que o mesmo comando não é sondagem na semântica da CLI**
 
-Run:
+Execute:
 
 ```bash
 node --input-type=module <<'NODE'
@@ -95,7 +95,7 @@ console.log({
 NODE
 ```
 
-Expected:
+Esperado:
 
 ```text
 {
@@ -106,24 +106,24 @@ Expected:
 
 ---
 
-## Phase 1: 抽出 browser-safe shell shared 模块
+## Fase 1: Extrair o módulo shared de shell seguro para navegador
 
-### Task 1.1: 新增 `@zcode/shared/shell` 子路径和依赖归属
+### Tarefa 1.1: Adicionar o subpath `@zcode/shared/shell` e a atribuição de dependências
 
-**Files:**
-- Modify: `packages/shared/package.json`
-- Modify: `apps/zcode-cli/packages/core/package.json`
-- Modify: `pnpm-lock.yaml`
-- Create: `packages/shared/src/shell/index.ts`
+**Arquivos:**
+- Modificar: `packages/shared/package.json`
+- Modificar: `apps/zcode-cli/packages/core/package.json`
+- Modificar: `pnpm-lock.yaml`
+- Criar: `packages/shared/src/shell/index.ts`
 
 **Interfaces:**
-- Produces: `@zcode/shared/shell` 子路径，供 UI 和 core 导入。
-- Produces: shared 拥有 `unbash@4.0.1` 直接依赖。
-- Consumes: core 通过 workspace dependency 使用 shared shell helpers。
+- Produz: subpath `@zcode/shared/shell`, para import pela UI e pelo core.
+- Produz: shared passa a ser dono da dependência direta `unbash@4.0.1`.
+- Consome: core usa os shell helpers do shared via workspace dependency.
 
-- [ ] **Step 1: 修改 shared package exports 和依赖**
+- [ ] **Passo 1: Modificar os exports e as dependências do pacote shared**
 
-Edit `packages/shared/package.json`:
+Edite `packages/shared/package.json`:
 
 ```json
 {
@@ -149,9 +149,9 @@ Edit `packages/shared/package.json`:
 }
 ```
 
-- [ ] **Step 2: 修改 core package 依赖**
+- [ ] **Passo 2: Modificar as dependências do pacote core**
 
-Edit `apps/zcode-cli/packages/core/package.json` dependencies:
+Edite as dependencies de `apps/zcode-cli/packages/core/package.json`:
 
 ```json
 {
@@ -165,11 +165,11 @@ Edit `apps/zcode-cli/packages/core/package.json` dependencies:
 }
 ```
 
-Expected: `unbash` 不再是 `@zcode/core` 的直接 dependency，避免 parser 所属权继续留在 agent core。
+Esperado: `unbash` deixa de ser dependency direta de `@zcode/core`, evitando que a posse do parser continue no agent core.
 
-- [ ] **Step 3: 创建 shared shell 入口**
+- [ ] **Passo 3: Criar a entrada shared de shell**
 
-Create `packages/shared/src/shell/index.ts`:
+Crie `packages/shared/src/shell/index.ts`:
 
 ```ts
 export * from "./bash-command-parser.js";
@@ -178,33 +178,33 @@ export * from "./bash-readonly-policy.js";
 export type * from "./bash-readonly-policy-types.js";
 ```
 
-- [ ] **Step 4: 更新 lockfile**
+- [ ] **Passo 4: Atualizar o lockfile**
 
-Run:
+Execute:
 
 ```bash
 pnpm install --lockfile-only
 ```
 
-Expected: `pnpm-lock.yaml` 中 `@zcode/shared` 直接依赖 `unbash@4.0.1`，`@zcode/core` 不再直接列出 `unbash`。
+Esperado: no `pnpm-lock.yaml`, `@zcode/shared` depende diretamente de `unbash@4.0.1` e `@zcode/core` não lista mais `unbash` diretamente.
 
-### Task 1.2: 移动 browser-safe Bash parser 和 readonly policy
+### Tarefa 1.2: Mover o parser Bash e a política somente leitura seguros para navegador
 
-**Files:**
-- Move: `apps/zcode-cli/packages/core/src/tool/handlers/bash-command-parser.ts` -> `packages/shared/src/shell/bash-command-parser.ts`
-- Move: `apps/zcode-cli/packages/core/src/tool/handlers/bash-readonly-policy*.ts` -> `packages/shared/src/shell/`
-- Modify: moved `packages/shared/src/shell/bash-readonly-policy-argv.ts`
-- Test: `packages/shared/test/bashCommandParser.test.ts`
+**Arquivos:**
+- Mover: `apps/zcode-cli/packages/core/src/tool/handlers/bash-command-parser.ts` -> `packages/shared/src/shell/bash-command-parser.ts`
+- Mover: `apps/zcode-cli/packages/core/src/tool/handlers/bash-readonly-policy*.ts` -> `packages/shared/src/shell/`
+- Modificar: `packages/shared/src/shell/bash-readonly-policy-argv.ts` movido
+- Teste: `packages/shared/test/bashCommandParser.test.ts`
 
 **Interfaces:**
-- Produces: `analyzeBashCommand(command: string): BashCommandAnalysis`
-- Produces: `isBashCommandPermissionSafe(analysis: BashCommandAnalysis): boolean`
-- Produces: `evaluateBashReadonlyPolicy(commandPart, options?): boolean | undefined`
-- Produces: `hasKnownBashWriteOption(commandPart): boolean`
+- Produz: `analyzeBashCommand(command: string): BashCommandAnalysis`
+- Produz: `isBashCommandPermissionSafe(analysis: BashCommandAnalysis): boolean`
+- Produz: `evaluateBashReadonlyPolicy(commandPart, options?): boolean | undefined`
+- Produz: `hasKnownBashWriteOption(commandPart): boolean`
 
-- [ ] **Step 1: 移动 parser 和 policy 文件**
+- [ ] **Passo 1: Mover os arquivos de parser e policy**
 
-Run:
+Execute:
 
 ```bash
 mkdir -p packages/shared/src/shell
@@ -212,11 +212,11 @@ git mv apps/zcode-cli/packages/core/src/tool/handlers/bash-command-parser.ts pac
 for file in apps/zcode-cli/packages/core/src/tool/handlers/bash-readonly-policy*.ts; do git mv "$file" packages/shared/src/shell/; done
 ```
 
-Expected: parser 和 `bash-readonly-policy*` 文件只剩 shared 版本；`apps/zcode-cli/packages/core/src/tool/handlers/bash-git-runtime-safety.ts` 不移动。
+Esperado: sobram apenas as versões shared do parser e dos arquivos `bash-readonly-policy*`; `apps/zcode-cli/packages/core/src/tool/handlers/bash-git-runtime-safety.ts` não é movido.
 
-- [ ] **Step 2: 让 readonly policy 去 Node-only `process.platform` 依赖**
+- [ ] **Passo 2: Remover a dependência de `process.platform` (exclusiva de Node) da readonly policy**
 
-Edit `packages/shared/src/shell/bash-readonly-policy-argv.ts`，把函数签名改成：
+Edite `packages/shared/src/shell/bash-readonly-policy-argv.ts`, alterando a assinatura da função para:
 
 ```ts
 import type { BashCommandInvocation } from "./bash-command-parser.js";
@@ -258,11 +258,11 @@ export function evaluateBashReadonlyPolicy(
 }
 ```
 
-Keep the existing helper functions below this block unchanged unless TypeScript points out an import ordering issue.
+Mantenha as funções auxiliares existentes abaixo deste bloco inalteradas, a menos que o TypeScript indique um problema de ordem de import.
 
-- [ ] **Step 3: Export policy options**
+- [ ] **Passo 3: Exportar as opções da policy**
 
-Edit `packages/shared/src/shell/bash-readonly-policy.ts`:
+Edite `packages/shared/src/shell/bash-readonly-policy.ts`:
 
 ```ts
 export {
@@ -273,9 +273,9 @@ export {
 export { isSedInPlaceOption } from "./bash-readonly-policy-callbacks.js";
 ```
 
-- [ ] **Step 4: Add parser regression test**
+- [ ] **Passo 4: Adicionar teste de regressão do parser**
 
-Create `packages/shared/test/bashCommandParser.test.ts`:
+Crie `packages/shared/test/bashCommandParser.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -311,39 +311,39 @@ describe("bash command parser", () => {
 });
 ```
 
-- [ ] **Step 5: Run parser test and confirm it passes**
+- [ ] **Passo 5: Executar o teste do parser e confirmar que passa**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/shared/test/bashCommandParser.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
 ---
 
-## Phase 2: Shared Bash Explore 展示分类
+## Fase 2: Classificação de exibição do Explore em Bash no shared
 
-### Task 2.1: 新增 Bash display classifier
+### Tarefa 2.1: Adicionar o Bash display classifier
 
-**Files:**
-- Create: `packages/shared/src/shell/bash-display-classifier.ts`
-- Test: `packages/shared/test/bashDisplayClassifier.test.ts`
+**Arquivos:**
+- Criar: `packages/shared/src/shell/bash-display-classifier.ts`
+- Teste: `packages/shared/test/bashDisplayClassifier.test.ts`
 
 **Interfaces:**
-- Produces:
+- Produz:
   - `classifyBashCommandForExplore(command: string, options?: BashExploreClassifierOptions): BashExploreClassification`
-  - `BashExploreClassification` with `isExplore`, `isSearch`, `isRead`, `isList`, `reason`
-- Consumes:
+  - `BashExploreClassification` com `isExplore`, `isSearch`, `isRead`, `isList`, `reason`
+- Consome:
   - `analyzeBashCommand`
   - `isBashCommandPermissionSafe`
   - `evaluateBashReadonlyPolicy`
   - `hasKnownBashWriteOption`
 
-- [ ] **Step 1: Add classifier implementation**
+- [ ] **Passo 1: Adicionar a implementação do classifier**
 
-Create `packages/shared/src/shell/bash-display-classifier.ts`:
+Crie `packages/shared/src/shell/bash-display-classifier.ts`:
 
 ```ts
 import {
@@ -530,9 +530,9 @@ function classifyDisplayCommand(
 }
 ```
 
-- [ ] **Step 2: Add classifier tests**
+- [ ] **Passo 2: Adicionar testes do classifier**
 
-Create `packages/shared/test/bashDisplayClassifier.test.ts`:
+Crie `packages/shared/test/bashDisplayClassifier.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -594,44 +594,44 @@ describe("bash display classifier", () => {
 });
 ```
 
-- [ ] **Step 3: Run shared classifier tests**
+- [ ] **Passo 3: Executar os testes do shared classifier**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/shared/test/bashCommandParser.test.ts packages/shared/test/bashDisplayClassifier.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
 ---
 
-## Phase 3: Core 改为消费 shared shell parser / policy
+## Fase 3: Fazer o core consumir o parser / policy de shell do shared
 
-### Task 3.1: 更新 core imports 并保持权限语义不变
+### Tarefa 3.1: Atualizar os imports do core mantendo a semântica de permissões
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash-semantics.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash-metadata.ts`
-- Modify: any remaining core import found by search
-- Test: `apps/zcode-cli/packages/core/tests/bash-permission.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash-semantics.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash-metadata.ts`
+- Modificar: quaisquer imports restantes do core encontrados por busca
+- Teste: `apps/zcode-cli/packages/core/tests/bash-permission.test.ts`
 
 **Interfaces:**
-- Consumes from `@zcode/shared/shell`:
+- Consome de `@zcode/shared/shell`:
   - `analyzeBashCommand`
   - `isBashCommandPermissionSafe`
   - `evaluateBashReadonlyPolicy`
   - `hasKnownBashWriteOption`
   - `isSedInPlaceOption`
-- Produces existing core exports unchanged:
+- Mantém inalterados os exports existentes do core:
   - `isRuntimeReadOnlyBashCommand`
   - `isSimpleReadOnlyBashCommand`
   - `isSearchOrReadBashCommand`
   - `isSedInPlaceBashCommand`
 
-- [ ] **Step 1: Replace core imports in `bash-semantics.ts`**
+- [ ] **Passo 1: Substituir os imports do core em `bash-semantics.ts`**
 
-Edit import block to:
+Edite o bloco de imports para:
 
 ```ts
 import type { ExecutionResult } from "@zcode/contracts";
@@ -650,9 +650,9 @@ import {
 } from "./bash-git-runtime-safety.js";
 ```
 
-- [ ] **Step 2: Pass Node platform into runtime readonly policy**
+- [ ] **Passo 2: Passar a plataforma Node para a readonly policy de runtime**
 
-In `isSimpleReadOnlyBashCommand`:
+Em `isSimpleReadOnlyBashCommand`:
 
 ```ts
 return (
@@ -661,47 +661,47 @@ return (
 );
 ```
 
-In `isRuntimeReadOnlyBashCommand` loop:
+No laço de `isRuntimeReadOnlyBashCommand`:
 
 ```ts
 const policyResult = evaluateBashReadonlyPolicy(commandPart, { platform: process.platform });
 ```
 
-Expected: CLI keeps the same Windows `xargs` branch behavior while shared browser callers avoid `process`.
+Esperado: a CLI mantém o mesmo comportamento do branch de `xargs` no Windows, enquanto os chamadores de navegador do shared evitam `process`.
 
-- [ ] **Step 3: Search for stale relative imports**
+- [ ] **Passo 3: Buscar imports relativos obsoletos**
 
-Run:
+Execute:
 
 ```bash
 rg -n "bash-command-parser|bash-readonly-policy" apps/zcode-cli/packages/core/src
 ```
 
-Expected: No import points to removed `./bash-command-parser.js` or `./bash-readonly-policy.js`; remaining references either import from `@zcode/shared/shell` or refer to test/documentation text.
+Esperado: nenhum import aponta para `./bash-command-parser.js` ou `./bash-readonly-policy.js` removidos; as referências restantes ou importam de `@zcode/shared/shell` ou se referem a texto de teste/documentação.
 
-- [ ] **Step 4: Run core Bash permission tests**
+- [ ] **Passo 4: Executar os testes de permissão Bash do core**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/bash-permission.test.ts
 ```
 
-Expected: PASS. Existing plan-mode read-only behavior must not regress.
+Esperado: PASS. O comportamento somente leitura existente em plan mode não pode regredir.
 
-### Task 3.2: Keep core search/read classifier behavior stable
+### Tarefa 3.2: Manter estável o comportamento do classifier de search/read do core
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/tests/bash-permission.test.ts`
-- Test: same file
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/tests/bash-permission.test.ts`
+- Teste: o mesmo arquivo
 
 **Interfaces:**
-- Verifies `isBashInputReadOnly({ command })` rejects the reported command.
-- Verifies core remains more conservative than UI display when dynamic expansion exists.
+- Verifica que `isBashInputReadOnly({ command })` rejeita o comando relatado.
+- Verifica que o core continua mais conservador que a exibição da UI quando existe expansão dinâmica.
 
-- [ ] **Step 1: Add explicit regression in core permission tests**
+- [ ] **Passo 1: Adicionar regressão explícita nos testes de permissão do core**
 
-Add to `"keeps mutating Bash commands denied in plan mode"` command list:
+Adicione à lista de comandos de `"keeps mutating Bash commands denied in plan mode"`:
 
 ```ts
 'eval "$(fnm env --shell bash 2>/dev/null)"; cd /d/aai-projects/www-aicodezen && pnpm install --ignore-workspace 2>&1 | tail -5',
@@ -709,34 +709,34 @@ Add to `"keeps mutating Bash commands denied in plan mode"` command list:
 "pnpm add lodash | head",
 ```
 
-- [ ] **Step 2: Run focused core test**
+- [ ] **Passo 2: Executar o teste focado do core**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/bash-permission.test.ts -t "keeps mutating Bash commands denied in plan mode"
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
 ---
 
-## Phase 4: UI Explore 聚合改用 shared classifier
+## Fase 4: Fazer a agregação do UI Explore usar o shared classifier
 
-### Task 4.1: 替换 UI Bash 正则分类
+### Tarefa 4.1: Substituir a classificação por regex de Bash na UI
 
-**Files:**
-- Modify: `packages/ui/src/lib/exploreToolCall.ts`
-- Test: `packages/ui/test/toolCallBlocks.test.ts`
-- Test: `packages/ui/test/toolCallAggregation.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/lib/exploreToolCall.ts`
+- Teste: `packages/ui/test/toolCallBlocks.test.ts`
+- Teste: `packages/ui/test/toolCallAggregation.test.ts`
 
 **Interfaces:**
-- Consumes: `classifyBashCommandForExplore(command)` from `@zcode/shared/shell`
-- Produces: `isExploreToolCall({ kind, input }): boolean` keeps public signature unchanged。
+- Consome: `classifyBashCommandForExplore(command)` de `@zcode/shared/shell`
+- Produz: `isExploreToolCall({ kind, input }): boolean` mantém a assinatura pública inalterada.
 
-- [ ] **Step 1: Change command extraction to preserve complete shell script**
+- [ ] **Passo 1: Mudar a extração de comandos para preservar o script de shell completo**
 
-In `packages/ui/src/lib/exploreToolCall.ts`, replace `normalizeCommandCandidate` with:
+Em `packages/ui/src/lib/exploreToolCall.ts`, substitua `normalizeCommandCandidate` por:
 
 ```ts
 function normalizeCommandCandidate(candidate: string): string[] {
@@ -745,18 +745,18 @@ function normalizeCommandCandidate(candidate: string): string[] {
 }
 ```
 
-Expected: UI no longer splits Bash by `&&` / `||` / `;`; `unbash` owns shell structure.
+Esperado: a UI deixa de dividir o Bash por `&&` / `||` / `;`; quem responde pela estrutura do shell passa a ser o `unbash`.
 
-- [ ] **Step 2: Split PowerShell and Bash classification**
+- [ ] **Passo 2: Separar a classificação de PowerShell e de Bash**
 
-Add imports:
+Adicione os imports:
 
 ```ts
 import { classifyBashCommandForExplore } from "@zcode/shared/shell";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 ```
 
-Replace the Bash regex constants with PowerShell-specific constants:
+Substitua as constantes regex de Bash por constantes específicas de PowerShell:
 
 ```ts
 const POWERSHELL_READ_COMMAND_RE =
@@ -765,7 +765,7 @@ const POWERSHELL_WRITE_COMMAND_RE =
   /\b(remove-item|del|erase|set-content|add-content|clear-content|out-file|new-item|move-item|copy-item|rename-item|set-item)\b/i;
 ```
 
-Add helpers:
+Adicione os helpers:
 
 ```ts
 function isWrappedPowerShellCommand(command: string): boolean {
@@ -788,9 +788,9 @@ function isExploreShellCommand(command: string): boolean {
 }
 ```
 
-- [ ] **Step 3: Use all-command semantics in `isExploreToolCall`**
+- [ ] **Passo 3: Usar a semântica de todos os comandos em `isExploreToolCall`**
 
-Replace the shell section with:
+Substitua a seção de shell por:
 
 ```ts
 const commands = extractToolCommands(input);
@@ -807,32 +807,32 @@ for (const command of commands) {
 return true;
 ```
 
-Expected: 只有所有候选 shell 命令都能确认是探查命令时才聚合；一个输入里混入任意非探查命令都必须保持独立 shell tool。报告里的 install 命令不再聚合，因为唯一候选会被 shared Bash classifier 拒绝。
+Esperado: a agregação ocorre apenas quando todos os comandos shell candidatos podem ser confirmados como comandos de sondagem; qualquer comando que não seja de sondagem misturado na mesma entrada precisa permanecer como shell tool independente. O comando de install do relatório deixa de ser agregado, porque o único candidato é rejeitado pelo shared Bash classifier.
 
-- [ ] **Step 4: Keep comments focused on the bug**
+- [ ] **Passo 4: Manter os comentários focados no bug**
 
-Add one Chinese comment near `normalizeCommandCandidate`:
+Adicione um comentário perto de `normalizeCommandCandidate`:
 
 ```ts
 // 修复原因：Bash 的管道/分号/条件执行必须交给 unbash AST 判断；
 // 不能先按字符串切段，否则 `pnpm install | tail` 会被尾部 `tail` 误判成探索。
 ```
 
-### Task 4.2: Add UI regression tests
+### Tarefa 4.2: Adicionar testes de regressão na UI
 
-**Files:**
-- Modify: `packages/ui/test/toolCallBlocks.test.ts`
-- Modify: `packages/ui/test/toolCallAggregation.test.ts`
-- Modify: `packages/ui/test/chatMessage.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/test/toolCallBlocks.test.ts`
+- Modificar: `packages/ui/test/toolCallAggregation.test.ts`
+- Modificar: `packages/ui/test/chatMessage.test.ts`
 
 **Interfaces:**
-- Verifies `isExploreToolCall` and aggregation rule both reject install-with-tail.
-- Verifies read-only shell pipelines still enter Explore.
-- Verifies PowerShell read/write behavior stays unchanged.
+- Verifica que tanto `isExploreToolCall` quanto a regra de agregação rejeitam install-com-tail.
+- Verifica que pipelines de shell somente leitura ainda entram no Explore.
+- Verifica que o comportamento de leitura/escrita em PowerShell permanece inalterado.
 
-- [ ] **Step 1: Add direct `isExploreToolCall` tests**
+- [ ] **Passo 1: Adicionar testes diretos de `isExploreToolCall`**
 
-In `packages/ui/test/toolCallBlocks.test.ts`, extend `describe("isExploreToolCall", ...)`:
+Em `packages/ui/test/toolCallBlocks.test.ts`, estenda `describe("isExploreToolCall", ...)`:
 
 ```ts
 it("does not classify install commands piped through tail as explore", () => {
@@ -874,9 +874,9 @@ it("does not classify package manager mutations with read-only output filters as
 });
 ```
 
-- [ ] **Step 2: Add aggregation-level regression**
+- [ ] **Passo 2: Adicionar regressão no nível da agregação**
 
-In `packages/ui/test/toolCallAggregation.test.ts`, add:
+Em `packages/ui/test/toolCallAggregation.test.ts`, adicione:
 
 ```ts
 it("does not aggregate install commands whose output is trimmed with tail", () => {
@@ -907,9 +907,9 @@ it("still aggregates read-only Bash search pipelines", () => {
 });
 ```
 
-- [ ] **Step 3: Add chat rendering regression**
+- [ ] **Passo 3: Adicionar regressão de renderização de chat**
 
-In `packages/ui/test/chatMessage.test.ts`, add a case next to `"keeps an independent classifiable non-explore shell tool visible"`:
+Em `packages/ui/test/chatMessage.test.ts`, adicione um caso ao lado de `"keeps an independent classifiable non-explore shell tool visible"`:
 
 ```ts
 it("keeps install output filters as an independent shell tool instead of Explore", () => {
@@ -940,57 +940,57 @@ it("keeps install output filters as an independent shell tool instead of Explore
 });
 ```
 
-- [ ] **Step 4: Run focused UI tests**
+- [ ] **Passo 4: Executar os testes focados da UI**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run packages/ui/test/toolCallBlocks.test.ts packages/ui/test/toolCallAggregation.test.ts packages/ui/test/chatMessage.test.ts -t "install|read-only Bash search pipelines|PowerShell"
 ```
 
-Expected: PASS for the new cases and existing PowerShell read/write cases.
+Esperado: PASS para os novos casos e para os casos existentes de leitura/escrita em PowerShell.
 
 ---
 
-## Phase 5: 文档与跨端验证
+## Fase 5: Documentação e verificação multiplataforma
 
-### Task 5.1: 更新 UI 工具展示文档
+### Tarefa 5.1: Atualizar a documentação de exibição de ferramentas da UI
 
-**Files:**
-- Modify: `docs/ui/tool-display-rendering.md`
+**Arquivos:**
+- Modificar: `docs/ui/tool-display-rendering.md`
 
 **Interfaces:**
-- Produces: 文档明确 Unix shell 用 shared `unbash` AST 分类，PowerShell 继续走命令表分类。
+- Produz: a documentação deixa explícito que Unix shell usa a classificação por AST `unbash` do shared e que PowerShell continua classificado por tabela de comandos.
 
-- [ ] **Step 1: Update Explore shell classification paragraph**
+- [ ] **Passo 1: Atualizar o parágrafo de classificação de shell do Explore**
 
-In the existing Explore shell classification bullet, append this Chinese sentence:
+No bullet existente sobre classificação de shell do Explore, acrescente a seguinte frase em português:
 
 ```md
-Unix shell / Bash / sh / zsh 命令必须使用 shared `unbash` AST 分类，不允许先按字符串正则切 `&&` / `;` / pipe 后再按任意片段命中；输出裁剪命令如 `tail` / `head` 不能覆盖前序 `pnpm install` / `npm install` 等非探查命令的展示语义。
+Comandos Unix shell / Bash / sh / zsh devem usar a classificação por AST `unbash` do shared; não é permitido primeiro fatiar `&&` / `;` / pipe por regex de string e depois casar qualquer fragmento. Comandos de recorte de saída como `tail` / `head` não podem sobrescrever a semântica de exibição de comandos anteriores que não são de sondagem, como `pnpm install` / `npm install`.
 ```
 
-- [ ] **Step 2: Check doc has no conflicting rule**
+- [ ] **Passo 2: Verificar se o documento não ficou com regras conflitantes**
 
-Run:
+Execute:
 
 ```bash
 rg -n "Explore 聚合的 shell|unbash|tail|pnpm install" docs/ui/tool-display-rendering.md
 ```
 
-Expected: 文档同时保留 PowerShell read/write 规则和新的 Unix shell AST 规则。
+Esperado: o documento mantém ao mesmo tempo as regras de leitura/escrita de PowerShell e a nova regra de AST para Unix shell.
 
-### Task 5.2: Final verification
+### Tarefa 5.2: Verificação final
 
-**Files:**
-- All changed files.
+**Arquivos:**
+- Todos os arquivos alterados.
 
 **Interfaces:**
-- Verifies shared, core, and UI all agree on this bug boundary.
+- Verifica que shared, core e UI concordam sobre esse limite de bug.
 
-- [ ] **Step 1: Run all focused tests**
+- [ ] **Passo 1: Executar todos os testes focados**
 
-Run:
+Execute:
 
 ```bash
 pnpm exec vitest run \
@@ -1002,85 +1002,85 @@ pnpm exec vitest run \
   apps/zcode-cli/packages/core/tests/bash-permission.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 2: Run core typecheck**
+- [ ] **Passo 2: Executar o typecheck do core**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core typecheck
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 3: Run shared package typecheck through root build graph**
+- [ ] **Passo 3: Executar o typecheck do pacote shared pelo grafo de build da raiz**
 
-Run:
+Execute:
 
 ```bash
 pnpm typecheck
 ```
 
-Expected: PASS. If unrelated pre-existing errors appear, capture exact file paths and error messages.
+Esperado: PASS. Se aparecerem erros pré-existentes não relacionados, registrar os caminhos exatos dos arquivos e as mensagens de erro.
 
-- [ ] **Step 4: Run lint**
+- [ ] **Passo 4: Executar o lint**
 
-Run:
+Execute:
 
 ```bash
 pnpm lint
 ```
 
-Expected: PASS or existing warnings only.
+Esperado: PASS ou apenas warnings já existentes.
 
-- [ ] **Step 5: Verify Web bundle does not pull Node-only modules**
+- [ ] **Passo 5: Verificar que o bundle Web não puxa módulos exclusivos de Node**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/web exec vite build --base=/remote/__test__/
 ```
 
-Expected: PASS. There should be no `node:fs`, `node:path`, or `process is not defined` bundle errors from `@zcode/shared/shell`.
+Esperado: PASS. Não deve haver erros de bundle com `node:fs`, `node:path` ou `process is not defined` vindos de `@zcode/shared/shell`.
 
-- [ ] **Step 6: Inspect dependency ownership**
+- [ ] **Passo 6: Inspecionar a posse das dependências**
 
-Run:
+Execute:
 
 ```bash
 pnpm list unbash --depth 4 --recursive
 ```
 
-Expected: `@zcode/shared` owns `unbash@4.0.1`; `@zcode/core` reaches it through `@zcode/shared`, not as a direct dependency.
+Esperado: `@zcode/shared` é dono de `unbash@4.0.1`; `@zcode/core` chega a ele através de `@zcode/shared` e não como dependência direta.
 
-- [ ] **Step 7: Review diff before handoff**
+- [ ] **Passo 7: Revisar o diff antes do handoff**
 
-Run:
+Execute:
 
 ```bash
 git diff -- packages/shared packages/ui apps/zcode-cli/packages/core docs/ui/tool-display-rendering.md package.json pnpm-lock.yaml
 git status --short
 ```
 
-Expected: Only files in this plan changed. No unrelated user edits are reverted.
+Esperado: apenas os arquivos deste plano mudaram. Nenhuma edição não relacionada do usuário é revertida.
 
 ---
 
-## Commit Message Suggestion
+## Sugestão de mensagem de commit
 
-Only use this if the user explicitly asks for a commit in the current task:
+Use apenas se o usuário pedir explicitamente um commit na tarefa atual:
 
 ```bash
 git add packages/shared packages/ui apps/zcode-cli/packages/core docs/ui/tool-display-rendering.md pnpm-lock.yaml
 git commit -m "fix(ui): align Explore shell classification with bash parser"
 ```
 
-## Execution Checklist
+## Checklist de execução
 
-- [ ] Phase 0 completed: root cause and target behavior verified.
-- [ ] Phase 1 completed: shared shell parser / policy exists and has no Node-only browser dependency.
-- [ ] Phase 2 completed: shared Bash Explore classifier rejects install-with-tail and accepts read-only search pipelines.
-- [ ] Phase 3 completed: core imports shared shell helpers and core permission tests pass.
-- [ ] Phase 4 completed: UI Explore aggregation uses shared classifier and regression tests pass.
-- [ ] Phase 5 completed: docs updated, targeted tests pass, `pnpm typecheck`, `pnpm lint`, and Web build verification complete or documented with exact blockers.
+- [ ] Fase 0 concluída: causa raiz e comportamento-alvo verificados.
+- [ ] Fase 1 concluída: o parser / policy de shell do shared existe e não tem dependência de navegador exclusiva de Node.
+- [ ] Fase 2 concluída: o shared Bash Explore classifier rejeita install-com-tail e aceita pipelines de busca somente leitura.
+- [ ] Fase 3 concluída: o core importa os shell helpers do shared e os testes de permissão do core passam.
+- [ ] Fase 4 concluída: a agregação do UI Explore usa o shared classifier e os testes de regressão passam.
+- [ ] Fase 5 concluída: documentação atualizada, testes focados passando, `pnpm typecheck`, `pnpm lint` e a verificação do build Web concluídos ou documentados com bloqueadores exatos.

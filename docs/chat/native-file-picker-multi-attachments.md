@@ -1,26 +1,26 @@
-# Native file picker multi-attachment spec
+# Especificação de Múltiplos Anexos no Seletor de Arquivos Nativo
 
-## 背景
+## Contexto
 
-聊天输入框附件模型已经支持多个附件，Web 文件输入和拖拽入口也能一次添加多个文件；但桌面端原生文件选择器只通过 `selectFile()` 返回单个本地路径，导致点击附件按钮时每次只能添加一个文件。
+O modelo de anexos da caixa de entrada do chat já suporta múltiplos anexos, e tanto a entrada de arquivos da Web quanto o ponto de entrada de drag and drop conseguem adicionar vários arquivos de uma vez; mas o seletor de arquivos nativo do desktop retornava apenas um único caminho local por meio de `selectFile()`, fazendo com que cada clique no botão de anexo adicionasse somente um arquivo.
 
-## 目标
+## Objetivos
 
-- 桌面端聊天输入框的原生文件选择器支持一次选择多个文件。
-- 继续沿用现有附件上限 `MAX_CHAT_ATTACHMENTS = 8`，超过剩余槽位时保留现有截断和提示行为。
-- 保留 `selectFile()` 的单文件语义，供 SSH 私钥等单文件选择场景继续使用。
-- Web、手机远控和拖拽附件入口行为不变。
+- O seletor de arquivos nativo da caixa de entrada do chat do desktop suporta selecionar vários arquivos de uma vez.
+- Continuar usando o limite de anexos existente `MAX_CHAT_ATTACHMENTS = 8`; ao ultrapassar as vagas restantes, manter o comportamento atual de truncamento e de mensagem.
+- Preservar a semântica de arquivo único de `selectFile()`, para que continue sendo usada em cenários de seleção de arquivo único, como chave privada SSH.
+- O comportamento da Web, do controle remoto do celular e do ponto de entrada de anexos por drag and drop permanece inalterado.
 
-## 方案
+## Solução
 
-- 平台层新增 `selectFiles(): Promise<string[]>`，只表达“选择多个可被 agent 访问的本地绝对路径”。
-- Desktop main 进程新增对应 IPC handler，Electron `showOpenDialog` 使用 `["openFile", "multiSelections"]`，取消时返回空数组。
-- Desktop preload / renderer platform 暴露 `selectFiles()`。
-- 聊天输入框在 `canSelectFilePath` 为 true 时优先调用 `selectFiles()`；若旧宿主没有该方法，则 fallback 到 `selectFile()`。
-- 每个返回路径复用现有 `createChatComposerPathAttachment` 和 `addPreparedAttachments`，避免新增附件模型。
+- A camada de plataforma ganha `selectFiles(): Promise<string[]>`, expressando apenas "selecionar vários caminhos absolutos locais acessíveis pelo agent".
+- O processo main do Desktop ganha o handler IPC correspondente; o `showOpenDialog` do Electron usa `["openFile", "multiSelections"]`, retornando um array vazio ao cancelar.
+- O preload / platform do renderer do Desktop expõe `selectFiles()`.
+- A caixa de entrada do chat prioriza chamar `selectFiles()` quando `canSelectFilePath` for true; se o host antigo não tiver esse método, faz fallback para `selectFile()`.
+- Cada caminho retornado reutiliza o `createChatComposerPathAttachment` e o `addPreparedAttachments` existentes, evitando um novo modelo de anexo.
 
-## 非目标
+## Não objetivos
 
-- 不改变远程连接表单、私钥选择、目录选择等单文件/单目录 picker。
-- 不改变 Web 端 `<input type="file" multiple>` 或拖拽附件解析逻辑。
-- 不提高附件数量上限。
+- Não alterar pickers de arquivo/diretório único como o formulário de conexão remota, a seleção de chave privada e a seleção de diretório.
+- Não alterar o `<input type="file" multiple>` da Web nem a lógica de análise de anexos por drag and drop.
+- Não aumentar o limite de quantidade de anexos.

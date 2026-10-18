@@ -1,31 +1,31 @@
 # BG26 429 Failure Projection Isolation Plan
 
-**Goal:** 让 BG26 用一次真实 synthetic `429` 确定性验证 failed notification、hover 与 restore，不修改正常产品网络逻辑。
+**Objetivo:** fazer com que BG26 valide de forma determinística, usando um `429` synthetic real uma única vez, a notificação de falha, o hover e o restore, sem modificar a lógica de rede normal do produto.
 
-**Architecture:** BG26 worker 同时把 retry 收敛为 0，并把动态 replay server 设为 case-local HTTP proxy，强制模型请求走 Node http + 独立 `ProxyAgent` 通道；其它 worker 恢复 WDIO 启动前的环境。
+**Arquitetura:** o worker do BG26 simultaneamente converte o retry para 0 e define o replay server dinâmico como um HTTP proxy local ao caso, forçando as requisições de modelo a passar pelo Node http + um canal `ProxyAgent` separado; os demais workers restauram o ambiente anterior à inicialização do WDIO.
 
-## Constraints
+## Restrições
 
-- 不修改 `apps/zcode-cli`、`packages/ui` 或 `product-projection.ts`。
-- 不增加 timeout，不改变 provider 原始错误。
-- 不扩展桌面 `continuous` 或手机 `web-remote-replayable` 语义。
+- Não modificar `apps/zcode-cli`, `packages/ui` nem `product-projection.ts`.
+- Não adicionar timeout e não alterar o erro original do provider.
+- Não estender as semânticas de `continuous` do desktop nem de `web-remote-replayable` do celular.
 
-### Task 1: 记录并撤销被证伪的实验
+### Task 1: registrar e desfazer os experimentos refutados
 
-- [x] 撤销 runner cleanup/abort 顺序实验。
-- [x] 撤销 registry 单次 body 读取实验。
-- [x] 删除 `server.maxConnections = 1` 假阳性测试。
-- [x] 用真实 E2E 证明 `closeConnection` 与单独 retry=0 均不能稳定修复 BG26。
+- [x] Desfazer o experimento de ordem de cleanup/abort do runner.
+- [x] Desfazer o experimento de leitura única de body no registry.
+- [x] Remover o teste falso-positivo de `server.maxConnections = 1`.
+- [x] Provar com E2E real que `closeConnection` e retry=0 isolado não corrigem BG26 de forma estável.
 
-### Task 2: 隔离 BG26 worker 请求通道
+### Task 2: isolar o canal de requisição do worker BG26
 
-- [x] 增加 focused RED test，要求 BG26 设置 retry=0、绑定当前 replay proxy，后续 worker 恢复原值。
-- [x] 实现 worker-scoped 环境隔离并跑 GREEN。
-- [x] 删除 BG26 不再使用的 retry fixture，运行 fixture contract check。
+- [x] Adicionar um RED test focado exigindo que BG26 defina retry=0 e faça bind do replay proxy atual, com os workers subsequentes restaurando o valor original.
+- [x] Implementar o isolamento de ambiente com escopo de worker e rodar o GREEN.
+- [x] Remover o fixture de retry que o BG26 não usa mais e rodar a verificação de contrato dos fixtures.
 
-### Task 3: 验证并提交
+### Task 3: verificar e commitar
 
-- [x] 原样连续运行两轮 BG26，确认均为 1 passed。
-- [x] 从 capture/log 核对一个 child 429、`maxAttempts=1`、child failed 和父 notification 原始错误。
-- [x] 运行 `pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm typecheck`、`pnpm lint`。
-- [ ] 提交 `test(e2e): isolate BG26 failure projection`。
+- [x] Rodar duas rodadas consecutivas do BG26 sem alterações, confirmando 1 passed em ambas.
+- [x] Conferir, a partir de capture/log, um 429 do child, `maxAttempts=1`, child failed e o erro original da notificação do pai.
+- [x] Executar `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm typecheck`, `pnpm lint`.
+- [ ] Commitar `test(e2e): isolate BG26 failure projection`.

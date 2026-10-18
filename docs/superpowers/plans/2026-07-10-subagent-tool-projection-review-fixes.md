@@ -1,97 +1,97 @@
-# Subagent Child Tool Projection Post-Commit 修复计划
+# Plano de Correções de Child Tool Projection do Subagent Pós-Commit
 
-## 目标
+## Objetivo
 
-在不改变现有 background subagent、desktop continuous、web remote replayable 行为边界的前提下，修复 `0771f6312` post-commit review 发现的 child tool 投影问题：
+Sem alterar os limites de comportamento existentes de background subagent, desktop continuous e web remote replayable, corrigir os problemas de projeção de child tool encontrados na revisão pós-commit de `0771f6312`:
 
-- running snapshot 不得把 live terminal tool 降级回 running；
-- tool identity/input 的完整元数据不得随 parent turn parser cache 一起清空；
-- 前台订阅切换 task 时不得复用上一 task 的 projection memory；
-- BG21 必须确定性证明 child tool 在 session 隐藏期间完成；
-- 清理确认无调用的 missing-update 兼容分支。
+- um running snapshot não pode rebaixar de volta para running uma live terminal tool;
+- os metadados completos de identity/input da tool não podem ser limpos junto com o parser cache do parent turn;
+- ao alternar de task na assinatura do foreground, não se pode reutilizar a projection memory da task anterior;
+- o BG21 precisa provar de forma determinística que a child tool conclui enquanto a session está oculta;
+- limpar o ramo de compatibilidade missing-updateConfirmed sem chamadores.
 
-本计划只做上述收口，不扩展 restart/resume 持久化协议，也不改 background runtime 生命周期。
+Este plano trata apenas do fechamento acima; não estende o protocolo de persistência de restart/resume e não altera o ciclo de vida do background runtime.
 
-## Phase 1：Running Snapshot 单调合并
+## Fase 1: Merge monotônico do Running Snapshot
 
-- [x] 在 `zcodeChatMessages.test.ts` 增加“live terminal + stale running snapshot”失败测试。
-- [x] 确认测试在实现前失败。
-- [x] 将 tool status 合并改为单调状态合并，并复用统一 display identity 合并。
-- [x] 运行 `zcodeChatMessages.test.ts`，确认新增和现有测试通过。
+- [x] Adicionar em `zcodeChatMessages.test.ts` o teste de falha "live terminal + stale running snapshot".
+- [x] Confirmar que o teste falha antes da implementação.
+- [x] Mudar o merge de status da tool para merge de estado monotônico e reaproveitar o merge unificado de display identity.
+- [x] Executar `zcodeChatMessages.test.ts` e confirmar que os testes novos e os existentes passam.
 
-通过标准：已 terminal 的 child tool 不会被 running snapshot 复活；snapshot terminal 仍可收口 live running。
+Critério de aprovação: uma child tool já terminal não é ressuscitada por um running snapshot; um snapshot terminal ainda consegue encerrar um running live.
 
-## Phase 2：Projection Metadata 生命周期
+## Fase 2: Ciclo de vida dos Metadados de Projection
 
-- [x] 在 UI projection 测试中覆盖 scheduled -> parent turn completed -> terminal result。
-- [x] 在 UI projection 测试中覆盖 scheduled -> started/progress 仍携带 input/description。
-- [x] 在 services replayable projection 测试中覆盖同样的跨 parent turn 场景。
-- [x] 确认新增测试在实现前失败。
-- [x] 将流式 JSON parser state 与 task-scoped complete tool metadata 分离。
-- [x] UI 与 services 共同复用 shared metadata helper；所有 update 分支统一携带 remembered input。
-- [x] 运行 UI/services focused tests。
+- [x] Cobrar nos testes de projection da UI o cenário scheduled -> parent turn completed -> terminal result.
+- [x] Cobrar nos testes de projection da UI o cenário scheduled -> started/progress ainda carregando input/description.
+- [x] Cobrar o mesmo cenário entre parent turns nos testes de projection replayable dos services.
+- [x] Confirmar que os testes novos falham antes da implementação.
+- [x] Separar o estado do parser JSON de streaming da metadata de tool completa com escopo de task.
+- [x] Fazer UI e services reaproveitarem um shared metadata helper; todos os ramos de update passam a carregar uniformemente o remembered input.
+- [x] Executar os testes focados de UI/services.
 
-通过标准：parent turn 结束只清 parser state，不会丢 background child tool 的 name/input；desktop continuous 与 replayable 恢复保持一致。
+Critério de aprovação: o fim de um parent turn limpa apenas o parser state e não perde name/input de child tools em background; a restauração em desktop continuous e replayable se mantém consistente.
 
-## Phase 3：Task 级状态隔离
+## Fase 3: Isolamento de Estado por Task
 
-- [x] 增加 task A -> task B 切换不继承 projection memory 的测试。
-- [x] 确认测试在实现前失败。
-- [x] 前台订阅启动时显式采用目标 task 的 hidden projection state，或创建全新 state。
-- [x] 运行相关 hook/projection focused tests。
+- [x] Adicionar um teste de que trocar da task A para a task B não herda projection memory.
+- [x] Confirmar que o teste falha antes da implementação.
+- [x] Na inicialização da assinatura do foreground, adotar explicitamente o hidden projection state da task alvo, ou criar um state totalmente novo.
+- [x] Executar os testes focados de hooks/projection relevantes.
 
-通过标准：重复 tool id 不会跨 task 继承 name/input；切回仍运行的 background task 可以继续接管其自身 hidden state。
+Critério de aprovação: tool ids repetidos não herdam name/input entre tasks; ao voltar para uma task de background ainda em execução, ela retoma seu próprio hidden state.
 
-## Phase 4：死代码清理
+## Fase 4: Limpeza de Código Morto
 
-- [x] 用引用检查确认 `patch-existing-only` 无调用方。
-- [x] 删除未使用 union member 与分支。
-- [x] 删除 complete input 迁移后遗留的 streaming parser 死字段。
-- [x] 运行 message merge focused tests。
+- [x] Confirmar por verificação de referências que `patch-existing-only` não tem chamadores.
+- [x] Remover o union member e o ramo não utilizados.
+- [x] Remover os campos mortos do streaming parser remanescentes da migração do complete input.
+- [x] Executar os testes focados de message merge.
 
-通过标准：行为不变，missing tool update 模式只保留实际使用的语义。
+Critério de aprovação: comportamento inalterado, e o padrão missing tool update passa a manter apenas a semântica realmente usada.
 
-## Phase 5：BG21 确定性 E2E
+## Fase 5: E2E determinístico do BG21
 
-- [x] 将 BG21 child Bash 改为 sentinel/barrier 控制。
-- [x] child tool 已 running 后切走 session；确认隐藏后才释放 sentinel。
-- [x] 切回后断言 tool 仍在原 Agent 下、terminal、identity/input/output 完整且无重复孤儿卡。
-- [x] 更新 case catalog、coverage matrix 与 fixture manifest 描述。
-- [x] 运行 fixture check、coverage audit、BG21/BG22。
+- [x] Tornar o child Bash do BG21 controlado por sentinel/barrier.
+- [x] Alternar de session depois que a child tool já está running; confirmar que o sentinel só é liberado após a session estar oculta.
+- [x] Ao voltar, afirmar que a tool continua sob o Agent original, está terminal, com identity/input/output íntegros e sem card órfão duplicado.
+- [x] Atualizar as descrições do case catalog, do coverage matrix e do fixture manifest.
+- [x] Executar a checagem de fixtures, a auditoria de cobertura e BG21/BG22.
 
-通过标准：测试不再依赖固定 sleep 猜测时序，能真实覆盖隐藏期间 terminal update 与切回仍 running 两种路径。
+Critério de aprovação: o teste deixa de depender de sleep fixo para adivinhar o timing e passa a cobrir de verdade tanto o terminal update durante a ocultação quanto o caminho de voltar ainda running.
 
-## Phase 6：提交前验证
+## Fase 6: Verificação Pré-commit
 
-- [x] 运行所有相关 unit tests。
-- [x] 运行 `pnpm typecheck`。
-- [x] 运行 `pnpm lint`。
-- [x] 运行 desktop E2E typecheck。
-- [x] 运行 BG21/BG22 与 background focused E2E。
-- [x] 回扫 diff、依赖方与 desktop/replayable 边界。
-- [x] 确认工作区改动未自动提交。
+- [x] Executar todos os testes unitários relevantes.
+- [x] Executar `pnpm typecheck`.
+- [x] Executar `pnpm lint`.
+- [x] Executar o typecheck do E2E de desktop.
+- [x] Executar BG21/BG22 e o E2E focado de background.
+- [x] Revisar o diff, os dependentes e a fronteira desktop/replayable.
+- [x] Confirmar que as alterações do worktree não foram commitadas automaticamente.
 
-## Phase 7：Post-Review 竞态收口
+## Fase 7: Fechamento de Corridas Pós-revisão
 
-- [x] 增加强制进入 running snapshot replace 路径的回归测试，证明旧流式 snapshot 不会覆盖较新的 live input/raw。
-- [x] backfill 与 running replace 共用同一套 snapshot tool input/raw 选择规则。
-- [x] terminal tool result/error 同步清理 streaming parser、complete input 与 tool name memory。
-- [x] 运行 6 个 projection/runtime focused test 文件，共 319 个测试通过。
-- [x] 运行 `pnpm typecheck`、`pnpm lint` 与 desktop E2E typecheck。
-- [x] 运行 BG21、BG22 与 ExitPlanMode session-switch E2E。
+- [x] Adicionar um teste de regressão que força a entrada no caminho de replace do running snapshot, provando que um snapshot de streaming antigo não sobrescreve um input/raw live mais novo.
+- [x] Fazer backfill e running replace compartilharem o mesmo conjunto de regras de escolha de tool input/raw do snapshot.
+- [x] Limpar, de forma síncrona, o streaming parser, o complete input e a memória de tool name ao final do terminal tool result/error.
+- [x] Executar 6 arquivos de testes focados de projection/runtime, com 319 testes passando.
+- [x] Executar `pnpm typecheck`, `pnpm lint` e o typecheck do E2E de desktop.
+- [x] Executar BG21, BG22 e o E2E de session-switch do ExitPlanMode.
 
-通过标准：snapshot 与 live streaming 并发时 input/raw 不倒退；finalized snapshot 仍能补全空预览；terminal child tool 不残留 parser state。
+Critério de aprovação: com snapshot e streaming live concorrentes, input/raw não regride; um snapshot finalizado ainda consegue completar uma pré-visualização vazia; uma child tool terminal não deixa resíduo de parser state.
 
-## Phase 8：Projection 等价重构与 E2E 转正收尾
+## Fase 8: Refatoração de equivalência da Projection e encerramento da promoção de E2E
 
-- [x] 运行重构前 focused tests，确认 ExitPlanMode、running snapshot、UI/services projection 基线通过。
-- [x] 将 tool projection memory 的标准初始化收敛到 shared factory，保留 partial state 的 lazy ensure 兼容边界。
-- [x] 将 complete input 落盘与 streaming raw buffer 释放收敛到 shared lifecycle helper。
-- [x] 删除 snapshot input/raw 选择中的重复 raw-kind 解析，并让普通 merge 与 running replace 共用单调 status 选择 helper。
-- [x] 运行 focused tests，确认纯重构前后行为一致。
-- [x] 重新 review UI、services、hidden monitor、ExitPlanMode 与 background control 依赖链。
-- [x] 确认 BG21/BG22 位于正式 E2E 路径、无 skip/only，并同步 catalog、matrix、fixture contract。
-- [x] 运行 fixture check、coverage audit、BG21/BG22、ExitPlanMode E2E、typecheck、lint 与 diff check。
-- [x] 验证完成后按 Conventional Commits 提交，不自动 push。
+- [x] Executar os testes focados antes da refatoração e confirmar as linhas de base de ExitPlanMode, running snapshot e projection UI/services.
+- [x] Consolidar a inicialização padrão da tool projection memory numa shared factory, preservando a fronteira de compatibilidade do lazy ensure para partial state.
+- [x] Consolidar o persist do complete input e a liberação do raw buffer de streaming num shared lifecycle helper.
+- [x] Remover a resolução duplicada de raw-kind na escolha de input/raw do snapshot, e fazer o merge comum e o running replace compartilharem o helper de escolha monotônica de status.
+- [x] Executar os testes focados e confirmar que o comportamento é idêntico antes e depois da refatoração pura.
+- [x] Rever novamente as cadeias de dependência de UI, services, hidden monitor, ExitPlanMode e background control.
+- [x] Confirmar que BG21/BG22 estão no caminho oficial de E2E, sem skip/only, e sincronizar catalog, matrix e fixture contract.
+- [x] Executar checagem de fixtures, auditoria de cobertura, BG21/BG22, E2E de ExitPlanMode, typecheck, lint e checagem de diff.
+- [x] Após a verificação, commitar segundo Conventional Commits, sem push automático.
 
-通过标准：三处重复逻辑收敛后 provider/runtime/UI 行为不变；ExitPlanMode 仍可从 finalized snapshot 补齐参数；background child tool 与右上角 control 的恢复/终态行为保持通过；正式 E2E 和仓库门禁全部通过。
+Critério de aprovação: após o fechamento da lógica duplicada em três lugares, o comportamento de provider/runtime/UI permanece inalterado; o ExitPlanMode ainda consegue completar os parâmetros a partir de um snapshot finalizado; a recuperação e o estado terminal da child tool de background e do control no canto superior direito continuam passando; o E2E oficial e todos os gates do repositório passam.

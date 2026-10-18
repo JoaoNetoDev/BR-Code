@@ -1,84 +1,84 @@
-# Bundled bfs/ugrep Runtime Implementation Plan
+# Plano de Implementação do Runtime bfs/ugrep Embutido
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes de trabalho:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 ZCode 在所有支持平台上都能消费包内 `rg` / `bfs` / `ugrep` 二进制，并让 Bash `find` / `grep` 执行层在 embedded-search 分支下真正使用内置 `bfs` / `ugrep`。
+**Objetivo:** Fazer o ZCode consumir os binários `rg` / `bfs` / `ugrep` empacotados em todas as plataformas suportadas, e fazer a camada de execução Bash `find` / `grep` usar de fato o `bfs` / `ugrep` embutidos no branch embedded-search.
 
-**Architecture:** provider-visible embedded-search policy 保持现状；执行层在有可用内置二进制时从当前 `internal-cli` passthrough 切到 `argv0-dispatch`。ZCode 不做 Bun native multicall ELF，第一版用 CLI multicall shim 读取 `ARGV0` / `process.argv0` 后转发到包内 `rg` / `bfs` / `ugrep`，后续如果有真正 native multicall binary，可以只替换 backend resolver。
+**Arquitetura:** a policy de embedded-search visível ao provider permanece como está; a camada de execução passa do passthrough atual de `internal-cli` para `argv0-dispatch` quando há binários embutidos disponíveis. O ZCode não faz multicall ELF nativo do Bun; a primeira versão usa um shim de multicall de CLI que lê `ARGV0` / `process.argv0` e encaminha para o `rg` / `bfs` / `ugrep` empacotado. Mais adiante, se houver um binário multicall realmente nativo, basta substituir o backend resolver.
 
-**Tech Stack:** TypeScript, Node.js CLI, Electron runtime resources, SEA assets, shell snapshot startup scripts, `@zcode/contracts`, `@zcode/shared`, `@zcode/adapters`, Vitest.
+**Stack tecnológico:** TypeScript, Node.js CLI, recursos de runtime do Electron, assets SEA, scripts de inicialização do shell snapshot, `@zcode/contracts`, `@zcode/shared`, `@zcode/adapters`, Vitest.
 
-## Global Constraints
+## Restrições Globais
 
-- 目标版本：`rg 14.1.1`, `bfs 4.1.1`, `ugrep 7.5.0`。
-- shell function 语义：zsh / msys / cygwin / win32 使用 `ARGV0=<tool> "$_bin"`；bash 使用 `exec -a <tool> "$_bin"`。
-- `find` 默认参数：`-S dfs -regextype findutils-default`。
-- `grep` 默认参数：`-G --ignore-files --hidden -I --exclude-dir=.git/.svn/.hg/.bzr/.jj/.sl`。
-- `grep` bypass patterns：`-*-filter*`, `-*-pager*`, `-*-view*`, `-*-format-open*`, `-*-config*`, `---*`, `-@*`, `-*-save-config*`。
-- 支持平台矩阵必须显式覆盖：`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, `win32-x64`。
-- 每个支持平台都必须提供并验证 `rg` / `bfs` / `ugrep` 三个包内二进制；release、desktop packaging、remote resource、SEA smoke 缺任一二进制都必须失败，不允许产出“支持平台但只 fallback 系统命令”的正式包。
-- 上游现实：`bfs` release 只有源码包；`ugrep` release 只有 Windows x64 预编译包；npm 无可用 `ugrep` / 真 `bfs` binary 包。因此全平台内置能力必须依赖 ZCode 自建或内网托管的预编译产物。
-- 运行时缺少内置二进制时仍必须优雅降级，不得让 Bash tool call 无输出或卡死；但该 fallback 只用于 dev/manual/异常损坏环境，不是支持平台 release 产物的可接受状态。
-- 不改变 provider-visible prompt/tool surface，除非后续另开 prompt 调整任务。
-- 不提交大二进制 blob 到 git；通过下载脚本、desktop bundled-tools、remote resource package、SEA asset 机制携带。
-- 任何 Windows Git Bash 支持都必须使用现有 `windowsPathToGitBashPath` 路径转换。
+- Versões alvo: `rg 14.1.1`, `bfs 4.1.1`, `ugrep 7.5.0`.
+- Semântica das shell functions: zsh / msys / cygwin / win32 usam `ARGV0=<tool> "$_bin"`; bash usa `exec -a <tool> "$_bin"`.
+- Argumentos padrão de `find`: `-S dfs -regextype findutils-default`.
+- Argumentos padrão de `grep`: `-G --ignore-files --hidden -I --exclude-dir=.git/.svn/.hg/.bzr/.jj/.sl`.
+- Padrões de bypass de `grep`: `-*-filter*`, `-*-pager*`, `-*-view*`, `-*-format-open*`, `-*-config*`, `---*`, `-@*`, `-*-save-config*`.
+- A matriz de plataformas suportadas deve cobrir explicitamente: `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, `win32-x64`.
+- Cada plataforma suportada deve fornecer e verificar os três binários empacotados `rg` / `bfs` / `ugrep`; release, desktop packaging, remote resource e SEA smoke devem falhar se faltar qualquer um deles. Não é permitido produzir um pacote oficial "de plataforma suportada, mas com fallback apenas para comandos do sistema".
+- Realidade do upstream: o release de `bfs` só tem pacote de código-fonte; o release de `ugrep` só tem pacote pré-compilado para Windows x64; não há pacote npm utilizável de binários `ugrep` / `bfs` reais. Portanto, a capacidade embutida em todas as plataformas precisa depender de artefatos pré-compilados construídos pelo próprio ZCode ou hospedados na intranet.
+- Quando faltarem binários embutidos em runtime, ainda é preciso degradar com elegância, sem deixar a chamada da ferramenta Bash sem saída ou travada; mas esse fallback serve apenas para dev/manual/ambiente corrompido anômalo, e não é um estado aceitável para artefatos de release em plataformas suportadas.
+- Não alterar a superfície de prompt/tool visível ao provider, a menos que se abra depois uma tarefa separada de ajuste de prompt.
+- Não commitar blobs binários grandes no git; carregá-los por script de download, desktop bundled-tools, remote resource package e mecanismo de SEA asset.
+- Qualquer suporte a Windows Git Bash deve usar a conversão de caminho existente `windowsPathToGitBashPath`.
 
 ---
 
-## Research Summary
+## Resumo da Pesquisa
 
-- argv0-dispatch 的目标形态是单 multicall binary：`ARGV0=rg` 执行 `ripgrep 14.1.1`；`ARGV0=bfs` 执行 `bfs 4.1.1`；`ARGV0=ugrep` 执行 `ugrep 7.5.0`。
-- prelude 中的 `find` / `grep` function 先检查 multicall binary 是否可执行，不可执行时 fallback `command find "$@"` / `command grep "$@"`。
-- `origin/xiaodexiong` 的可复用部分是 runtime tool distribution / resolver 范式；它并没有完整捆绑 `bfs`。其 ADR-0007 明确写了 `bfs` 永不捆绑、`ugrep` 只 Windows x64 下载、`rg` 走 `@vscode/ripgrep`。
-- 当前主线已有 `packages/shared/src/runtime-tool-runtime.ts`、`packages/services/src/runtime-tools/runtimeToolResolver.ts`、`scripts/download-ripgrep.mjs`、`scripts/prepare-prebuilds.mjs`、desktop bundled-tools 与 remote resource package 机制；这些是新增 `bfs` / `ugrep` 资源的正确接缝。
-- 当前 remote prebuild 只发布 `linux-arm64`, `linux-x64`, `darwin-arm64`, `darwin-x64`；desktop packaging 通过 `ZCODE_TARGET_OS` / `ZCODE_TARGET_ARCH` 支持 macOS、Linux、Windows 的 x64/arm64。搜索工具计划必须按完整六平台矩阵准备资产，并让 remote 只消费其中 macOS/Linux 四个平台。
+- A forma alvo do argv0-dispatch é um único binário multicall: `ARGV0=rg` executa `ripgrep 14.1.1`; `ARGV0=bfs` executa `bfs 4.1.1`; `ARGV0=ugrep` executa `ugrep 7.5.0`.
+- As functions `find` / `grep` do prelude primeiro verificam se o binário multicall é executável; quando não é, caem para `command find "$@"` / `command grep "$@"`.
+- A parte reaproveitável de `origin/xiaodexiong` é o paradigma de distribuição/resolver de runtime tools; ele não empacota `bfs` de forma completa. Seu ADR-0007 diz explicitamente que `bfs` nunca é empacotado, que `ugrep` só é baixado para Windows x64 e que `rg` vem de `@vscode/ripgrep`.
+- O trunk atual já tem `packages/shared/src/runtime-tool-runtime.ts`, `packages/services/src/runtime-tools/runtimeToolResolver.ts`, `scripts/download-ripgrep.mjs`, `scripts/prepare-prebuilds.mjs`, desktop bundled-tools e o mecanismo de remote resource package; esses são as costuras corretas para adicionar os novos recursos `bfs` / `ugrep`.
+- O remote prebuild atual publica apenas `linux-arm64`, `linux-x64`, `darwin-arm64`, `darwin-x64`; o desktop packaging suporta macOS, Linux e Windows em x64/arm64 via `ZCODE_TARGET_OS` / `ZCODE_TARGET_ARCH`. O plano de ferramentas de busca precisa preparar assets para a matriz completa de seis plataformas e deixar o remote consumir apenas as quatro de macOS/Linux.
 
-## File Structure
+## Estrutura de Arquivos
 
-- Modify `packages/shared/src/runtime-tool-runtime.ts`
-  - 增加 `RuntimeToolId = "ripgrep" | "bfs" | "ugrep"`。
-  - 增加 `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY` descriptor。
+- Modificar `packages/shared/src/runtime-tool-runtime.ts`
+  - Adicionar `RuntimeToolId = "ripgrep" | "bfs" | "ugrep"`.
+  - Adicionar os descriptors `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY`.
 
-- Modify `packages/services/src/runtime-tools/runtimeToolResolver.ts`
-  - 保持 resolver 泛型能力；补测试覆盖多工具。
+- Modificar `packages/services/src/runtime-tools/runtimeToolResolver.ts`
+  - Manter a capacidade genérica do resolver; completar os testes cobrindo múltiplas ferramentas.
 
-- Modify `packages/services/src/runtime-tools/runtimeCommandEnv.ts`
-  - `buildRuntimeProcessEnvPatch()` 从 `["ripgrep"]` 扩到 `["ripgrep", "bfs", "ugrep"]`。
+- Modificar `packages/services/src/runtime-tools/runtimeCommandEnv.ts`
+  - `buildRuntimeProcessEnvPatch()` passa de `["ripgrep"]` para `["ripgrep", "bfs", "ugrep"]`.
 
-- Create `scripts/search-runtime-tools.mjs`
-  - 集中定义 `rg/bfs/ugrep` 版本、支持平台矩阵、内部下载命名、sha256 manifest。
+- Criar `scripts/search-runtime-tools.mjs`
+  - Definir centralmente as versões de `rg/bfs/ugrep`, a matriz de plataformas suportadas, a nomenclatura interna de download e o manifesto sha256.
 
-- Modify `scripts/download-ripgrep.mjs`
-  - 保留现有 CLI 参数兼容性，只把默认 ripgrep 版本从 `v13.0.0-10` 更新到目标版本 `14.1.1`。
+- Modificar `scripts/download-ripgrep.mjs`
+  - Preservar a compatibilidade dos argumentos de CLI existentes, apenas atualizando a versão padrão de ripgrep de `v13.0.0-10` para a versão alvo `14.1.1`.
 
-- Create `scripts/download-search-runtime-tool.mjs`
-  - 只负责新增 `bfs` / `ugrep` 下载，不接管 `ripgrep` 的既有入口。
+- Criar `scripts/download-search-runtime-tool.mjs`
+  - Responsável apenas pelo novo download de `bfs` / `ugrep`, sem assumir o entrypoint existente de `ripgrep`.
 
-- Modify `scripts/prepare-prebuilds.mjs`
-  - remote assets 增加 `bfs` / `ugrep` resource component。
+- Modificar `scripts/prepare-prebuilds.mjs`
+  - Adicionar os resource components `bfs` / `ugrep` aos assets remotos.
 
-- Modify `packages/desktop/scripts/prepare-runtime-assets.mjs`
-  - local desktop runtime assets 增加 `prepare:bfs` / `prepare:ugrep`。
+- Modificar `packages/desktop/scripts/prepare-runtime-assets.mjs`
+  - Adicionar `prepare:bfs` / `prepare:ugrep` aos runtime assets locais do desktop.
 
-- Modify `packages/desktop/scripts/ensure-local-runtime-assets.mjs`
-  - dev startup 自检增加 `bfs` / `ugrep`。
+- Modificar `packages/desktop/scripts/ensure-local-runtime-assets.mjs`
+  - Adicionar `bfs` / `ugrep` à autoverificação de startup de dev.
 
-- Modify desktop packaging config source
-  - 当前测试断言在 `packages/desktop/test/runtime-asset-scripts.test.ts`，实际 extraResources 配置应同步增加 `tools/bfs` / `tools/ugrep`。
+- Modificar a fonte de configuração de packaging do desktop
+  - As asserções de teste atuais estão em `packages/desktop/test/runtime-asset-scripts.test.ts`; a configuração real de extraResources deve incluir `tools/bfs` / `tools/ugrep`.
 
-- Create `apps/zcode-cli/packages/cli/src/bundled-search/multicall.ts`
-  - 读取 `process.env.ARGV0 || process.argv0`，当值为 `rg` / `bfs` / `ugrep` 时转发到对应 runtime binary。
+- Criar `apps/zcode-cli/packages/cli/src/bundled-search/multicall.ts`
+  - Ler `process.env.ARGV0 || process.argv0` e, quando o valor for `rg` / `bfs` / `ugrep`, encaminhar para o runtime binary correspondente.
 
-- Modify `apps/zcode-cli/packages/cli/src/run.ts`
-  - 在 `__internal-search` 之前增加 multicall dispatch。
+- Modificar `apps/zcode-cli/packages/cli/src/run.ts`
+  - Adicionar o dispatch multicall antes de `__internal-search`.
 
-- Modify `apps/zcode-cli/packages/bootstrap/src/app/embedded-search-backend.ts`
-  - 当 `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY` 可执行时返回 `kind: "argv0-dispatch"`；否则保留当前 `internal-cli`。
+- Modificar `apps/zcode-cli/packages/bootstrap/src/app/embedded-search-backend.ts`
+  - Retornar `kind: "argv0-dispatch"` quando `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY` forem executáveis; caso contrário manter o `internal-cli` atual.
 
-- Modify `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
-  - `argv0-dispatch` 分支改成 argv0 shell function：zsh / Windows 用 `ARGV0=...`，bash 用 `exec -a ...`。
+- Modificar `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
+  - O branch `argv0-dispatch` passa a ser uma argv0 shell function: zsh / Windows com `ARGV0=...`, bash com `exec -a ...`.
 
-- Tests
+- Testes
   - `packages/shared/test/runtimeToolRuntime.test.ts`
   - `packages/services/test/runtimeToolResolver.test.ts`
   - `packages/desktop/test/download-search-runtime-tool.test.ts`
@@ -91,19 +91,19 @@
 
 ---
 
-### Task 1: Lock Runtime Tool Descriptors
+### Tarefa 1: Fixar os Descriptors de Runtime Tools
 
-**Files:**
-- Modify: `packages/shared/src/runtime-tool-runtime.ts`
-- Create: `packages/shared/test/runtimeToolRuntime.test.ts`
+**Arquivos:**
+- Modificar: `packages/shared/src/runtime-tool-runtime.ts`
+- Criar: `packages/shared/test/runtimeToolRuntime.test.ts`
 
 **Interfaces:**
-- Produces: `RuntimeToolId = "ripgrep" | "bfs" | "ugrep"`
-- Produces: `getRuntimeToolRuntime(toolId: RuntimeToolId): RuntimeToolRuntimeDescriptor`
+- Produz: `RuntimeToolId = "ripgrep" | "bfs" | "ugrep"`
+- Produz: `getRuntimeToolRuntime(toolId: RuntimeToolId): RuntimeToolRuntimeDescriptor`
 
-- [ ] **Step 1: Write failing descriptor tests**
+- [ ] **Passo 1: Escrever testes de descriptor que falham**
 
-Create `packages/shared/test/runtimeToolRuntime.test.ts`:
+Criar `packages/shared/test/runtimeToolRuntime.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -136,25 +136,25 @@ describe("runtime tool descriptors", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Passo 2: Executar o teste para verificar que ele falha**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/shared test -- runtimeToolRuntime.test.ts
 ```
 
-Expected: FAIL because `bfs` / `ugrep` are not part of `RuntimeToolId`.
+Esperado: FALHA porque `bfs` / `ugrep` não fazem parte de `RuntimeToolId`.
 
-- [ ] **Step 3: Implement descriptors**
+- [ ] **Passo 3: Implementar os descriptors**
 
-Update `packages/shared/src/runtime-tool-runtime.ts`:
+Atualizar `packages/shared/src/runtime-tool-runtime.ts`:
 
 ```ts
 export type RuntimeToolId = "ripgrep" | "bfs" | "ugrep";
 ```
 
-Add entries:
+Adicionar entradas:
 
 ```ts
 bfs: {
@@ -171,31 +171,31 @@ ugrep: {
 },
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Passo 4: Executar o teste para verificar que ele passa**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/shared test -- runtimeToolRuntime.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 2: Extend Runtime Env Resolver
+### Tarefa 2: Estender o Resolver de Env de Runtime
 
-**Files:**
-- Modify: `packages/services/src/runtime-tools/runtimeCommandEnv.ts`
-- Modify: `packages/services/test/runtimeToolResolver.test.ts`
+**Arquivos:**
+- Modificar: `packages/services/src/runtime-tools/runtimeCommandEnv.ts`
+- Modificar: `packages/services/test/runtimeToolResolver.test.ts`
 
 **Interfaces:**
-- Consumes: `RuntimeToolId` from Task 1
-- Produces: `buildRuntimeProcessEnvPatch()` includes `ZCODE_BFS_BINARY`, `ZCODE_UGREP_BINARY`, and prepends their directories to `PATH`
+- Consome: `RuntimeToolId` da Tarefa 1
+- Produz: `buildRuntimeProcessEnvPatch()` inclui `ZCODE_BFS_BINARY`, `ZCODE_UGREP_BINARY` e adiciona os diretórios deles ao início do `PATH`
 
-- [ ] **Step 1: Add resolver tests for bfs and ugrep**
+- [ ] **Passo 1: Adicionar testes do resolver para bfs e ugrep**
 
-Extend `packages/services/test/runtimeToolResolver.test.ts` with:
+Estender `packages/services/test/runtimeToolResolver.test.ts` com:
 
 ```ts
 it("会从 bundled-tools 平台目录发现 bfs 和 ugrep binary 并注入 PATH", () => {
@@ -232,9 +232,9 @@ it("会从 bundled-tools 平台目录发现 bfs 和 ugrep binary 并注入 PATH"
 });
 ```
 
-- [ ] **Step 2: Update runtime process env patch**
+- [ ] **Passo 2: Atualizar o patch de env do processo de runtime**
 
-Change `packages/services/src/runtime-tools/runtimeCommandEnv.ts`:
+Alterar `packages/services/src/runtime-tools/runtimeCommandEnv.ts`:
 
 ```ts
 const runtimeToolEnvPatch = buildRuntimeToolEnvPatch(["ripgrep", "bfs", "ugrep"], {
@@ -243,33 +243,33 @@ const runtimeToolEnvPatch = buildRuntimeToolEnvPatch(["ripgrep", "bfs", "ugrep"]
 });
 ```
 
-- [ ] **Step 3: Run tests**
+- [ ] **Passo 3: Executar os testes**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/services test -- runtimeToolResolver.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 3: Add Search Runtime Tool Download Manifest
+### Tarefa 3: Adicionar o Manifesto de Download das Search Runtime Tools
 
-**Files:**
-- Create: `scripts/search-runtime-tools.mjs`
-- Create: `packages/desktop/test/searchRuntimeToolsManifest.test.ts`
+**Arquivos:**
+- Criar: `scripts/search-runtime-tools.mjs`
+- Criar: `packages/desktop/test/searchRuntimeToolsManifest.test.ts`
 
 **Interfaces:**
-- Produces: `SEARCH_RUNTIME_TOOLS`
-- Produces: `SUPPORTED_SEARCH_RUNTIME_PLATFORM_KEYS`
-- Produces: `REMOTE_SEARCH_RUNTIME_PLATFORM_KEYS`
-- Produces: `resolveSearchRuntimeToolPlan({ toolId, targetPlatform, targetArch, env })`
+- Produz: `SEARCH_RUNTIME_TOOLS`
+- Produz: `SUPPORTED_SEARCH_RUNTIME_PLATFORM_KEYS`
+- Produz: `REMOTE_SEARCH_RUNTIME_PLATFORM_KEYS`
+- Produz: `resolveSearchRuntimeToolPlan({ toolId, targetPlatform, targetArch, env })`
 
-- [ ] **Step 1: Add manifest tests**
+- [ ] **Passo 1: Adicionar testes do manifesto**
 
-Create `packages/desktop/test/searchRuntimeToolsManifest.test.ts`:
+Criar `packages/desktop/test/searchRuntimeToolsManifest.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -342,9 +342,9 @@ describe("search runtime tool manifest", () => {
 });
 ```
 
-- [ ] **Step 2: Implement manifest**
+- [ ] **Passo 2: Implementar o manifesto**
 
-Create `scripts/search-runtime-tools.mjs` with:
+Criar `scripts/search-runtime-tools.mjs` com:
 
 ```js
 import { join, resolve } from "node:path";
@@ -449,35 +449,35 @@ export function resolveSearchRuntimeToolPlan({
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [ ] **Passo 3: Executar os testes**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/desktop test -- searchRuntimeToolsManifest.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 4: Download and Stage Runtime Tool Assets
+### Tarefa 4: Baixar e Preparar os Assets de Runtime Tools
 
-**Files:**
-- Create: `scripts/download-search-runtime-tool.mjs`
-- Modify: `scripts/download-ripgrep.mjs`
-- Modify: `packages/desktop/package.json`
-- Create: `packages/desktop/test/download-search-runtime-tool.test.ts`
+**Arquivos:**
+- Criar: `scripts/download-search-runtime-tool.mjs`
+- Modificar: `scripts/download-ripgrep.mjs`
+- Modificar: `packages/desktop/package.json`
+- Criar: `packages/desktop/test/download-search-runtime-tool.test.ts`
 
 **Interfaces:**
-- Consumes: `resolveSearchRuntimeToolPlan()` from Task 3
-- Produces: `pnpm --filter @zcode/desktop prepare:bfs`
-- Produces: `pnpm --filter @zcode/desktop prepare:ugrep`
-- Preserves: `pnpm --filter @zcode/desktop prepare:rg`
+- Consome: `resolveSearchRuntimeToolPlan()` da Tarefa 3
+- Produz: `pnpm --filter @zcode/desktop prepare:bfs`
+- Produz: `pnpm --filter @zcode/desktop prepare:ugrep`
+- Preserva: `pnpm --filter @zcode/desktop prepare:rg`
 
-- [ ] **Step 1: Add tests for tool download planning**
+- [ ] **Passo 1: Adicionar testes de planejamento de download de ferramenta**
 
-Create `packages/desktop/test/download-search-runtime-tool.test.ts`:
+Criar `packages/desktop/test/download-search-runtime-tool.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -508,9 +508,9 @@ describe("download search runtime tool plan", () => {
 });
 ```
 
-- [ ] **Step 2: Implement generic downloader**
+- [ ] **Passo 2: Implementar o downloader genérico**
 
-Implement `scripts/download-search-runtime-tool.mjs` for `bfs` / `ugrep` only. Do not route `ripgrep` through this script in v1; the existing `download-ripgrep.mjs` already has production callers and should only get the version bump in Step 3.
+Implementar `scripts/download-search-runtime-tool.mjs` apenas para `bfs` / `ugrep`. Não rotear `ripgrep` por este script na v1; o `download-ripgrep.mjs` existente já tem chamadores de produção e deve receber apenas o bump de versão no Passo 3.
 
 ```js
 #!/usr/bin/env node
@@ -621,62 +621,62 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
 }
 ```
 
-- [ ] **Step 3: Keep `download-ripgrep.mjs` CLI shape and bump default version**
+- [ ] **Passo 3: Manter a forma da CLI de `download-ripgrep.mjs` e subir a versão padrão**
 
-In `scripts/download-ripgrep.mjs`, keep the existing argument contract:
+Em `scripts/download-ripgrep.mjs`, manter o contrato de argumentos existente:
 
 ```text
 node scripts/download-ripgrep.mjs [version] [platform] [arch]
 ```
 
-Only change the default:
+Mudar apenas o padrão:
 
 ```js
 const RIPGREP_VERSION = process.argv[2] || "14.1.1";
 ```
 
-Then update tests or snapshots that assert the default ripgrep download URL from `ripgrep-v13.0.0-10` to `ripgrep-14.1.1`. This keeps existing `prepare:rg`, `prepare-prebuilds`, and manual version override behavior intact while moving the bundled default to the pinned version.
+Depois atualizar os testes ou snapshots que afirmem a URL padrão de download do ripgrep de `ripgrep-v13.0.0-10` para `ripgrep-14.1.1`. Isso mantém intactos o `prepare:rg`, o `prepare-prebuilds` e a sobrescrita manual de versão existentes, ao mesmo tempo que move o padrão empacotado para a versão fixada.
 
-- [ ] **Step 4: Add desktop scripts**
+- [ ] **Passo 4: Adicionar scripts do desktop**
 
-Update `packages/desktop/package.json`:
+Atualizar `packages/desktop/package.json`:
 
 ```json
 "prepare:bfs": "node ../../scripts/download-search-runtime-tool.mjs bfs",
 "prepare:ugrep": "node ../../scripts/download-search-runtime-tool.mjs ugrep"
 ```
 
-- [ ] **Step 5: Run tests**
+- [ ] **Passo 5: Executar os testes**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/desktop test -- download-search-runtime-tool.test.ts searchRuntimeToolsManifest.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 5: Wire Desktop and Remote Runtime Assets
+### Tarefa 5: Conectar os Runtime Assets de Desktop e Remotos
 
-**Files:**
-- Modify: `packages/desktop/scripts/prepare-runtime-assets.mjs`
-- Modify: `packages/desktop/scripts/ensure-local-runtime-assets.mjs`
-- Modify: `scripts/prepare-prebuilds.mjs`
-- Modify: desktop builder extraResources source
-- Modify: `packages/desktop/test/runtime-asset-scripts.test.ts`
-- Modify: `packages/desktop/test/preparePrebuildsReleaseReuse.test.ts`
+**Arquivos:**
+- Modificar: `packages/desktop/scripts/prepare-runtime-assets.mjs`
+- Modificar: `packages/desktop/scripts/ensure-local-runtime-assets.mjs`
+- Modificar: `scripts/prepare-prebuilds.mjs`
+- Modificar a fonte de extraResources do desktop builder
+- Modificar: `packages/desktop/test/runtime-asset-scripts.test.ts`
+- Modificar: `packages/desktop/test/preparePrebuildsReleaseReuse.test.ts`
 
 **Interfaces:**
-- Consumes: Task 4 scripts
-- Produces: local packaged app resources `tools/bfs/<binary>` and `tools/ugrep/<binary>`
-- Produces: local packaged app resources `tools/ripgrep/<binary>`
-- Produces: remote release components `tools/<platform>/ripgrep`, `tools/<platform>/bfs`, and `tools/<platform>/ugrep`
+- Consome: scripts da Tarefa 4
+- Produz: recursos do app empacotado localmente `tools/bfs/<binary>` e `tools/ugrep/<binary>`
+- Produz: recursos do app empacotado localmente `tools/ripgrep/<binary>`
+- Produz: componentes de release remotos `tools/<platform>/ripgrep`, `tools/<platform>/bfs` e `tools/<platform>/ugrep`
 
-- [ ] **Step 1: Add script tests**
+- [ ] **Passo 1: Adicionar testes de script**
 
-Extend `packages/desktop/test/runtime-asset-scripts.test.ts`:
+Estender `packages/desktop/test/runtime-asset-scripts.test.ts`:
 
 ```ts
 it("desktop 安装包应显式携带内置 bfs 和 ugrep runtime", () => {
@@ -703,9 +703,9 @@ it("remote prebuilds should use the shared search runtime platform matrix", () =
 });
 ```
 
-- [ ] **Step 2: Update local runtime preparation**
+- [ ] **Passo 2: Atualizar a preparação local de runtime**
 
-In `packages/desktop/scripts/prepare-runtime-assets.mjs`:
+Em `packages/desktop/scripts/prepare-runtime-assets.mjs`:
 
 ```js
 const localRuntimeScripts = [
@@ -716,7 +716,7 @@ const localRuntimeScripts = [
 ];
 ```
 
-In `packages/desktop/scripts/ensure-local-runtime-assets.mjs`, add entries for `bfs` / `ugrep` under `REQUIRED_LOCAL_RUNTIME_ASSETS` next to the existing `ripgrep` entry:
+Em `packages/desktop/scripts/ensure-local-runtime-assets.mjs`, adicionar entradas para `bfs` / `ugrep` em `REQUIRED_LOCAL_RUNTIME_ASSETS`, ao lado da entrada `ripgrep` existente:
 
 ```js
 {
@@ -731,13 +731,13 @@ In `packages/desktop/scripts/ensure-local-runtime-assets.mjs`, add entries for `
 },
 ```
 
-- [ ] **Step 3: Update remote prebuilds**
+- [ ] **Passo 3: Atualizar os remote prebuilds**
 
-In `scripts/prepare-prebuilds.mjs`:
+Em `scripts/prepare-prebuilds.mjs`:
 
-- Import `REMOTE_SEARCH_RUNTIME_PLATFORM_KEYS` and `SEARCH_RUNTIME_TOOLS` from `./search-runtime-tools.mjs`.
-- Replace the local remote search platform source with `const remotePlatforms = [...REMOTE_SEARCH_RUNTIME_PLATFORM_KEYS];` so remote platform coverage cannot drift from the search runtime manifest.
-- In `runRemoteBinaryDownloads()`, for every `platformKey` in `remotePlatforms`, run downloads for all three search tools:
+- Importar `REMOTE_SEARCH_RUNTIME_PLATFORM_KEYS` e `SEARCH_RUNTIME_TOOLS` de `./search-runtime-tools.mjs`.
+- Substituir a fonte local de plataformas remotas de busca por `const remotePlatforms = [...REMOTE_SEARCH_RUNTIME_PLATFORM_KEYS];` para que a cobertura de plataformas remotas não possa divergir do manifesto de search runtime.
+- Em `runRemoteBinaryDownloads()`, para cada `platformKey` em `remotePlatforms`, rodar downloads das três search tools:
 
 ```js
 for (const platformKey of remotePlatforms) {
@@ -761,7 +761,7 @@ for (const platformKey of remotePlatforms) {
 }
 ```
 
-- In `buildReusableComponentRequiredPaths()`, return exact binary names for all search tool components:
+- Em `buildReusableComponentRequiredPaths()`, retornar os nomes exatos de binário para todos os componentes de search tool:
 
 ```js
 case "ripgrep":
@@ -772,34 +772,34 @@ case "ugrep":
   return [platformKey.startsWith("win32-") ? "ugrep.exe" : "ugrep"];
 ```
 
-- In `buildRemoteComponentDefinitions()`, add component ids `bfs` and `ugrep` mounted at `tools/<platformKey>/bfs` and `tools/<platformKey>/ugrep`; keep `ripgrep` mounted at `tools/<platformKey>/ripgrep`.
+- Em `buildRemoteComponentDefinitions()`, adicionar os ids de componente `bfs` e `ugrep` montados em `tools/<platformKey>/bfs` e `tools/<platformKey>/ugrep`; manter `ripgrep` montado em `tools/<platformKey>/ripgrep`.
 
-- [ ] **Step 4: Run script tests**
+- [ ] **Passo 4: Executar os testes de script**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/desktop test -- runtime-asset-scripts.test.ts preparePrebuildsReleaseReuse.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 6: Implement CLI Multicall Dispatch
+### Tarefa 6: Implementar o Dispatch Multicall da CLI
 
-**Files:**
-- Create: `apps/zcode-cli/packages/cli/src/bundled-search/multicall.ts`
-- Modify: `apps/zcode-cli/packages/cli/src/run.ts`
-- Create: `apps/zcode-cli/packages/cli/tests/bundled-search-multicall.test.ts`
+**Arquivos:**
+- Criar: `apps/zcode-cli/packages/cli/src/bundled-search/multicall.ts`
+- Modificar: `apps/zcode-cli/packages/cli/src/run.ts`
+- Criar: `apps/zcode-cli/packages/cli/tests/bundled-search-multicall.test.ts`
 
 **Interfaces:**
-- Produces: `resolveEffectiveMulticallName(env, argv0): "rg" | "bfs" | "ugrep" | undefined`
-- Produces: `runBundledSearchMulticall(name, argv, io): Promise<number>`
+- Produz: `resolveEffectiveMulticallName(env, argv0): "rg" | "bfs" | "ugrep" | undefined`
+- Produz: `runBundledSearchMulticall(name, argv, io): Promise<number>`
 
-- [ ] **Step 1: Write tests**
+- [ ] **Passo 1: Escrever os testes**
 
-Create `apps/zcode-cli/packages/cli/tests/bundled-search-multicall.test.ts`:
+Criar `apps/zcode-cli/packages/cli/tests/bundled-search-multicall.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -822,9 +822,9 @@ describe("bundled search multicall", () => {
 });
 ```
 
-- [ ] **Step 2: Implement multicall resolver**
+- [ ] **Passo 2: Implementar o resolver multicall**
 
-Create `apps/zcode-cli/packages/cli/src/bundled-search/multicall.ts`:
+Criar `apps/zcode-cli/packages/cli/src/bundled-search/multicall.ts`:
 
 ```ts
 import { spawn } from "node:child_process";
@@ -891,9 +891,9 @@ export function runBundledSearchMulticall(
 }
 ```
 
-- [ ] **Step 3: Wire `run.ts`**
+- [ ] **Passo 3: Conectar `run.ts`**
 
-In `apps/zcode-cli/packages/cli/src/run.ts`, before `__internal-search`:
+Em `apps/zcode-cli/packages/cli/src/run.ts`, antes de `__internal-search`:
 
 ```ts
 const multicallName = resolveEffectiveMulticallName(process.env, process.argv0);
@@ -908,34 +908,34 @@ if (multicallName) {
 }
 ```
 
-Do not add `env` to `RunContext` for this task. The CLI process env is the source of truth for `ARGV0`, `ZCODE_RG_BINARY`, `ZCODE_BFS_BINARY`, and `ZCODE_UGREP_BINARY`.
+Não adicionar `env` ao `RunContext` nesta tarefa. O env do processo da CLI é a fonte de verdade para `ARGV0`, `ZCODE_RG_BINARY`, `ZCODE_BFS_BINARY` e `ZCODE_UGREP_BINARY`.
 
-- [ ] **Step 4: Run tests**
+- [ ] **Passo 4: Executar os testes**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/cli test -- bundled-search-multicall.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 7: Switch Backend Resolver to argv0-dispatch When Bundled Tools Exist
+### Tarefa 7: Trocar o Resolver de Backend para argv0-dispatch Quando as Ferramentas Embutidas Existem
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/embedded-search-backend.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/tests/embedded-search-backend.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/embedded-search-backend.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/tests/embedded-search-backend.test.ts`
 
 **Interfaces:**
-- Consumes: `ZCODE_BFS_BINARY`, `ZCODE_UGREP_BINARY`
-- Produces: `EmbeddedSearchBackend.kind === "argv0-dispatch"` when bundled tools are executable
-- Preserves: current `internal-cli` fallback
+- Consome: `ZCODE_BFS_BINARY`, `ZCODE_UGREP_BINARY`
+- Produz: `EmbeddedSearchBackend.kind === "argv0-dispatch"` quando as ferramentas embutidas são executáveis
+- Preserva: o fallback atual `internal-cli`
 
-- [ ] **Step 1: Add tests**
+- [ ] **Passo 1: Adicionar testes**
 
-Add tests in `apps/zcode-cli/packages/bootstrap/tests/embedded-search-backend.test.ts`:
+Adicionar testes em `apps/zcode-cli/packages/bootstrap/tests/embedded-search-backend.test.ts`:
 
 ```ts
 it("uses argv0-dispatch when bfs and ugrep binaries are executable", () => {
@@ -983,9 +983,9 @@ it("keeps internal-cli when bundled bfs/ugrep are absent or not executable", () 
 });
 ```
 
-- [ ] **Step 2: Implement resolver branch**
+- [ ] **Passo 2: Implementar o branch do resolver**
 
-In `resolveDefaultEmbeddedSearchBackend()`, before `internal-cli` fallback:
+Em `resolveDefaultEmbeddedSearchBackend()`, antes do fallback `internal-cli`:
 
 ```ts
 const bfsBinary = input.env?.ZCODE_BFS_BINARY?.trim();
@@ -1004,7 +1004,7 @@ if (isExecutableSearchTool(bfsBinary) && isExecutableSearchTool(ugrepBinary)) {
 }
 ```
 
-Add a small local helper:
+Adicionar um pequeno helper local:
 
 ```ts
 function isExecutableSearchTool(path: string | undefined): path is string {
@@ -1018,34 +1018,34 @@ function isExecutableSearchTool(path: string | undefined): path is string {
 }
 ```
 
-When `argv[1]` is a script entrypoint, include it in `args` exactly like current `internal-cli` does; `argv0-dispatch` still needs to execute the same ZCode entrypoint, only with `ARGV0` / `exec -a` changed by the shell function.
+Quando `argv[1]` é um script entrypoint, incluí-lo em `args` exatamente como o `internal-cli` atual faz; `argv0-dispatch` ainda precisa executar o mesmo entrypoint do ZCode, apenas com `ARGV0` / `exec -a` alterado pela shell function.
 
-- [ ] **Step 3: Run tests**
+- [ ] **Passo 3: Executar os testes**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/bootstrap test -- embedded-search-backend.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 8: Implement argv0 Prelude
+### Tarefa 8: Implementar o Prelude argv0
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
-- Modify: `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`
-- Modify: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
 
 **Interfaces:**
-- Consumes: `EmbeddedSearchBackend.kind === "argv0-dispatch"`
-- Produces: shell functions using the argv0 dispatch strategy
+- Consome: `EmbeddedSearchBackend.kind === "argv0-dispatch"`
+- Produz: shell functions usando a estratégia de dispatch argv0
 
-- [ ] **Step 1: Add exact-shape tests**
+- [ ] **Passo 1: Adicionar testes de forma exata**
 
-In `embedded-search-prelude.test.ts`, assert argv0-dispatch content contains:
+Em `embedded-search-prelude.test.ts`, afirmar que o conteúdo de argv0-dispatch contém:
 
 ```ts
 expect(content).toContain("if [[ -n $ZSH_VERSION ]]; then");
@@ -1057,9 +1057,9 @@ expect(content).toContain("ARGV0=ugrep");
 expect(content).toContain("-G --ignore-files --hidden -I");
 ```
 
-- [ ] **Step 2: Implement `createArgv0Function()`**
+- [ ] **Passo 2: Implementar `createArgv0Function()`**
 
-Refactor `embedded-search-prelude.ts` so `argv0-dispatch` uses:
+Refatorar `embedded-search-prelude.ts` para que `argv0-dispatch` use:
 
 ```ts
 function createArgv0Function(
@@ -1092,7 +1092,7 @@ function createArgv0Function(
 }
 ```
 
-`createBackendEnvAssignments()` should reuse the existing `createShellEnvAssignment()` helper and join `backend.env` entries with spaces:
+`createBackendEnvAssignments()` deve reutilizar o helper existente `createShellEnvAssignment()` e unir as entradas de `backend.env` com espaços:
 
 ```ts
 function createBackendEnvAssignments(backend: EmbeddedSearchBackend): string {
@@ -1102,34 +1102,34 @@ function createBackendEnvAssignments(backend: EmbeddedSearchBackend): string {
 }
 ```
 
-- [ ] **Step 3: Keep internal-cli unchanged**
+- [ ] **Passo 3: Manter `internal-cli` inalterado**
 
-Do not alter `internal-cli` behavior in this task. The current passthrough is the fallback path.
+Não alterar o comportamento de `internal-cli` nesta tarefa. O passthrough atual é o caminho de fallback.
 
-- [ ] **Step 4: Run tests**
+- [ ] **Passo 4: Executar os testes**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/adapters test -- embedded-search-prelude.test.ts bash-startup-script.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 9: Add Real Execution Tests With Stub Binaries
+### Tarefa 9: Adicionar Testes de Execução Real com Binários Stub
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
-- Modify: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
 
 **Interfaces:**
-- Verifies: Bash prelude actually sources `.sh` and reaches `argv0-dispatch`
+- Verifica: o prelude Bash realmente faz source de `.sh` e chega ao `argv0-dispatch`
 
-- [ ] **Step 1: Add fake zcode dispatcher fixture in test**
+- [ ] **Passo 1: Adicionar fixture de dispatcher zcode falso no teste**
 
-In adapters exec tests, create a temporary executable script:
+Nos testes de exec dos adapters, criar um script executável temporário:
 
 ```sh
 #!/usr/bin/env sh
@@ -1141,9 +1141,9 @@ case "${ARGV0:-$(basename "$0")}" in
 esac
 ```
 
-- [ ] **Step 2: Execute shell command through adapter**
+- [ ] **Passo 2: Executar o comando de shell pelo adapter**
 
-Test command:
+Comando de teste:
 
 ```ts
 const result = await adapter.run({
@@ -1163,37 +1163,37 @@ const result = await adapter.run({
 });
 ```
 
-Expected stdout contains:
+Esperado que o stdout contenha:
 
 ```text
 BFS:-S dfs -regextype findutils-default . -maxdepth 1 -type f
 UGREP:-G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude-dir=.jj --exclude-dir=.sl -R needle .
 ```
 
-- [ ] **Step 3: Run tests**
+- [ ] **Passo 3: Executar os testes**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/adapters test -- exec.test.ts
 pnpm --filter @zcode/core test -- bash-handler.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASSA.
 
 ---
 
-### Task 10: Manual Verification With Real Binaries
+### Tarefa 10: Verificação Manual com Binários Reais
 
-**Files:**
-- No source changes
+**Arquivos:**
+- Sem mudanças de código-fonte
 
 **Interfaces:**
-- Verifies: actual `bfs` / `ugrep` behavior
+- Verifica: o comportamento real de `bfs` / `ugrep`
 
-- [ ] **Step 1: Verify runtime assets exist**
+- [ ] **Passo 1: Verificar que os runtime assets existem**
 
-Run on each target machine:
+Executar em cada máquina alvo:
 
 ```bash
 echo "$ZCODE_BFS_BINARY"
@@ -1202,16 +1202,16 @@ echo "$ZCODE_UGREP_BINARY"
 "$ZCODE_UGREP_BINARY" --version
 ```
 
-Expected:
+Esperado:
 
 ```text
 bfs 4.1.1
 ugrep 7.5.0
 ```
 
-- [ ] **Step 2: Verify Bash alias behavior through ZCode**
+- [ ] **Passo 2: Verificar o comportamento dos aliases do Bash através do ZCode**
 
-Run a Bash tool call in a ZCode session:
+Executar uma chamada de ferramenta Bash em uma sessão do ZCode:
 
 ```bash
 tmp=$(mktemp -d)
@@ -1224,41 +1224,41 @@ grep -R -n needle "$tmp" | sort
 rm -rf "$tmp"
 ```
 
-Expected:
+Esperado:
 
-- `find` includes `src/a.txt` and `.hidden/b.txt`。
-- `grep` includes `src/a.txt` and `.hidden/b.txt`。
-- `grep` excludes `.git/config` because `--exclude-dir=.git` is applied。
+- `find` inclui `src/a.txt` e `.hidden/b.txt`。
+- `grep` inclui `src/a.txt` e `.hidden/b.txt`。
+- `grep` exclui `.git/config` porque `--exclude-dir=.git` é aplicado。
 
-- [ ] **Step 3: Verify fallback**
+- [ ] **Passo 3: Verificar o fallback**
 
-Unset binary env vars and run:
+Remover as env vars de binário e executar:
 
 ```bash
 env -u ZCODE_BFS_BINARY -u ZCODE_UGREP_BINARY zcode --version
 ```
 
-Then run a Bash `find` / `grep` command in a session.
+Depois executar um comando `find` / `grep` do Bash em uma sessão.
 
-Expected:
+Esperado:
 
-- No startup crash。
-- Backend resolver returns `internal-cli`。
-- Search still works with current best-effort fallback。
+- Nenhuma falha no startup。
+- O backend resolver retorna `internal-cli`。
+- A busca ainda funciona com o fallback best-effort atual。
 
 ---
 
-## V1 Decisions
+## Decisões da V1
 
-1. 版本严格钉到：`rg 14.1.1`、`bfs 4.1.1`、`ugrep 7.5.0`。
-2. `rg` / `bfs` / `ugrep` 都必须在 ZCode 自有预编译产物源里覆盖完整支持平台矩阵：`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, `win32-x64`。
-3. Windows arm64 是 v1 必达平台，因为当前 desktop build/release 流程已经覆盖 Windows arm64。内部源没有 `bfs.exe` / `ugrep.exe` / `rg.exe` 时，对应 prepare/package job 必须失败。
-4. 运行时 resolver 仍保留“env 缺失或不可执行不启用 `argv0-dispatch`”的防御测试，但这只用于损坏安装、开发态或手工执行，不是 release 允许降级的语义。
-5. SEA v1 不把 `bfs` / `ugrep` 直接嵌进单文件二进制；SEA 产物必须能通过外置 runtime asset/env 注入消费同一套 search binaries。SEA smoke test 要验证注入成功路径；缺资产时可以防御性 fallback，但不能作为正式评测/发布配置。
+1. Versões estritamente fixadas: `rg 14.1.1`, `bfs 4.1.1`, `ugrep 7.5.0`.
+2. `rg` / `bfs` / `ugrep` devem todos cobrir a matriz completa de plataformas suportadas na fonte de artefatos pré-compilados do próprio ZCode: `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, `win32-x64`.
+3. Windows arm64 é uma plataforma obrigatória na v1, porque o fluxo atual de build/release do desktop já cobre Windows arm64. Quando a fonte interna não tiver `bfs.exe` / `ugrep.exe` / `rg.exe`, o job de prepare/package correspondente deve falhar.
+4. O resolver de runtime mantém o teste defensivo de "sem env ou não executável, não habilitar `argv0-dispatch`", mas isso é apenas para instalações corrompidas, execução em dev ou manual, e não é a semântica de degradação permitida em release.
+5. A SEA na v1 não embute `bfs` / `ugrep` diretamente no binário de arquivo único; o artefato SEA precisa conseguir consumir o mesmo conjunto de search binaries por injeção de runtime asset/env externo. O smoke test da SEA deve verificar o caminho de injeção bem-sucedido; na falta de assets é permitido um fallback defensivo, mas isso não pode ser a configuração oficial de avaliação/publicação.
 
-## Verification Commands
+## Comandos de Verificação
 
-Run focused tests:
+Executar testes focados:
 
 ```bash
 pnpm --filter @zcode/shared test -- runtimeToolRuntime.test.ts
@@ -1270,14 +1270,14 @@ pnpm --filter @zcode/adapters test -- embedded-search-prelude.test.ts bash-start
 pnpm --filter @zcode/core test -- bash-handler.test.ts
 ```
 
-Run required repo gates:
+Executar os gates obrigatórios do repo:
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-Run manual smoke:
+Executar o smoke manual:
 
 ```bash
 pnpm --filter @zcode/desktop prepare:runtime-assets
@@ -1285,7 +1285,7 @@ pnpm --filter @zcode/cli build
 pnpm --filter @zcode/cli build:sea
 ```
 
-Run platform asset preflight before publishing:
+Executar o preflight de assets por plataforma antes de publicar:
 
 ```bash
 for platform_key in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
@@ -1297,14 +1297,14 @@ for platform_key in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 wi
 done
 ```
 
-## Acceptance Criteria
+## Critérios de Aceitação
 
-- Provider-visible embedded branch remains unchanged.
-- With valid `ZCODE_BFS_BINARY` and `ZCODE_UGREP_BINARY`, Bash `find` / `grep` are routed through argv0 shell functions.
-- Without valid bundled binaries, behavior falls back to existing `internal-cli` / system command path without command hangs or empty output.
-- `grep` receives the exact default args and bypass list defined in Global Constraints.
-- `find` receives the exact default args defined in Global Constraints.
-- macOS zsh, macOS bash, Linux bash, Windows Git Bash, and Windows cmd are all covered by unit tests; cmd does not source POSIX shell functions.
-- For every supported desktop platform (`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, `win32-x64`), `prepare:rg`, `prepare:bfs`, and `prepare:ugrep` produce executable packaged binaries under `packages/desktop/bundled-tools/<platform>/<tool>/`.
-- Remote resource manifests include `ripgrep`, `bfs`, and `ugrep` for every remote platform (`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`).
-- SEA smoke verifies the same `ZCODE_RG_BINARY`, `ZCODE_BFS_BINARY`, and `ZCODE_UGREP_BINARY` injection path works with built SEA output.
+- O branch de embedded visível ao provider permanece inalterado.
+- Com `ZCODE_BFS_BINARY` e `ZCODE_UGREP_BINARY` válidos, o `find` / `grep` do Bash é roteado pelas argv0 shell functions.
+- Sem binários embutidos válidos, o comportamento cai para o caminho existente `internal-cli` / comando do sistema, sem travamento de comando nem saída vazia.
+- `grep` recebe os argumentos padrão exatos e a lista de bypass definidos nas Restrições Globais.
+- `find` recebe os argumentos padrão exatos definidos nas Restrições Globais.
+- macOS zsh, macOS bash, Linux bash, Windows Git Bash e Windows cmd são todos cobertos por testes unitários; o cmd não faz source de shell functions POSIX.
+- Para cada plataforma de desktop suportada (`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, `win32-x64`), `prepare:rg`, `prepare:bfs` e `prepare:ugrep` produzem binários empacotados executáveis em `packages/desktop/bundled-tools/<platform>/<tool>/`.
+- Os manifestos de remote resource incluem `ripgrep`, `bfs` e `ugrep` para cada plataforma remota (`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`).
+- O smoke da SEA verifica que o mesmo caminho de injeção de `ZCODE_RG_BINARY`, `ZCODE_BFS_BINARY` e `ZCODE_UGREP_BINARY` funciona com a saída SEA construída.

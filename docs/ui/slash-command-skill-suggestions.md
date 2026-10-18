@@ -1,25 +1,25 @@
-# Slash Command Skill Suggestions
+# Sugestões de skills no slash command
 
-## 背景
+## Contexto
 
-用户习惯在聊天输入框里输入 `/` 搜索可用能力。Skill 目前只在 `$` 触发面板中展示，导致用户进入 `/` 菜单时看不到已启用技能，误以为技能不可用。
+Os usuários têm o hábito de digitar `/` no campo de entrada do chat para buscar as capacidades disponíveis. Hoje as skills só aparecem no painel acionado por `$`, o que faz com que, ao entrar no menu `/`, o usuário não veja as skills habilitadas e acredite que elas estejam indisponíveis.
 
-## 产品语义
+## Semântica de produto
 
-- `/` 面板继续作为能力发现入口，展示 slash commands、skills、subagents 三类结果。
-- 从 `/` 面板选择 skill 时，插入内容仍使用现有 `$skill` mention 语义；不要新增 `/skill` 命令协议，也不要让 agent 侧误把 skill 当作 custom slash command。
-- Skill 列表复用 `$` 面板的启用状态、provider 过滤、同名折叠和本地化描述，避免两个入口展示不一致。
-- 空 query 时按 commands、skills、subagents 的分组顺序展示；有 query 时每组内复用现有模糊搜索，全局键盘默认选中仍按统一评分选择最佳项。
+- O painel `/` continua sendo a porta de entrada de descoberta de capacidades, exibindo três tipos de resultado: slash commands, skills e subagents.
+- Ao selecionar uma skill pelo painel `/`, o conteúdo inserido continua usando a semântica existente de mention `$skill`; não se cria um novo protocolo de comando `/skill`, nem se permite que o lado do agent confunda skill com custom slash command.
+- A lista de skills reutiliza o estado de habilitação, o filtro por provider, o agrupamento de nomes iguais e as descrições localizadas do painel `$`, evitando exibição inconsistente entre as duas entradas.
+- Com query vazia, a exibição segue a ordem de grupos commands, skills, subagents; com query, cada grupo reutiliza a busca difusa existente e a seleção padrão por teclado no escopo global continua escolhendo o melhor item pela pontuação unificada.
 
-## 边界
+## Limites
 
-- 本改动只影响 UI composer 建议面板和 mention 序列化，不修改 `@zcode/protocol`、session stream、task queue、snapshot 或远控 replayable/continuous 语义。
-- 桌面和 Web 远控都通过现有 shared skill store 读取 skills；远程 workspace 继续由既有 `workspaceIdentity` 绑定逻辑隔离。
-- 如果 skill store 未加载或报错，`/` 面板只在技能分组显示加载/错误状态，不阻塞 commands 和 subagents。
+- Esta alteração afeta apenas o painel de sugestões do composer de UI e a serialização de mentions; não modifica `@zcode/protocol`, session stream, task queue, snapshot nem as semânticas de replayable/continuous do controle remoto.
+- O desktop e a Web remota leem as skills pelo shared skill store existente; o workspace remoto continua isolado pela lógica de binding de `workspaceIdentity` já existente.
+- Se o skill store não carregar ou der erro, o painel `/` mostra o estado de carregamento/erro apenas no grupo de skills, sem bloquear commands e subagents.
 
-## 验收
+## Aceitação
 
-- 输入 `/` 能看到启用技能分组。
-- 输入 `/code` 能匹配 `code-review` 这类 skill。
-- 选择 skill 后输入框中生成现有 skill mention markdown，发送路径等价于从 `$` 面板选择该 skill。
-- `/` 面板仍能展示 `/goal`、`/compact`、`/init`、custom command 和 subagent。
+- Digitar `/` mostra o grupo de skills habilitadas.
+- Digitar `/code` faz match de skills como `code-review`.
+- Após selecionar a skill, o campo de entrada gera o markdown de mention de skill já existente e o caminho de envio equivale ao da seleção pelo painel `$`.
+- O painel `/` continua exibindo `/goal`, `/compact`, `/init`, custom commands e subagents.

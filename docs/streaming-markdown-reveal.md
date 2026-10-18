@@ -1,10 +1,10 @@
-# Streaming Markdown Rendering（当前事实）
+# Renderização de Markdown em Streaming (fatos atuais)
 
-V4 不再实现基于 `Intl.Segmenter` 的逐词 reveal。Assistant row 的当前完整文本直接交给 Streamdown/`MessageResponse`，Markdown 的增量可视效果来自连续 projection 更新。
+A V4 não implementa mais o reveal palavra a palavra baseado em `Intl.Segmenter`. O texto completo atual da linha do Assistant é entregue diretamente ao Streamdown/`MessageResponse`, e o efeito visual incremental do Markdown vem de atualizações consecutivas de projection.
 
-- 正文事实源：`ConversationSnapshot.rows`。
-- 更新入口：conversation delta。
-- 渲染入口：`packages/ui/src/v4/ConversationRowView.tsx`。
-- 最终一致性：terminal snapshot 文本必须等于最终渲染文本。
+- Fonte de verdade do corpo: `ConversationSnapshot.rows`.
+- Entrada de atualização: conversation delta.
+- Entrada de renderização: `packages/ui/src/v4/ConversationRowView.tsx`.
+- Consistência final: o texto do terminal snapshot deve ser igual ao texto final renderizado.
 
-如将来重新引入动画，它只能是可丢弃的视觉层，不能改变 copy、搜索、恢复、虚拟滚动测高或最终 row 内容。
+Se a animação for reintroduzida no futuro, ela só poderá ser uma camada visual descartável, sem alterar copy, busca, restauração, medição de altura para virtual scrolling ou o conteúdo final das linhas.

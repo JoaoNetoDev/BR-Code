@@ -1,21 +1,21 @@
-# Issue tracker: Local Markdown
+# Issue tracker: Markdown local
 
-项目 Issue 使用本地 Markdown 文件。用户已明确要求不在远端仓库创建 Issue；只有后续明确要求线上发布时才改变该次操作的目标。Git remote 仅表示代码仓库位置，不能用它推断 Issue 发布位置。
+Issues de projeto usam arquivos Markdown locais. O usuário já exigiu explicitamente que não sejam criadas Issues no repositório remoto; o alvo só muda para publicação online mediante um pedido explícito posterior. O remote Git indica apenas a localização do repositório de código e não deve ser usado para inferir onde as Issues são publicadas.
 
-## 文件与状态
+## Arquivos e status
 
-- 已存在于 `docs/` 的完整 spec 可以直接作为本地 Issue，保留原路径，不复制第二份正文。
-- 新的独立 Issue 放在 `docs/issues/<feature-slug>/<NN>-<slug>.md`，每个任务一个文件；同一功能从 `01` 顺序编号。已有 spec 的实现子任务链接到该 spec。
-- 文件标题下使用 `Status:` 行记录状态。可直接实施的 spec 使用 `Status: ready-for-agent`，其余分诊状态沿用 `needs-triage`、`needs-info`、`ready-for-human`、`wontfix`；任务开始和完成时分别更新为 `in-progress`、`done`。
-- 关联和依赖使用本地 Markdown 链接；讨论记录按需追加到文件末尾的 `## Comments`，无需将当前会话全文复制入库。
+- Uma spec completa já existente em `docs/` pode servir diretamente como Issue local, mantendo o caminho original e sem duplicar o corpo em um segundo arquivo.
+- Novas Issues independentes ficam em `docs/issues/<feature-slug>/<NN>-<slug>.md`, um arquivo por tarefa; numa mesma funcionalidade, a numeração é sequencial a partir de `01`. Subtarefas de implementação de uma spec existente fazem link para essa spec.
+- Abaixo do título do arquivo usa-se uma linha `Status:` para registrar o status. Specs implementáveis diretamente usam `Status: ready-for-agent`; os demais estados de triagem seguem `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`; ao iniciar e ao concluir a tarefa, são atualizados para `in-progress` e `done`, respectivamente.
+- Associações e dependências usam links Markdown locais; registros de discussão são adicionados conforme a necessidade ao final do arquivo, na seção `## Comments`, sem necessidade de copiar o texto inteiro da sessão atual para o repositório.
 
-## 技能操作映射
+## Mapeamento de operações de skill
 
-- “publish to the issue tracker”：写入或更新本地 Issue 文件，应用对应 `Status:`，返回文件链接。
-- “fetch the relevant ticket”：读取用户给出的文件或本地 Issue 编号对应的 Markdown。
-- “apply ready-for-agent label”：写入 `Status: ready-for-agent`，不创建远端标签。
-- Issue 工作流不调用 GitHub/GitLab 的创建或更新接口。MR 工作流继续遵守项目已有 MR 规则，两者相互独立。
+- "publish to the issue tracker": grava ou atualiza o arquivo local da Issue, aplica o `Status:` correspondente e retorna o link do arquivo.
+- "fetch the relevant ticket": lê o Markdown correspondente ao arquivo informado pelo usuário ou ao número local da Issue.
+- "apply ready-for-agent label": grava `Status: ready-for-agent`, sem criar label remoto.
+- O workflow de Issue não chama as APIs de criação ou atualização do GitHub/GitLab. O workflow de MR continua seguindo as regras de MR já existentes no projeto; os dois são independentes.
 
-## 当前 Issue
+## Issue atual
 
-- [桌面本地消息 TTFT 分阶段遥测](../monitoring/ttft-stage-telemetry.md)
+- [Telemetria de TTFT em fases para mensagens locais no desktop](../monitoring/ttft-stage-telemetry.md)

@@ -1,17 +1,17 @@
-# 后续任务：Host tasks-index 初始化可观测性
+# Tarefa seguinte: observabilidade da inicialização do tasks-index no Host
 
-> 最新范围：已并入 [Todo 145：进入 ZCode 前统一准备数据库](./todo-145-global-database-startup-loading.md)，不再单独延后。以下为前轮范围记录；Repo 构造与实际打开/迁移的时机须按新 TODO 重新核对。
+> Escopo mais recente: foi incorporado ao [Todo 145: preparação unificada do banco de dados antes de entrar no ZCode](./todo-145-global-database-startup-loading.md) e não é mais adiado separadamente. Abaixo está o registro de escopo da rodada anterior; a construção do Repo e o momento real de abertura/migração precisam ser reconferidos conforme o novo TODO.
 
-状态：待单独设计；不纳入 Todo 144 本次会话库 hotfix。
+Status: a ser projetado separadamente; não faz parte do hotfix de session store da sessão do Todo 144.
 
-2026-09-14 用户讨论改动规模后确认先完成会话库范围。
-Host 部分 Repo 在服务发布前同步打开或迁移 tasks-index.sqlite，届时会话库状态服务尚不可用。
-必须先设计状态提供方、数据库执行线程、依赖服务的准入顺序、后台 scheduler/bot 启动以及失败重试边界，再实现。
+Em 2026-09-14, após a discussão sobre a escala da alteração, ficou confirmado que o escopo do session store seria concluído primeiro.
+Os Repos da parte do Host abrem ou migram tasks-index.sqlite sincronamente antes da publicação do serviço; nesse momento o serviço de estado do session store ainda não está disponível.
+É preciso projetar primeiro o provedor de estado, a thread de execução do banco, a ordem de liberação dos serviços dependentes, o scheduler/bot em segundo plano e os limites de retentativa em caso de falha, e só então implementar.
 
-- [ ] 梳理 AutomationRepo、OffPeakTaskRepo、TaskIndexRepo 的初始化和迁移时机。
-- [ ] 决定迁移 Worker 或延迟服务初始化方案；Main 保持调度/透传职责。
-- [ ] SQLite 保持同一物理库的唯一迁移协调者，避免再加 Host 迁移锁。
-- [ ] 服务发布前即可观察阶段；依赖 Repo 的业务只能在事务提交后开放。
-- [ ] 验证多窗口、远端 Host、手机 shared-host、崩溃/重连及失败恢复。
+- [ ] Mapear a inicialização e o momento de migração de AutomationRepo, OffPeakTaskRepo e TaskIndexRepo.
+- [ ] Decidir entre um Worker de migração ou a inicialização adiada de serviços; o Main mantém a responsabilidade de agendamento e repasse.
+- [ ] Manter o SQLite como único coordenador de migração do mesmo banco físico, evitando adicionar outro lock de migração no Host.
+- [ ] A observação da fase é possível antes da publicação do serviço; o negócio que depende dos Repos só é liberado após o commit da transação.
+- [ ] Validar múltiplas janelas, Host remoto, shared-host no celular, crash/reconexão e recuperação de falhas.
 
-会话库和任务索引是不同文件，各自的锁与完成状态不能混用。
+O session store e o índice de tarefas são arquivos diferentes; seus respectivos locks e estados de conclusão não podem ser misturados.

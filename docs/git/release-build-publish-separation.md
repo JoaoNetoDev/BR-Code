@@ -1,10 +1,10 @@
-# Release 构建与发布元数据分离
+# Separação entre build de release e metadados de publicação
 
-## 目的
+## Objetivo
 
-安装包、签名、公证、blockmap 和 Electron Builder 生成的 `latest.yml` 在构建阶段完成。发布日志由 infra 通过 API 直接编辑共享目录中的更新清单；z-code CI 的人工确认只决定是否继续上传/发布，不再读取仓库 changelog 或改写更新清单。
+O pacote instalador, a assinatura, a notarização, o blockmap e o `latest.yml` gerado pelo Electron Builder são concluídos na etapa de build. O log de release é editado pela infra diretamente via API no manifesto de atualização do diretório compartilhado; a confirmação manual do z-code CI apenas decide se o upload/publicação continua, sem ler o changelog do repositório nem reescrever o manifesto de atualização.
 
-## 当前 CI 时序
+## Sequência atual do CI
 
 ```text
 pnpm release（默认 release-it）
@@ -31,25 +31,25 @@ commit/tag
    CDN preload -> gray publish -> stable publish
 ```
 
-`release:approve` 之前不会调用正式 OSS 上传或 release API。安装包保存在 CI runner 共享目录，approve 放行后先执行 validate，校验通过后才由 upload job 读取。
+Antes do `release:approve` não há chamada de upload oficial para o OSS nem à API de release. O instalador fica no diretório compartilhado do runner de CI; após o approve, o validate é executado primeiro e, só com a validação passando, o upload job faz a leitura.
 
-## release-it 边界
+## Limite do release-it
 
-`pnpm release` 只运行 `.release-it.mjs` 中的默认发布能力和 `@release-it/conventional-changelog`：更新版本、维护根目录 `CHANGELOG.md`、创建 release commit/tag 并 push。仓库不再为 release-it 挂载 AI 改写、飞书评审或 `changelogs/vX.Y.Z*.md` 本地生成插件；CI 发布链路也不再消费根目录 `CHANGELOG.md`。
+`pnpm release` executa apenas as capacidades de publicação padrão de `.release-it.mjs` e o `@release-it/conventional-changelog`: atualizar a versão, manter o `CHANGELOG.md` da raiz, criar o commit/tag de release e fazer push. O repositório não monta mais para o release-it plugins de reescrita por IA, revisão pelo Feishu ou geração local de `changelogs/vX.Y.Z*.md`; a cadeia de publicação do CI também não consome mais o `CHANGELOG.md` da raiz.
 
-日志编辑由 infra 负责并直接落到 runner 共享目录中的 `latest.yml`。全部构建完成且 infra 完成日志编辑后，发布负责人通过 `release:approve` 人工门禁放行；随后 `release:validate` 自动统一检查六个平台的版本、非空日志、update YAML 引用、文件大小和摘要，并要求 remote manifest 精确包含 `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64` 四个平台且内部 `platformArch` 与文件名一致。只有完整性检查通过，各平台 upload job 才会读取共享目录中的最新内容上传。
+A edição do log é responsabilidade da infra e vai direto para o `latest.yml` no diretório compartilhado do runner. Depois que todos os builds terminam e a infra conclui a edição do log, o responsável pela publicação faz a liberação manual pelo gate `release:approve`; em seguida `release:validate` verifica de forma unificada a versão dos seis plataformas, o log não vazio, as referências do update YAML, o tamanho dos arquivos e os digests, exigindo que o remote manifest contenha exatamente as quatro plataformas `darwin-arm64`, `darwin-x64`, `linux-arm64` e `linux-x64` e que o `platformArch` interno corresponda ao nome do arquivo. Só com a verificação de integridade passando os upload jobs de cada plataforma leem o conteúdo mais recente do diretório compartilhado para fazer o upload.
 
-`build:remote:assets` 每次收集当前版本前只清理共享发布根目录中的旧 `manifest-*.json` 和 `components/`，不触碰并行平台构建写入的 `macos-*`、`windows-*`、`linux-*` 目录。这样同版本重试不会把上一次的 remote manifest 或组件混入当前候选集合。
+`build:remote:assets` limpa, a cada coleta da versão atual, apenas os antigos `manifest-*.json` e `components/` da raiz compartilhada de publicação, sem tocar nos diretórios `macos-*`, `windows-*` e `linux-*` escritos pelas builds de plataforma em paralelo. Assim, um retry da mesma versão não mistura o remote manifest ou os componentes da rodada anterior no conjunto candidato atual.
 
-## 关键文件
+## Arquivos-chave
 
-- `scripts/ci-collect-artifacts.mjs`：只收集并修正基础制品，不再注入 release notes。
-- `scripts/validate-release-artifacts.mjs`：approve 放行后、upload 前校验六个平台和 remote assets 的完整性。
-- `scripts/upload-oss.sh`：正式上传使用 `RELEASE_ARTIFACT_MODE=publish`，从共享目录读取 infra 编辑后的清单；缺少顶层 `releaseNotes: |-` 时 fail-closed。
-- `.gitlab/ci/50-release.yml`：`release:approve` 确认 infra 日志已准备完成，随后 `release:validate` 提供统一完整性 gate，各平台 upload job 依赖 validate。
+- `scripts/ci-collect-artifacts.mjs`: apenas coleta e corrige os artefatos básicos, sem injetar release notes.
+- `scripts/validate-release-artifacts.mjs`: após a liberação do approve e antes do upload, valida a integridade das seis plataformas e dos remote assets.
+- `scripts/upload-oss.sh`: o upload oficial usa `RELEASE_ARTIFACT_MODE=publish` e lê do diretório compartilhado o manifesto editado pela infra; falta o `releaseNotes: |-` de nível superior resulta em fail-closed.
+- `.gitlab/ci/50-release.yml`: `release:approve` confirma que o log da infra está pronto e, em seguida, `release:validate` fornece o gate de integridade unificado; os upload jobs de cada plataforma dependem do validate.
 
-## 失败与重试
+## Falhas e retries
 
-- infra 尚未向共享目录中的 `latest.yml` 写入日志：不得点击 approve；若提前放行，validate 阶段拒绝发布。
-- 版本、引用文件、size、sha512、remote manifest 四平台集合或 remote component 任一不一致：validate 阶段拒绝发布。
-- 单个平台上传失败：不需要重新构建；从同一共享候选目录重试对应 upload job。
+- A infra ainda não escreveu o log no `latest.yml` do diretório compartilhado: não é possível clicar em approve; uma liberação antecipada faz a etapa de validate recusar a publicação.
+- Divergência em versão, arquivo referenciado, size, sha512, conjunto de quatro plataformas do remote manifest ou remote component: a etapa de validate recusa a publicação.
+- Falha de upload em uma única plataforma: não é preciso reconstruir; basta tentar novamente o upload job correspondente a partir do mesmo diretório candidato compartilhado.

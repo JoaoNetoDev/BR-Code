@@ -1,21 +1,21 @@
-# Root Startup Render Block Desktop Boundary
+# Limite Desktop do Root Startup Render Block
 
-## 背景
+## Contexto
 
-`isStartupRenderBlocked` 是桌面端启动保护：React 接管 root 后，等待 tab 恢复、初始 workspace 注入或鉴权状态落定，再展示正式界面。手机 Web 远控进入的是 shared-host attachment 链路，配对加载页已经覆盖 workspace bridge 建立过程；进入 `Root` 后不应该再使用桌面启动阻塞分支。
+`isStartupRenderBlocked` é a proteção de inicialização do desktop: depois que o React assume o root, ele aguarda a restauração das tabs, a injeção do workspace inicial ou a definição do estado de autenticação antes de exibir a interface oficial. O controle remoto web do celular entra pelo caminho de shared-host attachment, e a página de carregamento de pareamento já cobre o processo de estabelecer a workspace bridge; ao entrar no `Root`, não se deve mais usar o ramo de bloqueio de inicialização do desktop.
 
-## 设计
+## Design
 
-- 使用 `RootProps.isDesktop` 作为唯一运行端边界。
-- `Root.tsx` 只在 `isDesktop === true` 时调用 `shouldBlockRootRender(...)` 并进入 `isStartupRenderBlocked` 分支。
-- Web 端、手机 Web 远控端不使用 `isStartupRenderBlocked`。
-- 手机 Web 远控进入 `Root` 后，如果初始 workspace tab 还没有通过 effect 注入完成，`Root` 使用 Web 入口传入的 `initialWorkspaceLoadingFallback` 继续展示“已配对，正在加载工作区...”同款页面，直到 `workspaceShellPath` 出现。
-- 桌面端和普通 Web server 入口不传 `initialWorkspaceLoadingFallback`，不会受手机过渡页影响。
-- `RootStartupLoading` 保持桌面启动壳职责，不引入 viewport 或 user agent 判断。
+- Usar `RootProps.isDesktop` como única fronteira de plataforma em execução.
+- `Root.tsx` só chama `shouldBlockRootRender(...)` e entra no ramo `isStartupRenderBlocked` quando `isDesktop === true`.
+- O lado Web e o controle remoto web do celular não usam `isStartupRenderBlocked`.
+- Depois que o controle remoto web do celular entra no `Root`, se a tab inicial do workspace ainda não tiver sido injetada pelo effect, o `Root` usa o `initialWorkspaceLoadingFallback` passado pela entrada Web para continuar exibindo a mesma página "pareado, carregando o workspace..." até que `workspaceShellPath` apareça.
+- O desktop e a entrada comum do Web server não passam `initialWorkspaceLoadingFallback` e não são afetados pela página de transição do celular.
+- `RootStartupLoading` mantém a responsabilidade de casca de inicialização do desktop, sem introduzir verificação de viewport ou de user agent.
 
-## 验证
+## Verificação
 
-- 新增 Root SSR 测试覆盖桌面阻塞启动时渲染 `data-testid="root-startup-loading"`。
-- 新增 Root SSR 测试覆盖 Web 端不调用 `shouldBlockRootRender(...)`。
-- 新增 Root SSR 测试覆盖手机 Web 初始 workspace 注入前渲染传入的 loading fallback。
-- 执行 `pnpm typecheck` 和 `pnpm lint`。
+- Novo teste SSR do Root cobrindo a renderização de `data-testid="root-startup-loading"` quando a inicialização do desktop é bloqueada.
+- Novo teste SSR do Root cobrindo que o lado Web não chama `shouldBlockRootRender(...)`.
+- Novo teste SSR do Root cobrindo a renderização do loading fallback passado antes da injeção do workspace inicial no controle remoto web do celular.
+- Executar `pnpm typecheck` e `pnpm lint`.

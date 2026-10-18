@@ -1,40 +1,55 @@
-# Human Intervention Notifications
+# Notificações de Intervenção Humana
 
-## 背景
+## Contexto
 
-ZCode 任务在后台运行时，如果进入需要用户介入的阻塞态，用户可能不会主动回到窗口查看。桌面通知需要覆盖这些阻塞态，避免任务长期停在等待确认。
+Quando uma tarefa do ZCode roda em segundo plano e entra em um estado bloqueante que exige intervenção do usuário,
+este talvez não volte ativamente à janela para verificar. A notificação desktop precisa cobrir esses estados
+bloqueantes, evitando que a tarefa fique parada por muito tempo esperando confirmação.
 
-## 范围
+## Escopo
 
-需要触发通知的人工介入事件：
+Eventos de intervenção humana que devem disparar notificação:
 
-- `permission_request`：普通工具权限确认。
-- `elicitation_request`：用户输入/选择类确认，包括 `AskUserQuestion`、`ExitPlanMode` 计划确认，以及协议层 `interaction/requestUserInput` 映射出的通用问答。
+- `permission_request`: confirmação de permissão comum de ferramenta.
+- `elicitation_request`: confirmações de entrada/escolha do usuário, incluindo confirmação de plano do
+  `AskUserQuestion` e do `ExitPlanMode`, além das perguntas e respostas genéricas mapeadas pelo `interaction/requestUserInput`
+  na camada de protocolo.
 
-不在本轮触发通知的事件：
+Eventos que não disparam notificação nesta rodada:
 
-- `task_complete` / `task_error`：已有独立完成/失败通知。
-- `turn_steer_queued`、`runtime.pendingCommands`、queued prompt：表示未来输入或 host 队列，不是当前任务等待用户确认。
-- `apiRetry` / provider retry：自动重试状态，不需要用户动作。
-- `backgroundBashJobs`：后台命令运行态，不表示任务阻塞在用户输入。
-- `providerRuntimeHeaders.request`：当前产品语义是模型请求前自动刷新 runtime header；官方版本安全校验中的交互是否需要系统通知另行决策。
+- `task_complete` / `task_error`: já existe uma notificação independente de conclusão/falha.
+- `turn_steer_queued`, `runtime.pendingCommands`, queued prompt: representam entrada futura ou fila do host, e não uma
+  tarefa aguardando confirmação do usuário no momento.
+- `apiRetry` / retry de provider: estado de nova tentativa automática, sem necessidade de ação do usuário.
+- `backgroundBashJobs`: estado de execução de comandos em segundo plano, que não indica tarefa bloqueada em entrada do
+  usuário.
+- `providerRuntimeHeaders.request`: a semântica atual do produto é renovar automaticamente o runtime header antes da
+  requisição do modelo; se a interação na verificação de segurança da versão oficial precisa de notificação do sistema
+  será decidido à parte.
 
-## 通知边界
+## Limites da notificação
 
-- live stream 收到 `permission_request` 或 `elicitation_request` 时，renderer 通过 `IPlatformService.showTaskNotification` 发送本地化通知。
-- 通知点击只负责激活任务所在 workspace/task，不直接打开或提交弹窗。
-- 通知 dedupe 使用 `taskId + status + requestId`，同一请求不会重复弹；permission 和 elicitation 使用不同 `status`，便于排查和未来统计。
-- `web-remote-replayable` snapshot 恢复出的 `pendingElicitations` 只恢复 UI 状态，不主动补发系统通知，避免断线恢复时把旧阻塞请求重复通知。
-- 桌面 `desktop-continuous` 主链路继续只消费 live event，不引入 replayable 恢复语义。
+- quando o live stream recebe `permission_request` ou `elicitation_request`, o renderer envia uma notificação localizada
+  via `IPlatformService.showTaskNotification`.
+- clicar na notificação apenas ativa o workspace/task ao qual ela pertence, sem abrir nem enviar o diálogo diretamente.
+- o dedupe da notificação usa `taskId + status + requestId`, de modo que a mesma requisição não gere mais de uma notificação;
+  permission e elicitation usam `status` diferentes, facilitando a investigação e futuras estatísticas.
+- os `pendingElicitations` restaurados de um snapshot `web-remote-replayable` apenas recuperam o estado de UI, sem
+  reenviar ativamente notificações do sistema, evitando repetir a notificação de requisições antigas bloqueadas após a
+  reconexão.
+- o fluxo principal desktop `desktop-continuous` continua consumindo apenas live events, sem introduzir semântica de
+  restauração replayable.
 
-## UI 列表语义
+## Semântica do badge na lista de tarefas
 
-任务列表的“等待确认”badge 表示任务存在人工介入阻塞请求，包含 permission 和 elicitation。该 badge 不点亮未读蓝点；未读仍只表示后台终态或内容更新未查看。
+O badge "aguardando confirmação" da lista de tarefas indica que a tarefa tem requisições de intervenção humana
+bloqueantes, incluindo permission e elicitation. Esse badge não acende o ponto azul de não lido; não lido continua
+significando apenas um estado final em segundo plano ou atualização de conteúdo ainda não visualizada.
 
-## 验证点
+## Pontos de verificação
 
-- 前台/后台 `permission_request` 继续发 `permission_request` 通知。
-- 前台/后台 `elicitation_request` 发 `elicitation_request` 通知。
-- AskUserQuestion 和 ExitPlanMode 通过 `elicitation_request` 共享同一通知通路。
-- 任务列表普通视图和 grouped 视图在存在 elicitation 时显示“等待确认”。
-- replayable snapshot 恢复 `pendingElicitations` 不额外触发系统通知。
+- `permission_request` em primeiro plano / segundo plano continua enviando a notificação `permission_request`.
+- `elicitation_request` em primeiro plano / segundo plano envia a notificação `elicitation_request`.
+- AskUserQuestion e ExitPlanMode compartilham o mesmo caminho de notificação via `elicitation_request`.
+- a visão normal e a visão agrupada da lista de tarefas exibem "aguardando confirmação" quando existe uma elicitation.
+- a restauração de `pendingElicitations` a partir de um snapshot replayable não dispara notificações do sistema extras.

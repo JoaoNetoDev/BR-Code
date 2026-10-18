@@ -1,31 +1,31 @@
-# ZAI 后端 OAuth Token 改造设计
+# Design da Redesenho do Token OAuth do Backend ZAI
 
-## 背景
+## Contexto
 
-当前桌面端已经有多 provider OAuth 架构，ZAI 登录通过 `ZaiProviderAdapter` 直接向三方 ZAI token 与 userinfo 接口换取 access token。新需求要求桌面端只负责打开 ZAI 授权页并接收 deep link 回调；拿到 `code` 和 `state` 后调用自有后端 `https://zcode.z.ai/api/v1/oauth/token`，由后端完成向 z.ai 换 token、拉取 userinfo、创建用户并签发 JWT。
+O desktop já possui uma arquitetura OAuth multi-provider, na qual o login ZAI, por meio do `ZaiProviderAdapter`, troca diretamente um access token chamando as interfaces de token e userinfo do ZAI de terceiros. A nova exigência determina que o desktop seja responsável apenas por abrir a página de autorização do ZAI e receber o callback por deep link; após obter o `code` e o `state`, ele chama o backend próprio `https://zcode.z.ai/api/v1/oauth/token`, e o backend se encarrega de trocar o token junto ao z.ai, buscar o userinfo, criar o usuário e emitir o JWT.
 
-本次改造目标是最终把后端返回的 JWT 保存为 ZAI 登录 token，同时保留现有 UI、deep link、凭据仓储和多 provider service 架构。
+O objetivo desta mudança é, em última instância, salvar o JWT retornado pelo backend como token de login do ZAI, preservando a UI atual, o deep link, o repositório de credenciais e a arquitetura de service multi-provider.
 
-## 范围
+## Escopo
 
-- 只改 ZAI OAuth provider 协议契约。
-- 不改 BigModel 登录行为。
-- 不新增 UI 入口，不调整登录弹窗视觉。
-- 不新增独立登录 service，继续复用 `OAuthService` 与 provider adapter 机制。
+- Alterar apenas o contrato de protocolo do provider OAuth do ZAI.
+- Não alterar o comportamento de login do BigModel.
+- Não adicionar nova entrada de UI nem ajustar o visual do diálogo de login.
+- Não criar um service de login separado; continuar reutilizando o `OAuthService` e o mecanismo de provider adapter.
 
-## 数据流
+## Fluxo de Dados
 
-1. UI 调用 `oauthService.startOAuth("zai")`。
-2. `ZaiProviderAdapter.buildAuthorizeUrl` 生成授权 URL：
+1. A UI chama `oauthService.startOAuth("zai")`.
+2. `ZaiProviderAdapter.buildAuthorizeUrl` gera a URL de autorização:
    - `https://chat.z.ai/api/oauth/authorize`
    - `client_id=client_P8X5CMWmlaRO9gyO-KSqtg`
    - `redirect_uri=zcode://zai-auth/callback`
    - `state=<random-state>`
-3. 桌面端通过平台层打开浏览器。
-4. 用户授权后，系统 deep link 回到：
+3. O desktop abre o navegador por meio da camada de plataforma.
+4. Após a autorização do usuário, o deep link do sistema retorna a:
    - `zcode://zai-auth/callback?code=<code>&state=<state>`
-5. `OAuthService.handleCallback` 校验 pending state 后调用 ZAI adapter。
-6. ZAI adapter 调用后端：
+5. `OAuthService.handleCallback` valida o state pendente e então chama o adapter do ZAI.
+6. O adapter do ZAI chama o backend:
 
 ```http
 POST https://zcode.z.ai/api/v1/oauth/token
@@ -38,7 +38,7 @@ Content-Type: application/json
 }
 ```
 
-7. 后端返回：
+7. O backend retorna:
 
 ```json
 {
@@ -57,57 +57,57 @@ Content-Type: application/json
 }
 ```
 
-8. 客户端保存：
+8. O cliente salva:
    - `oauth:zai:access_token` = `data.token`
-   - `oauth:zai:user_info` = 映射后的用户信息
+   - `oauth:zai:user_info` = as informações de usuário mapeadas
    - `oauth:active_provider` = `zai`
 
-## 协议映射
+## Mapeamento de Protocolo
 
-ZAI provider 配置：
+Configuração do provider ZAI:
 
 - `authorizeUrl`: `https://chat.z.ai/api/oauth/authorize`
 - `tokenUrl`: `https://zcode.z.ai/api/v1/oauth/token`
-- `userinfoUrl`: 保留配置字段但本次登录成功路径不再调用
-- `appId`: 使用 `client_P8X5CMWmlaRO9gyO-KSqtg`
+- `userinfoUrl`: o campo de configuração é mantido, mas não é mais chamado no caminho de sucesso deste login
+- `appId`: usa `client_P8X5CMWmlaRO9gyO-KSqtg`
 - `redirectUri`: `zcode://zai-auth/callback`
-- `legacyRedirectUri`: 继续保留 `zcode://oauth/callback` 兼容旧 deep link 解析能力
+- `legacyRedirectUri`: continua mantendo `zcode://oauth/callback` para compatibilidade com a análise de deep link antigo
 
-Token 映射：
+Mapeamento de token:
 
-- `OAuthTokenSet.accessToken` 使用 `data.token`
-- `OAuthTokenSet.expiresAt` 使用 `now() + data.expires_in * 1000`
-- 后端当前未提供 refresh token，本次不写 `refreshToken`
+- `OAuthTokenSet.accessToken` usa `data.token`
+- `OAuthTokenSet.expiresAt` usa `now() + data.expires_in * 1000`
+- O backend atualmente não fornece refresh token; desta vez `refreshToken` não é escrito
 
-User 映射：
+Mapeamento de usuário:
 
-- `OAuthUserProfile.id` 使用 `data.user.user_id`
-- `OAuthUserProfile.username` 优先使用 `data.user.email`，缺失时回落为 user id
-- `OAuthUserProfile.displayName` 同 username
-- `OAuthUserProfile.avatarUrl` 使用 `data.user.avatar`
+- `OAuthUserProfile.id` usa `data.user.user_id`
+- `OAuthUserProfile.username` prioriza `data.user.email`, com fallback para o user id quando ausente
+- `OAuthUserProfile.displayName` é igual a username
+- `OAuthUserProfile.avatarUrl` usa `data.user.avatar`
 
-## 错误处理
+## Tratamento de Erros
 
-- HTTP 非 2xx 继续由 `readApiJson` 抛出 `ApiError`。
-- 业务响应 `code !== 0` 视为 token 交换失败，错误消息优先使用 `msg`。
-- 响应缺少 `data.token` 时抛出明确错误，避免保存空登录态。
-- 响应缺少 `data.user` 不阻断登录，沿用现有 fallback profile；原因是本次核心目标是拿到后端 JWT，用户展示信息可后续补齐。
+- Resposta HTTP diferente de 2xx continua sendo lançado por `readApiJson` como `ApiError`.
+- Resposta de negócio com `code !== 0` é considerada falha na troca do token, e a mensagem de erro prioriza `msg`.
+- Quando a resposta não contém `data.token`, um erro explícito é lançado para evitar salvar um estado de login vazio.
+- A ausência de `data.user` não bloqueia o login; o fallback profile existente é reutilizado, porque o objetivo central desta mudança é obter o JWT do backend, e as informações de exibição do usuário podem ser complementadas depois.
 
-## 测试
+## Testes
 
-更新 `packages/services/test/oauthService.test.ts`：
+Atualizar `packages/services/test/oauthService.test.ts`:
 
-- ZAI 授权 URL 使用新授权地址和不变 client id。
-- ZAI token 请求使用 JSON body：`code`、`redirect_uri`、`state`。
-- ZAI 登录成功后保存 `data.token` 到 `oauth:zai:access_token`。
-- `expires_in` 被换算为 `expiresAt`，后续可用于过期判断扩展。
-- `code !== 0` 和缺少 `data.token` 会失败。
+- A URL de autorização do ZAI usa o novo endereço de autorização e o client id inalterado.
+- A requisição de token do ZAI usa body JSON: `code`, `redirect_uri`, `state`.
+- Após o login bem-sucedido do ZAI, `data.token` é salvo em `oauth:zai:access_token`.
+- `expires_in` é convertido para `expiresAt`, podendo ser usado depois para estender a verificação de expiração.
+- `code !== 0` e a ausência de `data.token` resultam em falha.
 
-最终验证必须执行：
+A verificação final deve executar:
 
 - `pnpm typecheck`
 - `pnpm lint`
 
-## 文档
+## Documentação
 
-功能完成后更新 `docs/oauth/oauth-multi-provider-implementation.md`，记录 ZAI 登录已经改为后端 JWT token 交换链路。
+Após a conclusão da funcionalidade, atualizar `docs/oauth/oauth-multi-provider-implementation.md`, registrando que o login ZAI passou a usar a cadeia de troca de token JWT do backend.

@@ -1,39 +1,36 @@
-# mise 开发运行时
+# Runtime de desenvolvimento com mise
 
-## 背景
+## Contexto
 
-仓库根目录和 `apps/zcode-cli` 都依赖 Node / pnpm 版本一致性。此前根目录只在 `package.json` 的 `engines.node` 标注 `>=24.0.0`，而 Agent 子工程通过 `.node-version` 和 `packageManager` 固定到 Node `24.14.0`、pnpm `10.33.2`。新机器或新 worktree 容易先装错运行时，再在 Electron、Vite 或 Agent 构建阶段暴露问题。
+A raiz do repositório e `apps/zcode-cli` dependem de consistência entre as versões de Node / pnpm. Até agora a raiz só marcava `>=24.0.0` em `engines.node` do `package.json`, enquanto o subprojeto do Agent fixava Node `24.14.0` e pnpm `10.33.2` via `.node-version` e `packageManager`. Em uma máquina nova ou um worktree novo é fácil instalar o runtime errado primeiro e só perceber o problema nas etapas de build do Electron, do Vite ou do Agent.
 
-## 目标
+## Objetivo
 
-- 进入仓库后可以通过 `mise install` 准备开发运行时。
-- `mise run dev` 默认启动桌面测试环境，便于本地开发。
-- `mise run dev` 使用独立的数据根目录，避免与正式安装包共享账号凭据、设置和任务索引。
-- 常用 Web、桌面生产环境、远控调试和校验命令都有稳定别名。
-- 不改变现有 pnpm scripts 的真实执行逻辑，mise 只做版本和入口编排。
-- mise 是可选开发入口，Git pre-push 不要求安装 mise；推送使用当前环境中的 Node / pnpm，详见 [Pre-push Hook](testing/pre-push-hook.md#开发环境与版本管理工具)。
+- Depois de entrar no repositório, preparar o runtime de desenvolvimento com `mise install`.
+- `mise run dev` inicia por padrão o ambiente de testes do desktop, facilitando o desenvolvimento local.
+- `mise run dev` usa uma raiz de dados separada, evitando compartilhar credenciais de conta, configurações e índice de tarefas com o pacote de produção instalado.
+- Os comandos mais usados de Web, desktop de produção, depuração de controle remoto e verificação têm aliases estáveis.
+- Não alterar a lógica real de execução dos scripts pnpm existentes; o mise cuida apenas da orquestração de versões e pontos de entrada.
+- O mise é uma entrada de desenvolvimento opcional e o Git pre-push não exige mise instalado; o push usa o Node / pnpm do ambiente atual, veja [Pre-push Hook](testing/pre-push-hook.md#开发环境与版本管理工具).
 
-## 约定
+## Convenções
 
-- Node 固定为 `24.14.0`，与 `apps/zcode-cli/.node-version` 保持一致。
-- pnpm 固定为 `10.33.2`，与 `apps/zcode-cli/package.json` 的 `packageManager` 保持一致。
-- Electron 安装阶段通过 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 下载，避免首次安装依赖时直连 GitHub release 超时。
-- 任务入口仍调用根目录 `package.json` 中已有脚本，避免 desktop / web / agent 的启动语义分叉。
-- `dev` 任务调用 `pnpm dev:desktop:test`，并注入 `ZCODE_DATA_BASE_DIR=$HOME/.zcode-dev-home`；实际应用数据落到 `$HOME/.zcode-dev-home/.zcode/`。
-- Dev 数据目录不会从正式环境自动复制凭据、设置、任务历史或插件状态；首次启动需要重新登录和配置。
-- `pnpm dev:desktop:test` 本身仍保持原有数据目录语义；隔离只属于 `mise run dev` 入口。
-- 生产环境桌面启动使用 `dev-desktop-prod`，不继承 `dev` 任务的数据目录变量。
-- 若 `$HOME/.zcode/v2/setting.json` 里配置过自定义 `dataBaseDir`，它会经 `applyEarlyDataBaseDirBootstrap()` 覆盖本变量（`setDataBaseDir()` 优先级高于 env）；需要隔离时先清掉该字段。
-- 数据目录隔离不改变 OAuth 回调协议。正式包与 Dev 仍使用 `zcode://`，因此 Dev 登录时应先退出其他 ZCode 实例，避免回调被错误进程接收。
+- Node é fixado em `24.14.0`, consistente com `apps/zcode-cli/.node-version`.
+- pnpm é fixado em `10.33.2`, consistente com o `packageManager` de `apps/zcode-cli/package.json`.
+- A etapa de instalação do Electron baixa por `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`, evitando timeout na conexão direta ao GitHub release ao instalar as dependências pela primeira vez.
+- Os pontos de entrada das tarefas continuam chamando scripts já existentes no `package.json` da raiz, evitando divergência de semântica de inicialização entre desktop / web / agent.
+- A tarefa `dev` chama `pnpm dev:desktop:test` e injeta `ZCODE_DATA_BASE_DIR=$HOME/.zcode-dev-home`; os dados reais do app ficam em `$HOME/.zcode-dev-home/.zcode/`.
+- O diretório de dados Dev não copia automaticamente credenciais, configurações, histórico de tarefas ou estado de plugins do ambiente de produção; no primeiro arranque é preciso logar e configurar de novo.
+- O `pnpm dev:desktop:test` em si mantém a semântica original de diretório de dados; o isolamento pertence apenas à entrada `mise run dev`.
+- O início do desktop em produção usa `dev-desktop-prod`, que não herda a variável de diretório de dados da tarefa `dev`.
+- Se um `dataBaseDir` customizado estiver configurado em `$HOME/.zcode/v2/setting.json`, ele sobrescreve esta variável por `applyEarlyDataBaseDirBootstrap()` (`setDataBaseDir()` tem prioridade sobre o env); para isolar, remova antes esse campo.
+- O isolamento do diretório de dados não altera o protocolo de callback OAuth. O pacote de produção e o Dev continuam usando `zcode://`, portanto ao fazer login no Dev é preciso antes sair de outras instâncias do ZCode, para evitar que o callback seja recebido pelo processo errado.
 
-## 与 3996dcbdb3 回滚的关系
+## Relação com o rollback de 3996dcbdb3
 
-`3996dcbdb3`（revert storage-profile 系列）撤掉了源码 Desktop 按 `app.isPackaged=false`
-自动选 `$HOME/.zcode-dev/` 的能力，也顺带撤掉了本入口的隔离。现在 storage profile 不再
-参与，mise 入口注入 `ZCODE_DATA_BASE_DIR` 是唯一的隔离手段；`$HOME/.zcode-dev/` 属于
-废弃目录，不再被任何启动路径使用。
+`3996dcbdb3` (revert da série storage-profile) removeu do Desktop a capacidade de escolher automaticamente `$HOME/.zcode-dev/` com base em `app.isPackaged=false` e, junto, removeu o isolamento desta entrada. Como o storage profile não participa mais, a injeção de `ZCODE_DATA_BASE_DIR` pela entrada mise é o único meio de isolamento; `$HOME/.zcode-dev/` é um diretório obsoleto e não é mais usado por nenhum caminho de inicialização.
 
-## 验证
+## Verificação
 
 - `mise install`
 - `mise run bootstrap`

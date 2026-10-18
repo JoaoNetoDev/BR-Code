@@ -1,36 +1,35 @@
-# Plugin Management Lifecycle E2E Coverage Matrix
+# Matriz de Cobertura E2E do Ciclo de Vida de Gerenciamento de Plugins
 
-本矩阵追踪 [Plugin Management Lifecycle Case Catalog](../plugin-management-lifecycle-case-catalog.md)
-中的候选 case 从 manual review 到三平台正式门禁的状态。`manual-review` 不等于默认质量门禁覆盖。
+Esta matriz acompanha o status dos cases candidatos do [Plugin Management Lifecycle Case Catalog](../plugin-management-lifecycle-case-catalog.md), da revisão manual até o gate formal nas três plataformas. `manual-review` não equivale à cobertura pelo gate de qualidade padrão.
 
-## Coverage status
+## Status de cobertura
 
-| Case                                      | Spec abbreviation | UI automation | Runtime/storage evidence                                          | Human review | Formal spec | Linux Docker | macOS CI | Windows CI |
-| ----------------------------------------- | ----------------- | ------------- | ----------------------------------------------------------------- | ------------ | ----------- | ------------ | -------- | ---------- |
-| `PLM-LC-001` discovery/navigation         | `PD`              | targeted pass | UI state + screenshot captured                                    | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-002` presentation                 | `PP`              | targeted pass | DOM/a11y/overflow + screenshot captured                           | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-003` personal main lifecycle      | `PM`              | targeted pass | overview/list/storage + update badge/inline entry + v2 Skill/MCP provider evidence pass | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-004` persistence/local visibility | `PV`              | targeted pass | restart/config/enabled/workspace B evidence pass                  | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-005` orphan/reassociate           | `PO`              | targeted pass | source/config/enabled + all update entries (menu/detail/badge/inline) absent + fresh-session Skill evidence pass | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-006` builtin suppress/restore     | `PB`              | targeted pass | suppression/config/data + Catalog/cache preservation + restart evidence pending | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-007` local official CDN           | `PC`              | targeted pass | loopback HTTP ZIP/cache/overview evidence pass                    | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-007b` real CDN smoke              | `PCS`             | not run       | not captured                                                      | pending      | never       | never        | never    | never      |
-| `PLM-LC-008` recoverable failures         | `PF`              | targeted pass | source/refresh/describe/install/update preservation evidence pass | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-009` inline smoke                 | `PI`              | targeted pass | UI/list + fresh-session Skill invocation evidence pass            | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-010` secret env/agent projection  | `PEA`             | targeted pass | MCP resolved marker + no-secret capture + one canonical agent row + Electron `capturePage()` video | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-011` no-Git GitHub Archive        | `PGA`             | targeted pass | real Claude Marketplace/plugin HTTP + missing-Git diagnostic; run `desktop-e2e-20260806033745155-p99439-e61ceea7b4c68fcf` | pending      | never       | never        | never    | never      |
-| `PLM-LC-012` isolated refresh/atomic cache | `PRA`             | not run       | partial refresh + persisted failure + rollback evidence pending    | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-014` builtin uninstall/detail parity | `PBD`           | not run       | describe/components + suppression/runtime absence + cache/manifest unchanged pending | pending | blocked | blocked | blocked | blocked |
-| `PLM-LC-015` bundled install ownership   | `PBO`              | not run       | bundled restore vs CDN Marketplace ownership evidence pending     | pending      | blocked     | blocked      | blocked  | blocked    |
-| `PLM-LC-016` seed/cache/runtime separation | `PBS`            | not run       | filesystem/SEA seed, suppressed discovery, describe and self-heal evidence pending | pending | blocked | blocked | blocked | blocked |
-| `PLM-LC-017` installed row menu layout   | `PML`             | targeted pass | workspace-override row menu single-line text + screenshot         | pending      | blocked     | blocked      | blocked  | blocked    |
+| Case                                      | Abreviação da spec | Automação de UI | Evidência de runtime/storage                                          | Revisão humana | Spec formal | Linux Docker | macOS CI | Windows CI |
+| ----------------------------------------- | ----------------- | -------------- | --------------------------------------------------------------------- | -------------- | ----------- | ------------ | -------- | ---------- |
+| `PLM-LC-001` discovery/navigation         | `PD`              | passagem direcionada | estado de UI + screenshot capturado                                    | pending        | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-002` presentation                 | `PP`              | passagem direcionada | DOM/a11y/overflow + screenshot capturado                               | pending        | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-003` personal main lifecycle      | `PM`              | passagem direcionada | overview/list/storage + update badge/inline entry + evidência de provider Skill/MCP v2 aprovada | pending | blocked | blocked | blocked | blocked |
+| `PLM-LC-004` persistence/local visibility | `PV`              | passagem direcionada | evidências de restart/config/enabled/workspace B aprovadas            | pending        | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-005` orphan/reassociate           | `PO`              | passagem direcionada | source/config/enabled + ausência de todas as entradas de update (menu/detail/badge/inline) + evidência de Skill em sessão nova aprovada | pending | blocked | blocked | blocked | blocked |
+| `PLM-LC-006` builtin suppress/restore     | `PB`              | passagem direcionada | evidências de suppression/config/data + preservação de Catalog/cache + restart pendentes | pending | blocked | blocked | blocked | blocked |
+| `PLM-LC-007` local official CDN           | `PC`              | passagem direcionada | evidências de loopback HTTP ZIP/cache/overview aprovadas              | pending        | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-007b` real CDN smoke              | `PCS`             | não executado    | não capturado                                                          | pending        | never       | never        | never    | never      |
+| `PLM-LC-008` recoverable failures         | `PF`              | passagem direcionada | evidências de source/refresh/describe/install/update preservation aprovadas | pending    | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-009` inline smoke                 | `PI`              | passagem direcionada | evidências de UI/list + invocação de Skill em sessão nova aprovadas  | pending        | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-010` secret env/agent projection  | `PEA`             | passagem direcionada | marcador MCP resolvido + captura sem secrets + uma linha canônica de agent + vídeo de `capturePage()` do Electron | pending | blocked | blocked | blocked | blocked |
+| `PLM-LC-011` no-Git GitHub Archive        | `PGA`             | passagem direcionada | Claude Marketplace/plugin HTTP reais + diagnóstico de Git ausente; executar `desktop-e2e-20260806033745155-p99439-e61ceea7b4c68fcf` | pending | never | never | never | never |
+| `PLM-LC-012` isolated refresh/atomic cache | `PRA`             | não executado    | refresh parcial + falha persistida + rollback pendentes                | pending        | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-014` builtin uninstall/detail parity | `PBD`           | não executado    | describe/components + suppression/runtime absence + cache/manifest inalterado pendentes | pending | blocked | blocked | blocked | blocked |
+| `PLM-LC-015` bundled install ownership   | `PBO`             | não executado    | evidências de bundled restore vs CDN Marketplace ownership pendentes  | pending        | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-016` seed/cache/runtime separation | `PBS`           | não executado    | filesystem/SEA seed, discovery suprimido, describe e self-heal pendentes | pending    | blocked     | blocked      | blocked  | blocked    |
+| `PLM-LC-017` installed row menu layout   | `PML`             | passagem direcionada | row menu de workspace-override em linha única + screenshot            | pending        | blocked     | blocked      | blocked  | blocked    |
 
-## Candidate spec paths
+## Caminhos candidatos de spec
 
-Todo103 新增/迁接候选：PLM-LC-018/019 对应 `plugins/manual-review/pending/plugin-store-auto-refresh-{throttled,on-enter}.test.ts`；Pro `desktop-e2e-20260909-152018-653` 两例通过。PLM-LC-020 对应 `plugins/manual-review/pending/plugin-subagent-override-cold.test.ts`，Pro `desktop-e2e-20260909-152419-828` 冷启动 child/父 continuation 请求验证通过，case-local fixture check 通过。三项均未人工晋级；019 保持公网 smoke、不进入正式 CI。
+Novos/migrados no Todo103: PLM-LC-018/019 correspondem a `plugins/manual-review/pending/plugin-store-auto-refresh-{throttled,on-enter}.test.ts`; os dois casos passaram no Pro `desktop-e2e-20260909-152018-653`. PLM-LC-020 corresponde a `plugins/manual-review/pending/plugin-subagent-override-cold.test.ts`, com verificação de requisições de child cold-start/continuação do pai passando no Pro `desktop-e2e-20260909-152419-828`, e a verificação de fixture local do case passando. Nenhum dos três foi promovido manualmente; 019 permanece como smoke de rede pública e não entra no CI formal.
 
-| Abbreviation | Pending spec                                                                     |
-| ------------ | -------------------------------------------------------------------------------- |
+| Abreviação | Spec pendente                                                             |
+| ------------ | ------------------------------------------------------------------------- |
 | `PD` / `PP`  | `plugins/manual-review/pending/plugin-management-discovery-presentation.test.ts` |
 | `PM`         | `plugins/manual-review/pending/plugin-management-personal-lifecycle.test.ts`     |
 | `PV` / `PO`  | `plugins/manual-review/pending/plugin-management-persistence-source.test.ts`     |
@@ -46,87 +45,64 @@ Todo103 新增/迁接候选：PLM-LC-018/019 对应 `plugins/manual-review/pendi
 | `PBS`        | `plugins/manual-review/pending/plugin-management-seed-runtime-separation.test.ts` |
 | `PML`        | `plugins/manual-review/pending/plugin-management-installed-menu-layout.test.ts`   |
 
-## Latest targeted verification
+## Última verificação direcionada
 
-2026-07-15 已在 macOS 上逐个运行上述 `PD/PP`、`PM`、`PV/PO`、`PB/PI`、`PC`、`PF`
-pending spec，均通过。这些 spec 不得并行共享 E2E HOME；允许同一兼容批次串行运行、各用例隔离 HOME 并共享构建。
-截图与 provider capture 已生成，但尚未完成人工产品审核，因此本表不会把
-任何 case 标成 `formal`，也不会运行 promotion apply、Docker admission 或正式 CI preset。
+Em 2026-07-15, as pending specs `PD/PP`, `PM`, `PV/PO`, `PB/PI`, `PC` e `PF` acima foram executadas individualmente no macOS, todas passando. Essas specs não podem compartilhar o HOME de E2E em paralelo; é permitido executar em série no mesmo lote compatível, com HOME isolado por caso e build compartilhado.
 
-2026-07-20 已在 macOS 上独立运行 `PEA` pending spec 并通过（run
-`desktop-e2e-20260720040616896-p59191-dfc1ae47585cbcf6`）：插件安装详情显示一个 MCP 与一个
-agent，Subagents 页面只出现一个规范化插件资源，真实 MCP tool call 返回 resolved marker，provider
-capture 与运行日志均不含 synthetic secret。Electron `webContents.capturePage()` 录制生成 2400×1600、
-7 秒、28 帧的 VP9 WebM；关键截图与视频已生成，但仍等待人工产品审核。
+Screenshots e capturas de provider foram gerados, mas a revisão manual de produto ainda não foi concluída; portanto, esta tabela não marca nenhum case como `formal` e não executa promotion apply, Docker admission nem preset de CI formal.
 
-2026-08-06 已在 macOS 上独立运行 `PGA` pending spec 并通过（run
-`desktop-e2e-20260806033745155-p99439-e61ceea7b4c68fcf`）：Agent Git binary 指向不存在的绝对
-路径，非 GitHub Git 来源返回 `plugin_git_unavailable`；随后通过 GitHub `zipball/HEAD` 下载真实
-Anthropic Claude Marketplace，并按目录中的固定 SHA 安装 `aikido`。Marketplace 与安装缓存均无
-`.git`，安装记录保留 URL/SHA，最终 discover 到插件 MCP 组件。该公网 smoke 仍只用于 manual review，
-不会晋升为正式 CI 门禁。
+Em 2026-07-20, a pending spec `PEA` foi executada de forma independente no macOS e passou (run `desktop-e2e-20260720040616896-p59191-dfc1ae47585cbcf6`): os detalhes de instalação do plugin mostram um MCP e um agent, a página de Subagents exibe apenas um recurso de plugin normalizado, a chamada real de MCP tool retorna o marcador resolvido, e as capturas de provider e os logs de execução não contêm secrets sintéticos. A gravação via `webContents.capturePage()` do Electron gerou um WebM VP9 de 2400×1600, 7 segundos e 28 quadros; screenshots e vídeos principais foram gerados, mas ainda aguardam revisão manual de produto.
 
-2026-08-21 在 Orca 隔离 worktree 完成 Catalog/Runtime 分离的定向回归：Bootstrap 插件生命周期
-测试 33/33、Adapters 插件测试 74/74、UI listing/card 测试 20/20；根目录 `pnpm typecheck`
-与 `pnpm lint` 通过，lint 仅保留既有 warning。正式手工 E2E（PBD/PBO/PBS）仍待独立隔离 HOME
-运行和人工审核，不在本次实现中晋升。
+Em 2026-08-06, a pending spec `PGA` foi executada de forma independente no macOS e passou (run `desktop-e2e-20260806033745155-p99439-e61ceea7b4c68fcf`): o binário Git do Agent aponta para um caminho absoluto inexistente e fontes Git do GitHub retornam `plugin_git_unavailable`; em seguida, o Anthropic Claude Marketplace real foi baixado via `zipball/HEAD` do GitHub e o `aikido` foi instalado pelo SHA fixo no diretório. Marketplace e cache de instalação não possuem `.git`, o registro de instalação mantém URL/SHA e o discovery chega ao componente MCP do plugin. Esse smoke de rede pública continua sendo usado apenas para revisão manual e não será promovido a gate formal de CI.
 
-2026-09-02 为「已安装列表可更新角标 + 行内更新按钮」补充 `PM`/`PO` 断言（角标与行内入口出现 /
-孤立插件不出现），并新增 UI 单测 `packages/ui/test/pluginStoreUpdateEntries.test.ts`（5/5 通过）。
-两个 pending spec 未重新运行：它们仍引用已下线的 `plugin-store-manage`、`plugin-store-installed-row`、
-`plugin-store-check-updates` 选择器（管理视图已并入 Settings → 插件列表 `plugin-settings-plugin-row`），
-需要单独修复后才能再次做 manual review。
+Em 2026-08-21, a regressão direcionada da separação Catalog/Runtime foi concluída em um worktree isolado do Orca: testes de ciclo de vida de plugin no Bootstrap 33/33, testes de plugin de Adapters 74/74, testes de listing/card de UI 20/20; `pnpm typecheck` e `pnpm lint` na raiz passaram, com o lint mantendo apenas os warnings já existentes. O E2E manual formal (PBD/PBO/PBS) ainda aguarda execução com HOME isolado e revisão manual, e não é promovido nesta implementação.
 
-## Admission rules
+Em 2026-09-02, foram adicionadas as asserções de `PM`/`PO` para «badge de atualização na lista de instalados + botão de atualização inline» (o badge e a entrada inline aparecem / não aparecem em plugin órfão), além do novo teste unitário de UI `packages/ui/test/pluginStoreUpdateEntries.test.ts` (5/5 passando). As duas pending specs não foram reexecutadas: elas ainda referenciam os seletores já desativados `plugin-store-manage`, `plugin-store-installed-row` e `plugin-store-check-updates` (a visão de manage foi incorporada a Settings → lista de plugins `plugin-settings-plugin-row`), e precisam de uma correção separada antes de nova revisão manual.
 
-1. Pending spec must have deterministic case-local filesystem/provider fixtures and stable selectors.
-2. Manual run must produce list/detail/manage/error/presentation evidence relevant to its cases.
-3. Human review changes `Human review` to `approved`; only then may promotion move the spec out of pending.
-4. Promoted runtime cases must pass fixture check, common+case isolated replay, and default replay.
-5. Each compatibility group must pass one isolated Docker spec before admission to the `plugins` preset.
-6. The admitted preset must pass on Linux; the same formal spec set must be selected by macOS and Windows CI.
+## Regras de admissão
 
-## Explicit exclusions
+1. A pending spec precisa ter fixtures determinísticos de filesystem/provider locais do case e seletores estáveis.
+2. A execução manual precisa produzir evidências de list/detail/manage/error/presentation relevantes para seus cases.
+3. A revisão humana muda `Human review` para `approved`; somente então a promoção pode mover a spec para fora de pending.
+4. Cases de runtime promovidos precisam passar na verificação de fixture, em replay isolado comum+do case e no replay padrão.
+5. Cada grupo de compatibilidade precisa passar em uma spec Docker isolada antes da admissão ao preset `plugins`.
+6. O preset admitido precisa passar no Linux; o mesmo conjunto formal de specs precisa ser selecionado pelo CI de macOS e de Windows.
 
-- `PLM-BC-001` install cancel, `PLM-BC-002` standalone source diagnose, and `PLM-BC-003` inline
-  uninstall remain bug candidates rather than failing lifecycle cases.
-- Standalone Web、手机 `/remote`、remote workspace plugin sync 与 workspace-scope 安装没有在本矩阵中
-  被标记为 covered。
+## Exclusões explícitas
 
-## PLM-STRIP-CLIP：已安装条角标裁切（2026-09-15）
+- `PLM-BC-001` install cancel, `PLM-BC-002` standalone source diagnose e `PLM-BC-003` inline uninstall permanecem como candidatos a bug, e não como cases de ciclo de vida com falha.
+- Web standalone, `/remote` em celular, sincronização de plugins em remote workspace e instalação em escopo de workspace não foram marcados como covered nesta matriz.
 
-- 用例：`packages/ui/test/browser/manual-review/pending/plugin-installed-strip.test.mjs`，真实 `PluginStoreListView` + 测试动作回调。
-- Chrome/macOS 浏览器 8/8 通过：390/1200px × 中英文 × 明暗主题，验证首末项角标和焦点空间、hover 后命中区域、滚动末尾更新点击、无误开详情及页面横向溢出。原样式复现 top=false / hit=false。
-- 截图：系统临时目录 `zcode-plugin-strip-clipping/`。根 typecheck、desktop typecheck:e2e、lint、architecture 检查通过，已有更新入口单测 5/5。
-- Pending，未晋升；浏览器渲染与点击验证不代表完整 Electron 插件更新、手机真机或 Windows/Linux 验证。
+## PLM-STRIP-CLIP: corte do badge na faixa de instalados (2026-09-15)
 
-## Plugin Creator 与本地化
+- Caso: `packages/ui/test/browser/manual-review/pending/plugin-installed-strip.test.mjs`, com `PluginStoreListView` real + callbacks de ação de teste.
+- Chrome/macOS, navegador: 8/8 passando: 390/1200px × chinês/inglês × tema claro/escuro, validando badge do primeiro e do último item e espaço de foco, hit area após hover, clique de atualização no fim da rolagem, ausência de abertura indevida de detalhes e overflow horizontal da página. O estilo original reproduz top=false / hit=false.
+- Screenshots: diretório temporário do sistema `zcode-plugin-strip-clipping/`. typecheck da raiz, typecheck:e2e do desktop, lint e verificação de arquitetura passaram; o teste unitário existente de entradas de atualização passou 5/5.
+- Pending, não promovido; a validação de renderização e clique no navegador não representa validação completa de atualização de plugin no Electron, em celular real ou em Windows/Linux.
 
-PLM-LC-018/019/020：`plugins/manual-review/pending/plugin-localization-creator.test.ts`，pending、未执行、未人工审核。单测补充异步目标失效、完整 ID 隔离、缺失/禁用 creator；不作为真实手机或 SSH 端到端证据。
+## Plugin Creator e localização
 
-2026-09-16 补充：公开分类与个人市场分组默认全部展开，保留手动收起/展开。PLM-LC-001 的断言同步；plugin-localization-creator E2E 增加 8→6→8 张卡片回归，公开/个人与中英组合由组件交互单测覆盖。
+PLM-LC-018/019/020: `plugins/manual-review/pending/plugin-localization-creator.test.ts`, pending, não executado, sem revisão humana. O teste unitário complementa com invalidação assíncrona de alvo, isolamento por ID completo e creator ausente/desativado; não serve como evidência real de ponta a ponta em celular ou SSH.
+
+Complemento de 2026-09-16: as categorias públicas e os agrupamentos do mercado pessoal vêm expandidos por padrão, mantendo recolhimento/expansão manual. As asserções de PLM-LC-001 foram sincronizadas; o E2E plugin-localization-creator ganhou uma regressão de 8→6→8 cartões, e as combinações público/pessoal com chinês/inglês são cobertas por testes unitários de interação de componente. Entrada: `packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.test.mjs`.
 
 ## PLM-MISSING-CONFIG
 
-- 状态：manual-review（非正式 CI 转正）。
-- 自动化：`packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.test.mjs` 中
-  `PLM-MISSING-CONFIG`；fixture 经真实 buildStoreItems → PluginStoreListView → 卡片/搜索投影。
-- 覆盖：1200/390 宽度、en-US/zh-CN、light/dark；已下架配置不生商品、有目录缺包可安装、新插件不消失。
-- 补充：dev Electron 原始配置 → Agent list/overview → Host → Renderer 实测；窄屏浏览器是共享 UI 验证，
-  不宣称验证手机真实远控连接。正式隔离 HOME 桌面用例尚未转正。
+- Status: manual-review (sem promoção formal para CI).
+- Automação: `PLM-MISSING-CONFIG` em `packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.test.mjs`; o fixture passa por buildStoreItems → PluginStoreListView → projeção de cartões/busca reais.
+- Cobertura: larguras 1200/390, en-US/zh-CN, light/dark; configuração deslistada não gera produto, diretório sem pacote é instalável e novos plugins não desaparecem.
+- Complemento: configuração original no Electron de dev → Agent list/overview → Host → Renderer medidos de verdade; navegador em tela estreita é validação de UI compartilhada e não se alega validação de conexão de remote control real em celular. O caso desktop formal com HOME isolado ainda não foi promovido.
 
-2026-09-17 验证：`node --test --test-name-pattern=PLM-MISSING-CONFIG packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.test.mjs` 8/8 通过；dev CDP 验证旧卡片 0、新插件卡片 5、原始 missing 诊断仍保留。重新进入商店后保持结果。
+Verificação de 2026-09-17: `node --test --test-name-pattern=PLM-MISSING-CONFIG packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.test.mjs` passou 8/8; CDP de dev verificou 0 cartões antigos, 5 cartões de novos plugins e a preservação do diagnóstico original de missing. O resultado é mantido ao reabrir a loja.
 
-## PLM-DOCUMENT-ORDER（2026-09-17）
+## PLM-DOCUMENT-ORDER (2026-09-17)
 
-默认官方文档插件按 PDF、PPT、Excel、Word 排序。浏览器用例覆盖商店分类和已安装图标条，
-桌面/手机 × 中英文 × 深浅主题；预置管理分组、停用、缺项、个人同名隔离及服务端排序优先由单测覆盖。
-入口：`packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.test.mjs`。
-此用例属于浏览器展示验证，不作为 Electron 安装生命周期或正式 CI 准入证据。
+Os plugins oficiais de documentos são ordenados por PDF, PPT, Excel e Word. O caso de navegador cobre as categorias da loja e a faixa de ícones de instalados, em desktop/celular × chinês/inglês × tema claro/escuro; os grupos predefinidos de gerenciamento, desativação, item ausente, isolamento homônimo pessoal e prioridade da ordenação do servidor são cobertos principalmente por testes unitários.
+Entrada: `packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.test.mjs`.
+Este caso pertence à validação de exibição no navegador e não serve como evidência de ciclo de vida de instalação no Electron nem de admissão formal de CI.
 
 ## PLUGIN-CREATOR-ICON
 
-官方创建器本地图标贯穿商店、`@` 候选、Composer 标签与 Session 消息投影。
-`plugin-picker-order.test.mjs` 的 `PLUGIN-CREATOR-ICON` 用例覆盖 catalog 无远端 icon 时打开候选并插入标签，
-1200/390、中英、深浅主题；Session 消息及个人市场同名隔离由 `pluginCreatorMentionIcon.test.ts` 覆盖。
-状态为 manual-review，不自动转正；不向真实模型发送测试消息。
+O ícone local do creator oficial percorre a loja, os candidatos `@`, as tags do Composer e a projeção de mensagens de Session.
+O caso `PLUGIN-CREATOR-ICON` de `plugin-picker-order.test.mjs` cobre abrir o candidato e inserir a tag quando o catalog não tem icon remoto, em 1200/390, chinês/inglês e tema claro/escuro; mensagens de Session e isolamento homônimo no mercado pessoal são cobertos por `pluginCreatorMentionIcon.test.ts`.
+Status manual-review, sem promoção automática; nenhuma mensagem de teste é enviada a um modelo real.

@@ -1,8 +1,8 @@
 # Terminal Theme Tokens
 
-`packages/ui/src/Terminal.tsx` 里的 xterm 主题现在统一从 `packages/ui/src/styles.css` 读取 terminal 专属 token。
+O tema do xterm em `packages/ui/src/Terminal.tsx` agora lê uniformemente os tokens específicos de terminal a partir de `packages/ui/src/styles.css`.
 
-当前接入的 token：
+Tokens atualmente integrados:
 
 - `--color-terminal-bg`
 - `--color-terminal-fg`
@@ -27,13 +27,13 @@
 - `--color-terminal-bright-cyan`
 - `--color-terminal-bright-white`
 
-调整方式：
+Como ajustar:
 
-1. 在 `packages/ui/src/styles.css` 的亮色 `@theme` 和暗色 `.dark` 中修改对应 token。
-2. `Terminal` 会在主题切换时重新读取 token 并实时更新 xterm 配色。
+1. Modificar o token correspondente no `@theme` claro e no `.dark` escuro de `packages/ui/src/styles.css`.
+2. `Terminal` relê os tokens na troca de tema e atualiza as cores do xterm em tempo real.
 
-设计约束：
+Restrições de design:
 
-- Zai Light 的终端背景和光标反色必须跟随 `--color-background`，避免终端区域硬编码纯白后和工作区背景脱节。默认正文、ANSI 色、选区色仍由 terminal token 单独调校，保证命令输出可读。
-- 选区颜色优先使用品牌色低透明度混合，避免在明暗主题下都过重。
-- ANSI 16 色优先映射到现有语义色系和 neutral 阶梯，不单独引入零散色值。
+- O fundo do terminal e a cor inversa do cursor em Zai Light devem seguir `--color-background`, evitando que a área do terminal fique desconectada do fundo do workspace por causa de um branco puro fixo. O texto padrão, as cores ANSI e a cor de seleção continuam ajustados separadamente pelos terminal tokens, garantindo a legibilidade da saída dos comandos.
+- A cor de seleção prioriza uma mistura de baixa opacidade da cor da marca, evitando que fique pesada tanto nos temas claros quanto nos escuros.
+- As 16 cores ANSI são mapeadas primeiro para o sistema de cores semânticas existente e para a escala neutral, sem introduzir valores de cor avulsos.

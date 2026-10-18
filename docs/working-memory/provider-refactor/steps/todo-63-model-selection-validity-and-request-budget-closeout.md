@@ -1,14 +1,14 @@
-# Todo 63：Model Selection 失效与请求预算收口
+# Todo 63: invalidação de Model Selection e fechamento do orçamento de requisição
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-09-02
+> Data: 2026-09-02
 >
-> 前置：Todo 58 已删除 Model Option Spec 的 `default`；Todo 60 已要求每个 Effective Model 都具有完整、有序的 Reasoning Spec。本 Todo 统一处理 Selection 失效、旧闲时任务恢复，并让 `maxOutputTokens` 退出 Selection。
+> Pré-requisitos: o Todo 58 removeu o `default` do Model Option Spec; o Todo 60 exigiu que cada Effective Model tenha um Reasoning Spec completo e ordenado. Este Todo trata uniformemente a invalidação de Selection, a recuperação de tarefas ociosas antigas e faz `maxOutputTokens` sair da Selection.
 
-## 1. 目标
+## 1. Objetivo
 
-把模型静态事实、用户选择与单次请求参数严格分开：
+Separar estritamente os fatos estáticos do modelo, a escolha do usuário e os parâmetros de uma requisição:
 
 ```text
 Model Config / Option Specs
@@ -24,11 +24,11 @@ Model Request
 └─ maxOutputTokens：Agent 框架为本次调用显式决定
 ```
 
-`spec.max` 是合法且常见的请求预算。问题不在于使用最大值，而在于调用方没有作出决定时由 ModelFactory 或 Adapter 静默补值。
+`spec.max` é um orçamento de requisição válido e comum. O problema não é usar o valor máximo, e sim o ModelFactory ou o Adapter preenchendo o valor silenciosamente quando a camada chamadora não decidiu nada.
 
-## 2. ModelSelection 契约
+## 2. Contrato de ModelSelection
 
-目标结构：
+Estrutura alvo:
 
 ```ts
 interface ModelSelection {
@@ -40,14 +40,14 @@ interface ModelSelection {
 }
 ```
 
-- 删除 `ModelSelection.options.maxOutputTokens`，并清理协议、持久化、Recent、Session、Subagent、Automation、Off-Peak、时间线比较与 Hydration 中的对应残余。
-- 新写入的 Selection 必须携带具体 `reasoningLevel`。
-- 旧 Selection 缺少 reasoning 时，只允许在“创建全新默认选择”的既有 Host 初始化边界补 `values.at(-1)`；业务层、Renderer、ModelFactory 和 Adapter 不再各自补值。
-- 显式但已失效的 reasoning 不得自动替换。
+- Remover `ModelSelection.options.maxOutputTokens` e limpar os resíduos correspondentes no protocolo, na persistência, em Recent, Session, Subagent, Automation, Off-Peak, na comparação de timeline e na Hydration.
+- Uma Selection recém-gravada precisa carregar um `reasoningLevel` concreto.
+- Para uma Selection antiga sem reasoning, só é permitido preencher `values.at(-1)` na fronteira de inicialização do Host que já cria uma seleção padrão inteiramente nova; a camada de negócio, o Renderer, o ModelFactory e o Adapter não preenchem mais valores por conta própria.
+- Reasoning explícito, mas já inválido, não pode ser substituído automaticamente.
 
-## 3. 单次请求预算
+## 3. Orçamento de requisição pontual
 
-`maxOutputTokens` 继续是 Model Request Option，且进入 Executor 前必须完整合法：
+`maxOutputTokens` continua sendo uma Model Request Option e precisa estar completamente válido antes de entrar no Executor:
 
 ```text
 具体执行链
@@ -61,15 +61,15 @@ Active Model / Adapter
 模型 API
 ```
 
-- 普通 Turn、Off-Peak 和普通 Subagent 可以由 Agent 框架显式选择 `spec.max`。
-- Title、Goal、Memory、Git Commit、Connectivity、WebSearch/WebFetch 等辅助链继续使用其明确预算。
-- Compact 和 Repo Wiki 保留自身任务语义，但必须由调用方显式传值。
-- 删除 ModelFactory 的 `selection value ?? spec.max`；Active Model 不再把 Selection 中的输出预算当作长期绑定状态。
-- Adapter 保持严格缺参报错，不 clamp、不补值。
+- Turn comum, Off-Peak e Subagent comum podem escolher explicitamente `spec.max` pelo framework do Agent.
+- Cadeias auxiliares como Title, Goal, Memory, Git Commit, Connectivity, WebSearch/WebFetch continuam usando seu orçamento explícito.
+- Compact e Repo Wiki mantêm a semântica de tarefa própria, mas o valor precisa ser passado explicitamente pela camada chamadora.
+- Remover o `selection value ?? spec.max` do ModelFactory; o Active Model deixa de tratar o orçamento de saída da Selection como estado de vínculo de longo prazo.
+- O Adapter mantém o erro estrito de parâmetro ausente, sem clamp e sem preenchimento.
 
-## 4. 统一 Selection 失效定义
+## 4. Definição unificada de invalidação de Selection
 
-下面情况统一视为 `ModelSelection` 失效：
+Os casos abaixo são uniformemente considerados invalidação de `ModelSelection`:
 
 ```text
 ModelSelection invalid
@@ -79,11 +79,11 @@ ModelSelection invalid
 └─ reasoningLevel 不属于当前模型的 values
 ```
 
-Reasoning 失效只是统一 Selection 失效的一种原因，不建立第二套修复流程。校验结果必须保留结构化原因，供 UI 给出准确提示；不能只返回 `false` 后静默回退。
+A invalidação de Reasoning é apenas uma das causas da invalidação unificada de Selection e não estabelece um segundo fluxo de reparo. O resultado da validação precisa preservar a causa estruturada, para que a UI dê um aviso preciso; não pode apenas retornar `false` e cair silenciosamente.
 
-## 5. 未提交草稿
+## 5. Rascunho não submetido
 
-未提交草稿没有产生自动执行副作用，失效时复用现有默认选择优先级：
+Um rascunho não submetido não produziu efeito colateral de execução automática e, quando inválido, reutiliza a prioridade de seleção padrão já existente:
 
 ```text
 当前/Recent Selection
@@ -95,15 +95,15 @@ Reasoning 失效只是统一 Selection 失效的一种原因，不建立第二�
                      显示一次通知
 ```
 
-- 没有任何历史选择的新草稿正常使用现有默认优先级，不通知。
-- 曾有选择但因 Registry revision 变化而失效时，显示现有 Toast/通知样式：
-  - 有 fallback：`原来的模型选择已失效，已切换到当前默认模型，请确认后继续。`
-  - 无 fallback：`原来的模型选择已失效，请重新选择模型。`
-- 同一次失效只通知一次；不使用阻塞 Modal，不使用 timeout 解决状态问题。
+- Um rascunho novo sem nenhuma seleção histórica usa normalmente a prioridade de padrão existente, sem notificação.
+- Houve seleção, mas ela ficou inválida por mudança de Registry revision: exibe o estilo de Toast/notificação já existente:
+  - com fallback: `原来的模型选择已失效，已切换到当前默认模型，请确认后继续。`
+  - sem fallback: `原来的模型选择已失效，请重新选择模型。`
+- Uma mesma invalidação notifica apenas uma vez; não se usa Modal bloqueante nem se resolve problema de estado com timeout.
 
-## 6. 已创建任务与历史数据
+## 6. Tarefas já criadas e dados históricos
 
-已创建且可能自动执行的任务不能静默换模型：
+Tarefas já criadas e que podem executar automaticamente não podem trocar de modelo silenciosamente:
 
 ```text
 Persisted Task Selection
@@ -118,9 +118,9 @@ Persisted Task Selection
                                等待用户编辑
 ```
 
-### 6.1 旧闲时任务
+### 6.1 Tarefas ociosas antigas
 
-旧记录只有 `model` / `thought_level`，没有 Provider 身份。旧实现本来就在执行时根据当前账号连接选择 Z.ai 或 BigModel，因此可靠迁移应在当前 Off-Peak Selection View 就绪后完成，而不是在 SQLite Row Mapper 中猜 Provider：
+Registros antigos têm apenas `model` / `thought_level`, sem identidade de Provider. A implementação antiga já escolhia Z.ai ou BigModel na execução com base na conexão da conta atual, portanto a migração confiável deve acontecer quando a Selection View de Off-Peak atual estiver pronta, e não adivinhando o Provider no SQLite Row Mapper:
 
 ```text
 legacy model / thought_level
@@ -134,12 +134,12 @@ current Off-Peak Selection View
           `-- 失败 --> 保留为 repair-required
 ```
 
-- Repository 必须逐条容忍缺失或非法 `model_selection`，一条旧记录不能让 `list()`、同步或其他任务调度整体失败。
-- 待修复任务仍出现在列表中；终态历史记录可以正常查看。
-- 未修复的非终态任务不能被 claim、continue 或 dispatch。
-- 不删除旧记录，不凭模型名猜账号 Provider，不把当前默认模型静默写入已创建任务。
+- O Repository precisa tolerar `model_selection` ausente ou inválido registro a registro; um registro antigo não pode fazer `list()`, a sincronização ou o agendamento de outras tarefas falharem por inteiro.
+- Tarefas aguardando reparo continuam aparecendo na lista; registros em estado terminal podem ser consultados normalmente.
+- Tarefas não terminais e ainda não reparadas não podem ser claim, continue nem dispatch.
+- Não se apagam registros antigos, não se adivinha o Provider da conta pelo nome do modelo e não se grava silenciosamente o modelo padrão atual em tarefas já criadas.
 
-## 7. Registry 更新与 Active Model
+## 7. Atualização de Registry e Active Model
 
 ```text
 Registry revision 更新
@@ -149,44 +149,44 @@ Registry revision 更新
 └─ 已开始执行的 Active Model：保持冻结
 ```
 
-Desktop continuous 与 Mobile replayable 只共享 Selection 校验结果；本 Todo 不改变消息流、队列、owner/lease 或恢复协议。
+Desktop continuous e Mobile replayable compartilham apenas o resultado da validação de Selection; este Todo não muda o fluxo de mensagens, a fila, owner/lease nem o protocolo de recuperação.
 
-## 8. 测试先行
+## 8. Testes primeiro
 
-1. Shared/Protocol：Selection 不接受 `maxOutputTokens`；结构化 reasoning 仍可 round-trip。
-2. Provider：校验返回 provider/model/reasoning 的结构化失效原因；默认初始化缺 reasoning 时取最高档，显式非法值不补。
-3. Agent Runtime：ModelFactory 不绑定输出预算；普通 Turn 显式传 `spec.max`；所有其他执行链在 Executor 前都有明确预算。
-4. UI unit：Recent/当前草稿失效后回到 Host preferred，并暴露“发生过失效”的结果；新草稿正常缺省不误报。
-5. UI E2E：Registry revision 使当前草稿选择失效后，工具条切换到有效默认值并显示一次通知；无可用模型时要求重选。
-6. Off-Peak Repo/Service：旧行不拖垮列表；可唯一恢复时写回；不可恢复时可见但不可调度；其他任务继续同步与 claim。
-7. 回归：Session、Subagent、Automation、Repo Wiki、Title、Goal、Memory、Compact、Connectivity 的 Selection 和 Request Options 不混用。
+1. Shared/Protocol: a Selection não aceita `maxOutputTokens`; o reasoning estruturado ainda faz round-trip.
+2. Provider: a validação retorna causas estruturadas de invalidação de provider/model/reasoning; a inicialização padrão sem reasoning pega o nível mais alto e valores explícitos inválidos não são preenchidos.
+3. Agent Runtime: o ModelFactory não vincula orçamento de saída; o Turn comum passa `spec.max` explicitamente; todas as outras cadeias de execução têm orçamento explícito antes do Executor.
+4. UI unit: após a invalidação de Recent/rascunho atual volta ao Host preferred e expõe o resultado "ocorreu invalidação"; o rascunho novo não reporta falsamente em um estado normal.
+5. UI E2E: quando uma Registry revision invalida a seleção do rascunho atual, a barra de ferramentas muda para o padrão válido e exibe uma notificação; sem modelo disponível, exige nova escolha.
+6. Off-Peak Repo/Service: linhas antigas não derrubam a lista; grava de volta quando há recuperação única; quando não há recuperação, fica visível mas não agendável; as outras tarefas seguem sincronizando e sendo claim.
+7. Regressão: Selection e Request Options de Session, Subagent, Automation, Repo Wiki, Title, Goal, Memory, Compact e Connectivity não se misturam.
 
-## 9. 完成门禁
+## 9. Portão de conclusão
 
-- `ModelSelection` 的 Schema、协议和持久化中不存在 `maxOutputTokens`。
-- ModelFactory 不再从 Selection 或 Spec 推导请求输出预算。
-- 每条模型请求在 Agent 框架的真实调用方显式决定 `maxOutputTokens`。
-- Provider/Model/Reasoning 失效进入同一个结构化 Selection 校验流程。
-- 普通草稿失效后回到现有默认优先级并通知；已创建任务失效后不会静默换模型执行。
-- 旧闲时记录不会隐藏整个列表或阻塞其他任务。
-- 定向测试、`pnpm typecheck`、`pnpm lint`、`pnpm test:unit`、相关 Desktop E2E 与 `git diff --check` 通过；无法运行的图形 E2E 必须明确记录。
+- Não existe `maxOutputTokens` no Schema, no protocolo e na persistência de `ModelSelection`.
+- O ModelFactory não deriva mais o orçamento de saída da requisição a partir da Selection ou do Spec.
+- Cada requisição de modelo tem `maxOutputTokens` decidido explicitamente pela camada chamadora real do framework do Agent.
+- Invalidações de Provider/Model/Reasoning entram no mesmo fluxo estruturado de validação de Selection.
+- Após a invalidação de um rascunho comum, volta-se à prioridade de padrão existente com notificação; após a invalidação de uma tarefa já criada, não se troca de modelo silenciosamente para executar.
+- Registros ociosos antigos não ocultam a lista inteira nem bloqueiam outras tarefas.
+- Testes direcionados, `pnpm typecheck`, `pnpm lint`, `pnpm test:unit`, E2E de Desktop relevantes e `git diff --check` passam; E2E gráfico que não possa rodar precisa ser registrado explicitamente.
 
-## 10. 实施结果
+## 10. Resultado da implementação
 
-- `ModelSelection` 已收口为 Provider、Model 与 Reasoning；协议、Session、Timeline、Recent、Automation、Subagent、Off-Peak 和 Repo Wiki 不再保存 `maxOutputTokens`。
-- ModelFactory 不再绑定或缺省输出预算；普通 Turn/Off-Peak/Subagent 显式选择模型 `spec.max`，Compact、Title、Goal、Memory、Git Commit、Connectivity、WebSearch/WebFetch 与 Repo Wiki 保留各自的显式预算。
-- Provider Registry 对缺失 Reasoning 和非法 Reasoning 返回结构化失效原因；新选择统一通过 `completeNewModelSelection()` 取有序档位最后一项，显式非法值不修补。
-- 草稿在 Registry revision 变化后会原子清除失效 Selection，回到 Host preferred，并按 workspace/revision 去重显示一次通知；已经开始执行的 Active Model 不变。
-- 闲时任务 Repository 可逐条读取缺失、旧 Schema 或损坏的 `model_selection`；Service 只在当前 Account Family 的 Off-Peak Resolver 能保留原 model/reason 时写回。无法恢复的任务保留在列表、标记待修复并撤销调度资格，编辑时必须重新选择完整模型与 Reasoning。
-- 延迟迁移和失效写回均在 SQLite 写锁内重读，避免覆盖另一进程刚完成的用户修复。
+- `ModelSelection` foi fechada para Provider, Model e Reasoning; o protocolo, Session, Timeline, Recent, Automation, Subagent, Off-Peak e Repo Wiki não salvam mais `maxOutputTokens`.
+- O ModelFactory não vincula mais nem usa orçamento de saída como padrão; Turn/Off-Peak/Subagent comuns escolhem explicitamente `spec.max` do modelo, e Compact, Title, Goal, Memory, Git Commit, Connectivity, WebSearch/WebFetch e Repo Wiki mantêm seus respectivos orçamentos explícitos.
+- O Provider Registry retorna causas estruturadas de invalidação para Reasoning ausente e para Reasoning inválido; novas escolhas passam uniformemente por `completeNewModelSelection()` para pegar o último item da lista ordenada, e valores explícitos inválidos não são corrigidos.
+- Após uma mudança de Registry revision, o rascunho limpa atomicamente a Selection inválida, volta ao Host preferred e exibe uma única notificação deduplicada por workspace/revision; o Active Model que já começou a executar permanece inalterado.
+- O Repository de tarefas ociosas consegue ler registro a registro `model_selection` ausente, em Schema antigo ou corrompido; o Service só grava de volta quando o Off-Peak Resolver do Account Family atual consegue preservar o model/reason originais. Tarefas irrecuperáveis permanecem na lista, são marcadas como pendentes de reparo e perdem a elegibilidade de agendamento, e a edição exige escolher novamente o modelo completo e o Reasoning.
+- A migração tardia e a gravação de volta em caso de invalidação relêm dentro do lock de escrita do SQLite, evitando sobrescrever uma correção do usuário que outro processo acabou de concluir.
 
-### 10.1 验证记录
+### 10.1 Registro de verificação
 
-- Provider/Services/UI 定向测试：5 个文件、50 条通过。
-- CLI Bootstrap/Contracts/Core 定向测试：9 个文件、109 条通过。
-- CLI Core 全量：2,201 条通过。
-- 根 `pnpm typecheck` 与 CLI 全工作区 typecheck 通过。
-- `pnpm lint` 通过（35 条均为本轮之外的既有 warning）。
-- `pnpm test:unit`：13,087 条通过、25 条跳过；仍有 2 条与本轮无关的既有基线失败：Desktop E2E Provider seed 数量旧断言，以及 pre-push mise 旧断言。
-- 本轮全部修改文件 `oxfmt --check` 与 `git diff --check` 通过。
-- 图形 Desktop E2E 未在当前无显示环境中实跑；核心交互由 React Hook/状态单测覆盖，仍需在可用的 macOS WDIO 环境补跑。
+- Testes direcionados de Provider/Services/UI: 5 arquivos, 50 casos aprovados.
+- Testes direcionados de CLI Bootstrap/Contracts/Core: 9 arquivos, 109 casos aprovados.
+- CLI Core completo: 2.201 casos aprovados.
+- `pnpm typecheck` da raiz e o typecheck de todos os workspaces do CLI aprovados.
+- `pnpm lint` aprovado (35 avisos, todos preexistentes e fora desta rodada).
+- `pnpm test:unit`: 13.087 aprovados, 25 pulados; ainda há 2 falhas de baseline preexistentes e sem relação com esta rodada: a asserção antiga da quantidade de seeds de Provider no Desktop E2E e a asserção antiga do mise no pre-push.
+- `oxfmt --check` e `git diff --check` aprovados em todos os arquivos alterados nesta rodada.
+- O E2E gráfico do Desktop não foi executado no ambiente atual sem display; a interação central é coberta por testes unitários de React Hook/estado, e ainda precisa ser executada em um ambiente macOS com WDIO disponível.

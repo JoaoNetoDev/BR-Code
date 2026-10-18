@@ -1,34 +1,34 @@
-# Feedback Ticket Detail Issue ID Implementation Plan
+# Plano de Implementação do Issue ID no Detalhe do Ticket de Feedback
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Show the feedback ticket issue ID in the “My feedback” detail view and provide a copy button for the raw ID.
+**Objetivo:** Mostrar o issue ID do ticket de feedback na visão de detalhe "Meu feedback" e fornecer um botão de cópia para o ID bruto.
 
-**Architecture:** Keep the feature inside `TicketDetailView` because the existing `FeedbackTicketDetail.id` already contains the stable issue identifier. Use the browser clipboard API directly from the UI component and log copy failures through the UI logger.
+**Arquitetura:** Manter a funcionalidade dentro de `TicketDetailView`, porque o `FeedbackTicketDetail.id` existente já contém o identificador estável do issue. Usar a API de clipboard do navegador diretamente do componente de UI e registrar falhas de cópia pelo logger da UI.
 
-**Tech Stack:** React 19, TypeScript, Vitest static markup tests, lucide-react icons, existing `Button` UI primitive.
+**Stack técnico:** React 19, TypeScript, testes de markup estático com Vitest, ícones lucide-react, primitiva de UI `Button` existente.
 
 ---
 
-### Task 1: Document The UI Contract
+### Tarefa 1: Documentar o contrato de UI
 
-**Files:**
-- Create: `docs/ui/feedback-ticket-detail-issue-id.md`
+**Arquivos:**
+- Criar: `docs/ui/feedback-ticket-detail-issue-id.md`
 
-- [x] **Step 1: Write the spec**
+- [x] **Passo 1: Escrever a spec**
 
-Document that `FeedbackTicketDetail.id` is displayed as `Issue #<id>`, the copy action writes only `<id>`, and failure logging uses `packages/ui/src/logger.ts`.
+Documentar que `FeedbackTicketDetail.id` é exibido como `Issue #<id>`, que a ação de cópia grava apenas `<id>` e que o registro de falhas usa `packages/ui/src/logger.ts`.
 
-- [x] **Step 2: Check scope**
+- [x] **Passo 2: Verificar o escopo**
 
-Confirm the change does not alter feedback service APIs, realtime stream boundaries, or remote-control delivery semantics.
+Confirmar que a mudança não altera as APIs do serviço de feedback, as fronteiras do stream de tempo real nem a semântica de entrega do controle remoto.
 
-### Task 2: Add A Failing Detail View Test
+### Tarefa 2: Adicionar um teste de view de detalhe inicialmente falhando
 
-**Files:**
-- Modify: `packages/ui/test/feedbackTicketDetail.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/test/feedbackTicketDetail.test.ts`
 
-- [x] **Step 1: Add the test**
+- [x] **Passo 1: Adicionar o teste**
 
 ```ts
 it("shows the issue id with a copy action", () => {
@@ -51,30 +51,30 @@ it("shows the issue id with a copy action", () => {
 });
 ```
 
-- [x] **Step 2: Run the focused test and verify red**
+- [x] **Passo 2: Executar o teste focado e verificar o estado vermelho (red)**
 
-Run: `pnpm vitest run packages/ui/test/feedbackTicketDetail.test.ts`
+Executar: `pnpm vitest run packages/ui/test/feedbackTicketDetail.test.ts`
 
-Expected: the new test fails because `TicketDetailView` does not render the issue ID or copy action yet.
+Esperado: o novo teste falha porque `TicketDetailView` ainda não renderiza o issue ID nem a ação de cópia.
 
-### Task 3: Implement The Detail Header Control
+### Tarefa 3: Implementar o controle no cabeçalho de detalhe
 
-**Files:**
-- Modify: `packages/ui/src/feedback/TicketDetail.tsx`
-- Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
-- Modify: `packages/ui/src/i18n/locales/en-US.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/feedback/TicketDetail.tsx`
+- Modificar: `packages/ui/src/i18n/locales/zh-CN.ts`
+- Modificar: `packages/ui/src/i18n/locales/en-US.ts`
 
-- [x] **Step 1: Add component state and copy handler**
+- [x] **Passo 1: Adicionar estado do componente e handler de cópia**
 
-Import `useCallback`, `useEffect`, `useRef`, `useState`, `Check`, `CopyIcon`, and the UI `logger`. Track a transient copied state and write `ticket.id` to `navigator.clipboard.writeText`.
+Importar `useCallback`, `useEffect`, `useRef`, `useState`, `Check`, `CopyIcon` e o `logger` da UI. Manter um estado transitório de "copiado" e escrever `ticket.id` em `navigator.clipboard.writeText`.
 
-- [x] **Step 2: Render the issue ID row**
+- [x] **Passo 2: Renderizar a linha com o issue ID**
 
-Place a compact `Issue #<id>` row below the status indicator and above the title. The copy button uses `Button variant="ghost" size="icon-sm"` and an accessible localized label.
+Posicionar uma linha compacta `Issue #<id>` abaixo do indicador de status e acima do título. O botão de cópia usa `Button variant="ghost" size="icon-sm"` e um rótulo acessível e localizado.
 
-- [x] **Step 3: Add localization strings**
+- [x] **Passo 3: Adicionar strings de localização**
 
-Add:
+Adicionar:
 
 ```ts
 "feedback.detail.issueCopy": "复制 issue 编号",
@@ -82,7 +82,7 @@ Add:
 "feedback.detail.issueCopyFailed": "复制 issue 编号失败",
 ```
 
-and English equivalents:
+e os equivalentes em inglês:
 
 ```ts
 "feedback.detail.issueCopy": "Copy issue ID",
@@ -90,30 +90,30 @@ and English equivalents:
 "feedback.detail.issueCopyFailed": "Failed to copy issue ID",
 ```
 
-### Task 4: Verify And Commit
+### Tarefa 4: Verificar e commitar
 
-**Files:**
-- Test: `packages/ui/test/feedbackTicketDetail.test.ts`
+**Arquivos:**
+- Teste: `packages/ui/test/feedbackTicketDetail.test.ts`
 
-- [x] **Step 1: Run focused test**
+- [x] **Passo 1: Executar o teste focado**
 
-Run: `pnpm vitest run packages/ui/test/feedbackTicketDetail.test.ts`
+Executar: `pnpm vitest run packages/ui/test/feedbackTicketDetail.test.ts`
 
-Expected: all tests in the file pass.
+Esperado: todos os testes do arquivo passam.
 
-- [x] **Step 2: Run required project checks**
+- [x] **Passo 2: Executar as verificações obrigatórias do projeto**
 
-Run: `pnpm typecheck`
+Executar: `pnpm typecheck`
 
-Expected: TypeScript completes successfully.
+Esperado: o TypeScript conclui com sucesso.
 
-Run: `pnpm lint`
+Executar: `pnpm lint`
 
-Expected: oxlint completes successfully.
+Esperado: o oxlint conclui com sucesso.
 
-- [x] **Step 3: Commit**
+- [x] **Passo 3: Commitar**
 
-Run:
+Executar:
 
 ```bash
 git add docs/ui/feedback-ticket-detail-issue-id.md docs/superpowers/plans/2026-06-16-feedback-ticket-detail-issue-id.md packages/ui/test/feedbackTicketDetail.test.ts packages/ui/src/feedback/TicketDetail.tsx packages/ui/src/i18n/locales/zh-CN.ts packages/ui/src/i18n/locales/en-US.ts

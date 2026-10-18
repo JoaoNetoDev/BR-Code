@@ -1,195 +1,241 @@
-# 手动切换模型的当前判定链路
+# Cadeia de decisão atual da troca manual de modelo
 
-更新日期：2026-08-24
+Data de atualização: 2026-08-24
 
-> **历史链路审计，已被 Provider Refactor 取代。** 本文中的 workspace catalog、App Registry
-> 同步和 `runtimeModel` 恢复不再是当前实现。当前候选由目标 Environment 的 Model Selection View
-> 提供，切换后由同一 Environment 的 Registry/ModelFactory 创建 Active Model。当前设计见
-> `docs/working-memory/provider-refactor/design/`。
+> **Auditoria histórica de cadeia, substituída pelo Provider Refactor.** O workspace catalog, a
+> sincronização do App Registry e a restauração de `runtimeModel` descritos aqui não são mais a
+> implementação atual. Os candidatos atuais são fornecidos pela Model Selection View do Environment
+> alvo e, após a troca, o Active Model é criado pelo Registry/ModelFactory do mesmo Environment. O
+> desenho atual está em `docs/working-memory/provider-refactor/design/`.
 
-本文描述 V4 conversation 主链路中的当前实现。旧 `ChatInputToolbar`、`useToolbarModelChange`、
-`session/setModel` 和 task stream 链路已删除，不再作为实现依据。
+Este documento descreve a implementação atual na cadeia principal de conversa do V4. O antigo
+`ChatInputToolbar`, `useToolbarModelChange`, `session/setModel` e a cadeia de task stream foram
+removidos e não servem mais como base de implementação.
 
-## 权威边界
+## Limites de autoridade
 
-- 已绑定 session 的工具条展示值来自 `ConversationSnapshot.config`，模型目录来自 workspace
-  `configOptions`。桌面工具条、模型切换 toast 和聊天区 marker 的模型文案规则为：Z.ai /
-  BigModel 内置供应商只显示模型名，避免重复展示产品内置连接名称；其他供应商（包括自定义
-  供应商）在宽 composer 中显示 `provider.name/modelId`，保留供应商身份。工具条触发器
-  统一按 composer 容器宽度裁剪：超窄宽度只显示图标，中宽只显示 `modelId`，宽屏显示完整身份；
-  模型菜单仍按供应商分组，toast、marker 和模型身份比较不受这项展示裁剪影响。
-- 用户选择通过 V4 `switchModelConfig` 写入 CLI session；renderer 不直接修改 conversation 事实。
-- 下一轮真实请求使用 CLI runtime 当前配置；snapshot 只把权威结果投影回 UI。
-- renderer 的 last-selected `{ model, thoughtLevel }` 元组只为后续草稿提供种子，不覆盖已有 session。
-- workspace `setDefault*` 只保留兼容用途，不是 V4 草稿或已绑定 session 的第二份选择权威。
+- O valor exibido na barra da sessão já vinculada vem de `ConversationSnapshot.config`, e o catálogo
+  de modelos vem do `configOptions` do workspace. As regras de texto do modelo para a barra da
+  desktop, o toast de troca de modelo e o marker na área de chat são: fornecedores embutidos
+  Z.ai / BigModel exibem apenas o nome do modelo, evitando repetir o nome da conexão embutida do
+  produto; outros fornecedores (incluindo os personalizados) exibem `provider.name/modelId` no
+  composer largo, preservando a identidade do fornecedor. O gatilho da barra é sempre recortado
+  pela largura do contêiner do composer: em largura muito estreita mostra apenas o ícone, em
+  largura média apenas `modelId`, em tela larga mostra a identidade completa; o menu de modelos
+  continua agrupado por fornecedor, e o toast, o marker e a comparação de identidade de modelo não
+  são afetados por esse recorte de exibição.
+- A escolha do usuário é gravada na sessão do CLI pelo V4 `switchModelConfig`; o renderer não
+  modifica diretamente os fatos da conversa.
+- A próxima requisição real usa a configuração atual do runtime do CLI; o snapshot apenas projeta o
+  resultado autoritativo de volta para a UI.
+- A tupla last-selected `{ model, thoughtLevel }` do renderer existe apenas para semear rascunhos
+  posteriores e não sobrescreve uma sessão existente.
+- `setDefault*` do workspace é mantido apenas por compatibilidade e não é a segunda autoridade de
+  escolha para rascunhos V4 nem para sessão já vinculada.
 
-## Turn 原子执行上下文
+## Contexto de execução atômica do Turn
 
-已开始的 Turn 同时固定执行模型和稳定 context prefix。运行中更新 session 的 model、language 或
-outputStyle 只更新下一 Turn 的配置；当前 Turn 仍使用开始时的 model/context 组合。Turn 内产生的
-assistant、tool result、steering 和 runtime reminder 仍可按既有流程追加到动态消息尾部，不属于稳定
-context prefix。
+Um Turn já iniciado fixa simultaneamente o modelo de execução e o prefixo de contexto estável.
+Atualizar o model, language ou outputStyle da sessão durante a execução só muda a configuração do
+próximo Turn; o Turn atual continua usando a combinação model/context do início. O assistant, os
+tool results, o steering e os runtime reminders gerados dentro do Turn ainda podem ser anexados ao
+final das mensagens dinâmicas pelo fluxo existente e não fazem parte do prefixo de contexto
+estável.
 
 ```text
-Turn N 入口
-  └─ capture model + stable context configuration A
-       ├─ 当前请求 / tool follow-up / Compact retry -> A + context A
-       └─ 运行中配置更新 -> future config B，不改写 context A
+Entrada do Turn N
+  └─ captura model + stable context configuration A
+       ├─ requisição atual / tool follow-up / Compact retry -> A + context A
+       └─ atualização de config durante a execução -> future config B, sem reescrever context A
 
-Turn N+1 入口
-  └─ 检测 context configuration A != B
-       └─ 重建 context B，再使用 model B 发起首个请求
+Entrada do Turn N+1
+  └─ detecta context configuration A != B
+       └─ reconstrói context B e só então faz a primeira requisição com model B
 ```
 
-这里不为 model、language、outputStyle 分别维护 pending flag；runtime 只保留一个与当前已物化
-context 对应的配置快照，用于下一 Turn 判断是否需要重建。Manual Compact 与普通 Turn 使用同一
-生命周期边界。
+Aqui não mantemos pending flags separados para model, language e outputStyle; o runtime guarda
+apenas um snapshot de configuração correspondente ao context materializado atual, usado para decidir
+se o próximo Turn precisa reconstruir. Manual Compact e o Turn comum usam o mesmo limite de
+ciclo de vida.
 
-## 会话中切换
+## Troca dentro da sessão
 
 ```text
 V4ComposerToolbar
   -> SessionPane.handleSelectModel
-  -> configCommandBarrier（与 sendText 按用户操作顺序串行）
+  -> configCommandBarrier (serializado com sendText na ordem das ações do usuário)
   -> switchModelConfig { provider, model, thought, baseRevision }
   -> CLI commands/handlers/model-config.ts
-  -> session model-config 串行临界区
+  -> região crítica serial do model-config da sessão
   -> app.setModel / app.setThoughtLevel
   -> ModelSelected { modelRef, supportedThoughtLevels, contextWindow, origin? }
   -> ConversationSnapshot.config + usage.contextWindow.maxTokens
-  -> toolbar 与偏好种子收口
+  -> fechamento da barra e da semente de preferência
 ```
 
-关键规则：
+Regras principais:
 
-1. `provider` 与 `model` 都必须有值；空值不会下发。
-2. 跨模型切换不沿用源模型的 thought。CLI 让目标模型选择兼容档位，再发布最终实际值。
-3. 只有 provider/model 未变时，`thought` 才表示显式切换思考深度；过期工具条帧不能把旧模型的
-   thought 写到新模型。
-4. 同值切换返回 `noop / config.unchanged`，不是伪造一次 accepted 变更。
-5. 配置命令携带 snapshot revision；stale 时 `SessionPane` 根据 `revisionAtDecision` 有限重试，
-   不能无限重放。
-6. 模型、thought 使用 latest-wins scheduler，并与 mode 命令共享发送屏障；“切模型 → 发送”时
-   `sendText` 不会越过未收口配置。
-7. 只有已绑定 session 中显式切换 `provider + model` 身份时才显示性能提示；草稿态不显示
-   模型切换 toast。已绑定 session 仅在 provider/model 元组完全相同时不提示；toast 的身份比较
-   始终使用完整 provider/model 元组，展示时 Z.ai / BigModel 内置供应商只显示 modelId，其他
-   供应商显示 `provider.name/modelId`。Agent 自动 fallback 使用相同的 changed + warning 文案，
-   但只在已绑定 session 的当前聚焦 pane 通过实时 `online` 帧首次观察到带 fallback 来源的
-   A→B 权威跃迁时显示；草稿 prewarm、initial/recovery、历史 snapshot、重复 delta 和后台
-   pane 都不提示。model-change marker 仍只由 CLI 在已有
-   session 后续 turn 的权威投影中生成，UI 不自行插 timeline 行。marker 已携带起止
-   provider/model ID；renderer 使用相同展示规则，其他供应商配置缺失时回落为
-   `providerId/modelId`；
-   marker 必须订阅 provider snapshot，目录稍后水合或供应商改名时要原地刷新名称。
-8. create/resume/fork、legacy compatibility、registry fallback 和 provider runtime refresh 也必须经过同一
-   session 临界区；runtimeModel 只是 provider/header 派生缓存，model 或 thought 与当前 runtime 不一致时
-   不能覆盖用户切换。
-9. Service 只在本次 `accepted/noop` 后按目标重建 runtimeModel 缓存；`duplicate` 不代表旧命令仍是当前
-   配置，不能写缓存。并发 ACK 的缓存重建按 Agent decision 顺序提交，较早请求即使最后完成也会被丢弃。
-10. `contextWindow` 是已应用 runtime 模型能力的一部分，必须与 `modelRef`、实际 thought 和
-    `supportedThoughtLevels` 通过同一条 `ModelSelected` 原子发布。历史会话切换模型后，投影保留已有
-    `usedTokens`，立即把 `usage.contextWindow.maxTokens` 切到目标模型；不能等下一次 `ModelComplete`，
-    也不能由 renderer 用 workspace catalog 再推导一份分母。
-11. running session 的模型命令不能为了准备 provider client 而替换整个 adapter registry。目标模型已在
-    当前 session overlay 时，只更新下一 turn 的 session 选型；最新 workspace overlay 在 ready 边界应用。
-    目标只存在于尚未应用的新 catalog 时，命令显式返回 `provider.notInRegistry`，不得以 dispose 在途
-    signer 为代价强行成功；当前 turn 结束后重试即可。请求级 runtime headers 不走这条配置命令语义。
+1. `provider` e `model` devem ter valor; valores vazios não são enviados.
+2. Trocas entre modelos não herdam o thought do modelo de origem. O CLI deixa o modelo alvo
+   escolher uma faixa compatível e publica em seguida o valor real final.
+3. Só quando provider/model não mudam, `thought` representa troca explícita da profundidade de
+   reflexão; quadros antigos da barra não podem escrever o thought do modelo antigo no novo modelo.
+4. Troca para o mesmo valor retorna `noop / config.unchanged`, não uma falsa mudança aceita.
+5. Comandos de configuração carregam a revision do snapshot; quando estão stale, `SessionPane`
+   faz um número limitado de tentativas conforme `revisionAtDecision`, sem replay infinito.
+6. Model e thought usam um scheduler latest-wins e compartilham a barreira de envio com os
+   comandos de mode; em "trocar modelo → enviar", `sendText` não ultrapassa uma configuração ainda
+   não fechada.
+7. O aviso de desempenho só aparece quando há troca explícita da identidade `provider + model` em
+   sessão já vinculada; no estado de rascunho não se mostra toast de troca de modelo. Uma sessão já
+   vinculada não avisa apenas quando a tupla provider/model é idêntica; a comparação de identidade
+   do toast sempre usa a tupla completa provider/model, e na exibição os fornecedores embutidos
+   Z.ai / BigModel mostram apenas modelId, enquanto outros fornecedores mostram
+   `provider.name/modelId`. O fallback automático do Agent usa o mesmo texto changed + warning,
+   mas só é exibido quando o pane em foco atual observa pela primeira vez, em um quadro `online`
+   ao vivo, a transição autoritativa A→B com origem de fallback; prewarm de rascunho,
+   initial/recovery, snapshots históricos, deltas repetidos e panes em segundo plano não avisam.
+   O marker de mudança de modelo continua sendo gerado apenas pela CLI na projeção autoritativa de
+   turns subsequentes de uma sessão existente; a UI não insere linhas na timeline por conta própria.
+   O marker já carrega os IDs provider/model de origem e destino; o renderer usa as mesmas regras de
+   exibição, com fallback para `providerId/modelId` quando a configuração de outros fornecedores
+   está ausente; o marker deve assinar o snapshot de providers, para atualizar o nome no lugar
+   quando o catálogo hidratar mais tarde ou um fornecedor for renomeado.
+8. create/resume/fork, compatibilidade legada, registry fallback e provider runtime refresh também
+   devem passar pela mesma região crítica da sessão; `runtimeModel` é apenas um cache derivado de
+   provider/header e não pode sobrescrever a troca do usuário quando model ou thought divergem do
+   runtime atual.
+9. O Service só reconstrói o cache de runtimeModel conforme o alvo após um `accepted/noop` desta
+   chamada; `duplicate` não significa que o comando antigo ainda é a configuração atual, portanto não
+   grava cache. Reconstruções de cache de ACKs concorrentes são confirmadas na ordem de decisão do
+   Agent, e requisições anteriores, mesmo que terminem por último, são descartadas.
+10. `contextWindow` faz parte das capacidades do modelo de runtime já aplicado e precisa ser
+    publicado atomicamente junto de `modelRef`, do thought real e de `supportedThoughtLevels` pela
+    mesma `ModelSelected`. Após trocar de modelo em uma sessão histórica, a projeção mantém o
+    `usedTokens` existente e muda imediatamente `usage.contextWindow.maxTokens` para o modelo alvo;
+    não se deve esperar o próximo `ModelComplete`, nem deixar o renderer derivar um novo denominador
+    a partir do workspace catalog.
+11. Comandos de modelo de uma sessão em execução não podem substituir todo o adapter registry para
+    preparar o provider client. Quando o modelo alvo já está no overlay atual da sessão, apenas a
+    seleção de modelo do próximo turn é atualizada; o overlay mais recente do workspace é aplicado na
+    fronteira ready. Quando o alvo existe apenas em um novo catálogo ainda não aplicado, o comando
+    retorna explicitamente `provider.notInRegistry` e não deve forçar sucesso ao custo de descartar
+    um signer em trânsito; basta tentar de novo depois que o turn atual terminar. Headers de runtime
+    no nível da requisição não seguem esta semântica de comando de configuração.
 
-## 用户偏好的两阶段确认
+## Confirmação em duas fases da preferência do usuário
 
-ACK 通常早于 `state.updated`。为了避免新草稿在两者之间继承源模型或源 thought，显式模型选择按
-同一个 last-selected 元组两阶段提交：
+O ACK normalmente chega antes de `state.updated`. Para evitar que um novo rascunho herde o modelo ou
+o thought de origem entre os dois, a seleção explícita de modelo é confirmada em duas fases sobre a
+mesma tupla last-selected:
 
 ```text
-用户选择模型 B
-  -> pending intent（绑定 targetSessionId）
-  -> accepted/noop ACK
-       -> 保存 { model: B, thoughtLevel: null }
-  -> B 的权威 projection
-       -> 保存 { model: B, thoughtLevel: actualThought }
+Usuário seleciona o modelo B
+  -> pending intent (vinculado ao targetSessionId)
+  -> ACK accepted/noop
+       -> salva { model: B, thoughtLevel: null }
+  -> projeção autoritativa de B
+       -> salva { model: B, thoughtLevel: actualThought }
 
-历史 session 投影 --------------------X 无显式 intent，不写偏好
-模型 A 的迟到 ACK/projection --------X 不能覆盖更新的模型 B/C intent
-受控 Select 产生的空 thought --------X synthetic change，不进入 scheduler
+Projeção de sessão histórica ---------------X sem intent explícito, não grava preferência
+ACK/projeção atrasada do modelo A ---------X não pode sobrescrever o intent mais novo de B/C
+thought vazio vindo de um Select controlado -X mudança sintética, não entra no scheduler
 ```
 
-- pending intent 必须绑定发起操作的 session，不能由另一个恰好同模型的历史 session 确认。
-- projection 先于 ACK 时先完成权威写入并清除 pending；迟到 ACK 不得把实际 thought 降回 `null`。
-- 用户显式选择非空 thought 时，accepted/noop 直接提交目标模型与 thought 的完整元组。
-- `failed`、`stale`、`superseded` 不更新用户偏好。自动 fallback 不从 Agent 直接写 renderer
-  偏好；当前聚焦 pane 仅在 projection store 应用同一条实时 `online` fallback 事件的回调中，
-  且没有显式模型 intent 在途时，按 compare-and-set 晋升实际模型元组。普通 snapshot 差异、
-  initial/recovery/历史投影和建立订阅首个 applied base 的完整 online snapshot 都不得写偏好。
+- O pending intent precisa estar vinculado à sessão que originou a operação e não pode ser
+  confirmado por outra sessão histórica que por acaso tenha o mesmo modelo.
+- Quando a projeção chega antes do ACK, a escrita autoritativa é concluída primeiro e o pending é
+  limpo; um ACK atrasado não pode rebaixar o thought real para `null`.
+- Quando o usuário seleciona explicitamente um thought não vazio, o accepted/noop confirma
+  diretamente a tupla completa do modelo alvo e do thought.
+- `failed`, `stale` e `superseded` não atualizam a preferência do usuário. O fallback automático não
+  escreve a preferência do renderer diretamente a partir do Agent; o pane em foco atual apenas eleva
+  a tupla real do modelo por compare-and-set, dentro do callback que aplica o mesmo evento de
+  fallback `online` ao vivo no projection store e quando não há intent de modelo explícito em
+  trânsito. Diferenças comuns de snapshot, projeções initial/recovery/históricas e o snapshot online
+  completo que estabelece a primeira base aplicada da assinatura não podem gravar preferência.
 
-## Provider registry 自动恢复
+## Recuperação automática do registry de providers
 
-目标 provider 不在 CLI workspace registry 时，第一次命令返回 `provider.notInRegistry`。
-`SessionPane.switchModelConfigWithRecovery` 只恢复一次：
+Quando o provider alvo não está no registry do workspace do CLI, o primeiro comando retorna
+`provider.notInRegistry`. `SessionPane.switchModelConfigWithRecovery` recupera apenas uma vez:
 
 ```text
 failed(provider.notInRegistry)
-  -> 按 workspaceIdentity / remoteSessionId 同步 provider registry
+  -> sincroniza o provider registry conforme workspaceIdentity / remoteSessionId
   -> zcodeSessionService.resolveRuntimeModelForV4(...)
-  -> 带 runtimeModel 和最新 revision 重试一次
-  -> 成功收口；仍失败则停止，不循环
+  -> tenta novamente uma vez com runtimeModel e a revision mais recente
+  -> sucesso fecha o caso; se ainda falhar, para sem loop
 ```
 
-远程 workspace 必须贯穿 `workspaceIdentity` 和 `remoteSessionId`。这条恢复只补齐 provider client
-overlay，不改变 desktop continuous 与 mobile replayable 的投递边界。
+O workspace remoto precisa atravessar `workspaceIdentity` e `remoteSessionId`. Essa recuperação apenas
+completa o overlay de provider client e não altera a fronteira de entrega entre desktop continuous e
+mobile replayable.
 
-## 草稿态切换
+## Troca no estado de rascunho
 
-草稿态先同步写 reactive draft intent；跨模型时立即把 thought 清空。草稿尚未形成实际对话，
-因此普通选择、custom provider 恢复和 Agent prewarm fallback 都不显示模型切换 toast。随后按
-预热状态分流：
+No estado de rascunho, escreve-se primeiro de forma síncrona o draft intent reativo; entre modelos
+diferentes, o thought é limpo imediatamente. Como o rascunho ainda não formou uma conversa real,
+nenhuma seleção comum, recuperação de custom provider ou fallback de prewarm do Agent exibe toast
+de troca de modelo. Em seguida, o fluxo se divide conforme o estado de prewarm:
 
-- `configOptions` 失败时真正 custom provider 会走 restart/force-prepare 重恢复，但只更新草稿
-  选择与运行时准备状态，不显示性能提示。
-- 已有 prewarm session：对这个明确 `targetSessionId` 执行 V4 CAS；
-- 尚无 prewarm session：intent 留给后续 `createSession.config`；
-- prewarm projection 到达：只补投仍不一致的字段，不能用旧 snapshot 遮住新 intent；
-- 首发前：`ensureDraftPrewarmConfigBeforeSend` 等待最新配置屏障。
+- quando `configOptions` falha, um custom provider real passa por recuperação restart/force-prepare,
+  mas isso atualiza apenas a seleção do rascunho e o estado de preparação do runtime, sem aviso de
+  desempenho;
+- já existe uma sessão de prewarm: executa-se o CAS do V4 para esse `targetSessionId` explícito;
+- ainda não existe sessão de prewarm: o intent fica reservado para o `createSession.config` posterior;
+- quando chega a projeção de prewarm: só preenche os campos ainda inconsistentes e não pode cobrir o
+  novo intent com um snapshot antigo;
+- antes do primeiro envio: `ensureDraftPrewarmConfigBeforeSend` aguarda a barreira de configuração mais
+  recente.
 
 ```text
-旧：比较 modelId                  新：比较 providerId + modelId
-    A/glm-5.2 → B/glm-5.2            A/glm-5.2 → B/glm-5.2
-              └─ 不提示                        └─ 草稿态仍不提示
+Antigo: compara modelId                 Novo: compara providerId + modelId
+    A/glm-5.2 → B/glm-5.2                   A/glm-5.2 → B/glm-5.2
+              └─ não avisa                            └─ no estado de rascunho ainda não avisa
 
 catalog / draft intent / projection
-              -> Toolbar effectiveConfig（用户点击时可见身份）
+              -> Toolbar effectiveConfig (identidade visível quando o usuário clica)
               -> onSelectModel(sourceModel, targetModel)
-                   └─ CAS 继续使用 SessionPane 最新 snapshot revision
+                   └─ o CAS continua usando a revision de snapshot mais recente do SessionPane
 ```
 
-Target Host 的 ModelSelectionView 只提供可选 provider/model/reasoning 展示投影。last-selected 元组只有在显式操作得到
-ACK/projection 确认后才更新；打开历史 task、目录水合和后台连接迁移都不能反向改写它。
+A ModelSelectionView do Host alvo fornece apenas a projeção de exibição de provider/model/reasoning
+selecionáveis. A tupla last-selected só é atualizada depois que uma ação explícita recebe
+confirmação por ACK/projeção; abrir uma task histórica, a hidratação do catálogo e migrações de
+conexão em segundo plano não podem reescrevê-la.
 
-聊天区 marker 的展示链路与 toast 共用同一身份格式，但不改变 marker 的生成时机：
+A cadeia de exibição do marker na área de chat compartilha o mesmo formato de identidade do toast,
+sem mudar o momento de geração do marker:
 
 ```text
-Turn N 实际使用 provider-A/glm-5.2
+Turn N usa de fato provider-A/glm-5.2
   -> ModelSelected(provider-B/glm-5.2)
   -> Turn N+1 started
   -> CLI marker { fromProvider: A, fromModel: glm-5.2,
                   toProvider: B,   toModel: glm-5.2 }
-  -> renderer 订阅 provider snapshot
-  -> 内置 Z.ai/BigModel：「模型已切换 glm-5.2 → ...」
-     其他供应商：「模型已切换 B名称/glm-5.2 → ...」
+  -> renderer assina o snapshot de providers
+  -> Z.ai/BigModel embutido: "Modelo trocado glm-5.2 → ..."
+     outros fornecedores: "Modelo trocado Bnome/glm-5.2 → ..."
 ```
 
-Bug 原因：协议和 CLI 投影已保留完整 provider/model 元组，但聊天区 renderer 只消费
-`fromModel/toModel`，曾导致自定义供应商的同名模型无法区分。renderer 仍订阅现有 provider
-snapshot，并对其他供应商保留供应商名称；Z.ai / BigModel 内置供应商按产品文案规则主动省略
-固定入口名称。初次缺少目录时，其他供应商先回落 provider ID，目录水合或改名后原地重渲染。
-普通 A→B marker 的完整起止身份与投影时机不变，也不改变 desktop continuous 或 mobile
-replayable 的交付语义；下节只增加显式 `∅→X` 模型边界的 source 共同缺失分支。
+Causa do bug: o protocolo e a projeção da CLI já preservavam a tupla completa provider/model, mas o
+renderer da área de chat consumia apenas `fromModel/toModel`, o que impossibilitava distinguir modelos
+com o mesmo nome de fornecedores personalizados. O renderer continua assinando o snapshot de
+providers existente e preserva o nome do fornecedor para os demais; fornecedores embutidos Z.ai /
+BigModel omitem ativamente o nome de entrada fixo conforme a regra de texto do produto. Quando o
+catálogo falta inicialmente, outros fornecedores caem para o provider ID e são redesenhados no lugar
+depois da hidratação do catálogo ou de uma renomeação. A identidade completa de origem e destino de
+um marker comum A→B e o momento da projeção permanecem inalterados, e a semântica de entrega do
+desktop continuous ou do mobile replayable também não muda; a próxima seção apenas adiciona o ramo de
+origem ausente em comum para a fronteira explícita de modelo `∅→X`.
 
-### Subagent 首次实际模型
+### Primeiro modelo real do Subagent
 
-普通 Main session 的首次选型仍只建立模型基线，不生成 marker。Fresh Subagent child 是唯一例外：
-child runtime 在最终解析 inherited、`lite` 或显式 profile override 后，把实际
-`childModelRef` 同时写入实时事件与持久 timeline。
+A primeira seleção de uma sessão Main comum ainda apenas estabelece a linha de base do modelo e não
+gera marker. Um child Subagent novo é a única exceção: o runtime do child, após resolver finalmente o
+override de profile herdado, `lite` ou explícito, grava o `childModelRef` real tanto no evento ao
+vivo quanto na timeline persistente.
 
 ```text
 resolveEffectiveSubagentModelRef -> childModelRef X
@@ -198,88 +244,104 @@ resolveEffectiveSubagentModelRef -> childModelRef X
 
 first TurnStarted
   -> modelChange { fromProvider/fromModel absent, toProvider/toModel=X }
-  -> renderer: no switch icon + "正在使用 X" / "Using X"
+  -> renderer: no switch icon + "Using X" / "正在使用 X"
 
 cold hydration
   -> source-less model_change synthesizes previousModelRef=null
   -> first TurnStarted rebuilds the same marker exactly once
 ```
 
-- `previousModelRef` 缺失只更新当前 config，不改变 turn 模型基线；显式 `null`
-  表示 `∅→X` 边界。公共投影只消费边界，不识别 Subagent 身份；fresh child 只是该边界
-  当前唯一的实时生产者。
-- turn 模型基线分为普通 Main 首轮静默、显式 source-less 和上一轮已知模型三态。
-  多次选型不会覆盖上一轮实际模型：`A→B→C` 在下一轮显示 `A→C`，`∅→X→Y`
-  在首轮显示 `Using Y`。
-- V4 `modelChange` keeps the existing destination tuple. Its source provider and
-  model are jointly present for A→B switches or jointly absent for Subagent
-  initial usage; half-present source tuples are invalid.
-- Source-less markers use the same provider/model display formatter as the
-  destination side of normal switches. Z.ai / BigModel omit the fixed provider
-  name; other providers retain `provider.name/modelId` and fall back to the
-  provider ID until catalog hydration. They omit the switch icon and the redundant
-  trailing “model”; normal A→B markers keep the existing switch icon and wording.
-- Only fresh child sessions persist this initial timeline fact. `resumeFromStore`
-  does not write it again, and histories created before this contract are not
-  inferred or backfilled.
-- The marker remains child-owned and is not mirrored into the parent Agent card
-  or parent conversation timeline. It does not update last-selected preferences
-  and does not produce a model-change toast.
+- A ausência de `previousModelRef` apenas atualiza a config atual e não muda a linha de base de
+  modelo do turn; um `null` explícito representa a fronteira `∅→X`. A projeção pública consome
+  apenas a fronteira e não reconhece a identidade de Subagent; um child novo é hoje o único produtor
+  ao vivo dessa fronteira.
+- A linha de base de modelo do turn tem três estados: silêncio normal no primeiro turno da Main,
+  source-less explícito e modelo conhecido do turno anterior. Seleções múltiplas não sobrescrevem o
+  modelo real do turno anterior: `A→B→C` exibe `A→C` no turno seguinte, e `∅→X→Y` exibe
+  `Using Y` no primeiro turno.
+- O `modelChange` do V4 mantém a tupla de destino existente. Seu provider e model de origem estão
+  presentes em conjunto nas trocas A→B ou ausentes em conjunto no uso inicial de um Subagent; tuplas
+  de origem com apenas um dos dois presentes são inválidas.
+- Markers source-less usam o mesmo formatador de exibição provider/model do lado de destino das
+  trocas normais. Z.ai / BigModel omitem o nome fixo do provider; outros providers retêm
+  `provider.name/modelId` e caem para o provider ID até a hidratação do catálogo. Eles omitem o ícone
+  de troca e o "model" redundante no final; markers normais A→B mantêm o ícone de troca e a redação
+  atuais.
+- Apenas sessões child novas persistem esse fato inicial na timeline. `resumeFromStore` não o grava
+  novamente, e históricos criados antes deste contrato não são inferidos nem preenchidos
+  retroativamente.
+- O marker continua pertencendo ao child e não é espelhado no card do Agent pai nem na timeline da
+  conversa pai. Ele não atualiza preferências last-selected e não gera toast de mudança de modelo.
 
-## 不可用模型的 Agent 兜底
+## Fallback do Agent para modelos indisponíveis
 
-UI 可见目录会受 entitlement 水合、过滤和菜单排序影响，不能据此改写会话。最新 workspace provider
-registry 生效后，Agent 是自动 fallback 的唯一决策者：
+O catálogo visível na UI é afetado por hidratação de entitlement, filtros e ordenação do menu e não
+pode ser usado para reescrever a sessão. Depois que o registry de providers mais recente do workspace
+passa a valer, o Agent é o único decisor do fallback automático:
 
 ```text
-registry 删除当前模型
-  -> active turn：保持在途请求，等待安全边界
+registry remove o modelo atual
+  -> active turn: mantém a requisição em trânsito e espera um ponto seguro
   -> idle / next-turn admission
-  -> 按 default → last-used → catalog first 选可用模型
-  -> app.setModel（解析目标实际 thought）
+  -> escolhe um modelo disponível por default → last-used → primeiro do catálogo
+  -> app.setModel (resolve o thought real do alvo)
   -> ModelSelected { modelRef, supportedThoughtLevels, contextWindow,
                      origin: "registryFallback" }
   -> ConversationSnapshot.config + usage.contextWindow.maxTokens
-  -> toolbar 只读展示
-  -> 当前聚焦 pane 在实时 online 帧首次观察到该事件
-  -> 复用手动切换的 changed + warning toast
+  -> exibição somente leitura na barra
+  -> o pane em foco atual observa o evento ao vivo pela primeira vez em um quadro online
+  -> reutiliza o toast changed + warning da troca manual
 ```
 
-与显式切换并发时按进入 Agent 临界区的顺序线性化；无论谁先进入，后执行者都会重新读取当前 runtime：
+Quando corre em paralelo com uma troca explícita, a linearização segue a ordem de entrada na região
+crítica do Agent; independentemente de quem entra primeiro, quem executa depois relê o runtime atual:
 
 ```text
-fallback C 先进入 -> 用户 B 后进入 -> 最终 B
-用户 B 先进入     -> fallback 重读发现 B 可用 -> no-op，最终 B
-旧 runtime A 迟到 -> 与当前 B / thought 不符 -> 丢弃，不发布事件
+fallback C entra primeiro -> usuário B entra depois -> final B
+usuário B entra primeiro     -> fallback relê e vê B disponível -> no-op, final B
+runtime antigo A atrasado    -> não corresponde ao B/thought atual -> descartado, sem evento
 ```
 
-renderer 不再从菜单第一项派发“automatic” `switchModelConfig`，因此目录 loading/重排不能覆盖用户正在
-进行的显式选择。没有任何可用模型时 Agent 保持当前值并让后续 admission 暴露不可用错误；这里的
-“可用”只指 registry/catalog 可解析，不包含真实 provider 网络探活。自动 fallback 不从 Agent 直接写
-last-selected 用户偏好；当前聚焦 pane 可在消费同一条实时权威跃迁且没有显式模型 intent 在途时，按
-compare-and-set 晋升实际配置。
+O renderer não despacha mais um `switchModelConfig` "automatic" a partir do primeiro item do menu,
+de modo que o carregamento/reordenação do catálogo não pode sobrescrever uma seleção explícita em
+andamento do usuário. Quando não há nenhum modelo disponível, o Agent mantém o valor atual e deixa o
+admission seguinte expor o erro de indisponibilidade; aqui "disponível" significa apenas resolvível
+pelo registry/catalogo e não inclui uma sondagem de rede real do provider. O fallback automático não
+grava a preferência last-selected do usuário diretamente a partir do Agent; o pane em foco atual pode
+elevar a configuração real por compare-and-set ao consumir a mesma transição autoritativa ao vivo e
+não haver intent de modelo explícito em trânsito.
 
-自动提示不从 `config` 的任意 A→B 差异猜测来源。CLI 只给 registry fallback 的
-`ModelSelected` 标记 `origin`，V4 projection 保留稳定事件 ID 和起止 provider/model；renderer store
-在成功应用实时 `online` 帧后按事件 ID 去重并通知当前聚焦 pane。`initial`、`recovery`、历史 snapshot
-与 duplicate/gap 帧只更新已观察基线，不触发 toast；若 initial 丢失，随后到达的完整 `online`
-snapshot 只是建立该订阅的首个 applied base，也只能播种观察基线。只有 base 建立后的新 `online`
-跃迁才同时触发当前 pane 的 toast 和偏好 CAS，因此重开历史 task、手机重连或 relay 恢复不会重放
-旧提示或改写选择。桌面和手机仍消费同一 Agent 模型事实，只在各自现有 delivery 链路本地决定是否展示。
+O aviso automático não adivinha a origem a partir de qualquer diferença A→B em `config`. A CLI só
+marca `origin` no `ModelSelected` de registry fallback; a projeção V4 preserva o ID estável do
+evento e o provider/model de origem e destino; o store do renderer deduplica por ID de evento e
+notifica o pane em foco atual após aplicar com sucesso o quadro `online` ao vivo. `initial`,
+`recovery`, snapshots históricos e quadros duplicate/gap apenas atualizam a linha de base observada
+e não disparam toast; se o initial se perde, o snapshot `online` completo que chega depois serve
+apenas para estabelecer a primeira base aplicada da assinatura e só semeia a linha de base de
+observação. Só uma nova transição `online` após a base established dispara simultaneamente o toast do
+pane atual e o CAS de preferência, de modo que reabrir uma task histórica, reconectar o celular ou
+recuperar o relay não reproduz avisos antigos nem reescreve a escolha. Desktop e celular continuam
+consumindo o mesmo fato de modelo do Agent e cada um decide localmente se exibe, apenas na sua
+cadeia de entrega existente.
 
-`online` transition 是不重放的一次性事件。`SessionPane` 必须在取得 session lease 的同一个 effect
-中同步安装 transition listener，再允许 subscribe activation 释放 initial/online 帧；不能先
-`setLease`、等待下一轮 effect 才注册。keep-warm store 重入也遵守同一顺序。这里不能通过读取或重放
-`snapshot.modelTransition` 补偿 listener 空窗，否则 initial/recovery/历史 transition 会被误当成实时事件。
+Uma transição `online` é um evento único e não reproduzível. `SessionPane` precisa instalar o
+transition listener de forma síncrona no mesmo effect em que obtém o lease da sessão, antes de
+permitir que a ativação da assinatura libere quadros initial/online; não se pode fazer `setLease`
+primeiro e esperar o próximo effect para registrar. A reentrada do store keep-warm também respeita
+essa ordem. Não é permitido compensar a janela do listener lendo ou reproduzindo
+`snapshot.modelTransition`, caso contrário transições initial/recovery/históricas seriam confundidas
+com eventos ao vivo.
 
-## 尚未实现的产品能力
+## Capacidades de produto ainda não implementadas
 
-V4 当前没有“目标模型 context window 小于已用上下文时，先停止/压缩再切换”的 guard。当前代码允许
-running session 切模型。待实现语义以
-`docs/superpowers/specs/2026-06-10-model-switch-context-window-guard-design.md` 为准，catalog 中
-N05、N09–N14 仍应标为 planned；旧 legacy implementation plan 不能视为现行覆盖。
+O V4 atualmente não tem uma proteção de "quando a context window do modelo alvo é menor que o
+contexto já usado, parar/comprimir antes de trocar". O código atual permite trocar de modelo em uma
+sessão em execução. A semântica a implementar está em
+`docs/superpowers/specs/2026-06-10-model-switch-context-window-guard-design.md`; no catálogo, N05 e
+N09–N14 continuam devendo ser marcados como planned; o antigo plano de implementação legado não pode
+ser considerado cobertura vigente.
 
-## 当前代码入口
+## Pontos de entrada atuais do código
 
 - `packages/ui/src/v4/composer/V4ComposerToolbar.tsx`
 - `packages/ui/src/v4/SessionPane.tsx`

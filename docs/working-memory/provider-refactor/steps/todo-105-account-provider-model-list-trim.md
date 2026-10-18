@@ -1,26 +1,26 @@
-# Todo 105：精简个人／团队 Account Provider 预设模型名单
+# Todo 105: enxugar a lista de modelos pré-definidos dos Account Providers pessoal/equipe
 
-> 状态：实现、配置/Registry 验证及逐项复审完成。2026-09-10。实施/测试证据、逐条边界复审及真实环境限制见 [本批交付复审](./provider-todos-105-113-delivery-review.md)。
+> Status: implementação, verificação de configuração/Registry e revisão item a item concluídas. 2026-09-10. As evidências de implementação/teste, a revisão de fronteiras e as limitações do ambiente real estão em [a revisão de entrega deste lote](./provider-todos-105-113-delivery-review.md).
 
-## 已确认要求
+## Requisitos Confirmados
 
-- 个人和团队 Account Provider 的预设模型名单移除 `GLM-5-Turbo`、`GLM-5.2`。
-- 范围覆盖 BigModel 与 Z.ai 的个人／团队 Account Provider。
+- A lista de modelos pré-definidos dos Account Providers pessoal e de equipe remove `GLM-5-Turbo` e `GLM-5.2`.
+- O escopo cobre os Account Providers pessoal/equipe da BigModel e da Z.ai.
 
-## 范围边界
+## Limites de Escopo
 
-- 本项只调整上述 Provider 的预设成员，不扩大为删除通用模型能力规则。
-- 不顺带调整 Start Plan、Off-Peak 或普通 API Key Provider 的名单。
-- 不清理用户自行添加的模型，不改写历史会话、任务等保存的 Model Selection。
+- Este item apenas ajusta os membros pré-definidos dos Providers acima, e não se expande para a remoção das regras de capacidade de modelos em geral.
+- Não ajusta em conjunto as listas do Start Plan, do Off-Peak nem dos Providers de API Key comuns.
+- Não limpa modelos adicionados pelo próprio usuário nem reescreve o Model Selection salvo em sessões, tarefas e outros históricos.
 
-## 待执行
+## A Executar
 
-- [x] 定位上述 Provider 的预设名单来源，移除这两个型号。
-- [x] 更新名单测试，检查其余预设模型和范围外 Provider 不受影响。
-- [x] 复审设置页与模型选择列表的结果；实现、验证完成后再关闭本项。
+- [x] Localizar a origem das listas pré-definidas dos Providers acima e remover esses dois modelos.
+- [x] Atualizar os testes das listas, verificando que os demais modelos pré-definidos e os Providers fora de escopo não são afetados.
+- [x] Revisar o resultado nas páginas de configurações e na lista de seleção de modelos; o item só é fechado depois da conclusão da implementação e da verificação.
 
-## 实施证据
+## Evidências de Implementação
 
-- 仅改四个个人／团队 `builtinModelIds`，未删除任何模型能力/覆盖规则或改动 Start/Off-Peak 模板名单。
-- `account-model-membership.test.ts` 对四 Provider 验证预设精简，同时显式 Personal 添加 5.2/Turbo 仍进入 Registry。修复前名单断言失败，修复后通过；Builtin 完整性 14 条通过。
-- 文档维护清单同步。历史/任务/用户配置没有写入或迁移；设置与选择器共用解析名单，不新增 UI 过滤。
+- Apenas os quatro `builtinModelIds` pessoal/equipe foram alterados, sem remover nenhuma regra de capacidade/override de modelo nem modificar as listas de modelos do Start/Off-Peak.
+- `account-model-membership.test.ts` verifica a enxugada dos pré-definidos para os quatro Providers e, ao mesmo tempo, confirma explicitamente que adicionar 5.2/Turbo manualmente em Personal ainda entra no Registry. Antes da correção, a asserção da lista falhava; depois da correção, passa. A integridade dos Builtin, com 14 casos, passa.
+- A lista de manutenção de documentação foi sincronizada. Não houve escrita nem migração em histórico, tarefas ou configuração do usuário; configurações e seletor compartilham a lista resolvida, sem novo filtro na UI.

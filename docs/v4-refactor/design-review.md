@@ -1,348 +1,347 @@
-# V4 重构设计 Review：对照现有代码与历史 bugfix 的交叉验证
+# Review do Design da Refatoração V4: Verificação Cruzada Contra o Código Existente e os Bugfixes Históricos
 
-- 状态：**2026-07-04 迁移前审计记录**。下文“现有代码”、路径、行数和待裁决项描述的是
-  V4 硬切前基线；当前实现以本目录 [README.md](./README.md) 导航的规格和代码为准。
-- 日期：2026-07-04
-- 输入：docs/v4-refactor/ 全部 10 篇 + conversation-product-protocol.md 全文
-- 方法：先做纯设计审查；再对五个代码域（renderer 拼装层 / 流事件与快照同步 / store 与 web 入口 / 传输与远控 / CLI 事实源侧，合计约 2 万行）通读扫描，把注释里的历史 bugfix/workaround 聚成 **60 类病例**，逐类判定新设计「结构性消灭 / 需钉死规则 / 设计未覆盖 / 会换马甲回来」。病例均附代码位置与注释原文（见附录）。
+- Status: **registro de auditoria pré-migração de 2026-07-04**. As referências a "código existente", caminhos, contagens de linhas e itens pendentes de decisão abaixo descrevem a linha de base antes do hard cut da V4; a implementação atual segue as especificações e o código navegados pelo [README.md](./README.md) deste diretório.
+- Data: 2026-07-04
+- Entradas: todos os 10 documentos de docs/v4-refactor/ + o texto integral de conversation-product-protocol.md
+- Método: primeiro uma revisão puramente de design; depois uma varredura completa de leitura de cinco domínios de código (camada de montagem do renderer / eventos de stream e sincronização de snapshot / store e entrada web / transporte e controle remoto / lado da fonte de verdade da CLI, cerca de 20 mil linhas no total), agrupando os bugfixes/workarounds históricos dos comentários em **60 classes de casos**, e julgando, classe a classe, o novo design em "elimina estruturalmente / precisa de regra fixada / não coberto pelo design / voltará de salto com outra roupa". Todos os casos anexam a localização no código e o texto original do comentário (ver apêndice).
 
-## 1. 结论摘要
+## 1. Resumo das Conclusões
 
-**方向被代码强烈背书。** 60 类病例中约 40 类被新设计结构性消灭；而且旧代码已经自发长出了 v4 的半成品——owner/observer 双流被迫合并回单 seq 流（taskRealtimeBus.ts:685）、bridge 层被现实逼出三个手工"代际"字段（bridgeSessionId/bridgeGeneration/recoveryId）、CLI 协议边界为了 replay 可复现被迫做确定性合批（server-operations.ts:3277）。这些都是「现实在朝设计的方向修补丁」的证据。
+**A direção é fortemente endossada pelo código.** Das 60 classes de casos, cerca de 40 são eliminadas estruturalmente pelo novo design; e o código antigo já gerou espontaneamente meio V4 por conta própria — os fluxos owner/observer foram obrigados a voltar a se fundir em um único fluxo com seq (taskRealtimeBus.ts:685), a camada bridge foi forçada pela realidade a ter três campos manuais de "geração" (bridgeSessionId/bridgeGeneration/recoveryId), e a fronteira de protocolo da CLI foi obrigada a fazer batching determinístico para que o replay fosse reproduzível (server-operations.ts:3277). Todas essas são evidências de que "a realidade está consertando remendos na direção do design".
 
-**三类主要工作项：**
+**Três itens de trabalho principais:**
 
-1. **地基失真（最重要）**：README 地基表「rpc 可靠性层成熟：ACK、心跳、断线重放」不成立。`PersistentProtocol` 是随 VS Code 架构移植的库代码，**全仓零生产部署**（实际链路走无 ACK/重放的 `SocketProtocol` / `MessagePortProtocol`），且缺收端去重、缺服务端重连附着、从不主动发 ACK。Phase 2 的性质是「首次生产化一个未验证的可靠层」，不是「打两个小补丁」。→ §2、R-02。同级失真还有一处：**事件日志现状纯内存不落盘**（M8），「CLI 重启从 SQLite 事件重放重建」不成立，需按 §9.2 做持久形态决策。
-2. **schema 缺口**：sessionConfig（provider/model/thought/followupMode 当前值）、usage/contextWindow、backgroundWorks[]、plan/todo、时间戳与工时等一批 UI 必需状态在 09 无落点——两路扫描独立发现同一缺口，对应的现存补丁群会原样带进新架构。→ §4
-3. **协议规则钉死清单**：订阅代际（epoch）、重复帧三分支处理、seq/rowId/revision 确定性、snapshot 原子性等约 18 条，不写死则本次要消灭的 bug 类会换马甲回来。→ §3
+1. **Fundação distorcida (o mais importante)**: a tabela de fundações do README, "camada de confiabilidade rpc madura: ACK, heartbeat, replay em caso de desconexão", não se sustenta. `PersistentProtocol` é código de biblioteca portado junto com a arquitetura do VS Code, com **zero implantações em produção em todo o repositório** (o caminho real usa o `SocketProtocol` / `MessagePortProtocol`, sem ACK/replay), e ainda por cima faltam deduplicação no lado receptor, reattach de reconexão no servidor, e nunca se envia ACK ativamente. A natureza da Phase 2 é "produzir pela primeira vez uma camada confiável não verificada", não "aplicar dois pequenos remendos". → §2, R-02. Há outra distorção de mesmo nível: **o log de eventos hoje é puramente em memória, sem persistência em disco** (M8); "o CLI reconstrói por replay dos eventos no SQLite ao reiniciar" não se sustenta, e é preciso tomar uma decisão sobre a forma persistente conforme §9.2.
+2. **Lacunas de schema**: sessionConfig (valores atuais de provider/model/thought/followupMode), usage/contextWindow, backgroundWorks[], plan/todo, timestamps e tempo de trabalho — um conjunto de estado exigido pela UI não tem destino em 09 — e as duas varreduras encontraram a mesma lacuna de forma independente; os patches existentes correspondentes seriam carregados como estão para a nova arquitetura. → §4
+3. **Lista de regras de protocolo a fixar**: geração de assinatura (epoch), tratamento em três ramos de quadros duplicados, determinismo de seq/rowId/revision, atomicidade de snapshot etc., cerca de 18 itens; sem fixá-los, as classes de bugs que esta iteração pretende eliminar voltarão de salto com outra roupa. → §3
 
-**持久化最终口径（§9，经作者裁决后收敛）：** CLI 侧 SQLite **零新表、零迁移**。用户 query 队列不持久化；连锁推论 command/continuation inbox 均为内存受理台账，崩溃窗口的幂等由「效果自带 `sourceCommandId`」承担；唯一存储改动是 message/part 的 additive JSON 锚点字段。持久层哲学一句话：**唯一不可丢状态 = transcript + 锚点，其余（事件日志、投影、队列、inbox）全是可重建软状态**——与 01 自相似恢复原则完全对齐。
+**Posição final sobre persistência (§9, convergida após decisão do autor):** no lado do CLI, o SQLite fica com **zero tabelas novas, zero migrações**. A fila de queries do usuário não é persistida; por consequência, o inbox de command/continuation também é um balcão de recebimento em memória, e a idempotência na janela de crash fica a cargo de "o efeito carrega seu próprio `sourceCommandId`"; a única alteração de armazenamento é o campo de âncora JSON aditivo de message/part. A filosofia da camada persistente em uma frase: **o único estado imperdível = transcript + âncoras; todo o resto (log de eventos, projeções, filas, inbox) é estado suave reconstruível** — perfeitamente alinhada ao princípio de recuperação por autossimilaridade do 01.
 
-**裁决台账：**
+**Registro de decisões:**
 
-| 状态 | 事项 |
+| Estado | Item |
 | --- | --- |
-| 已裁决 | queue（用户 query 队列）不持久化 → inbox 两表不建、`queue_auto_drain` 列不需要、C-03 消解（CLI 重启一律不重放，在途命令由客户端 `commands/query` 对账后交用户决定重发）；03「Inbox 落盘」与 01/02/04「SQLite 事件重放」表述待按 §9.3/M8 改写 |
-| 已裁决（2026-07-05） | ① 事件日志持久形态 = **方案 B**（内存有界日志 + logEpoch，零表）；② fork/createSession 崩溃窗口防重 = **child session 记 `source_command_id`**；③ C-01 多端动作权限 = **全权对等**（幂等收口）；④ C-04 = **保留 draft**（推翻 10-P2，createSession.firstInput 改可选，draft 纯内存不落盘）；⑤ 10-P3 rewind = **删除独立命令**（editUserQuery 的 UI 入口）；⑥ 执行路径 = **硬切**（放弃双写期，见 08/11） |
-| 待裁决 | §5 其余确认点（C-02 pending TTL、C-06 Phase 2 止血范围、C-07 行为变更清单、C-08 stream-animate 库化）；G-12 fault catalog；G-13 鉴权面；四个 PB-* 边界 |
+| Decidido | a queue (fila de queries do usuário) não é persistida → as duas tabelas de inbox não são criadas, a coluna `queue_auto_drain` não é necessária, C-03 é dissolvido (o CLI nunca faz replay ao reiniciar; comandos em trânsito são reconciliados pelo cliente via `commands/query` e cabe ao usuário decidir o reenvio); as formulações de "Inbox em disco" em 03 e "replay de eventos do SQLite" em 01/02/04 precisam ser reescritas conforme §9.3/M8 |
+| Decidido (2026-07-05) | ① Forma persistente do log de eventos = **Opção B** (log em memória limitado + logEpoch, zero tabelas); ② prevenção de duplicidade na janela de crash de fork/createSession = **child session registra `source_command_id`**; ③ C-01 permissão de ação em múltiplos clientes = **paridade total** (fechamento idempotente); ④ C-04 = **manter o draft** (derruba 10-P2, `createSession.firstInput` passa a opcional, o draft permanece só em memória); ⑤ 10-P3 rewind = **remover o comando independente** (entrada de UI de editUserQuery); ⑥ caminho de execução = **hard cut** (abandona o período de escrita dupla, ver 08/11) |
+| Pendente de decisão | os demais pontos de confirmação de §5 (C-02 pending TTL, C-06 escopo de contenção de danos da Phase 2, C-07 lista de mudanças de comportamento, C-08 library-ização de stream-animate); G-12 fault catalog; G-13 superfície de autenticação; os quatro limites PB-* |
 
-建议行动顺序：**Phase 0 动手前**——按 §2.2（M1–M8）与 §7 回写设计文档；完成 §3 的 18 条规则钉死与 §4 的 schema 补章；定掉 §9.2 与 fork 防重。**实施期**——§8 黄金测试/混沌装置升为一等验收（rpc 层首次生产化必须有它护航）。
+**Ordem de ação sugerida:** **antes de começar a Phase 0** — reescrever os documentos de design conforme §2.2 (M1–M8) e §7; concluir a fixação das 18 regras de §3 e o capítulo de schema ausente de §4; decidir §9.2 e a prevenção de duplicidade no fork. **Durante a implementação** — transformar agolden test/aparato de caos em aceitação de primeira classe (a primeira produção da camada rpc precisa desse护航).
 
-## 2. 现状诊断核实结果
+## 2. Resultado da Verificação do Diagnóstico Atual
 
-### 2.1 属实（抽查全中）
+### 2.1 Confirmado (amostragem com acertos)
 
-四个 renderer 锚点行为与描述一致（zcodeChatMessages.ts:549/:904/:1457/:2431）；规模数字全部准确（3089 / 1056 / 2141 / 5871 行）；`afterSeq`+`includeSnapshot`（zcode-protocol:2109）、`expectedRevision`（:2270）、`reduce()`（event-reducer.ts:517）、`buildTraceTree`（model.ts:241）、channelClient.ts:173 无合批、base64 双编码（webRemoteControlManager.ts:781）、`Pause=7` 确为未实现空位（`ReplayRequest=6`/`Resume=8` 同样只在枚举里）、`@tanstack/react-virtual` 依赖与 GitPane 等参考实现、`content-visibility` 兜底（ChatConversationContent.tsx:9）、旧协议源码已清。
+Os quatro pontos de ancoragem do renderer batem com a descrição (zcodeChatMessages.ts:549/:904/:1457/:2431); todos os números de escala estão corretos (3089 / 1056 / 2141 / 5871 linhas); `afterSeq`+`includeSnapshot` (zcode-protocol:2109), `expectedRevision` (:2270), `reduce()` (event-reducer.ts:517), `buildTraceTree` (model.ts:241), channelClient.ts:173 sem batching, dupla codificação base64 (webRemoteControlManager.ts:781), `Pause=7` é de fato um espaço reservado não implementado (`ReplayRequest=6`/`Resume=8` também só existem no enum), a dependência `@tanstack/react-virtual` e implementações de referência como GitPane, o fallback `content-visibility` (ChatConversationContent.tsx:9), o código do protocolo antigo já foi removido.
 
-### 2.2 失真 / 需要改写（按影响排序）
+### 2.2 Distorcido / precisa de reescrita (ordenado por impacto)
 
-| # | 设计原文 | 实际情况 | 影响 |
+| # | Texto original do design | Realidade | Impacto |
 | --- | --- | --- | --- |
-| M1 | README 地基表「rpc 可靠性层成熟」；05「桌面 socket 走 PersistentProtocol」 | PersistentProtocol 零生产部署；收端无去重（protocol.ts:411 无 `id <= incomingAckId` 丢弃分支，重放的重复消息原样上抛）；服务端无「新 socket 绑回旧协议实例」的握手；ACK 仅靠 5s KeepAlive 捎带；判死实际 20–40s（20s 间隔 timer 查 20s 超时）。现状是「0.5 层可靠性」（仅 relayProtocol 那套），不是「两套半吊子」 | Phase 2 工作量与风险画像重估，见 R-02 |
-| M2 | README 病根 2「每个 delta 都是独立 EventFire 帧」「现有合批只省渲染」 | CLI 协议边界已有确定性字节预算合批（server-operations.ts:447、:3277「不能用 live setTimeout，否则 replay 无法复现边界」）；客户端合批还承担「控制事件到达前强制 flush 保序」职责（useTaskStreamEvents.ts:471） | 病根措辞改为「合批粒度小、每协议事件仍独立成帧、relay 两次 base64」；05 频率预算基线以实测帧数为准；并需裁决 CLI 这层合批的删留（R-14） |
-| M3 | 03「queue 是纯内存（agent-runtime.ts:159 `pendingInputSequence`）」 | `pendingInputSequence` 只是 id 计数器；真正易失的是**两处**：CLI 侧 steer 队列 `activeTurn.pendingInputs`（纯内存）+ UI 侧 deferred queue（renderer 内存，刷新即丢） | 作者已裁决 queue 不持久化（§9.3）：修复形态 = 两处队列所有权统一收进 CLI 内存；03「Inbox 落盘」段的归因与 `pendingInputSequence` 表述按 §9.3 改写；UI 本地 queue 直接废弃仍成立 |
-| M4 | README 地基表「协议已是 seq 单调增量事件」 | 骨架在，但协议 seq 是按 `(session record, deliveryKind)` 的**内存懒编号**（server-operations.ts:201-255、:634），重启后 afterSeq 无意义、不同 deliveryKind 各一套 seq 空间、每次订阅全史重扫 | v4 要把 seq 升格为持久日志属性，这是新增工作不是现成地基（R-04） |
-| M5 | 02「ProductContext 各维度对应的 CLI 事实全部已存在」 | queue 维度例外：deferred queue 事实今天在 UI 侧 | 03 的队列收编是 02 的前置依赖，分期顺序里写明 |
-| M6 | 05「五六条重连入口」；01「三条 web 链路」 | 实测重连入口约 10 条；web 实为 3+1 种形态（还有 home-only stub 模式，约 20 个手工 stub 服务） | 诊断方向对，量级低估；stub 模式消失后需定义 host 不可达的 UI 降级形态（G-11） |
-| M7 | 08「旧协议仅剩约 200 个 dist 产物」 | 实测 324 个 | 无实质影响 |
-| M8 | README 地基「reduce(events) 重建 projection，冷热恢复一致」；02「session resume 时从落盘事件重建，无第二条恢复路径」；01「CLI 重启 → 从 SQLite 事件重放重建投影」 | **事件日志不落盘**：`SessionEventStorePort` 全仓唯一实现是 `InMemorySessionEventStore`（adapters/storage/index.ts:21），生产装配即它（create-app.ts:340 `options.eventStore ?? createInMemorySessionEventStore()`）；CLI 重启后 `eventStore.getEvents()` 为空，冷恢复实际依赖 transcript（resume.ts:144 拿到空日志后走 messages 路径） | v4 的 `subscribe(afterSeq)` 跨 CLI 重启语义必须做持久形态决策，见 §9.2；01/02/04 相关表述需改写 |
+| M1 | Tabela de fundações do README "camada de confiabilidade rpc madura"; 05 "o socket do desktop usa PersistentProtocol" | PersistentProtocol com zero implantação em produção; sem deduplicação no receptor (protocol.ts:411 não tem ramo de descarte `id <= incomingAckId`, então mensagens duplicadas de replay sobem como estão); sem handshake no servidor para "reatar um novo socket à instância de protocolo antiga"; ACK só é aproveitado pelo KeepAlive de 5s; na prática a morte detectada leva 20–40s (timer de 20s consultando timeout de 20s). O estado atual é "0,5 camada de confiabilidade" (apenas o conjunto relayProtocol), não "duas e meia camadas pela metade" | Reestimar esforço e risco da Phase 2, ver R-02 |
+| M2 | README causa-raiz 2 "cada delta é um quadro EventFire independente", "o batching atual só economiza renderização" | A fronteira de protocolo do CLI já tem batching com orçamento de bytes determinístico (server-operations.ts:447, :3277 "não se pode usar live setTimeout, senão o replay não reproduz as fronteiras"); o batching do cliente ainda carrega a responsabilidade de "forçar flush antes da chegada de um evento de controle para preservar a ordem" (useTaskStreamEvents.ts:471) | Trocar a formulação da causa-raiz por "granularidade de batching pequena, cada evento de protocolo ainda vira um quadro independente, relay faz base64 duas vezes"; a linha de base de orçamento de frequência do 05 deve vir da contagem real de quadros; e é preciso decidir o destino do batching do CLI (R-14) |
+| M3 | 03 "queue é puramente em memória (agent-runtime.ts:159 `pendingInputSequence`)" | `pendingInputSequence` é apenas um contador de id; o que realmente é volátil são **dois pontos**: a fila steer do lado do CLI `activeTurn.pendingInputs` (puramente em memória) + a deferred queue do lado da UI (memória do renderer, perdida no refresh) | O autor já decidiu que a queue não é persistida (§9.3): a forma da correção = unificar a posse das duas filas na memória do CLI; a atribuição na seção "Inbox em disco" do 03 e a formulação sobre `pendingInputSequence` devem ser reescritas conforme §9.3; descartar a queue local da UI continua válido |
+| M4 | Tabela de fundações do README "o protocolo já é um fluxo de eventos incrementais monótono por seq" | O esqueleto existe, mas o seq do protocolo é uma **numeração preguiçosa em memória** por `(session record, deliveryKind)` (server-operations.ts:201-255, :634): após reiniciar o afterSeq não faz sentido, cada deliveryKind tem seu próprio espaço de seq, e cada assinatura reexamina toda a história | A V4 precisa elevar seq a atributo de log persistente; isso é trabalho novo, não fundação pronta (R-04) |
+| M5 | 02 "todos os fatos da CLI correspondentes a cada dimensão do ProductContext já existem" | Exceção na dimensão queue: o fato da deferred queue hoje está do lado da UI | A incorporação da queue no CLI é pré-requisito do 02; deixar explícito no sequenciamento por fases |
+| M6 | 05 "cinco ou seis entradas de reconexão"; 01 "três enlaces web" | Há cerca de 10 entradas de reconexão na prática; o web é na verdade 3+1 formas (incluindo o modo home-only stub, com cerca de 20 serviços stub manuais) | O diagnóstico está certo, a escala subestimada; depois que o modo stub desaparecer é preciso definir a forma de degradação de UI quando o host está inacessível (G-11) |
+| M7 | 08 "o protocolo antigo deixou cerca de 200 artefatos dist" | Medido: 324 | Sem impacto substancial |
+| M8 | Fundação do README "reduce(events) reconstrói a projeção, recuperação a quente e a frio consistentes"; 02 "ao retomar a sessão, reconstrói a partir dos eventos persistidos, sem um segundo caminho de recuperação"; 01 "CLI reinicia → reconstrói a projeção por replay dos eventos do SQLite" | **O log de eventos não é persistido em disco**: a única implementação de `SessionEventStorePort` em todo o repositório é `InMemorySessionEventStore` (adapters/storage/index.ts:21), e é justamente ela a montagem de produção (create-app.ts:340 `options.eventStore ?? createInMemorySessionEventStore()`); após reiniciar, `eventStore.getEvents()` fica vazio, e a recuperação a frio real depende do transcript (resume.ts:144, com log vazio segue pelo caminho de messages) | A semântica de `subscribe(afterSeq)` da V4 atravessando reinício do CLI exige uma decisão sobre a forma persistente, ver §9.2; as formulações de 01/02/04 precisam ser reescritas |
 
-## 3. 必须钉死的设计规则（R 类：不写死就会出 bug）
+## 3. Regras de Design que Precisam Ser Fixadas (Classe R: sem fixar, surgem bugs)
 
-**R-01 订阅代际 + 重复帧三分支 + 重订阅纪律。**（第一轮 A1，四路扫描独立印证）
-TopicFrame 无任何字段区分新旧订阅的帧；09§4 apply 只有两分支，每条迟到旧帧都触发一次 resubscribe → 风暴。旧架构已被现实逼出手工代际：`bridgeSessionId`+`bridgeGeneration`+`recoveryId`（manager:888 按 generation 丢跨代帧）、请求级 single-flight（transport:839「多个请求同时撞上 suspect 窗口必须共用一次恢复」）、mirror runId 游标残留 bug（taskStreamEventHandlers.ts:705「把新 run 的 seq=1 当成旧消息丢掉，手机端漏权限请求」）。钉死四条：
-1. subscribe 响应分配 epoch，帧携带 epoch，客户端丢弃旧 epoch 帧；
-2. apply 三分支：`toSeq <= store.seq` 的迟到/重复帧**静默丢弃**；`fromSeq === store.seq` 才 apply；`fromSeq > store.seq` 才 resubscribe；
-3. resubscribe single-flight（进行中不重复发起）；
-4. 服务端同 (client, topic) 重订阅 = 替换旧订阅并清空其 flush buffer。
+**R-01 Geração de assinatura + três ramos para quadros duplicados + disciplina de ressubscrição.** (primeira rodada A1, quatro varreduras confirmam de forma independente)
+TopicFrame não tem nenhum campo que diferencie quadros de assinaturas novas das antigas; o apply da §4 de 09 tem apenas dois ramos, e cada quadro antigo atrasado dispara uma ressubscrição → tempestade. A arquitetura antiga já foi forçada pela realidade a ter geração manual: `bridgeSessionId` + `bridgeGeneration` + `recoveryId` (manager:888 descarta quadros entre gerações por generation), single-flight por requisição (transport:839 "várias requisições colidindo na mesma janela suspect devem compartilhar uma única recuperação"), bug residual de cursor de runId no mirror (taskStreamEventHandlers.ts:705 "o seq=1 de um novo run é descartado como mensagem antiga e o celular perde a requisição de permissão"). Fixar quatro itens:
+1. a resposta do subscribe aloca um epoch, os quadros carregam o epoch e o cliente descarta quadros de epoch antigo;
+2. apply em três ramos: quadros atrasados/duplicados com `toSeq <= store.seq` são **descartados silenciosamente**; só `fromSeq === store.seq` faz apply; só `fromSeq > store.seq` faz ressubscrição;
+3. ressubscrição single-flight (não repetir enquanto em andamento);
+4. no servidor, ressubscrição do mesmo (client, topic) = substituir a assinatura antiga e limpar seu flush buffer.
 
-**R-02 rpc 层补课清单（对应 M1）。** Phase 2 的 rpc 工作至少五项：收端按 msgId 去重；服务端协议会话注册表 + 重连令牌握手（否则 replaceSocket 只有客户端一半）；显式 ACK 发送节奏；判死粒度修正；再加设计已列的拥塞信号与重放缓冲加界。首次生产化必须配 E-01 混沌回归，且「对端去重」在实现前不是可以假设存在的能力。
+**R-02 Lista de correlações da camada rpc (correspondente a M1).** O trabalho de rpc da Phase 2 tem pelo menos cinco itens: deduplicação por msgId no receptor; registro de sessões de protocolo no servidor + handshake de token de reconexão (caso contrário replaceSocket tem só metade do lado do cliente); cadência explícita de envio de ACK; granularidade da detecção de morte corrigida; além do sinal de congestionamento e do buffer de replay com limite, já listados no design. A primeira produção precisa vir acompanhada de uma regressão de caos E-01, e "deduplicação do lado par" não é uma capacidade que se possa assumir existente antes da implementação.
 
-**R-03 snapshot 必须从内存投影原子生成。**（P2-2，本次扫描单点最大病根）
-现状 snapshot 从落盘态生成、追不上内存流：zcodeSessionEventOrder.ts:93「running snapshot 的 eventSeq 只能说明控制状态追到这里，不代表流式正文已写入 snapshot」，客户端为此长出 [0,50,100,200]ms 轮询追赶 + 半截快照补偿 + 七个 ephemeral 字段各自的恢复补丁（taskSnapshotRuntimeStateSync.ts 整个文件）。v4 的「snapshot = seq=W 时刻完整投影」必须实现为**从内存 reducer 状态原子取值**（含截至 W 的半截 row 文本与 A 区全部字段），并把 `snapshot(W) + replay(W, now] ≡ 全量 replay` 列为 Phase 1 黄金测试第一用例——否则 09§7 的走查场景不成立，「整体替换」会把现在「吞首段正文」的 bug 放大成「吞任意段」。
+**R-03 O snapshot deve ser gerado atomicamente a partir da projeção em memória.** (P2-2, o maior ponto de disent-upo desta varredura)
+Hoje o snapshot é gerado a partir do estado persistido e não acompanha o fluxo em memória: zcodeSessionEventOrder.ts:93 "o eventSeq de um snapshot em execução só pode indicar que o estado de controle chegou até aqui, não que o corpo do streaming já foi escrito no snapshot"; o cliente cresceu em cima disso com polling de [0,50,100,200]ms para alcançar, compensação de snapshot pela metade e um patch de recuperação para cada um dos sete campos ephemeral (o arquivo todo taskSnapshotRuntimeStateSync.ts). O "snapshot = projeção completa no instante W" da V4 precisa ser implementado como **extração atômica do estado do reducer em memória** (incluindo o texto pela metade das rows até W e todos os campos da área A), e `snapshot(W) + replay(W, now] ≡ replay completo` deve ser o primeiro caso do golden test da Phase 1 — senão os cenários de walkthrough da §7 do 09 não se sustentam, e a "substituição integral" amplifica o bug atual de "engolir o primeiro trecho do corpo" para "engolir qualquer trecho".
 
-**R-04 seq / rowId / revision 三个标识的确定性。**（第一轮 A5，CLI 扫描强印证）
-- seq：升格为持久事件日志属性，跨重启稳定，与 deliveryKind 无关（profile 差异靠区间记账，不靠重编号）；回放配 `getEventsAfter` 索引（现状 O(全史) 重扫）。
-- rowId：必须是 event log 的确定性纯函数（重放重建后不变），含 07 的 fallback rows——否则「实时 id 与恢复 id 不同」（zcodeChatMessages.ts:2793）换成 rowId 马甲回来，客户端持久化的 targetRowId/已拉取 ranges 全部作废。
-- revision：由 reducer 从事件派生（建议直接 revision = eventSeq 或给出明确递进表），废除现状 15+ 处手工 `stateRevision++`（server-operations.ts:1207 等）；revision 纯内存重启归零的问题一并消失。
+**R-04 Determinismo dos três identificadores seq / rowId / revision.** (primeira rodada A5, a varredura do CLI confirma fortemente)
+- seq: elevado a atributo do log de eventos persistente, estável entre reinícios, independente de deliveryKind (as diferenças de perfil são registradas por faixa, não por renumeração); o replay ganha o índice `getEventsAfter` (hoje é O(história inteira) reexaminando tudo).
+- rowId: precisa ser uma função pura determinista do event log (inalterada após reconstrução por replay), incluindo as fallback rows do 07 — senão "id em tempo real diferente do id na recuperação" (zcodeChatMessages.ts:2793) volta de salto como rowId, e todo o targetRowId/pRanges já persistidos no cliente ficam sem valor.
+- revision: derivado pelo reducer a partir dos eventos (sugestão: revision = eventSeq, ou uma tabela de progressão explícita), abolindo os mais de 15 incrementos manuais de `stateRevision++` existentes hoje (server-operations.ts:1207 etc.); o problema de revision puramente em memória zerar no reinício também desaparece.
 
-**R-05 禁止 live-only 事件旁路。**（P5-2）
-现状 subagent mirror 是 `sequenceNumber=0` 不进父 event log 的旁路流，seq 只能临时编造。钉死：凡产生 row/delta 的事实必须先进 event log。否则 09 subagent row 的 `summaryText` 流式与 `(fromSeq,toSeq]` 记账是空话。
+**R-05 Proibir bypass de eventos live-only.** (P5-2)
+Hoje o espelho de subagent é um fluxo bypass com `sequenceNumber=0` que não entra no event log pai, e o seq só pode ser inventado temporariamente. Fixar: todo fato que produz row/delta precisa entrar primeiro no event log. Caso contrário o `summaryText` de subagent row do 09 e a contabilidade de `(fromSeq,toSeq]` não passam de conversa vazia.
 
-**R-06 `rows/range` 改 rowId 游标分页 + 合并规则。**（第一轮 A2）
-index 在 suffix 截断 + 新 append 后会被复用，与滞后的订阅流按 index 合并会出现瞬时重复/错位。改 `beforeRowId + count`；客户端合并一律以 rowId 为排序键；patch 命中未加载 rowId = no-op；`atSeq` 与 `store.seq` 的关系写明（rowId 单调 + truncate delta 最终收口，可不做 seq 门控，但要写出论证）。
+**R-06 `rows/range` muda para paginação por cursor rowId + regra de merge.** (primeira rodada A2)
+O índice é reutilizado após truncamento de sufixo + novo append, e mesclar por índice com um fluxo de assinatura atrasado produz duplicatas/desalinhamentos instantâneos. Mudar para `beforeRowId + count`; o merge do cliente usa rowId como chave de ordenação; um patch que acerta um rowId não carregado = no-op; a relação entre `atSeq` e `store.seq` precisa ser escrita (rowId monótono + delta de truncate fechando em definitivo; pode-se não fazer gating por seq, mas é preciso escrever a argumentação).
 
-**R-07 optimistic 收口锚点补全。**（第一轮 A4，两路强印证）
-- `QueueItem` 必带 `sourceCommandId`：running 时 sendText 的权威结果是 queue 更新而非 row，现状缺锚点导致 15 秒窗口模糊去重（taskStreamEventHandlers.ts:148 按「内容+附件+时间差≤15s+id 前缀」启发式）；
-- `timelineMarker` row 也带 `sourceCommandId`：compact 这类不产 userInput row 的命令，现状靠 **1 秒时钟容差**对账（zcodeChatMessages.ts:2740）；
-- 权威 userInput row 的 `text` 必须是用户原文：现状 /goal 的 mirror 正文回传的是落库后的 objective，会把气泡里的 `/goal` 抹掉（handlers:165）；
-- `resolveInteraction` 的乐观置灰/待确认态写进 03 overlay 纪律：幂等只保正确性，秒级 RTT 下不给乐观反馈用户会重复点击。
+**R-07 Completar as âncoras de fechamento do optimistic.** (primeira rodada A4, duas varreduras confirmam fortemente)
+- `QueueItem` deve carregar `sourceCommandId`: durante execução o resultado autoritativo do sendText é a atualização da queue e não a row; hoje falta a âncora e isso gera uma deduplicação difusa numa janela de 15 segundos (taskStreamEventHandlers.ts:148, por heurística de "conteúdo + anexos + diferença de tempo ≤15s + prefixo de id");
+- a row `timelineMarker` também carrega `sourceCommandId`: comandos como compact, que não produzem userInput row, hoje são reconciliados por uma **tolerância de relógio de 1 segundo** (zcodeChatMessages.ts:2740);
+- o `text` da userInput row autoritativa deve ser o texto original do usuário: hoje o corpo espelhado de /goal devolve o objetivo já gravado no banco, o que apaga o `/goal` do balão (handlers:165);
+- o estado otimista de cinza/aguardando confirmação de `resolveInteraction` entra na disciplina de overlay do 03: a idempotência garante apenas correção; com RTT de segundos, sem feedback otimista o usuário clica repetidamente.
 
-**R-08 connectionId 与 clientId 分离。**（第一轮 A3）
-clientId 现状即存 localStorage（main.tsx:851，含 iOS private mode 指纹 fallback），两个 tab 同 clientId 两条连接。连接路由用每连接的 connectionId，幂等与归属用 clientId。
+**R-08 Separar connectionId de clientId.** (primeira rodada A3)
+O clientId hoje é persistido em localStorage (main.tsx:851, com fallback para fingerprint de private mode do iOS), e duas abas com o mesmo clientId abrem duas conexões. O roteamento de conexão usa um connectionId por conexão; a idempotência e a atribuição usam clientId.
 
-**R-09 ACK 枚举补 `noop`（或 `rejected+code=alreadyResolved` 且附已有结果）。**（第一轮 A6）
-「两端同时 stop」「两端同答权限」的晚到者是**不同 commandId**，按定义不是 `duplicate`；03 冲突表与 09§5 的「晚到者收 duplicate」需要改写映射。
+**R-09 Completar o enum de ACK com `noop` (ou `rejected+code=alreadyResolved` com o resultado já existente).** (primeira rodada A6)
+Quem chega atrasado em "ambas as pontas dão stop" e "ambas as pontas respondem à permissão" tem **commandId diferente** e, por definição, não é `duplicate`; a tabela de conflitos do 03 e o "quem chega atrasado recebe duplicate" da §5 do 09 precisam reescrever o mapeamento.
 
-**R-10 tool output 终态截断策略全档统一。**（第一轮 A7）
-05 的收敛性黄金测试要求「终态逐字节一致」，而 05/09§14 给了 continuous 256KB、replayable head+tail 32KB 两套终态——按字面测试必然红。钉死：完成时 `row.upserted` 的截断全档一致，`outputStreamCapBytes` 只作用于流式期 delta。
+**R-10 Unificar a estratégia de truncamento do estado terminal do tool output em todas as faixas.** (primeira rodada A7)
+O golden test de convergência do 05 exige "consistência byte a byte no estado terminal", mas o 05 e a §14 do 09 dão duas faixas de estado terminal — continuous 256KB e replayable head+tail 32KB; testado ao pé da letra, isso fica vermelho. Fixar: na conclusão, o truncamento de `row.upserted` é o mesmo em todas as faixas, e `outputStreamCapBytes` age apenas sobre os deltas durante o streaming.
 
-**R-11 优先级只在 topic 之间，topic 内严格按 seq 串行。**（第一轮 A8）
-01「控制消息 > sessionControl > rows」若被读成同一 conversation topic 内 A 区帧可超车 rows 帧，区间连续性即碎。若 sessionControl 指 sessions-index topic，改名消歧。
+**R-11 Prioridade apenas entre topics; dentro de um topic, serialização estrita por seq.** (primeira rodada A8)
+Se "mensagem de controle > sessionControl > rows" do 01 for lido como Quadros da área A able to passar os quadros de rows dentro do mesmo topic de conversation, a continuidade das faixas se fragmenta. Se sessionControl significa o topic sessions-index, renomear para eliminar a ambiguidade.
 
-**R-12 单帧字节上限与超限切分规则。**（P4-5）
-现状有「单次 mirror batch 过大 → RPC/base64/JSON 多次复制 → host 堆内存打满」的前科（taskRealtimeBus.ts:497，随后 :622 被迫做超大 text op 切片）。09§1 帧信封需声明 max frame bytes 与切分语义，否则同类 OOM 在新通道层复发。
+**R-12 Limite de bytes por quadro e regra de divisão ao exceder.** (P4-5)
+Existe histórico de "um único batch de mirror grande demais → várias cópias em RPC/base64/JSON → heap do host saturado" (taskRealtimeBus.ts:497, e depois :622 foi forçado a fazer fatiamento de ops de texto grandes). O envelope de quadros da §1 do 09 precisa declarar max frame bytes e a semântica de divisão, senão o mesmo tipo de OOM reaparece na nova camada de canal.
 
-**R-13 连接健康度是客户端本地 UI 态，禁止混入 sessionControl。**（P4-8）
-现状连接态/配对态/会话态混在一个状态机互相污染（「relay 偶发把已配对会话的心跳 ACK 报成 waiting → 两端状态撕裂」transport:365）。reconnecting/degraded 的展示归客户端本地，会话事实只来自投影。
+**R-13 A saúde da conexão é estado local de UI do cliente, proibido misturar em sessionControl.** (P4-8)
+Hoje o estado de conexão / estado de pareamento / estado de sessão se misturam em uma única máquina de estados se poluindo ("o relay ocasionalmente reporta o heartbeat ACK de uma sessão já pareada como waiting → os dois lados se contradizem", transport:365). A exibição de reconnecting/degraded é local do cliente; fatos de sessão vêm apenas da projeção.
 
-**R-14 CLI stdio 合批层的删留裁决。**（P5-11，对应 M2）
-05 规定唯一合并点在 host 通道层①，但 CLI→host 的 stdio 口已存在一层确定性合批。二选一并写进 05：删（严格唯一合并点）或留（声明为对区间记账透明的 stdio 降噪层）。顺带把正面收益写进 05：区间记账使「帧边界必须可复现」的约束整体卸掉，合批窗口从此可用墙钟（现状被迫用确定性字节预算就是因为没有区间记账）。
+**R-14 Decidir o destino da camada de batching stdio da CLI.** (P5-11, correspondente a M2)
+O 05 especifica que o único ponto de merge é a camada de canal do host①, mas a porta stdio CLI→host já tem uma camada de batching determinístico. Escolher um dos dois e escrever no 05: remover (ponto de merge estritamente único) ou manter (declarada como camada de redução de ruído stdio transparente para a contabilidade por faixas). Aproveitar para escrever no 05 o benefício positivo: a contabilidade por faixas elimina de vez a restrição de "os limites de quadro precisam ser reproduzíveis", e a janela de batching passa a poder usar relógio de parede (hoje o orçamento de bytes determinístico é forçado justamente porque não há contabilidade por faixas).
 
-**R-15 三组语义迁移进 CLI reducer 职责清单 + 黄金测试。**（P1-5/P1-8/P5-3/P5-7）
-这些规则**只是搬家不是消失**，迁移时最容易漏：
-1. 迟到终态收口（stop 后 task_complete/工具完成/verifier 终态到达；`lateTerminalEventsAfterStopDoNotRevive` 全套）；
-2. provider 乱序整形（helpers:228：provider 偶尔先送 tool_use 再补同句正文尾部，UI 显示成『贪 / Toolcall / 吃蛇游戏』；helpers:431 迟到 thought/tool 包）；
-3. guard 输入与投影同源同事务（现状 busy 事实两层四散 + 「先释放锁再广播」的隐式顺序契约，server-operations.ts:1909）。
-另：compact 后 provider replay 内容去重（现状 renderUnits:389 在 UI 做 toolId 差集 + startsWith 文本裁剪）也必须由 reducer 收敛，rows 不得出现重复活动。
+**R-15 Migrar três grupos de semântica para a lista de responsabilidades do reducer da CLI + golden tests.** (P1-5/P1-8/P5-3/P5-7)
+Essas regras **apenas mudam de endereço, não desaparecem**, e são as que mais Easily se perdem na migração:
+1. fechamento de estado terminal atrasado (chegada de task_complete/conclusão de ferramenta/estado terminal do verifier após stop; o conjunto inteiro de `lateTerminalEventsAfterStopDoNotRevive`);
+2. reordenação de saídas do provider (helpers:228: o provider às vezes entrega tool_use antes e só depois completa o fim da frase do mesmo turno, e a UI mostra "gula / Toolcall / jogo da cobra"; helpers:431 pacotes thought/tool atrasados);
+3. guard de entrada e projeção com a mesma origem e a mesma transação (hoje o fato busy está espalhado em dois níveis e quatro lugares + o contrato implícito de "liberar o lock antes de transmitir", server-operations.ts:1909).
+Além disso: a deduplicação do conteúdo de replay do provider após compact (hoje renderUnits:389 faz na UI um conjunto de diferença de toolId + recorte de texto com startsWith) também precisa ser convergida pelo reducer, e rows não podem exibir atividade duplicada.
 
-**R-16 sessionKey 的 workspace 分量必须是 workspaceIdentity 键，不是裸 path。**（P3-7）
-现状有明确前科：「同一路径的不同 SSH/WSL/Docker 窗口互相读到对方 task config、队列和错误态」（zcodeSessionStoreSelectors.ts:203/:241）。06 的 `sessionKey = workspace + sessionId` 与分屏二期的 `Map<workspaceKey, Connection>` 都按 identity 键控。
+**R-16 O componente de workspace da sessionKey precisa ser uma chave workspaceIdentity, não um path cru.** (P3-7)
+Existe precedente explícito: "janelas SSH/WSL/Docker diferentes do mesmo caminho leem a task config, a fila e o estado de erro um do outro" (zcodeSessionStoreSelectors.ts:203/:241). O `sessionKey = workspace + sessionId` do 06 e o `Map<workspaceKey, Connection>` da segunda fase de split de tela são ambos controlados por chave de identidade.
 
-**R-17 模型切换 marker 的暂存语义由 CLI 定义。**（P3-5）
-产品语义是「切模型后未发送前 marker 暂存、下一轮 turn 开始才落 timeline」，现状是 UI 旁路列表 + turnIndex 挂载补丁。写进 09§3 marker 定义由 CLI 实现，否则实现期以 UI 分支复活。
+**R-17 A semântica de staging do marker de troca de modelo é definida pela CLI.** (P3-5)
+A semântica de produto é "depois de trocar de modelo, o marker fica pendente até o próximo turno começar, e só então vai para a timeline", mas hoje é uma lista de bypass na UI + um patch de montagem por turnIndex. Escrever na definição de marker da §3 do 09 como implementado pela CLI, senão a implementação revive o branch na UI.
 
-**R-18 滚动锚点 rowId 化 + snapshot 替换后的内容回填（从建议升级为必做）。**（第一轮 C2）
-现状滚动记忆存 `scrollTop` 像素（chatSessionScrollMemory.ts），在虚拟滚动 + 动态行高下必然失效。客户端记锚点 rowId，snapshot 整体替换后按锚点 `rows/range` 回填可视范围，锚不存在贴 tail。写进 04/06。
+**R-18 Transformar a âncora de rolagem em rowId + repopular o conteúdo após a substituição do snapshot (promovido de sugestão a obrigatório).** (primeira rodada C2)
+Hoje a memória de rolagem guarda `scrollTop` em pixels (chatSessionScrollMemory.ts), o que necessariamente falha sob scroll virtual + altura de linha dinâmica. O cliente guarda o rowId da âncora; depois da substituição integral do snapshot, repopula a faixa visível com `rows/range` a partir da âncora; se a âncora não existir, cola no tail. Escrever em 04/06.
 
-## 4. 设计未覆盖的缺口（G 类：需要补章/补字段）
+## 4. Lacunas Não Cobertas pelo Design (Classe G: precisam de capítulo/campos adicionais)
 
-**G-01 A 区缺 sessionConfig 区（本次新发现里优先级最高，两路独立汇合）。**
-provider/model/thought/followupMode 的**当前值**是 UI 必显状态，且 `switchModelConfig`/`setFollowupMode` 命令存在，但 09 snapshot 没有这块。现状为此付出的补丁群规模惊人：workspaceSlice 几乎整文件是 config 多源竞态修补（:61 thought 短暂为空、:720 requestId 防旧回包覆盖新选择、:1105 运行态忽略 config update 的例外链）、taskStreamEventHandlers.ts:1413 起的回显匹配 guard、useTaskRestore.ts 15+ 处模型 stale guard。不设 config 区（随 revision 序整体替换），这批竞态在新 UI 原样重演。
+**G-01 A área A não tem uma seção de sessionConfig (a prioridade mais alta entre as novas descobertas desta rodada, convergem duas varreduras independentes).**
+O **valor atual** de provider/model/thought/followupMode é estado que a UI precisa exibir, e os comandos `switchModelConfig`/`setFollowupMode` existem, mas o snapshot do 09 não cobre isso. O tamanho do conjunto de patches que isso exige hoje é surpreendente: o workspaceSlice é quase um arquivo inteiro de correções de corrida de múltiplas origens de config (:61 thought momentaneamente vazio, :720 requestId impedindo que um retorno antigo sobrescreva a nova escolha, :1105 cadeia de exceções em que o estado de execução ignora config update), o guard de casamento de eco a partir de taskStreamEventHandlers.ts:1413, e mais de 15 stale guards de modelo em useTaskRestore.ts. Sem uma seção de config (substituída integralmente em ordem de revision), essas corridas se repetem intactas na nova UI.
 
-**G-02 usage / contextWindow / tokenUsage 的快照恢复语义。**
-现状补丁：「usage_update 重复到达 → React 无意义唤醒掉帧」（taskSlice:537）、「窗口刷新不能重建 usage 对象，否则把正数 used 覆盖成 0」（:586）、跨端重复计账靠 128 条 eventKey 环形表（Types:180）。09§13 对 usage/* 只写「保留原样」，但证据表明它同样需要 topic 化（conflated 最新态）或进 A 区。
+**G-02 Semântica de restauração de snapshot de usage / contextWindow / tokenUsage.**
+Patches atuais: "usage_update chegando repetidamente → React acorda sem sentido e perde quadros" (taskSlice:537), "a atualização da janela não pode recriar o objeto usage, senão sobrescreve o used positivo com 0" (:586), a contabilidade duplicada entre pontas depende de uma tabela circular de 128 eventKeys (Types:180). A §13 do 09 diz apenas "manter como está" para usage/*, mas as evidências indicam que também precisa ser topicizado (conflated do estado mais recente) ou entrar na área A.
 
-**G-03 backgroundWorks[] 与 cancelBackgroundWork。**
-snapshot 只有 `hasBackgroundWork` 布尔；背景抽屉需要每项状态与取消入口（现状从聊天 tool startedAt 反推曾误报，后改 runtime 明确上报，handlers:1645）。product-protocol 有 `backgroundWorks[]`，09 需给落点 + 命令。
+**G-03 backgroundWorks[] e cancelBackgroundWork.**
+O snapshot tem apenas o booleano `hasBackgroundWork`; a gaveta de fundo precisa do estado de cada item e de uma entrada de cancelamento (hoje inferido a partir de tool startedAt do chat, o que já gerou falsos报警; depois passou a ser reportado explicitamente pelo runtime, handlers:1645). product-protocol tem `backgroundWorks[]`; o 09 precisa dar o destino e o comando.
 
-**G-04 plan/todo、goalStats/goalVerifications 摘要、apiRetry 提示的投影落点。**
-taskSnapshotRuntimeStateSync.ts 为这七类旁路字段各写了恢复补丁（plan「以前只存 ChatView 组件内存，切走即丢」handlers:1200；apiRetry 不恢复则「用户只能空等」）。不进投影（A 区或独立 topic），恢复补丁换地方重写。
+**G-04 Destino de projeção de plan/todo, resumo goalStats/goalVerifications e aviso de apiRetry.**
+taskSnapshotRuntimeStateSync.ts escreveu um patch de recuperação para cada uma dessas sete classes de campos de bypass (plan "antes só ficava na memória do componente ChatView, e sair da tela o perdia" handlers:1200; apiRetry sem restauração deixa o usuário "esperando à toa"). Se não entrarem na projeção (área A ou topic separado), os patches de recuperação serão reescritos em outro lugar.
 
-**G-05 时间戳、权威工时、turn 级元数据、perTurn 文件摘要。**（第一轮 B2，三路证据汇合）
-09 全 schema 无 wall-clock 时间戳；「已工作 N 秒」的语义现状全在客户端推算且补丁密集：权限等待时间被误计入（zcodeChatMessages.ts:636）、进 verifier 前必须冻结耗时（:1020）、duration 三方择优不允许回退变短（:1962）。另有 perTurnSummaries/perTurnFileChanges（每轮文件变更摘要）现状分帧发布导致高度跳变（taskSlice:1535）。需要：RowBase.createdAt（服务器时钟）、CLI 下发的权威工时区间（明确哪些等待不计入）、turnsMeta 或 turn 头 marker row（含折叠组归属——auto compact 附着上一 assistant 的「已工作」块，09 的 turnId 相邻性表达不了）、turn 级摘要与 rows 同帧原子应用。
+**G-05 Timestamps, tempo de trabalho autoritativo, metadados por turno, resumo de arquivos por turno.** (primeira rodada B2, três evidências convergem)
+O schema 09 não tem timestamp de wall-clock; a semântica de "já trabalhou N segundos" está hoje toda calculada no cliente e cheia de patches: o tempo de espera por permissão é contado por engano (zcodeChatMessages.ts:636), o tempo precisa ser congelado antes de entrar no verifier (:1020), a duração com escolha entre três fontes não permite regredir e ficar menor (:1962). Além disso, perTurnSummaries/perTurnFileChanges (resumo de alterações de arquivo por turno) hoje é publicado em quadros separados, o que provoca saltos grandes de altura (taskSlice:1535). É preciso: RowBase.createdAt (relógio do servidor), intervalo de tempo de trabalho autoritativo emitido pela CLI (deixando explícito quais esperas não entram), turnsMeta ou uma marker row de cabeçalho de turno (contendo a atribuição ao grupo colapsado — o bloco "já trabalhou" do auto compact se anexa ao assistant anterior, e a adjacência de turnId do 09 não consegue expressar isso), e resumo por turno aplicado atomicamente no mesmo quadro das rows.
 
-**G-06 mailbox / session-message 类消息在 rows 无落点。**（P1-8）
-现状靠正则解析 XML 属性 + 文案前缀嗅探（后台 agent ACK 靠**三代文案字符串匹配**兼容，zcodeChatMessages.ts:219-252）。09 的 userInput.origin 枚举没有 mailbox 位置，迁移时会被迫继续文本嗅探。
+**G-06 mailbox / mensagens do tipo session-message não têm destino em rows.** (P1-8)
+Hoje isso depende de parsear atributos XML com regex + farejar prefixos de texto (o ACK de agent de fundo depende da compatibilidade por **string de texto de três gerações**, zcodeChatMessages.ts:219-252). O enum userInput.origin do 09 não tem lugar para mailbox, então na migração será forçado continuar farejando texto.
 
-**G-07 命令全集缺口。**（第一轮 B1 扩充）
-`retry`（RowActions.canRetry 有字段无命令）、`resumeGoal`（stopPausesActiveGoalTarget 要求显式 resume）、autoDrain 恢复/held queue 排空方式、rewind-to-checkpoint 与 editUserQuery 的关系、附件上传通道（web/远控下 AttachmentRef 字节如何上行）、session 删除/改名归属域 + **删除的联动清理**（现状：删除不同步清 composer 草稿 localStorage 桶会残留，taskSlice:1924；删除正在查看的 task 后 activeTaskId 悬挂，:2001——v4 需定义他端删除时 pane 回空态 + sessionKey 本地态 GC）。
+**G-07 Lacunas no conjunto completo de comandos.** (primeira rodada B1, ampliado)
+`retry` (RowActions.canRetry tem o campo mas não o comando), `resumeGoal` (stopPausesActiveGoalTarget exige resume explícito), a forma de recuperação/drenagem da autoDrain e da held queue, a relação entre rewind-to-checkpoint e editUserQuery, o canal de upload de anexos (como os bytes de um AttachmentRef sobem em web/controle remoto), o domínio de atribuição de exclusão/renomeação de sessão + **limpeza em cascata da exclusão** (hoje: excluir não limpa sincronamente o balde localStorage de rascunho do composer, e ele fica residual, taskSlice:1924; excluir a task que está sendo visualizada deixa o activeTaskId pendurado, :2001 — a V4 precisa definir que o pane volta ao estado vazio quando outro lado exclui, mais o GC do estado local por sessionKey).
 
-**G-08 终态失败分类与「何时放弃重连」。**（P3-8）
-现状多条恢复路径各自宣判终态造成「前后冲突的两张错误页」（main.tsx:1316）。09§12 退避封顶 30s 字面是无限重试；需要 auth 失效/被踢/超阈值的分类、对应 UI 呈现与放弃条件。
+**G-08 Classificação de falhas terminais e "quando desistir de reconectar".** (P3-8)
+Vários caminhos de recuperação hoje declaram各自 um estado terminal, causando "duas páginas de erro contraditórias" (main.tsx:1316). O backoff com teto de 30s da §12 do 09, ao pé da letra, é retry infinito; é preciso classificar invalidação de auth / expulsão / acima do limiar, com a apresentação de UI e a condição de desistência correspondentes.
 
-**G-09 relay hub 改造可行性（前置确认项）。**
-01 要求「relay 保持哑管道」，但现状外部 relay 是**有状态协议**：register/auth_challenge/pair/KICKED、按 query.mid 分片的边缘层行为（transport:205）、空闲回收需要流量规避（:377）。若 relay 是不可改的外部服务，05 的「删 pair_status、端到端 PersistentProtocol」需要一版与现有 relay 共存的过渡设计；配对生命周期归属也要明确。
+**G-09 Viabilidade da reformulação do relay hub (pré-confirmação).**
+O 01 exige que "relay permaneça como tubo mudo", mas o relay externo atual é um **protocolo com estado**: register/auth_challenge/pair/KICKED, comportamento da camada de borda fragmentado por query.mid (transport:205), e o recolhimento por ociosidade precisa de desvio de tráfego (:377). Se o relay for um serviço externo imutável, o "remover pair_status, PersistentProtocol ponta a ponta" do 05 precisa de um design de transição que coexista com o relay atual; e o ciclo de vida do pareamento também precisa ficar explícito.
 
-**G-10 host/owner 崩溃的进程语义。**
-01 把 owner 缩为「哪个进程拉起 CLI」，但没写：host 崩溃时 CLI 子进程是否随死、谁负责重新拉起、running turn 如何收口（现状有 `stream_mirror_owner_lost` 广播失效流程，taskRealtimeBus.ts:195）。另外 `session/send` 现状是「收到输入立即 ACK、persistUserPrompt 在后台 turn 内」（server-operations.ts:1662）——按 §9.3 裁决后的口径：`accepted` 不承诺跨进程存活，客户端 pending 以权威 row（sourceCommandId）收口，崩溃窗口由 `commands/query = unknown` → 用户决定重发兜底。
+**G-10 Semântica de processo para crash de host/owner.**
+O 01 reduz owner a "qual processo iniciou o CLI", mas não escreve: quando o host crasha, o subprocesso do CLI morre junto; quem é responsável por reiniciá-lo; como um turno em execução é fechado (hoje existe um fluxo de broadcast de invalidação `stream_mirror_owner_lost`, taskRealtimeBus.ts:195). Além disso, `session/send` hoje é "ACK imediatamente ao receber a entrada, persistUserPrompt em segundo plano dentro do turno" (server-operations.ts:1662) — conforme a decisão da §9.3: `accepted` não promete sobrevivência entre processos, o cliente encerra seu pending pela row autoritativa (sourceCommandId), e a janela de crash é coberta por `commands/query = unknown` → o usuário decide o reenvio.
 
-**G-11 host 不可达时的 UI 降级形态。** home-only stub 模式（约 20 个手工 stub 服务，main.tsx:923）被收敛掉之后，断开的远程 workspace 在新客户端呈现什么，需要定义。
+**G-11 Forma de degradação de UI quando o host está inacessível.** O modo home-only stub (cerca de 20 serviços stub manuais, main.tsx:923) foi removido; é preciso definir o que um workspace remoto desconectado passa a apresentar no novo cliente.
 
-**G-12 fault catalog。** product-protocol 多处「由 fault catalog 定义」的**协议级枚举**（`lastError` 的 code 集、provider 错误到 `phase=error` 的映射、可恢复性分类）还不存在，是 Phase 1 reducer 的硬前置。勘误（2026-07-05）：原料并非从零开始——[`docs/testing/conversation-session-environment-fault-catalog.md`](../testing/conversation-session-environment-fault-catalog.md) 已枚举 429/503/断网/磁盘满/进程关闭等环境故障及验证设计，缺的是把它整理成 `fault.*` reasonCode / `SessionErrorInfo.code` 的协议枚举表；同一文档也是 E-01 混沌装置的故障注入清单来源。
+**G-12 fault catalog.** Os **enums de nível de protocolo** que o product-protocol deixa "definidos pelo fault catalog" em vários pontos (o conjunto de codes de `lastError`, o mapeamento de erros do provider para `phase=error`, a classificação de recuperabilidade) ainda não existem e são um pré-requisito rígido do reducer da Phase 1. Errata (2026-07-05): a matéria-prima não parte do zero — [`docs/testing/conversation-session-environment-fault-catalog.md`](../testing/conversation-session-environment-fault-catalog.md) já enumera falhas de ambiente como 429/503/queda de rede/disco cheio/processo encerrado e o design de verificação; o que falta é organizá-lo na tabela de enums de protocolo `fault.*` reasonCode / `SessionErrorInfo.code`; o mesmo documento também é a fonte da lista de injeção de falhas do aparato de caos E-01.
 
-**G-13 安全面。** 10 篇仅 01 一个「auth」词。连接鉴权、relay 链路保密性（TLS-at-relay 还是端到端）、clientId 伪造、远端答权限的授权粒度（08 已列产品问题）。哪怕结论是「沿用现状」也应成文。
+**G-13 Superfície de segurança.** Nos 10 documentos há apenas uma ocorrência da palavra "auth" no 01. Autenticação de conexão, confidencialidade do enlace relay (TLS no relay ou ponta a ponta), falsificação de clientId, e a granularidade de autorização para responder permissões remotamente (08 já lista como problema de produto). Mesmo que a conclusão seja "manter o status quo", isso precisa ser escrito.
 
-**G-14 超时分级。** 09§11 query 超时 10s 一刀切；现状已有反例「Docker/SSH 首连可能超过默认 10 秒」（main.tsx:1609）。workspace 部署类操作需要独立超时档。
+**G-14 Graduação de timeouts.** A §11 do 09 usa 10s para query de forma uniforme; hoje já existe um contraexemplo "a primeira conexão Docker/SSH pode passar de 10 segundos" (main.tsx:1609). Operações de deploy de workspace precisam de uma faixa de timeout independente.
 
-## 5. 需要拍板的确认点（C 类）
+## 5. Pontos de Confirmação que Precisam de Decisão (Classe C)
 
-| # | 问题 | 建议口径 |
+| # | Questão | Posição sugerida |
 | --- | --- | --- |
-| C-01 | 多客户端动作权限：任何客户端都能 stop / 答权限？（08 已列） | 能，幂等收口；配合 G-13 的授权粒度说明 |
-| C-02 | 幂等表保留 7d，客户端 localStorage pending 无 TTL：过期 command 会被盲重发成幽灵消息 | 客户端 pending 设 TTL（如 24h），超期转「未送达，是否重发」用户决策 |
-| C-03 | ~~inbox 重启重放语义~~ 已消解（§9.3 裁决：inbox 内存化，一律不重放，在途命令由客户端对账后交用户决定重发） | — |
-| C-04 | 「draft」双关：服务端 phase=draft（createSession 无 firstInput）vs 客户端 null pane | 建议 createSession 必带 firstInput，服务端删 draft 枚举值 |
-| C-05 | 04 `base={revision, seq}` vs 09 `base={seq}` | 统一为 {seq}（revision 由 R-04 与 seq 绑定后冗余） |
-| C-06 | Phase 2 对旧 UI 的止血范围：旧事件无五件套声明，合批收益是否兑现；叠加 M1 后 Phase 2 实际工作量 | 明确 Phase 2 只承诺帧级收敛（单入口重连/判死重放/二进制），合批到 Phase 3；或明示为旧事件写一次性 coalesce 声明的成本 |
-| C-07 | 现状→目标的**行为变更清单**缺失：如 fork-while-running 现状一刀切禁止（server-operations.ts:2042）vs 目标允许稳定历史 fork；steer 收敛进 sendText 路由 | 08 补一张「语义变更表」，防灰度期被当回归上报 |
-| C-08 | 06 引用 `packages/stream-animate` 为流式 markdown 落点，但该包是 demo app 形态（App.tsx/main.tsx/server） | 确认可提炼为库，或改引用其内部实现路径 |
+| C-01 | Permissão de ação em múltiplos clientes: qualquer cliente pode dar stop / responder à permissão? (já listado em 08) | Sim, com fechamento idempotente; combinado com a explicação de granularidade de autorização do G-13 |
+| C-02 | A tabela de idempotência retém 7d, mas o pending no localStorage do cliente não tem TTL: um comando expirado será reenviado às cegas como mensagem fantasma | Dar TTL ao pending do cliente (por exemplo 24h); após o prazo, passar a decisão do usuário "não entregue, reenviar?" |
+| C-03 | ~~semântica de replay de inbox no reinício~~ Dissolvido (decisão da §9.3: inbox em memória, nunca replay; comandos em trânsito são reconciliados pelo cliente e cabe ao usuário decidir o reenvio) | — |
+| C-04 | Ambiguidade de "draft": phase=draft no servidor (createSession sem firstInput) vs pane null no cliente | Sugerir que createSession sempre leve firstInput e remover o valor de enum draft do servidor |
+| C-05 | `base={revision, seq}` no 04 vs `base={seq}` no 09 | Unificar como {seq} (revision fica redundante depois de ligada ao seq por R-04) |
+| C-06 | Escopo de contenção de danos da Phase 2 para a UI antiga: os eventos antigos não têm declaração das cinco peças; o benefício do batching se concretiza; somado a M1, qual é o trabalho real da Phase 2 | Declarar explicitamente que a Phase 2 só promete convergência em nível de quadro (entrada única de reconexão/detecção de morte/replay/binário), com batching indo para a Phase 3; ou declarar explicitamente o custo de escrever uma declaração coalesce única para os eventos antigos |
+| C-07 | Falta a **lista de mudanças de comportamento** de atual→alvo: por exemplo, hoje fork-while-running é proibido de forma absoluta (server-operations.ts:2042) vs o alvo permite fork de histórico estável; steer convergindo para o roteamento de sendText | O 08 deve ganhar uma "tabela de mudanças semânticas", para evitar que durante o rollout gradual isso seja reportado como regressão |
+| C-08 | O 06 referencia `packages/stream-animate` como destino do markdown em streaming, mas esse pacote tem forma de app de demonstração (App.tsx/main.tsx/server) | Confirmar que pode ser destilado em biblioteca, ou referenciar o caminho da implementação interna |
 
-## 6. 性能与体验（P 类）
+## 6. Performance e Experiência (Classe P)
 
-- **P-01 真正的掉帧战场：流式 row 动态高度 + follow-bottom。** 06 认领了 markdown 增量解析，但 `@tanstack/react-virtual` 对「每 30ms 长高的 streaming row」的 measure/remeasure + 滚动锚定是同级热点。建议 Phase 3 前 spike，验收加「流式增长不触发整列 remeasure、follow-bottom 无抖动」。
-- **P-02 snapshot 风暴合并。** 多客户端同时降级时，通道层允许对同 topic 并发 resync 合并（软状态缓存最新 snapshot，秒级 TTL）；与 01「host 不缓存」的口径统一见 D-04。
-- **P-03 压缩分段确认。**（修正第一轮 C4）desktop↔relay 段已协商 permessage-deflate（transport:210，浏览器侧只能被动确认 extensions）；需确认手机↔relay 段及 v4 新链路各段均生效，二进制化后复测收益，重写时**不要丢掉已有的这项优化**。
-- **P-04 overlay 位置随 inputRouting。** 客户端已知 `inputRouting=enqueue` 时，乐观展示直接画进 queue 面板，避免收口时消息从时间线尾「跳」进队列。
-- **P-05 conflation 是防掉帧机制，不只是省带宽。** 现状有「usage_update 相同数值重复到达 → React 无意义唤醒 → 掉帧」的直接病例（taskSlice:537），A 区 conflation 落地时保留「值未变不下发」语义。
+- **P-01 O verdadeiro campo de batalha de perda de quadros: altura de linha dinâmica em row streaming + follow-bottom.** O 06 assumiu a análise incremental de markdown, mas `@tanstack/react-virtual` tem measure/remeasure + ancoragem de rolagem como ponto quente equivalente para "streaming row que cresce a cada 30ms". Sugere-se um spike antes da Phase 3, com aceitação adicionais de "o crescimento em streaming não dispara remeasure da coluna inteira e o follow-bottom não oscila".
+- **P-02 Merge da tempestade de snapshots.** Quando vários clientes degradam ao mesmo tempo, a camada de canal pode permitir o merge de resync concorrente do mesmo topic (cache de estado suave do snapshot mais recente, TTL de segundos); unificar com a posição do 01 "o host não faz cache" conforme D-04.
+- **P-03 Confirmação do compressão por segmento.** (corrigindo C4 da primeira rodada) o trecho desktop↔relay já negociou permessage-deflate (transport:210; o lado do navegador só consegue confirmar passivamente as extensions); é preciso confirmar que o trecho celular↔relay e cada trecho da nova cadeia da V4 também têm efeito, remedir o benefício após a binaryização e, ao reescrever, **não perder esta otimização existente**.
+- **P-04 A posição do overlay segue o inputRouting.** Quando o cliente já sabe `inputRouting=enqueue`, desenhar a exibição otimista direto no painel da queue evita que a mensagem "pule" do fim da timeline para a queue no fechamento.
+- **P-05 Conflation é mecanismo contra perda de quadros, não só economia de banda.** Hoje há um caso direto de "usage_update com o mesmo valor chegando repetidamente → React acorda sem sentido → perda de quadros" (taskSlice:537); ao落地 a conflation da área A, preservar a semântica de "não下发 quando o valor não mudou".
 
-## 7. 文档一致性修订清单（D 类）
+## 7. Lista de Revisões de Consistência de Documentos (Classe D)
 
-- D-01 02 vs 09：delta 操作「三种/{rowId} 单行删除」vs「五种/fromRowId 截断」，以 09 为准回写 02。
-- D-02 product-protocol 的 `ConversationProductProjection`（turns/activeWorks/backgroundWorks/generatedAt/projectionVersion、command 信封 clientMode）与 09 `ConversationSnapshot` 需给映射表或回写收窄；`stopTargetKind` 两边都缺 `turnSteer`；现协议 snapshot.runtime 已携带的 eventSeq/stateRevision/activeTurnKind/pendingRequestIds（index.ts:1510）在 09 的去留列表。
-- D-03 turn-steer 中间态（submitting/queued）的投影表达未定义——现状它是 queue 面板可见状态（turn_steer_queued/status 对账状态机，handlers:297），QueueItem 需能表达。
-- D-04 01「连接层禁缓存消息」vs product-protocol「host 可 cache latest projection」：建议统一为「通道层可持软状态 snapshot 缓存，禁持有下游没有的状态」。
-- D-05 09 引用未定义类型的归属清单：QueueItem、GoalState、SessionErrorInfo、SessionActionAvailability、AttachmentRef、TimelineMarkerPayload、PermissionRequest/UserInputRequest。
-- D-06 按 §2.2 M1–M7 修订 README 地基表、病根 2 措辞、03 queue 描述、05 PersistentProtocol 现状与「删除平行可靠性层」一节、02 的 queue 依赖顺序、01 web 形态计数。
+- D-01 02 vs 09: operações de delta "três tipos/{rowId} de remoção de linha única" vs "cinco tipos/fromRowId com truncamento"; usar o 09 como autoridade para reescrever o 02.
+- D-02 O `ConversationProductProjection` do product-protocol (turns/activeWorks/backgroundWorks/generatedAt/projectionVersion, envelope de command com clientMode) e o `ConversationSnapshot` do 09 precisam de uma tabela de mapeamento ou de reescrita com estreitamento; `stopTargetKind` está sem `turnSteer` dos dois lados; e o eventSeq/stateRevision/activeTurnKind/pendingRequestIds que o snapshot.runtime do protocolo atual já carrega (index.ts:1510) precisam entrar na lista de manter/remover do 09.
+- D-03 A expressão de projeção do estado intermediário de turn-steer (submitting/queued) não está definida — hoje ele é um estado visível no painel de queue (máquina de estados turn_steer_queued/status, handlers:297), e o QueueItem precisa ser capaz de expressá-lo.
+- D-04 01 "a camada de conexão proíbe cachear mensagens" vs product-protocol "o host pode fazer cache do latest projection": unificar em "a camada de canal pode manter cache de snapshot de estado suave, mas não pode manter estado que o downstream não tem".
+- D-05 Lista de atribuição de tipos indefinidos referenciados pelo 09: QueueItem, GoalState, SessionErrorInfo, SessionActionAvailability, AttachmentRef, TimelineMarkerPayload, PermissionRequest/UserInputRequest.
+- D-06 Revisar a tabela de fundações do README, a formulação da causa-raiz 2, a descrição de queue do 03, o status atual do PersistentProtocol e a seção "remover camadas de confiabilidade paralelas" do 05, a ordem de dependência de queue do 02, e a contagem de formas web do 01 conforme §2.2 M1–M7.
 
-## 8. 配套建设（E 类）
+## 8. Construção de Apoio (Classe E)
 
-- **E-01 确定性网络混沌装置升为一等验收**（因 M1 从「强烈建议」升为「必须」）：帧级注入延迟/丢包/乱序/重复/中途 kill（seed 可复现），断言不变量——无重复 row、overlay 必收口、终态收敛、resubscribe 次数有界、`snapshot(W)+replay ≡ full replay`。Phase 2 验收「手机远控断连/刷新恢复可用」由它替代人工判据。
-- **E-02 新管线观测指标**：coalesce 压缩比、flush 帧率、每订阅缓冲水位/溢出次数、snapshot resync 次数与原因、ACK 延迟分布、重连次数与原因分类（挂 RUM）。
-- **E-03 黄金测试用例清单（从本次病例直接派生）**：
-  1. snapshot 原子性：running 中任意 W 取 snapshot + 续流 ≡ 全量重放（R-03）；
-  2. 迟到终态不复活：stop 后到达的 assistant/tool/verifier 终态（P1-5/P5-7 全部病例场景化）；
-  3. provider 乱序整形：tool_use 先于正文尾部、迟到 thought 包（helpers:228/431 案例）；
-  4. profile 收敛：同一事件序列两档终态一致（依赖 R-10）；
-  5. 被过滤事件必被不可过滤事件收口（05 已列，补 subagent summaryText 场景）；
-  6. 重复/迟到帧静默丢弃、重订阅替换旧订阅（R-01）；
-  7. guard 与投影同源：任何「广播先于状态释放」窗口不存在（P5-3）；
-  8. formal-proof 全枚举 ↔ actionAvailability 一致（02 已列，保留）。
+- **E-01 Aparato determinístico de caos de rede promovido a aceitação de primeira classe** (por causa de M1 subir de "fortemente recomendado" para "obrigatório"): injeção em nível de quadro de atraso/perda/reordenação/duplicação/morte no meio (seed reproduzível), com asserção de invariantes — nenhuma row duplicada, todo overlay fecha, convergência de estado terminal, número de ressubscrições limitado, `snapshot(W)+replay ≡ full replay`. A aceitação da Phase 2 "controle remoto pelo celular funciona após desconexão/refresh" passa a ser sustentada por ele no lugar do critério humano.
+- **E-02 Métricas de observabilidade do novo pipeline**: razão de compressão do coalesce, taxa de quadros de flush, nível de buffer/ocorrências de overflow por assinatura, contagem e motivos de resync de snapshot, distribuição de latência de ACK, contagem e classificação de reconexão (ligado ao RUM).
+- **E-03 Lista de casos de golden test (derivada diretamente dos casos desta rodada)**:
+  1. atomicidade de snapshot: em execução, tomar o snapshot em qualquer W + continuar o stream ≡ replay completo (R-03);
+  2. estado terminal atrasado não revive: estados terminais de assistant/tool/verifier que chegam após stop (todos os cenários de P1-5/P5-7);
+  3. reordenação de saídas do provider: tool_use antes do fim do texto, pacotes thought atrasados (casos helpers:228/431);
+  4. convergência de perfil: as duas faixas de estado terminal idênticas para a mesma sequência de eventos (depende de R-10);
+  5. eventos filtrados obrigatoriamente fechados por eventos não filtráveis (05 já lista; acrescentar o cenário de subagent summaryText);
+  6. quadros duplicados/atrasados descartados silenciosamente, ressubscrição substitui a assinatura antiga (R-01);
+  7. guard e projeção com a mesma origem: não existe nenhuma janela de "broadcast antes da liberação de estado" (P5-3);
+  8. enumeração completa de formal-proof ↔ actionAvailability consistente (02 já lista, manter).
 
-## 9. 持久化与表结构影响清单（对照实际 schema：migrations 0001–0014）
+## 9. Impacto em Persistência e Estrutura de Tabelas (conferido contra o schema real: migrations 0001–0014)
 
-结论先行：按 §9.3 的作者裁决（queue 不持久化）修订后，**SQL 结构性改动收敛为零迁移**——只剩 message/part 的 additive JSON 锚点字段，07「additive JSON 优先」的原则与现状 schema（message/part = 索引列 + `data` JSON blob，0014 已有 `sequence` 列与三个配套索引）完全兼容。真正的大项不是 DDL，而是一个 07 未覆盖的**语义决策**：事件日志的持久形态（§9.2）。
+Conclusão primeiro: após revisar conforme a decisão do autor da §9.3 (queue não persistida), **as mudanças estruturais de SQL convergem para zero migrações** — restam apenas os campos de âncora JSON aditivos de message/part. O princípio "JSON aditivo primeiro" do 07 é totalmente compatível com o schema atual (message/part = colunas de índice + `data` JSON blob; 0014 já tem a coluna `sequence` e três índices acompañantes). O grande item real não é DDL, mas uma decisão semântica que o 07 não cobre: **a forma persistente do log de eventos** (§9.2).
 
-### 9.1 事实基础（已核对 DDL）
+### 9.1 Base factual (DDL conferido)
 
-- 现有表：`session` / `message` / `part` / `todo` / `session_entry` / `permission` / `input_history` / local_setting（0002）/ workflow 系列（0007-0008）/ usage 系列（0010）。
-- `message.sequence` / `part.sequence` + `message(session_id, sequence, …)` 等索引已由 0014 建好——rows 冷重建的稳定排序地基成立。
-- `message.time_created` / `part.time_created` 存在——G-05 所需 wall-clock 时间戳在持久层有来源，缺的是进 projection schema。
-- 工具产物已有文件型存储 `NodeToolArtifactStore`（rootDir 文件存储）——09§6 的 `truncated.ref` + `toolOutput/get(ref, byteRange)` 有现成落点，无需新 SQL 表。
-- `todo` 表本就持久——G-04 的 plan/todo 病根是「只存组件内存/不进投影」，不是缺表。
+- Tabelas existentes: `session` / `message` / `part` / `todo` / `session_entry` / `permission` / `input_history` / local_setting (0002) / série workflow (0007-0008) / série usage (0010).
+- `message.sequence` / `part.sequence` + índices como `message(session_id, sequence, …)` já foram criados por 0014 — a base de ordenação estável para a reconstrução a frio de rows está de pé.
+- `message.time_created` / `part.time_created` existem — o timestamp de wall-clock exigido pelo G-05 tem fonte na camada persistente; o que falta é entrar no schema de projeção.
+- Artefatos de ferramentas já têm armazenamento em arquivo `NodeToolArtifactStore` (armazenamento em arquivos sob rootDir) — o `truncated.ref` da §6 do 09 + `toolOutput/get(ref, byteRange)` já tem destino concreto, sem nenhuma tabela SQL nova.
+- A tabela `todo` já é persistente — a causa-raiz de plan/todo do G-04 é "guardado só na memória do componente / fora da projeção", não falta de tabela.
 
-### 9.2 决策点：事件日志的持久形态（M8，07 未覆盖的最大缺口）
+### 9.2 Ponto de decisão: a forma persistente do log de eventos (M8, a maior lacuna não coberta pelo 07)
 
-现状事件日志纯内存（见 M8），而 01/04/README 假设它在 SQLite。两个方案：
+Hoje o log de eventos é puramente em memória (ver M8), enquanto 01/04/README assumem que ele está no SQLite. Duas opções:
 
-| | 方案 A：事件日志落盘 | 方案 B：内存有界日志 + logEpoch（推荐） |
+| | Opção A: log de eventos em disco | Opção B: log em memória limitado + logEpoch (recomendada) |
 | --- | --- | --- |
-| 做法 | 新表 `session_event(session_id, seq, type, data, time_created)`，PK `(session_id, seq)`；每 turn 数千 delta 批量事务写入；保留窗裁剪任务 | 事件日志保持内存环形缓冲（每 session N 条）；seq 作用域 = `(session, logEpoch)`，logEpoch 每次 CLI 进程启动更新；`subscribe(base)` 的 base 带 logEpoch，不匹配 → 直接 snapshot |
-| 跨 CLI 重启的 afterSeq 续传 | 支持 | 不支持——重启后所有客户端走一次 snapshot |
-| 代价 | 写放大明显（流式 delta 全部进 SQLite）；裁剪任务；`getEventsAfter` 索引化 | CLI 重启多一次 snapshot（本来就要发生：running turn 随进程死，客户端必然要重对齐）；01/02/04 表述改写 |
-| 对 transcript 的要求 | 锚点可以不完备（事件兜底） | **transcript 锚点必须完备**：projection 必须能仅由 transcript 确定性重建，`reduce(transcript) ≡ reduce(events)` 黄金测试从建议升为持久化验收 |
+| Como fazer | Nova tabela `session_event(session_id, seq, type, data, time_created)`, PK `(session_id, seq)`; escrita em transação em lote de milhares de deltas por turno; tarefa de recorte da janela de retenção | O log de eventos continua como buffer circular em memória (N entradas por sessão); escopo do seq = `(session, logEpoch)`, com logEpoch atualizado a cada início do processo do CLI; o base de `subscribe(base)` carrega logEpoch, e a divergência → snapshot direto |
+| Retomada de afterSeq entre reinícios do CLI | Suportada | Não suportada — depois do reinício todos os clientes passam por um snapshot |
+| Custo | Amplificação de escrita evidente (todos os deltas de streaming entram no SQLite); tarefa de recorte; indexação de `getEventsAfter` | Um snapshot a mais no reinício do CLI (que ia acontecer de qualquer forma: um turno em execução morre com o processo, e o cliente precisa realinhar); reescrita das formulações de 01/02/04 |
+| Requisito sobre o transcript | As âncoras podem ser incompletas (o evento serve de fallback) | **As âncoras do transcript precisam ser completas**: a projeção precisa ser reconstruível de forma determinística apenas a partir do transcript; o golden test `reduce(transcript) ≡ reduce(events)` sobe de recomendação para aceitação de persistência |
 
-推荐 B 的理由：A 换来的唯一收益是「CLI 重启后省一次 snapshot」——低频事件 + snapshot 本来就便宜（尾部一屏），付出的是每轮数千行的写放大和一个新的裁剪运维面；且 B 强制 transcript 锚点完备，这本来就是历史会话正确展示的硬要求。注意 B 的 logEpoch 与 R-01 的订阅 epoch 是两个层次（进程代际 vs 订阅代际），可以合并编码但语义要分开写明。
+Razão para recomendar B: o único ganho que A compra é "poupar um snapshot após o reinício do CLI" — um evento de baixa frequência + um snapshot que já é barato (uma tela no fim), e o pagamento é a amplificação de milhares de linhas por turno e uma nova superfície operacional de recorte; e B força a completude das âncoras do transcript, que já é um requisito rígido para exibição correta de sessões históricas. Note que o logEpoch de B e o epoch de assinatura de R-01 são dois níveis (geração de processo vs geração de assinatura): podem ser codificados em conjunto, mas a semântica precisa ser escrita separadamente.
 
-### 9.3 表级改动清单（按作者裁决修订：queue 不持久化）
+### 9.3 Lista de mudanças em nível de tabela (revisada conforme a decisão do autor: queue não persistida)
 
-> 裁决记录（2026-07-04）：用户 query 队列（deferred sendText/sendGoalCommand）**不持久化**——只活在 CLI 内存，CLI 进程死亡即丢。连锁推论如下；**03「Inbox 落盘」一节与 07 的新表清单需按此改写**（03 现文把「消息发出去了但不显示」归因于 queue 不持久，归因要修正为「queue 所有权在 renderer 内存」）。
+> Registro de decisão (2026-07-04): a fila de queries do usuário (deferred sendText/sendGoalCommand) **não é persistida** — ela só vive na memória do CLI e é perdida quando o processo do CLI morre. As consequências em cascata são as seguintes; **a seção "Inbox em disco" do 03 e a lista de novas tabelas do 07 precisam ser reescritas conforme isso** (o texto atual do 03 atribui "a mensagem foi enviada mas não aparece" à não persistência da queue; a atribuição deve ser corrigida para "a posse da queue está na memória do renderer").
 
-**推论：两张 inbox 表也不建，持久化改动收敛为零迁移。**
+**Consequência: as duas tabelas de inbox também não são criadas, e as mudanças de persistência convergem para zero migrações.**
 
-| 对象 | 改动 | 方式 |
+| Objeto | Mudança | Forma |
 | --- | --- | --- |
-| `message.data`（JSON） | + `turnId`（07 已列）、`origin` 统一枚举含 mailbox 位（07 已列 + G-06）、**`sourceCommandId`（07 漏，R-07 的收口锚点 + 崩溃窗口幂等的依据，必须落盘）**、终态标记（interrupted/failed，若不可由 parts 推导）、`/goal` 等命令的用户原文与解析结果分字段（R-07） | 无迁移，additive JSON |
-| `part.data`（JSON） | + 权威工时区间锚点（排除权限等待的起止，G-05）、输出截断元数据（`truncated: {totalBytes, ref}`，ref 指向已有 artifact store） | 无迁移，additive JSON |
-| ~~`command_inbox`~~ | **不建表**。inbox = CLI 内存受理台账（串行化点 + 幂等表 + 结果缓存 + pendingCommands 数据源），进程生命周期 | — |
-| ~~`continuation_inbox`~~ | **不建表**。后台 bash/subagent 本身不跨 CLI 重启存活，其未投递的结果通知与 queue 同一把尺子：随进程丢（副作用如文件改动本就落盘）。若未来后台工作要跨重启恢复，再议 | — |
-| ~~`session.queue_auto_drain`~~ | 不需要。queue 内存化后 held/autoDrain 态随之内存化 | — |
-| `session_event` | 仅 §9.2 方案 A 需要；方案 B（推荐）下同样零表 | 视 §9.2 决策 |
-| `message.turn_id` 独立列 | 维持「暂不做」（07 已列为可选） | 暂不 |
-| `todo` / `usage` / `input_history` / 0014 索引 | 不动 | — |
+| `message.data` (JSON) | + `turnId` (07 já lista), `origin` como enum unificado com a posição mailbox (07 já lista + G-06), **`sourceCommandId` (07 esqueceu, âncora de fechamento do R-07 + base da idempotência na janela de crash, precisa ser persistido)**, marcação de estado terminal (interrupted/failed, caso não seja derivável das parts), campos separados para o texto original do usuário e o resultado do parsing de comandos como `/goal` (R-07) | Sem migração, JSON aditivo |
+| `part.data` (JSON) | + âncora de intervalo de tempo de trabalho autoritativo (início/fim excluindo a espera por permissão, G-05), metadados de truncamento de saída (`truncated: {totalBytes, ref}`, com ref apontando para o artifact store existente) | Sem migração, JSON aditivo |
+| ~~`command_inbox`~~ | **Não criar tabela**. inbox = balcão de recebimento em memória do CLI (ponto de serialização + tabela de idempotência + cache de resultados + fonte de pendingCommands), com ciclo de vida do processo | — |
+| ~~`continuation_inbox`~~ | **Não criar tabela**. O bash/subagent em segundo plano não sobrevive a reinícios do CLI; as notificações de resultado não entregues seguem a mesma régua da queue: perdidas com o processo (efeitos colaterais como alterações de arquivo já são persistidos). Se no futuro o trabalho em segundo plano precisar se recuperar entre reinícios, o tema volta à pauta | — |
+| ~~`session.queue_auto_drain`~~ | Desnecessário. Com a queue em memória, os estados held/autoDrain ficam em memória junto | — |
+| `session_event` | Só é necessária na Opção A da §9.2; na Opção B (recomendada) também fica em zero tabelas | Ver a decisão da §9.2 |
+| Coluna independente `message.turn_id` | Manter "por enquanto não" (07 já lista como opcional) | Não por enquanto |
+| `todo` / `usage` / `input_history` / índices 0014 | Sem alterações | — |
 
-裁决的配套语义（必须一起钉死，否则丢掉的是正确性而不只是持久性）：
+A semânticasatélite das decisões (precisa ser fixada junto, senão o que se perde é correção, e não apenas persistência):
 
-1. **修「消息发出去了但不显示」的本质是所有权上收，不是落盘**：queue 从 renderer 内存收进 CLI 内存 + 权威回显（state.updated），刷新/断线/多端场景即全部正确；落盘只影响「CLI 进程死亡」这一个窗口——此时 running turn 同样死亡，用户感知本来就是会话中断，队列同灭是自洽的产品语义。
-2. **崩溃窗口的幂等改由「效果自带 commandId」承担**：`commands/query` 的查找顺序 = 内存幂等表 → transcript 按 `sourceCommandId`。有落盘效果的命令（sendText startNow、editUserQuery、compact marker）天然防重；无效果命令（stop、resolveInteraction）重发无害。唯一小口子是 fork/createSession 的重复创建：**已裁决（2026-07-05）child session 记 `source_command_id`**（一列或 metadata，additive 改动无迁移）。
-3. **ACK `accepted` 不承诺跨进程存活**：客户端 pending 的最终收口以权威数据（row / QueueItem 的 `sourceCommandId`）到达为准——这正是 02 的原始原则「overlay 收口不依赖 ACK」；CLI 重启后在途命令查询得 `unknown` → 按 C-02 呈现「未送达，是否重发」。C-03（重启重放哪些命令）随之消解：**一律不重放**。
-4. **pendingInteractions 不落盘**（不变）：派生自 running turn 的内存事实，turn 死弹窗消失是正确语义。
+1. **O本质 da correção de "a mensagem foi enviada mas não aparece" é a subida de posse, não a persistência**: a queue sai da memória do renderer para a memória do CLI + eco autoritativo (state.updated), e então todos os cenários de refresh/desconexão/múltiplas pontas ficam corretos; a persistência só afeta a janela de "o processo do CLI morreu" — e lá o turno em execução morre junto, a percepção do usuário já é de sessão interrompida, e a queue morrer com ela é uma semântica de produto coerente.
+2. **A idempotência na janela de crash passa a ser responsabilidade de "o efeito carrega o commandId"**: a ordem de busca do `commands/query` = tabela de idempotência em memória → transcript por `sourceCommandId`. Comandos com efeito persistido (sendText startNow, editUserQuery, marker de compact) são anti-duplicação por natureza; comandos sem efeito (stop, resolveInteraction) são inofensivos ao reenvio. A única fresta é a criação duplicada em fork/createSession: **decidido (2026-07-05), o child session registra `source_command_id`** (uma coluna ou metadata, mudança aditiva sem migração).
+3. **O ACK `accepted` não promete sobrevivência entre processos**: o fechamento final do pending do cliente depende da chegada dos dados autoritativos (a row / o `sourceCommandId` do QueueItem) — que é exatamente o princípio original do 02, "o fechamento do overlay não depende do ACK"; após o reinício do CLI, a consulta de comandos em trânsito devolve `unknown` → conforme C-02, apresentar "não entregue, reenviar?". Com isso C-03 (quais comandos fazem replay no reinício) se dissolve: **nenhum**.
+4. **pendingInteractions não é persistido** (sem mudança): é um fato em memória derivado do turno em execução, e o sumiço do popup quando o turno morre é a semântica correta.
 
-净结果：CLI 侧 SQLite **零新表、零迁移**，唯一改动是 message/part 的 additive JSON 锚点字段——与 07「持久化尽量少动」、01 自相似恢复（唯一不可丢状态 = transcript）完全对齐。注意 R-07 的 `QueueItem.sourceCommandId` 不受影响：它是协议/内存字段，不是存储字段。
+Resultado líquido: no lado do CLI, o SQLite fica com **zero tabelas novas e zero migrações**, e a única alteração é o campo de âncora JSON aditivo de message/part — perfeitamente alinhada ao "persistir o mínimo possível" do 07 e à recuperação por autossimilaridade do 01 (o único estado imperdível = transcript). Note que o `QueueItem.sourceCommandId` do R-07 não é afetado: é um campo de protocolo/memória, não de armazenamento.
 
-### 9.4 客户端侧持久化（非 SQLite，同属本清单）
+### 9.4 Persistência do lado do cliente (não SQLite, mas faz parte desta lista)
 
-- localStorage：`clientId`（按 R-08 拆分后仅作提交者身份）、draft（按 sessionKey）、在途 commandId 列表 + TTL（C-02）、滚动锚 rowId（R-18，替换现状 scrollTop 像素）、pane 布局（06）。
-- IndexedDB：`(projection, revision, seq[, logEpoch])` 原子快照缓存，后期优化（04 已列；方案 B 下必须带 logEpoch 才能判断缓存 base 是否可用）。
-- 旧数据：turnId 无法回填的历史 message 留空，fallback rows 由兼容层运行时生成、不回写库（07 已列）；若现状「未读」按 seq 记，方案 B 下改按 `time_updated`。
+- localStorage: `clientId` (após a divisão do R-08, serve apenas como identidade do remetente), draft (por sessionKey), lista de commandId em trânsito + TTL (C-02), âncora de rolagem rowId (R-18, substituindo o scrollTop em pixels atual), layout de pane (06).
+- IndexedDB: cache de snapshot atômico `(projection, revision, seq[, logEpoch])`, otimização posterior (04 já lista; na Opção B é obrigatório levar logEpoch para julgar se o base do cache é utilizável).
+- Dados antigos: mensagens históricas sem turnId possível de preencher ficam vazias, e as fallback rows são geradas em runtime pela camada de compatibilidade, sem gravação de volta no banco (07 já lista); se hoje "não lido" é registrado por seq, na Opção B passa a ser por `time_updated`.
 
-## 附录：五区病例总表（60 类）
+## Apêndice: Tabela geral dos casos das cinco regiões (60 classes)
 
-> 判定含义：**灭**=结构性消灭（附设计依据）；**钉**=方向对但需按 §3 钉死规则；**缺**=设计未覆盖（对应 §4）；**返**=会换马甲回来。证据为代表性位置，注释原文见各文件。
+> Significado da decisão: **elim** = eliminada estruturalmente (com a base do design); **fix** = direção certa mas precisa fixar regras conforme §3; **falta** = não coberto pelo design (ver §4); **volta** = voltará de salto com outra roupa. As evidências são posições representativas; o texto original dos comentários está em cada arquivo.
 
-### A. renderer 拼装层（P1）
+### A. Camada de montagem do renderer (P1)
 
-| # | 病类 | 证据 | 判定 |
+| # | Classe de patologia | Evidência | Decisão |
 | --- | --- | --- | --- |
-| P1-1 | stream/snapshot 双来源归并启发式（richness 打分、滑窗覆盖、前缀比较） | zcodeChatMessages.ts:904,:1887,:2088,:2144 | 灭（04 整体替换）＋前提 R-03 |
-| P1-2 | 流式容器切分错误、拼旧尾巴（turnId/inputId/traceId 三级猜测） | :549,:1481,:1068 | 灭（09§3 状态机 + 新轮新 rowId） |
-| P1-3 | timeline 错位/重复/anchor 漂移（1 秒时钟容差匹配、4 种身份键互认） | :1115,:2740,:2793; zcodeTimelineIdentity.ts | 灭（marker=普通 row）＋钉 R-04(rowId) |
-| P1-4 | optimistic 被合并而非覆盖（operationId 回填、本地行接管） | :787,:816 | 灭（03 纪律）＋钉 R-07(marker 锚点) |
-| P1-5 | 迟到终态与内容流乱序（task_complete 先于迟到包、stop 后 Write 预览合回） | helpers:431,:595; :2403,:1280 | 灭（客户端侧）＋钉 R-15(reducer 收口) |
-| P1-6 | UI 猜 turn 分组（`turnIndex ?? Math.floor(index/2)`） | :1439; chatViewMessageTurns.ts:27 | 灭（07 turnId 落盘） |
-| P1-7 | 控制 flag 从消息数组反推（canFork 等 backfill、goal 续跑运行态识别） | zcodeTimelineRuntime.ts:49; renderUnits:27 | 灭（02 sessionControl/actions） |
-| P1-8 | provider 语义文本嗅探（三代文案匹配、stopReason 正则、mailbox XML 正则） | :219-252,:62,:378,:1236 | 部分灭＋缺 G-06(mailbox) |
-| P1-9 | snapshot 水位非一致性水位 | zcodeSessionEventOrder.ts:93 | 钉 R-03 |
-| P1-10 | 客户端乱序缓存补偿（gap 检测/pending 缓存/万条去重表） | zcodeSessionEventOrder.ts 全文 | 灭（04 规则2）＋前提 R-01 |
-| P1-11 | 工时/时长本地推算与双源择优（权限等待误计、verifier 前冻结、不允许回退变短） | :636,:1020,:1962; helpers:701 | 缺 G-05 |
-| P1-12 | compact 归属/折叠桥接启发式 + replay 内容去重（toolId 差集+startsWith 裁剪） | renderUnits:48,:389 | a) 钉 R-15；b) 缺 G-05(折叠组) |
+| P1-1 | heurísticas de merge de dupla fonte stream/snapshot (scoring de riqueza, cobertura por janela deslizante, comparação de prefixo) | zcodeChatMessages.ts:904,:1887,:2088,:2144 | elim (substituição integral do 04) + premissa R-03 |
+| P1-2 | erro de fatiamento do container de streaming, colagem de cauda antiga (palpite em três níveis de turnId/inputId/traceId) | :549,:1481,:1068 | elim (máquina de estados da §3 do 09 + rowId novo por turno) |
+| P1-3 | desalinhamento/duplicação/drift de âncora na timeline (casamento por tolerância de relógio de 1 segundo, 4 chaves de identidade se reconhecendo) | :1115,:2740,:2793; zcodeTimelineIdentity.ts | elim (marker = row comum) + fix R-04(rowId) |
+| P1-4 | optimistic sendo mesclado em vez de sobrescrito (preenchimento de operationId, linha local assumindo o controle) | :787,:816 | elim (disciplina do 03) + fix R-07(âncora de marker) |
+| P1-5 | estado terminal atrasado e ordem do fluxo de conteúdo (task_complete antes de pacotes atrasados, prévia de Write após stop sendo colada de volta) | helpers:431,:595; :2403,:1280 | elim (lado do cliente) + fix R-15(fechamento no reducer) |
+| P1-6 | UI adivinhando agrupamento de turno (`turnIndex ?? Math.floor(index/2)`) | :1439; chatViewMessageTurns.ts:27 | elim (turnId persistido no 07) |
+| P1-7 | flags de controle inferidas por arranjo do array de mensagens (backfill de canFork etc., identificação de execução contínua de goal) | zcodeTimelineRuntime.ts:49; renderUnits:27 | elim (02 sessionControl/actions) |
+| P1-8 | farejamento de texto semântico do provider (casamento de texto de três gerações, regex de stopReason, regex de XML de mailbox) | :219-252,:62,:378,:1236 | elim parcial + falta G-06(mailbox) |
+| P1-9 | o nível de água do snapshot não é um nível de água consistente | zcodeSessionEventOrder.ts:93 | fix R-03 |
+| P1-10 | máquina de compensação de desordem do cliente (detecção de gap/cache pending/tabela de dedup de 10 mil entradas) | zcodeSessionEventOrderFields.ts全文 | elim (regra 2 do 04) + premissa R-01 |
+| P1-11 | cálculo local de tempo de trabalho/duração e escolha entre duas fontes (espera por permissão contada por engano, congelamento antes do verifier, sem regredir e ficar menor) | :636,:1020,:1962; helpers:701 | falta G-05 |
+| P1-12 | heurísticas de atribuição/pontes de colapso do compact + dedup do conteúdo de replay (diferença de toolId + recorte com startsWith) | renderUnits:48,:389 | a) fix R-15; b) falta G-05(grupo colapsado) |
 
-### B. 流事件应用与快照同步（P2）
+### B. Aplicação de eventos de stream e sincronização de snapshot (P2)
 
-| # | 病类 | 证据 | 判定 |
+| # | Classe de patologia | Evidência | Decisão |
 | --- | --- | --- | --- |
-| P2-1 | 快照合并策略动物园（replace/terminal_reconcile/backfill/preserve/drop 五策略） | snapshotSync:615-668; useTaskRestore:1558 | 灭（04 规则1，v4 最强正面证据） |
-| P2-2 | running snapshot 非原子（轮询追水位、partial snapshot、七字段各自恢复） | eventOrder:93; useTaskStreamEvents:540; snapshotSync:78,:539; runtimeStateSync 全文 | 钉 R-03 |
-| P2-3 | 迟到终态归属竞态（四个 shouldTreat* 布尔、无 inputId 终态） | terminalHandlers:180; snapshotSync:576-611,:852 | 灭（turn.* 事件消失，phase 随投影） |
-| P2-4 | seq 缺口客户端补偿机器（250ms 恢复定时器、trimChunkOverlap 前后缀去重、unverifiedFromSeq 游标） | useTaskStreamEvents:56,:530; handlers:247,:769 | 灭＋前提 R-01 |
-| P2-5 | deliveryKind 客户端行为分叉（gap 恢复分叉、replayable 专用消费、isFilteredNonOwnerBatch） | :104,:530; snapshotSync:774; handlers:716 | 灭（05 参数表 + 区间记账） |
-| P2-6 | 阻塞交互事件化丢失/覆盖/跨端不同步 | :641; handlers:1216,:1240 | 灭（09§5 pendingInteractions） |
-| P2-7 | flag 数组反推（isChatTaskRunning 猜、SSH 残留 pending execute 特判） | useChatViewDisplayFlags 全文; chatStatus:42 | 灭；shimmer 可由 phase+尾行推导 |
-| P2-8 | 队列 drain/held/steer 编排在客户端（终态后本地触发 drain、stopRequested 本地改写 held） | terminalHandlers:346-407; handlers:297 | 灭＋D-03(steer 中间态表达) |
-| P2-9 | 乐观用户消息 15s 窗口模糊去重、/goal 原文被 objective 覆盖 | handlers:148-178,:165 | 灭＋钉 R-07 |
-| P2-10 | 模型/配置回显竞态（回显匹配 guard、三层 thought preserve、15+ 处 stale guard） | handlers:1413-1497; useTaskStreamEvents:117; useTaskRestore 多处 | 缺 G-01（本区最重要发现） |
-| P2-11 | 订阅/组件生命周期空窗丢数据（先释放后建订阅、plan 只存组件内存） | :682,:392; handlers:1200 | 灭（客户端不再是 reducer） |
-| P2-12 | 旁路投影字段恢复补丁群（plan/todo/goalStats/apiRetry/contextUsage/背景 bash） | runtimeStateSync:139-203; handlers:1645 | 缺 G-02/03/04 |
+| P2-1 | zoológico de estratégias de merge de snapshot (cinco estratégias: replace/terminal_reconcile/backfill/preserve/drop) | snapshotSync:615-668; useTaskRestore:1558 | elim (regra 1 do 04, a evidência positiva mais forte da V4) |
+| P2-2 | snapshot em execução não atômico (polling para alcançar o nível de água, snapshot parcial, sete campos com recuperação individual) | eventOrder:93; useTaskStreamEvents:540; snapshotSync:78,:539; runtimeStateSync全文 | fix R-03 |
+| P2-3 | corrida de atribuição de estado terminal atrasado (quatro booleanos shouldTreat*, estado terminal sem inputId) | terminalHandlers:180; snapshotSync:576-611,:852 | elim (eventos turn.* desaparecem, phase vem da projeção) |
+| P2-4 | máquina de compensação de lacunas de seq no cliente (timer de recuperação de 250ms, dedup de prefixo/sufixo por trimChunkOverlap, cursor unverifiedFromSeq) | useTaskStreamEvents:56,:530; handlers:247,:769 | elim + premissa R-01 |
+| P2-5 | bifurcação de comportamento por deliveryKind no cliente (bifurcação na recuperação de gap, consumo exclusivo de replayable, isFilteredNonOwnerBatch) | :104,:530; snapshotSync:774; handlers:716 | elim (tabela de parâmetros do 05 + contabilidade por faixas) |
+| P2-6 | eventos de interação bloqueante perdidos/sobrescritos/não sincronizados entre pontas | :641; handlers:1216,:1240 | elim (pendingInteractions da §5 do 09) |
+| P2-7 | inferência de flags por array (palpite de isChatTaskRunning, caso especial de execute pendente residual de SSH) | useChatViewDisplayFlags全文; chatStatus:42 | elim; o shimmer pode ser derivado de phase + última linha |
+| P2-8 | orquestração de drain/held/steer da queue no cliente (drain disparado localmente após estado terminal, stopRequested reescrevendo held localmente) | terminalHandlers:346-407; handlers:297 | elim + D-03(expressão do estado intermediário de steer) |
+| P2-9 | dedup difuso de mensagem de usuário otimista na janela de 15s, texto original de /goal sobrescrito pelo objective | handlers:148-178,:165 | elim + fix R-07 |
+| P2-10 | corrida de eco de modelo/config (guard de casamento de eco, preserve de três camadas de thought, mais de 15 stale guards) | handlers:1413-1497; useTaskStreamEvents:117; useTaskRestore em vários pontos | falta G-01 (a descoberta mais importante desta região) |
+| P2-11 | perda de dados na janela entre assinatura e ciclo de vida do componente (liberar antes de assinar, plan guardado só na memória do componente) | :682,:392; handlers:1200 | elim (o cliente deixa de ser reducer) |
+| P2-12 | grupo de patches de recuperação de campos de projeção em bypass (plan/todo/goalStats/apiRetry/contextUsage/bash de fundo) | runtimeStateSync:139-203; handlers:1645 | falta G-02/03/04 |
 
-### C. store 与 web 入口（P3）
+### C. Store e entrada web (P3)
 
-| # | 病类 | 证据 | 判定 |
+| # | Classe de patologia | Evidência | Decisão |
 | --- | --- | --- | --- |
-| P3-1 | 双真相源对账（verifier 双写、客户端时钟与服务端时间比大小、未读双源） | taskSlice:840,:1884; workspaceSlice:1142 | 灭＋缺 G-01/02（字段须进投影） |
-| P3-2 | 重复投递手工幂等表（usage 重复唤醒掉帧、eventKey 环形表、requestId 对象去重） | taskSlice:537,:1016,:114; Types:180 | 灭（msgId 去重+区间记账+conflation） |
-| P3-3 | 运行态标识残留误判（inputId 残留、activeTurnKind 不清、stop 路由被擦） | taskSlice:437-448,:1826 | 灭（control 整体替换） |
-| P3-4 | 单槽位 pending 交互覆盖、双路径清理 CPU 飙高 | taskSlice:1142,:1205,:1228 | 灭＋钉 R-07(乐观置灰) |
-| P3-5 | 模型切换 marker 旁路暂存+turnIndex 挂载 | taskSlice:1406,:1434 | 钉 R-17 |
-| P3-6 | 关联数据分帧发布高度跳变（messages/summary/fileChanges 三次写） | taskSlice:1535 | 灭＋缺 G-05(perTurn 摘要落点) |
-| P3-7 | workspace identity 串台（path fallback 互读配置/队列/错误态） | selectors:203,:241 | 钉 R-16 |
-| P3-8 | 恢复路径冲突终态（unknown→invalid-mobile 两张错误页、DEVICE_OFFLINE 抢跑） | main.tsx:1316; transport:463,:585 | 灭＋缺 G-08(终态分类) |
-| P3-9 | 换桥整树 remount（key=bridgeSessionId、回前台闪「正在加载」） | main.tsx:1703,:1388,:1407 | 灭（订阅身份持久） |
-| P3-10 | 半开连接发送黑洞（静默丢弃、单向通路重建重试） | transport:504,:899; main.tsx:1563 | 灭（05 判死换管重放） |
-| P3-11 | 重连级联风暴（10 条入口、手工 single-flight、4 处代际比对） | transport:839,:416; main.tsx:1439 等 | 灭＋前提 R-01 |
-| P3-12 | 客户端身份 localStorage 单例（多 tab 同 id、private mode fallback） | main.tsx:851,:863,:178 | 钉 R-08 |
+| P3-1 | reconciliação de dupla fonte de verdade (escrita dupla do verifier, comparação entre relógio do cliente e hora do servidor, não lido em dupla fonte) | taskSlice:840,:1884; workspaceSlice:1142 | elim + falta G-01/02 (campos precisam entrar na projeção) |
+| P3-2 | tabelas de idempotência manuais para entrega duplicada (despertar sem sentido por usage repetido, tabela circular de eventKey, dedup de objetos por requestId) | taskSlice:537,:1016,:114; Types:180 | elim (dedup por msgId + contabilidade por faixas + conflation) |
+| P3-3 | erro de decisão por identificador de estado de execução residual (inputId residual, activeTurnKind não limpo, rota de stop apagada) | taskSlice:437-448,:1826 | elim (substituição integral de control) |
+| P3-4 | interação pendente de slot único sobrescrita, CPU alta na limpeza por dois caminhos | taskSlice:1142,:1205,:1228 | elim + fix R-07(cinza otimista) |
+| P3-5 | staging de marker de troca de modelo em bypass + montagem por turnIndex | taskSlice:1406,:1434 | fix R-17 |
+| P3-6 | publicação em quadros separados causando saltos grandes de altura (messages/summary/fileChanges em três escritas) | taskSlice:1535 | elim + falta G-05(destino do resumo por turno) |
+| P3-7 | cruzamento de identidade de workspace (fallback de path lendo config/fila/estado de erro um do outro) | selectors:203,:241 | fix R-16 |
+| P3-8 | estados terminais conflitantes entre caminhos de recuperação (unknown→invalid-mobile, duas páginas de erro, DEVICE_OFFLINE correndo na frente) | main.tsx:1316; transport:463,:585 | elim + falta G-08(classificação terminal) |
+| P3-9 | remount de toda a árvore ao trocar de bridge (key=bridgeSessionId, flash "carregando" ao voltar ao primeiro plano) | main.tsx:1703,:1388,:1407 | elim (identidade da assinatura persistente) |
+| P3-10 | buraco negro de envio em conexão meio-aberta (descarte silencioso, retry de reconstrução unidirecional) | transport:504,:899; main.tsx:1563 | elim (troca de管 de detecção de morte e replay no 05) |
+| P3-11 | tempestade em cascata de reconexão (10 entradas, single-flight manual, 4 comparações de geração) | transport:839,:416; main.tsx:1439 等 | elim + premissa R-01 |
+| P3-12 | identidade do cliente como singleton de localStorage (mesmo id em múltiplas abas, fallback de private mode) | main.tsx:851,:863,:178 | fix R-08 |
 
-### D. 传输与远控（P4）
+### D. Transporte e controle remoto (P4)
 
-| # | 病类 | 证据 | 判定 |
+| # | Classe de patologia | Evidência | Decisão |
 | --- | --- | --- | --- |
-| P4-1 | seq-gap→degraded→整桥硬恢复（非幂等帧不敢重放） | manager:899; relayProtocol:194,:141 | 灭＋前提 R-02(收端去重真实存在) |
-| P4-2 | 中间层 per-client 缓冲+TTL/溢出/补 degraded | manager:367,:451,:495; relayProtocol:169 | 灭（不做 per-client 队列） |
-| P4-3 | owner/observer 双事件源分叉（已被迫合流回投） | taskRealtimeBus:685 | 灭（对等客户端；方向最强背书） |
-| P4-4 | owner lease/命令路由竞态（NO_ACTIVE_TASK_OWNER、owner_lost 广播） | bus:838-889,:195 | 灭＋缺 G-10(崩溃接管) |
-| P4-5 | 大帧 OOM（mirror batch 多次复制打满堆、被迫切片分 seq） | bus:497,:516,:622,:718 | 灭＋钉 R-12(帧上限) |
-| P4-6 | 多路心跳/判死/重连级联（5-6 条 transport 入口+3s grace） | transport:288,:374,:425,:407,:436; manager:336 | 灭＋缺 G-09(relay 可行性) |
-| P4-7 | 半开/休眠假活（内核不触发 close、waiting_terminal 卡死） | transport:359,:475 | 灭（应用层 ACK 判死，论证与病例全对上） |
-| P4-8 | 传输状态映射 UI 状态撕裂（staleWaiting 怀疑态、防抖保持 active） | transport:365; manager:1000,:578,:1293 | 灭＋钉 R-13 |
-| P4-9 | PersistentProtocol 无收端去重/服务端附着/主动 ACK | protocol.ts:411-425; remote.ts:302 | **返**（不补则 A1 风暴必现）→ R-02 |
-| P4-10 | PersistentProtocol 零生产部署 | server/stdio.ts:53、http.ts:66、websocket.ts:97、host/index.ts:572 | 失真修正 M1 |
-| P4-11 | 多路径重复投递末端 eventId 兜底（千条环形表、跨通道强制 flush 保序） | bus:1039,:444; transport:253 | 灭＋钉 R-01(三分支) |
-| P4-12 | base64 双重编码/手写分块（0x8000 分块防栈溢出） | manager:781; relayProtocol:30-47 | 灭（二进制帧）＋P-03(保留 deflate) |
+| P4-1 | seq-gap→degraded→recuperação total da bridge (quadros não idempotentes, medo de fazer replay) | manager:899; relayProtocol:194,:141 | elim + premissa R-02 (a dedup do receptor existe de verdade) |
+| P4-2 | buffer per-client na camada intermediária + TTL/overflow/degraded complementar | manager:367,:451,:495; relayProtocol:169 | elim (não fazer fila per-client) |
+| P4-3 | bifurcação de dupla fonte de evento owner/observer (já forçada a se fundir de volta) | taskRealtimeBus:685 | elim (clientes com paridade total; o endossamento mais forte da direção) |
+| P4-4 | corrida de lease/roteamento de comandos do owner (NO_ACTIVE_TASK_OWNER, broadcast owner_lost) | bus:838-889,:195 | elim + falta G-10(tomada de possession no crash) |
+| P4-5 | OOM com quadros grandes (batch de espelho com várias cópias saturando o heap, fatiamento forçado por seq) | bus:497,:516,:622,:718 | elim + fix R-12(limite de quadros) |
+| P4-6 | múltiplos heartbeats/detecção de morte/cascata de reconexão (5-6 entradas de transport + grace de 3s) | transport:288,:374,:425,:407,:436; manager:336 | elim + falta G-09(viabilidade do relay) |
+| P4-7 | falso vivo em conexão meio-aberta/em suspension (kernel não dispara close, waiting_terminal travado) | transport:359,:475 | elim (detecção de morte por ACK na camada de aplicação, argumentação e casos batem) |
+| P4-8 | estado de transporte mapeado em estado de UI com contradição (estado suspect staleWaiting, debounce mantendo active) | transport:365; manager:1000,:578,:1293 | elim + fix R-13 |
+| P4-9 | PersistentProtocol sem dedup no receptor/sem attach no servidor/sem ACK ativo | protocol.ts:411-425; remote.ts:302 | **volta** (sem a correção a tempestade de A1不会出现) → R-02 |
+| P4-10 | PersistentProtocol com zero implantação em produção | server/stdio.ts:53、http.ts:66、websocket.ts:97、host/index.ts:572 | correção de distorção M1 |
+| P4-11 | entrega duplicada por múltiplos caminhos com fallback de eventId no fim (tabela circular de mil entradas, flush forçado entre canais para preservar ordem) | bus:1039,:444; transport:253 | elim + fix R-01(três ramos) |
+| P4-12 | dupla codificação base64/fatiamento manual (blocos de 0x8000 para evitar estouro de pilha) | manager:781; relayProtocol:30-47 | elim (quadros binários) + P-03(preservar deflate) |
 
-### E. CLI 事实源侧（P5）
+### E. Lado da fonte de verdade da CLI (P5)
 
-| # | 病类 | 证据 | 判定 |
+| # | Classe de patologia | Evidência | Decisão |
 | --- | --- | --- | --- |
-| P5-1 | 协议 seq 按 (record,deliveryKind) 内存懒编号、订阅全史重扫 | server-operations.ts:201-255,:634,:1567 | 灭＋钉 R-04(seq 持久化) |
-| P5-2 | live-only 事件不进 event log（subagent mirror seq=0） | :637 | 缺→钉 R-05 |
-| P5-3 | 互斥事实两层四散+释放/广播顺序竞态 | :2747,:1810,:2215,:1909,:2184 | 灭＋钉 R-15(guard 同源) |
-| P5-4 | turn 边界扫数组猜（synthetic user 破坏轮次计数、只有最后一轮能 fork） | :3127-3130 | 灭＋钉 R-04(fallback rowId 确定性) |
-| P5-5 | fork 现状 running 一刀切禁止 vs 目标允许稳定历史 | :2042 | 行为变更→C-07 清单 |
-| P5-6 | fork 继承范围靠补丁逐项找回（模型被默认覆盖、goal timeline 断开） | :2072,:2121 | 灭（继承表化可黄金测试） |
-| P5-7 | stop 与迟到终态收口竞态（verifier 未收 abort 保留 active goal、cancelled 无终态事件补账） | :2310; event-reducer.ts:302,:435 | 灭＋钉 R-15(进黄金测试) |
-| P5-8 | revision 散点手工递增、纯内存、-32009 非结构化 | :1207 等 15+ 处; server-types.ts:152 | 钉 R-04(revision 派生) |
-| P5-9 | running 后续输入双队列两处易失（steer 纯内存+UI deferred queue） | agent-runtime.ts:158; :1602-1617 | 灭＋修正 M3＋08 补迁移 |
-| P5-10 | 双流式表达去重税（scheduled 重复携带大参数、跨事件去重状态机） | :504 | 灭（单 row.delta+封闭白名单） |
-| P5-11 | CLI 协议边界已有确定性合批层 | :447,:3277-3279 | 钉 R-14(删留裁决) |
-| P5-12 | subscribe 一次性 RPC、无订阅流身份、无保留窗 | :1561-1584 | 灭＋前提 R-01；配 G-15 索引化 |
+| P5-1 | seq de protocolo numerado preguiçosamente em memória por (record,deliveryKind), assinatura reexaminando toda a história | server-operations.ts:201-255,:634,:1567 | elim + fix R-04(persistência de seq) |
+| P5-2 | evento live-only não entra no event log (espelho de subagent com seq=0) | :637 | falta → fix R-05 |
+| P5-3 | fatos mutuamente exclusivos espalhados em dois níveis e quatro lugares + corrida de ordem liberação/broadcast | :2747,:1810,:2215,:1909,:2184 | elim + fix R-15(guard de mesma origem) |
+| P5-4 | adivinhando limites de turno varrendo o array (usuário sintético quebrando a contagem de turnos, só o último turno pode fazer fork) | :3127-3130 | elim + fix R-04(determinismo do rowId de fallback) |
+| P5-5 | hoje fork em execução é proibido de forma absoluta vs o alvo permite histórico estável | :2042 | mudança de comportamento → lista C-07 |
+| P5-6 | escopo de herança do fork recuperado por patches item a item (modelo sobrescrito pelo default, timeline do goal quebrado) | :2072,:2121 | elim (tabelamento de herança testável em golden test) |
+| P5-7 | corrida de fechamento entre stop e estado terminal atrasado (verifier sem abort reteve active goal, cancelled sem evento terminal complementar) | :2310; event-reducer.ts:302,:435 | elim + fix R-15(entra no golden test) |
+| P5-8 | revision incrementada à mão em pontos espalhados, puramente em memória, -32009 não estruturado | :1207 等 15+ 处; server-types.ts:152 | fix R-04(revision derivada) |
+| P5-9 | dupla fila para entradas subsequentes em execução, volátil em dois pontos (steer puramente em memória + deferred queue da UI) | agent-runtime.ts:158; :1602-1617 | elim + correção M3 + 08 complementando a migração |
+| P5-10 | imposto de dedup por dupla expressão de streaming (scheduled repetindo grandes parâmetros, máquina de estados de dedup entre eventos) | :504 | elim (row.delta única + lista fechada de permissões) |
+| P5-11 | a fronteira de protocolo do CLI já tem uma camada de batching determinístico | :447,:3277-3279 | fix R-14(decisão de manter/remover) |
+| P5-12 | subscribe como RPC único, sem identidade de fluxo de assinatura, sem janela de retenção | :1561-1584 | elim + premissa R-01; com G-15 indexado |
 
-（G-15：事件保留窗从「无限」变有限时，回放路径配 `getEventsAfter` 索引化，避免 O(全史) 重扫。）
+（G-15: quando a janela de retenção de eventos passar de "infinita" para finita, o caminho de replay precisa do índice `getEventsAfter`, evitando O(história inteira) reexaminando tudo.）

@@ -1,25 +1,25 @@
-# QSpace Open With Support
+# Suporte a QSpace no Open With
 
-日期：2026-07-07
+Data: 2026-07-07
 
-## 背景
+## Contexto
 
-ZCode 的“打开方式”菜单不直接枚举 macOS 系统 Open With 列表，而是由 desktop main 进程维护一份跨平台外部 App 候选，再通过 `platform.getInstalledEditors()` 暴露给 UI。macOS 上已安装的 QSpace / QSpace Pro 不在候选列表中，因此不会出现在 workspace header、文件树、消息文件链接和预览打开菜单里。
+O menu "Abrir com" do ZCode não enumera diretamente a lista Open With do sistema macOS; em vez disso, o processo main do desktop mantém uma lista multiplataforma de apps externos candidatos, exposta à UI por `platform.getInstalledEditors()`. No macOS, o QSpace / QSpace Pro instalados não estão nessa lista de candidatos e, portanto, não aparecem no header do workspace, na árvore de arquivos, nos links de arquivo das mensagens nem no menu de abertura de preview.
 
-## 范围
+## Escopo
 
-- 在 macOS 外部 App 候选里加入 QSpace 与 QSpace Pro。
-- QSpace / QSpace Pro 作为第三方文件管理器类 App，跟 Finder 一样在打开方式排序中靠前展示。
-- 打开动作继续复用现有 `platform.openInEditor(editorId, path)` 协议，不新增协议字段。
+- Adicionar QSpace e QSpace Pro aos candidatos de apps externos do macOS.
+- QSpace / QSpace Pro, por serem apps de gerenciador de arquivos de terceiros, são exibidos no topo da ordenação do "Abrir com", assim como o Finder.
+- A ação de abertura continua reutilizando o protocolo existente `platform.openInEditor(editorId, path)`, sem novos campos de protocolo.
 
-## 非目标
+## Fora de escopo
 
-- 不改 macOS 系统默认文件管理器，也不替换“在 Finder 中打开”的现有文案和默认语义。
-- 不在 Web、手机远控或 remote workspace 中新增本机 App 打开能力；远程文件树仍不能把远端路径交给本机 QSpace。
-- 不改变 `desktop-continuous` 与 `web-remote-replayable` 的 realtime/session 语义。
+- Não alterar o gerenciador de arquivos padrão do sistema macOS, nem substituir o texto existente e a semântica padrão de "Abrir no Finder".
+- Não adicionar capacidade de abertura de apps locais na Web, no controle remoto do celular ou no remote workspace; a árvore de arquivos remota continua sem poder entregar caminhos remotos ao QSpace local.
+- Não alterar as semânticas de realtime/session de `desktop-continuous` e `web-remote-replayable`.
 
-## 实现约束
+## Restrições de implementação
 
-- `QSpace.app` 默认路径为 `/Applications/QSpace.app`，`QSpace Pro.app` 默认路径为 `/Applications/QSpace Pro.app`，打开时走现有 macOS `open -a <appPath> <path>` 降级链路。
-- 图标继续复用 `getAppIconDataUrl()`，从 app bundle 的 `Info.plist` 和 `.icns` 资源解析。
-- 如果用户没有安装对应 QSpace 版本，`existsSync` 过滤后不会展示该项；两个版本都安装时会展示两个独立入口。
+- O caminho padrão de `QSpace.app` é `/Applications/QSpace.app` e o de `QSpace Pro.app` é `/Applications/QSpace Pro.app`; a abertura usa a cadeia de fallback existente do macOS `open -a <appPath> <path>`.
+- O ícone continua reutilizando `getAppIconDataUrl()`, resolvido a partir do `Info.plist` e dos recursos `.icns` do app bundle.
+- Se o usuário não tiver instalada a versão correspondente do QSpace, o filtro `existsSync` impede a exibição do item; com as duas versões instaladas, são exibidas duas entradas independentes.

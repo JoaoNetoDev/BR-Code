@@ -1,31 +1,31 @@
-# ZCode Agent 用「已有 Node + 编译产物 zcode.cjs」运行（桌面 & 远端）
+# ZCode Agent roda com o «Node já existente + artefato compilado zcode.cjs» (desktop e remoto)
 
-## 核心思路
+## Ideia central
 
-ZCode Agent 以前每个平台都内置一份独立的原生二进制 `zcode-agent`（SEA：官方 Node + `zcode.cjs` + TUI 资源 + 官方插件），单平台 ~180MB，里面**自带一份 Node**。
+O ZCode Agent antes embutia um binário nativo independente `zcode-agent` em cada plataforma (SEA: Node oficial + `zcode.cjs` + recursos da TUI + plugins oficiais), ~180MB por plataforma, contendo **uma cópia própria do Node**.
 
-但无论桌面还是远端，运行 agent 的环境里**本来就已经有一份 Node**：
+Mas, tanto no desktop quanto no remoto, o ambiente que roda o agent **já tem uma cópia do Node**:
 
-- **桌面**：Host 跑在 Electron `utilityProcess`，`process.execPath` 指向 Electron Helper，内置 Node 24.x（Electron 41）。
-- **远端 SSH/WSL/Docker**：部署时会下发一份独立 `node`（`<REMOTE_BASE>/node`，v22.16.0）用来跑 `zcode-server.cjs`。
+- **Desktop**: o Host roda em um `utilityProcess` do Electron, `process.execPath` aponta para o Electron Helper, com Node 24.x embutido (Electron 41).
+- **Remoto SSH/WSL/Docker**: no deploy é entregue um `node` independente (`<REMOTE_BASE>/node`, v22.16.0) usado para rodar `zcode-server.cjs`.
 
-所以 agent 没必要再带一份 Node，直接用这份已有的 Node 执行编译产物 `zcode.cjs` 即可。
+Portanto o agent não precisa carregar mais um Node: basta usar o Node já existente para executar o artefato compilado `zcode.cjs`.
 
-关键前提：**ZCode Agent 没有任何原生 NAPI 插件**——`ripgrep` 是 WASM/WASI，其余依赖（cheerio / iconv-lite / jimp / ai-sdk / mcp-sdk / zod 等）全是纯 JS。`zcode.cjs` 是 esbuild 打的单文件 bundle（除 `@zcode/tui` 外全部 inline），跨平台同一份；`app-server` 命令路径永不加载 `@zcode/tui`，所以远端只需要这一个文件、无需 node_modules，桌面也不打包 TUI。
+Premissa-chave: **o ZCode Agent não tem nenhum plugin nativo NAPI** — `ripgrep` é WASM/WASI e as demais dependências (cheerio / iconv-lite / jimp / ai-sdk / mcp-sdk / zod etc.) são JS puro. `zcode.cjs` é um bundle de arquivo único gerado pelo esbuild (tudo inline, exceto `@zcode/tui`), o mesmo em todas as plataformas; o caminho do comando `app-server` nunca carrega `@zcode/tui`, então o remoto precisa apenas desse arquivo, sem node_modules, e o desktop também não empacota a TUI.
 
-收益：单平台 ~180MB → ~16MB；同一份 JS 跨平台；桌面/远端统一一种 agent 形态。
+Ganho: ~180MB → ~16MB por plataforma; o mesmo JS em todas as plataformas; desktop/remoto unificados em uma única forma de agent.
 
-## 运行方式
+## Modo de execução
 
-**桌面**（`zcodeAgentProcessManager.ts: resolveElectronRuntimeZCodeAgentCommand`，`process.versions.electron` 为闸门）：
+**Desktop** (`zcodeAgentProcessManager.ts: resolveElectronRuntimeZCodeAgentCommand`, com `process.versions.electron` como condição de bloqueio):
 
 ```
 process.execPath  <Electron Helper>
   args: [resources/glm/zcode.cjs, app-server, --stdio]
-  env:  { ELECTRON_RUN_AS_NODE: "1" }   // 必须，否则子进程被当成 Chromium 子进程卡在 GPU 初始化
+  env:  { ELECTRON_RUN_AS_NODE: "1" }   // obrigatório, senão o subprocesso é tratado como subprocesso do Chromium e trava na inicialização da GPU
 ```
 
-**远端**（无 Electron，复用 dev 已有机制）：部署 `zcode.cjs` 到 `~/.zcode/server/agents/glm/zcode.cjs`，再写一个**同名 wrapper**（就是 resolver 期望的可执行入口 `zcode-agent`）：
+**Remoto** (sem Electron, reaproveitando o mecanismo já existente no dev): fazer o deploy de `zcode.cjs` para `~/.zcode/server/agents/glm/zcode.cjs` e então escrever um **wrapper com o mesmo nome** (é a entrada executável `zcode-agent` que o resolver espera):
 
 ```sh
 #!/bin/sh
@@ -34,35 +34,35 @@ runtime_root="${ZCODE_SERVER_RUNTIME_ROOT:-$HOME/.zcode/server}"
 exec "$runtime_root/node" "$HOME/.zcode/server/agents/glm/zcode.cjs" "$@"
 ```
 
-这样 provider runtime resolver **不需要为远端改任何代码**——照旧找 `zcode-agent` 这个可执行文件，找到的是 wrapper，由它用远端 node 执行 `zcode.cjs`。
+Assim o provider runtime resolver **não precisa de nenhuma mudança de código para o remoto** — ele continua procurando o executável `zcode-agent`; o que encontra é o wrapper, que usa o node remoto para executar `zcode.cjs`.
 
-## 实现
+## Implementação
 
-**bundle 目标版本**（`apps/zcode-cli/packages/cli/scripts/build.mjs`）
-esbuild `target` 从 `node26` 降到 **`node22`**，取两端运行时里最低的 Node 版本（远端 v22.16）。保证同一份 `zcode.cjs` 在桌面 Node 24 和远端 Node 22 上都不会用到目标运行时不支持的语法。
+**Versão-alvo do bundle** (`apps/zcode-cli/packages/cli/scripts/build.mjs`)
+O `target` do esbuild desce de `node26` para **`node22`**, tomando a menor versão de Node entre os dois runtimes (remoto v22.16). Garante que o mesmo `zcode.cjs` não use sintaxe não suportada pelo runtime-alvo nem no Node 24 do desktop nem no Node 22 do remoto.
 
-**桌面**
-- `zcode-agent-runtime.ts`：描述符加 `nodeBundleEntryFile: "zcode.cjs"` + `resolveNodeBundleSegments()`。
-- `providerRuntimeResolver.ts`：`findZCodeAgentRuntimeNodeBundle()` 定位 `resources/glm/zcode.cjs`。
-- `zcodeAgentProcessManager.ts`：`resolveElectronRuntimeZCodeAgentCommand`，插在 monorepo dev 与 native-binary 兜底之间。
-- 打包：`prepare:agent-bundle`（`prepare-agent-node-bundle.mjs`）构建 cli、把 `zcode.cjs` stage 进 `bundled-agents/<平台>/glm/`、删掉旧原生 `zcode-agent`；`prepare:runtime-assets` 本机列表用它替换 `prepare:glm`；electron-builder 整目录拷 `resources/glm`。
+**Desktop**
+- `zcode-agent-runtime.ts`: o descritor ganha `nodeBundleEntryFile: "zcode.cjs"` + `resolveNodeBundleSegments()`.
+- `providerRuntimeResolver.ts`: `findZCodeAgentRuntimeNodeBundle()` localiza `resources/glm/zcode.cjs`.
+- `zcodeAgentProcessManager.ts`: `resolveElectronRuntimeZCodeAgentCommand`, inserido entre o dev do monorepo e o fallback para binário nativo.
+- Empacotamento: `prepare:agent-bundle` (`prepare-agent-node-bundle.mjs`) compila a cli, faz o stage de `zcode.cjs` em `bundled-agents/<platform>/glm/` e remove o antigo `zcode-agent` nativo; `prepare:runtime-assets` usa-o no lugar de `prepare:glm` na lista local; o electron-builder copia o diretório inteiro `resources/glm`.
 
-**远端**
-- `zcodeAgentBundleWrapper.ts`（新）：`REMOTE_AGENT_BUNDLE_NAME` + `buildRemoteAgentBundleWrapper()`，dev / 生产共用一份 wrapper 语义。
-- `zcodeAgentDeploy.ts`：去掉「只支持 native binary」的限制；改为 ① `installFile` 安装 `zcode.cjs` 到 `agents/glm/zcode.cjs`，② 写 wrapper 到 `agents/glm/zcode-agent`。skip 检查同时校验 wrapper 与 bundle 存在。
-- 生产态 `glm/zcode.cjs` 始终跟随 ZCode app/server 版本：主 `zcode-server.cjs` 因 app 版本变化进入部署路径时强制刷新 `glm`；本地上传模式必须从当前 app release 取文件覆盖，远端下载模式必须按当前 manifest 的组件内容刷新远端 cache 后再覆盖，避免同一语义 runtime 版本但内容 hash 不同的旧 `zcode.cjs` 被重复安装。app 版本未变化时不再单独判断或补传 `glm`。
-- `zcodeAgentDevDeploy.ts`：复用上面的共享 wrapper（删掉本地副本）。
-- mock-cdn（`prepare-prebuilds.mjs`）：`stageRemoteAgentBundles()` 构建 cli 后把 `zcode.cjs` 放进各平台 `releases/<ver>/glm/<platform>/`，替代原来逐平台下载原生二进制；glm 组件复用 required-paths 改为 `["zcode.cjs"]`。组件 tar.gz / manifest / sha 机制不变，只是包里的文件从二进制换成 JS。
+**Remoto**
+- `zcodeAgentBundleWrapper.ts` (novo): `REMOTE_AGENT_BUNDLE_NAME` + `buildRemoteAgentBundleWrapper()`, uma única semântica de wrapper compartilhada entre dev e produção.
+- `zcodeAgentDeploy.ts`: remoção da restrição «somente binário nativo»; passa a ① `installFile` instalar `zcode.cjs` em `agents/glm/zcode.cjs`, ② gravar o wrapper em `agents/glm/zcode-agent`. A verificação de skip passa a validar tanto o wrapper quanto o bundle.
+- Em produção, `glm/zcode.cjs` acompanha sempre a versão do app/server do ZCode: quando o `zcode-server.cjs` principal entra no caminho de deploy por mudança de versão do app, força a atualização de `glm`; o modo de upload local precisa sobrescrever o arquivo vindo do release atual do app, e o modo de download remoto precisa atualizar o cache remoto pelo conteúdo dos componentes do manifest atual antes de sobrescrever — evitando reinstalar um `zcode.cjs` antigo de mesma versão semântica de runtime mas com hash de conteúdo diferente. Quando a versão do app não muda, `glm` não é mais verificado nem retransmitido isoladamente.
+- `zcodeAgentDevDeploy.ts`: reaproveita o wrapper compartilhado acima (remove a cópia local).
+- mock-cdn (`prepare-prebuilds.mjs`): `stageRemoteAgentBundles()` coloca o `zcode.cjs` em `releases/<ver>/glm/<platform>/` de cada plataforma após compilar a cli, substituindo o download do binário nativo por plataforma; o componente glm passa a reaproveitar required-paths como `["zcode.cjs"]`. O mecanismo de tar.gz / manifest / sha dos componentes permanece igual, apenas o arquivo dentro do pacote troca de binário para JS.
 
-resolver 在远端**无需改动**：wrapper 名仍是 `zcode-agent`，由 `findZCodeAgentRuntimeBinary` 命中。
+O resolver **não precisa de alterações no remoto**: o nome do wrapper continua sendo `zcode-agent`, alcançado por `findZCodeAgentRuntimeBinary`.
 
-## 验证
+## Verificação
 
-- `tsc -b packages/rpc packages/shared packages/services packages/server` 通过；`oxlint` 改动文件 0/0。
-- cli 以 `target node22` 重新构建成功（dist/zcode.cjs 15.7MB）。
-- 冒烟：`node dist/zcode.cjs app-server --stdio` 在纯 Node 下正常启动并维持 stdio 服务（stdin EOF 时干净退出 0），证明编译产物脱离 SEA、脱离 Electron 也能跑——即远端 wrapper 的运行形态。
-- 待补：一次真实 SSH 远端部署 + 一次真实桌面打包的端到端会话验证（涉及 web-remote-control 部署链路，本地无法连真实远端/CDN 验证）。
+- `tsc -b packages/rpc packages/shared packages/services packages/server` passa; `oxlint` nos arquivos alterados 0/0.
+- A cli foi recompilada com sucesso com `target node22` (dist/zcode.cjs 15.7MB).
+- Smoke test: `node dist/zcode.cjs app-server --stdio` sobe normalmente em Node puro e mantém o serviço stdio (sai com código 0 de forma limpa no EOF do stdin), provando que o artefato compilado roda fora do SEA e fora do Electron — ou seja, na forma de execução do wrapper remoto.
+- Pendente: uma sessão end-to-end de verificação com um deploy remoto SSH real + um empacotamento desktop real (envolve a cadeia de deploy do web-remote-control; localmente não é possível validar contra um remoto/CDN real).
 
-## 备注
+## Observações
 
-`scripts/download-glm.mjs`（下载原生二进制）与 desktop `prepare:glm` 脚本不再进入默认链路，保留作为手动兜底，未删除。
+`scripts/download-glm.mjs` (download do binário nativo) e o script desktop `prepare:glm` não entram mais na cadeia padrão; foram mantidos como fallback manual, sem remoção.

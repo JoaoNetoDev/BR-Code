@@ -1,26 +1,27 @@
-# RPC Channel 初始化时序与 "Unknown channel" 问题
+# Temporização de inicialização do RPC Channel e o problema "Unknown channel"
 
-## 问题现象
+## Sintoma
 
-Remote 模式下，窗口打开时报错：
+No modo Remote, ao abrir a janela, ocorre o erro:
 
 ```
 [DirectoryBrowser] 获取系统信息失败: Unknown channel: Channel name 'system'
 timed out after 1000ms
 ```
 
-## ChannelClient 状态迁移
+## Transição de estado do ChannelClient
 
 ```
 Uninitialized ──[收到 Initialize(200)]──→ Idle ──[发送请求]──→ Idle（保持）
 ```
 
-- **Uninitialized**：还没收到服务端 Initialize，所有请求自动排队（`whenInitialized()`），不会超时
-- **Idle**：已收到 Initialize，请求立即发出
+- **Uninitialized**: ainda não recebeu o Initialize do servidor; todas as requisições são enfileutadas
+  automaticamente (`whenInitialized()`) e não expiram
+- **Idle**: já recebeu o Initialize; as requisições são enviadas imediatamente
 
-## 完整通信流程
+## Fluxo completo de comunicação
 
-### Local 模式（正常）
+### Modo Local (normal)
 
 ```
 Main Process                    Host Utility Process              Renderer
@@ -41,9 +42,10 @@ fork host process ──────────→
                                                                      返回结果 ──────────────────────→
 ```
 
-**没问题**：`Initialize` 发完后，`registerChannel` 马上同步执行。Renderer 收到 `Initialize` 发请求时，channel 已经注册好了。
+**Sem problema**: depois que o `Initialize` é enviado, `registerChannel` é executado sincronamente em
+seguida. Quando o Renderer recebe o `Initialize` e envia a requisição, o channel já está registrado.
 
-### Remote 模式（有 bug）
+### Modo Remote (com bug)
 
 ```
 Main Process                    Host Utility Process              Renderer
@@ -71,9 +73,11 @@ fork host process ──────────→
                                   registerChannel("system", ...)    ← 太晚了，请求已超时
 ```
 
-**根因**：`ChannelServer` 构造时就发了 `Initialize`，renderer 以为服务端已就绪，立即发请求。但 SSH 还没连完，`system` channel 还没注册，1000ms 超时。
+**Causa raiz**: o `Initialize` é enviado já na construção do `ChannelServer`, e o renderer entende que o
+servidor está pronto e envia a requisição imediatamente. Mas o SSH ainda não terminou de conectar, o channel
+`system` ainda não foi registrado e o timeout de 1000ms dispara.
 
-### 修复后的 Remote 模式
+### Modo Remote após a correção
 
 ```
 Main Process                    Host Utility Process              Renderer
@@ -98,14 +102,17 @@ fork host process ──────────→
                                                                   ← ─ 返回结果 ──────────────────→
 ```
 
-## 修复方案
+## Solução
 
-给 `ChannelServer` 加 `deferInit` 选项：
+Adicionar a opção `deferInit` ao `ChannelServer`:
 
-- **Local 模式**：构造时立即发 `Initialize`（行为不变）
-- **Remote 模式**：构造时不发 `Initialize`，等 `registerChannel` 全部完成后调 `server.ready()` 手动发送
+- **Modo Local**: envia o `Initialize` imediatamente na construção (comportamento inalterado)
+- **Modo Remote**: não envia o `Initialize` na construção e chama `server.ready()` manualmente após a
+  conclusão de todos os `registerChannel`
 
-涉及文件：
-- `packages/rpc/src/channels.ts` — `ChannelServer` 构造函数加 `deferInit` 参数，新增 `ready()` 方法
-- `packages/rpc/src/logging-middleware.ts` — `LoggingChannelServer` 透传 `ready()`
-- `packages/desktop/src/host/index.ts` — remote 模式传 `deferInit=true`，服务注册后调 `server.ready()`
+Arquivos envolvidos:
+- `packages/rpc/src/channels.ts` — adicionar o parâmetro `deferInit` ao construtor de `ChannelServer` e o
+  novo método `ready()`
+- `packages/rpc/src/logging-middleware.ts` — `LoggingChannelServer` repassa `ready()`
+- `packages/desktop/src/host/index.ts` — passar `deferInit=true` no modo remote e chamar `server.ready()`
+  após o registro dos serviços

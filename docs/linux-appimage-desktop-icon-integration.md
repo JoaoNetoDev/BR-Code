@@ -1,25 +1,25 @@
-# Linux AppImage Desktop Icon Integration
+# Integração do ícone de desktop do AppImage para Linux
 
-## 背景
+## Contexto
 
-Linux AppImage 直跑不会像 deb 安装包一样稳定写入系统级 `.desktop` 文件和 hicolor 图标主题。部分桌面环境的任务栏/Dock 不会只依赖 Electron `BrowserWindow.icon`，还会通过 `.desktop` 的 `Icon` 与 `StartupWMClass` 匹配运行中的窗口，因此 AppImage 直跑可能显示默认图标。
+A execução direta de um AppImage no Linux não grava arquivos `.desktop` de sistema nem o tema de ícones hicolor de forma tão estável quanto um pacote deb. Alguns ambientes de desktop não dependem apenas do `BrowserWindow.icon` do Electron na barra de tarefas/Dock: eles também combinam o `Icon` e o `StartupWMClass` do `.desktop` com as janelas em execução, de modo que a execução direta do AppImage pode exibir o ícone padrão.
 
-## 目标
+## Objetivo
 
-- 仅增强 Linux AppImage 直跑体验，不影响 deb、Windows、macOS、本地开发和远控链路。
-- 启动时刷新用户级 `zcode.desktop`，让 `zcode://` 协议回调继续指向当前 AppImage 路径——仅在 `XDG_DATA_DIRS`（默认 `/usr/local/share:/usr/share`）中不存在系统级 `zcode.desktop` 普通文件时才写用户级；存在系统级条目（已装 rpm/deb）时跳过用户级写入与图标安装，避免遮蔽系统安装，系统安装形态还会清理带 `Comment=ZCode Desktop App` 标记的遗留用户级条目（详见 `docs/desktop/linux-appimage-deep-link.md`）。
-- 启动时把包内 512x512 PNG 安装到用户级 hicolor 图标主题，提升 `Icon=zcode` 被任务栏/Dock 命中的概率。
+- Melhorar apenas a experiência de execução direta do AppImage no Linux, sem afetar deb, Windows, macOS, desenvolvimento local e o caminho de controle remoto.
+- Atualizar o `zcode.desktop` de nível de usuário na inicialização, para que o retorno do protocolo `zcode://` continue apontando para o caminho atual do AppImage — a escrita em nível de usuário só ocorre quando não existe um arquivo regular `zcode.desktop` de sistema em `XDG_DATA_DIRS` (padrão `/usr/local/share:/usr/share`); quando existe uma entrada de sistema (rpm/deb já instalado), a escrita de usuário e a instalação do ícone são ignoradas para não sombrear a instalação do sistema. Nessa forma de instalação pelo sistema, ainda são limpas as entradas de usuário remanescentes marcadas com `Comment=ZCode Desktop App` (veja os detalhes em `docs/desktop/linux-appimage-deep-link.md`).
+- Instalar na inicialização o PNG 512x512 incluído no pacote no tema de ícones hicolor de nível de usuário, aumentando a chance de `Icon=zcode` ser reconhecido pela barra de tarefas/Dock.
 
-## 实现
+## Implementação
 
-Linux 打包态启动时，`registerDeepLinkProtocol` 传入当前包内 512x512 图标路径。`registerLinuxDeepLinkProtocol` 解析用户数据目录时优先使用 `XDG_DATA_HOME`，未设置时回退到 `~/.local/share`。仅在检测到 `APPIMAGE` 环境变量、图标源文件存在、且 `XDG_DATA_DIRS` 中不存在系统级 `zcode.desktop` 普通文件时，才写入：
+Na inicialização no estado empacotado para Linux, `registerDeepLinkProtocol` recebe o caminho do ícone 512x512 atualmente incluído no pacote. `registerLinuxDeepLinkProtocol` prioriza `XDG_DATA_HOME` ao resolver o diretório de dados do usuário e, caso não esteja definido, faz fallback para `~/.local/share`. A escrita só é feita quando a variável de ambiente `APPIMAGE` é detectada, o arquivo de origem do ícone existe e não há um arquivo regular `zcode.desktop` de sistema em `XDG_DATA_DIRS`:
 
 ```text
 $XDG_DATA_HOME/icons/hicolor/512x512/apps/zcode.png
 $XDG_DATA_HOME/applications/zcode.desktop
 ```
 
-写入后以 best-effort 方式刷新：
+Após a escrita, a atualização é feita no formato best-effort:
 
 ```text
 gtk-update-icon-cache -f -t $XDG_DATA_HOME/icons/hicolor
@@ -27,10 +27,10 @@ update-desktop-database $XDG_DATA_HOME/applications
 xdg-mime default zcode.desktop x-scheme-handler/zcode
 ```
 
-刷新命令不存在、失败或超时时只记录 `warn`。外部命令必须设置短超时，图标未变化时跳过 `gtk-update-icon-cache`，不得无界阻塞应用启动。
+Se os comandos de atualização não existirem, falharem ou excederem o tempo limite, apenas registra-se um `warn`. Comandos externos devem ter um timeout curto; `gtk-update-icon-cache` deve ser pulado quando o ícone não mudou, e a inicialização do aplicativo não pode ser bloqueada de forma ilimitada.
 
-核心 deep link 注册必须先于图标安装执行。图标安装是可选桌面集成，目录创建、文件读取、复制或缓存刷新失败时只能降级记录 `warn`，不得阻断 `.desktop` 写入和 `xdg-mime` 协议关联。
+O registro principal do deep link precisa acontecer antes da instalação do ícone. A instalação do ícone é uma integração de desktop opcional: falhas na criação de diretórios, leitura de arquivos, cópia ou atualização do cache só podem ser registradas como `warn` em modo degradado, sem bloquear a escrita do `.desktop` nem a associação de protocolo via `xdg-mime`.
 
-## 边界
+## Limites
 
-该能力不能保证所有 Linux 桌面环境 100% 显示任务栏图标。Wayland/X11、GNOME/KDE/其他 Dock、用户从终端直跑 AppImage、图标缓存策略都会影响匹配结果。需要稳定桌面集成时，deb 安装包仍是优先推荐路径。
+Essa capacidade não garante que todos os ambientes de desktop do Linux exibam o ícone na barra de tarefas em 100% dos casos. Wayland/X11, GNOME/KDE/outros Docks, o usuário executando o AppImage direto do terminal e as estratégias de cache de ícones influenciam o resultado da combinação. Quando for necessária uma integração de desktop estável, o pacote deb continua sendo o caminho recomendado.

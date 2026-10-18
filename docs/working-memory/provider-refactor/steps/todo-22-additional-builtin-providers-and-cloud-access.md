@@ -1,110 +1,109 @@
-# 22 新增 Built-in Provider 与云平台 Access
+# 22 Novos Built-in Providers e acesso a plataformas de nuvem
 
-> 状态：草案
+> Status: rascunho
 >
-> 日期：2026-08-26
+> Data: 2026-08-26
 >
-> 来源：ZCode Built-in Config 内容整理中已经确认的新增 Provider 范围；从 Todo 21 拆出，避免配置职责重构与新
-> Provider/Access 接入互相阻塞
+> Origem: escopo de novos Providers já confirmado durante o levantamento do conteúdo do Built-in Config do ZCode; desmembrado do Todo 21 para evitar que a refatoração de responsabilidades de configuração bloqueie a nova
+> integração de Provider/Access
 >
-> 相关任务：[`21`](./todo-21-zcode-builtin-config-ownership-and-model-activation-order.md)
+> Tarefa relacionada: [`21`](./todo-21-zcode-builtin-config-ownership-and-model-activation-order.md)
 >
-> 相关设计：[`Provider 与 Model 配置体系综述`](../design/registry/provider-and-model-configuration-overview.md)、
+> Designs relacionados: [`Panorama do sistema de configuração de Provider e Model`](../design/registry/provider-and-model-configuration-overview.md),
 > [`configuration.md`](../design/registry/configuration.md)
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-本 Todo 独立承接尚未进入当前 `config/provider/zcode-builtin.json` 的普通聚合网关和云平台 Provider。Todo 21 继续
-收口 Provider/Model 配置职责、启用、排序、Settings 和 Access 归属；不因等待新的 Provider Adapter 或 Access Type
-而扩大实施关键路径。
+Este Todo assume de forma independente os gateways agregados comuns e os Providers de plataforma de nuvem que ainda não entraram no `config/provider/zcode-builtin.json` atual. O Todo 21 continua
+concentrando as responsabilidades de configuração de Provider/Model, ativação, ordenação, Settings e a atribuição de Access; o caminho crítico de implementação não se expande por causa da espera de um novo Provider Adapter ou Access Type.
 
-Built-in 只表示模板由 ZCode 内置维护，不表示使用 ZCode 账号。新增普通 Provider 由 Template Model 的 `enabled` 决定默认是否进入可选模型集合；不再使用 Provider 顶层 `enabled` 表达加入配置或执行资格：
+Built-in significa apenas que o template é mantido embutido no ZCode, e não que se usa uma conta ZCode. Se um novo Provider comum entra por padrão no conjunto de modelos selecionáveis é determinado pelo `enabled` do Template Model; o `enabled` de nível superior do Provider não é mais usado para expressar entrada na configuração ou elegibilidade de execução:
 
 ```text
 Template Model Rule
-└─ enabled = false（默认）
+└─ enabled = false（padrão）
 ```
 
-用户从“添加供应商”选择后创建 Personal Provider Instance，再由对应的 Personal Model Rule 保存模型启停和访问材料；配置完整后才进入 Registry。
+Depois que o usuário seleciona em "Adicionar fornecedor", cria-se uma Personal Provider Instance, e a correspondente Personal Model Rule salva a ativação de modelos e o material de acesso; só depois de a configuração estar completa ela entra no Registry.
 
-## 1. 当前候选范围
+## 1. Escopo candidato atual
 
-### 1.1 优先验证现有 API Access 能否完整表达
+### 1.1 Verificar primeiro se o Access de API existente consegue expressar tudo
 
-- OpenRouter；
-- OpenCode Zen；
-- Microsoft Azure AI Foundry / Azure OpenAI；
-- Volcano Engine Ark。
+- OpenRouter;
+- OpenCode Zen;
+- Microsoft Azure AI Foundry / Azure OpenAI;
+- Volcano Engine Ark.
 
-这些 Provider 只有在现有 `api.type + api.baseURL + access.type="api"` 能准确表达真实 Endpoint、Header、请求参数和
-模型 ID 语义时，才作为普通 Built-in Provider 模板加入。不能因为服务声称 OpenAI-compatible 就跳过最终请求体和
-响应流验证。
+Esses Providers só entram como templates de Built-in Provider comuns quando o `api.type + api.baseURL + access.type="api"` existente conseguir expressar com precisão o Endpoint real, os Headers, os parâmetros de requisição e
+a semântica de IDs de modelo. Não se pode pular a validação do corpo final da requisição e do
+fluxo de resposta só porque o serviço declara ser OpenAI-compatible.
 
-### 1.2 明确需要新 Access 设计
+### 1.2 Deixar explícito o que exige novo design de Access
 
-- AWS Bedrock。
+- AWS Bedrock.
 
-Bedrock 的 Region、凭据来源、请求签名、Endpoint 生成和模型身份不能伪装成普通 API Key + 手写 URL。正式实现前必须
-先设计 Bedrock Access、Adapter 装配、Settings 表单、凭据生命周期和 Local/Remote Environment 边界。
+Region, origem das credenciais, assinatura da requisição, geração de Endpoint e identidade do modelo no Bedrock não podem ser disfrazados como API Key comum + URL escrita à mão. Antes da implementação formal é obrigatório
+desenhar o Access do Bedrock, a montagem do Adapter, o formulário de Settings, o ciclo de vida das credenciais e os limites de Local/Remote Environment.
 
-### 1.3 当前排除
+### 1.3 Exclusões atuais
 
-- Google Gemini 原生 Provider；
-- Google Vertex AI。
+- Provider nativo Google Gemini;
+- Google Vertex AI.
 
-Google 相关接入当前不支持，不在本 Todo 内顺手建立 Adapter 或 Access Type。未来重新立项时再基于当时官方接口设计。
+Integrações do Google não são suportadas no momento e não serão estabelecidas "de passagem" neste Todo como Adapter ou Access Type. Quando forem reabertas no futuro, o design será baseado nas interfaces oficiais da época.
 
-## 2. 共同原则
+## 2. Princípios comuns
 
-1. Provider 模板进入同一 ZCode Built-in Release，不恢复 Catalog、Preset 或远端第二事实源；
-2. Provider 身份、API、Endpoint 模板和 Access 属于 Built-in Provider Config；
-3. 模型 Properties、Option Specs、Reasoning Mapping 和必要请求编码事实属于 Built-in Model Config Rules；
-4. 普通 Provider 不按 Provider ID 或 Model ID 在 Adapter/Runtime 写 hardcode；
-5. 每个新增 Provider 必须有最终 HTTP 请求/响应契约证据，不能只证明 SDK factory 能创建；
-6. Settings 使用 Todo 21 的“添加供应商”入口、显式 `builtin`、启用和排序契约；
-7. Local workspace 使用 Local Host 配置，remote workspace 使用 Remote Host 配置和凭据，不从 Renderer 投影本地事实；
-8. 不为暂未实现的 Access/Adapter 发布看似可配置、实际不可执行的 Built-in 模板。
+1. Os templates de Provider entram no mesmo release ZCode Built-in; não se restaura Catalog, Preset nem uma segunda fonte de verdade remota;
+2. Identidade do Provider, API, templates de Endpoint e Access pertencem ao Built-in Provider Config;
+3. Properties dos modelos, Option Specs, Reasoning Mapping e fatos de codificação de requisição necessários pertencem às Built-in Model Config Rules;
+4. Providers comuns não levam hardcode por Provider ID ou Model ID em Adapter/Runtime;
+5. Cada novo Provider precisa de evidência do contrato final de requisição/resposta HTTP, não basta provar que a factory do SDK consegue criar;
+6. Settings usa a entrada "Adicionar fornecedor", o `builtin` explícito e o contrato de ativação e ordenação do Todo 21;
+7. Workspace local usa a configuração do Local Host, workspace remoto usa a configuração e as credenciais do Remote Host e não projeta fatos locais a partir do Renderer;
+8. Não publicar templates Built-in que pareçam configuráveis mas sejam de fato inexecutáveis para Access/Adapter ainda não implementados.
 
-## 3. 实施前待设计
+## 3. A projetar antes da implementação
 
-### 3.1 OpenRouter 与 OpenCode Zen（已迁移）
+### 3.1 OpenRouter e OpenCode Zen (migrado)
 
-> 本章节已迁移到 [Todo 79：OpenRouter / OpenCode Provider 接入边界与现有基础](./todo-79-openrouter-opencode-provider-integration-boundary.md)。Todo 22 仍保留 Azure、Volcano Ark 和 AWS Bedrock 的规划，不应整体标记为完成。
+> Esta seção foi migrada para [Todo 79: Limite de integração dos Providers OpenRouter / OpenCode e base existente](./todo-79-openrouter-opencode-provider-integration-boundary.md). O Todo 22 ainda mantém o planejamento de Azure, Volcano Ark e AWS Bedrock e não deve ser marcado como concluído por inteiro.
 
-- 确认使用的公开 API Schema；
-- 确认模型 ID 是否包含 `/` 及其在结构化 `ModelSelection` 中的处理；
-- 确认 reasoning、tool call、structured output、web search 与 usage 的实际请求/响应；
-- 确认 Endpoint、API Key 管理地址和推荐模型成员；
-- 确认当前 Adapter 是否需要任何有证据的窄兼容事实。
+- Confirmar o schema da API pública usado;
+- Confirmar se o model ID contém `/` e como isso é tratado no `ModelSelection` estruturado;
+- Confirmar a requisição/resposta real de reasoning, tool call, structured output, web search e usage;
+- Confirmar Endpoint, endereço de gerenciamento da API Key e membros de modelos recomendados;
+- Confirmar se o Adapter atual precisa de algum fato de compatibilidade estreito e comprovado.
 
-详见 Todo 79。原有 OpenRouter/OpenCode 讨论保留为迁移索引，不在此重复维护。
+Veja o Todo 79. A discussão original de OpenRouter/OpenCode permanece como índice de migração e não é mantida em duplicidade aqui.
 
 ### 3.2 Azure
 
-- 确认资源 Endpoint、Deployment 与 Model ID 的关系；
-- 确认 API version 应属于静态 API 配置、Endpoint query，还是 Adapter 选项；
-- 确认 API Key Header 与响应协议；
-- 若现有 API Access 无法完整表达，先升级 Access/API 设计，不在 Built-in JSON 中写半成品。
+- Confirmar a relação entre Endpoint de recurso, Deployment e Model ID;
+- Confirmar se a API version pertence à configuração estática de API, ao query do Endpoint ou a opções do Adapter;
+- Confirmar o Header de API Key e o protocolo de resposta;
+- Se o Access de API existente não conseguir expressar tudo, evoluir primeiro o design de Access/API, sem escrever meia solução no JSON Built-in.
 
 ### 3.3 Volcano Ark
 
-- 确认 Endpoint/Deployment ID、API Key 和模型身份；
-- 确认当前 OpenAI-compatible Adapter 的请求与流式响应兼容性；
-- 确认推荐模型及其完整 Model Config Facts。
+- Confirmar Endpoint/Deployment ID, API Key e identidade do modelo;
+- Confirmar a compatibilidade de requisição e resposta em streaming do Adapter OpenAI-compatible atual;
+- Confirmar os modelos recomendados e seus Model Config Facts completos.
 
 ### 3.4 AWS Bedrock
 
-- 新 Access Type 的领域结构；
-- Region、静态凭据、凭据引用与请求期刷新边界；
-- SigV4 或当前正式签名协议的 Transport 位置；
-- Endpoint 自动生成与自定义 Endpoint 的安全边界；
-- Bedrock Model ID 与 Provider 原始 Model ID 的映射；
-- Desktop、CLI、Web/Remote Host 的凭据录入与执行归属；
-- Connectivity、错误归一化和日志脱敏。
+- Estrutura de domínio do novo Access Type;
+- Limites de Region, credenciais estáticas, referência de credenciais e refresh em tempo de requisição;
+- Posição no Transport do SigV4 ou do protocolo de assinatura formal atual;
+- Limite de segurança entre geração automática de Endpoint e Endpoint customizado;
+- Mapeamento entre o Model ID do Bedrock e o Model ID original do Provider;
+- Entrada de credenciais e titularidade de execução no Desktop, na CLI e no Web/Remote Host;
+- Connectivity, normalização de erros e mascaramento de logs.
 
-## 4. 验收原则
+## 4. Princípios de aceitação
 
-每个 Provider 至少证明：
+Cada Provider precisa provar pelo menos:
 
 ```text
 Built-in Provider Template
@@ -114,38 +113,38 @@ Personal Access/Endpoint Overlay
 Built-in Model Config Rules
         |
         v
-完整 Registry Provider/Model
+Registry Provider/Model completo
         |
         v
-真实 generate + stream 请求
+requisição real de generate + stream
 ```
 
-并覆盖：
+E cobrir:
 
-- Template Model 默认 `enabled=false`，创建 Personal Provider Instance 后由对应 Personal Model Rule 保存模型启停；
-- 缺少访问材料时保留 Settings 可编辑状态但不进入 Registry；
-- Model Rules 能解析完整 Properties、Options 与 Reasoning Mapping；
-- Tool Call、Structured Output、Reasoning 与 Usage 至少有代表性真实请求证据；
-- 删除供应商只删除 Personal 配置，Built-in 模板回落；
-- Provider/Model 顺序遵守 Todo 21；
-- Local/Remote Environment 不混用配置或凭据；
-- 类型检查、Lint、Config integrity 和相关 Adapter 测试通过。
+- Template Model com `enabled=false` por padrão; após criar a Personal Provider Instance, a correspondente Personal Model Rule salva a ativação dos modelos;
+- Sem material de acesso, mantém-se o estado editável no Settings sem entrar no Registry;
+- As Model Rules conseguem resolver Properties, Options e Reasoning Mapping completos;
+- Tool Call, Structured Output, Reasoning e Usage têm pelo menos evidência de requisição real representativa;
+- Remover o fornecedor remove apenas a configuração Personal e o template Built-in volta ao estado;
+- A ordem de Provider/Model respeita o Todo 21;
+- Local/Remote Environment não misturam configuração nem credenciais;
+- Typecheck, Lint, Config integrity e os testes do Adapter relacionado passam.
 
-## 5. 非目标
+## 5. Não objetivos
 
-- 不在 Todo 21 中提前发布上述半成品 Provider；
-- 不支持 Google Gemini 或 Vertex AI；
-- 不把 Bedrock 强行建模为普通 API Key Provider；
-- 不承诺所有聚合网关背后的任意模型都具有相同能力；
-- 不恢复 models.dev、Catalog、按模型名 Runtime 推断或 Provider family hardcode；
-- 不统一重构全部 `/client/configs` 消费者。
+- Não publicar antecipadamente no Todo 21 os Providers acima em estado incompleto;
+- Não suportar Google Gemini nem Vertex AI;
+- Não forçar o modelar do Bedrock como Provider de API Key comum;
+- Não prometer que todos os modelos por trás de qualquer gateway agregado têm as mesmas capacidades;
+- Não restaurar models.dev, Catalog, inferência em Runtime por nome de modelo nem hardcode de família de Provider;
+- Não refatorar de forma unificada todos os consumidores de `/client/configs`.
 
-## 6. 草案状态退出条件
+## 6. Condições de saída do estado de rascunho
 
-本 Todo 在以下事项完成后才可改为“待执行”：
+Este Todo só pode passar para "a executar" depois que os itens a seguir forem concluídos:
 
-1. 分别确认 OpenRouter、OpenCode Zen、Azure、Volcano Ark 的现有 Adapter/Access 可表达性；
-2. 完成 AWS Bedrock Access 专题设计；
-3. 为每个 Provider 确认首批 Built-in 模型与权威事实来源；
-4. 确认实现切片和真实请求验证条件；
-5. 将最终 Provider/Access 契约写入 Design Tree。
+1. Confirmar separadamente a expressabilidade pelos Adapter/Access existentes de OpenRouter, OpenCode Zen, Azure e Volcano Ark;
+2. Concluir o design dedicado de Access do AWS Bedrock;
+3. Confirmar, para cada Provider, os primeiros modelos Built-in e a fonte autoritativa de fatos;
+4. Confirmar as fatias de implementação e as condições de validação com requisições reais;
+5. Escrever o contrato final de Provider/Access na Design Tree.

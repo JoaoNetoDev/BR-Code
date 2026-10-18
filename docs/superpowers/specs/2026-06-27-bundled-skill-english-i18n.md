@@ -1,43 +1,45 @@
-# `/` 与 `$` 面板内置 Skill 中英描述
+# Descrições em chinês e inglês dos skills integrados nos painéis `/` e `$`
 
-## 背景
+## Contexto
 
-ZCode 官方内置 skill 通过官方插件随 CLI 打包。用户在输入框中主要通过两种入口发现它们：
+Os skills integrados oficiais do ZCode são empacotados com a CLI por meio do plugin oficial. O usuário os descobre
+principalmente por duas entradas na caixa de entrada:
 
-- `/` 面板：slash command 面板会把 enabled skill 也作为候选，选中后插入 `$skill`。
-- `$` 面板：skill mention 面板直接展示 skill 候选。
+- Painel `/`: o painel de slash command também lista os skills habilitados como candidatos e, ao selecionar um, insere `$skill`.
+- Painel `$`: o painel de skill mention exibe diretamente os candidatos de skill.
 
-当前官方内置 skill 的描述有些是中文、有些是英文；切换 UI 语言后，`/` 与 `$` 候选面板的描述不会跟随语言变化。
+Atualmente, as descrições dos skills integrados oficiais são em parte em chinês e em parte em inglês; ao trocar o idioma
+da UI, as descrições dos painéis de candidatos `/` e `$` não acompanham a mudança de idioma.
 
-## 目标
+## Objetivo
 
-- 只在 `/` 与 `$` 候选面板里为官方内置 skill 提供中文 / 英文描述。
-- 用户自定义 skill、第三方 skill、Agent runtime 注入和 CLI `zcode skills` 输出保持原状。
-- 同一个本地化 helper 被 `/` skill 候选与 `$` skill mention 候选复用，避免两处文案漂移。
-- 未命中的 skill 继续使用服务端返回的 `description`。
+- Fornecer descrições em chinês / inglês para os skills integrados oficiais apenas nos painéis de candidatos `/` e `$`.
+- Manter como estão os skills definidos pelo usuário, os skills de terceiros, as injeções do Agent runtime e a saída de `zcode skills` na CLI.
+- O mesmo helper de localização é reutilizado pelos candidatos de skill do `/` e pelos candidatos de skill mention do `$`, evitando divergência de texto entre os dois pontos.
+- Skills não cobertos continuam usando o `description` retornado pelo servidor.
 
-## 非目标
+## Não objetivos
 
-- 不修改 `SKILL.md` 正文或 frontmatter 解析格式。
-- 不改 `@zcode/protocol`、`@zcode/contracts`、`ISkillsService` 参数。
-- 不影响模型可见的 skill selection metadata。
-- 不改变 skill 名称、路径、启用状态、排序或过滤规则。
+- Não modificar o corpo de `SKILL.md` nem o formato de parsing do frontmatter.
+- Não alterar `@zcode/protocol`, `@zcode/contracts` nem a assinatura de `ISkillsService`.
+- Não afetar o skill selection metadata visível ao modelo.
+- Não alterar nome, caminho, estado de habilitação, ordenação ou regras de filtro dos skills.
 
-## 设计
+## Design
 
-新增 UI 侧 helper：
+Novo helper do lado da UI:
 
-- 输入：`name`、`description`、`path`、`scope`、可选 `pluginName`、当前 `Locale`。
-- 仅当 skill 判断为官方内置插件 skill 时尝试本地化：`scope === "plugin"` 且 `pluginName` 属于官方内置插件集合，或 path 位于官方插件缓存路径。
-- 文案表按 skill `name` 存储 `zh-CN` / `en-US` 两份描述。
-- fallback：无当前语言文案时使用原始 `description`；无描述时沿用现有 scope fallback。
+- Entrada: `name`, `description`, `path`, `scope`, `pluginName` opcional e o `Locale` atual.
+- A localização só é tentada quando o skill é considerado um skill de plugin oficial integrado: `scope === "plugin"` e `pluginName` pertence ao conjunto de plugins oficiais integrados, ou o path está no caminho de cache dos plugins oficiais.
+- A tabela de textos armazena duas descrições por skill `name`, `zh-CN` / `en-US`.
+- Fallback: sem texto no idioma atual, usa o `description` original; sem descrição, segue o fallback de scope já existente.
 
-接入点：
+Pontos de integração:
 
-- `packages/ui/src/slashCommandHelpers.ts` 的 `buildSkillSuggestions()` 接收当前 locale，用 helper 生成 `/` 面板 skill 候选描述。
-- `packages/ui/src/mentions/providers/skillsMentionProvider.ts` 从 `useZCodeIntl()` 读取 locale，用同一个 helper 生成 `$` 面板 skill 候选描述与 source label。
+- `buildSkillSuggestions()` em `packages/ui/src/slashCommandHelpers.ts` recebe o locale atual e usa o helper para gerar as descrições dos candidatos de skill do painel `/`.
+- `packages/ui/src/mentions/providers/skillsMentionProvider.ts` lê o locale de `useZCodeIntl()` e usa o mesmo helper para gerar as descrições dos candidatos de skill do painel `$` e o source label.
 
-## 验证
+## Verificação
 
-- 补充 `slashCommandHelpers` 与 `skillsMentionProvider` 单测，覆盖官方内置 skill 在中英文 locale 下的描述。
-- 按仓库要求执行 `pnpm typecheck` 和 `pnpm lint`。
+- Complementar os testes unitários de `slashCommandHelpers` e `skillsMentionProvider`, cobrindo a descrição dos skills integrados oficiais nos locales em chinês e inglês.
+- Executar `pnpm typecheck` e `pnpm lint`, conforme exigido pelo repositório.

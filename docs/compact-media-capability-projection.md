@@ -1,50 +1,55 @@
-# Compact 媒体能力投影
+# Projeção de Capacidade de Mídia no Compact
 
-## 问题
+## Problema
 
-普通模型请求会在 provider 调用前按执行模型的输入能力投影历史消息；当
-`properties.input_format.support_image === false` 或 `support_pdf === false` 时，对应媒体块会替换为明确的
-文本占位符。Compact summary 请求虽然复用了 MCS / system-reminder 等 provider-message
-投影，但此前没有执行媒体能力投影，因此 text-only 模型会在收到历史媒体块时以
-`invalid_model_request` 失败。
+Uma requisição comum de modelo projeta as mensagens do histórico conforme a capacidade de entrada do modelo em
+execução antes da chamada ao provider; quando `properties.input_format.support_image === false` ou
+`support_pdf === false`, os blocos de mídia correspondentes são substituídos por um placeholder de texto explícito.
+Embora a requisição de resumo Compact reusasse as projeções de provider-message como MCS / system-reminder, ela não
+executava a projeção de capacidade de mídia, de modo que modelos somente texto falhavam com `invalid_model_request` ao
+receber blocos de mídia do histórico.
 
-## 语义
+## Semântica
 
 ```text
-RuntimeMessageEntry 历史
+RuntimeMessageEntry do histórico
         |
         v
 buildCompactSummaryRequestMessages
-  - attachment / reminder 排序
-  - MCS 或 <system-reminder> 投影
-  - compact prompt 与 cache control
+  - ordenação de attachment / reminder
+  - projeção MCS ou <system-reminder>
+  - prompt de compact e cache control
         |
         v
-按 compact 执行模型投影媒体能力
-  - support_image === false -> image 替换为标准 omitted 文本
-  - support_pdf === false   -> PDF 替换为标准 omitted 文本
-  - true                    -> 首次请求保留媒体
+projeção de capacidade de mídia conforme o modelo em execução do compact
+  - support_image === false -> image substituído pelo texto omitted padrão
+  - support_pdf === false   -> PDF substituído pelo texto omitted padrão
+  - true                    -> mídia preservada na primeira requisição
         |
         v
-现有 media_too_large 降级（仅失败后重试）
+degradação media_too_large existente (somente nova tentativa após falha)
         |
         v
-Compact ModelRequest 事件与 provider 请求
+evento Compact ModelRequest e requisição ao provider
 ```
 
-- 手动、自动和 Reactive Compact 必须通过同一个投影边界。
-- 能力必须取本次 `compactModel.properties`，不得回退到会话默认模型或父 turn 的旧快照。
-- `ModelRequest` 事件必须记录投影后的 provider-visible 消息。
-- 能力投影发生在首次请求之前；不得依赖 `invalid_model_request` 失败后重试。
-- 现有 `media_too_large` 重试语义保持不变：能力为 `true` 时首次保留媒体，
-  provider 明确报告媒体过大后才使用 compact 专用短占位符重试。
-- Compact 继续使用独立的 stream/non-stream fallback、summary output cap、tool surface、
-  cache-control 和 prompt-too-long 重选逻辑，不整体改走普通 turn 的模型请求函数。
+- Compact manual, automático e Reactive devem passar pelo mesmo limite de projeção.
+- a capacidade deve ser obtida de `compactModel.properties` desta execução, sem recorrer ao modelo padrão da sessão nem
+  a snapshots antigos do turn pai.
+- o evento `ModelRequest` deve registrar as mensagens projetadas visíveis ao provider.
+- a projeção de capacidade ocorre antes da primeira requisição; não é permitido depender de uma nova tentativa após a
+  falha `invalid_model_request`.
+- a semântica existente de nova tentativa por `media_too_large` permanece inalterada: quando a capacidade é `true`, a
+  mídia é preservada na primeira chamada e o placeholder curto exclusivo do compact só é usado na nova tentativa, depois
+  que o provider reporta explicitamente que a mídia é grande demais.
+- o Compact continua usando seu próprio fallback de stream/non-stream, summary output cap, tool surface, cache-control e
+  lógica de reescolha em prompt-too-long, sem passar inteiro pela função de requisição de modelo dos turns comuns.
 
-## 验收
+## Aceitação
 
-- text-only 模型面对含历史图片的自动 Compact 时，请求中不存在 `image` block，且包含标准
-  `Media omitted from provider request` 文本，Compact 能正常完成。
-- `input_format.support_image: true` 时，首次 Compact 请求仍保留图片。Active Model Properties 是完整事实，
-  不存在“能力未知”的运行时状态。
-- 图片和 PDF 的能力投影均使用通用 helper；现有 `media_too_large` 两阶段请求测试继续通过。
+- com um modelo somente texto em Compact automático contendo imagens no histórico, não existe bloco `image` na
+  requisição, há o texto padrão `Media omitted from provider request` e o Compact conclui normalmente.
+- com `input_format.support_image: true`, a primeira requisição de Compact ainda preserva a imagem. Active Model
+  Properties é um fato completo; não existe estado de runtime com "capacidade desconhecida".
+- a projeção de capacidade de imagens e PDFs usa o helper genérico; os testes existentes de requisição em duas fases
+  para `media_too_large` continuam passando.

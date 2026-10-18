@@ -1,40 +1,40 @@
 # Tool Inline Diff
 
-> **当前状态**：V4 tool row 通过 `ToolCallBlocks` 渲染，聊天内联 diff 使用轻量高亮预览；
-> 完整 Diff Viewer 仍保留完整 diff 渲染能力。
+> **Estado atual**: a tool row do V4 é renderizada por `ToolCallBlocks`, e o diff inline no chat usa uma prévia leve com highlight;
+> o Diff Viewer completo mantém a capacidade de renderizar o diff por completo.
 
-## 背景
+## Contexto
 
-聊天区里的文件修改类 tool 之前只展示参数和原始输出，用户需要再点开 code viewer 才能看到实际 diff。
+Antes, as tools de modificação de arquivo na área do chat exibiam apenas parâmetros e saída bruta, obrigando o usuário a abrir o code viewer para ver o diff real.
 
-这次先做一个最小版本：
+Desta vez foi feita uma versão mínima:
 
-- 仅处理 `edit` / `patch` 一类能生成 patch 预览的 tool
-- 直接在 tool 卡片内联渲染 unified diff
-- 使用轻量、异步高亮的 unified diff，避免在聊天主线程挂载大型 Shadow DOM
-- 继续保留“查看 Diff”按钮作为兜底入口
+- Trata apenas tools como `edit` / `patch`, que conseguem gerar uma prévia de patch
+- Renderiza o unified diff inline dentro do card da tool
+- Usa um unified diff leve com highlight assíncrono, evitando montar um Shadow DOM grande na thread principal do chat
+- Mantém o botão "查看 Diff" ("Ver diff") como entrada de fallback
 
-## 当前实现
+## Implementação atual
 
-入口在 `packages/ui/src/ToolCallBlocks/renderers/edit.tsx` 与
-`packages/ui/src/ToolCallBlocks/renderers/EditInlineDiffContent.tsx`：
+A entrada está em `packages/ui/src/ToolCallBlocks/renderers/edit.tsx` e
+`packages/ui/src/ToolCallBlocks/renderers/EditInlineDiffContent.tsx`:
 
-- 通过 `getToolCallCodePreview()` 判断当前 tool 是否能生成 `patch` 预览
-- 对 `opencode` 这类 `edit` tool，优先解析 `raw.content` 里的标准 `diff` block
-- 普通 tool call 先渲染成“状态 + 工具标题 + 可选摘要”的紧凑折叠行，默认不展开原始内容
-- 运行中状态用 shimmer 状态文案，结束态 hover / focus 后才在右侧显示展开箭头
-- 命中 `patch` 时，展开内容使用 `HighlightedLightweightDiffPreview`；不额外展示参数和原始 JSON 输出
-- “查看 Diff”按钮仍保留，但要在用户点开对应 tool call 后才会出现
+- Usa `getToolCallCodePreview()` para verificar se a tool atual consegue gerar uma prévia `patch`
+- Para tools `edit` como `opencode`, prioriza o parsing do bloco `diff` padrão dentro de `raw.content`
+- Uma tool call comum é renderizada primeiro como uma linha compacta e recolhida de "status + título da tool + resumo opcional", sem expandir o conteúdo bruto por padrão
+- No estado em execução, usa o texto de status com shimmer; no estado encerrado, a seta de expansão só aparece à direita após hover / focus
+- Quando há acerto em `patch`, o conteúdo expandido usa `HighlightedLightweightDiffPreview`; não são exibidos separadamente os parâmetros nem a saída JSON bruta
+- O botão "查看 Diff" continua presente, mas só aparece depois que o usuário abre a tool call correspondente
 
-## 已知边界
+## Fronteiras conhecidas
 
-- 当前同时消费结构化 file summary、patch preview 和旧快照/provider 兼容数据；兼容推断仍只属于 UI 展示层
-- 只支持 unified diff，不支持 side-by-side
-- 只处理当前 `codeViewer` 已能识别的 patch / before-after 结构
-- tool call 摘要目前只从 `input` 的字符串 / `command` / `path` / `prompt` 派生，还没有覆盖更多工具专属字段
+- Hoje são consumidos simultaneamente o file summary estruturado, a prévia de patch e dados legados de snapshot/provider; a inferência de compatibilidade continua pertencendo apenas à camada de exibição da UI
+- Suporta apenas unified diff, não side-by-side
+- Trata apenas as estruturas de patch / before-after que o `codeViewer` atual já reconhece
+- O resumo da tool call hoje é derivado apenas das strings `input` / `command` / `path` / `prompt`, sem cobrir ainda mais campos específicos de tools
 
-## 后续可扩展
+## Extensões futuras
 
-- 把 diff 结构化类型补到 `@zcode/shared`
-- services 层统一解析 ZCode 标准 `toolContent`
-- 增加 side-by-side diff 和 location follow-along
+- Completar os tipos estruturados de diff em `@zcode/shared`
+- Centralizar o parsing do `toolContent` padrão do ZCode na camada de services
+- Adicionar diff side-by-side e location follow-along

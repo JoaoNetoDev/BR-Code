@@ -1,97 +1,95 @@
-# R2 Server CLI 与 daemon 生命周期测试计划
+# Plano de testes de ciclo de vida do R2 Server CLI e do daemon
 
-本文是 `r2-server-cli-and-daemon.md` 的可执行测试补充，覆盖 R2-CLI-01—R2-CLI-14 以及 P0/P1 发布链路。测试把业务状态留在 Server Core，把 Supervisor 限制在生命周期快照和控制面；不会为了统计运行任务在 Supervisor 中复制 Task/Session registry。
+Este documento é um complemento de testes executável para `r2-server-cli-and-daemon.md`, cobrindo R2-CLI-01—R2-CLI-14 e a cadeia de release P0/P1. Os testes mantêm o estado de negócio no Server Core e limitam o Supervisor a snapshots de ciclo de vida e plano de controle; não replicam no Supervisor o registro de Task/Session apenas para contar tarefas em execução.
 
-## 测试边界
+## Fronteiras de teste
 
 ```text
-CLI 命令解析 ── JSONL control contract ──> Supervisor
+parsing de comandos CLI ── contrato de controle JSONL ──> Supervisor
                                        │
                                        ├─ lock / status / crash budget
-                                       └─ child IPC ──> Server Core ── HTTP/WS ingress
+                                       └─ IPC filho ──> Server Core ── ingress HTTP/WS
                                                                │
-                                                               └─ Agent CLI turn lifecycle facts
+                                                               └─ fatos do ciclo de vida de turn do Agent CLI
 ```
 
-- 文件测试使用临时 data root，验证 `install.json` ownership、`current.json`、`pending.json` 和 `status.json` 的临时文件 + rename 原子写入；同进程并发写使用唯一临时文件名。
-- IPC 测试同时覆盖 JSONL 粘包、拆包、非法 schema、超长 frame 和请求超时。
-- Supervisor 测试使用可控 fake Core process，并补真实 `fork()` spawn error 进程测试，验证 ready、heartbeat、shutdown-ack、异常退出、重启退避、回滚和 crash-loop 熔断；并发生命周期写操作只能有一个 owner，SIGKILL 后无终态进入 `stop-failed` 且不得释放锁或启动替代 Core，旧 child/generation 的消息不得污染当前状态。
-- Core HTTP/WS 合同测试验证回环动态端口、`/api/server-info`、Web replayable `/ws`、capability-gated desktop continuous `/ws/host`，并检查 `clientMode` 不串线。
-- 平台测试不调用真实系统服务管理器：检查 macOS launchd、Linux systemd user、Windows Task Scheduler descriptor 的稳定字段和命令参数。
-- update/uninstall 测试只允许删除带有效 `install.json` ownership 的 server root 内 ZCode allowlist，明确保留 root 内未知文件、workspace、git repo 和其他用户文件；无 ownership 时必须拒绝。
+- Testes de arquivo usam um data root temporário e verificam ownership de `install.json`, `current.json`, `pending.json` e `status.json` com escrita atômica via arquivo temporário + rename; escritas concorrentes no mesmo processo usam nomes de arquivo temporário únicos.
+- Testes de IPC cobrem simultaneamente fragmentação e coalescência de JSONL, schema inválido, frame excessivamente longo e timeout de requisição.
+- Testes do Supervisor usam um processo Core fake e controlado, e complementam com testes reais de spawn com erro de `fork()`, verificando ready, heartbeat, shutdown-ack, saída inesperada, backoff de reinício, rollback e circuit breaker de crash-loop; operações de escrita de ciclo de vida concorrentes só podem ter um owner, após SIGKILL nenhum estado terminal entra em `stop-failed` e o lock não pode ser liberado nem um Core substituto iniciado, e mensagens de child/generation antigos não podem contaminar o estado atual.
+- Testes de contrato HTTP/WS do Core verificam porta dinâmica em loopback, `/api/server-info`, `/ws` replayable para Web, `/ws/host` contínuo para desktop com gate de capability, e checam que o `clientMode` não se mistura entre canais.
+- Testes de plataforma não invocam o gerenciador de serviços real do sistema: verificam campos estáveis e argumentos de comando dos descriptors de macOS launchd, systemd de usuário do Linux e Task Scheduler do Windows.
+- Testes de update/uninstall só podem apagar arquivos dentro do server root, na allowlist da ZCode, com ownership válido de `install.json`, preservando explicitamente arquivos desconhecidos dentro do root, workspaces, repositórios git e outros arquivos do usuário; sem ownership a remoção deve ser recusada.
 
-## 用例映射
+## Mapeamento de casos
 
-| 用例 | 自动化覆盖 |
+| Caso | Cobertura automatizada |
 | --- | --- |
-| R2-CLI-01 | `cli.test.ts`：无参数和未知命令走 lazy legacy delegate，不导入 Core |
-| R2-CLI-02/03/04 | `supervisor.test.ts` fake Core ready/动态端口及真实 spawn error；`runtimeUpdateIntegration.test.ts` 真实 Core parent IPC disconnect 后端口收口；`parentDisconnect.test.ts` handler 注册/撤销；`lock.test.ts` 多子进程竞争 stale lock 只有一个成功；`linux-amd64-dev` SSH 实机完成 daemon ready/重复启动验证 |
-| R2-CLI-05 | `cli.test.ts` stop 幂等；`supervisor.test.ts` 并发 stop 收敛、不同生命周期操作返回 `operation-in-progress`、停止未收口进入 `stop-failed`；`ipc.test.ts` control client 有界超时 |
-| R2-CLI-06/07 | `crashBudget.test.ts` 退避序列单元；`supervisor.test.ts` fake Core 连续崩溃按 1/2/4/8/16 秒重启并在预算耗尽后熔断，运行任务只在当前 Core 快照中计数，换代后旧 child 消息被拒绝且 ghost running count 归零 |
-| R2-CLI-08/09 | `pathsAndRelease.test.ts` pending release 原子切换与并发临时文件隔离；`releaseInstaller.test.ts` 并发安装不覆盖已存在 release 且不遗留 incoming；`componentCache.test.ts` 已存在 release 只校验复用、永不移动活动目录；`cli.test.ts` 覆盖 `prepared` / `prepared-offline` / `up-to-date` / source missing，并验证在线 catalog 确认最新时清除 stale pending；`taskActivityTracker.test.ts` 从 Agent turn facts 统计跨 workspace 活动；`supervisor.test.ts` 两个并发 apply 只产生一个 candidate、running-task guard 拒绝 update/uninstall、`--force` 中断路径经 control socket 端到端验证；spawn error/超时先收口 candidate、回滚 pointer 并恢复旧 Core |
-| R2-CLI-10/11 | `cli.test.ts` 双重 `DELETE` 确认取消保护、无 ownership 拒绝卸载、有效 ownership 只删除 allowlist、写 `uninstalled.json` 并报告保留的未知文件；`supervisor.test.ts` 有运行任务时 confirm-uninstall 被拒绝；卸载前解除 launchd/systemd/Task Scheduler 注册 |
-| R2-CLI-12 | `coreHttp.test.ts`：server-info、Web replayable `/ws`、capability-gated `/ws/host`、ticket 重放与过期 401、显式稳定 serverId；`serverIdentity.test.ts` ownership marker 到 installationId；`hostCapability.test.ts` TTL/一次性语义；真实 Core wiring/transport RPC frame 仍留作 R3 Transport contract |
-| R2-CLI-13 | `cli.test.ts`/真实 daemon 验证 `--server-root` 全链路；`lock.test.ts` 不同 data root 的锁互不干扰；`platform.test.ts` 不同 canonical root 派生不同 service identity 和 descriptor 文件名，并安全识别旧固定 service id |
-| R2-CLI-14 | `platform.test.ts` 三平台 descriptor 使用 stable launcher 并携带绝对 server root；`pathsAndRelease.test.ts`/`contracts.test.ts` Node 22 runtime manifest 校验；`packaging.test.ts` staging 布局（bundle 裸依赖扫描、生产依赖闭包、node-pty 交叉打包白名单、@lydell linux prebuild 补齐、spawn-helper 执行位、manifest entrypoints、Windows cmd/zip）；`agentWiring.test.ts` 验证接线计算和显式配置优先，`runtimeUpdateIntegration.test.ts` 用真实 old/new Core 子进程验证 update 后按 release runtime 重算 wiring 与 data root |
-| P0-01 | `packaging.test.ts` 六平台 staging、Windows cmd/zip、runtime/tools、runtime/packages、agent 外置依赖闭包 |
-| P0-02 | `releaseDownload.test.ts` catalog、SHA-256、超时、临时文件清理和目标校验 |
-| P0-03 | `releaseInstaller.test.ts` immutable archive install、stable launcher、pending/current 原子切换、并发复用及 incoming 清理 |
-| P1-01 | `componentCache.test.ts` 五组件内容寻址缓存、archive SHA/内容双校验、变化组件覆盖、恶意链接拒绝、最终 release 一致性与 immutable target 复用 |
-| P1-02 | `serviceManager.test.ts` root-scoped descriptor identity + launchctl/systemctl/schtasks executor adapter；`cli.test.ts` 验证注册失败不伪装成功、显式 fallback 报告未注册、已有 idle fallback 可迁移到 OS service、service entry 不重复注册；launchd descriptor 验证正常 stop 不因 `KeepAlive` 立即重启 |
+| R2-CLI-01 | `cli.test.ts`: sem argumentos e comando desconhecido vão para o delegate legado lazy, sem importar o Core |
+| R2-CLI-02/03/04 | `supervisor.test.ts` com Core fake para ready/porta dinâmica e erro real de spawn; `runtimeUpdateIntegration.test.ts` real com porta recolhida após disconnect do parent IPC do Core; `parentDisconnect.test.ts` registro/remoção de handler; `lock.test.ts` múltiplos processos filhos disputando stale lock com apenas um sucesso; `linux-amd64-dev` via SSH em máquina real validando daemon ready/início duplicado |
+| R2-CLI-05 | `cli.test.ts` stop idempotente; `supervisor.test.ts` converge com stops concorrentes, operações de ciclo de vida diferentes retornam `operation-in-progress`, parada não recolhida entra em `stop-failed`; `ipc.test.ts` control client com timeout limitado |
+| R2-CLI-06/07 | `crashBudget.test.ts` sequência de backoff em unidade; `supervisor.test.ts` crashes consecutivos do Core fake reiniciam em 1/2/4/8/16 s e abrem o circuit breaker após esgotar o orçamento; tarefas em execução são contadas apenas no snapshot do Core atual, e após a troca de generation as mensagens do child antigo são recusadas e a contagem fantasma de running vai a zero |
+| R2-CLI-08/09 | `pathsAndRelease.test.ts` troca atômica de pending release e isolamento de arquivos temporários concorrentes; `releaseInstaller.test.ts` instalação concorrente não sobrescreve release existente nem deixa incoming para trás; `componentCache.test.ts` release existente apenas valida e reutiliza, nunca move o diretório ativo; `cli.test.ts` cobre `prepared` / `prepared-offline` / `up-to-date` / source ausente e valida que, ao confirmar o mais novo no catálogo online, o pending stale é limpo; `taskActivityTracker.test.ts` estatiza atividade entre workspaces a partir dos fatos de turn do Agent; `supervisor.test.ts` dois applies concorrentes produzem apenas um candidate, o running-task guard recusa update/uninstall, o caminho de interrupção `--force` é validado ponta a ponta pelo control socket; erro de spawn/timeout recolhe primeiro o candidate, reverte o pointer e restaura o Core antigo |
+| R2-CLI-10/11 | `cli.test.ts` proteção de cancelamento com confirmação dupla de `DELETE`, recusa de desinstalar sem ownership, com ownership válido apaga apenas a allowlist, grava `uninstalled.json` e reporta os arquivos desconhecidos preservados; `supervisor.test.ts` confirm-uninstall é recusado quando há tarefas em execução; registros de launchd/systemd/Task Scheduler são removidos antes da desinstalação |
+| R2-CLI-12 | `coreHttp.test.ts`: server-info, `/ws` replayable para Web, `/ws/host` com gate de capability, replay de ticket e 401 por expiração, serverId explícito e estável; `serverIdentity.test.ts` de ownership marker a installationId; `hostCapability.test.ts` semântica de TTL/uso único; o wiring/transport RPC frame reais do Core ficam reservados para o contrato de Transport do R3 |
+| R2-CLI-13 | `cli.test.ts`/daemon real validando `--server-root` de ponta a ponta; `lock.test.ts` locks de data roots diferentes não se interferem; `platform.test.ts` roots canônicos diferentes derivam service identity e nome de arquivo de descriptor diferentes, identificando com segurança antigos service ids fixos |
+| R2-CLI-14 | `platform.test.ts` descriptors de três plataformas usando launcher estável e carregando server root absoluto; `pathsAndRelease.test.ts`/`contracts.test.ts` validação do runtime manifest do Node 22; `packaging.test.ts` layout de staging (varredura de dependências soltas do bundle, fecho transitivo de dependências de produção, allowlist de cross-packaging do node-pty, Complemento de prebuild do @lydell no linux, bit de execução do spawn-helper, entrypoints do manifest, cmd/zip do Windows); `agentWiring.test.ts` validando o cálculo do wiring e a precedência da configuração explícita; `runtimeUpdateIntegration.test.ts` com subprocessos Core real antigo/novo validando que, após o update, o wiring e o data root são recalculados conforme o release runtime |
+| P0-01 | `packaging.test.ts` staging de seis plataformas, cmd/zip do Windows, runtime/tools, runtime/packages, fecho de dependências externas do agent |
+| P0-02 | `releaseDownload.test.ts` catálogo, SHA-256, timeout, limpeza de arquivos temporários e validação do alvo |
+| P0-03 | `releaseInstaller.test.ts` instalação de archive imutável, launcher estável, troca atômica de pending/current, reutilização concorrente e limpeza de incoming |
+| P1-01 | `componentCache.test.ts` cache endereçado por conteúdo de cinco componentes, dupla validação de SHA/conteúdo do archive, sobrescrita de componente alterado, recusa de link malicioso, consistência final do release e reutilização de target imutável |
+| P1-02 | `serviceManager.test.ts` identidade de descriptor em escopo de root + executor adapter de launchctl/systemctl/schtasks; `cli.test.ts` validando que falha de registro não se faz passar por sucesso, que o fallback explícito reporta não registrado, que um fallback idle existente pode ser migrado para o serviço do SO e que a entrada de serviço não é registrada duas vezes; o descriptor launchd valida que um stop normal não reinicia imediatamente por causa de `KeepAlive` |
 
-需人工补充的仅剩 OS 特有权限：Windows named pipe ACL、真实 launchd/systemd/schtasks 登录会话行为；其余下载、安装、组件复用、回滚和 Linux x64 SSH 流程均已自动化或实机验证。
+Resta apenas a suplementação manual de permissões específicas de SO: ACL de named pipe do Windows, comportamento real de launchd/systemd/schtasks em sessão de login; o restante — download, instalação, reuso de componentes, rollback e o fluxo Linux x64 via SSH — já está automatizado ou validado em máquina real.
 
-## SSH 远端部署验证（第 2 层，R3 SSH Transport 预演）
+## Validação de deploy remoto por SSH (camada 2, ensaio do R3 SSH Transport)
 
-`packages/zcode-server-cli/scripts/verify-remote-ssh.mjs` 把 staged 发行包部署到带 sshd 的
-Ubuntu 22.04 容器，从本机经 `ssh -L` 隧道验证完整链路（依赖本机 docker，不进 CI）：
+`packages/zcode-server-cli/scripts/verify-remote-ssh.mjs` implanta o pacote de release staged em um
+contêiner Ubuntu 22.04 com sshd e, da máquina local, valida a cadeia completa por túnel `ssh -L`
+(depende do docker local, não entra no CI):
 
-此外，已使用 `linux-amd64-dev`（SSH 用户 `dev`）完成 Linux x64 实机验证：解压约 74 MB
-发行包后，`serve --daemon`、status/stop、在线全量更新、带 archive SHA 与内容 hash 校验的
-组件增量更新、坏 release 回滚、`node-pty`、`@zcode/tui`/`playwright-core`/`koffi` 动态加载，
-以及 bfs/rg/ugrep 和七个随包官方插件均已通过。
+Além disso, a validação em máquina real Linux x64 já foi feita com `linux-amd64-dev` (usuário SSH `dev`): após extrair o release de cerca de 74 MB,
+`serve --daemon`, status/stop, atualização online completa, atualização incremental de componentes com validação de SHA de archive e hash de conteúdo,
+rollback de release ruim, carregamento dinâmico de `node-pty`, `@zcode/tui`/`playwright-core`/`koffi`,
+e bfs/rg/ugrep e os sete plugins oficiais que acompanham o pacote passaram.
 
 ```bash
 pnpm --filter @zcode/server-cli stage --target linux-arm64
-node packages/zcode-server-cli/scripts/verify-remote-ssh.mjs --target linux-arm64   # --keep 保留现场
+node packages/zcode-server-cli/scripts/verify-remote-ssh.mjs --target linux-arm64   # --keep preserva o cenário
 ```
 
 ```text
-本机                                     容器 (ubuntu 22.04 + sshd)
-────                                     ─────────────────────────
-stage 产物 tar.gz ──scp──────────────>   解压 /root/zcode-server
-ssh "bin/zcode serve --daemon --json" >  Supervisor+Core ready（仅回环+动态端口）
-ssh -L <local>:127.0.0.1:<port> ─────>   隧道（Core 只监听回环，隧道是唯一到达路径）
+máquina local                                contêiner (ubuntu 22.04 + sshd)
+────                                        ─────────────────────────
+tar.gz do artefato de stage ──scp────────>   extrai em /root/zcode-server
+ssh "bin/zcode serve --daemon --json" >  Supervisor+Core ready (apenas loopback+porta dinâmica)
+ssh -L <local>:127.0.0.1:<port> ────────>   túnel (o Core só escuta loopback; o túnel é o único caminho de chegada)
 fetch /api/server-info               ✓
-WS /ws replayable 升级               ✓
-GET /ws/host 无 ticket → 401         ✓
-ticket 签发 → /ws/host 升级 → 重放 401 ✓
-runtime/node 加载 node-pty spawn pty ✓   （linux pty.node 走 @lydell 补齐路径）
-ssh status → stop → stopped          ✓
+upgrade de WS /ws replayable          ✓
+GET /ws/host sem ticket → 401         ✓
+emissão de ticket → upgrade de /ws/host → replay 401 ✓
+runtime/node carrega node-pty spawn pty ✓   (pty.node do linux passa pelo complemento do @lydell)
+ssh status → stop → stopped            ✓
 ```
 
-该脚本同时是 R2-CLI-12（跨网络边界的 ingress 合同）与 R2-CLI-14（linux 目标 Node runtime
-可启动）的真实环境补充；`ssh -L` 即未来 SSH Transport Adapter 的最小形态，R3 spec 应以
-此脚本暴露的事实为设计输入。
+Esse script é também um complemento em ambiente real do R2-CLI-12 (contrato de ingress através da fronteira de rede) e do R2-CLI-14 (runtime Node para alvo linux capaz de iniciar); o `ssh -L` já é a forma mínima do futuro SSH Transport Adapter, e o spec do R3 deve tomar os fatos expostos por esse script como entrada de design.
 
-## 失败语义
+## Semântica de falha
 
-- Core 异常退出只触发 Supervisor 的退避/熔断，不重放已接受输入。
-- Core fork spawn error 即使只有 `error + close`、没有 `exit`，也必须走同一崩溃/更新回滚终态，Supervisor 不得退出。
-- 同一时刻只能有一个生命周期写操作；冲突请求返回 retryable `operation-in-progress`，不得排队或启动第二个 Core。
-- Core IPC 必须绑定 child/generation；Core 终止或换代时清空 Core-scoped 状态，旧 heartbeat/task-activity 不得改变当前 guard。
-- Core 启动失败（fatal）后必须显式退出进程，让 Supervisor 观察到 exit 并进入退避，不允许卡在 `starting`。
-- `update` 默认在运行任务存在时返回可操作的 guard 错误；只有显式 force 才会停止 Core。
-- `uninstall` 在运行任务存在、任何确认失败、路径校验失败或服务移除失败时都保持原状态并返回结构化错误。
-- 单实例锁必须可恢复：持锁进程已死（kill -9/断电）时按 ownership token claim stale 文件后重试，活进程持锁才拒绝启动；多个真实进程同时回收时只能一个成功，失败者不得删除成功者的锁。
-- 前台 `serve` 启动失败（含 crash-loop）必须先停 Supervisor 收口锁与 control socket，再向用户报错。
-- update 进入 ready timeout 时必须先停止仍存活的新 Core，再恢复旧 current pointer 并启动旧 Core；SIGKILL 后仍未观察到 exit/close 则进入 `stop-failed` 并保留锁，禁止双 Core 并存。
-- `serve --daemon` 只允许一个 OS service owner；服务 entry 不得重复注册或并行启动第二个 Supervisor，注册失败必须返回错误，显式 fallback 必须报告 `serviceRegistered=false`。
-- service descriptor 必须使用 `<serverRoot>/bin/zcode` 稳定入口并显式携带 `--server-root`；service identity 与 descriptor 文件名按 canonical root 隔离，自定义 root 的真实 daemon 测试必须确认默认 root 没有副作用。
-- Core-local activity tracker 必须从 Agent turn lifecycle facts 同时统计 desktop continuous 与 Web replayable；测试不得只伪造 Task facade 的 `activePromptInputIds`。
-- launchd 正常 stop 不得因无条件 KeepAlive 被自动拉起；异常退出仍保留服务管理器的重启能力。
-- 组件增量更新必须删除新 manifest 已移除组件的旧文件。
-- archive 安装与组件组装只能 promote 到不存在的 immutable release；目标存在时校验复用且清理 incoming，禁止移动或删除目标。
-- 所有高频 heartbeat 和 frame 细节走 debug logger；status 和退出原因只返回不含 secret 的摘要。
-- Supervisor 被强杀/IPC disconnect 时 Core 必须清理并退出，不能留下仍监听端口的 orphan Core；在线
-  catalog 已确认 current 最新时必须清理 stale pending，避免后续离线分支降级。
+- Saída inesperada do Core dispara apenas o backoff/circuit breaker do Supervisor e não reproduz entradas já aceitas.
+- Erro de spawn do fork do Core, mesmo tendo apenas `error + close` e nenhum `exit`, deve seguir o mesmo estado terminal de crash/rollback de update, e o Supervisor não pode sair.
+- Só pode haver uma operação de escrita de ciclo de vida por vez; requisições conflitantes retornam `operation-in-progress` retryable, sem enfileirar nem iniciar um segundo Core.
+- O IPC do Core deve estar vinculado a child/generation; quando o Core termina ou troca de generation, o estado de escopo do Core é limpo e heartbeats/atividade de tarefa antigos não podem alterar o guard atual.
+- Falha fatal na inicialização do Core exige saída explícita do processo, para que o Supervisor observe o exit e entre em backoff; não é permitido ficar preso em `starting`.
+- `update` retorna por padrão um erro de guard acionável quando há tarefas em execução; somente um force explícito para o Core.
+- `uninstall` mantém o estado original e retorna erro estruturado quando há tarefas em execução, qualquer falha de confirmação, falha de validação de caminho ou falha na remoção do serviço.
+- O lock de instância única precisa ser recuperável: quando o processo que segura o lock morreu (kill -9/queda de energia), o arquivo stale é reivindicado pelo ownership token e a tentativa é repetida; a recusa de início ocorre apenas quando um processo vivo detém o lock; quando múltiplos processos reais fazem a coleta ao mesmo tempo, apenas um pode vencer e os perdedores não podem apagar o lock do vencedor.
+- Uma falha de início do `serve` em primeiro plano (inclusive crash-loop) deve primeiro parar o Supervisor, recolhendo o lock e o control socket, e só então reportar o erro ao usuário.
+- Quando o update entra em timeout de ready, é preciso parar primeiro o novo Core que ainda está vivo, depois restaurar o pointer current antigo e iniciar o Core antigo; se mesmo após SIGKILL não se observar exit/close, entra-se em `stop-failed` e o lock é preservado, proibindo dois Core simultâneos.
+- `serve --daemon` só admite um owner de serviço do SO; a entrada de serviço não pode ser registrada duas vezes nem iniciar um segundo Supervisor em paralelo, e falha de registro deve retornar erro; o fallback explícito deve reportar `serviceRegistered=false`.
+- O descriptor de serviço deve usar a entrada estável `<serverRoot>/bin/zcode` e carregar explicitamente `--server-root`; a service identity e o nome de arquivo do descriptor são isolados por root canônico, e o teste de daemon real com root customizado precisa confirmar que o root padrão não sofreu efeitos colaterais.
+- O activity tracker de escopo do Core deve estatizar, a partir dos fatos do ciclo de vida de turn do Agent, tanto o desktop contínuo quanto o Web replayable; os testes não podem se limitar a forjar apenas o `activePromptInputIds` da facade de Task.
+- Um stop normal no launchd não pode ser relançado automaticamente por causa de um KeepAlive incondicional; a saída inesperada continua preservando a capacidade de reinício do gerenciador de serviços.
+- A atualização incremental de componentes precisa apagar os arquivos antigos de componentes removidos pelo novo manifest.
+- A instalação de archive e a montagem de componentes só podem promover para um release imutável inexistente; quando o alvo existe, validam e reutilizam e limpam o incoming, proibindo mover ou apagar o alvo.
+- Todos os detalhes de heartbeat e de frame de alta frequência passam pelo debug logger; status e motivo de saída retornam apenas resumos sem segredos.
+- Quando o Supervisor é morto à força ou o IPC desconecta, o Core deve se limpar e sair, sem deixar um Core órfão ainda escutando a porta; quando o catálogo online já confirmou que o current é o mais novo, o pending stale deve ser limpo para evitar rebaixamento em um ramo offline posterior.

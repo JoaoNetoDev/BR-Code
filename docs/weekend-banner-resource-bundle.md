@@ -1,57 +1,57 @@
-# Weekend Banner 资源包
+# Pacote de recursos do Weekend Banner
 
-## 2026-09-12 制作工作区迁移
+## 2026-09-12 Migração do workspace de produção
 
-Banner / Hero 源码、模板、数据样例及打包工具已迁到独立本地工作区
-`/Users/dev/Projects/zcode-marketing-resources`（不建立 Git），本 App 仓库不再维护资源制作目录。
-当前入口为该工作区 README.md，资源分别在 packages/weekend-banner、packages/weekend-hero，
-产物在 dist/<包名>/<版本>/。运行 `npm test`、`npm run check`、`npm run test:browser`、`npm run build`。
-原有完整目录和旧协议草稿保留在该工作区 archive/app-cleanup-20260912-qJ2R6s；
-已经删除的两个受 Git 跟踪的旧 ZIP 另从清理前 HEAD 保存到归档的 tracked-baseline/。
-仅清理制作资源，不改变 App 协议、资源下载/缓存、界面、轮询、上报或测试 fixture。
-以下为历史视觉约定，包版本号不再代表新工作区构建版本；发布必须使用新产物 metadata.json 的摘要。
+O código-fonte, os templates, os exemplos de dados e as ferramentas de empacotamento de Banner / Hero foram migrados para um workspace local independente,
+`/Users/dev/Projects/zcode-marketing-resources` (sem Git); este repositório do App não mantém mais o diretório de produção de recursos.
+O ponto de entrada atual é o README.md desse workspace; os recursos estão em packages/weekend-banner e packages/weekend-hero,
+e os produtos em dist/<nome-do-pacote>/<versão>/. Execute `npm test`, `npm run check`, `npm run test:browser`, `npm run build`.
+O diretório completo original e o rascunho do protocolo antigo permanecem no archive/app-cleanup-20260912-qJ2R6s desse workspace;
+os dois ZIPs antigos rastreados pelo Git que foram removidos foram salvos separadamente, a partir do HEAD anterior à limpeza, em tracked-baseline/ no arquivo.
+Apenas os recursos de produção foram limpos; o protocolo do App, o download/cache de recursos, a interface, o polling, o reporte e os fixtures de teste não mudam.
+Abaixo seguem as convenções visuais históricas; o número de versão do pacote não representa mais a versão de build do novo workspace, e o lançamento deve usar o resumo do metadata.json dos novos produtos.
 
-Banner 资源包不再绘制“领取 / Claim”按钮或消费 ctaZh/ctaEn，模型说明使用释放后的宽度。整块 Banner 的点击与右上角关闭仍由 App 负责，包不增加事件处理。新包输出为 weekend-banner-v3.zip，保留现有 v2 文件。
+O pacote de recursos do Banner não desenha mais o botão "领取 / Claim" nem consome ctaZh/ctaEn, e a descrição de modelos usa a largura liberada. O clique no Banner inteiro e o fechar no canto superior direito continuam sendo responsabilidade do App; o pacote não adiciona tratamento de eventos. O novo pacote gera weekend-banner-v3.zip e mantém os arquivos v2 existentes.
 
-Hero v4 重播按钮尺寸与 App 关闭按钮一致：24×24px，图标 12×12px；鼠标 hover 不显示描边。默认透明背景、白色 70% 图标与原 hover 浅白底保持不变，键盘 focus-visible 保留独立焦点提示。仅修改 Hero 包，不改变 Banner、App 关闭按钮或重播行为。
+O botão de replay do Hero v4 tem o mesmo tamanho do botão de fechar do App: 24×24px, ícone 12×12px; o hover do mouse não exibe contorno. Fundo transparente padrão, ícone branco a 70% e o fundo branco leve original do hover permanecem iguais; o focus-visible de teclado mantém um aviso de foco independente. Apenas o pacote Hero muda; Banner, botão de fechar do App e comportamento de replay não mudam.
 
-## 2026-09-11 额度规则更新
+## 2026-09-11 Atualização das regras de cota
 
-Hero v4 与 Banner 共用包内 quota.js，直接读取 init.data.zcode_plan.entitlements。
-仅 model_usage 且 period=one_time/daily 的非负有限 grant_units 参与计算。
-存在一次性权益时只合计一次性，否则合计每日权益，并显示 Tokens / 天或 Tokens / day。
-未知周期不参与，空权益为 0；没有 zcode_plan 时保留旧显式文案数据兼容。
-模型说明/权益列表仅展示本次选中的周期，避免日额度混入一次性展示。
-Banner 保持 18px 数值字号，完整千分位数字，不使用紧凑单位、不截断数字、不缩放。
-不改变 App 领取、上报或实际额度。
-Hero 源码现位于独立工作区 packages/weekend-hero；历史资源目录已归档，发布必须上传新 ZIP 并更新 URL/SHA。
-Hero 权益明细行的单项额度按语言缩写（10亿 / 1B），顶部合计与 Banner 数值保持完整数字。
+O Hero v4 e o Banner compartilham o quota.js dentro do pacote e leem diretamente init.data.zcode_plan.entitlements.
+Apenas grant_units não negativos e finitos de model_usage com period=one_time/daily participam do cálculo.
+Quando existe benefício único, apenas os benefícios únicos são somados; caso contrário, os benefícios diários são somados, exibindo Tokens / dia ou Tokens / day.
+Períodos desconhecidos não participam; entitlement vazio vale 0; sem zcode_plan, os dados de texto explícito antigos são mantidos por compatibilidade.
+A descrição de modelos / a lista de benefícios mostram apenas o período selecionado nesta vez, evitando que a cota diária se misture à exibição de benefício único.
+O Banner mantém o tamanho de fonte de 18px para os números, com o número completo com separadores de milhar, sem usar unidades compactas, sem truncar números e sem escalar.
+O recebimento, o reporte e a cota real do App não mudam.
+O código-fonte do Hero agora está no workspace independente packages/weekend-hero; o diretório histórico de recursos foi arquivado, e o lançamento precisa enviar o novo ZIP e atualizar URL/SHA.
+A cota de item único da linha de detalhe de benefícios do Hero é abreviada por idioma (10亿 / 1B), enquanto o total no topo e os números do Banner mantêm o número completo.
 
-来源：Find lower-left banner 任务最终可编辑模板（活动名 12px）。
-产物：独立工作区 `dist/weekend-banner/<版本>/` 下的 ZIP，入口 `index.html`。
+Origem: template final editável da tarefa Find lower-left banner (nome da campanha 12px).
+Produto: ZIP em `dist/weekend-banner/<versão>/` do workspace independente, com entrada `index.html`.
 
-包保留品牌 SVG、蓝色光晕、额度和模型说明；不是图片合集，也不携带模板编辑器。
-外框高度 96px、边框与圆角由 App 提供，包自适应 94px 内容区与可变宽度。
-包不绘制关闭按钮，不执行点击动作或上报；App 的 close 动作负责关闭。
-保持静态视觉，无外部依赖、存储、网络请求或自主动画。
+O pacote mantém o SVG da marca, o halo azul, a cota e a descrição de modelos; não é uma coleção de imagens nem carrega o editor de templates.
+A moldura externa tem 96px de altura, e a borda e o raio são fornecidos pelo App; o pacote se ajusta à área de conteúdo de 94px e à largura variável.
+O pacote não desenha o botão de fechar, não executa ações de clique nem reporte; a ação close do App é responsável por fechar.
+Mantém o visual estático, sem dependências externas, armazenamento, requisições de rede ou animações automáticas.
 
 ```text
-下载 ZIP / 校验 SHA → App 解包 → sandbox iframe
-  → init(theme,locale,data,instanceId) → 绘制 → ready
-  → theme / resize → 重绘
-  → destroy → 清理
+Download do ZIP / verificação do SHA → descompactação pelo App → sandbox iframe
+  → init(theme,locale,data,instanceId) → desenho → ready
+  → theme / resize → redesenho
+  → destroy → limpeza
 ```
 
-沿用 `zcode-cloud-hero-v1`。visibility/reducedMotion 无动画可暂停，保持静态。
-仅接受 parent 消息及当前 instanceId；所有可配置文字转义后绘制。
-args 支持 titleZh/titleEn、amountZh/amountEn、modelsZh/modelsEn、unit；旧 cta 字段忽略。
-未配置时使用原模板示例（100亿 / 10B）；这些是展示样例，不是用户实时权益。
-`args.zcode_plan.entitlements` 自动适配 model_usage 权益：一次性优先、同周期累加，
-完整千分位显示总额，show_name 生成所选周期的模型说明。
-已有 plan 但无有效权益显示 0，不回退示例额度。显式 amountZh/amountEn、modelsZh/modelsEn
-优先于 plan；没有 plan 时也支持 App 的 amountValue/amountUnit 字段。
-当前文案较长时沿用原模板省略号；右上角为 App 关闭按钮预留空间。
+Reutiliza `zcode-cloud-hero-v1`. visibility/reducedMotion não têm animação a pausar, permanecendo estático.
+Aceita apenas mensagens do parent e o instanceId atual; todo texto configurável é escapado antes de ser desenhado.
+args suporta titleZh/titleEn, amountZh/amountEn, modelsZh/modelsEn, unit; os campos cta antigos são ignorados.
+Sem configuração, usa os exemplos do template original (100亿 / 10B); estes são exemplos de exibição, não os benefícios em tempo real do usuário.
+`args.zcode_plan.entitlements` se adapta automaticamente ao benefício de model_usage: único tem prioridade, mesmo período acumula,
+o total é exibido com separadores de milhar completos, e show_name gera a descrição de modelos do período selecionado.
+Se já houver plan, mas sem benefício válido, exibe 0 e não volta ao valor de exemplo. amountZh/amountEn e modelsZh/modelsEn explícitos
+têm prioridade sobre o plan; sem plan, também são suportados os campos amountValue/amountUnit do App.
+Quando o texto atual é longo, mantém os reticências do template original; o canto superior direito reserva espaço para o botão de fechar do App.
 
-验证：在独立工作区运行 `npm run test:browser`，覆盖隔离 iframe ready、
-中英文×亮暗主题、数据转义、可变宽度、清理和页面错误；不调用真实领取接口。
-交付数据 CDN URL 为占位，上传后必须替换；不自动修改线上投放。
+Verificação: executar `npm run test:browser` no workspace independente, cobrindo o ready do iframe isolado,
+chinês e inglês × tema claro e escuro, escape de dados, largura variável, limpeza e erros de página; sem chamar a interface real de recebimento.
+A URL de CDN dos dados de entrega é um placeholder e precisa ser substituída após o upload; a veiculação online não é alterada automaticamente.

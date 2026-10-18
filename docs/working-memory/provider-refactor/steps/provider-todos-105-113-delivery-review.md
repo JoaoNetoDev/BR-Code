@@ -1,68 +1,117 @@
-# Todo105–113 本批实施与交付复审
+# Revisão de implementação e entrega do lote Todo105–113
 
-2026-09-10。范围：105、106、107、108、110、111、112、113；109 保持已完成迁移语义，102 既有欠测、101 Draft 不实施。
+2026-09-10. Escopo: 105, 106, 107, 108, 110, 111, 112, 113; 109 mantém a semântica de migração já
+concluída, 102 mantém a dívida de testes existente e 101 Draft não é implementado.
 
-## 逐项结论
+## Conclusões item a item
 
-| Todo | 实现与证据                                                                                                                     | 抽象及边界复审                                                                                                                                   |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 105  | 四个个人/团队 Account 名单只保留 5.3/Flash；实际发布配置、Settings/Registry 成员测试                                           | 不删型号专用规则，手动添加 5.2/Turbo 仍能解析；不改 Start、闲时或历史选择                                                                        |
-| 106  | Sonnet 5 不再误开 MCS；Opus 4.8 模型级开启；普通套餐/Start/闲时各 URL 独立规则；真实 SDK 捕获 system/search wire               | Runtime 不恢复域名特判；Personal 可覆盖；不把套餐媒体能力扩到普通 5.3 或闲时                                                                     |
-| 107  | Provider 外层 enabled、三色灯、删除三态反馈与重试、连接测试成功关闭按钮、纵向拖拽、全部 17 模板 Key URL                        | Resolver 唯一准入源；不逐模型禁用、不解绑、不清选择、不收回已绑定 Model；Team 菜单按具体 ID 查 Settings View，不使用其继承的个人 Provider        |
-| 108  | Verifier 继承绑定模型推理档位、输出使用模型上限；5 条真实 Runtime/Adapter 请求测试                                             | 不改变其他低成本辅助调用，不在通用 Factory 加特判                                                                                                |
-| 110  | Guide 仍重新解析；比较旧 Loop Model 与新完整 Selection 决定重建 System；9 条真实 Runtime 请求测试                              | 同选择改配置后实际输出上限更新，System 不被切模逻辑重建；Session 与 Loop 不混用；真实切模时输出风格冻结的既有问题不扩修                          |
-| 111  | 普通/套餐 × BigModel/Z.ai 四模板；新增 zhipu-coding-plan-api-key；双域手动套餐进入安全校验、普通 API 不进入；SDK/开关/缓存测试 | 不迁移现有实例；普通 API 搜索不开；Key 保存保留新类型；仍复用现有安全校验、配置分发和账号校验路径                                                |
-| 112  | 官方 GLM 名单、精确规则及 Start 名单规范；Subagent/Bot/Wiki 导入补确定性改名；SQLite 0021、App 0003 增量迁移                   | 不修改旧 migration/checksum；旧字段、时间、正文、历史来源、闲时 Ticket 不动；坏 JSON/缺失字段不崩，回滚重升不复活旧选择；自定义/未知型号不猜     |
-| 113  | GPT-6 Astra、Fable 5.1、DeepSeek Flash；聚合模板仅加入核实 ID；SDK 16 个协议/档位用例                                          | 新型号专用规则不扩大旧 Pro/代理别名视觉；Fable adaptive + auto tools + JSON Schema，沿用跨模型 thinking 清理；不启用强制工具调用或新增 beta 特判 |
+| Todo | Implementação e evidências                                                                                                                     | Revisão de abstração e fronteiras                                                                                                                                   |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 105  | Quatro listas de Account pessoal/equipe mantêm apenas 5.3/Flash; testes de membros de Settings/Registry sobre a configuração realmente publicada | Não remove regras específicas de modelo; adicionar 5.2/Turbo manualmente ainda resolve; não altera Start, ocioso nem seleções históricas                                                                        |
+| 106  | Sonnet 5 não abre mais MCS por engano; Opus 4.8 tem habilitação em nível de modelo; regras de URL independentes para pacote comum/Start/ocioso; captura do wire system/search pelo SDK real | O Runtime não recupera a especialização por domínio; Personal pode sobrescrever; não estende capacidades de mídia do pacote ao 5.3 comum nem ao ocioso                     |
+| 107  | enabled no nível externo do Provider, semáforo de três cores, feedback de três estados na remoção com retry, teste de conexão fechando o botão em caso de sucesso, arrasto vertical, Key URL dos 17 templates | O Resolver é a única fonte de admissão; não desabilita modelo por modelo, não desvincula, não limpa seleção e não revoga Model já vinculado; o menu Team consulta a Settings View pelo ID concreto, sem usar o Provider pessoal herdado |
+| 108  | O Verifier herda o nível de raciocínio do modelo vinculado e o limite de tokens de saída do modelo em uso; 5 testes reais de requisição Runtime/Adapter | Não altera outras chamadas auxiliares de baixo custo e não adiciona caso especial ao Factory genérico                                                                                                                |
+| 110  | O Guide continua reanalisando; compara o Loop Model antigo com a nova Selection completa para decidir reconstruir o System; 9 testes reais de requisição Runtime | Após mudar a configuração com a mesma seleção o limite real de saída é atualizado e o System não é reconstruído pela lógica de troca de modelo; Session e Loop não se misturam; o problema pré-existente de congelamento do estilo de saída em troca real de modelo não é ampliado |
+| 111  | Quatro templates comum/pacote × BigModel/Z.ai; novo zhipu-coding-plan-api-key; pacote manual de duplo domínio entra na verificação de segurança e API comum não entra; testes de SDK/chave/cache | Não migra instâncias existentes; a busca da API comum não é habilitada; a Key salva mantém o novo tipo; continua reaproveitando os caminhos existentes de verificação de segurança, distribuição de configuração e verificação de conta                         |
+| 112  | Listas oficiais GLM, regras precisas e especificação da lista Start; importação de Subagent/Bot/Wiki com renomeação determinística; migrações incrementais SQLite 0021 e App 0003 | Não modifica migration/checksum antigas; campos antigos, horários, corpo, origem histórica e Ticket ocioso não são tocados; JSON inválido/campo ausente não trava; rollback seguido de reupgrade não ressuscita seleções antigas; modelos customizados/desconhecidos não são adivinhados |
+| 113  | GPT-6 Astra, Fable 5.1, DeepSeek Flash; modelos agregados recebem apenas IDs verificados; 16 casos de protocolo/nível no SDK | Regras específicas para novos modelos não ampliam o visual dos antigos aliases Pro/proxy; Fable usa adaptive + auto tools + JSON Schema, seguindo a limpeza de thinking entre modelos; não habilita tool calling obrigatório nem adiciona casos especiais beta             |
 
-## 关键链路
+## Cadeias-chave
 
 ```text
-开关 -> 现有 Personal Overlay 事务 -> ProviderConfigRule.enabled
-     -> 同一配置快照序列化/分发 -> Resolver -> Settings View / Registry
+Chave -> Overlay Personal existente transacionada -> ProviderConfigRule.enabled
+     -> serialização/distribuição do mesmo snapshot de config -> Resolver -> Settings View / Registry
                                           |                 |
-                                       灰黄绿            新 Model 准入
-已绑定 Model ---------------------------- 保持原执行
+                                    cinza/amarelo/verde     admissão de novo Model
+Model já vinculado -------------------------- mantém a execução original
 
-手动套餐 Key -> 共用 Key 配置/保存 -> 显式 access type 安全校验准入
-                                 -> 既有开关/官方版本请求安全校验 -> SDK 请求
+Key de pacote manual -> config/salvamento de Key compartilhados -> admissão pela verificação de segurança de access type explícito
+                                 -> verificação de segurança de chave/versão oficial existente -> requisição SDK
 ```
 
-配置层统一缺省 enabled=true；UI 只投影 enabled/executable。不新增同步系统、发送屏障、账号查询或 Runtime。桌面 continuous 与手机 replayable 边界不变，远端仍使用目标 Host 的配置，不回退本地。
+A camada de configuração unifica o default enabled=true; a UI só projeta enabled/executable. Não são
+adicionados sistema de sincronização, send barrier, consulta de conta nem Runtime. As fronteiras
+desktop continuous e celular replayable permanecem inalteradas, e o remoto continua usando a
+configuração do Host alvo, sem fallback para o local.
 
-## 验证与限制
+## Verificação e limitações
 
-- 最终合并批次：105 个测试文件、1091 条单测全部通过；包含 Provider/Account 服务、配置规则、数据库及文件迁移、请求安全校验和设置 UI。最终 typecheck、lint（41 个既有 warnings、0 errors）、架构检查（baseline/new 均 0）通过。
+- Lote final de merge: 105 arquivos de teste e 1091 testes unitários passando; inclui serviços de
+  Provider/Account, regras de configuração, banco e migração de arquivos, verificação de segurança de
+  requisições e UI de configurações. typecheck final, lint (41 warnings existentes, 0 erros) e
+  verificação de arquitetura (baseline/new ambos 0) passaram.
 
-- 首次 pre-push 全量检查发现 `legacyProviderUpgrade` 一条旧测试仍要求模板返回小写 `glm-5.3`，与 Todo112 已裁决的官方 ID 不符。仅更新为 `GLM-5.3`，保留 Key、旧文件、后续编辑及不重复导入的原断言；不借此调整旧 Provider 迁移语义。
+- A primeira verificação completa de pre-push encontrou um teste antigo em `legacyProviderUpgrade` que
+  ainda exigia que o template devolvesse `glm-5.3` em minúsculas, em desacordo com o ID oficial
+  decidido no Todo112. Apenas foi atualizado para `GLM-5.3`, mantendo as asserções de Key, arquivo
+  antigo, edição posterior e não reimportação; isso não ajusta a semântica antiga de migração de
+  Provider.
 
-- Provider/配置/迁移/设置第一组 507 条通过；扩展服务与 UI 集合原有 523 条通过，3 条旧预期随本批调整后复验通过。账号组合及 Team 状态灯另有回归。
-- Adapter 6 文件 42 条通过（双域安全校验、MCS、DB 回滚、Verifier、新模型）；新模型 auto tools/JSON Schema 和 reasoning history 2 文件 41 条通过。Guide 9 条通过，前一批 Runtime/tool-loop 186 条通过。集合有重叠，不相加宣称独立总数。
-- 共用请求安全校验的 Key 隔离、并发合并、失败降级、Abort/凭据错误不降级及动态开关测试复验；没有使用真实 Key 或付费模型。
-- 新增 `packages/ui/test/browser/manual-review/pending/provider-settings-batch.test.mjs`：真实组件 + 隔离服务适配器；390px/中文/浅色和 1200px/英文/深色通过，覆盖分组、非空 Key 入口、enabled 保存、拖拽、删除失败重试、成功关闭。不是 shared-host 实机证明。
-- 更新 settings-ui-polish、pending provider-settings-write-recovery、Guide GS/P06 预期；三份 Electron 测试本轮未完整实跑。Pro SSH 此次未能连接，真实手机 shared-host + SSH、线上模型响应、控制台登录态不宣称已验证；不把用户延期的联合实机验证写成通过。
-- `pnpm typecheck`、CLI adapters/core typecheck、`pnpm lint` 已通过（lint 既有 warnings、无 errors）；最终提交前统一复验，以 MR 记录为准。架构 baseline 不更新，无关既有问题不扩修。
+- O primeiro grupo de Provider/configuração/migração/configurações, com 507 testes, passou; os
+  conjuntos de serviços estendidos e de UI, com 523 testes existentes, passaram, e 3 expectativas
+  antigas ajustadas neste lote foram reconfirmadas. Há também regressões específicas para combinações
+  de conta e para o semáforo de estado do Team.
 
-## 模板 Key URL 核对（2026-09-10）
+- 6 arquivos de Adapter com 42 testes passaram (verificação de segurança de duplo domínio, MCS,
+  rollback de BD, Verifier, novos modelos); 2 arquivos de auto tools/JSON Schema e histórico de
+  reasoning com 41 testes passaram. 9 testes do Guide passaram e os 186 testes de Runtime/tool-loop do
+  lote anterior passaram. Há sobreposição entre os conjuntos; não se deve somá-los como um total
+  independente.
 
-URL 在 Built-in 模板元数据唯一维护。智谱四类入口见 Todo111；其余新增入口：
+- Foram reconfirmados os testes de isolamento de Key que compartilham a verificação de segurança de
+  requisição, a junção concorrente, o rebaixamento em caso de falha, o Abort/erro de credencial sem
+  rebaixamento e o chave dinâmico; nenhuma Key real nem modelo pago foi usado.
 
-| 模板            | 官方入口                                                            | 层级                            |
-| --------------- | ------------------------------------------------------------------- | ------------------------------- |
-| Kimi            | https://platform.kimi.com/console/api-keys                          | Key 控制台                      |
-| MiniMax         | https://platform.minimaxi.com/console/access?tab=api-keys           | Key 控制台                      |
-| Qwen 中国       | https://bailian.console.aliyun.com/cn-beijing?tab=model             | 官方区域控制台，不猜用户深链    |
-| Qwen 国际       | https://modelstudio.console.aliyun.com/ap-southeast-1?tab=dashboard | 官方国际控制台                  |
-| MiMo            | https://platform.xiaomimimo.com/                                    | 官方上级入口，未声称直达 Key 页 |
-| OpenRouter      | https://openrouter.ai/keys                                          | 官方 Keys；未登录重定向         |
-| OpenCode 三协议 | https://opencode.ai/auth                                            | 官方 Zen 登录，共用 Key         |
+- Novo `packages/ui/test/browser/manual-review/pending/provider-settings-batch.test.mjs`: componente
+  real + adaptador de serviço isolado; 390px/chinês/claro e 1200px/inglês/escuro passaram, cobrindo
+  agrupamento, entrada de Key não vazia, salvamento de enabled, arrasto, retry de remoção e fechamento
+  em caso de sucesso. Não é prova em hardware de shared-host.
 
-DeepSeek/OpenAI/Anthropic/xAI 沿用已有官方控制台 URL；全模板断言存在 HTTPS 链接。
+- Atualizadas as expectativas de settings-ui-polish, pending provider-settings-write-recovery e
+  Guide GS/P06; os três testes de Electron não foram executados integralmente nesta rodada. O Pro SSH
+  não conseguiu conectar desta vez; não se declara verificado o shared-host real do celular + SSH, a
+  resposta de modelos em produção nem o estado de login no console; a verificação conjunta em hardware
+  adiada pelo usuário não é escrita como aprovada.
 
-## Impact-only 复核
+- `pnpm typecheck`, o typecheck de adapters/core da CLI e `pnpm lint` passaram (lint com warnings
+  existentes, sem erros); a reconfirmação unificada acontece antes do commit final, valendo o
+  registro da MR. O baseline de arquitetura não é atualizado e problemas existentes sem relação não
+  são ampliados.
 
-实际 diff 对 feature graph codeSeeds 扫描命中 model-capabilities、model-selection、provider-templates、plan-entitlements、provider-registry、subagents，以及 provider-settings / conversation-model-control。必须检查 Settings Facade、Resolver、Access 序列化、ModelFactory/Adapter；一跳检查 Composer、Automation、Bot、Wiki、Subagent 的候选与独立提交。
+## Conferência das Key URLs dos templates (2026-09-10)
 
-本分支还包含先前已提交 DB109 与文档，故命中 task-index、session-model-timeline、assistant-message-model-provenance、plugin-reference-reminder-history、conversation-share-context。这不是本批重写这些功能，DB109 回滚测试继续覆盖。测试、i18n、文档归属上述证据；无需要新增产品边界的 diff 差集。
+A URL é mantida de forma única nos metadados dos templates Built-in. Os quatro tipos de entrada da
+Zhipu estão no Todo111; as demais entradas novas:
 
-无 codegraph 服务，不声称调用图全量证明。建议 graph delta：Start 官方型号规范化来源、新手动套餐 Key access，以及 Verifier 不属于低成本辅助调用的例外。不增加跨层运行时依赖；真实手机与线上端点按上述限制交付。
+| Template         | Entrada oficial                                                         | Nível                                        |
+| ---------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+| Kimi             | https://platform.kimi.com/console/api-keys                              | Console de Key                               |
+| MiniMax          | https://platform.minimaxi.com/console/access?tab=api-keys                | Console de Key                               |
+| Qwen China       | https://bailian.console.aliyun.com/cn-beijing?tab=model                  | Console regional oficial, sem adivinhar deep link do usuário |
+| Qwen Internacional| https://modelstudio.console.aliyun.com/ap-southeast-1?tab=dashboard     | Console internacional oficial                  |
+| MiMo             | https://platform.xiaomimimo.com/                                         | Entrada oficial superior, sem afirmar acesso direto à página de Key |
+| OpenRouter       | https://openrouter.ai/keys                                               | Keys oficiais; redireciona quando não há login |
+| OpenCode (3 protocolos) | https://opencode.ai/auth                                          | Login Zen oficial, Key compartilhada          |
+
+DeepSeek/OpenAI/Anthropic/xAI mantêm as URLs de console oficial já existentes; há asserção de link
+HTTPS para todos os templates.
+
+## Revisão de impacto
+
+O diff real atingiu, na varredura de codeSeeds do feature graph, model-capabilities, model-selection,
+provider-templates, plan-entitlements, provider-registry, subagents e provider-settings /
+conversation-model-control. É obrigatório verificar Settings Facade, Resolver, serialização de Access
+e ModelFactory/Adapter; verificar a um salto os candidatos e os commits independentes de Composer,
+Automation, Bot, Wiki e Subagent.
+
+Este branch também contém o DB109 e a documentação já submetidos antes, o que atingiu task-index,
+session-model-timeline, assistant-message-model-provenance, plugin-reference-reminder-history e
+conversation-share-context. Isso não significa que este lote reescreva essas funcionalidades, e os
+testes de rollback do DB109 continuam cobrindo. Testes, i18n e documentação pertencem às evidências
+acima; não há diferença de diff que exija novas fronteiras de produto.
+
+Não há serviço de codegraph, então não se afirma prova completa de grafo de chamadas. Sugestão de
+delta do graph: normalização dos modelos oficiais do Start como origem, a nova Key de pacote manual
+como access type e o fato de que o Verifier não é uma chamada auxiliar de baixo custo. Não se adiciona
+dependência de runtime entre camadas; celular real e endpoints de produção são entregues conforme as
+limitações acima.

@@ -1,20 +1,20 @@
-# Coding Plan 升级入口解耦
+# Desacoplamento dos pontos de entrada do upgrade do Coding Plan
 
-## 背景
+## Contexto
 
-历史上多个入口点击“升级 Coding Plan”后都会跳到 Model Provider 设置页，再通过 Model Provider target 上的升级字段让 `ModelProviderSection` 选中对应 provider 并展开购买面板。这样会把购买流程和模型配置页的导航状态绑在一起，导致外部升级入口依赖 provider family 的 selected key、连接方式 fallback 和设置页水合时序。
+Historicamente, vários pontos de entrada que clicavam em "Fazer upgrade do Coding Plan" levavam à página de configurações de Model Provider e, por meio do campo de upgrade no target do Model Provider, faziam `ModelProviderSection` selecionar o provider correspondente e abrir o painel de compra. Isso atrelava o fluxo de compra ao estado de navegação da página de configuração de modelos, fazendo com que os pontos de entrada externos de upgrade dependessem da selected key da família de providers, do fallback do modo de conexão e da temporização de hidratação da página de configurações.
 
-## 目标
+## Objetivos
 
-- “升级 Coding Plan”入口由 UI 级弹窗能力统一承载，不挂载在 `SettingsPage`、`App`、workspace shell 或 `ModelProviderSection` 的外部跳转意图上。
-- 升级入口不再使用 `codingPlanUpgrade*` settings intent；入口组件直接调用 `useCodingPlanUpgradeDialog().openCodingPlanUpgrade(target)`。
-- 旧的 Model Provider / Settings 升级跳转字段不保留兼容；升级行为必须由实际入口直接唤起。
-- Model Provider 设置页继续只负责 provider 配置、连接方式切换、状态卡展示；状态卡内部的 Subscribe / Upgrade 只是一个本地入口，不作为外部入口的宿主。
-- 外部入口不再打开 Settings，关闭升级面板后自然停留在当前 workspace。
+- O ponto de entrada "Fazer upgrade do Coding Plan" é carregado por uma capacidade de diálogo em nível de UI, sem se apoiar em intenções de navegação externa de `SettingsPage`, `App`, do shell do workspace ou de `ModelProviderSection`.
+- O ponto de entrada de upgrade deixa de usar a settings intent `codingPlanUpgrade*`; o componente de entrada chama diretamente `useCodingPlanUpgradeDialog().openCodingPlanUpgrade(target)`.
+- Os antigos campos de redirecionamento de upgrade de Model Provider / Settings não são mantidos por compatibilidade; o comportamento de upgrade deve ser invocado diretamente pelo próprio ponto de entrada.
+- A página de configurações de Model Provider continua responsável apenas pela configuração de providers, pela troca do modo de conexão e pela exibição dos cartões de status; o Subscribe / Upgrade dentro do cartão de status é apenas um ponto de entrada local e não hospeda pontos de entrada externos.
+- Pontos de entrada externos não abrem mais Settings; ao fechar o painel de upgrade, permanecem naturalmente no workspace atual.
 
-## 交互链路
+## Cadeia de interação
 
-统一入口：
+Ponto de entrada unificado:
 
 ```text
 Sidebar / Chat quota / Input toolbar / Settings model provider status card
@@ -22,21 +22,21 @@ Sidebar / Chat quota / Input toolbar / Settings model provider status card
   -> CodingPlanUpgradeDialog
 ```
 
-## 实现约束
+## Restrições de implementação
 
-- `SettingsPage` 不识别 `codingPlanUpgradeProviderId` / `codingPlanUpgradeReturnTarget` / `codingPlanUpgradeFunnelContext` 作为升级入口。
-- `ModelProviderSection` 只接收普通 `modelProviderId` 定位意图，不再接收升级购买意图。
-- 独立升级宿主使用 provider id 解析 OAuth provider、产品源 provider、当前套餐状态和购买 token 状态。
-- Start Plan 打开升级时，产品列表必须映射到同 family 的 paid Coding Plan provider。
-- 购买完成后刷新 provider 列表和权益状态，避免面板关闭后 Settings / Usage 仍显示旧套餐。
-- Workspace 外部入口不得为了打开升级面板切到 Settings；入口只调用弹窗能力，关闭后自然停留在当前上下文。
-- Settings 内部状态卡 Subscribe / Upgrade 直接调用弹窗能力，不持有购买弹窗状态，也不向上层传递购买弹窗 props。
+- `SettingsPage` não reconhece `codingPlanUpgradeProviderId` / `codingPlanUpgradeReturnTarget` / `codingPlanUpgradeFunnelContext` como pontos de entrada de upgrade.
+- `ModelProviderSection` recebe apenas a intenção de posicionamento normal `modelProviderId` e não recebe mais intenções de compra por upgrade.
+- O host de upgrade independente usa o provider id para resolver o provider OAuth, o provider de origem do produto, o estado do plano atual e o estado do token de compra.
+- Quando o Start Plan abre o upgrade, a lista de produtos deve ser mapeada para o provider de Coding Plan pago da mesma família.
+- Após a compra, a lista de providers e o estado de benefícios são recarregados, evitando que Settings / Usage continuem exibindo o plano antigo depois do fechamento do painel.
+- Pontos de entrada externos de Workspace não devem trocar para Settings para abrir o painel de upgrade; a entrada apenas chama a capacidade de diálogo e, ao fechar, permanece naturalmente no contexto atual.
+- O Subscribe / Upgrade do cartão de status dentro de Settings chama diretamente a capacidade de diálogo, não mantém estado do diálogo de compra e não passa props de compra para camadas superiores.
 
-## Todo103 整合边界
+## Limites de integração do Todo103
 
-- 保留 staging 删除原生购买面板、统一使用官网 WebView 的方向；原生 SKU 选择、支付轮询和专属遥测不再作为客户端功能恢复。
-- 保留仍在使用的商品源解析、企业档位展示、入口遥测与购买完成刷新；Start 升级指向同域具体 Individual Provider，不恢复旧 Coding Plan 身份。
-- 设置页使用 ProviderSettingsView 与 Personal 写入接口，模板创建、动态模型编辑/排序及失效连接手动切换不因购买界面删除而回退。
-- Team 状态卡发起升级时仍指定 team audience；普通状态卡默认 personal。已有具体团队购买入口传入的 Team key 继续保留。删除原生面板不能把 Team 升级静默改成个人购买。
-- 按入口、购买宿主、完成刷新联合验证；原生组件专属测试随对应功能退役，仍被当前入口使用的测试继续保留。
-- 全连接套餐统计复用根 Environment 的 ProviderSettingsView 与套餐只读查询，不读取旧 Provider.apiKey、不要求 current/executable。Start 与具体 Individual 分开查询，Team 使用既有 authenticated pricing；Settings 首次读取失败不作为空清单放行，重试仍只加载数据。
+- Mantém-se a direção de remover o painel de compra nativo em staging e usar uniformemente o WebView do site oficial; a seleção nativa de SKU, o polling de pagamento e a telemetria exclusiva deixam de ser restaurados como funcionalidades do cliente.
+- Mantêm-se a resolução da origem do produto, a exibição das faixas empresariais, a telemetria dos pontos de entrada e a recarga após a compra, que continuam em uso; o upgrade a partir do Start aponta para um Individual Provider concreto do mesmo domínio, sem restaurar a identidade antiga do Coding Plan.
+- A página de configurações usa ProviderSettingsView e a interface de escrita de Personal; a criação de templates, a edição/ordenação dinâmica de modelos e a troca manual de conexões inválidas não regridem por causa da remoção da interface de compra.
+- Quando o cartão de status de Team inicia um upgrade, a audiência team continua sendo especificada; o cartão de status comum usa personal por padrão. A Team key passada pelos pontos de entrada de compra de equipe existentes continua sendo preservada. Remover o painel nativo não pode transformar silenciosamente um upgrade de Team em uma compra pessoal.
+- A validação é feita conjuntamente por ponto de entrada, host de compra e recarga pós-compra; os testes exclusivos dos componentes nativos são aposentados junto com a funcionalidade correspondente, e os testes ainda usados pelos pontos de entrada atuais são mantidos.
+- As estatísticas de planos para todas as conexões reutilizam o ProviderSettingsView da Environment raiz e a consulta somente-leitura de planos, sem ler o antigo `Provider.apiKey` e sem exigir current/executable. Start e o Individual concreto são consultados separadamente, e Team usa o pricing autenticado existente; a primeira falha de leitura em Settings não libera uma lista vazia, e a nova tentativa continua carregando apenas os dados.

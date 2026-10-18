@@ -1,5 +1,5 @@
-# Plan Mode Status（当前事实）
+# Estado do modo de planejamento (fatos atuais)
 
-旧 `PlanModeToolPanel` 和“计划/原始数据”tab 已删除。当前 plan/goal/todo 状态统一显示在 V4 `ConversationStatusPanel`；协作模式切换走 `switchCollaborationMode` 和 composer toolbar。
+Os antigos `PlanModeToolPanel` e as abas "planejar/dados brutos" foram removidos. Atualmente, o estado unificado de plan/goal/todo é exibido no `ConversationStatusPanel` da V4; a troca do modo de colaboração passa por `switchCollaborationMode` e pela barra de ferramentas do composer.
 
-状态面板只渲染 projection，不持有独立计划事实，也不提供旧 raw-data tab。
+O painel de estado apenas renderiza uma projeção: não mantém fatos independentes do plano nem oferece a antiga aba de dados brutos.

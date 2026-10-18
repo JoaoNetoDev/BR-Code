@@ -1,17 +1,17 @@
-# Markdown Inline Code Token
+# Token de Código Inline do Markdown
 
-Markdown 行内代码使用独立背景 token `--color-markdown-inline-code`。
+O código inline do Markdown usa um token de fundo independente, `--color-markdown-inline-code`.
 
-## 设计约束
+## Restrições de design
 
-- `--color-markdown-inline-code` 映射到 `--color-tag`，表达轻量胶囊标签，不提升到 card 层级。
-- 行内代码文字继续继承 Markdown 正文的 `--color-foreground`，保证阅读连续性。
-- 代码块不使用该 token，继续由 CodeBlock / CodeViewer 的代码主题控制。
-- `font-mono` 使用跨平台 CJK-safe 字体栈：拉丁字符优先系统等宽字体，简体中文在 Windows 优先回退到 `Microsoft YaHei UI` / `Microsoft YaHei`，macOS 回退到 `PingFang SC`，Linux 回退到 `Noto Sans CJK SC`，禁止中文直接落到通用 `monospace` 所选择的宋体。
-- CodeViewer / DiffViewer 必须通过 `--diffs-font-family: var(--font-mono)` 复用同一字体栈，不能沿用 `@pierre/diffs` 自带的不含 CJK 无衬线字体的 fallback。
+- `--color-markdown-inline-code` mapeia para `--color-tag`, expressando uma etiqueta leve em formato de cápsula, sem elevar ao nível de card.
+- O texto do código inline continua herdando o `--color-foreground` do corpo do Markdown, garantindo continuidade de leitura.
+- Blocos de código não usam esse token e continuam sendo controlados pelo tema de código do CodeBlock / CodeViewer.
+- `font-mono` usa uma pilha de fontes segura para CJK e multiplataforma: para caracteres latinos, prioriza a fonte monoespaçada do sistema; para chinês simplificado, no Windows faz fallback primeiro para `Microsoft YaHei UI` / `Microsoft YaHei`, no macOS para `PingFang SC` e no Linux para `Noto Sans CJK SC`. É proibido que o chinês caia diretamente na SimSun escolhida pelo `monospace` genérico.
+- CodeViewer / DiffViewer devem reutilizar a mesma pilha de fontes via `--diffs-font-family: var(--font-mono)`, e não manter o fallback próprio do `@pierre/diffs`, que não contém fonte sem serifa CJK.
 
-## 实现位置
+## Onde está implementado
 
-- token 定义在 `packages/ui/src/styles.css`。
-- Markdown inline code 渲染在 `packages/ui/src/components/ai-elements/message.tsx`。
-- Markdown code block、文件预览和完整 diff 的字体映射位于 `packages/ui/src/components/ui/code-viewer.tsx` 与 `packages/ui/src/components/ui/diff-viewer.tsx`。
+- O token é definido em `packages/ui/src/styles.css`.
+- A renderização de código inline do Markdown está em `packages/ui/src/components/ai-elements/message.tsx`.
+- O mapeamento de fontes para bloco de código do Markdown, pré-visualização de arquivo e diff completo está em `packages/ui/src/components/ui/code-viewer.tsx` e `packages/ui/src/components/ui/diff-viewer.tsx`.

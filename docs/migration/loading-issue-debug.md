@@ -1,14 +1,15 @@
-# 界面一直加载问题排查
+# Investigação do problema de tela travada no carregamento
 
-> **状态：历史排障记录。** 本文记录旧 store/task-stream 架构下的一次加载问题，
-> 所列 `memoryStore`、`outputStyleStore` 等路径已不存在；不要将这些步骤用于当前 V4 UI。
+> **Status: registro histórico de troubleshooting.** Este documento registra um problema de
+> carregamento sob a antiga arquitetura de store/task-stream; os caminhos citados como
+> `memoryStore` e `outputStyleStore` não existem mais; não use estes passos na UI V4 atual.
 
-## 症状
-应用启动后一直停留在主界面加载状态
+## Sintoma
+Após o início do aplicativo, a tela principal fica sempre no estado de carregamento.
 
-## 已确认正常的部分
+## Partes já confirmadas como corretas
 
-✅ 服务注册成功（日志显示）：
+✅ O registro dos serviços foi bem-sucedido (mostrado no log):
 ```
 [rpc:register] channel "hooks"
 [rpc:register] channel "memory"
@@ -16,20 +17,20 @@
 local services ready, all channels registered
 ```
 
-✅ 新增代码没有语法错误
-✅ Store 没有被自动调用
+✅ O código novo não tem erros de sintaxe
+✅ O Store não é chamado automaticamente
 
-## 可能的原因
+## Possíveis causas
 
-### 1. 原有代码的类型错误
-检查发现有一些原有代码的类型错误（非我们新增代码）：
-- `src/hooks/taskStreamEventHandlers.ts` 中有多处类型错误
+### 1. Erros de tipo no código já existente
+A verificação encontrou alguns erros de tipo no código já existente (não no nosso código novo):
+- `src/hooks/taskStreamEventHandlers.ts` tem vários erros de tipo
 
-### 2. 浏览器缓存问题
+### 2. Problema de cache do navegador
 
-## 解决方案
+## Soluções
 
-### 方案 1：清理并重新构建（推荐）
+### Solução 1: limpar e reconstruir (recomendado)
 
 ```bash
 # 1. 停止当前进程（Ctrl+C）
@@ -53,38 +54,38 @@ $env:NODE_OPTIONS="--max-old-space-size=4096"
 pnpm run dev:desktop
 ```
 
-### 方案 2：检查浏览器控制台
+### Solução 2: verificar o console do navegador
 
-打开开发者工具（F12），查看 Console 标签页：
-1. 是否有 JavaScript 错误
-2. 是否有网络请求失败
-3. 查看错误堆栈
+Abra as ferramentas de desenvolvedor (F12) e veja a aba Console:
+1. Se há erros de JavaScript
+2. Se há requisições de rede que falharam
+3. Ver o stack trace do erro
 
-### 方案 3：临时移除新代码测试
+### Solução 3: remover temporariamente o código novo para testar
 
-如果上述方案都不行，可以临时移除我们新增的服务注册来验证：
+Se nenhuma das soluções acima funcionar, é possível remover temporariamente o registro dos novos serviços para verificar:
 
 ```typescript
-// 在 packages/services/src/node.ts 中
+// em packages/services/src/node.ts
 // 注释掉这三行：
 // .register(IHooksService, createHooksService())
 // .register(IMemoryService, createMemoryService())
 // .register(IOutputStyleService, createOutputStyleService())
 ```
 
-然后重新构建看是否能正常启动。如果能启动，说明我们的代码有问题；如果还是不能启动，说明是其他原因。
+Depois reconstruir e ver se o aplicativo inicia normalmente. Se iniciar, o problema está no nosso código; se continuar sem iniciar, a causa é outra.
 
-## 调试信息收集
+## Coleta de informações de depuração
 
-如果问题仍然存在，请收集以下信息：
+Se o problema persistir, colete as seguintes informações:
 
-1. **浏览器控制台错误截图**
-2. **完整的启动日志**（从开始到卡住的部分）
-3. **构建是否有错误**（运行 `pnpm run build` 的输出）
+1. **Screenshot dos erros do console do navegador**
+2. **Log de inicialização completo** (do início até a parte travada)
+3. **Se o build tem erros** (a saída de `pnpm run build`)
 
-## 我们的代码位置
+## Localização do nosso código
 
-如果需要回滚：
+Se for necessário reverter:
 - `packages/shared/src/hooks.ts`
 - `packages/shared/src/memory.ts`
 - `packages/shared/src/output-style.ts`
@@ -95,6 +96,6 @@ pnpm run dev:desktop
 - `packages/ui/src/store/memoryStore.ts`
 - `packages/ui/src/store/outputStyleStore.ts`
 
-## 注意
+## Observações
 
-新增的服务和 Store **没有自动初始化逻辑**，只有在 UI 组件中手动调用 `initialize` 方法才会执行。因此理论上不应该影响应用启动。
+Os novos serviços e Stores **não têm lógica de inicialização automática**; a inicialização só acontece quando o método `initialize` é chamado manualmente em um componente de UI. Portanto, em tese, isso não deveria afetar a inicialização do aplicativo.

@@ -1,115 +1,206 @@
-# Todo 107：Provider 设置反馈、启停状态与模板入口完善
+# Todo 107: Feedback nas Configurações de Provider, Estado de Ativação/Desativação e Entrada de Templates
 
-> 状态：实现、组合准入测试及双尺寸/主题浏览器验证完成。2026-09-10。实施/测试证据、逐条边界复审及真实环境限制见 [本批交付复审](./provider-todos-105-113-delivery-review.md)。
+> Status: implementação, testes de admissão de composição e verificação de navegador em dois
+> tamanhos/tema concluídos. 2026-09-10. Evidências de implementação/testes, revisão de limites item a
+> item e limitações reais de ambiente estão em
+> [revisão de entrega deste lote](./provider-todos-105-113-delivery-review.md).
 
-## 1. 本轮待办总览
+## 1. Panorama dos Itens desta Rodada
 
-| Todo                                                  | 范围                                                                              | 状态                       |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------- |
-| [105](./todo-105-account-provider-model-list-trim.md) | 个人／团队 Account Provider 预设名单移除 GLM-5-Turbo、GLM-5.2                     | 已实施                     |
-| [106](./todo-106-mcs-capability-rule-correction.md)   | MCS 支持范围、Opus 4.8 默认能力、Start／闲时 MCS 与原生搜索、一 URL 一条站点规则  | 已实施                     |
-| 本 Todo                                               | 删除反馈、连接测试关闭按钮、纵向拖拽、API Key 入口、Provider enabled 与统一状态灯 | 已实施；验证范围见交付复审 |
+| Todo                                                  | Escopo                                                                                     | Status                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------- |
+| [105](./todo-105-account-provider-model-list-trim.md) | remoção de GLM-5-Turbo e GLM-5.2 da lista predefinida de Account Provider pessoal/equipe | implementado                    |
+| [106](./todo-106-mcs-capability-rule-correction.md)   | escopo de suporte a MCS, capacidade padrão do Opus 4.8, MCS nativo e busca em Start/ocioso, uma URL com uma regra de site | implementado |
+| Este Todo                                               | feedback de exclusão, botão de fechar do teste de conexão, arrastar vertical, entrada de API Key, enabled de Provider e luz de status unificada | implementado; escopo de verificação na revisão de entrega |
 
-105、106 的具体要求以各自文档为准，不在这里复制另一套验收清单。106 依照 [Design V2](../design-v2/design.md) 已新增的“主流配置、官方优先，不为落后的第三方降低默认能力”原则实施。
+Os requisitos específicos de 105 e 106 estão em seus respectivos documentos e não são duplicados
+aqui como outra lista de aceitação. O 106 foi implementado de acordo com o novo princípio
+"configuração mainstream, oficial em primeiro lugar, sem reduzir a capacidade padrão por causa de
+terceiros defasados" do [Design V2](../design-v2/design.md).
 
-本 Todo 各项已完成核心产品裁决。若实施中发现现有接口无法承载、或需要改变已确认语义，应单列具体差异，不重复讨论已定事项。
+Os itens deste Todo já concluíram as decisões centrais de produto. Se, durante a implementação,
+alguma interface existente não couber ou for necessário mudar semântica já confirmada, a diferença
+concreta deve ser registrada separadamente, sem rediscutir o que já foi decidido.
 
-## 2. 删除模型反馈必须对应实际操作
+## 2. O Feedback de Exclusão de Modelo Precisa Corresponder à Operação Real
 
-现象：删除模型成功后显示“保存成功”。当前 `InlineEditableProviderCard.tsx` 的删除路径复用了 `runSaveOperation` 的保存文案。
+Fenômeno: após excluir um modelo com sucesso, é exibido "Salvo com sucesso". Atualmente, o caminho
+de exclusão em `InlineEditableProviderCard.tsx` reaproveita o texto de salvamento de
+`runSaveOperation`.
 
-- 共用现有操作反馈机制，但为删除区分进行中、成功、失败文案，中英文一起调整；保存操作仍使用保存文案。
-- 保留目标 Provider／模型身份，不能删除了 A 却显示 B 的结果。
-- 失败重试必须重试原删除操作，不转成保存，不影响其他操作的提示。
-- 只在删除确实成功后显示成功；失败时保留当前错误与既有可重试语义。
-- 不新增平行的 Toast 系统，不借文案修复重做保存事务。
+- Reaproveitar o mecanismo de feedback de operação existente, mas distinguir textos de em
+  andamento, sucesso e falha para exclusão, ajustando chinês e inglês juntos; a operação de salvar
+  continua usando o texto de salvamento.
+- Preservar a identidade do Provider/modelo alvo; não é permitido excluir A e exibir o resultado de
+  B.
+- A retentativa após falha deve repetir a operação de exclusão original, sem virar salvamento e sem
+  afetar os avisos das outras operações.
+- Exibir sucesso somente quando a exclusão realmente deu certo; em caso de falha, manter o erro atual
+  e a semântica existente de retentativa.
+- Não adicionar um sistema paralelo de Toast, nem refazer a transação de salvamento como
+  pretexto para consertar textos.
 
-## 3. 连接测试提示的关闭入口一致
+## 3. Entrada de Fechamento Consistente no Aviso de Teste de Conexão
 
-- 成功、失败均提供关闭按钮；中文／英文无障碍标签完整。
-- 测试中不提供关闭叉，避免让人误以为它会取消测试。
-- 沿用原有自动消失时长：成功 3.5 秒，失败 8 秒，进行中不自动消失。
-- 手动关闭只移除相应提示；不取消请求、不影响其他模型的测试或反馈。
-- 保持同一测试身份 pending → success / failure 的替换行为及现有定时器清理，不引入第二套状态来源。
-- 不修改已裁决的连接测试 Prompt、鉴权、模型选择或请求内容。
+- Tanto sucesso quanto falha oferecem botão de fechar; rótulos de acessibilidade completos em
+  chinês/inglês.
+- Não oferecer um "x" de fechamento durante o teste, para não sugerir que ele cancelaria o teste.
+- Manter a duração de desaparecimento automático original: 3,5 segundos no sucesso, 8 segundos na
+  falha e sem desaparecimento automático enquanto em andamento.
+- O fechamento manual remove apenas o aviso correspondente; não cancela a requisição nem afeta o
+  teste ou o feedback de outros modelos.
+- Manter o comportamento de substituição da mesma identidade de teste (pending → success / failure)
+  e a limpeza atual dos timers, sem introduzir uma segunda fonte de estado.
+- Não modificar o Prompt de teste de conexão, a autenticação, a seleção de modelo ou o conteúdo da
+  requisição já decididos.
 
-## 4. Provider 排序限制为纵向拖拽
+## 4. Ordenação de Providers Limitada ao Arrasto Vertical
 
-现象：向右拖动 Provider 行会移出可视区域，松手后恢复。现有拖拽变换未限制横轴，导航容器又会裁切溢出内容。
+Fenômeno: arrastar uma linha de Provider para a direita a move para fora da área visível e, ao
+soltar, ela volta. A transformação de arrasto existente não restringe o eixo horizontal, e o
+contêiner de navegação recorta o conteúdo que transborda.
 
-- Provider 导航仍支持上下排序，但拖拽视觉位移限制在纵轴，不允许拖到右侧后看不见。
-- 复用当前拖拽机制及纵向约束，不通过取消整个面板 overflow 或扩大浮层解决。
-- 保留现有可排序成员范围、持久化和取消操作语义；账号组不能因此获得未授权的排序能力。
-- 保留点击选中、键盘排序及输入／弹窗的键盘事件边界；兼顾手机触摸滚动，不能让排序吞掉正常纵向滚动。
-- 此项针对 Provider 导航排序，不扩大为重写模型列表拖拽。
+- A navegação de Providers continua suportando ordenação vertical, mas o deslocamento visual do
+  arrasto fica limitado ao eixo vertical, sem permitir arrastar para a direita e não ver mais o item.
+- Reaproveitar o mecanismo de arrasto atual e sua restrição vertical, sem resolver cancelando todo o
+  overflow do painel nem ampliando o flutuante.
+- Preservar o conjunto de membros ordenáveis já existente, a persistência e a semântica de cancelamento;
+  o grupo de conta não pode ganhar capacidade de ordenação não autorizada por causa disso.
+- Preservar a seleção por clique, a ordenação por teclado e os limites de eventos de teclado de
+  campos/modal; considerar também a rolagem por toque no celular, sem deixar que a ordenação engula a
+  rolagem vertical normal.
+- Este item trata da ordenação da navegação de Providers e não se expande para reescrever o arrasto da
+  lista de modelos.
 
-## 5. 补齐预设模板的“获取 API Key”入口
+## 5. Completar a Entrada "Obter API Key" dos Templates Predefinidos
 
-智谱／Z.ai 的普通 API 与 Coding Plan 模板拆分、手动套餐 Key 签名及个人／团队获取入口由后续 [Todo111](./todo-111-zhipu-coding-plan-api-key-and-standard-api-templates.md) 承接。此处通用入口规则继续有效；这两家的具体模板归属与链接选择以 Todo111 为准，避免按原来两个模板的名称继续误配。
+Os templates de API comum e de Coding Plan da Zhipu/Z.ai, a assinatura de Key de plano manual e as
+entradas de obtenção pessoal/equipe ficam a cargo do
+[Todo111](./todo-111-zhipu-coding-plan-api-key-and-standard-api-templates.md) seguinte. A regra geral
+de entrada deste ponto continua válida; a atribuição específica de template e a escolha de link dessas
+duas empresas seguem o Todo111, evitando nova configuração errada com base nos nomes dos dois
+templates anteriores.
 
-- 仅预设模板提供此入口；任意用户自建 Provider 不猜测 URL。
-- 不根据是否已经填写 API Key 来隐藏入口：有 Key、无 Key 时均可访问模板声明的 URL。
-- 逐一检查当前维护的模板库存，补齐缺项，明确覆盖反馈中的 Kimi；不只修一家公司后宣告全部完成。
-- URL 优先级：官方稳定的 API Key 管理／创建页面 → 官方控制台入口 → 官方获取 Key 的说明页面。需要登录是正常情况，不要求匿名打开就能显示 Key 管理界面。
-- 区分国内／国际站及不同套餐入口；不复用含用户、组织、项目、Token 或临时登录态的私有 URL。
-- 每个 URL 记录官方依据与检查日期；不要为了“补齐”猜一个地址。若没有可确认的直接管理页，采用上述官方上级入口并如实说明。
-- URL 留在现有模板元数据的唯一来源，UI 读取它并通过平台接口打开，不在组件里维护另一张品牌地址表。
-- 同时检查桌面及手机 Web 的展示和打开行为；本轮不扩展账号登录或 Key 自动获取流程。
+- Somente templates predefinidos oferecem esta entrada; para qualquer Provider criado pelo usuário, o
+  URL não é adivinhado.
+- Não esconder a entrada com base em já ter preenchido a API Key: com ou sem Key, a URL declarada pelo
+  template fica acessível.
+- Verificar um a um o estoque de templates atualmente mantido, completar os itens faltantes e
+  esclarecer a cobertura do Kimi citado no feedback; não basta corrigir uma empresa e anunciar que
+  tudo está pronto.
+- Prioridade de URL: página oficial e estável de gerenciamento/criação de API Key → entrada do console
+  oficial → página oficial com instruções de como obter a Key. Exigir login é normal e não se deve
+  exigir que a interface de gerenciamento abra de forma anônima.
+- Distinguir site nacional/internacional e entradas de planos diferentes; não reaproveitar URLs privadas
+  que contenham usuário, organização, projeto, Token ou estado de login temporário.
+- Registrar a base oficial e a data de verificação de cada URL; não adivinhar um endereço apenas para
+  "completar". Se não houver uma página de gerenciamento direta confirmável, adotar a entrada oficial de
+  nível superior acima e explicá-lo com honestidade.
+- O URL permanece na única origem, que são os metadados atuais do template; a UI o lê e o abre pela
+  interface da plataforma, e nenhuma outra tabela de endereços de marca é mantida no componente.
+- Verificar também a exibição e a abertura no desktop e na Web do celular; esta rodada não estende o
+  login de conta nem o fluxo de obtenção automática de Key.
 
-## 6. 恢复 Provider enabled，并统一状态灯
+## 6. Restaurar `enabled` de Provider e Unificar a Luz de Status
 
-### 6.1 字段与写入边界
+### 6.1 Campo e Limites de Escrita
 
-- `enabled` 属于具体 Provider 的外层，与 `providerId`、`providerName` 同层，不放入模型配置或嵌套 `config`；它不是 Account Family 总开关。
-- 用户开关通过现有设置写入机制保存到该具体 Provider 的 Personal Overlay／外层规则；沿用版本冲突、刷新与分发机制，不直接写文件或新增独立存储。
-- 未设置 `enabled` 的 Provider 默认启用，由配置／解析层统一确定；不得各 UI 自行 fallback，也不因新增字段让现有 Provider 全部禁用。
-- 沿用现行外层 Schema／Overlay 语义，不为未上线的错误中间配置新增兼容工程。
-- 关闭不删除 Provider、不清空 Key／地址／模型配置、不逐个禁用模型、不解绑套餐、不清空任何持久化 Model Selection。
-- 重新开启保留各模型原来的 enabled，由公共解析重新判断执行资格。
+- `enabled` pertence ao Provider concreto, no nível externo, junto de `providerId` e `providerName`,
+  e não fica na configuração de modelo nem em `config` aninhado; não é um interruptor geral de Account
+  Family.
+- O interruptor do usuário é salvo pelo mecanismo de escrita de settings existente no Overlay/regra
+  externa do Provider concreto; reaproveitam-se os mecanismos de conflito de versão, refresh e
+  dispatch, sem escrita direta de arquivo nem armazenamento independente novo.
+- Um Provider sem `enabled` definido é habilitado por padrão, determinado de forma unificada pela
+  camada de config/parsing; nenhuma UI pode fazer seu próprio fallback, e o campo novo não pode
+  desabilitar todos os Providers existentes.
+- Reaproveitar a semântica atual de Schema/Overlay externo, sem engenharia de compatibilidade para
+  configurações intermediárias de erro que nunca chegaram a produção.
+- Desativar não exclui o Provider, não limpa Key/endereço/configuração de modelos, não desativa
+  modelos um a um, não desconecta o plano e não apaga nenhuma Model Selection persistida.
+- Reativar preserva o enabled original de cada modelo, e a elegibilidade para execução é novamente
+  determinada pela resolução comum.
 
-### 6.2 唯一判断来源
+### 6.2 Única Fonte de Julgamento
 
 ```text
-Provider enabled + 配置完整性 + 模型可执行性 + Account 权益／当前连接事实
+Provider enabled + integridade da configuração + executabilidade do modelo + entitlement da Account / fato da conexão atual
                               |
-                       公共 Resolver
+                      Resolver comum
                               |
                    Provider enabled / executable
                               |
             +-----------------+-------------------+
             |                 |                   |
-          禁用            启用且可执行        启用但不可执行
-           灰                 绿                  黄
+         Desativado    Ativado e executável  Ativado, mas não executável
+           Cinza             Verde                   Amarelo
 ```
 
-- 普通 API Key access：沿用现有配置完整性及至少一个启用、可执行模型的判断；不增加连接测试成功才变绿的条件，也不套账号权益检查。
-- Account access：在公共判断中保留 entitled 等账号执行前置。当前单连接架构下的 current 约束继续有效，不借本 Todo 实施 Todo101 多连接 Draft。
-- UI 只把公共结果映射为颜色，不再次遍历 Key、套餐权益或模型名单建立第二套判断。
-- 账号组圆点取当前连接对应具体 Provider 的公共结果，不再把套餐菜单的 `statusActive` 当作执行资格。
-- 绿表示配置与现有账号事实满足执行前置，不保证远端永不报错；黄不等于一定未开通套餐，不编造具体失效原因。
-- 完整检查新增 enabled 对候选列表、Registry 发布、已有选择的 View 和最终执行校验是否一致；已保存的选择不能因暂时不可执行而被清掉。
+- Acesso comum por API Key: reaproveitar o julgamento existente de integridade de configuração e de
+  pelo menos um modelo habilitado e executável; não adicionar a condição de só ficar verde após um
+  teste de conexão bem-sucedido, nem aplicar verificação de entitlement de conta.
+- Acesso por Account: manter no julgamento comum pré-requisitos de execução da conta, como entitled.
+  A restrição current da arquitetura de conexão única continua válida, e não se implementa o Draft de
+  múltiplas conexões do Todo101 neste Todo.
+- A UI apenas mapeia o resultado comum para cores, sem percorrer novamente Keys, entitlements de plano
+  ou listas de modelos para criar um segundo julgamento.
+- O ponto do grupo de conta usa o resultado comum do Provider concreto correspondente à conexão atual,
+  e o `statusActive` do menu de plano não passa a ser elegibilidade para execução.
+- Verde indica que a configuração e os fatos de conta atuais satisfazem os pré-requisitos de
+  execução, sem garantir que o remoto nunca falhará; amarelo não significa necessariamente ausência de
+  plano, e nenhuma causa específica de falha é inventada.
+- Verificar integralmente se o novo enabled é consistente na lista de candidatos, na publicação do
+  Registry, na View das escolhas já existentes e na verificação final de execução; uma escolha já
+  salva não pode ser removida por estar temporariamente não executável.
 
-### 6.3 开关展示与执行边界
+### 6.3 Exibição do Interruptor e Limite de Execução
 
-- 开关置于 Provider 外层的供应商级区域，不混入某个模型的开关。
-- 账号组的开关仅控制当前连接对应的具体 Provider，并让用户能看出控制的是当前套餐；不联动关闭整个 BigModel／Z.ai 家族。
-- 禁用影响后续执行资格和可执行模型发布；不回收已绑定模型，不中断已经运行的任务，也不擅自替换模型。
-- 灰／黄／绿同时提供准确的文字或无障碍描述，不能只靠颜色区分；遵循 DESIGN.md，覆盖深浅主题和窄屏。
+- O interruptor fica na área de nível de fornecedor do Provider externo, sem se misturar ao interruptor
+  de algum modelo específico.
+- O interruptor do grupo de conta controla apenas o Provider concreto correspondente à conexão atual, e
+  o usuário deve perceber que o que está sendo controlado é o plano atual; não há desligamento em
+  cascata de toda a família BigModel/Z.ai.
+- Desativar afeta a elegibilidade para execução posterior e a publicação de modelos executáveis; não
+  descarta modelos já vinculados, não interrompe tasks em execução e não substitui modelos por conta
+  própria.
+- Cinza/amarelo/verde também fornecem texto ou descrição de acessibilidade precisa, e não apenas cores;
+  seguir DESIGN.md, cobrindo temas claro e escuro e telas estreitas.
 
-## 7. 验收与执行粒度
+## 7. Aceitação e Granularidade de Execução
 
-- [x] 实施前同步相关当前 spec；先补区分性测试，再改代码。复用原有组件、Facade、Resolver，不新建平行判断链。
-- [x] 操作反馈：删除／保存成功失败、删除重试身份、成功失败手动关闭、多模型并行反馈、定时器清理。
-- [x] 导航排序：明显横向拖动仍可见，纵向排序可保存，取消无写入，键盘与触摸滚动不回退。
-- [x] 模板链接：现有模板逐个有去向，有／无 Key 均展示，自建 Provider 不猜链接，国内／国际地址正确。
-- [x] Provider：缺省启用、显式禁用、配置不全、没有可执行模型、API Key 就绪、Account 有／无权益、非当前账号等组合，设置页与公共执行结果一致。
-- [x] 禁用再启用不丢 Key／模型状态／保存选择；当前套餐与其他套餐开关隔离；已运行任务不被中断。
-- [x] UI 交互补相应 E2E，兼顾桌面／手机 Web、深浅主题、中英文。服务字段变化检查 Host／Worker 现有同步承载完整性，不重做同步架构。
-- [x] 按反馈与拖拽、模板入口、Provider 启停等有意义的批次验收；共享 typecheck、lint、相关单测及必要桌面验证，不每改一小项就跑全量回归。
-- [x] 整批复审已裁决要求、写入边界和 Provider／Selection 抽象；真实环境未验证的部分如实标明，不以“记录了”代替完成。
+- [x] Sincronizar as specs atuais relevantes antes da implementação; primeiro adicionar testes
+      diferenciadores e só então alterar o código. Reaproveitar componentes, Facades e Resolver
+      existentes, sem criar uma cadeia de julgamento paralela.
+- [x] Feedback de operação: exclusão/salvamento com sucesso e falha, identidade na retentativa de
+      exclusão, fechamento manual em sucesso e falha, feedback paralelo de múltiplos modelos, limpeza
+      de timers.
+- [x] Ordenação da navegação: arrasto horizontal óbito continua visível, ordenação vertical pode ser
+      salva, cancelamento não escreve nada, teclado e rolagem por toque não regridem.
+- [x] Links de template: cada template existente tem destino, exibe com ou sem Key, Provider
+      autocrado não adivinha link, endereços nacionais/internacionais estão corretos.
+- [x] Provider: habilitado por padrão, desativado explicitamente, configuração incompleta, sem modelo
+      executável, API Key pronta, Account com/sem entitlement e conta diferente da atual — a página de
+      configurações e o resultado comum de execução são consistentes.
+- [x] Desativar e reativar não perde Key/estado dos modelos/escolha salva; o interruptor do plano
+      atual fica isolado dos demais; tasks em execução não são interrompidas.
+- [x] E2Es de interação de UI correspondentes, cobrindo desktop/Web do celular, temas claro e escuro e
+      chinês/inglês. Para mudanças em campos de serviço, verificar se o sincronismo existente de
+      Host/Worker continua completo, sem refazer a arquitetura de sincronização.
+- [x] Verificação por lotes significativos (feedback e arrasto, entrada de template, ativação e
+      ativação/desativação de Provider); typecheck, lint, testes unitários relevantes e verificação de
+      desktop necessários compartilhados, sem rodar regressão completa a cada pequena alteração.
+- [x] A revisão do lote completo cobre os requisitos decididos, os limites de escrita e as abstrações
+      de Provider/Selection; as partes não verificadas em ambiente real são indicadas com honestidade,
+      sem substituir "está registrado" por conclusão.
 
-## 8. 明确排除／暂缓
+## 8. Exclusões Claras / Adiamentos
 
-- **横幅裁切**：用户已要求先忽略，不是本 Todo 关闭前置；[Pro 调查记录](./investigation-provider-feedback-clipping-20260910.md)仍为“未复现、根因未确认”，不得顺手试改 blur、层级或裁切样式并宣称修复。
-- **“完全访问”后仍要求批准**、**有 Coding Plan 但闲时创建按钮灰**：用户明确忽略，不纳入本轮调查或实施。
-- 不改变套餐切换语义，不实施多 Account Provider 并存，不清理真实用户数据，不自动发布或推送。
+- **Corte de banners**: o usuário já pediu para ignorar por enquanto, e não é pré-requisito de
+  encerramento deste Todo; o [registro de investigação Pro](./investigation-provider-feedback-clipping-20260910.md)
+  continua como "não reproduzido, causa raiz não confirmada", e não se pode mexer por conta própria em
+  blur, camadas ou estilo de corte e declarar a correção.
+- **Ainda pedir aprovação após "acesso total"** e **botão de criação ociosa cinza mesmo com Coding
+  Plan**: o usuário explicitamente os ignora e eles não entram nesta rodada de investigação ou
+  implementação.
+- Não alterar a semântica de troca de plano, não implementar múltiplos Account Providers
+  simultâneos, não limpar dados reais de usuários e não publicar nem fazer push automaticamente.

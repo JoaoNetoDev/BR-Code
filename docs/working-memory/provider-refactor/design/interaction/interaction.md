@@ -1,6 +1,6 @@
-# 模型选择如何进入一次执行
+# Como a seleção de modelo entra em uma execução
 
-输入框中的模型选择表达下一次提交的用户意图。消息提交后，这份选择随 Submission 固定下来；Submission 开始执行时，Session 记录后续延续使用的 Selection，Agent Loop 创建并持有真正发起请求的 Model。
+A seleção de modelo na caixa de entrada expressa a intenção do usuário para o próximo envio. Depois que a mensagem é enviada, essa seleção é fixada junto com o Submission; quando o Submission começa a executar, o Session registra a Selection que será usada nas execuções seguintes, e o Agent Loop cria e mantém o Model que efetivamente faz as requisições.
 
 ```text
 Composer Selection
@@ -18,11 +18,11 @@ Session Selection
 Active Model
 ```
 
-这条链路把“下一次想用什么”和“当前正在用什么”分开。模型选择器始终服务下一次提交，运行中的模型由独立执行状态表达。
+Essa cadeia separa "o que eu quero usar da próxima vez" de "o que está em uso agora". O seletor de modelo sempre serve ao próximo envio; o modelo em execução é representado por um estado de execução independente.
 
-## 一条消息的正常路径
+## Caminho normal de uma mensagem
 
-假设 Session 上一次使用模型 A，用户在输入框中选择模型 B，然后发送消息：
+Suponha que o Session tenha usado o modelo A por último, que o usuário selecione o modelo B na caixa de entrada e envie a mensagem:
 
 ```text
 Session Selection = A
@@ -46,19 +46,17 @@ Core 接收完整 Submission
 本 Loop 的模型请求使用 Model B
 ```
 
-Provider Config 或 Registry 在 Loop 运行期间发生变化，不修改已经创建的 Model。下一次创建 Model 时重新读取当前 Registry，因此新的配置从下一段执行生效。
+Se o Provider Config ou o Registry mudar durante a execução do Loop, o Model já criado não é modificado. O Registry atual é relido na próxima criação de um Model, portanto as novas configurações valem a partir do próximo trecho de execução.
 
-## 三个核心状态
+## Os três estados centrais
 
-| 状态               | 表达的含义                   | 所有者            | 生命周期                              |
-| ------------------ | ---------------------------- | ----------------- | ------------------------------------- |
-| Composer Selection | 下一次提交想使用哪个模型     | Entry 的 Composer | 提交前可编辑                          |
-| Session Selection  | Session 后续执行延续哪个模型 | Session Store     | 提交开始执行或 Guide 被接收时更新     |
-| Active Model       | 当前 Loop 真正调用的模型     | Agent Loop        | Loop 内持有；Guide 可在 Step 边界切换 |
+| Estado               | Significado expresso                                | Dono              | Ciclo de vida                                     |
+| ------------------ | ---------------------------------------------------- | ----------------- | -------------------------------------------------- |
+| Composer Selection | Qual modelo o próximo envio quer usar               | Composer da Entry | Editável antes do envio                            |
+| Session Selection  | Qual modelo o Session mantém nas execuções seguintes | Session Store     | Atualizado quando o envio inicia a execução ou quando um Guide é recebido |
+| Active Model       | Qual modelo o Loop em curso realmente chama         | Agent Loop        | Mantido dentro do Loop; um Guide pode trocar na fronteira de um Step |
 
-Draft 是 Composer 状态的持久化载体。Workspace App Recent 和 Host `preferredSelection` 只负责为 Composer
-提供初始 Selection，不参与当前模型请求；`preferredSelection` 已经包含 Host 对 Configured Default 与
-Fallback Policy 的原子解析。
+O Draft é o portador persistente do estado do Composer. O App Recent do Workspace e o `preferredSelection` do Host servem apenas para fornecer a Selection inicial ao Composer e não participam das requisições do modelo atual; o `preferredSelection` já contém a resolução atômica que o Host faz do Default Configurado e da Fallback Policy.
 
 ```text
 Draft / workspace Recent / Host preferred
@@ -80,11 +78,11 @@ Draft / workspace Recent / Host preferred
             Active Model
 ```
 
-各状态的持久化范围和 App、TUI、Prompt CLI 初始化规则见 [`selection-state.md`](./selection-state.md)。
+O escopo de persistência de cada estado e as regras de inicialização do App, do TUI e do Prompt CLI estão em [`selection-state.md`](./selection-state.md).
 
-## 接收方式决定更新时间
+## A forma de recebimento determina o momento da atualização
 
-同一个 Submission 可以立即启动、进入 Queue，或者作为 Guide 进入当前 Loop。Selection 始终属于 Submission；不同接收方式只改变它何时成为 Session 和执行状态。
+O mesmo Submission pode iniciar imediatamente, entrar na Queue ou ser recebido como Guide no Loop atual. A Selection sempre pertence ao Submission; a forma de recebimento apenas muda quando ela passa a ser o estado do Session e de execução.
 
 ```text
 CoreSubmission B
@@ -98,61 +96,57 @@ CoreSubmission B
    └─ 当前 Loop 接收后，Session 更新为 B，后续 Model Step 使用 Model B
 ```
 
-上图描述普通用户 Submission。闲时任务是特殊的 `start-now`：Submission 仍携带一个标准
-`ModelSelection`，但执行 context 明确它只作用于本次 Loop。Core 使用同一个 Registry 和 ModelFactory
-创建闲时 Model，不写 App Recent，不改 Session Selection，也不进入普通 Queue；Core 忙碌时直接拒绝。
+O diagrama acima descreve um Submission de usuário comum. Tarefas ociosas são um `start-now` especial: o Submission ainda carrega uma `ModelSelection` padrão, mas o contexto de execução deixa explícito que ela vale apenas para este Loop. O Core usa o mesmo Registry e o mesmo ModelFactory para criar o Model ocioso, não grava no App Recent, não altera a Session Selection e não entra na Queue comum; quando o Core está ocupado, a requisição é recusada diretamente.
 
-以 App 为例，状态变化如下：
+Como exemplo, no App as mudanças de estado são as seguintes:
 
-| 事件                                    | App Recent | Session Selection | Active Model                           |
-| --------------------------------------- | ---------- | ----------------- | -------------------------------------- |
-| Loop A 正在执行，用户在 Composer 选择 B | A          | A                 | A                                      |
-| Submission B 被接收并进入 Queue         | B          | A                 | A                                      |
-| Queue 中的 B 开始执行                   | B          | B                 | B                                      |
-| Guide C 被当前 Loop 接收                | C          | C                 | 当前请求保持原 Model，后续 Step 使用 C |
+| Evento                                        | App Recent | Session Selection | Active Model                       |
+| --------------------------------------------- | ---------- | ----------------- | ---------------------------------- |
+| O Loop A está em execução e o usuário seleciona B no Composer | A          | A                 | A                                  |
+| O Submission B é recebido e entra na Queue   | B          | A                 | A                                  |
+| O B que estava na Queue começa a executar     | B          | B                 | B                                  |
+| O Guide C é recebido pelo Loop atual          | C          | C                 | A requisição atual mantém o Model anterior; os Steps seguintes usam C |
 
-App Recent 在 App 确认 Submission 被接收为 start-now、queue 或 Guide 时更新。Session Selection 在 Submission 真正启动 Loop，或被当前 Loop 作为 Guide 接收时更新。Prompt CLI 和 TUI 不读写 App Recent。
+O App Recent é atualizado quando o App confirma que o Submission foi recebido como start-now, queue ou Guide. A Session Selection é atualizada quando o Submission realmente inicia um Loop ou quando o Loop atual o recebe como Guide. O Prompt CLI e o TUI não leem nem escrevem no App Recent.
 
-Queue、Guide 和派生提交的完整时序见 [`submission-delivery.md`](./submission-delivery.md)。
+A sequência completa de Queue, Guide e envios derivados está em [`submission-delivery.md`](./submission-delivery.md).
 
-## Composer 的初始选择
+## Seleção inicial do Composer
 
-新建或恢复 Composer 时，Entry 从自己有权使用的状态取得初始值：
+Ao criar ou restaurar um Composer, a Entry obtém o valor inicial a partir dos estados aos quais tem direito:
 
-| 场景                    | 初始化顺序                                                              |
-| ----------------------- | ----------------------------------------------------------------------- |
-| App 新 Session          | Draft → 当前 Host View 中仍可选的 workspace App Recent → Host preferred |
-| TUI 新 Session          | Draft → domain preferred                                                |
-| App / TUI 恢复 Session  | Draft → Session Selection                                               |
-| Prompt CLI 新 Session   | 显式模型参数 → domain preferred                                         |
-| Prompt CLI 恢复 Session | 显式模型参数 → Session Selection                                        |
+| Cenário                     | Ordem de inicialização                                                          |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| Nova Session no App         | Draft → App Recent do workspace ainda selecionável na View atual do Host → preferred do Host |
+| Nova Session no TUI         | Draft → preferred do domínio                                                     |
+| Restaurar Session no App / TUI | Draft → Session Selection                                                     |
+| Nova Session no Prompt CLI  | argumento explícito de modelo → preferred do domínio                            |
+| Restaurar Session no Prompt CLI | argumento explícito de modelo → Session Selection                          |
 
-初始化只发生在创建或恢复 Composer 时。Composer 存活期间以正在编辑的内存状态为准；Provider Registry 更新可以把当前选择标记为不可用，但不会静默替换用户尚未提交的选择。
+A inicialização acontece apenas ao criar ou restaurar um Composer. Enquanto o Composer está vivo, vale o estado em memória que está sendo editado; atualizações do Provider Registry podem marcar a seleção atual como indisponível, mas nunca substituem silenciosamente uma escolha que o usuário ainda não enviou.
 
-## Queue 与 Guide
+## Queue e Guide
 
-Queue item 保存完整 Submission，包括当时已经确定的 ModelSelection。重新排序 Queue 不改变 Selection；点击“立即”也使用 Queue item 自己的 Selection，不读取此刻 Composer 中的值。
+Um item da Queue guarda o Submission completo, incluindo a ModelSelection já determinada no momento. Reordenar a Queue não altera a Selection; clicar em "imediato" também usa a Selection do próprio item da Queue, sem ler o valor que está agora no Composer.
 
-Guide 与产品中的“立即”采用同一个 Core 语义。Guide 被接收后，Context 注入、Session Selection 更新和 Active Model 切换形成一次原子变化。已经发出的请求继续由旧 Model 完成；从下一个 Model Step 开始使用新 Model。创建新 Model 或注入失败时，完整 Submission 保留为普通 Queue item。
+Guide e o "imediato" do produto adotam a mesma semântica do Core. Depois que o Guide é recebido, a injeção de Context, a atualização da Session Selection e a troca do Active Model formam uma mudança atômica. As requisições já emitidas são concluídas pelo Model antigo; a partir do próximo Model Step passa a ser usado o novo Model. Se a criação do novo Model ou a injeção falhar, o Submission completo é mantido como um item comum da Queue.
 
-## Edit、Retry 与运行态展示
+## Edit, Retry e exibição do estado de execução
 
-Edit 和 Retry 从已有 Submission 派生，缺省继承源 Submission 的 ModelSelection。它们不会读取当前 Composer Selection；未来若产品支持“使用当前模型重试”，需要在新 Submission 中显式携带新的 Selection。
+Edit e Retry derivam de um Submission existente e, por padrão, herdam a ModelSelection do Submission de origem. Eles não leem a Selection atual do Composer; se no futuro o produto passar a oferecer "repetir com o modelo atual", a nova Selection precisará ser carregada explicitamente no novo Submission.
 
-模型选择器继续显示下一次提交的 Selection。当前执行模型、闲时任务模型和 Guide 切换结果属于运行态，可以在执行详情或专门横幅中展示，不回写模型选择器来模拟运行状态。
+O seletor de modelo continua exibindo a Selection do próximo envio. O modelo em execução, o modelo de tarefas ociosas e o resultado da troca por Guide pertencem ao estado de execução e podem ser exibidos nos detalhes da execução ou em um banner específico, sem reescrever o seletor de modelo para simular o estado de execução.
 
-## 稳定约束
+## Restrições estáveis
 
-- prompt、attachments、mode 和 ModelSelection 作为一个 Submission 被接收。
-- Queue 和 Guide 使用 Submission 中已经固定的 Selection。
-- Session 只持久化 ModelSelection，不持久化 Model。
-- Usage、Trace 和错误归因读取实际发起请求的 Model。
-- Composer Selection、Session Selection 和 Active Model 各有独立写入事件，不互相充当投影。
-- 闲时任务仍只携带一个标准 ModelSelection；Request Auth、Ticket、归因信息和 Subagent override
-  属于执行 context，见 [`../execution/execution.md`](../execution/execution.md)。它们不会形成第二套
-  Execution Model、Selection 或临时 Provider 静态配置。
+- prompt, attachments, mode e ModelSelection são recebidos juntos como um Submission.
+- Queue e Guide usam a Selection já fixada no Submission.
+- O Session persiste apenas a ModelSelection, não o Model.
+- Usage, Trace e a atribuição de erros leem o Model que efetivamente fez a requisição.
+- Composer Selection, Session Selection e Active Model têm eventos de escrita independentes e não servem como projeção um do outro.
+- Tarefas ociosas ainda carregam apenas uma ModelSelection padrão; Request Auth, Ticket, informações de atribuição e Subagent override pertencem ao contexto de execução, veja [`../execution/execution.md`](../execution/execution.md). Elas não formam um segundo conjunto de Execution Model, Selection ou configuração estática temporária de Provider.
 
-## 子文档
+## Subdocumentos
 
-- [`selection-state.md`](./selection-state.md) 说明 Selection 状态的所有权、内存与持久化载体，以及不同 Entry 的初始化规则。
-- [`submission-delivery.md`](./submission-delivery.md) 说明 CoreSubmission、start-now、Queue、Guide、Edit 和 Retry 的接收与状态更新时间。
+- [`selection-state.md`](./selection-state.md) explica a propriedade dos estados de Selection, seus suportes em memória e persistentes, e as regras de inicialização para diferentes Entry.
+- [`submission-delivery.md`](./submission-delivery.md) explica o recebimento de CoreSubmission, start-now, Queue, Guide, Edit e Retry, e o momento da atualização de estado.

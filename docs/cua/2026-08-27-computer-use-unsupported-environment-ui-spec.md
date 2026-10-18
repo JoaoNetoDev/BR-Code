@@ -1,42 +1,66 @@
-# Computer Use 不支持环境的设置与插件列表提示
+# Configurações e dica na lista de plugins para ambientes não suportados do Computer Use
 
-## 背景
+## Contexto
 
-Computer Use 依赖桌面端本机 Helper 访问当前机器的屏幕与输入设备。SSH、WSL、Docker、远端 Server 以及 Linux 桌面当前没有可用的 CUA Helper。过去设置页用 `return null` 隐藏了整块内容，导致远端设置页白屏；插件页只读取目标环境的运行时插件目录，远端目录没有 CUA 时用户也看不到能力入口。
+O Computer Use depende de um Helper local do desktop para acessar a tela e os dispositivos de
+entrada da máquina atual. SSH, WSL, Docker, servidores remotos e desktop Linux hoje não têm um CUA
+Helper disponível. Anteriormente a página de configurações usava `return null` para esconder o
+bloco inteiro, o que deixava a página de configurações remota em branco; e a página de plugins lia
+apenas o diretório de plugins de runtime do ambiente alvo, de modo que, sem CUA no diretório
+remoto, o usuário também não via a entrada de capacidade.
 
-## 目标
+## Objetivo
 
-- 在远端 workspace 或 Linux 桌面打开设置时，显示 Computer Use 设置入口与明确的“不支持当前环境”说明，不再出现空白页。
-- 在同样的目标环境打开插件列表时，展示 CUA 的只读占位项和不可用原因。
-- 不向 SSH、WSL、Docker、Server 或 Linux 目标发送 CUA 启用、禁用、安装、卸载、更新请求。
-- 保持 macOS/Windows 本地现有开关、macOS 权限流程和手机 Web 远控行为不变。
+- Ao abrir as configurações em um workspace remoto ou em um desktop Linux, mostrar a entrada de
+  configuração do Computer Use com uma explicação explícita de "não suportado no ambiente atual",
+  sem mais página em branco.
+- Ao abrir a lista de plugins nos mesmos ambientes alvo, exibir um item de placeholder somente
+  leitura do CUA e o motivo da indisponibilidade.
+- Não enviar requisições de habilitação, desabilitação, instalação, desinstalação ou atualização de
+  CUA para alvos SSH, WSL, Docker, Server ou Linux.
+- Manter inalterados o interruptor existente no macOS/Windows local, o fluxo de permissões no macOS e o
+  comportamento do controle remoto Web no celular.
 
-## 能力边界
+## Limite de capacidade
 
 ```text
-目标环境                         Computer Use
-本地 macOS                       支持：开关 + macOS 权限
-本地 Windows                     支持：开关
-本地 Linux                       不支持：提示，不提供操作控件
-远端 SSH / WSL / Docker / Server 不支持：提示，不提供操作控件
-手机 Web 远控                    沿用 Web 能力灰度，不启动本机 CUA Helper
+Ambiente alvo                    Computer Use
+macOS local                      Suportado: interruptor + permissões do macOS
+Windows local                    Suportado: interruptor
+Linux local                      Não suportado: aviso, sem controles de operação
+Remoto SSH / WSL / Docker / Server  Não suportado: aviso, sem controles de operação
+Controle remoto Web mobile       Segue o rollout de capacidade Web, sem iniciar o CUA Helper local
 ```
 
-## UI 行为
+## Comportamento da UI
 
-1. 设置页仍由灰度开关控制是否展示 Computer Use 导航项。灰度开启时，Linux 桌面也展示该入口。
-2. 不支持环境的设置页显示一个信息卡，说明 Computer Use 暂不支持 SSH、Linux 等当前环境；隐藏插件总开关、输入框入口开关和权限操作。
-3. 插件列表在用户 scope 中增加“电脑控制”只读行，显示“当前环境不可用”徽标和原因；该行不计入已安装/内置数量，不打开详情，也不显示启停、更新、卸载操作。
-4. 插件搜索按“电脑控制”“Computer Use”“zcode-cua”“cua”匹配该提示行。
+1. A página de configurações continua sendo controlada pelo interruptor de rollout para exibir o
+   item de navegação do Computer Use. Com o rollout ativo, o desktop Linux também exibe essa
+   entrada.
+2. A página de configurações em ambiente não suportado exibe um card de informação explicando
+   que o Computer Use ainda não suporta ambientes atuais como SSH e Linux; oculta o interruptor
+   geral de plugins, o interruptor da entrada de input e as ações de permissão.
+3. A lista de plugins ganha uma linha somente leitura "电脑控制" no scope de usuário, exibindo o
+   badge "当前环境不可用" e o motivo; essa linha não entra na contagem de instalados/embutidos, não
+   abre detalhes e não exibe ações de iniciar/parar, atualizar ou desinstalar.
+4. A busca de plugins casa essa linha de aviso por "电脑控制", "Computer Use", "zcode-cua" e
+   "cua".
 
-## 数据与实现约束
+## Restrições de dados e implementação
 
-- 使用统一的 UI 能力判定函数区分本地 macOS、Windows、Linux 与远端目标，远端身份继续通过 `workspaceIdentity` / `remoteTarget` 判定。
-- CUA 占位项是 UI 投影，不伪造远端插件运行时数据，也不修改插件协议或远端 Host 能力。
-- 该变更只调整设置与插件列表展示，不改变桌面 `continuous` 或手机 `replayable` 实时链路。
+- Usar uma função unificada de detecção de capacidade da UI para distinguir macOS, Windows e Linux
+  locais de alvos remotos; a identidade remota continua sendo determinada por
+  `workspaceIdentity` / `remoteTarget`.
+- O placeholder do CUA é uma projeção de UI e não forja dados de runtime de plugins remotos, nem
+  modifica o protocolo de plugins ou as capacidades do Host remoto.
+- Esta mudança ajusta apenas a exibição nas configurações e na lista de plugins, sem alterar a
+  cadeia em tempo real `continuous` do desktop ou `replayable` do celular.
 
-## 验收
+## Aceitação
 
-- 远端 SSH、WSL、Docker、Server 和本地 Linux 的设置页不白屏，能看到不支持说明。
-- 上述环境插件列表能搜索并看到“电脑控制”只读行，点击/切换不会触发插件管理写操作。
-- macOS/Windows 本地现有单测保持通过；新增能力矩阵、Linux 入口和不支持提示测试。
+- A página de configurações em SSH, WSL, Docker, Server remotos e Linux local não fica em branco e
+  mostra a explicação de não suportado.
+- Nessos ambientes, a lista de plugins permite buscar e ver a linha somente leitura "电脑控制", e
+  clicar ou alternar não dispara nenhuma operação de escrita de gerenciamento de plugins.
+- Os testes unitários existentes de macOS/Windows local continuam passando; são adicionados testes
+  da matriz de capacidade, da entrada no Linux e do aviso de não suportado.

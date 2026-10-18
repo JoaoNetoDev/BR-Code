@@ -2,67 +2,67 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把已验证的 Windows CUA runtime 正向迁移到 `zcode-cua` 最新上游 main，并让 `z-code` 当前分支在 clean consumer tree 中通过显式本地 producer 路径生成、校验和打包该 runtime；远端 Git pin 留到 producer commit push 后闭环。
+**Objetivo:** Portar adiante, para o `main` mais recente do `zcode-cua` upstream, o runtime Windows CUA já validado, e fazer com que o branch atual do `z-code` gere, valide e empacote esse runtime em uma árvore de consumo limpa, por um caminho de producer local explícito; o pin remoto do Git fica para ser fechado depois do push do commit do producer.
 
-**Architecture:** `zcode-cua` 是 Windows Helper entry、native addon 和 package runtime contract 的 producer；`z-code` 只固定 producer Git SHA、读取 producer contract、生成 digest manifest，并由 desktop-local Host 按需启动。迁移按当前上游 broker/incremental/input-cleanup 语义重新接线，不覆盖其提交或恢复旧实现。
+**Arquitetura:** `zcode-cua` é o producer da entry do Windows Helper, do addon nativo e do contrato de runtime do package; `z-code` apenas fixa o Git SHA do producer, lê o contrato do producer, gera um manifest de digests, e o desktop-local Host inicia sob demanda. A migração é religada conforme a semântica atual do upstream para broker/incremental/input-cleanup, sem sobrescrever seus commits nem restaurar a implementação antiga.
 
-**Tech Stack:** TypeScript 5/6、Vitest、Node 24、N-API/node-gyp、C++/Win32 UIA/WGC/D3D11、Electron 41、pnpm 10。
+**Stack técnico:** TypeScript 5/6, Vitest, Node 24, N-API/node-gyp, C++/Win32 UIA/WGC/D3D11, Electron 41, pnpm 10.
 
-## Global Constraints
+## Restrições Globais
 
-- `z-code` 在当前 `feat/cua-helper-app` 分支原地开发。
-- `zcode-cua` 在本地 `main` 上开发；先保留安全分支，再把 `main` 指向最新 `origin/main`。
-- Windows 移植变更在 `zcode-cua/main` 最终只有一个新 commit；不改写上游 commit，不 push。
-- producer contract schema 固定为 `1`，package name 固定为 `@zcode/zcode-cua`。
-- consumer 固定完整 Git SHA，不再重复硬编码 package version。
-- Windows raw input 必须验证唯一前台 PID；不能用 UIA、标题、basename 或枚举第一项猜测身份。
-- Windows Helper 只服务本地 desktop continuous；SSH、WSL、Docker、remote workspace 和手机 `/remote` 不创建独立 runtime。
-- token 只通过环境变量传递，不进入 argv、manifest 或日志。
-- 所有功能修改先写失败测试；生产代码不能先于 RED test。
-- 新增 bug 原因/修复注释使用中文。
-- 两个仓库完成前都执行各自 typecheck、lint 和 focused/full tests。
+- `z-code` é desenvolvido no lugar no branch atual `feat/cua-helper-app`.
+- `zcode-cua` é desenvolvido no `main` local; primeiro se preserva um branch de segurança e depois aponta `main` para o `origin/main` mais recente.
+- As mudanças do port para Windows resultam em apenas um novo commit em `zcode-cua/main`; não reescrever commits do upstream e não fazer push.
+- O schema do contrato do producer é fixado em `1` e o nome do package é fixado como `@zcode/zcode-cua`.
+- O consumidor fixa o Git SHA completo e não repete mais a versão do package hardcoded.
+- O raw input do Windows precisa validar um PID de foreground único; não é permitido adivinhar identidade por UIA, título, basename ou pelo primeiro item da enumeração.
+- O Windows Helper serve apenas ao desktop continuous local; SSH, WSL, Docker, workspace remoto e `/remote` do celular não criam runtime independente.
+- O token é passado somente por variável de ambiente e não entra em argv, manifest ou logs.
+- Toda mudança funcional é escrita primeiro como teste que falha; o código de produção não pode vir antes do RED test.
+- Novos comentários de causa/fix de bug são escritos em chinês.
+- Antes de concluir, os dois repositórios executam seus próprios typecheck, lint e testes focados/completos.
 
 ---
 
-### Task 1: 准备 zcode-cua 最新 main 与可恢复引用
+### Task 1: Preparar o main mais recente do zcode-cua e referências recuperáveis
 
-**Files:**
+**Arquivos:**
 
-- No product file changes.
+- Sem mudanças em arquivos de produto.
 
 **Interfaces:**
 
-- Consumes: `origin/main`，迁移来源 `codex/windows-cua-pointer-foundation`。
-- Produces: 本地 `main` 指向最新上游 main；两个 backup branch 保留旧引用。
+- Consome: `origin/main`, origem da migração `codex/windows-cua-pointer-foundation`.
+- Produz: `main` local apontando para o main mais recente do upstream; dois backup branches preservando as referências antigas.
 
-- [ ] **Step 1: 验证两个工作区没有未提交修改**
+- [ ] **Passo 1: Verificar que os dois workspaces não têm modificações não commitadas**
 
 ```powershell
 git -C C:\Users\dev\z-code status --short
 git -C C:\Users\dev\zcode-cua status --short
 ```
 
-Expected: 两个命令都不输出文件；`z-code` 只允许 branch ahead 状态。
+Expected: nenhum dos dois comandos imprime arquivos; em `z-code` apenas o estado de branch ahead é permitido.
 
-- [ ] **Step 2: 刷新并记录 producer 基线**
+- [ ] **Passo 2: Atualizar e registrar a baseline do producer**
 
 ```powershell
 git -C C:\Users\dev\zcode-cua fetch origin --prune
 git -C C:\Users\dev\zcode-cua show -s --format="%H %an %s" origin/main
 ```
 
-Expected: `origin/main` 可解析，author/merge history 属于上游当前主线。
+Expected: `origin/main` resolve, e o histórico de author/merge pertence à linha principal atual do upstream.
 
-- [ ] **Step 3: 创建不会覆盖的安全引用**
+- [ ] **Passo 3: Criar referências seguras que não sobrescrevem**
 
 ```powershell
 git -C C:\Users\dev\zcode-cua branch backup/windows-cua-before-forward-port-20260804 codex/windows-cua-pointer-foundation
 git -C C:\Users\dev\zcode-cua branch backup/local-main-before-forward-port-20260804 main
 ```
 
-Expected: 两个 backup branch 指向原有 commit；若名称已存在，验证它们指向预期 commit 后复用。
+Expected: os dois backup branches apontam para os commits originais; se os nomes já existirem, reutilize-os depois de verificar que apontam para os commits esperados.
 
-- [ ] **Step 4: 原地对齐本地 main，不使用 hard reset**
+- [ ] **Passo 4: Alinhar o main local no lugar, sem usar hard reset**
 
 ```powershell
 git -C C:\Users\dev\zcode-cua switch codex/windows-cua-pointer-foundation
@@ -70,9 +70,9 @@ git -C C:\Users\dev\zcode-cua branch -f main origin/main
 git -C C:\Users\dev\zcode-cua switch main
 ```
 
-Expected: `git status --short --branch` 显示 `main...origin/main`，无 ahead/behind、无文件修改。
+Expected: `git status --short --branch` mostra `main...origin/main`, sem ahead/behind e sem modificações de arquivo.
 
-- [ ] **Step 5: 安装依赖并建立 baseline**
+- [ ] **Passo 5: Instalar dependências e estabelecer a baseline**
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -81,13 +81,13 @@ pnpm lint
 pnpm test
 ```
 
-Expected: 所有命令 exit 0。若 baseline 失败，停止并记录失败，不进入 Task 2。
+Expected: todos os comandos com exit 0. Se a baseline falhar, pare e registre a falha, sem passar para a Task 2.
 
 ---
 
-### Task 2: 用 producer-owned contract 锁定 Windows Helper 包契约
+### Task 2: Travar o contrato do package do Windows Helper com um contract possuído pelo producer
 
-**Files:**
+**Arquivos:**
 
 - Create: `C:\Users\dev\zcode-cua\test\windows-package-artifacts.test.ts`
 - Create: `C:\Users\dev\zcode-cua\src\windows-helper.ts`
@@ -96,11 +96,11 @@ Expected: 所有命令 exit 0。若 baseline 失败，停止并记录失败，�
 
 **Interfaces:**
 
-- Produces: `packageJson.zcodeCuaRuntime.windows.entry === "dist/windows-helper.js"`。
-- Produces: export `./windows-helper` 指向 `./dist/windows-helper.js`。
-- Consumes later: z-code staging/runtime resolver。
+- Produces: `packageJson.zcodeCuaRuntime.windows.entry === "dist/windows-helper.js"`.
+- Produces: export `./windows-helper` apontando para `./dist/windows-helper.js`.
+- Consumido depois: staging/resolver de runtime do z-code.
 
-- [ ] **Step 1: 写 package contract RED test**
+- [ ] **Passo 1: Escrever o RED test do contrato do package**
 
 ```ts
 it("publishes the current Windows helper runtime contract", () => {
@@ -117,7 +117,7 @@ it("publishes the current Windows helper runtime contract", () => {
 });
 ```
 
-同一测试调用 `pnpm pack --dry-run --json`，断言 pack 包含：
+O mesmo teste chama `pnpm pack --dry-run --json` e afirma que o pack contém:
 
 ```ts
 for (const path of [
@@ -130,17 +130,17 @@ for (const path of [
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认 RED**
+- [ ] **Passo 2: Executar o teste e confirmar RED**
 
 ```powershell
 pnpm exec vitest run test/windows-package-artifacts.test.ts
 ```
 
-Expected: FAIL，原因是 `zcodeCuaRuntime`/`./windows-helper`/entry 不存在，而不是测试加载错误。
+Expected: FAIL, porque `zcodeCuaRuntime`/`./windows-helper`/entry não existem, e não por erro de carregamento do teste.
 
-- [ ] **Step 3: 添加最小 package contract 与 build entry**
+- [ ] **Passo 3: Adicionar o contrato mínimo de package e a entry de build**
 
-在 `package.json` 添加：
+Em `package.json`, adicionar:
 
 ```json
 "./windows-helper": {
@@ -156,23 +156,23 @@ Expected: FAIL，原因是 `zcodeCuaRuntime`/`./windows-helper`/entry 不存在�
 }
 ```
 
-`src/windows-helper.ts` 只能调用 broker/server 提供的 Windows Helper main；不得重复实现 broker。
-`scripts/build.mjs` 把该入口加入现有 esbuild entries。
+`src/windows-helper.ts` só pode chamar o main do Windows Helper fornecido pelo broker/server; não deve reimplementar o broker.
+`scripts/build.mjs` adiciona essa entry às entries esbuild existentes.
 
-- [ ] **Step 4: 运行 GREEN 验证**
+- [ ] **Passo 4: Executar a verificação GREEN**
 
 ```powershell
 pnpm build
 pnpm exec vitest run test/windows-package-artifacts.test.ts
 ```
 
-Expected: build 和测试 exit 0；pack 内容来自当前源码生成物。
+Expected: build e teste com exit 0; o conteúdo do pack vem dos artefatos gerados a partir do source atual.
 
 ---
 
-### Task 3: 把 Windows Helper 生命周期接入当前上游 broker
+### Task 3: Ligar o ciclo de vida do Windows Helper ao broker do upstream atual
 
-**Files:**
+**Arquivos:**
 
 - Create: `C:\Users\dev\zcode-cua\src\broker\server\windowsDevHelperMain.ts`
 - Create: `C:\Users\dev\zcode-cua\src\broker\server\windowsSystemSurface.ts`
@@ -184,12 +184,12 @@ Expected: build 和测试 exit 0；pack 内容来自当前源码生成物。
 
 **Interfaces:**
 
-- Produces: `parseWindowsDevHelperConfig`、`runWindowsDevHelper`、`WINDOWS_DEV_CONTROL_PROTOCOL`。
-- Consumes: 当前 `startCuaPermissionBroker`、native loader、上游 cleanup/cancellation semantics。
+- Produces: `parseWindowsDevHelperConfig`, `runWindowsDevHelper`, `WINDOWS_DEV_CONTROL_PROTOCOL`.
+- Consome: o `startCuaPermissionBroker` atual, o native loader e a semântica de cleanup/cancellation do upstream.
 
-- [ ] **Step 1: 写 Helper config/lifecycle RED tests**
+- [ ] **Passo 1: Escrever os RED tests de config/ciclo de vida do Helper**
 
-覆盖以下真实行为：
+Cobrir os seguintes comportamentos reais:
 
 ```ts
 expect(
@@ -201,37 +201,36 @@ expect(
 ).toEqual({ socketPath: SOCKET, parentPid: 12, token: TOKEN });
 ```
 
-并断言：非 win32、非 named pipe、非正 parent PID、缺 token、出现 `--token` 均拒绝；
-ready 必须等 broker bound；IPC/disconnect/signal/parent loss 复用一个 idempotent async stop；
-错误消息和 control IPC 不含 token。
+E afirmar: plataformas não-win32, named pipe não suportado, parent PID não positivo, token ausente e a presença de `--token` são todos rejeitados;
+ready precisa aguardar o bound do broker; IPC/disconnect/signal/perda do pai reutilizam um único stop assíncrono idempotente;
+as mensagens de erro e o IPC de controle não contêm o token.
 
-- [ ] **Step 2: 运行并确认 RED**
-
-```powershell
-pnpm exec vitest run test/windowsDevHelperMain.test.ts test/broker/windowsSystemSurface.test.ts
-```
-
-Expected: FAIL，原因是 Windows Helper modules 尚不存在。
-
-- [ ] **Step 3: 实现当前-main 兼容的最小 Helper entry**
-
-实现顺序：配置校验 → native/system surface 注入 → broker ready IPC → watchdog/listeners →
-统一 terminal cleanup。中文注释记录：Windows 没有 TCC Helper.app，但仍由独立 Host child
-持有自动化能力；token 放 argv 会泄露到进程列表，因此只接受 env。
-
-- [ ] **Step 4: 验证 GREEN**
+- [ ] **Passo 2: Executar e confirmar RED**
 
 ```powershell
 pnpm exec vitest run test/windowsDevHelperMain.test.ts test/broker/windowsSystemSurface.test.ts
 ```
 
-Expected: 所有非 native tests 通过；native smoke 在 addon 未构建时明确 skip。
+Expected: FAIL, porque os módulos do Windows Helper ainda não existem.
+
+- [ ] **Passo 3: Implementar a entry mínima do Helper compatível com o main atual**
+
+Ordem de implementação: validação de configuração → injeção da system surface nativa → IPC de broker ready → watchdog/listeners →
+cleanup terminal unificado. Comentários em chinês registrando: o Windows não tem um Helper.app de TCC, mas a capacidade de automação ainda é mantida por um child Host separado; colocar o token em argv vazaria para a lista de processos, portanto apenas env é aceito.
+
+- [ ] **Passo 4: Verificar GREEN**
+
+```powershell
+pnpm exec vitest run test/windowsDevHelperMain.test.ts test/broker/windowsSystemSurface.test.ts
+```
+
+Expected: todos os testes não nativos passam; o smoke nativo faz skip explícito quando o addon ainda não foi construído.
 
 ---
 
-### Task 4: 正向迁移 Windows AUMID、pointer 与 clipboard
+### Task 4: Portar adiante AUMID, pointer e clipboard do Windows
 
-**Files:**
+**Arquivos:**
 
 - Modify: `C:\Users\dev\zcode-cua\src\native\ax_win.cc`
 - Modify: `C:\Users\dev\zcode-cua\src\native\win.ts`
@@ -242,17 +241,17 @@ Expected: 所有非 native tests 通过；native smoke 在 addon 未构建时明
 - Modify: `C:\Users\dev\zcode-cua\src\broker\server\electronInputHandlers.ts`
 - Modify: `C:\Users\dev\zcode-cua\src\broker\server\electronAppHelpers.ts`
 - Modify: `C:\Users\dev\zcode-cua\src\tools\pointer.ts`
-- Create: Windows pointer/clipboard/AUMID tests listed in the design WCFR-06/07/08.
+- Create: testes de pointer/clipboard/AUMID do Windows listados no design WCFR-06/07/08.
 
 **Interfaces:**
 
-- Produces native ABI: `moveTo`、`scrollAt`、`drag`、`mouseDown`、`mouseUp`、
-  `releaseSyntheticInputs`、async clipboard read/write、AUMID activate/resolve。
-- Preserves upstream `InputHoldRegistry`、delivery-state 和 re-resolution。
+- Produz ABI nativo: `moveTo`, `scrollAt`, `drag`, `mouseDown`, `mouseUp`,
+  `releaseSyntheticInputs`, leitura/escrita assíncrona de clipboard, activate/resolve de AUMID.
+- Preserva o `InputHoldRegistry`, o delivery-state e a re-resolution do upstream.
 
-- [ ] **Step 1: 导入并适配测试，先锁定 current-main 语义**
+- [ ] **Passo 1: Importar e adaptar os testes, travando primeiro a semântica do main atual**
 
-从安全分支读取测试意图，但在 main 上重新创建测试。至少覆盖：
+Ler a intenção dos testes a partir do branch seguro, mas recriar os testes em cima do main. Cobrir pelo menos:
 
 ```ts
 expect(
@@ -263,10 +262,9 @@ expect(() => dispatchWindowsPointer({ appRef: expectedApp, activeApps: [otherApp
 );
 ```
 
-另覆盖：虚拟桌面负坐标、drag partial failure 补发 up、stop/cancel 释放 owned input、
-Unicode clipboard 精确 round-trip、AUMID 0/多候选 fail closed、普通 Win32 使用 canonical exe。
+Cobrir também: coordenadas negativas de desktop virtual, reenvio de `up` em falha parcial de drag, liberação de input owned em stop/cancel, round-trip exato de clipboard Unicode, fail closed de AUMID com 0/múltiplos candidatos e uso do exe canônico no Win32 comum.
 
-- [ ] **Step 2: 运行 focused tests 并确认 RED**
+- [ ] **Passo 2: Executar os testes focados e confirmar RED**
 
 ```powershell
 pnpm exec vitest run `
@@ -278,14 +276,14 @@ pnpm exec vitest run `
   test/windows-open-application-identity.test.ts
 ```
 
-Expected: FAIL，分别指向缺失 ABI/adapter/identity 行为。
+Expected: FAIL, apontando respectivamente para os comportamentos de ABI/adapter/identity ausentes.
 
-- [ ] **Step 3: 按层实现最小 GREEN**
+- [ ] **Passo 3: Implementar o GREEN mínimo por camada**
 
-顺序固定为：native ABI → TS adapter → neutral backend ports → broker handler → tool scope。
-工具层不得出现 Win32/UIA 名称；Windows-only 分支只存在 native/Helper adapter。
+A ordem é fixa: ABI nativo → adapter TS → ports neutros de backend → broker handler → tool scope.
+O camada de ferramenta não pode conter nomes de Win32/UIA; ramos Windows-only existem apenas em adapters native/Helper.
 
-- [ ] **Step 4: 重建 addon 并运行 GREEN**
+- [ ] **Passo 4: Reconstruir o addon e executar o GREEN**
 
 ```powershell
 pnpm rebuild:native
@@ -298,13 +296,13 @@ pnpm exec vitest run `
   test/windows-open-application-identity.test.ts
 ```
 
-Expected: focused tests exit 0；需要交互桌面的测试明确 skip，而不是伪造 pass。
+Expected: testes focados com exit 0; testes que exigem desktop interativo fazem skip explícito, em vez de falsificar um pass.
 
 ---
 
-### Task 5: 正向迁移 WGC 与 state-image 绑定
+### Task 5: Portar adiante WGC e o binding de state-image
 
-**Files:**
+**Arquivos:**
 
 - Create: `C:\Users\dev\zcode-cua\src\native\screen_capture_win.h`
 - Create: `C:\Users\dev\zcode-cua\src\native\screen_capture_win.cc`
@@ -312,21 +310,21 @@ Expected: focused tests exit 0；需要交互桌面的测试明确 skip，而不
 - Modify: `C:\Users\dev\zcode-cua\binding.gyp`
 - Modify: `C:\Users\dev\zcode-cua\src\native\ax_win.cc`
 - Modify: `C:\Users\dev\zcode-cua\src\native\win.ts`
-- Modify: current broker observation/capture adapters without replacing upstream incremental state logic.
-- Create: WGC capability/adapter/app-state tests listed in WCFR-04/05。
+- Modify: os adapters atuais de observação/captura do broker, sem substituir a lógica de estado incremental do upstream.
+- Create: testes de capability/adapter/app-state de WGC listados em WCFR-04/05。
 
 **Interfaces:**
 
-- Produces: async display/window PNG capture + exact logical bounds。
-- Consumes: current upstream explicit visual capture and incremental/full observation contract。
+- Produces: captura assíncrona de display/window em PNG + bounds lógicos exatos。
+- Consumes: o contrato atual de upstream de captura visual explícita e de observação incremental/completa。
 
-- [ ] **Step 1: 写 WGC RED tests**
+- [ ] **Passo 1: Escrever os RED tests de WGC**
 
-覆盖：支持状态真实反映 native ABI；display/window capture 返回 PNG+bounds；
-`capture_app` 将 image 绑定到 verified HWND/window_id；state-image 使用同一 bounds；
-最小化/锁屏/unsupported 返回明确 unavailable。
+Cobrir: o estado de suporte refletindo de verdade a ABI nativa; captura de display/window retornando PNG+bounds;
+`capture_app` ligando a imagem ao HWND/window_id verificado; state-image usando os mesmos bounds;
+janela minimizada/bloqueada/suportada indevidamente retornando unavailable de forma explícita.
 
-- [ ] **Step 2: 运行并确认 RED**
+- [ ] **Passo 2: Executar e confirmar RED**
 
 ```powershell
 pnpm exec vitest run `
@@ -336,15 +334,14 @@ pnpm exec vitest run `
   test/windows-capability-truthfulness.test.ts
 ```
 
-Expected: FAIL，当前 main 的 `captureWindowImage`/capability 没有 WGC 实现。
+Expected: FAIL, pois o main atual não tem implementação de WGC em `captureWindowImage`/capability.
 
-- [ ] **Step 3: 实现 WGC bridge**
+- [ ] **Passo 3: Implementar a ponte WGC**
 
-从安全分支迁移 WinRT capture item、D3D11 device/frame pool、PNG 编码和 bounds 校验；
-接入当前 main 的 explicit visual capture seam。中文注释说明为什么最小化/非交互桌面必须
-fail closed，不能返回空白图片冒充成功。
+Portar do branch seguro o capture item do WinRT, o device/frame pool do D3D11, a codificação PNG e a validação de bounds;
+conectar à seam de captura visual explícita do main atual. Um comentário em chinês explica por que janela minimizada/desktop não interativo precisa falhar de forma fechada, sem devolver imagem em branco fingindo sucesso.
 
-- [ ] **Step 4: 构建并运行 GREEN**
+- [ ] **Passo 4: Construir e executar o GREEN**
 
 ```powershell
 pnpm rebuild:native
@@ -356,22 +353,22 @@ pnpm exec vitest run `
   test/windows-capability-truthfulness.test.ts
 ```
 
-Expected: focused tests exit 0，current-main incremental observation tests 继续通过。
+Expected: testes focados com exit 0 e os testes de observação incremental do main atual continuando passando.
 
 ---
 
-### Task 6: Producer 全量验证与单一 commit
+### Task 6: Verificação completa do Producer e commit único
 
-**Files:**
+**Arquivos:**
 
 - Modify generated: `C:\Users\dev\zcode-cua\dist\**`
-- Create/update: Windows live smoke scripts and `docs/platforms.md` only when current behavior needs记录。
+- Create/update: scripts de live smoke do Windows e `docs/platforms.md`, apenas quando o comportamento atual precisar ser registrado.
 
 **Interfaces:**
 
-- Produces: 一个可由 Git dependency 安装的完整 producer commit SHA。
+- Produces: um único commit SHA completo do producer, instalável como dependência de Git.
 
-- [ ] **Step 1: 重新生成产物并检查 diff**
+- [ ] **Passo 1: Regenerar os artefatos e inspecionar o diff**
 
 ```powershell
 pnpm build
@@ -379,9 +376,9 @@ git status --short
 git diff --check
 ```
 
-Expected: `dist` 只反映当前 source build；无 conflict marker、无意外 macOS/Linux 删除。
+Expected: `dist` reflete apenas o build do source atual; sem conflict markers e sem remoções inesperadas de macOS/Linux.
 
-- [ ] **Step 2: 执行 producer 完整自动化门禁**
+- [ ] **Passo 2: Executar as gates automatizadas completas do producer**
 
 ```powershell
 pnpm typecheck
@@ -392,9 +389,9 @@ pnpm build
 pnpm pack --dry-run --json
 ```
 
-Expected: 全部 exit 0；记录 tests passed/skipped 数量。
+Expected: tudo com exit 0; registrar as quantidades de testes passed/skipped.
 
-- [ ] **Step 3: 执行 Windows live smoke**
+- [ ] **Passo 3: Executar o live smoke no Windows**
 
 ```powershell
 node scripts/windows-pointer-live-smoke.mjs
@@ -403,9 +400,9 @@ node scripts/windows-screen-capture-live-smoke.mjs
 node scripts/windows-tool-surface-live-smoke.mjs
 ```
 
-Expected: pointer/clipboard 恢复原状态，WGC/30-tool smoke exit 0，无 Helper/fixture orphan。
+Expected: pointer/clipboard restauram o estado original, smoke de WGC/30-tools com exit 0 e nenhum Helper/fixture órfão.
 
-- [ ] **Step 4: 创建唯一 producer commit**
+- [ ] **Passo 4: Criar o único commit do producer**
 
 ```powershell
 git add --all
@@ -413,13 +410,13 @@ git diff --cached --check
 git commit -m "feat(windows): forward-port CUA runtime onto current main"
 ```
 
-Expected: `origin/main..main` 只有一个新 commit，且未 push。
+Expected: `origin/main..main` contém apenas um novo commit, e nada foi enviado.
 
 ---
 
-### Task 7: z-code consumer 先用 RED tests 去掉旧版本真相
+### Task 7: z-code consumer remove primeiro a verdade da versão antiga com RED tests
 
-**Files:**
+**Arquivos:**
 
 - Modify: `C:\Users\dev\z-code\packages\desktop\test\windows-cua-helper-assets.test.ts`
 - Modify: `C:\Users\dev\z-code\packages\services\test\windowsCuaDevRuntime.test.ts`
@@ -427,27 +424,24 @@ Expected: `origin/main..main` 只有一个新 commit，且未 push。
 
 **Interfaces:**
 
-- Consumes: Task 6 本地 producer commit 和 `zcodeCuaRuntime` contract。
-- Produces: RED evidence that hardcoded `0.3.28` consumer cannot consume current producer。
+- Consumes: o commit local do producer da Task 6 e o contrato `zcodeCuaRuntime`。
+- Produces: evidência RED de que o consumer com `0.3.28` hardcoded não consegue consumir o producer atual。
 
-- [ ] **Step 1: 记录本地 producer SHA，保持远端 dependency pin 不变**
+- [ ] **Passo 1: Registrar o SHA local do producer, mantendo o pin remoto da dependência inalterado**
 
-运行：
+Execute:
 
 ```powershell
 $producerCommit = git -C C:\Users\dev\zcode-cua rev-parse HEAD
 Write-Output $producerCommit
 ```
 
-用户明确要求不 push，因此该 SHA 暂时不能被 Git URL clean checkout 获取。实现和本地产品
-验证使用显式 `ZCODE_CUA_HELPER_RUNTIME_PACKAGE_DIR=C:\Users\dev\zcode-cua`；
-`pnpm-workspace.yaml` 和 `pnpm-lock.yaml` 在 producer commit 可从 remote 获取前保持当前
-上游 pin，禁止提交不可获取的 SHA 或 `file:` 本地路径。最终 Git URL pin/clean-install gate
-标记为待用户 push 后执行，不能伪造成功。
+O usuário exigiu explicitamente não fazer push, portanto esse SHA ainda não pode ser obtido por um clean checkout de uma Git URL. A implementação e a validação local do produto usam `ZCODE_CUA_HELPER_RUNTIME_PACKAGE_DIR=C:\Users\dev\zcode-cua` explicitamente;
+`pnpm-workspace.yaml` e `pnpm-lock.yaml` mantêm o pin atual do upstream até que o commit do producer possa ser obtido do remote, e é proibido commitar um SHA inacessível ou um caminho local `file:`. A gate final de pin por Git URL / clean-install fica marcada como pendente de execução após o push pelo usuário, sem falsificar sucesso.
 
-- [ ] **Step 2: 修改 consumer tests 表达新契约**
+- [ ] **Passo 2: Modificar os testes do consumer para expressar o novo contrato**
 
-测试 package fixture 使用：
+O fixture de package dos testes usa:
 
 ```ts
 {
@@ -463,9 +457,9 @@ Write-Output $producerCommit
 }
 ```
 
-另断言版本可以变为 `0.5.3` 而不需要修改 consumer 常量，但 schema/name/path/digest 仍严格校验。
+Afirmar também que a versão pode virar `0.5.3` sem precisar alterar a constante do consumer, mas que schema/name/path/digest continuam sendo validados estritamente.
 
-- [ ] **Step 3: 运行并确认 RED**
+- [ ] **Passo 3: Executar e confirmar RED**
 
 ```powershell
 pnpm exec vitest run packages/desktop/test/windows-cua-helper-assets.test.ts
@@ -473,29 +467,29 @@ pnpm exec vitest run packages/services/test/windowsCuaDevRuntime.test.ts
 pnpm exec vitest run packages/desktop/test/runtime-asset-scripts.test.ts
 ```
 
-Expected: FAIL，旧实现仍要求 `0.3.28`，且 preparation 未调用 Windows CUA staging。
+Expected: FAIL, pois a implementação antiga ainda exige `0.3.28` e o preparation ainda não chama o staging de Windows CUA.
 
 ---
 
-### Task 8: 实现 consumer contract、clean staging 与 runtime resolver
+### Task 8: Implementar o contrato do consumer, o clean staging e o runtime resolver
 
-**Files:**
+**Arquivos:**
 
 - Modify: `C:\Users\dev\z-code\packages\desktop\scripts\windows-cua-helper-assets.mjs`
 - Modify: `C:\Users\dev\z-code\packages\desktop\scripts\prepare-runtime-assets.mjs`
 - Modify: `C:\Users\dev\z-code\packages\services\src\cua-permission-broker\windowsCuaDevRuntime.ts`
-- Keep validation local to each allowed layer: desktop staging validates producer package contract；services validates the staged manifest and explicit dev-root contract。两处通过同一 parity fixture 锁定 schema/name/path 规则，不跨层导入 desktop/service 实现。
+- Manter a validação local a cada camada permitida: o staging do desktop valida o contrato de package do producer; services valida o manifest staged e o contrato explícito de dev-root. As duas travam as regras de schema/name/path por meio do mesmo fixture de paridade, sem importar implementação de desktop/service entre camadas.
 - Update: `C:\Users\dev\z-code\docs\cua\windows-product-runtime.md`
 - Update: `C:\Users\dev\z-code\docs\cua\windows-source-development.md`
 
 **Interfaces:**
 
-- Produces: canonical `WindowsCuaRuntimeContract` parser semantics。
-- Produces: staged `runtime-manifest.json` with observed version and digests。
+- Produces: semântica canônica de parser do `WindowsCuaRuntimeContract`。
+- Produces: `runtime-manifest.json` staged, com versão observada e digests。
 
-- [ ] **Step 1: 实现 producer contract parser**
+- [ ] **Passo 1: Implementar o parser do contrato do producer**
 
-Parser 只接受：
+O parser só aceita:
 
 ```ts
 type WindowsCuaRuntimeContract = {
@@ -507,21 +501,18 @@ type WindowsCuaRuntimeContract = {
 };
 ```
 
-路径检查拒绝 absolute、反斜杠、空段、`.`、`..`、NUL、链接逃逸。package version 作为
-manifest provenance 原样记录，不与 consumer 常量比较；entry/nativeAddon 的具体值由固定
-producer commit 声明，consumer 不再重复保存这两个路径常量。
+A verificação de caminho rejeita absoluto, barra invertida, segmento vazio, `.`, `..`, NUL e escape por link. A versão do package é registrada como provenance no manifest, sem comparação com constantes do consumer; os valores concretos de entry/nativeAddon são declarados pelo commit fixo do producer e o consumer não guarda mais essas duas constantes de caminho.
 
-- [ ] **Step 2: 把 contract 接入 staging/resolver**
+- [ ] **Passo 2: Ligar o contrato ao staging/resolver**
 
-staging 从 package JSON 读取 contract，生成 SHA-256 inventory；resolver 校验 manifest、
-entry/native addon、Electron、PE arch 和 digest。现有 dev override/product-only 查找边界保持不变。
+O staging lê o contrato do JSON do package e gera um inventário SHA-256; o resolver valida manifest, entry/native addon, Electron, PE arch e digest. Os limites existentes de dev override/product-only permanecem inalterados.
 
-- [ ] **Step 3: 把 Windows staging 接入资源准备**
+- [ ] **Passo 3: Ligar o staging de Windows à preparação de assets**
 
-`prepare-runtime-assets.mjs` 仅在目标平台/架构为 Windows 时调用 Windows CUA staging；
-macOS/Linux 流程不读取 Windows native addon。
+`prepare-runtime-assets.mjs` só chama o staging de Windows CUA quando a plataforma/arquitetura alvo é Windows;
+o fluxo de macOS/Linux não lê o native addon do Windows.
 
-- [ ] **Step 4: 运行 GREEN tests**
+- [ ] **Passo 4: Executar os GREEN tests**
 
 ```powershell
 pnpm exec vitest run packages/desktop/test/windows-cua-helper-assets.test.ts
@@ -529,30 +520,29 @@ pnpm exec vitest run packages/services/test/windowsCuaDevRuntime.test.ts
 pnpm exec vitest run packages/desktop/test/runtime-asset-scripts.test.ts
 ```
 
-Expected: 全部 exit 0。
+Expected: tudo com exit 0.
 
 ---
 
-### Task 9: Clean-tree/package smoke 与 z-code commit
+### Task 9: Clean-tree/package smoke e commit do z-code
 
-**Files:**
+**Arquivos:**
 
-- Update docs only if verification reveals an exact command/limitation not covered by Task 8。
+- Atualizar a documentação apenas se a verificação revelar um comando/limitação exatos não cobertos pela Task 8。
 
 **Interfaces:**
 
-- Produces: P0 completion evidence and z-code implementation commit。
+- Produces: evidência de conclusão P0 e o commit de implementação do z-code。
 
-- [ ] **Step 1: 在独立临时目录验证无 ignored 资源依赖**
+- [ ] **Passo 1: Verificar em um diretório temporário separado a ausência de dependência de assets ignorados**
 
-从当前 tracked tree 创建临时 checkout，确认 `packages/desktop/bundled-tools` 初始不存在；
-显式把 `ZCODE_CUA_HELPER_RUNTIME_PACKAGE_DIR` 指向 Task 6 本地 producer，执行 staging，
-然后检查 manifest/entry/native digests。
+Criar um checkout temporário a partir da árvore tracked atual e confirmar que `packages/desktop/bundled-tools` não existe inicialmente;
+apontar explicitamente `ZCODE_CUA_HELPER_RUNTIME_PACKAGE_DIR` para o producer local da Task 6, executar o staging
+e então conferir manifest/entry/native digests.
 
-Expected: 不复制当前工作区历史 `bundled-tools` 也能生成资源。由于 producer commit 未 push，
-该结果是 local producer + clean consumer tree 证据，不宣称远端 Git dependency clean install 已闭环。
+Expected: os assets são gerados mesmo sem copiar o `bundled-tools` do histórico do workspace atual. Como o commit do producer não foi enviado, esse resultado é evidência de local producer + clean consumer tree, e não declara que o clean install da dependência Git remota foi fechado.
 
-- [ ] **Step 2: 执行 z-code focused/integration gates**
+- [ ] **Passo 2: Executar as gates focadas/de integração do z-code**
 
 ```powershell
 pnpm exec vitest run packages/services/test/windowsCuaDevHelperHost.test.ts
@@ -560,23 +550,23 @@ pnpm exec vitest run packages/services/test/windowsCuaProductHelper.integration.
 pnpm --filter @zcode/zcode-cua-plugin test
 ```
 
-Expected: exit 0；真实 child integration 在 prerequisites 缺失时明确 skip。
+Expected: exit 0; a integração real com child process faz skip explícito quando faltam pré-requisitos.
 
-- [ ] **Step 3: 执行强制全局门禁**
+- [ ] **Passo 3: Executar as gates globais obrigatórias**
 
 ```powershell
 pnpm typecheck
 pnpm lint
 ```
 
-Expected: 两个命令 exit 0。若全量或 affected tests 有既有失败，保留完整输出并做 clean baseline 对照。
+Expected: ambos com exit 0. Se os testes completos ou afetados tiverem falhas preexistentes, preserve a saída completa e faça uma comparação com uma baseline limpa.
 
-- [ ] **Step 4: 检查模式不变量**
+- [ ] **Passo 4: Verificar os invariantes de padrão**
 
-用测试/静态断言证明：remote workspace、SSH、WSL、Docker、mobile `/remote` 不进入
-Windows Helper start/staging；desktop continuous 与 web replayable 无协议变化。
+Provar com testes/asserções estáticas que: remote workspace, SSH, WSL, Docker e `/remote` do celular não entram no
+start/staging do Windows Helper; e que desktop continuous e web replayable não têm mudança de protocolo.
 
-- [ ] **Step 5: 创建 z-code 实现 commit**
+- [ ] **Passo 5: Criar o commit de implementação do z-code**
 
 ```powershell
 git add --all
@@ -584,42 +574,42 @@ git diff --cached --check
 git commit -m "fix(cua): align Windows runtime with current producer"
 ```
 
-Expected: commit 成功，工作区 clean，未 push。
+Expected: commit bem-sucedido, workspace limpo e nada enviado.
 
 ---
 
-### Task 10: 完成审计与下一里程碑入口
+### Task 10: Auditoria de conclusão e entrada do próximo marco
 
-**Files:**
+**Arquivos:**
 
-- No required product changes.
+- Sem mudanças obrigatórias de produto.
 
 **Interfaces:**
 
-- Produces: 两仓库 commit SHA、验证结果、已知风险和后续 Windows settings/indicator 入口。
+- Produces: commit SHA dos dois repos, resultados de verificação, riscos conhecidos e a entrada seguinte de settings/indicator do Windows.
 
-- [ ] **Step 1: 核对提交拓扑**
+- [ ] **Passo 1: Conferir a topologia dos commits**
 
 ```powershell
 git -C C:\Users\dev\zcode-cua log --oneline origin/main..main
-git -C C:\Users\dev\z-code log --oneline origin/feat/cua-helper-app..HEAD
+git -C C:\Users\dev\zcode-cua log --oneline origin/feat/cua-helper-app..HEAD
 ```
 
-Expected: zcode-cua 只有一个新 Windows commit；z-code 包含既有 Windows integration、spec 和本次 consumer fix。
+Expected: o zcode-cua tem apenas um novo commit de Windows; o z-code contém a integração Windows existente, o spec e o fix de consumer deste trabalho.
 
-- [ ] **Step 2: 核对工作区与 push 状态**
+- [ ] **Passo 2: Conferir o workspace e o estado de push**
 
 ```powershell
 git -C C:\Users\dev\zcode-cua status --short --branch
 git -C C:\Users\dev\z-code status --short --branch
 ```
 
-Expected: 两个 working tree clean；分支只在本地 ahead，没有 push。
+Expected: as duas working trees limpas; branches apenas advanced localmente, sem push.
 
-- [ ] **Step 3: 逐项对照 spec 完成定义**
+- [ ] **Passo 3: Conferir item a item a definição de conclusão do spec**
 
-核对 WCFR-01 至 WCFR-10；任何未验证 live/package 项必须明确标为未完成，不能从 unit tests 外推。
+Verificar WCFR-01 a WCFR-10; qualquer item live/package não verificado precisa ser marcado explicitamente como não concluído, sem extrapolação a partir de unit tests.
 
-- [ ] **Step 4: 进入后续 P1 前更新计划状态**
+- [ ] **Passo 4: Atualizar o status do plano antes de entrar no P1 seguinte**
 
-P0 全部满足后，才开始 Windows 独立设置 Tab；UI 修改前先读取根 `DESIGN.md` 并另走 spec/TDD。
+Só depois que todo o P0 for atendido começa a Tab de settings independente do Windows; antes de qualquer modificação de UI, ler o `DESIGN.md` da raiz e seguir spec/TDD próprios.

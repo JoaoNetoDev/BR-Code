@@ -1,18 +1,13 @@
-# Bot workspace 状态读取与 Agent 重启竞态
+# Leitura do estado do workspace do bot e corrida com o reinício do Agent
 
-## 问题
+## Problema
 
-Bot 处理 workspace 切换或读取 workspace 配置时，会通过 ZCode Protocol 的
-`workspace/readState` 读取模型与模式状态。调用已经取得 workspace client 后，如果该
-workspace 恰好因为配置更新、模型切换或进程生命周期变化而重启，旧 client 的 stdio
-transport 会在请求发送前关闭，最终向用户返回
-`ZCode agent stdio transport is closed`。
+Ao processar uma troca de workspace ou ler a configuração do workspace, o bot lê o estado de modelo e modo através de `workspace/readState` do ZCode Protocol. Depois que a chamada já obteve o workspace client, se esse workspace reiniciar exatamente por causa de uma atualização de configuração, troca de modelo ou mudança no ciclo de vida do processo, o transporte stdio do client antigo é fechado antes do envio da requisição, e o usuário recebe como resposta final
+`ZCode agent stdio transport is closed`.
 
-## 语义
+## Semântica
 
-- `workspace/readState` 是只读请求，可以在 transport 关闭竞态下重新获取当前 workspace
-  client，并重试一次。
-- 重试必须重新获取当前 Environment 的 client，并等待该 Environment 的 Provider Registry readiness
-  后再执行 `workspace/readState`；不得从 Desktop 重推 Registry 或凭据。
-- 只重试明确的 transport 已关闭错误，不扩展到创建 session、发送 prompt 等非幂等请求。
-- 最多重试一次；如果 host 已整体关闭或新 Agent 仍不可用，继续抛出第二次请求的真实错误。
+- `workspace/readState` é uma requisição somente leitura; em caso de corrida com o fechamento do transporte, é possível obter novamente o workspace client atual e tentar uma vez mais.
+- A nova tentativa deve obter novamente o client do Environment atual e aguardar o readiness do Provider Registry desse Environment antes de executar `workspace/readState`; não é permitido reenviar o Registry ou as credenciais a partir do Desktop.
+- Só é repetida a tentativa em erros explicitamente indicando que o transporte está fechado; a regra não se estende a requisições não idempotentes, como criação de sessão ou envio de prompt.
+- No máximo uma nova tentativa; se o host já tiver sido encerrado por completo ou o novo Agent continuar indisponível, o erro real da segunda requisição continua sendo lançado.

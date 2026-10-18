@@ -1,67 +1,69 @@
-# Todo 37：撤销未发布的 Model Usage 数据库列重命名
+# Todo 37: desfazer a renomeação da coluna de banco de dados Model Usage não publicada
 
-> 状态：已实现
+> Status: implementado
 >
-> 日期：2026-08-28
+> Data: 2026-08-28
 >
-> 来源：Provider Refactor 上线前降级兼容性 Review
+> Origem: review de compatibilidade de downgrade antes do lançamento do Provider Refactor
 
-## 1. 背景
+## 1. Contexto
 
-Provider Refactor 已将领域中的推理档位从含义模糊的 `variant` 收口为 `reasoningLevel`。提交
-`8c55290f1f` 在完成领域命名清理的同时，又增加了 SQLite migration：
+O Provider Refactor já consolidou no domínio o nível de raciocínio, antes chamado de `variant` (ambíguo), para `reasoningLevel`. O commit
+`8c55290f1f`, ao concluir a limpeza de nomes do domínio, também adicionou uma migration SQLite:
 
 ```sql
 alter table model_usage rename column variant to reasoning_level;
 ```
 
-该物理列重命名没有改变数据含义、查询能力或产品行为，只是让数据库列名与新领域字段一致。它会使执行过新 migration
-的数据库无法被旧版本正常写入：旧版本仍向 `model_usage.variant` 写数据，因此降级后会遇到列不存在错误。
+Essa renomeação de coluna física não alterou o significado dos dados, a capacidade de consulta nem o comportamento do produto; apenas tornou o nome da coluna do
+banco consistente com o novo campo do domínio. Porém, ela impede que bancos de dados que já executaram a nova migration
+sejam gravados corretamente por versões antigas: a versão antiga continua gravando em `model_usage.variant`, então após um
+downgrade apareceria erro de coluna inexistente.
 
-本次变更尚未正式发布，只有极少数开发或体验环境执行过该 migration。没有必要为未发布的物理命名调整永久增加反向
-migration、双列兼容或运行时 Schema 探测。
+Esta mudança ainda não foi oficialmente lançada e apenas um número muito pequeno de ambientes de desenvolvimento ou de avaliação executou essa migration. Não há necessidade de adicionar permanentemente
+migration reversa, compatibilidade de duas colunas ou detecção de schema em runtime por causa de um ajuste de nomenclatura física não publicado.
 
-## 2. 已裁决目标
+## 2. Objetivo decidido
 
-数据库继续保留既有物理列名，领域继续使用已经收口后的准确名称：
+O banco de dados continua mantendo o nome de coluna físico existente, e o domínio continua usando o nome preciso já consolidado:
 
 ```text
 ModelUsageRecord.reasoningLevel
               |
-              | Repository 映射
+              | Mapeamento pelo Repository
               v
 model_usage.variant
 ```
 
-具体裁决如下：
+As decisões concretas são:
 
-1. 删除 `0019_model_usage_reasoning_level` migration；
-2. `model_usage` 永久继续使用 `variant` 列，不新增 `reasoning_level` 列；
-3. 领域、协议和 Runtime 中已经采用的 `reasoningLevel` 命名保持不变；
-4. Usage Repository 将 `reasoningLevel` 写入数据库的 `variant` 列；
-5. 不增加数据库反向 migration；
-6. 不增加 `variant/reasoning_level` 双列兼容、列存在性探测或启动时自动修复；
-7. 已执行该未发布 migration 的少量环境由维护者人工修复；
-8. `0019_model_usage_reasoning_level` 作为已撤销的开发期 ID 保留在历史记录中，后续正式 migration 不复用该 ID。
+1. Remover a migration `0019_model_usage_reasoning_level`;
+2. `model_usage` continua usando permanentemente a coluna `variant`, sem criar a coluna `reasoning_level`;
+3. A nomenclatura `reasoningLevel`, já adotada no domínio, no protocolo e no Runtime, permanece inalterada;
+4. O Usage Repository grava `reasoningLevel` na coluna `variant` do banco;
+5. Não adicionar migration reversa no banco;
+6. Não adicionar compatibilidade de duas colunas `variant/reasoning_level`, detecção de existência de coluna ou reparo automático na inicialização;
+7. Os poucos ambientes que já executaram essa migration não publicada são reparados manualmente pelos mantenedores;
+8. `0019_model_usage_reasoning_level` é mantido no histórico como ID de desenvolvimento revogado, e migrations oficiais posteriores não reutilizam esse ID.
 
-## 3. 实现范围
+## 3. Escopo de implementação
 
-### 3.1 撤销物理 Schema 变更
+### 3.1 Desfazer a mudança física de schema
 
-- 从 `SQLITE_MIGRATIONS` 删除 `0019_model_usage_reasoning_level`；
-- 新建数据库仍由 `0010_usage_observability` 创建 `model_usage.variant`；
-- 更新 migration 顺序与幂等测试，不再把 `0019_model_usage_reasoning_level` 视为正式 migration；
-- 检查生产 SQL，确保不存在对 `model_usage.reasoning_level` 的读写。
+- Remover `0019_model_usage_reasoning_level` de `SQLITE_MIGRATIONS`;
+- Bancos de dados novos continuam tendo `model_usage.variant` criado por `0010_usage_observability`;
+- Atualizar os testes de ordem e idempotência das migrations, deixando de tratar `0019_model_usage_reasoning_level` como migration oficial;
+- Verificar o SQL de produção, garantindo que não exista leitura nem escrita de `model_usage.reasoning_level`.
 
-### 3.2 保留领域语义
+### 3.2 Preservar a semântica do domínio
 
-- `ModelUsageRecord`、Runtime、Telemetry 和调用方继续使用 `reasoningLevel`；
-- 只在 SQLite Usage Repository 边界做命名映射；
-- 不重新引入领域字段 `variant`，也不把模型身份与推理档位重新混为一个概念。
+- `ModelUsageRecord`, Runtime, Telemetry e os chamadores continuam usando `reasoningLevel`;
+- O mapeamento de nomes é feito apenas na fronteira do Usage Repository em SQLite;
+- Não reintroduzir o campo de domínio `variant`, nem voltar a misturar identidade de modelo e nível de raciocínio em um único conceito.
 
-### 3.3 人工修复已受影响环境
+### 3.3 Reparo manual dos ambientes afetados
 
-人工修复不是仓库 migration，也不在应用启动时自动执行。操作前必须退出 ZCode 并备份对应 SQLite 文件：
+O reparo manual não é uma migration do repo e não é executado automaticamente na inicialização do app. Antes de operar é obrigatório sair do ZCode e fazer backup do arquivo SQLite correspondente:
 
 ```sql
 BEGIN IMMEDIATE;
@@ -71,44 +73,44 @@ WHERE id = '0019_model_usage_reasoning_level';
 COMMIT;
 ```
 
-只对已经确认存在 `reasoning_level` 且记录过 `0019_model_usage_reasoning_level` 的数据库执行。未受影响的正式或开发环境
-不得执行该 SQL。
+Executar apenas em bancos já confirmados como contendo `reasoning_level` e com o registro `0019_model_usage_reasoning_level`. Ambientes oficiais
+ou de desenvolvimento não afetados não devem executar esse SQL.
 
-## 4. 明确不做
+## 4. Fora de escopo explicitamente
 
-- 不发布 `reasoning_level -> variant` 的反向 migration；
-- 不在 Repository 中同时兼容两套物理列；
-- 不在启动时读取 `pragma_table_info` 并猜测数据库形态；
-- 不删除或重建 `model_usage` 表；
-- 不改变已有 usage 数据含义和保留策略；
-- 不借此调整其他 Session Store 表、列或 migration；
-- 不回退 Provider Refactor 已完成的 `reasoningLevel` 领域命名。
+- Não publicar a migration reversa `reasoning_level -> variant`;
+- Não compatibilizar as duas colunas físicas ao mesmo tempo no Repository;
+- Não ler `pragma_table_info` na inicialização e adivinhar a forma do banco;
+- Não remover nem recriar a tabela `model_usage`;
+- Não alterar o significado dos dados de usage existentes nem a política de retenção;
+- Não aproveitar para ajustar outras tabelas, colunas ou migrations do Session Store;
+- Não reverter a nomenclatura de domínio `reasoningLevel` já concluída pelo Provider Refactor.
 
-## 5. 测试计划
+## 5. Plano de testes
 
-1. 先更新失败测试，再修改生产代码；
-2. 新建 SQLite Session Store，断言 migration 列表止于当前正式 migration，不包含已撤销的 `0019`；
-3. 使用 `pragma_table_info(model_usage)` 断言存在 `variant`、不存在 `reasoning_level`；
-4. 以带有 `reasoningLevel` 的 `ModelUsageRecord` 写入数据，断言值正确落入 `variant`；
-5. 覆盖同一 usage record 的 upsert，确认冲突更新仍写入正确列；
-6. 运行 adapters Session Store 与 Usage Query 定向单测；
-7. 运行相关 package typecheck；
-8. 最终执行根 `pnpm typecheck`、`pnpm lint` 和 `git diff --check`。
+1. Atualizar primeiro o teste que falha, depois alterar o código de produção;
+2. Criar um Session Store SQLite novo e afirmar que a lista de migrations termina na migration oficial atual, sem a `0019` revogada;
+3. Usar `pragma_table_info(model_usage)` para afirmar que `variant` existe e `reasoning_level` não;
+4. Gravar um `ModelUsageRecord` com `reasoningLevel` e afirmar que o valor cai corretamente em `variant`;
+5. Cobrir o upsert do mesmo usage record e confirmar que a atualização de conflito ainda escreve na coluna correta;
+6. Rodar os testes unitários direcionados de Session Store e Usage Query de adapters;
+7. Rodar o typecheck dos packages relacionados;
+8. Ao final, executar `pnpm typecheck`, `pnpm lint` e `git diff --check` da raiz.
 
-## 6. 完成标准
+## 6. Critérios de conclusão
 
-- 分支相对 `origin/staging` 不再包含任何 SQLite 表或列变更；
-- 全新数据库和未受影响的既有数据库继续使用 `model_usage.variant`；
-- 领域代码继续只表达 `reasoningLevel`；
-- 旧版本降级后不会因为本分支重命名了 `model_usage.variant` 而写入失败；
-- 仓库不存在自动反向迁移、双列兼容和运行时 Schema 猜测；
-- 受影响环境的人工修复步骤经过临时数据库演练确认，但不进入正式 migration 链。
+- O branch em relação a `origin/staging` não contém mais nenhuma mudança de tabela ou coluna SQLite;
+- Bancos de dados novos e bancos existentes não afetados continuam usando `model_usage.variant`;
+- O código de domínio continua expressando apenas `reasoningLevel`;
+- O downgrade para versões antigas deixa de falhar ao gravar por causa da renomeação de `model_usage.variant` feita neste branch;
+- Não existe no repo migração reversa automática, compatibilidade de duas colunas nem adivinhação de schema em runtime;
+- Os passos de reparo manual para ambientes afetados foram confirmados por ensaio em um banco temporário, mas não entram na cadeia oficial de migrations.
 
-## 7. 实施记录
+## 7. Registro de implementação
 
-- 已从正式 migration 链删除 `0019_model_usage_reasoning_level`，新建数据库继续由
-  `0010_usage_observability` 创建 `model_usage.variant`；
-- Usage Repository 在唯一持久化边界将领域字段 `reasoningLevel` 映射到物理列 `variant`，领域契约未回退；
-- Session Store 测试已固定 migration 清单与真实表结构，并覆盖首次写入和同 ID upsert；
-- 已审计生产代码，不存在 `model_usage.reasoning_level`、双列兼容、Schema 探测或自动反向修复；
-- 本文第 3.3 节的人工修复 SQL 已在临时 SQLite 数据库演练，确认原 usage 值保留且 `0019` 记录被删除。
+- `0019_model_usage_reasoning_level` foi removida da cadeia oficial de migrations, e bancos novos continuam tendo
+  `model_usage.variant` criado por `0010_usage_observability`;
+- O Usage Repository mapeia o campo de domínio `reasoningLevel` para a coluna física `variant` na única fronteira de persistência, sem reverter o contrato do domínio;
+- Os testes do Session Store fixaram a lista de migrations e a estrutura real das tabelas, cobrindo primeira gravação e upsert do mesmo ID;
+- O código de produção foi auditado: não há `model_usage.reasoning_level`, compatibilidade de duas colunas, detecção de schema nem reparo reverso automático;
+- O SQL de reparo manual da seção 3.3 foi ensaiado em um banco SQLite temporário, confirmando que os valores de usage originais são preservados e que o registro `0019` é removido.

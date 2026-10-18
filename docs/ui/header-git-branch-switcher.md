@@ -1,20 +1,21 @@
-# Header 工作区与分支提示
+# Header: indications de workspace e branch
 
-Workspace Header 不再在任务名称后展示工作区胶囊与分支切换入口。工作区信息收进名称前的 ghost 图标按钮：本地显示 Folder，云端/远端显示 Cloud。
+O Workspace Header deixa de exibir a cápsula do workspace e a entrada de troca de branch após o nome da tarefa. As informações do workspace passam para um botão de ícone ghost antes do nome: localmente exibe Folder, na nuvem/remoto exibe Cloud.
 
-标题区元素间距为 `gap-2`（8px）；手机远控窄屏继续使用已有 `gap-1` 紧凑间距。
-Header 默认左内边距为 8px（`p-2`），与右侧基础内边距一致；侧栏收起时仍按平台预留窗口控制按钮空间。
+O espaçamento dos elementos da área de título é `gap-2` (8px); o controle remoto do celular em tela estreita continua usando o espaçamento compacto `gap-1` já existente.
 
-## 行为
+O padding esquerdo padrão do Header é de 8px (`p-2`), igual ao padding base à direita; com a barra lateral recolhida, ainda se reserva, conforme a plataforma, o espaço dos botões de controle da janela.
 
-- 已有任务显示图标入口，新任务草稿继续隐藏工作区上下文。
-- Hover、键盘聚焦或点按时向下显示工作区名称、现有远端主机标识及分支；非 Git 工作区省略分支，Detached HEAD 复用现有本地化文案。
-- 提示采用卡片式浮层，固定 `w-72`（288px）、`rounded-xl`、`bg-popover`、`shadow-md`，内边距 12px、行间距 12px。按「工作区图标 + 名称」「分支图标 + 分支」两行左对齐，使用 `text-ui-base`；长文字换行，图标不收缩。不增加任务统计、路径或操作项。
-- 手机远控同样显示紧凑图标，可点按查看，不依赖 hover。
-- 工作区与分支两行的文字和图标统一使用 `text-popover-foreground`，分支不降低透明度。
-- Header 不再提供分支切换操作；聊天输入区等其他位置的 `GitBranchSwitcher` 保持原有列表、创建和未提交更改保护流程。
+## Comportamento
 
-## 数据来源
+- Tarefas existentes exibem a entrada de ícone; o rascunho de nova task continua ocultando o contexto do workspace.
+- No hover, foco por teclado ou ao pressionar, exibe para baixo o nome do workspace, o identificador de host remoto existente e a branch; em workspaces sem Git a branch é omitida e o Detached HEAD reutiliza o texto localizado existente.
+- O tooltip adota um overlay em formato de card, fixo em `w-72` (288px), `rounded-xl`, `bg-popover`, `shadow-md`, com padding de 12px e espaçamento entre linhas de 12px. São duas linhas alinhadas à esquerda, "ícone do workspace + nome" e "ícone de branch + branch", usando `text-ui-base`; textos longos quebram linha e ícones não encolhem. Não são adicionados estatísticas de tarefa, caminhos ou ações.
+- O controle remoto do celular também exibe o ícone compacto, clicável para visualização, sem depender de hover.
+- O texto e os ícones das linhas de workspace e branch usam uniformemente `text-popover-foreground`; a branch não reduz opacidade.
+- O Header não oferece mais ação de troca de branch; o `GitBranchSwitcher` em outros locais, como a área de input do chat, mantém a lista, a criação e o fluxo de proteção de alterações não commitadas já existentes.
 
-- 提示直接读取现有 `gitSummary`，分支名称复用 `resolveGitBranchTriggerLabel`。不新增 Git 服务调用。
-- 本地/远端识别、workspaceIdentity 与 remoteSessionId 沿用现有边界，不改变连接或任务状态。
+## Origem dos dados
+
+- O tooltip lê diretamente o `gitSummary` existente, e o nome da branch reutiliza `resolveGitBranchTriggerLabel`. Nenhuma nova chamada a serviço Git é adicionada.
+- A identificação local/remoto, o workspaceIdentity e o remoteSessionId mantêm os limites atuais, sem alterar conexão ou estado de task.

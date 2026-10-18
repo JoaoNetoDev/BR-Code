@@ -1,19 +1,19 @@
-# Pinned Task Local Workspace Scope
+# Escopo de Workspace Local de Tasks Pinned
 
-## 背景
+## Contexto
 
-Pinned 任务列表以前完全跟随当前窗口的 `workspaceTabs` 查询。这个链路在“先恢复 workspace tabs，再渲染 sidebar”的启动路径下没问题，但如果后续支持持久化恢复到某个任务视图，例如直接进入 pinned/timeline 视图，UI tabs 可能还没有创建，pinned 查询就会缺少 workspace scope。
+A lista de tasks pinned seguia antes integralmente a consulta de `workspaceTabs` da janela atual. Esse encadeamento funciona bem no caminho de inicialização “restaurar primeiro os workspace tabs e depois renderizar o sidebar”, mas, se futuramente houver suporte a restauração persistente para a visão de alguma task — por exemplo entrar direto na visão pinned/timeline —, as UI tabs podem ainda não ter sido criadas, e a consulta pinned ficaria sem workspace scope.
 
-同时，远端 workspace 在没有 `remoteSessionId` 时不能混入 pinned 查询 scope。否则后续服务解析可能落到本地 services，导致同路径远端任务和本地任务串读。
+Ao mesmo tempo, um workspace remoto não pode ser misturado ao scope da consulta pinned quando não há `remoteSessionId`. Caso contrário, a resolução posterior do serviço pode cair em services locais, fazendo com que tasks remotas e locais do mesmo caminho sejam lidas em conjunto.
 
-## 当前策略
+## Estratégia atual
 
-- `workspaceTabs` 仍然是当前窗口已打开 workspace 的 UI 状态。
-- Pinned 查询使用 `useLocalWorkspaceScopes` 获取查询 scope。
-- Pinned 只按当前窗口已经打开的本地 workspace tabs 查询。
-- 没有本地 workspace tab 时不兜底读取 `lastWorkspaceSession`，查询 scope 为空。
-- 远程 workspace 不参与这个 fallback scope；远端 pinned 查询需要等远程 session 建立后走对应远端服务链路。
+- `workspaceTabs` continua sendo o estado de UI dos workspaces abertos na janela atual.
+- A consulta pinned usa `useLocalWorkspaceScopes` para obter o scope de consulta.
+- O pinned consulta somente as workspace tabs locais já abertas na janela atual.
+- Sem nenhuma workspace tab local, não há leitura de fallback de `lastWorkspaceSession`: o scope de consulta fica vazio.
+- Workspaces remotos não participam desse fallback scope; a consulta pinned remota precisa aguardar a establishment da sessão remota e passar pelo encadeamento de serviço remoto correspondente.
 
-## 边界
+## Limites
 
-这个调整只改变 pinned 任务查询的本地 scope 来源，不改变 app 启动时是否恢复真实 workspace tabs。未来如果新增远端 pinned 视图恢复，需要在远端 session ready 后单独接入远端查询 scope，不能通过本地 scope 兜底。
+Essa alteração muda apenas a origem do scope local da consulta de tasks pinned e não muda se os workspace tabs reais são restaurados ou não na inicialização do app. Se no futuro for adicionada uma restauração de visão pinned remota, o scope de consulta remota precisará ser conectado separadamente depois que a sessão remota estiver pronta, e não por meio de fallback para o scope local.

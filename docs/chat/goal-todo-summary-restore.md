@@ -1,42 +1,37 @@
-# Goal Todo 摘要恢复与闪烁修复
+# Restauração do resumo de Goal Todo e correção do piscar
 
-记录时间：2026-06-10
+Data de registro: 2026-06-10
 
-## 背景
+## Contexto
 
-历史 goal task 恢复后继续发送新消息时，摘要面板可能短暂把当前 5 个 todo 展示成
-20 多个历史 todo。现场日志显示，恢复时 session store 的当前 todo 仍是 5 个，
-但发送新消息后的快照合并阶段出现了 `goalIteration=none` 的本地 streaming assistant，
-并且普通 todo 摘要把所有 `session` todoGroups 展平成一个列表。
+Quando uma goal task histórica é restaurada e novas mensagens são enviadas, o painel de resumo pode exibir brevemente os 5 todos atuais como mais de 20 todos históricos. Os logs de campo mostram que, na restauração, os todos atuais do session store ainda são 5, mas na fase de merge do snapshot após o envio de uma nova mensagem aparece um assistant local em streaming com `goalIteration=none`, e o resumo comum de todos os `session` todoGroups achata todos os grupos em uma única lista.
 
-## 状态来源
+## Fontes de estado
 
-- `session_target` 是 goal 的权威持久化状态。
-- `todo` 是当前 session 短期 todo 列表的权威持久化状态，`TodoWrite` 会整体替换该列表。
-- `todoGroups` 不是独立持久化状态，而是 snapshot 读取时由历史消息、当前 todo、
-  当前 goal target 和 verification timeline 投影出来。
+- `session_target` é o estado persistido autoritativo da goal.
+- `todo` é o estado persistido autoritativo da lista de todos de curto prazo da sessão atual; `TodoWrite` substitui essa lista por inteiro.
+- `todoGroups` não é um estado persistido independente, e sim projetado na leitura do snapshot a partir das mensagens históricas, do todo atual, do goal target atual e da verification timeline.
 
-因此 UI 不能把多个 `session` todoGroups 当成“当前 todo 列表”的累加结果。
+Portanto, a UI não pode tratar múltiplos `session` todoGroups como um resultado acumulado da "lista de todos atual".
 
-## 设计
+## Design
 
-摘要面板的普通 todo fallback 只展示最新的 `session` todoGroup：
+O fallback comum de todos do painel de resumo exibe apenas o `session` todoGroup mais recente:
 
-- 有 live/runtime `plan` 时，继续优先展示 `plan`。
-- 没有 `plan` 时，从 `todoGroups` 中选择最新的 `source: "session"` 分组。
-- 不再把所有 session 分组 `flatMap` 展开，避免历史 TodoWrite 在 goal target 变化或恢复边界
-  暂时丢失时膨胀成累计列表。
+- Havendo um `plan` live/runtime, continua tendo prioridade o `plan`.
+- Sem `plan`, escolhe-se o grupo mais recente com `source: "session"` entre os `todoGroups`.
+- Não se faz mais o `flatMap` de todos os grupos de sessão, evitando que TodoWrite históricos se inflem em uma lista acumulada quando o goal target muda ou se perde temporariamente em um limite de restauração.
 
-snapshot metadata 回填要支持 UI-only timeline 消息造成的下标错位：
+O preenchimento retroativo dos metadados do snapshot precisa suportar o desalinhamento de índices causado por mensagens de timeline UI-only:
 
-- 当前消息和 snapshot 消息同下标、同角色时，继续按原路径回填。
-- 如果当前列表里有 synthetic timeline 等 UI-only 消息，则按非 timeline 消息的可见顺序对齐。
-- 回填仍只补展示元数据和更完整的 snapshot 字段，不改变 replayable/continuous 的传输边界。
+- Quando a mensagem atual e a mensagem do snapshot têm o mesmo índice e o mesmo papel, o preenchimento continua pelo caminho original.
+- Se a lista atual tiver mensagens UI-only como synthetic timeline, o alinhamento passa a ser feito pela ordem visível das mensagens que não são timeline.
+- O preenchimento continua complementando apenas metadados de exibição e campos mais completos do snapshot, sem alterar a fronteira de transmissão de replayable/continuous.
 
-## 边界
+## Fronteiras
 
-- 不修改 `todo` / `session_target` 表结构。
-- 不新增协议字段。
-- 不把 goal iteration 分组结果持久化。
-- 桌面端 `desktop-continuous` 继续保持 direct streaming 主链路。
-- 手机端 `web-remote-replayable` 仍由 snapshot/gap 语义恢复，不绕过 replayable 边界。
+- Não altera a estrutura das tabelas `todo` / `session_target`.
+- Não adiciona campos de protocolo.
+- Não persiste o resultado do agrupamento de goal iteration.
+- O `desktop-continuous` do desktop continua mantendo o link principal de direct streaming.
+- O `web-remote-replayable` no celular continua sendo restaurado pela semântica de snapshot/gap, sem contornar a fronteira replayable.

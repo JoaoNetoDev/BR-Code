@@ -1,75 +1,75 @@
-# Chat Virtual Scroll
+# Rolagem virtual do chat
 
-> **V4 当前事实**：滚动视口、虚拟化、底部跟随与 renderer-local 滚动记忆由
-> `packages/ui/src/v4/ConversationTimeline.tsx` 持有；消息事实仍来自
-> `packages/shared/src/zcode-protocol-v4/` 与 `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/`。
+> **Fato atual do V4**: o viewport de rolagem, a virtualização, o seguimento do fundo e a memória de rolagem local do renderer são mantidos por
+> `packages/ui/src/v4/ConversationTimeline.tsx`; os fatos das mensagens continuam vindo de
+> `packages/shared/src/zcode-protocol-v4/` e `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/`.
 
-## 目标
+## Objetivo
 
-长对话只渲染当前视口附近的消息轮次，降低 renderer 在长会话中的 DOM 数量和 React 更新成本。
+Conversas longas renderizam apenas os turnos de mensagem próximos ao viewport atual, reduzindo a quantidade de DOM no renderer em sessões longas e o custo de atualizações do React.
 
-## 渲染策略
+## Estratégia de renderização
 
-- `ConversationTimeline` 以 `ConversationTurnRenderUnit` 为虚拟滚动单位，而不是单条 projection row。
-- 每个虚拟 row 对应一轮 user + assistant/tool 输出，避免 retry、fork、文件变更摘要和当前轮 loading 被拆散。
-- 使用项目已有的 `@tanstack/react-virtual`，动态高度通过 `measureElement` 回写。
-- 对话搜索先按 projection rows 建索引，再通过 virtualizer 定位并在已挂载 DOM 中高亮。
+- `ConversationTimeline` usa `ConversationTurnRenderUnit` como unidade de rolagem virtual, em vez de uma única linha de projection row.
+- Cada linha virtual corresponde a um turno de saída user + assistant/tool, evitando que retry, fork, resumos de alteração de arquivos e o loading do turno atual sejam fragmentados.
+- Usa o `@tanstack/react-virtual` já existente no projeto, com altura dinâmica escrita de volta via `measureElement`.
+- A busca na conversa primeiro indexa as projection rows e depois usa o virtualizer para localizar e destacar no DOM já montado.
 
-## resize 中的底部跟随
+## Seguimento do fundo durante resize
 
-`ConversationTimeline` 是唯一滚动 owner，沿用 `followingRef` 和已有用户意图裁决。用户上滚立即解除跟随；滚回底部或点击回底恢复跟随；搜索、轮次定位、会话滚动记忆及历史前插继续保持原契约，不提供强制吸底开关。
+`ConversationTimeline` é o único dono da rolagem, mantendo o `followingRef` e a adjudicação existente da intenção do usuário. A rolagem para cima do usuário encerra imediatamente; voltar ao fundo ou clicar em "voltar ao fundo" restaura o seguimento; busca, localização de turno, memória de rolagem da sessão e pré-inserção de histórico mantêm o contrato original, sem uma opção forçada de fixar no fundo.
 
-- 跟随状态下，视口或内容列宽度变化引起的重排采用绘制前批处理：读取行高 → 更新 virtualizer 缓存 → 同步提交 React 占位高度和位置 → 再确认跟随权 → 吸底。不等待宽度稳定计时器，不将旧占位高度下的中间落点留到下一帧。
-- 库的 observer 可能已更新缓存但仍排队等待 React 提交，因此批处理必须明确触发布局提交；不能依赖无差量的重复测量触发 render。同步提交仅在 ResizeObserver 回调内执行，批处理期间其他内容 effect 不抢先吸底。
-- 离底时保持原宽度变化保护：resize 期间暂停逐行滚动补偿，不强制吸底；稳定后恢复正常测高补偿。本文不新增按句子保持屏幕坐标的阅读锚定。
-- 每次批处理前后检查最新用户意图，resize 中上滚、搜索或会话切换不能被后续测高抢回滚动权。观察器监听视口和内容列，在同步提交前暂时取消内容列及父消息层蒙层的尺寸观察，下一帧恢复订阅，避免自身高度写入触发循环通知，同时持续覆盖 CSS 宽度过渡；测高与吸底本身不延后，不重复订阅虚拟行。消息内容变高继续走原有测高与内容提交逻辑。批处理只测已挂载行，不轮询或全量渲染历史。
-- 桌面和手机 Web 共用此逻辑；空草稿保留顶部安全布局，不修改消息协议及 continuous/replayable 边界。
+- No estado de seguimento, o reflow causado por mudança de largura do viewport ou da coluna de conteúdo usa processamento em lote antes da pintura: ler a altura das linhas → atualizar o cache do virtualizer → submeter de forma síncrona a altura e a posição dos placeholders do React → então reconfirmar o direito de seguimento → fixar no fundo. Não se espera o temporizador de estabilização da largura, nem se deixa o ponto de repouso intermediário sob alturas antigas de placeholder para o próximo quadro.
+- O observer da biblioteca pode já ter atualizado o cache e ainda estar enfileirado aguardando a submissão do React, portanto o lote deve disparar explicitamente a submissão do layout; não se pode depender de medições repetidas sem delta para provocar render. A submissão síncrona ocorre apenas dentro do callback do ResizeObserver, e outros efeitos de conteúdo não ficam à frente para fixar no fundo durante o lote.
+- Quando fora do fundo, mantém-se a proteção original contra mudança de largura: a compensação de rolagem linha a linha é pausada durante o resize, sem fixação forçada no fundo; após estabilizar, a compensação normal de medição de altura é restaurada. Este documento não introduz ancoragem de leitura que mantenha coordenadas de tela por frase.
+- A intenção mais recente do usuário é verificada antes e depois de cada lote; rolagem para cima, busca ou troca de sessão durante o resize não podem ter o direito de rolagem recuperado pelo dimensionamento subsequente. Os observers escutam o viewport e a coluna de conteúdo e, antes da submissão síncrona, cancelam temporariamente a observação de tamanho da coluna de conteúdo e da camada de máscara do pai das mensagens, retomando a subscrição no quadro seguinte, evitando que a escrita da própria altura dispare notificações em laço, mantendo cobertura contínua das transições de largura do CSS; a medição de altura e a fixação no fundo não são adiadas e as linhas virtuais não são subscritas novamente. Quando o conteúdo da mensagem fica mais alto, ele continua passando pela lógica original de medição e submissão de conteúdo. O lote mede apenas as linhas já montadas, sem polling nem renderização completa do histórico.
+- A lógica é compartilhada entre Web desktop e mobile; rascunhos vazios mantêm o layout seguro no topo, sem alterar o protocolo de mensagens nem a fronteira continuous/replayable.
 
 ```text
-尺寸变化 → ConversationTimeline 检查跟随权
-  跟随 → 批量测高 → 同步提交布局 → 再检查跟随权 → 吸底
-  离底 → 原有宽度变化与阅读位置保护
-用户上滚 / 搜索定位 → 解除跟随（优先于布局回调）
-回到底部 → 恢复跟随
+Mudança de tamanho → ConversationTimeline verifica o direito de seguimento
+  Seguindo → medição de altura em lote → submissão síncrona do layout → nova verificação do direito de seguimento → fixar no fundo
+  Fora do fundo → proteção original de mudança de largura e posição de leitura
+Rolagem para cima / busca → encerrar seguimento (prioridade sobre callbacks de layout)
+Voltar ao fundo → restaurar seguimento
 ```
 
-验收：连续缩窄/放大时跟随落点与列表占位高度正确；resize 中上滚后保持离底；点击回底可重新跟随。原会话记忆、搜索定位和历史前插回归通过。运行时记录绘制前实际行底部与占位高度误差、离底距离，并检查可见画面，允许 1px 亚像素取整误差；不得以停止拖动后的落点代替过程验证。
+Aceitação: ao ampliar/reduzir continuamente, o ponto de repouso do seguimento e as alturas de placeholder da lista ficam corretos; após rolar para cima durante o resize, mantém-se fora do fundo; clicar para voltar ao fundo restaura o seguimento. A memória de sessão original, a localização por busca e a pré-inserção de histórico passam na regressão. Em runtime, registra-se o erro entre o fundo real das linhas antes da pintura e a altura de placeholder, além da distância do fundo, verificando-se a imagem visível; é permitido erro de arredondamento subpixel de 1px; não se pode substituir a verificação do processo pelo ponto de repouso após soltar o arraste.
 
-浏览器回归：`node --test packages/ui/test/browser/manual-review/pending/conversation-timeline-resize.test.mjs`。覆盖真实 timeline、消息组件和虚拟列表的桌面/手机紧凑布局、深浅主题、内容列独立宽度过渡；数据为确定性 fixture，手机远控传输不属于该测试覆盖范围。桌面实际会话继续由 `conversation-session-v4-scroll.test.ts` 覆盖流式输出与滚动记忆。
+Regressão de navegador: `node --test packages/ui/test/browser/manual-review/pending/conversation-timeline-resize.test.mjs`. Cobre o timeline real, os componentes de mensagem e a lista virtual em layouts desktop/mobile compactos, temas claro e escuro e a transição de largura independente da coluna de conteúdo; os dados são fixtures determinísticos e a transmissão do controle remoto do mobile não faz parte da cobertura desse teste. A sessão real do desktop continua coberta por `conversation-session-v4-scroll.test.ts` para saída em streaming e memória de rolagem.
 
-## 滚动边界
+## Limites de rolagem
 
-- 旧的 `useChatAutoFollow` 多 flag 自动吸底状态机已删除；当前只保留一个小的 bottom-lock 状态和普通手动滚动容器。
-- `ConversationTimeline` 使用一个小的 bottom-lock 状态：没有滚动记忆的新会话默认启用，消息追加、markdown/tool 详情撑高和 ResizeObserver 变化会继续写入最新底部 `scrollTop`。
-- 右下角“滚动到底部”按钮只由当前滚动条位置控制：滚动容器不在底部时显示，到达底部时隐藏；用户手动滚回底部附近或点击按钮滚到底部都会重新启用 bottom-lock，避免生成中内容继续变高时错过锁底。按钮所在底部浮层使用 `background` token 的向上渐变遮罩，避免压住末尾消息时产生生硬边界。
-- 当消息内容短到没有纵向滚动条时，视口没有可保留的历史阅读位置，ChatView 会把它视为 bottom-lock 可开启状态；这样后续流式内容撑出滚动条时仍能继续吸底。
-- 正常对话态下，composer 通过 `bottomDock` 渲染在 timeline 的同一个滚动视口内，并使用 `sticky bottom-0` 吸附；“回到底部”按钮锚定在 dock 上方。
-- 会话切换优先读取 renderer-local 的滚动记忆。记忆键由 `workspaceIdentity?.trim() || workspacePath`、`paneId` 与 session/task scope 组成；同一 renderer 的不同 pane 不共享阅读位置，不同桌面窗口或手机 Web renderer 也不共享内存。
-- 若记忆保存时处于 bottom-lock，切回时滚动到**当前**最新底部并继续启用 bottom-lock；否则恢复保存的像素 `scrollTop`，按当前内容高度夹紧到合法范围并保持离底。如果没有记忆，则打开时定位底部并启用 bottom-lock。
-- 恢复先在 layout 阶段写入一次，下一 animation frame 在 virtualizer 首轮测高后再校正一次；若用户已经滚动，第二次校正必须让出写入权。
-- 搜索结果、高亮查找、fork 来源和 turn navigator 跳转都属于定位型滚动，定位后保持离底；该位置可被后续 task 切换记忆。
-- 补全旧历史后继续按新增高度恢复滚动位置，避免视口跳到历史顶部。
-- 对话内容宽度连续变化时，动态行会因文字换行分批重新测高。离底阅读状态必须保持当前 `scrollTop`，禁止 virtualizer 按每条视口上方行逐次补偿而造成上下抖动；吸底状态采用上面的同步测高批处理，每次视口 resize 都按已提交的新高度吸底。宽度稳定后恢复普通动态测高补偿，新消息与流式内容的正常 bottom-lock 不受影响。
-- bottom-lock 不写入 localStorage、relay、main process、host process 或 task runtime；滚动记忆只在当前 renderer 生命周期存在，并由 200 项 LRU 回收。
+- A antiga máquina de estados de auto-follow com múltiplos flags, `useChatAutoFollow`, foi removida; hoje resta apenas um pequeno estado de bottom-lock e um container de rolagem manual comum.
+- `ConversationTimeline` usa um pequeno estado de bottom-lock: sessões novas sem memória de rolagem começam habilitadas, e o acréscimo de mensagens, o crescimento por detalhes de markdown/tool e mudanças do ResizeObserver continuam gravando o `scrollTop` do fundo mais recente.
+- O botão "rolar até o fundo" no canto inferior direito é controlado apenas pela posição atual da barra de rolagem: aparece quando o container não está no fundo e some ao chegar nele; o usuário rolando manualmente de volta para perto do fundo ou clicando no botão para rolar até o fundo reabilita o bottom-lock, evitando perder o travamento enquanto o conteúdo em geração continua crescendo. A camada flutuante inferior onde fica o botão usa uma máscara em gradiente para cima do token `background`, evitando uma borda dura sobre a última mensagem.
+- Quando o conteúdo das mensagens é curto demais para gerar barra de rolagem vertical, não há posição histórica de leitura a preservar no viewport; o ChatView considera isso um estado em que o bottom-lock pode ser habilitado, para que o conteúdo em streaming, ao criar a barra de rolagem, continue fixando no fundo.
+- No estado normal de conversa, o composer é renderizado por `bottomDock` dentro do mesmo viewport de rolagem do timeline e usa `sticky bottom-0` para grudar; o botão "voltar ao fundo" é ancorado acima do dock.
+- A troca de sessão prioriza a leitura da memória de rolagem local do renderer. A chave da memória é composta por `workspaceIdentity?.trim() || workspacePath`, `paneId` e o escopo de sessão/task; panes diferentes no mesmo renderer não compartilham a posição de leitura, e janelas desktop distintas ou renderers Web do mobile também não compartilham memória.
+- Se a memória foi salva no estado de bottom-lock, ao voltar rola-se até o fundo **atual** mais recente e o bottom-lock continua habilitado; caso contrário, restaura-se o `scrollTop` em pixels salvo, limitado ao intervalo válido pela altura atual do conteúdo e mantendo o estado fora do fundo. Se não houver memória, posiciona-se no fundo ao abrir e habilita-se o bottom-lock.
+- A restauração escreve uma vez na fase de layout e, no animation frame seguinte, corrige de novo após a primeira rodada de medição do virtualizer; se o usuário já tiver rolado, a segunda correção deve ceder o direito de escrita.
+- Resultados de busca, busca por destaque, origem de fork e saltos do turn navigator são todos rolagem de posicionamento; após posicionar, mantém-se fora do fundo, e essa posição pode ser substituída pela memória de uma troca de task posterior.
+- Após completar histórico antigo, a posição de rolagem continua restaurada pelo acréscimo de altura, evitando que o viewport pule para o topo do histórico.
+- Quando a largura do conteúdo da conversa muda continuamente, as linhas dinâmicas são remedidas em lotes por causa da quebra de linha do texto. No estado de leitura fora do fundo, o `scrollTop` atual deve ser mantido, proibindo que o virtualizer compense linha a linha acima do viewport e provoque oscilação; o estado fixado no fundo usa o processamento em lote de medição acima e fixa no fundo com as novas alturas já submetidas a cada resize do viewport. Depois que a largura estabiliza, a compensação normal de medição dinâmica de altura é restaurada; o bottom-lock normal de novas mensagens e conteúdo em streaming não é afetado.
+- O bottom-lock não é gravado em localStorage, relay, processo principal, processo host ou runtime de task; a memória de rolagem existe apenas durante o ciclo de vida atual do renderer e é reciclada por uma LRU de 200 itens.
 
-## 历史详情懒渲染
+## Renderização preguiçosa do histórico de detalhes
 
-- `AssistantMessage` 的历史区只在展开时调用 `renderHistoryParts`，默认闭合时只保留摘要行。
-- `ToolLayout` 支持 `renderContent`，工具详情只在展开或强制展开时构造，避免闭合工具提前挂载大量 markdown、diff 和子工具 DOM。
-- 历史区和工具区的展开状态按 message/tool key 保存在 renderer 内存中，虚拟滚动导致组件卸载再挂载时不会丢失用户刚展开的细节。
-- 流式输出、被中断和 settling 状态仍会强制展开历史区，保证正在发生的内容不会被隐藏；流式结束后自动回到摘要态。
+- A área de histórico de `AssistantMessage` só chama `renderHistoryParts` quando expandida; por padrão, fechada, mantém apenas a linha de resumo.
+- `ToolLayout` suporta `renderContent`, e os detalhes da ferramenta só são construídos quando expandidos ou expandidos à força, evitando que ferramentas fechadas montem antecipadamente muito DOM de markdown, diff e subferramentas.
+- Os estados expandido das áreas de histórico e de ferramenta são guardados na memória do renderer por message/tool key, de modo que o desmontar e remontar de componentes causado pela rolagem virtual não perca os detalhes que o usuário acabou de expandir.
+- Saída em streaming, estados interrompido e settling ainda forçam a expansão da área de histórico, garantindo que o conteúdo em andamento não seja ocultado; ao fim do streaming volta-se automaticamente ao estado de resumo.
 
-## 渲染缓存与 memo 边界
+## Cache de renderização e limites de memo
 
-- 已完成 markdown 消息固定走 `Streamdown` static 模式；只有真实流式动画进入 streaming/block 路径，避免虚拟滚动和历史懒渲染反复重挂载完成态消息时触发 Streamdown 内部更新循环。
-- `DiffViewer`、edit inline diff、`ToolLayout`、`ToolCallBlock`、`AssistantMessage`、`ChatMessage` 和 turn group 边界使用 `memo`，减少历史消息在父组件更新时的重复 commit。
-- turn group 内传给单条消息的 retry、文件切换、feedback、fork 回调通过 `useCallback` 稳定，避免 memo 被 map 里的 inline function 抵消。
-- diff 只稳定 options 和 viewer 输入，不缓存实际 DOM；主题、字号、换行和行号设置变化时仍会正常重渲染。
+- Mensagens markdown concluídas seguem sempre o modo estático do `Streamdown`; apenas animações reais de streaming entram nos caminhos de streaming/block, evitando que o remount repetido de mensagens concluídas por rolagem virtual e renderização preguiçosa de histórico dispare laços de atualização internos do Streamdown.
+- `DiffViewer`, edit inline diff, `ToolLayout`, `ToolCallBlock`, `AssistantMessage`, `ChatMessage` e as bordas de grupo de turno usam `memo`, reduzindo commits duplicados de mensagens históricas quando o componente pai é atualizado.
+- Os callbacks de retry, troca de arquivo, feedback e fork passados a mensagens individuais dentro do grupo de turno são estabilizados com `useCallback`, evitando que o memo seja anulado por functions inline dentro do map.
+- O diff estabiliza apenas as options e as entradas do viewer, sem cachear o DOM real; mudanças de tema, tamanho de fonte, quebra de linha e numeração de linha ainda causam re-render normal.
 
-## 远控边界
+## Limites do controle remoto
 
-本改动只影响 UI 层渲染，不改变 ZCode task 消息流、snapshot、queue 或恢复语义：
+Esta alteração afeta apenas a camada de renderização da UI, sem mudar o fluxo de mensagens de task do ZCode, o snapshot, a queue ou a semântica de recuperação:
 
-- 桌面端 `desktop-continuous` 仍保持 direct continuous 主链路。
-- 手机远控 `web-remote-replayable` 仍通过 replayable snapshot/gap 恢复边界展示消息。
-- 远控全量历史仍由显式加载控制，不因虚拟滚动重新触发隐式全量快照传输。
+- No desktop, `desktop-continuous` mantém a cadeia principal continuous direta.
+- No controle remoto do mobile, `web-remote-replayable` continua exibindo mensagens através da fronteira de recuperação de snapshot/gap replayable.
+- O histórico completo do controle remoto continua sendo controlado por carregamento explícito e não é retransmitido como snapshot completo implícito por causa da rolagem virtual.

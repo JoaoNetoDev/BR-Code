@@ -1,46 +1,46 @@
-# ZCode Feedback Tickets Skill Spec
+# Especificação da Skill ZCode Feedback Tickets
 
-## 目标
+## Objetivo
 
-新增工作区 skill `zcode-feedback-tickets`，用于让 Agent 通过 ZCode 反馈工单 Agent 接口安全地查询、读取、更新和闭环反馈工单。
+Adicionar a skill de workspace `zcode-feedback-tickets`, destinada a permitir que o Agent consulte, leia, atualize e feche tickets de feedback com segurança por meio da interface de Agent dos tickets de feedback do ZCode.
 
-## 来源
+## Origem
 
-接口契约来自飞书文档《ZCode 反馈工单 Agent 接口 Skill》，文档地址：
+O contrato da interface vem do documento do Feishu 《ZCode 反馈工单 Agent 接口 Skill》, cujo endereço é:
 
 `https://internal-docs.example.invalid/redacted`
 
-## Skill 位置
+## Local da Skill
 
-放在项目级 skill 目录：
+Colocada no diretório de skills de nível de projeto:
 
 `/.agents/skills/zcode-feedback-tickets`
 
-选择项目级目录而不是全局目录，是因为该 skill 绑定 ZCode 反馈工单域名、状态流转和项目处理流程，应该随 z-code 工作区加载。
+O diretório de nível de projeto foi escolhido em vez do global porque esta skill está ligada ao domínio dos tickets de feedback do ZCode, ao fluxo de estados e ao processo de tratamento do projeto, e portanto deve ser carregada junto com o workspace z-code.
 
-## 触发范围
+## Escopo de disparo
 
-当用户要求处理 ZCode 反馈工单、反馈平台、工单号 `ZCT-...`、读取工单上下文、下载资料包、更新工单进度、解决工单、转单、批量归档/评论/拒绝/关闭时触发。
+Dispara quando o usuário pede para tratar tickets de feedback do ZCode, a plataforma de feedback, um número de ticket `ZCT-...`, ler o contexto de um ticket, baixar o pacote de materiais, atualizar o progresso do ticket, resolver o ticket, transferência de ticket, ou fazer arquivamento/comentário/rejeição/fechamento em lote.
 
-## 关键约束
+## Restrições principais
 
-- 默认使用 `ZCODE_FEEDBACK_BASE_URL`，未设置时回退到 `https://feedback.example.invalid`。
-- 管理接口认证使用 `Authorization: Bearer $ZCODE_FEEDBACK_ADMIN_JWT`。
-- 若 token 不存在，走设备授权流程，不要伪造 token。
-- 写操作前先读取工单上下文，确认工单号、状态和用户意图。
-- 危险操作 `delete` 必须用户明确要求才可执行。
-- 批量接口返回后必须检查 `skipped`，不能只看 `affected`。
-- 开发完成使用 `已解决`，不要使用旧状态 `等待上线`。
-- 不在最终回复里泄露 JWT、设备码或敏感附件内容。
+- Usar `ZCODE_FEEDBACK_BASE_URL` por padrão, com fallback para `https://feedback.example.invalid` quando não estiver definida.
+- A autenticação das interfaces de gerenciamento usa `Authorization: Bearer $ZCODE_FEEDBACK_ADMIN_JWT`.
+- Se o token não existir, usar o fluxo de autorização por dispositivo; não forjar token.
+- Antes de uma operação de escrita, ler primeiro o contexto do ticket e confirmar número, status e intenção do usuário.
+- A operação perigosa `delete` só pode ser executada mediante solicitação explícita do usuário.
+- Após o retorno das interfaces em lote, é obrigatório verificar `skipped`, e não apenas `affected`.
+- Ao concluir o desenvolvimento, usar `已解决` ("Resolvido"), e não o status antigo `等待上线` ("Aguardando lançamento").
+- Não vazar na resposta final o JWT, o código do dispositivo ou o conteúdo de anexos sensíveis.
 
-## 内容结构
+## Estrutura de conteúdo
 
-- `SKILL.md`：核心流程、认证前置、安全边界和常用命令入口。
-- `references/api.md`：从飞书文档整理出的接口清单、参数、状态和 curl 示例。
+- `SKILL.md`: fluxo principal, pré-requisitos de autenticação, limites de segurança e entrada dos comandos mais usados.
+- `references/api.md`: lista de interfaces, parâmetros, status e exemplos de curl organizados a partir do documento do Feishu.
 
-## 验证
+## Verificação
 
-创建完成后执行 skill 校验脚本：
+Após a criação, executar o script de validação de skills:
 
 ```bash
 python3 /Users/dev/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/zcode-feedback-tickets

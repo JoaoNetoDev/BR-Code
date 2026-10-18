@@ -1,189 +1,189 @@
-# Conversation Session UI Test ID Contract
+# Contrato de Test ID da UI de Sessão de Conversa
 
-目标：为会话区 MVP E2E 提供稳定、全工程化的 UI 定位协议。WDIO 必须通过 `data-testid` 和明确 DOM 状态断言产品行为，不能依赖截图、CSS class、视觉位置或易变文案来判断通过。
+Objetivo: fornecer um protocolo de localização de UI estável e aplicado a todo o projeto para o E2E do MVP da área de sessão. O WDIO precisa afirmar o comportamento do produto por meio de `data-testid` e estados de DOM explícitos, sem depender de screenshots, CSS class, posição visual ou textos mutáveis para decidir aprovação.
 
-## 现有规范
+## Especificação existente
 
-项目已有全局 test id 单一来源：
+O projeto já tem uma fonte única para test ids globais:
 
 - `packages/shared/src/test-ids.ts`
 - `docs/testing/testid-audit.md`
 - `docs/architecture/architecture.md`
 
-现有规则继续有效：
+As regras existentes continuam válidas:
 
-- 所有 `data-testid` 常量统一声明在 `packages/shared/src/test-ids.ts`。
-- 新增常量必须带中文注释。
-- UI 组件禁止硬编码 test id 字符串。
-- E2E 使用 `packages/desktop/test/e2e/helpers/selectors.ts` 的 `sel(tid)` 或等价 helper。
-- 动态列表项使用 `testId(BASE, suffix)`。
+- Todas as constantes `data-testid` são declaradas de forma unificada em `packages/shared/src/test-ids.ts`.
+- Constantes novas devem ter comentário em chinês.
+- Componentes de UI são proibidos de codificar strings de test id na mão.
+- O E2E usa `sel(tid)` ou helper equivalente de `packages/desktop/test/e2e/helpers/selectors.ts`.
+- Itens de listas dinâmicas usam `testId(BASE, suffix)`.
 
-## 断言原则
+## Princípios de asserção
 
-截图不是通过判定。截图和录像只作为失败后的人工复盘 artifact。
+Screenshot não é critério de aprovação. Screenshots e gravações servem apenas como artefatos de revisão manual após uma falha.
 
-MVP UI 判定只能来自这些确定性信号：
+A aprovação da UI do MVP só pode vir destes sinais determinísticos:
 
-| 信号 | 用途 | 示例 |
+| Sinal | Uso | Exemplo |
 | --- | --- | --- |
-| `data-testid` | 定位稳定元素 | queue item、message、compact marker |
-| `data-state` | 判断状态机投影 | `running`、`completed-interrupted`、`compacting` |
-| `data-status` | 判断操作结果 | `queued`、`started`、`completed`、`failed`、`interrupted` |
-| `data-role` | 判断消息角色 | `user`、`assistant`、`tool`、`timeline` |
-| `data-session-id` | 判断元素属于哪个 session | active session、message list、queue panel |
-| `data-message-id` | 判断消息身份 | fork target、edit target |
-| `data-queue-item-id` | 判断队列项身份 | send-now、edit、remove、reorder |
-| `aria-disabled` / `disabled` | 判断操作是否允许 | fork/edit/compact/send 按钮 |
-| input value / normalized text | 判断用户输入和消息内容 | queue item 文本、composer value |
+| `data-testid` | localizar elementos estáveis | queue item, message, compact marker |
+| `data-state` | verificar a projeção da máquina de estados | `running`、`completed-interrupted`、`compacting` |
+| `data-status` | verificar o resultado de uma operação | `queued`、`started`、`completed`、`failed`、`interrupted` |
+| `data-role` | verificar o papel da mensagem | `user`、`assistant`、`tool`、`timeline` |
+| `data-session-id` | verificar a qual session o elemento pertence | active session, message list, queue panel |
+| `data-message-id` | verificar a identidade da mensagem | fork target, edit target |
+| `data-queue-item-id` | verificar a identidade do item da fila | send-now, edit, remove, reorder |
+| `aria-disabled` / `disabled` | verificar se a operação é permitida | botões fork/edit/compact/send |
+| input value / normalized text | verificar a entrada do usuário e o conteúdo das mensagens | texto do queue item, valor do composer |
 
-文案可以作为内容断言，但不能作为定位手段。比如可以断言 queue item 文本包含“继续解释”，但不能用 `button=继续解释` 来找按钮。
+O texto pode servir como asserção de conteúdo, mas não como meio de localização. Por exemplo, é válido afirmar que o texto do queue item contém "继续解释", mas não usar `button=继续解释` para encontrar o botão.
 
-### V4 canonical materialization 补充
+### Complemento de materialização canônica V4
 
-V4 formal E2E 读取的是产品协议 materialization，不复用旧 M3/M4 debug row 文案：
+O E2E formal do V4 lê a materialização do protocolo do produto e não reutiliza os textos das debug rows antigas de M3/M4:
 
-- `TID_V4_ROW-*` 的 `timelineMarker` 根暴露 `data-row-kind="timelineMarker"`、`data-marker-type`、`data-status`；compact 再暴露 `data-origin`。V4 compact 终态词表是 `success/failed/noop/cancelled`，旧 UI 的 `started/completed` 只能作为 legacy 映射背景。
-- `TID_CHAT_SUMMARY_PANEL` 是 goal/background 的统一 shell。`mini` 和 `panel` 都必须在 shell 暴露 `data-goal-status`、`data-goal-objective`、`data-running-background-count`；详情区是否挂载不影响 E2E 读取权威状态。
-- V4 timeline 的 raw projection window、raw total 与 logical turn render units 必须使用不同属性：`data-window-row-count`、`data-total-row-count`、`data-render-unit-count`。mounted unit 用 `data-v4-turn-unit` 计数，禁止拿 `[TID_V4_ROW-*]` 数量冒充 virtual item 数。
-- 行内 edit 必须按 `TID_V4_EDIT_INPUT/SUBMIT/CANCEL + rowId` 驱动；主 composer value 不是 edit newText。
+- A raiz `timelineMarker` de `TID_V4_ROW-*` expõe `data-row-kind="timelineMarker"`, `data-marker-type` e `data-status`; o compact expõe ainda `data-origin`. O vocabulário de estado final do compact no V4 é `success/failed/noop/cancelled`, e `started/completed` da UI antiga só servem de fundo para o mapeamento legacy.
+- `TID_CHAT_SUMMARY_PANEL` é o shell unificado de goal/background. Tanto `mini` quanto `panel` precisam expor no shell `data-goal-status`, `data-goal-objective` e `data-running-background-count`; o fato de a área de detalhes estar montada não afeta a leitura do estado autoritativo pelo E2E.
+- A raw projection window, o raw total e as logical turn render units do timeline V4 devem usar atributos distintos: `data-window-row-count`, `data-total-row-count`, `data-render-unit-count`. As units montadas são contadas com `data-v4-turn-unit`, e é proibido usar a quantidade de `[TID_V4_ROW-*]` para fingir ser o número de virtual items.
+- O edit inline deve ser dirigido por `TID_V4_EDIT_INPUT/SUBMIT/CANCEL + rowId`; o valor do composer principal não é o edit newText.
 
-## 动态后缀规则
+## Regras de sufixo dinâmico
 
-动态 test id 后缀必须稳定、可关联、不可来自可变展示文案。
+O sufixo dinâmico de um test id precisa ser estável, correlacionável e nunca pode vir de texto de exibição mutável.
 
-| 对象 | 后缀来源 | 禁止 |
+| Objeto | Origem do sufixo | Proibido |
 | --- | --- | --- |
-| session/task | `sessionId` / `taskId` | session title、列表 index |
-| message | `messageId`，没有时用稳定 `turnIndex` fallback | 消息正文、DOM index |
-| queue item | `queueItemId` | queue 文本、DOM index |
-| compact marker | 优先 `inputId`，没有时用 compact `operationId` | 时间展示文本 |
-| model/thought item | config option value | 可翻译 label |
-| toast/error | stable reason code | 可翻译文案 |
+| session/task | `sessionId` / `taskId` | título da session, índice da lista |
+| message | `messageId`, com fallback para `turnIndex` estável | corpo da mensagem, índice do DOM |
+| queue item | `queueItemId` | texto da fila, índice do DOM |
+| compact marker | `inputId` preferencialmente, senão `operationId` do compact | texto de exibição de tempo |
+| model/thought item | valor da opção de configuração | label traduzível |
+| toast/error | stable reason code | texto traduzível |
 
-如果产品行为需要验证“顺序”，不要把顺序编码进 test id；使用同一 selector 查询列表后读取每个元素的 `data-queue-item-id` 或 `data-message-id` 顺序。
+Se o comportamento do produto exige verificar "ordem", não codifique a ordem no test id; use o mesmo selector para consultar a lista e então ler a ordem de `data-queue-item-id` ou `data-message-id` de cada elemento.
 
-## 会话区必需 Test ID
+## Test IDs obrigatórios da área de sessão
 
-以下是 MVP case 需要补齐或确认存在的 UI 元素。已有常量可以复用；缺失常量应补到 `packages/shared/src/test-ids.ts`。
+Abaixo estão os elementos de UI que os cases do MVP precisam ter implementados ou confirmados. Constantes existentes podem ser reutilizadas; constantes ausentes devem ser adicionadas a `packages/shared/src/test-ids.ts`.
 
-### 登录和模型前置
+### Login e pré-requisito de modelo
 
-会话区 E2E 不能假设空项目可直接使用。MVP compact case 的前置链路必须按用户路径完成：
+O E2E da área de sessão não pode assumir que um projeto vazio pode ser usado diretamente. O pré-requisito do case de compact do MVP deve ser percorrido pelo caminho real do usuário:
 
-1. 在欢迎页点击 `TID_LOGIN_USE_API_KEY_BUTTON`，进入 API Key 登录。
-2. 使用 `TID_LOGIN_API_KEY_INPUT` 填入测试 API Key，点击 `TID_LOGIN_API_KEY_CONTINUE_BUTTON`。
-3. 进入工作区后，在模型供应商设置中配置 DeepSeek API Key。
-4. 回到会话区后切换到 `deepseek-v4-flash`。
+1. Na página de boas-vindas, clicar em `TID_LOGIN_USE_API_KEY_BUTTON`, entrando no login por API Key.
+2. Usar `TID_LOGIN_API_KEY_INPUT` para preencher a API Key de teste e clicar em `TID_LOGIN_API_KEY_CONTINUE_BUTTON`.
+3. Depois de entrar no workspace, configurar a API Key da DeepSeek nas configurações de provedor de modelo.
+4. Voltar à área de sessão e alternar para `deepseek-v4-flash`.
 
-这条前置链路本身也属于产品协议：测试不得通过直接写入登录态来绕过欢迎页，除非该 case 的目标明确是非 UI 层服务验证。
+Essa cadeia de pré-requisitos também faz parte do protocolo do produto: o teste não pode contornar a página de boas-vindas escrevendo o estado de login diretamente, a menos que o objetivo do case seja explicitamente a validação de um serviço fora da camada de UI.
 
-| 建议常量 | 元素 | 必需属性 |
+| Constante sugerida | Elemento | Atributos obrigatórios |
 | --- | --- | --- |
-| `TID_LOGIN_USE_API_KEY_BUTTON` | 欢迎页 API Key 登录入口 | `disabled` |
-| `TID_LOGIN_API_KEY_PROVIDER_TRIGGER` | API Key 登录 provider 选择器 | 当前 provider value |
-| `TID_LOGIN_API_KEY_PROVIDER_ITEM` | API Key 登录 provider 选项 | 动态后缀为 provider choice |
-| `TID_LOGIN_API_KEY_INPUT` | API Key 输入框 | value |
-| `TID_LOGIN_API_KEY_CONTINUE_BUTTON` | API Key 登录继续按钮 | `disabled` |
-| `TID_LOGIN_API_KEY_CANCEL_BUTTON` | API Key 登录取消按钮 | `disabled` |
-| `TID_LOGIN_API_KEY_SKIP_BUTTON` | API Key 登录暂时跳过按钮 | `disabled` |
-| `TID_LOGIN_API_KEY_ERROR` | API Key 登录错误提示 | normalized text |
+| `TID_LOGIN_USE_API_KEY_BUTTON` | entrada de login por API Key na página de boas-vindas | `disabled` |
+| `TID_LOGIN_API_KEY_PROVIDER_TRIGGER` | seletor de provider do login por API Key | valor do provider atual |
+| `TID_LOGIN_API_KEY_PROVIDER_ITEM` | opção de provider do login por API Key | sufixo dinâmico igual à escolha de provider |
+| `TID_LOGIN_API_KEY_INPUT` | campo de entrada da API Key | value |
+| `TID_LOGIN_API_KEY_CONTINUE_BUTTON` | botão de continuar do login por API Key | `disabled` |
+| `TID_LOGIN_API_KEY_CANCEL_BUTTON` | botão de cancelar do login por API Key | `disabled` |
+| `TID_LOGIN_API_KEY_SKIP_BUTTON` | botão de pular temporariamente o login por API Key | `disabled` |
+| `TID_LOGIN_API_KEY_ERROR` | mensagem de erro do login por API Key | texto normalizado |
 
-模型供应商设置里的 `TID_MODEL_PROVIDER_NAV_ITEM` 必须暴露 `aria-selected` 和 `data-state`。E2E 选择 DeepSeek、GLM 等 provider 时只能读取 `aria-selected="true"` 或 `data-state="selected"`，不能通过 `border-*` / `bg-*` 等 CSS class 判断选中态。
+`TID_MODEL_PROVIDER_NAV_ITEM` nas configurações de provedor de modelo precisa expor `aria-selected` e `data-state`. Quando o E2E selecionar um provider como DeepSeek ou GLM, só pode ler `aria-selected="true"` ou `data-state="selected"`, e não determinar o estado selecionado por CSS class como `border-*` / `bg-*`.
 
-聊天工具栏模型选择器是二级结构时，provider 分组必须暴露 `TID_CHAT_MODEL_SELECT_GROUP`，动态后缀为 provider group key（例如 `provider:e2e-deepseek`）。E2E 需要先打开 provider 分组，再选择 `TID_CHAT_MODEL_SELECT_ITEM`；不能把“一级菜单里暂时没有模型 item”误判为模型不可用。
+Quando o seletor de modelo da barra de ferramentas do chat é uma estrutura de dois níveis, o agrupamento por provider precisa expor `TID_CHAT_MODEL_SELECT_GROUP`, com sufixo dinâmico igual à chave do grupo de provider (por exemplo `provider:e2e-deepseek`). O E2E precisa abrir o grupo de provider primeiro e só então selecionar `TID_CHAT_MODEL_SELECT_ITEM`; não se pode interpretar "o menu de primeiro nível momentaneamente não tem itens de modelo" como modelo indisponível.
 
-### 根容器和状态
+### Contêiner raiz e estado
 
-| 建议常量 | 元素 | 必需属性 |
+| Constante sugerida | Elemento | Atributos obrigatórios |
 | --- | --- | --- |
-| `TID_CHAT_VIEW` | 会话详情根容器 | `data-session-id`、`data-state`、`data-queue-count`、`data-target-id`、`data-target-objective`、`data-target-status`、`data-runtime-status`、`data-active-input-id`、`data-stop-requested` |
-| `TID_CHAT_MESSAGES` | 消息列表 | `data-session-id` |
-| `TID_CHAT_INPUT` | composer 输入框 | value |
-| `TID_CHAT_SEND_BUTTON` | 发送按钮 | `disabled` |
-| `TID_CHAT_STOP_BUTTON` | stop 按钮 | `disabled` |
-| `TID_CHAT_LOADING` | 正在生成指示器 | `data-session-id` |
+| `TID_CHAT_VIEW` | contêiner raiz dos detalhes da sessão | `data-session-id`、`data-state`、`data-queue-count`、`data-target-id`、`data-target-objective`、`data-target-status`、`data-runtime-status`、`data-active-input-id`、`data-stop-requested` |
+| `TID_CHAT_MESSAGES` | lista de mensagens | `data-session-id` |
+| `TID_CHAT_INPUT` | campo de entrada do composer | value |
+| `TID_CHAT_SEND_BUTTON` | botão de envio | `disabled` |
+| `TID_CHAT_STOP_BUTTON` | botão de stop | `disabled` |
+| `TID_CHAT_LOADING` | indicador de geração em andamento | `data-session-id` |
 
-### 消息和轮次
+### Mensagens e turnos
 
-| 建议常量 | 元素 | 动态后缀 | 必需属性 |
+| Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_CHAT_TURN` | turn group 容器 | `turnIndex` | `data-turn-index`、`data-session-id` |
-| `TID_CHAT_MESSAGE` | 单条消息容器 | `messageId` | `data-message-id`、`data-role`、`data-turn-index` |
-| `TID_CHAT_USER_MESSAGE` | user message 容器 | `messageId` | `data-message-id` |
-| `TID_CHAT_ASSISTANT_MESSAGE` | assistant message 容器 | `messageId` | `data-message-id` |
-| `TID_CHAT_ASSISTANT_HISTORY_TRIGGER` | assistant message 历史折叠触发器 | `historyStateKey` | `data-history-state-key`、`data-history-open`、`data-history-has-content` |
-| `TID_CHAT_ASSISTANT_HISTORY_CONTENT` | assistant message 历史折叠内容区 | `historyStateKey` | `data-history-state-key`、`data-history-open` |
-| `TID_CHAT_TOOL_MESSAGE` | tool message 容器 | `messageId` 或 `toolCallId` | `data-tool-call-id` |
-| `TID_CHAT_TOOL_CALL_BLOCK` | assistant message 内部的 tool call block | `toolCallId` | `data-tool-call-id`、`data-tool-name`、`data-status` |
-| `TID_CHAT_TIMELINE_MARKER` / `TID_V4_ROW` | timeline marker | marker id / rowId | `data-row-kind`、`data-marker-type`、`data-status`；compact 另有 `data-origin` |
-| `TID_CHAT_COMPACT_MARKER` | compact marker | `inputId` 或 `operationId` | `data-trigger`、`data-status`、`data-operation-id`、`data-input-id` |
-| `TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON` | assistant 变更摘要的撤销/重新应用按钮 | `messageId` | `data-message-id`、按钮文案 |
+| `TID_CHAT_TURN` | contêiner do grupo de turno | `turnIndex` | `data-turn-index`、`data-session-id` |
+| `TID_CHAT_MESSAGE` | contêiner de uma mensagem | `messageId` | `data-message-id`、`data-role`、`data-turn-index` |
+| `TID_CHAT_USER_MESSAGE` | contêiner de mensagem de user | `messageId` | `data-message-id` |
+| `TID_CHAT_ASSISTANT_MESSAGE` | contêiner de mensagem de assistant | `messageId` | `data-message-id` |
+| `TID_CHAT_ASSISTANT_HISTORY_TRIGGER` | gatilho de recolhimento do histórico da mensagem de assistant | `historyStateKey` | `data-history-state-key`、`data-history-open`、`data-history-has-content` |
+| `TID_CHAT_ASSISTANT_HISTORY_CONTENT` | área de conteúdo recolhido do histórico da mensagem de assistant | `historyStateKey` | `data-history-state-key`、`data-history-open` |
+| `TID_CHAT_TOOL_MESSAGE` | contêiner de mensagem de tool | `messageId` ou `toolCallId` | `data-tool-call-id` |
+| `TID_CHAT_TOOL_CALL_BLOCK` | bloco de tool call dentro da mensagem de assistant | `toolCallId` | `data-tool-call-id`、`data-tool-name`、`data-status` |
+| `TID_CHAT_TIMELINE_MARKER` / `TID_V4_ROW` | timeline marker | marker id / rowId | `data-row-kind`、`data-marker-type`、`data-status`; o compact ainda tem `data-origin` |
+| `TID_CHAT_COMPACT_MARKER` | compact marker | `inputId` ou `operationId` | `data-trigger`、`data-status`、`data-operation-id`、`data-input-id` |
+| `TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON` | botão de desfazer/reaplicar no resumo de alterações do assistant | `messageId` | `data-message-id`、texto do botão |
 
-### Compact Marker 最小闭环
+### Ciclo mínimo do Compact Marker
 
-手动 `/compact` 成功是会话区第一条后验 E2E case。自动化判定必须同时满足：
+Um `/compact` manual bem-sucedido é a primeira case E2E a posteriori da área de sessão. A aprovação automática precisa satisfazer simultaneamente:
 
-- UI 层先出现 `TID_CHAT_COMPACT_MARKER`，`data-status="started"`，`data-trigger="manual"`。
-- 同一个 marker identity 后续更新为 `data-status="completed"`。如果 agent lifecycle 事件把 `operationId` 从本地 optimistic id 更新为真实 operation id，`data-input-id` 必须保持不变，测试用 `data-input-id` 关联 started 和 completed。
-- marker 文案可以随 i18n 改动，不参与定位；中文当前展示“正在压缩上下文”和“上下文已自动压缩”只作为人工复盘线索。
-- 网络层必须捕获一个逻辑 compact attempt：首次物理 provider 请求为 `stream:true`；stream 成功时只有 streaming 腿，eligible stream failure 时允许同一逻辑 attempt 追加 non-stream fallback 腿。每条 compact provider 请求都必须包含主 session 内容和 `CRITICAL: Respond with TEXT ONLY` compaction 指令。
-- `session/compact` 的 ACK 不能当作成功依据；成功依据是后续 `context_compaction` timeline event / snapshot 中的 `status="completed"`。
+- Na camada de UI aparece primeiro `TID_CHAT_COMPACT_MARKER`, com `data-status="started"` e `data-trigger="manual"`.
+- A mesma identidade de marker é atualizada em seguida para `data-status="completed"`. Se um evento do lifecycle do agent atualizar o `operationId` de um id optimistic local para o operation id real, `data-input-id` precisa permanecer inalterado, e o teste usa `data-input-id` para correlacionar started e completed.
+- O texto do marker pode mudar com o i18n e não participa da localização; os textos chineses atuais "正在压缩上下文" e "上下文已自动压缩" servem apenas como pistas para a revisão manual.
+- A camada de rede precisa capturar uma compact attempt lógica: a primeira requisição física ao provider é `stream:true`; quando o stream tem sucesso existe apenas a perna de streaming, e em caso de falha de stream elegível é permitido acrescentar à mesma attempt lógica uma perna de fallback non-stream. Toda requisição de compact ao provider precisa conter o conteúdo da session principal e a instrução de compactação `CRITICAL: Respond with TEXT ONLY`.
+- O ACK de `session/compact` não pode ser usado como critério de sucesso; o critério é o `status="completed"` no timeline event / snapshot de `context_compaction` seguinte.
 
-### 队列
+### Fila
 
-| 建议常量 | 元素 | 动态后缀 | 必需属性 |
+| Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_CHAT_QUEUE_PANEL` | 队列面板 | 无 | `data-session-id`、`data-auto-drain` |
-| `TID_CHAT_QUEUE_ITEM` | 队列项 | `queueItemId` | `data-queue-item-id`、`data-kind`、`data-index` |
-| `TID_CHAT_QUEUE_ITEM_CONTENT` | 队列项内容 | `queueItemId` | normalized text |
-| `TID_CHAT_QUEUE_SEND_NOW_BUTTON` | 立即发送按钮 | `queueItemId` | `disabled` |
-| `TID_CHAT_QUEUE_EDIT_BUTTON` | 编辑队列项按钮 | `queueItemId` | `disabled` |
-| `TID_CHAT_QUEUE_EDIT_INPUT` | 队列项编辑输入框 | `queueItemId` | value |
-| `TID_CHAT_QUEUE_EDIT_SAVE_BUTTON` | 保存队列项编辑按钮 | `queueItemId` | `disabled` |
-| `TID_CHAT_QUEUE_EDIT_CANCEL_BUTTON` | 取消队列项编辑按钮 | `queueItemId` | `disabled` |
-| `TID_CHAT_QUEUE_REMOVE_BUTTON` | 删除队列项按钮 | `queueItemId` | `disabled` |
-| `TID_CHAT_QUEUE_DRAG_HANDLE` | 重排拖拽手柄 | `queueItemId` | `aria-disabled` |
+| `TID_CHAT_QUEUE_PANEL` | painel da fila | nenhum | `data-session-id`、`data-auto-drain` |
+| `TID_CHAT_QUEUE_ITEM` | item da fila | `queueItemId` | `data-queue-item-id`、`data-kind`、`data-index` |
+| `TID_CHAT_QUEUE_ITEM_CONTENT` | conteúdo do item da fila | `queueItemId` | texto normalizado |
+| `TID_CHAT_QUEUE_SEND_NOW_BUTTON` | botão de envio imediato | `queueItemId` | `disabled` |
+| `TID_CHAT_QUEUE_EDIT_BUTTON` | botão de edição do item da fila | `queueItemId` | `disabled` |
+| `TID_CHAT_QUEUE_EDIT_INPUT` | campo de edição do item da fila | `queueItemId` | value |
+| `TID_CHAT_QUEUE_EDIT_SAVE_BUTTON` | botão de salvar a edição do item da fila | `queueItemId` | `disabled` |
+| `TID_CHAT_QUEUE_EDIT_CANCEL_BUTTON` | botão de cancelar a edição do item da fila | `queueItemId` | `disabled` |
+| `TID_CHAT_QUEUE_REMOVE_BUTTON` | botão de remoção do item da fila | `queueItemId` | `disabled` |
+| `TID_CHAT_QUEUE_DRAG_HANDLE` | alça de arraste para reordenar | `queueItemId` | `aria-disabled` |
 
-### 消息操作
+### Ações de mensagem
 
-| 建议常量 | 元素 | 动态后缀 | 必需属性 |
+| Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_CHAT_MESSAGE_FORK_BUTTON` | fork assistant 按钮 | `messageId` | `disabled` / `aria-disabled` |
-| `TID_CHAT_MESSAGE_EDIT_BUTTON` | edit user query 按钮 | `messageId` | `disabled` / `aria-disabled` |
-| `TID_CHAT_MESSAGE_EDIT_INPUT` | edit 输入框 | `messageId` | value |
-| `TID_CHAT_MESSAGE_EDIT_SUBMIT` | edit 提交按钮 | `messageId` | `disabled` |
-| `TID_CHAT_MESSAGE_EDIT_CANCEL` | edit 取消按钮 | `messageId` | `disabled` |
-| `TID_V4_HOOK_DETAILS_TRIGGER` | 轮尾 Hook 详情按钮 | `productTurnId` | `aria-label`、`aria-expanded` |
-| `TID_V4_HOOK_DETAILS_CONTENT` | 本轮 Hook 详情 Popover | `productTurnId` | event/tool、来源与状态文本；不得包含命令或绝对路径 |
+| `TID_CHAT_MESSAGE_FORK_BUTTON` | botão de fork do assistant | `messageId` | `disabled` / `aria-disabled` |
+| `TID_CHAT_MESSAGE_EDIT_BUTTON` | botão de edição da query do user | `messageId` | `disabled` / `aria-disabled` |
+| `TID_CHAT_MESSAGE_EDIT_INPUT` | campo de edição | `messageId` | value |
+| `TID_CHAT_MESSAGE_EDIT_SUBMIT` | botão de confirmação da edição | `messageId` | `disabled` |
+| `TID_CHAT_MESSAGE_EDIT_CANCEL` | botão de cancelamento da edição | `messageId` | `disabled` |
+| `TID_V4_HOOK_DETAILS_TRIGGER` | botão de detalhes de Hook no fim do turno | `productTurnId` | `aria-label`、`aria-expanded` |
+| `TID_V4_HOOK_DETAILS_CONTENT` | Popover de detalhes de Hook do turno | `productTurnId` | event/tool, origem e texto de estado; não pode conter comandos nem caminhos absolutos |
 
-Tool call 当前不是独立消息，而是 assistant message 内部的结构化块。验证“tool 不可 edit / fork”时，必须定位 `TID_CHAT_TOOL_CALL_BLOCK` 并断言该 block 内没有 `TID_CHAT_MESSAGE_EDIT_BUTTON` 或 `TID_CHAT_MESSAGE_FORK_BUTTON` 后代。assistant message 自身仍可按 assistant 规则显示 fork，不等价于 tool block 可 fork。
+O tool call hoje não é uma mensagem independente, e sim um bloco estruturado dentro da mensagem de assistant. Ao verificar que "tool não pode ser edit/fork", é obrigatório localizar `TID_CHAT_TOOL_CALL_BLOCK` e afirmar que dentro desse bloco não há descendentes `TID_CHAT_MESSAGE_EDIT_BUTTON` ou `TID_CHAT_MESSAGE_FORK_BUTTON`. A própria mensagem de assistant ainda pode exibir fork segundo as regras de assistant, o que não equivale a o tool block poder ser forkado.
 
-当前失败探针：`conversation-session-tool-actions.test.ts` 已证明持久化层存在 tool part，但会话页 DOM 没有渲染 `TID_CHAT_TOOL_CALL_BLOCK`。因此该契约是后续修复 UI 投影时的验收目标，不能算已满足。
+Sonda de falha atual: `conversation-session-tool-actions.test.ts` já provou que a camada de persistência tem um tool part, mas o DOM da página de sessão não renderiza `TID_CHAT_TOOL_CALL_BLOCK`. Portanto este contrato é o alvo de aceitação para a futura correção da projeção de UI e não pode ser considerado já satisfeito.
 
-### 命令反馈
+### Feedback de comandos
 
-默认情况下，正向 conversation E2E 必须断言不存在 `TID_CHAT_ERROR_BANNER`。如果某个 case 预期就是错误恢复、provider/network fault、权限失败或其他 negative path，必须在 case 文档里显式写明允许出现错误横幅，并断言错误横幅的原因和恢复状态。不能把“出现错误横幅但最终还能继续”视为正向 case 通过。
+Por padrão, um conversation E2E positivo precisa afirmar a ausência de `TID_CHAT_ERROR_BANNER`. Se um case espera por padrão recuperação de erro, falha de provider/rede, falha de permissão ou outro negative path, é obrigatório escrever explicitamente na documentação do case que a faixa de erro é permitida e afirmar a causa do erro e o estado de recuperação. Não se pode considerar aprovado um case positivo que teve faixa de erro mas conseguiu continuar.
 
-| 建议常量 | 元素 | 动态后缀 | 必需属性 |
+| Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_CHAT_TOAST` | toast 容器 | reason code | `data-reason`、`data-severity` |
-| `TID_CHAT_ERROR_BANNER` | `ChatViewErrorBanner` / `ChatErrorBanner` 错误条容器 | 无；若需要区分错误原因，用 `data-reason` / `data-error-code` | `data-reason`、`data-error-code`、`data-trace-id`、`data-dismissible` |
-| `TID_CHAT_GOAL_STATE` | goal 状态投影 | session id | `data-goal-status`、`data-target-id` |
+| `TID_CHAT_TOAST` | contêiner de toast | reason code | `data-reason`、`data-severity` |
+| `TID_CHAT_ERROR_BANNER` | contêiner da faixa de erro `ChatViewErrorBanner` / `ChatErrorBanner` | nenhum; para distinguir a causa do erro, use `data-reason` / `data-error-code` | `data-reason`、`data-error-code`、`data-trace-id`、`data-dismissible` |
+| `TID_CHAT_GOAL_STATE` | projeção do estado de goal | session id | `data-goal-status`、`data-target-id` |
 
-### Session 切换和配置
+### Troca de sessão e configurações
 
-| 建议常量 | 元素 | 动态后缀 | 必需属性 |
+| Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_TASK_ITEM` | session/task 列表项 | `sessionId` / `taskId` | `data-session-id`、`data-active`、`data-state` |
-| `TID_CHAT_MODEL_SELECT_TRIGGER` | 当前 session 模型选择器 | 无 | `data-session-id`、`data-model-value` |
-| `TID_CHAT_MODEL_SELECT_GROUP` | 当前 session 模型 provider 分组 | provider group key | `data-model-provider-key`、`data-model-provider-selected` |
-| `TID_CHAT_THOUGHT_LEVEL_SELECT_TRIGGER` | 当前 session 思考深度选择器 | 无 | `data-session-id`、`data-thought-level` |
+| `TID_TASK_ITEM` | item da lista de session/task | `sessionId` / `taskId` | `data-session-id`、`data-active`、`data-state` |
+| `TID_CHAT_MODEL_SELECT_TRIGGER` | seletor de modelo da session atual | nenhum | `data-session-id`、`data-model-value` |
+| `TID_CHAT_MODEL_SELECT_GROUP` | grupo de provider de modelo da session atual | chave do grupo de provider | `data-model-provider-key`、`data-model-provider-selected` |
+| `TID_CHAT_THOUGHT_LEVEL_SELECT_TRIGGER` | seletor de profundidade de pensamento da session atual | nenhum | `data-session-id`、`data-thought-level` |
 
-## WDIO Page Object 要求
+## Requisitos de Page Object do WDIO
 
-会话区测试不要直接在 spec 里拼 CSS。新增一个 conversation/session page object，集中封装定位和断言。
+Os testes da área de sessão não devem montar CSS diretamente dentro do spec. Crie um page object de conversation/session que centralize localização e asserções.
 
-示例接口：
+Interface de exemplo:
 
 ```ts
 chat.sessionRoot(sessionId)
@@ -199,11 +199,11 @@ chat.expectQueueOrder([queueItemIdA, queueItemIdB])
 chat.expectNoProtocolFrame({ method: "session/compact", inputId })
 ```
 
-## 对验证矩阵的修正
+## Correções na matriz de validação
 
-验证矩阵里的 UI 层必须改成“使用 test id 和 DOM 属性断言”。截图、录像只保留在 Artifact 层，不能作为自动化通过条件。
+Na matriz de validação, a camada de UI precisa ser reescrita como "usar test id e atributos de DOM para asserção". Screenshots e gravações permanecem apenas na camada de artefatos e não podem ser condição automática de aprovação.
 
-正确表达：
+Expressão correta:
 
 ```text
 UI:
@@ -216,7 +216,7 @@ Artifact:
   - 保存 final.png，供失败后人工复盘
 ```
 
-错误表达：
+Expressão incorreta:
 
 ```text
 UI:

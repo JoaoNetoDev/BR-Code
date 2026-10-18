@@ -1,16 +1,14 @@
-# Client Config 远端模型事实同步（已移除）
+# Sincronização de fatos de modelos remotos do Client Config (removida)
 
-> 状态：自 2026-08-22 的 Provider M3 收口起废止。
+> Status: descontinuada desde a consolidação Provider M3, em 2026-08-22.
 >
-> 当前设计事实源：`docs/working-memory/provider-refactor/steps/03-staging-integration.md`。
+> Fonte de verdade do design atual: `docs/working-memory/provider-refactor/steps/03-staging-integration.md`.
 
-## 结论
+## Conclusão
 
-`/api/v1/client/configs` 不再是 Provider / Model Registry 的事实来源。旧协议中的
-`builtinProviders`、`providers`、`builtinModels` 与 `magic_name` 已从客户端解析和同步链路删除，
-不再写入个人 Provider 配置，也不再为 Runtime、Catalog 或 Workspace Snapshot 提供模型能力兜底。
+`/api/v1/client/configs` não é mais a fonte de verdade do Provider / Model Registry. Os campos `builtinProviders`, `providers`, `builtinModels` e `magic_name` do protocolo antigo foram removidos da cadeia de análise e sincronização do cliente, não são mais gravados na configuração pessoal de Provider e não servem mais como fallback de capacidades de modelo para Runtime, Catalog ou Workspace Snapshot.
 
-静态配置现在只有两条明确路径：
+A configuração estática agora tem apenas dois caminhos bem definidos:
 
 ```text
 ZCode Built-in Provider Config
@@ -21,39 +19,35 @@ ZCode Built-in Provider Config
 ZCode Built-in Model Config Rules[]
     + Personal Model Config Rules[]
     -> Effective Model Config Rules[]
-    -> 作用于 Effective Provider Config
+    -> aplicam-se ao Effective Provider Config
     -> Effective Model Config
 ```
 
-其中：
+Neles:
 
-- Provider 的模型成员、Endpoint、API type 和执行期可见性由 Provider Config 表达；
-- context、max output、modalities、reasoning 与 API 参数映射由 Model Config Rules 表达；
-- Account 接口仍可为 Built-in 账号 Provider 返回账号态 `models[]`，但不提供模型静态能力；
-- Personal Provider Config 最后生效；
-- 具体模型 reasoning 行为不再由源码特判或远端正则下发，而由 Built-in / Personal Rules 声明。
+- Os membros de modelo do Provider, o Endpoint, o tipo de API e a visibilidade em tempo de execução são expressos pelo Provider Config;
+- context, max output, modalities, reasoning e o mapeamento de parâmetros de API são expressos pelas Model Config Rules;
+- A interface de Account ainda pode retornar `models[]` em escopo de conta para Providers de contas Built-in, mas não oferece capacidades estáticas de modelo;
+- O Personal Provider Config tem efeito por último;
+- O comportamento de reasoning de um modelo específico não é mais decidido por casos especiais no código-fonte nem enviado por regex remoto, mas declarado pelas Built-in / Personal Rules.
 
-## `/client/configs` 保留边界
+## Limites preservados de `/client/configs`
 
-该接口继续承载商品、风控、强更、Agent 灰度和产品功能开关等远端产品配置。它可以继续提供
-`offPeak.enable_offpeak_task`，但不再提供闲时任务模型成员或模型能力。
+Essa interface continua carregando configurações de produto remotas, como sku, controle de risco, force update, rollout gradual (canary) de Agent e feature toggles de produto. Ela pode continuar fornecendo `offPeak.enable_offpeak_task`, mas não fornece mais membros de modelo nem capacidades de modelo para tarefas ociosas.
 
-闲时任务的当前链路是：
+O caminho atual das tarefas ociosas é:
 
 ```text
-Built-in Provider `builtin:offpeak-idle-plan` 的 models
+models do Built-in Provider `builtin:offpeak-idle-plan`
     + Effective Model Config
-    -> 创建表单和执行期模型静态事实
+    -> fatos estáticos de modelo do formulário de criação e da execução
 
-单次闲时执行绑定
-    -> Endpoint、JWT、Coding Plan key、ticket 等访问材料
+Vínculo de uma execução ociosa única
+    -> Endpoint, JWT, Coding Plan key, ticket e outros materiais de acesso
 ```
 
-`builtin:offpeak-idle-plan` 使用 `executionOnly: true`，不进入普通模型选择和 Provider Settings。
-服务端仍对模型白名单、账号资格和请求授权作最终裁决。
+`builtin:offpeak-idle-plan` usa `executionOnly: true` e não entra na seleção normal de modelos nem no Provider Settings. O servidor continua sendo o árbitro final sobre a allowlist de modelos, a elegibilidade da conta e a autorização das requisições.
 
-## 历史说明
+## Nota histórica
 
-旧实现曾把远端模型事实合并到本地 Provider，并使用 `modified` / `deletedModels` 处理用户覆盖和删除。
-这套同步、墓碑与 fallback 语义已经退出，不应被重新作为兼容路径引入。需要新增或调整模型事实时，
-应修改 ZCode Built-in Provider Config / ZCode Built-in Model Config Rules，或由用户通过 Personal Config 覆盖。
+A implementação antiga chegou a mesclar fatos de modelos remotos nos Providers locais e usava `modified` / `deletedModels` para tratar sobrescritas e remoções do usuário. Essa semântica de sincronização, lápides e fallback já saiu do sistema e não deve ser reintroduzida como caminho de compatibilidade. Ao adicionar ou ajustar fatos de modelo, deve-se alterar o ZCode Built-in Provider Config / ZCode Built-in Model Config Rules, ou o usuário deve sobrescrever via Personal Config.

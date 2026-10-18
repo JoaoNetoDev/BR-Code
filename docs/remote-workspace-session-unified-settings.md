@@ -1,18 +1,18 @@
 # Remote Workspace Session Unified Settings
 
-## 背景
+## Contexto
 
-之前 workspace 会话相关状态分散在三个字段里：
+Anteriormente, o estado relacionado à sessão de workspace estava disperso em três campos:
 
 - `lastOpenTabs`
 - `remoteWorkspaceHistory`
 - `lastWorkspaceSession`
 
-这会导致恢复、重连、移除三条链路维护多份真相源，容易出现状态漂移。
+Isso fazia com que as três cadeias de restauração, reconexão e remoção mantivessem múltiplas fontes de verdade, o que facilmente provoca drift de estado.
 
-## 现在的结构
+## Estrutura atual
 
-统一只保留 `lastWorkspaceSession`：
+Passa a existir apenas `lastWorkspaceSession`:
 
 ```json
 [
@@ -35,29 +35,29 @@
 ]
 ```
 
-说明：
+Explicação:
 
-- `local` 条目只保存本地 workspace 路径
-- `remote` 条目同时保存远端目标、身份键、最近一次连接状态
-- `workspaceIdentity` 仍然保留，用于 remote workspace 隔离和去重
+- Entradas `local` guardam apenas o caminho do workspace local
+- Entradas `remote` guardam simultaneamente o alvo remoto, a chave de identidade e o status da última conexão
+- `workspaceIdentity` é mantida, usada para isolamento e deduplicação de workspaces remotos
 
-## 迁移策略
+## Estratégia de migração
 
-- 读取旧 `setting.json` 时，在 schema 解析阶段自动迁移
-- 旧的 `lastOpenTabs` 会转成 `local` 条目
-- 旧的 `lastWorkspaceSession.remote(historyId)` 会结合 `remoteWorkspaceHistory` 展开成完整 `remote` 条目
-- 迁移后的运行态对象不再暴露 `lastOpenTabs` / `remoteWorkspaceHistory`
+- Ao ler um `setting.json` antigo, a migração é feita automaticamente na fase de parsing do schema
+- O antigo `lastOpenTabs` é convertido em entradas `local`
+- O antigo `lastWorkspaceSession.remote(historyId)` é expandido em uma entrada `remote` completa, combinado com `remoteWorkspaceHistory`
+- Os objetos de runtime após a migração não expõem mais `lastOpenTabs` / `remoteWorkspaceHistory`
 
-## 恢复与移除规则
+## Regras de restauração e remoção
 
-- 启动时只按 `lastWorkspaceSession` 恢复 tab
-- 远端 workspace 只恢复为“断开态 tab”，不再后台自动重连
-- 用户关闭远端 tab 时，视为显式移除：
-  - 从 `lastWorkspaceSession` 删除
-  - 清理对应 SSH 凭据 key（如存在）
+- Na inicialização, as tabs são restauradas apenas a partir de `lastWorkspaceSession`
+- Workspaces remotos são restaurados apenas como "tab em estado desconectado", sem reconexão automática em segundo plano
+- Quando o usuário fecha uma tab remota, isso é considerado remoção explícita:
+  - remover de `lastWorkspaceSession`
+  - limpar a chave de credencial SSH correspondente (se existir)
 
-## 重连规则
+## Regras de reconexão
 
-- 远端 workspace 只允许用户手动点击 sidebar 的 reconnect
-- 手动重连成功后，更新对应 `remote` 条目的 `lastOpenedAt` / `lastConnectionStatus`
-- 手动重连失败后，仅更新失败状态并保留 tab，方便继续手动重试
+- Para workspaces remotos, só é permitido que o usuário clique manualmente em reconnect na sidebar
+- Após uma reconexão manual bem-sucedida, atualizar `lastOpenedAt` / `lastConnectionStatus` da entrada `remote` correspondente
+- Após uma reconexão manual malsucedida, atualizar apenas o estado de falha e manter a tab, para facilitar novas tentativas manuais

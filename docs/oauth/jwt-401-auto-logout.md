@@ -1,88 +1,177 @@
-# ZCode 登录凭据 HTTP/业务 401 自动退出
+# Logout automático por HTTP/business 401 de credencial de login do ZCode
 
-## 目标
+## Objetivo
 
-服务端对确认失效的登录凭据返回 HTTP `401`，或 HTTP `200` 且完整 JSON 正文包含数值 `code: 401`。Desktop 服务层通过请求 Authorization 与当前凭据比对，通知 Host 复用现有 OAuth 退出清理、登录过期弹窗及确认重启。
+O servidor devolve HTTP `401` para credenciais de login confirmadamente inválidas, ou HTTP `200` com
+corpo JSON completo contendo o valor numérico `code: 401`. A camada de serviço do Desktop compara o
+Authorization da requisição com a credencial atual, notifica o Host e reaproveita a limpeza de logout
+OAuth existente, o popup de login expirado e o reinício após confirmação.
 
-2026-09-08 最小兼容范围：保留现有 ZCode JWT 判断，增加当前唯一 active provider（BigModel 或 ZAI）的业务 `access_token` 判断。新增判断只覆盖当前环境的 `/api/biz/customer/getCustomerInfo`，以及各平台配置的 userinfo URL，兼容裸 Authorization 和 `Bearer <access_token>`。URL 必须同时匹配 origin 与 pathname，查询参数不参与身份判断。
+2026-09-08, escopo mínimo de compatibilidade: manter a verificação de JWT do ZCode já existente e
+adicionar a verificação do `access_token` de negócio do único active provider atual (BigModel ou ZAI).
+A nova verificação cobre apenas `/api/biz/customer/getCustomerInfo` do ambiente atual, além das URLs
+de userinfo configuradas por plataforma, aceitando tanto o Authorization nu quanto
+`Bearer <access_token>`. A URL precisa casar origin e pathname ao mesmo tempo, e os query parameters não
+participam da decisão de identidade.
 
-2026-10-08 补充：HTTP `200` 的完整 JSON 响应中，数值 `code: 401` 也表示登录失效。当前平台业务 token 的白名单增加 `/api/biz/subscription/enterprise/v2/pricing` 和 `/api/biz/team/subscribe/product/querySubscribeDetail`，与 customerInfo/userinfo 共用 HTTP 401 和业务 401 判断。
+2026-10-08, complemento: na resposta JSON completa de HTTP `200`, o valor numérico `code: 401` também
+significa login inválido. A whitelist do token de negócio da plataforma atual ganha
+`/api/biz/subscription/enterprise/v2/pricing` e
+`/api/biz/team/subscribe/product/querySubscribeDetail`, que compartilham a verificação de HTTP 401 e de
+401 de negócio com customerInfo/userinfo.
 
-支付/订单、API key 列表/创建/复制、模型 API key 请求和 WebView 内请求不纳入新增判断。同一个 customerInfo 接口即使被模型配置刷新调用，也仍属于用户/团队身份查询；不因上层调用方不同改变该接口的 401 语义。
+Pagamentos/pedidos, listagem/criação/cópia de API key, requisições de API key de modelo e requisições
+dentro do WebView não entram na nova verificação. A mesma interface de customerInfo, mesmo quando chamada
+por uma atualização de configuração de modelo, continua sendo uma consulta de identidade de
+usuário/equipe; o fato de o chamador de cima ser diferente não muda a semântica de 401 dessa interface.
 
-## 请求出口
+## Saída das requisições
 
 ```text
-服务层 -> NodeApiClient.request -> HTTP 401 或 HTTP 200 + JSON code=401
+Camada de serviço -> NodeApiClient.request -> HTTP 401 ou HTTP 200 + JSON code=401
                                     |
                      +--------------+----------------+
                      |                               |
-              当前 ZCode JWT              当前平台身份/定价/订阅详情白名单
-                     |                     + 当前 access_token
+              JWT atual do ZCode        Whitelist de identidade/preço/detalhe de assinatura da plataforma atual
+                     |                     + access_token atual
                      +--------------+----------------+
                                     |
-                       现有 logout -> 广播 -> 过期弹窗
+                       logout existente -> broadcast -> popup de expiração
                                     |
-                          确认后重启（Web 刷新）
+                       Reinício após confirmação (refresh no Web)
 ```
 
-观察点只发出带请求 URL/Authorization 的回调，不直接读写凭据。Host 侧通过会话队列内的当前凭据复核去重，并调用现有 logout/派生 provider 清理流程。401 返回后读取当前凭据，旧 token 或非 active 平台请求不得触发新增处理。读取 access token 后再次确认 active provider，避免异步读取跨越平台切换。
+O ponto de observação emite apenas um callback com a URL da requisição e o Authorization, sem ler nem
+escrever credenciais diretamente. No lado do Host, a deduplicação é feita revalidando a credencial
+atual dentro da fila de sessão, e o fluxo existente de logout/limpeza de provider derivado é chamado.
+Depois que um 401 é retornado, a credencial atual é lida, e um token antigo ou uma requisição de
+plataforma não ativa não pode disparar o novo tratamento. Depois de ler o access token, a plataforma
+ativa é reconfirmada para evitar que a leitura assíncrona atravesse uma troca de plataforma.
 
-## 兼容边界
+## Fronteiras de compatibilidade
 
-旧服务端普通 401 可按请求凭据分类；启动恢复仍负责本地 JWT `exp` 预判，该预判不替代服务端撤销判断。直接绕过 ZCode 请求出口访问官方服务的 API Key 不在本机制的保护范围内。
+Um 401 comum do servidor antigo pode ser classificado pela credencial da requisição; a restauração de
+startup continua responsável pela pré-julgamento do `exp` do JWT local, e esse pré-julgamento não
+substitui a decisão de revogação do servidor. APIs Key que acessem o serviço oficial contornando
+diretamente a saída de requisições do ZCode não são protegidas por este mecanismo.
 
-不新增刷新、到期解析、主动探测或历史键清理。HTTP 200 内除数值 `code: 401` 外的业务错误、空正文、HTML、损坏 JSON、403、网络失败不触发本机制。业务 401 观察只在明确的 OAuth 业务接口白名单上运行，副本读取限制为 64 KiB 且每次请求最多等待 1 秒；超时、超限或解析失败会取消观察副本并立即交还原响应，不消费调用方正文。SSE 响应不读取、不等待结束。独立 CLI 账号架构不纳入 Todo103。
+Nenhuma refresh, análise de expiração, sondagem ativa ou limpeza de chaves históricas é adicionada.
+Erros de negócio diferentes do valor numérico `code: 401` dentro de HTTP 200, corpo vazio, HTML, JSON
+corrompido, 403 e falhas de rede não disparam este mecanismo. A observação de 401 de negócio só roda em
+uma whitelist explícita de interfaces de negócio OAuth, a leitura da cópia é limitada a 64 KiB e espera
+no máximo 1 segundo por requisição; timeout, excesso de limite ou falha de parsing cancelam a cópia
+observada e devolvem imediatamente a resposta original, sem consumir o corpo do chamador. Respostas SSE
+não são lidas nem esperadas até o fim. A arquitetura de conta do CLI independente não faz parte do
+Todo103.
 
-复用原弹窗、国际化与主题，不修改 UI、广播协议或重启动作。手机 shared-host attachment 继续消费既有 Host 广播，不新增 Host/Agent，也不改变 desktop-continuous 与 web-remote-replayable 的消息语义。独立 Web OAuth 与 Agent 官方 MCP transport 不因此获得新的拦截器。
+O popup, a internacionalização e o tema existentes são reaproveitados, sem modificar a UI, o protocolo
+de broadcast ou a ação de reinício. O attachment de shared-host do celular continua consumindo o
+broadcast de Host existente, sem novos Hosts/Agents e sem mudar a semântica de mensagens entre
+desktop-continuous e web-remote-replayable. O OAuth independente da Web e o transport MCP oficial do
+Agent não recebem novos interceptadores por causa disso.
 
-## 验收
+## Aceitação
 
-- BigModel/ZAI 当前业务 token 的目标接口 HTTP 401 触发同一失效回调；裸 token 和 Bearer 均覆盖。
-- BigModel/ZAI 白名单接口 HTTP 200 + JSON `code: 401` 触发相同失效回调；响应正文仍可由调用方正常解析。
-- 错误域名、错误环境、支付/订单/API key 路径、匿名/普通 API key、旧 token、非 active 平台均不触发新增回调。
-- 环境隔离测试为 BigModel/ZAI 显式注入 `production.example` 与 `test.example` 两套业务和 userinfo 地址，
-  在两种产品环境下分别验证当前地址触发、另一环境地址不触发；测试不依赖真实测试域名与生产域名不同，
-  经开源地址改写后仍保留同一组断言。
-- 延迟 401 返回前更新 token 或切换平台，不通知旧会话失效。
-- HTTP 200 其它业务错误、空/损坏正文、SSE、403、500 不触发；原 ZCode JWT 401 测试保持通过。
-- 隔离 Electron E2E 分别通过真实 Host 请求得到本地 HTTP 401 与 HTTP 200 + 业务 401，确认提示前认证凭据已清理，确认后调用既有重启命令；不使用真实用户凭据或请求真实平台。
+- HTTP 401 nas interfaces alvo do business token atual de BigModel/ZAI dispara o mesmo callback de
+  invalidez; tanto token nu quanto Bearer são cobertos;
+- HTTP 200 + JSON `code: 401` nas interfaces da whitelist de BigModel/ZAI dispara o mesmo callback de
+  invalidez; o corpo da resposta continua podendo ser analisado normalmente pelo chamador;
+- domínio errado, ambiente errado, caminhos de pagamento/pedido/API key, API key anônima/comum, token
+  antigo e plataforma não ativa não disparam o novo callback;
+- o teste de isolamento de ambiente injeta explicitamente para BigModel/ZAI os conjuntos de endereços
+  de negócio e de userinfo `production.example` e `test.example`, verificando em cada um dos dois
+  produtos que o endereço atual dispara e o endereço do outro ambiente não dispara; o teste não depende
+  de domínios reais de teste e de produção serem diferentes e, mesmo após reescrita dos endereços por
+  código aberto, preserva o mesmo conjunto de asserções;
+- atualizar o token ou trocar de plataforma antes de o 401 atrasado retornar não notifica invalidez da
+  sessão antiga;
+- outros erros de negócio em HTTP 200, corpo vazio/corrompido, SSE, 403 e 500 não disparam; os testes
+  originais de 401 de JWT do ZCode continuam passando;
+- E2E de Electron isolado obtém separadamente HTTP 401 local e HTTP 200 + 401 de negócio por meio de
+  requisições reais do Host, confirmam que as credenciais de autenticação foram limpas antes do aviso e
+  que o comando de reinício existente é chamado após a confirmação; não são usadas credenciais reais de
+  usuário nem requisições a plataformas reais.
 
-业务 401 的原因是服务端以 HTTP 200 封装登录过期；旧观察器只判断 HTTP status，导致项目可用性退化为 unknown、定价抛普通消息、订阅汇总丢失原因，旧登录态继续保留。修复复用同一失效入口、凭据复核及广播，不把临时空响应解释为过期。解析副本期间也可能完成新登录，最终清理仍必须在会话队列内复核；并发接口只产生一次实际清理和提示。观察副本的有界读取保证异常 chunked body 不会改变主请求生命周期。
+A causa do 401 de negócio é o servidor empacotar expiração de login em HTTP 200; o observador antigo só
+verificava o status HTTP, o que fazia a disponibilidade do projeto degradar para unknown, a precificação
+lançar uma mensagem genérica e o resumo de assinaturas perder o motivo, mantendo o estado de login
+antigo. A correção reaproveita a mesma entrada de invalidez, a revalidação de credencial e o broadcast, e
+não interpreta uma resposta temporariamente vazia como expiração. Também pode ocorrer um novo login
+durante a cópia em parsing, então a limpeza final continua obrigatoriamente revalidada dentro da fila de
+sessão; interfaces concorrentes produzem apenas uma limpeza real e um aviso. A leitura limitada da cópia
+observada garante que um chunked body anormal não altere o ciclo de vida da requisição principal.
 
-## SG-01：迟到 401 的会话提交保护（2026-09-09）
+## SG-01: proteção de submissão da sessão para 401 atrasado (2026-09-09)
 
-原因：分类器读到旧 access token 后，同一平台可能完成新登录；仅复核 active provider 仍会放行旧响应。分类结果只是候选，不能直接作为清理当前登录的授权。
+Motivo: depois que o classificador lê um access token antigo, o mesmo provedor pode concluir um novo
+login; apenas reconfirmar o provider ativo ainda deixaria a resposta antiga passar. O resultado da
+classificação é apenas um candidato e não pode servir diretamente como autorização para limpar o login
+atual.
 
-Host 将该请求的 URL/Authorization 交给 OAuthService 的本地 `logoutIfCurrentCredentialRequest`。该方法在既有 `sessionMutationQueue` 内重新分类，并在同一队列任务中清理凭据；只有实际清理成功才通知派生 provider 并广播过期提示；派生配置清理失败记录 warning，仍保留已退出会话的提示。每个候选均入队，避免旧候选等待期间丢弃新凭据的 401。原手动 logout、JWT 判定及接口白名单保持兼容，不增加 UI/RPC 方法。工厂返回具体 OAuthService 以供同模块 Host 装配调用，本地方法不加入 IOAuthService 的跨端契约。
+O Host entrega a URL/Authorization da requisição ao `logoutIfCurrentCredentialRequest` local do
+OAuthService. Esse método reclassifica dentro do `sessionMutationQueue` existente e limpa as credenciais
+na mesma tarefa da fila; somente quando a limpeza realmente tem sucesso é que os providers derivados são
+notificados e o popup de expiração é transmitido; se a limpeza da configuração derivada falhar, um
+warning é registrado e o aviso da sessão encerrada é mantido. Cada candidato entra na fila, evitando que
+um 401 de uma credencial nova seja descartado enquanto um candidato antigo aguarda. O logout manual, a
+verificação de JWT e a whitelist de interfaces permanecem compatíveis, e nenhum método de UI/RPC é
+adicionado. A fábrica retorna um OAuthService concreto para a montagem do Host no mesmo módulo, e o
+método local não entra no contrato cross-platform de IOAuthService.
 
 ```text
-HTTP 401 -> 初步分类 -> 请求凭据进入 OAuthService 会话变更队列
+HTTP 401 -> classificação preliminar -> a credencial da requisição entra na fila de mutação de sessão do OAuthService
                            |
-              新登录/刷新先提交 -> 凭据不匹配 -> 忽略、无广播
-              旧 401 先提交    -> 核对并清理 -> 广播
+              novo login/refresh é submetido primeiro -> credencial não bate -> ignorar, sem broadcast
+              o 401 antigo é submetido primeiro     -> conferir e limpar -> transmitir
                            |
-              后续新登录仍按原队列写入，不被旧清理覆盖
+              um novo login posterior ainda é escrito pela mesma fila e não é sobrescrito pela limpeza antiga
 ```
 
-refreshToken 的网络交换保持在队列外，写回进入同一队列，并校验交换前的会话 generation、provider 和 access token；过期刷新不得在退出后复活凭据或覆盖新登录。不新增刷新能力，当前 BigModel/ZAI adapter 不提供 refreshToken 交换。
+A troca de rede do refreshToken permanece fora da fila, enquanto a escrita de volta entra na mesma fila e
+valida a generation da sessão, o provider e o access token de antes da troca; um refresh expirado não
+pode ressuscitar credenciais depois do logout nem sobrescrever um novo login. Nenhuma capacidade de
+refresh é adicionada e os adapters atuais de BigModel/ZAI não oferecem troca de refreshToken.
 
-状态 owner 仍是当前 Host 的 OAuthService；该队列串行化本实例的登录、退出和刷新写回，不引入跨进程事务或变更 credentials.json 格式。跨 Host/CLI 的并发文件操作继续遵守原凭据存储边界。桌面 continuous / 手机 replayable 的 attachment、广播、提示与重启边界不变。
+O state owner continua sendo o OAuthService do Host atual; essa fila serializa login, logout e escrita de
+refresh nesta instância, sem introduzir transações entre processos nem mudar o formato do
+credentials.json. As operações de arquivo concorrentes entre Hosts/CLI continuam respeitando as
+fronteiras existentes do credential store. As fronteiras de attachment, broadcast, aviso e reinício de
+desktop continuous / replayable do celular permanecem inalteradas.
 
-### Todo103 整合约束：保留退出账号身份
+### Restrição de integração do Todo103: preservar a identidade da conta encerrada
 
-条件退出与手动退出一样，在会话队列内、清理凭据之前读取原账号的 accountIdentity，
-再把 provider + accountIdentity 交给现有派生清理回调。不能恢复为仅传平台的旧清理入口，
-也不能在凭据清空后再猜身份。队列外派生清理仍遵循现有按账号身份清理的服务边界；
-不因此重做账号状态同步或跨 Host 事务。需覆盖 BigModel/ZAI 两端身份传递、手动退出
-错误语义、并发重复 401 和旧请求在新登录/刷新后返回不误清理的回归。
+A saída condicional, assim como o logout manual, lê o accountIdentity da conta original dentro da fila de
+sessão e antes de limpar as credenciais, e então entrega provider + accountIdentity ao callback de
+limpeza derivado existente. Não pode voltar a ser a entrada antiga que passava apenas a plataforma, nem
+adivinhar a identidade depois que as credenciais foram esvaziadas. A limpeza derivada fora da fila
+continua seguindo a fronteira de serviço existente de limpeza por identidade de conta; isso não refaz a
+sincronização de estado de conta nem transações entre Hosts. É preciso cobrir a passagem de identidade nos
+dois lados BigModel/ZAI, a semântica de erro do logout manual, o 401 duplicado concorrente e a regressão
+em que uma requisição antiga que retorna depois de um novo login/refresh não faz limpeza indevida.
 
-回归：分类器读旧 token 后同平台换新 token；候选入队前同平台重新登录；失效核对期间新的会话写入等待；刷新结果在退出后返回；正常当前 token 401 仍只触发原清理与提示。通过隔离服务层受控时序测试证明队列边界，Electron AUTH-06 复核正常 401 链路；旧 token 的竞态不广播由服务层受控测试覆盖。
+Regressões: o classificador lê um token antigo e o mesmo provedor troca por um novo token; novo login do
+mesmo provedor antes do candidato entrar na fila; uma nova escrita de sessão aguarda durante a checagem de
+invalidez; o resultado do refresh retorna depois do logout; um 401 do token atual normal continua
+disparando apenas a limpeza e o aviso originais. A fronteira da fila é provada por testes da camada de
+serviço com temporização controlada, a cadeia de 401 normal é reconfirmada pelo AUTH-06 do Electron, e a
+condição de corrida do token antigo sem broadcast é coberta por testes controlados da camada de serviço.
 
-## CR-01：隔离 URL 配置异常（2026-09-09）
+## CR-01: exceções na configuração isolada de URL (2026-09-09)
 
-原因：候选地址集中构造时，业务 base URL 的异常会阻断另一个有效 userinfo 地址；为了取 userinfo 而构造完整平台配置，也会引入无关授权/登录地址的异常。
+Motivo: quando os endereços candidatos são construídos de forma centralizada, uma exceção no business
+base URL bloqueia um outro userinfo válido; e construir a configuração completa da plataforma só para
+obter o userinfo também introduz exceções em endereços de autorização/login sem relação.
 
-仅在 access token 分类阶段安全解析请求地址，并分别构造、解析 customerInfo 与 userinfo 候选；非法地址（含相对地址、非 HTTP(S) 协议）仅跳过自身，不阻断有效候选。全部候选无效或请求地址非法时返回 false，HTTP 响应照常交还调用方。空白 override 仍复用原配置的默认地址规则。userinfo 地址解析由平台配置和分类器共用，不改变平台启动时原有配置校验，也不输出原始配置或凭据。
+O endereço da requisição é resolvido com segurança apenas na fase de classificação do access token, e os
+candidatos de customerInfo e de userinfo são construídos e resolvidos separadamente; endereços
+inválidos (incluindo endereços relativos e protocolos não HTTP(S)) apenas pulam a si mesmos, sem
+bloquear candidatos válidos. Quando todos os candidatos são inválidos ou o endereço da requisição é
+inválido, retorna-se false e a resposta HTTP é entregue normalmente ao chamador. Overrides em branco
+continuam seguindo a regra de endereço padrão da configuração original. A resolução do endereço de
+userinfo é compartilhada entre a configuração da plataforma e o classificador, sem alterar a validação de
+configuração existente no startup da plataforma e sem imprimir a configuração ou as credenciais brutais.
 
-验收：BigModel/ZAI 无效 userinfo 不影响有效 customerInfo；无效业务 base 不影响有效 userinfo；无关配置异常不参与分类；空白 override、非法请求和全部候选无效均有回归，原 JWT 分支不依赖新增 URL 解析。
+Aceitação: userinfo inválido em BigModel/ZAI não afeta um customerInfo válido; business base inválido não
+afeta um userinfo válido; exceções de configuração sem relação não participam da classificação; override
+em branco, requisição inválida e todos os candidatos inválidos têm regressão; o ramo original de JWT não
+depende da nova resolução de URL.

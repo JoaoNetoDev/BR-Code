@@ -1,18 +1,21 @@
-# Web Remote Control Task Snapshot In-Flight Dedupe
+# Dedupe de Snapshot de Task em Andamento no Controle Remoto Web
 
-## 背景
-手机远控首屏恢复时，多个 UI hook 会并发调用 `zcodeTaskService.getTaskSnapshot(...)`。
-在大任务场景下，这会让 host 连续返回多份超大 snapshot，并通过 relay 重复发送大包。
+## Contexto
 
-## 改动
-在 `packages/ui/src/hooks/useZCodeTaskService.ts` 为 `getTaskSnapshot` 增加并发去重：
-- 维度：`workspacePath + workspaceIdentity + taskId + messageLimit + byteBudget + toolLimit + clientMode`
-- 行为：同 key 的并发请求复用同一个 Promise，只发起一次 RPC
-- 生命周期：请求完成后立即从 in-flight map 清理
+Na primeira renderização do controle remoto por celular, vários hooks de UI chamam `zcodeTaskService.getTaskSnapshot(...)` de forma concorrente.
+Em cenários de tasks grandes, isso faz com que o host devolva sucessivamente vários snapshots muito grandes e com que o relay envie pacotes grandes repetidamente.
 
-`clientMode` 必须参与 key。桌面 `desktop-continuous` 和手机 `web-remote-replayable` 的 snapshot 恢复语义不同：手机端可能带运行态恢复、active prompt 拼接、replayable command 状态和字节预算；桌面端保持 full continuous 旧语义。旧调用未传 `clientMode` 时按 `desktop-continuous` 处理。
+## Mudança
 
-## 作用
-- 减少同一时刻重复的 `getTaskSnapshot` RPC
-- 直接减少远控 relay 的重复大消息发送
-- 保持现有接口不变，对调用方透明
+Em `packages/ui/src/hooks/useZCodeTaskService.ts`, foi adicionado dedupe de concorrência para `getTaskSnapshot`:
+- Dimensão: `workspacePath + workspaceIdentity + taskId + messageLimit + byteBudget + toolLimit + clientMode`
+- Comportamento: requisições concorrentes com a mesma key reutilizam o mesmo Promise, disparando a RPC apenas uma vez
+- Ciclo de vida: assim que a requisição termina, a entrada é removida imediatamente do mapa de in-flight
+
+O `clientMode` precisa participar da key. Os snapshots do desktop `desktop-continuous` e do celular `web-remote-replayable` têm semânticas de restauração diferentes: no celular pode haver restauração de estado de execução, concatenação de active prompt, estado de replayable command e orçamento de bytes; o desktop mantém a semântica antiga de full continuous. Quando uma chamada antiga não passa `clientMode`, ela é tratada como `desktop-continuous`.
+
+## Efeito
+
+- Reduz as chamadas RPC duplicadas de `getTaskSnapshot` no mesmo instante
+- Reduz diretamente os envios de mensagens grandes duplicadas pelo relay do controle remoto
+- Mantém as interfaces existentes inalteradas, sendo transparente para os chamadores

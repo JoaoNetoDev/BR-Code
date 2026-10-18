@@ -1,19 +1,19 @@
-# Sidebar Task Timeline Groups
+# Grupos da Timeline de Tarefas na Barra Lateral
 
-Sidebar 的 timeline 视图按当前排序字段做时间分组：
+A visualização timeline da barra lateral agrupa os tarefas por tempo de acordo com o campo de ordenação atual:
 
-- `updatedAt`：排序方式为更新时间时使用。
-- `createdAt`：排序方式为创建时间时使用。
+- `updatedAt`: usado quando a ordenação é por hora de atualização.
+- `createdAt`: usado quando a ordenação é por hora de criação.
 
-分组顺序从具体到粗粒度：
+A ordem dos grupos vai do mais específico ao mais geral:
 
-1. 今天
-2. 昨天
-3. 2 天前 / 3 天前
-4. 本周
-5. 上周
-6. 本月
-7. 上月
-8. 更早
+1. Hoje
+2. Ontem
+3. Há 2 dias / Há 3 dias
+4. Esta semana
+5. Semana passada
+6. Este mês
+7. Mês passado
+8. Mais antigos
 
-周分组按当前 UI 语言决定自然周起点：英文为周日，中文为周一。分组逻辑只在 UI 层使用，service 仍只提供任务时间戳，避免把展示文案或 locale 规则下沉到任务数据层。
+Os agrupamentos semanais definem o início da semana natural conforme o idioma atual da UI: domingo para inglês, segunda-feira para chinês. A lógica de agrupamento é usada apenas na camada de UI; o service continua fornecendo apenas os timestamps das tarefas, evitando empurrar textos de exibição ou regras de locale para baixo até a camada de dados das tarefas.

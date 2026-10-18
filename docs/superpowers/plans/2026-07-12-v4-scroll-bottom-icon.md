@@ -1,37 +1,37 @@
-# V4 Scroll-to-Bottom Icon Implementation Plan
+# Plano de Implementação do Ícone de Rolagem até o Fim no V4
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Restore the v4 timeline scroll-to-bottom control to the icon-only design used by `~/workspace/z-code-2` while preserving its position and accessible name.
+**Objetivo:** restaurar na timeline v4 o controle de rolagem até o fim no design apenas com ícone usado em `~/workspace/z-code-2`, preservando sua posição e seu nome acessível.
 
-**Architecture:** Keep `ConversationTimeline` as the owner of visibility and click behavior. Add one module-level button renderer that uses the shared `Button` primitive and `ArrowDownIcon`, then reuse it in both the composer-dock and no-dock placements.
+**Arquitetura:** manter `ConversationTimeline` como responsável pela visibilidade e pelo comportamento de clique. Adicionar um renderizador de botão em nível de módulo que usa a primitiva compartilhada `Button` e a `ArrowDownIcon`, e então reutilizá-lo tanto no posicionamento com composer-dock quanto no sem dock.
 
-**Tech Stack:** React 19, TypeScript, Vitest, lucide-react, shared UI `Button`.
+**Stack técnico:** React 19, TypeScript, Vitest, lucide-react, `Button` da UI compartilhada.
 
-## Global Constraints
+## Restrições globais
 
-- Preserve the existing timeline anchoring, visibility state, and click handler.
-- Use the existing `chat.scrollToBottom` translation for `aria-label` and `title`; do not show label text inside the button.
-- Reuse semantic theme classes and the shared `Button` primitive on desktop and mobile Web.
-- Add a Chinese bug-cause comment beside the fix.
+- Preservar a ancoragem existente da timeline, o estado de visibilidade e o handler de clique.
+- Usar a tradução `chat.scrollToBottom` já existente para `aria-label` e `title`; não exibir texto de rótulo dentro do botão.
+- Reutilizar classes semânticas de tema e a primitiva compartilhada `Button` no desktop e no Web móvel.
+- Adicionar ao lado da correção um comentário em chinês explicando a causa do bug.
 
 ---
 
-### Task 1: Replace the visible label with the shared arrow icon control
+### Tarefa 1: Substituir o rótulo visível pelo controle com ícone de seta compartilhado
 
-**Files:**
+**Arquivos:**
 
-- Modify: `packages/ui/test/v4SessionPaneLayoutParity.test.ts`
-- Modify: `packages/ui/src/v4/ConversationTimeline.tsx`
+- Modificar: `packages/ui/test/v4SessionPaneLayoutParity.test.ts`
+- Modificar: `packages/ui/src/v4/ConversationTimeline.tsx`
 
 **Interfaces:**
 
-- Consumes: existing `handleBackToBottom`, `TID_V4_TIMELINE_BOTTOM`, and `chat.scrollToBottom` translation.
-- Produces: an icon-only button with the same test id, click behavior, placement, accessible label, and title.
+- Consome: o `handleBackToBottom` existente, o `TID_V4_TIMELINE_BOTTOM` e a tradução `chat.scrollToBottom`.
+- Produz: um botão apenas com ícone, com o mesmo test id, comportamento de clique, posicionamento, rótulo acessível e title.
 
-- [x] **Step 1: Write the failing regression test**
+- [x] **Passo 1: Escrever o teste de regressão que falha**
 
-Add a source-level parity assertion to the existing layout test:
+Adicionar uma asserção de paridade em nível de fonte ao teste de layout existente:
 
 ```ts
 expect(timelineSource).toContain('<ArrowDownIcon className="size-4" />');
@@ -39,15 +39,15 @@ expect(timelineSource).not.toMatch(/>\s*回到底部\s*</);
 expect(timelineSource).toContain('id: "chat.scrollToBottom"');
 ```
 
-- [x] **Step 2: Run the focused test to verify RED**
+- [x] **Passo 2: Executar o teste focado para verificar RED**
 
-Run: `pnpm exec vitest run packages/ui/test/v4SessionPaneLayoutParity.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/v4SessionPaneLayoutParity.test.ts`
 
-Expected: FAIL because `ConversationTimeline.tsx` still renders the visible text `回到底部` and does not render `ArrowDownIcon`.
+Esperado: FAIL porque `ConversationTimeline.tsx` ainda renderiza o texto visível `回到底部` e não renderiza `ArrowDownIcon`.
 
-- [x] **Step 3: Implement the minimal icon-only control**
+- [x] **Passo 3: Implementar o controle mínimo apenas com ícone**
 
-In `ConversationTimeline.tsx`, import `ArrowDownIcon`, the shared `Button`, and `useZCodeIntl`. Define a module-level `ConversationBackToBottomButton` that renders:
+Em `ConversationTimeline.tsx`, importar `ArrowDownIcon`, o `Button` compartilhado e `useZCodeIntl`. Definir um `ConversationBackToBottomButton` em nível de módulo que renderiza:
 
 ```tsx
 <Button
@@ -64,17 +64,17 @@ In `ConversationTimeline.tsx`, import `ArrowDownIcon`, the shared `Button`, and 
 </Button>
 ```
 
-Use `intl.formatMessage({ id: "chat.scrollToBottom" })` for `label` and reuse the component in both existing placement branches without changing their positioning semantics.
+Usar `intl.formatMessage({ id: "chat.scrollToBottom" })` para `label` e reutilizar o componente nos dois branches de posicionamento existentes sem alterar suas semânticas de posicionamento.
 
-- [x] **Step 4: Run the focused test to verify GREEN**
+- [x] **Passo 4: Executar o teste focado para verificar GREEN**
 
-Run: `pnpm exec vitest run packages/ui/test/v4SessionPaneLayoutParity.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/v4SessionPaneLayoutParity.test.ts`
 
-Expected: PASS.
+Esperado: PASS.
 
-- [x] **Step 5: Verify the workspace and commit**
+- [x] **Passo 5: Verificar o workspace e fazer commit**
 
-Run:
+Executar:
 
 ```bash
 pnpm typecheck
@@ -82,7 +82,7 @@ pnpm lint
 git diff --check
 ```
 
-Expected: all commands exit 0.
+Esperado: todos os comandos saem com código 0.
 
 Commit:
 

@@ -1,63 +1,57 @@
-# Workspace Hook Trust 用户指南
+# Guia do usuário de Workspace Hook Trust
 
-Workspace/project Hook 来自仓库配置并可执行本地命令，因此默认未信任。打开 workspace、
-启用普通 Hooks 总开关或确认 deep link 都不会自动授权。
+Hooks de workspace/projeto vêm da configuração do repositório e podem executar comandos locais, portanto não são confiáveis por padrão. Abrir o workspace,
+ativar o interruptor geral de Hooks comuns ou confirmar um deep link não concede autorização automaticamente.
 
-## 在设置中信任
+## Confiar nas configurações
 
-当自然事件命中未信任 Hook 时，对话照常继续，Hook 保持 fail closed。聊天区域会提示存在
-待审核 Workspace Hook；点击后进入 `设置 → 钩子 → 工作区`。
+Quando um evento natural casa com um Hook não confiável, a conversa continua normalmente e o Hook permanece em fail closed. A área de chat exibe um aviso de
+existência de Workspace Hook pendente de revisão; ao clicar, leva a `Configurações → Hooks → Workspace`.
 
-未信任行只在最右侧配置开关左边显示“信任”：
+A linha não confiável mostra "Confiar" somente à esquerda do interruptor de configuração, na extremidade direita:
 
 ```text
-Hook 名称与命令                                      [信任] [开关]
+Nome e comando do Hook                                      [Confiar] [Interruptor]
 ```
 
-- 点击“信任”建立当前 `workspaceIdentity + hookDeclarationDigest` 的持久 Trust；成功后按钮消失。
-- 配置开关只控制 Hook 是否启用，不会建立或撤销 Trust。
-- 页面不提供本次授权、批量信任或行内撤销。
-- 关闭设置、超时、断连都等于“没有决定”，不会改变 Trust。
+- Clicar em "Confiar" estabelece um Trust persistente para o `workspaceIdentity + hookDeclarationDigest` atual; após o sucesso o botão desaparece.
+- O interruptor de configuração controla apenas se o Hook está habilitado e não estabelece nem revoga Trust.
+- A página não oferece autorização pontual, confiança em lote nem revogação na linha.
+- Fechar as configurações, o timeout ou a desconexão equivalem a "nenhuma decisão" e não alteram o Trust.
 
-信任只影响之后自然发生的事件。已经因未信任而跳过的 SessionStart 不会在当前 task 的下一条
-消息补跑；它最早在下一次真实的新 task/session SessionStart 运行。
+O Trust afeta apenas os eventos naturais posteriores. Um SessionStart que já foi pulado por não confiança não é reexecutado na próxima mensagem da task atual; ele roda no máximo no próximo SessionStart de uma nova task/sessão real.
 
-声明的命令、matcher 等语义发生变化时 digest 会变化，新声明恢复未信任并重新显示按钮；
-未变化声明继续命中原 Trust。
+Quando a semântica declarada, como o comando e o matcher, muda, o digest muda e a nova declaração volta a não ser confiável, exibindo o botão novamente;
+declarações inalteradas continuam acertando o Trust existente.
 
-普通工具执行权限中的 `Allow once` 是另一套权限系统，不属于 Workspace Hook Trust。
+`Allow once` nas permissões comuns de execução de ferramentas é outro sistema de permissões e não faz parte do Workspace Hook Trust.
 
-## 安全与恢复
+## Segurança e recuperação
 
-- managed `deny` 始终高于用户 Trust。
-- rollout gate 关闭时所有 project Hook hard block，已有记录保留但不读取。
-- stale task/run/remoteSession/generation/snapshot 响应在写 Trust store 前被拒绝。
-- Desktop continuous 与 mobile replayable 使用同一 Runtime 权威审核绑定；重连不能扩大授权。
+- `deny` de managed sempre tem precedência sobre o Trust do usuário.
+- Com o rollout gate desativado, todos os hooks de projeto são bloqueados de forma hard; registros existentes são preservados, mas não lidos.
+- Respostas stale de task/run/remoteSession/generation/snapshot são rejeitadas antes de gravar no trust store.
+- Desktop continuous e mobile replayable usam a mesma vinculação autoritativa de admissão do Runtime; reconectar não amplia a autorização.
 
-需要撤销已有记录时，使用受信任的管理/CLI 入口按 exact digest 撤销；配置开关不承担撤销语义。
+Para revogar um registro existente, use a entrada de administração/CLI confiável para revogar pelo digest exato; o interruptor de configuração não tem semântica de revogação.
 
-### Trust store 损坏（`workspace_hooks_trust_store_corrupt`）
+### Trust store corrompido (`workspace_hooks_trust_store_corrupt`)
 
-持久 Trust store（`~/.zcode/security/workspace-hook-trust-v1.json`，可被 user config 的
-`storage.dir` 重定向）按完整 strict schema 解析：JSON 语法错误、缺少 `schemaVersion`、
-record 缺少必需字段（`decision` / `grantedAt` / `digestAlgorithm` 等）、非法时间戳、未知
-字段等一律判 corrupt 并 fail-closed——所有消费者（Settings UI、Runtime admission、CLI）
-对同一文件得出同一结论，corrupt 下不展示任何 `trusted_persistent`，Hook 全部按未信任
-软门禁跳过。
+O trust store persistente (`~/.zcode/security/workspace-hook-trust-v1.json`, que pode ser redirecionado por `storage.dir` da user config) é analisado por um schema strict completo: erro de sintaxe JSON, ausência de `schemaVersion`, record sem campos obrigatórios (`decision` / `grantedAt` / `digestAlgorithm` etc.), timestamp inválido, campos desconhecidos etc. são todos julgados corrupt e fail-closed — todos os consumidores (Settings UI, Runtime admission, CLI)
+chegam à mesma conclusão para o mesmo arquivo, e em estado corrupt nenhum `trusted_persistent` é exibido; todos os Hooks são pulados pela soft gate de não confiança.
 
-`zcode hooks trust status` 对损坏 store 显式返回
-`reasonCode: workspace_hooks_trust_store_corrupt`（而非 `pending_trust`），且 `grant` /
-`revoke` 会被拒绝直到修复。首次读取时损坏文件会被改名为
-`workspace-hook-trust-v1.json.corrupt-<timestamp>`；恢复方式：从备份还原该文件，或确认
-无需保留后删除 `*.corrupt-*` 残留文件以重建空 store，再重新执行 grant。
+`zcode hooks trust status` retorna explicitamente
+`reasonCode: workspace_hooks_trust_store_corrupt` para um store corrompido (em vez de `pending_trust`), e `grant` /
+`revoke` são rejeitados até a reparação. Na primeira leitura o arquivo corrompido é renomeado para
+`workspace-hook-trust-v1.json.corrupt-<timestamp>`; a recuperação consiste em restaurar o arquivo a partir do backup ou, após confirmar que não há necessidade de preservá-lo, apagar os arquivos residuais `*.corrupt-*` para reconstruir um store vazio e então executar o grant novamente.
 
-## 人工验收
+## Aceitação manual
 
-仓库提供无害 fixture：
+O repositório fornece um fixture inofensivo:
 
 ```bash
 node scripts/create-workspace-hook-trust-uat-fixture.mjs
 ```
 
-完整操作和预期结果见
-[`workspace-hook-trust-manual-acceptance.md`](./testing/workspace-hook-trust-manual-acceptance.md)。
+O procedimento completo e os resultados esperados estão em
+[`workspace-hook-trust-manual-acceptance.md`](./testing/workspace-hook-trust-manual-acceptance.md).

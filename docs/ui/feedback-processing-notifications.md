@@ -1,27 +1,27 @@
-# 反馈处理进展查看
+# Visualização do Andamento do Processamento de Feedback
 
-## 目标
+## Objetivo
 
-用户提交反馈后，可以在“我的反馈”里查看后端处理状态、官方回复和时间线。反馈状态查询只在用户主动进入反馈中心相关页面时发生，避免应用后台持续请求反馈列表。
+Depois que o usuário envia um feedback, ele pode ver em "Meus feedbacks" o status de processamento pelo backend, as respostas oficiais e a linha do tempo. A consulta de status do feedback acontece apenas quando o usuário entra ativamente em páginas relacionadas ao centro de feedback, evitando que o aplicativo continue buscando a lista de feedbacks em segundo plano.
 
-## 客户端策略
+## Estratégia do Cliente
 
-- 应用启动和反馈中心未打开时，不后台轮询反馈列表。
-- 用户打开“我的反馈”页时，`TicketsView` 拉取当前用户工单列表。
-- 用户选择某条反馈时，详情页拉取该工单详情，展示最新状态、回复、附件和时间线。
-- 用户点击列表刷新按钮、提交反馈后跳转详情、或补充信息提交成功后，重新拉取列表和当前详情。
-- 反馈中心不再通过后台轮询弹出 toast、桌面通知或“我的反馈”未读角标；用户主动进入“我的反馈”即可看到最新状态。
+- Na inicialização do aplicativo e enquanto o centro de feedback não está aberto, não há polling da lista de feedbacks em segundo plano.
+- Quando o usuário abre a página "Meus feedbacks", `TicketsView` busca a lista de tickets do usuário atual.
+- Quando o usuário seleciona um feedback, a página de detalhes busca os detalhes desse ticket, exibindo o status mais recente, as respostas, os anexos e a linha do tempo.
+- Quando o usuário clica no botão de atualizar da lista, depois de enviar um feedback e navegar para os detalhes, ou após o sucesso do envio de informações complementares, a lista e os detalhes atuais são buscados novamente.
+- O centro de feedback não exibe mais toast, notificações de desktop ou o badge de não lidas em "Meus feedbacks" por polling em segundo plano; basta o usuário entrar ativamente em "Meus feedbacks" para ver o status mais recente.
 
-## 点击行为
+## Comportamento de Clique
 
-反馈入口只负责打开反馈中心。用户需要查看处理进展时，进入“我的反馈”列表并选择对应工单。
+A entrada de feedback serve apenas para abrir o centro de feedback. Quando o usuário quiser ver o andamento do processamento, ele entra na lista "Meus feedbacks" e seleciona o ticket correspondente.
 
-## 后端契约
+## Contrato do Backend
 
-客户端当前依赖列表接口返回的 `updated_at` 与 `status`，详情接口返回事件、评论和附件。后端只要在以下动作后更新工单 `updated_at`，用户下次打开或刷新“我的反馈”时即可看到最新处理进展：
+O cliente atualmente depende do `updated_at` e do `status` retornados pela interface de listagem, e dos eventos, comentários e anexos retornados pela interface de detalhes. Basta o backend atualizar o `updated_at` do ticket após as ações abaixo para que o usuário veja o andamento mais recente ao abrir ou atualizar "Meus feedbacks" na próxima vez:
 
-- 管理员切换状态。
-- 管理员回复用户。
-- 派发、上线或其他处理动作写入工单时间线。
+- O administrador muda o status.
+- O administrador responde ao usuário.
+- O despacho, a publicação ou outra ação de processamento escreve na linha do tempo do ticket.
 
-后续如果产品重新需要主动触达，再引入 WebSocket、SSE 或消息推送；不要恢复客户端固定间隔轮询。
+Se no futuro o produto voltar a precisar de contato proativo, introduzir WebSocket, SSE ou push de mensagens; não restaurar o polling do cliente em intervalo fixo.

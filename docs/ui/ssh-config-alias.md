@@ -1,36 +1,37 @@
 # SSH Config Alias
 
-## Goal
+## Objetivo
 
-在 SSH 连接弹窗里支持直接选择本机 `ssh config` 的 `Host alias`，减少手工填写 `host/port/user/privateKey` 的成本。
+Suportar, no modal de conexão SSH, a seleção direta de um `Host alias` do `ssh config` da máquina local, reduzindo o
+custo de preencher manualmente `host/port/user/privateKey`.
 
-## Behavior
+## Comportamento
 
-- SSH 模式下新增 `SSH Config Alias` 下拉框，按需懒加载候选。
-- 选择 alias 后自动回填：
+- No modo SSH, é adicionado um dropdown `SSH Config Alias`, com carregamento preguiçoso dos candidatos sob demanda.
+- Após selecionar o alias, os campos são preenchidos automaticamente:
   - `HostName -> host`
   - `Port -> port`
   - `User -> username`
   - `IdentityFile -> privateKeyPath`
-- 当 alias 含 `IdentityFile` 时，认证方式自动切换为 `privateKey`。
-- 用户后续手动改动 SSH 关键字段（host/port/username/privateKey）会清除“已选 alias”状态，避免误导。
-- 通过 alias 建立的 SSH remote workspace 会把 alias 作为非敏感连接元数据写入 remote target snapshot。
-- 左侧任务列表和聊天区域 header 里的 SSH remote workspace 若带 alias，工作区标题显示为 `<workspaceName> [SSH: <alias>]`，例如 `root [SSH: linux-arm64]`；未使用 alias 或历史记录无 alias 时保持原工作区名/原 host 辅助信息。
-- Web 端非 remote-control 场景返回空列表，保持兼容。
+- Quando o alias contém `IdentityFile`, o método de autenticação muda automaticamente para `privateKey`.
+- Se o usuário alterar manualmente depois algum campo-chave do SSH (host/port/username/privateKey), o estado "alias selecionado" é limpo, para evitar indução ao erro.
+- Um workspace remoto SSH estabelecido via alias grava o alias como metadado de conexão não sensível no remote target snapshot.
+- Se um SSH remote workspace da lista de tasks à esquerda ou do header da área de chat tiver alias, o título do workspace é exibido como `<workspaceName> [SSH: <alias>]`, por exemplo `root [SSH: linux-arm64]`; quando não houver alias em uso ou o registro histórico não tiver alias, mantém-se o nome do workspace original / as informações auxiliares do host original.
+- No Web, em cenários que não sejam de remote-control, a lista retornada é vazia, mantendo a compatibilidade.
 
-## Implementation Notes
+## Notas de implementação
 
-- 解析能力下沉到 `packages/services/src/system/sshConfigAlias.ts`，desktop main 只做平台通道转发。
-- 支持 `Include` 展开、单 alias 过滤（排除 `*`/通配符/否定 pattern/多 pattern Host 行）。
-- 优先使用 `ssh -G` 获取最终配置；并带有保护策略：
-  - 单 alias 超时（1.5s）
-  - 并发上限（3）
-  - alias 数量上限（200）
-  - 缓存 TTL（30s）
-  - 失败隔离与回退到本地解析结果
-- `SSHConnectOptions` / `SSHRemoteTargetSnapshot` 保存可选 `sshConfigAlias` 字段；该字段不参与 workspace identity 计算，避免用户重命名 alias 或同目标 alias 变化导致同一远端 workspace 被误拆分。
-- 断连恢复、重连失败记录和 tab 持久化继续以 `workspaceIdentity?.trim() || workspacePath` 作为隔离 key；alias 只用于 UI 展示。
-- 兼容 macOS / Linux / Windows：
-  - 配置入口统一从 `os.homedir()` 解析 `~/.ssh/config`
-  - Windows 额外探测常见 OpenSSH/Git `ssh.exe` 路径
-  - 无 `ssh` 可执行文件时自动回退到本地解析
+- A capacidade de parsing fica em `packages/services/src/system/sshConfigAlias.ts`; o main do desktop apenas faz o encaminhamento pelo canal de plataforma.
+- Suporta expansão de `Include` e filtro de alias único (exclui `*`/wildcard/padrões de negação/linhas Host com múltiplos padrões).
+- Preferência por `ssh -G` para obter a configuração final; com estratégias de proteção:
+  - timeout por alias (1.5s)
+  - limite de concorrência (3)
+  - limite de quantidade de aliases (200)
+  - TTL de cache (30s)
+  - isolamento de falhas com fallback para o resultado do parsing local
+- `SSHConnectOptions` / `SSHRemoteTargetSnapshot` guardam o campo opcional `sshConfigAlias`; esse campo não participa do cálculo de workspace identity, evitando que renomear o alias ou a variação de alias para o mesmo destino resulted em um mesmo workspace remoto ser dividido indevidamente.
+- Recuperação de desconexão, registro de falha de reconexão e persistência de tab continuam usando `workspaceIdentity?.trim() || workspacePath` como chave de isolamento; o alias é usado apenas para exibição na UI.
+- Compatível com macOS / Linux / Windows:
+  - o ponto de entrada de configuração resolve `~/.ssh/config` de forma unificada a partir de `os.homedir()`
+  - no Windows, são sondados adicionalmente os caminhos comuns de `ssh.exe` do OpenSSH/Git
+  - sem executável `ssh`, há fallback automático para o parsing local

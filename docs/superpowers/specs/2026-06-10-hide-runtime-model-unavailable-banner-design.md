@@ -1,45 +1,45 @@
-# Hide Runtime Model Unavailable Banner Design
+# Design — Ocultar o Banner de Modelo de Runtime Indisponível
 
-## Background
+## Contexto
 
-Historical ZCode tasks can carry a persisted model reference whose provider or model is no longer available in the current provider registry. The service layer reports this as `ZCODE_RUNTIME_MODEL_UNAVAILABLE` and keeps the guard in place so desktop continuous sessions do not silently resume with a different runtime model.
+Tarefas históricas do ZCode podem carregar uma referência de modelo persistida cujo provider ou modelo não está mais disponível no provider registry atual. A camada de serviço reporta isso como `ZCODE_RUNTIME_MODEL_UNAVAILABLE` e mantém o guard no lugar para que as sessões contínuas do desktop não retomem silenciosamente com um modelo de runtime diferente.
 
-The current UI shows that guard as a chat error banner with the message:
+Atualmente, a UI exibe esse guard como um banner de erro de chat com a mensagem:
 
 `历史任务使用的模型已不可用，请从当前模型列表中选择一个可用模型后继续。`
 
-The desired product behavior is to keep the internal guard, logs, restore handling, and task state intact, but stop rendering this message as a user-visible chat error banner.
+O comportamento de produto desejado é manter intactos o guard interno, os logs, o tratamento de restore e o estado da tarefa, mas parar de renderizar essa mensagem como um banner de erro de chat visível ao usuário.
 
-## Goals
+## Objetivos
 
-- Hide the chat error banner for `ZCODE_RUNTIME_MODEL_UNAVAILABLE`.
-- Keep the service error code and runtime protection unchanged.
-- Keep logs and task state available for diagnostics.
-- Preserve normal error banner behavior for all other error codes.
-- Avoid adding replacement UI, text, or new interaction states.
+- Ocultar o banner de erro de chat para `ZCODE_RUNTIME_MODEL_UNAVAILABLE`.
+- Manter inalterados o error code do serviço e a proteção de runtime.
+- Manter logs e estado da tarefa disponíveis para diagnóstico.
+- Preservar o comportamento normal do banner de erro para todos os outros error codes.
+- Evitar adicionar UI, textos ou novos estados de interação substitutos.
 
-## Non-Goals
+## Não objetivos
 
-- Do not remove `ZCODE_RUNTIME_MODEL_UNAVAILABLE` from service or protocol logic.
-- Do not change model restore, fallback, or setModel semantics.
-- Do not remove tests that validate service-side unavailable-model protection.
-- Do not add a softer toast, inline hint, or toolbar warning.
+- Não remover `ZCODE_RUNTIME_MODEL_UNAVAILABLE` da lógica de serviço ou de protocolo.
+- Não alterar a semântica de restore, fallback ou setModel.
+- Não remover testes que validam a proteção do serviço contra modelo indisponível.
+- Não adicionar um toast mais discreto, uma dica inline ou um aviso na barra de ferramentas.
 
 ## Design
 
-The narrowest safe boundary is the chat error presentation layer. `ChatErrorBanner` should treat `ZCODE_RUNTIME_MODEL_UNAVAILABLE` as a non-renderable UI error and return `null`. This keeps upstream state and diagnostics unchanged while preventing the visible banner from appearing.
+O limite mais estreito e seguro é a camada de apresentação do erro de chat. `ChatErrorBanner` deve tratar `ZCODE_RUNTIME_MODEL_UNAVAILABLE` como um erro de UI não renderizável e retornar `null`. Isso mantém o estado e o diagnóstico upstream inalterados, ao mesmo tempo que impede o banner visível de aparecer.
 
-The component-level boundary is preferable to clearing the task error in `useTaskRestore`, because restore and model-switch flows still depend on that code to identify and clear historical unavailable-model state after a successful model switch.
+O limite no nível do componente é preferível a limpar o erro da tarefa em `useTaskRestore`, porque os fluxos de restore e de troca de modelo ainda dependem desse código para identificar e limpar o estado histórico de modelo indisponível após uma troca de modelo bem-sucedida.
 
-## Testing
+## Testes
 
-Add or update UI tests for `ChatErrorBanner`:
+Adicionar ou atualizar os testes de UI de `ChatErrorBanner`:
 
-- Rendering with `code: "ZCODE_RUNTIME_MODEL_UNAVAILABLE"` should not include the historical-model message in the HTML.
-- Rendering a normal error should still show the error message.
+- A renderização com `code: "ZCODE_RUNTIME_MODEL_UNAVAILABLE"` não deve conter a mensagem de modelo histórico no HTML.
+- A renderização de um erro normal deve continuar exibindo a mensagem de erro.
 
-No browser visual regression is required because the requested behavior removes an existing banner for one code path and does not add layout or styling.
+Não é necessária regressão visual no navegador, porque o comportamento solicitado remove um banner existente em um único caminho de código e não adiciona layout nem estilo.
 
-## Compatibility
+## Compatibilidade
 
-The change is UI-only and does not affect desktop, web remote, mobile remote, service process, relay, task snapshot, or stream recovery semantics. Desktop continuous and web remote replayable paths continue to receive and persist the same error code; only the visible chat banner is suppressed.
+A mudança é somente de UI e não afeta a semântica de desktop, web remote, mobile remote, processo de serviço, relay, snapshot de tarefa ou recuperação de stream. Os caminhos replayable do desktop continuous e do web remote continuam recebendo e persistindo o mesmo error code; apenas o banner de chat visível é suprimido.

@@ -1,66 +1,98 @@
-# `/event/report` 登录地址与错误正文隐私边界
+# Boundaries de privacidade do endereço de login e do corpo de erro de `/event/report`
 
-## 目标与取舍（2026-09-18）
+## Objetivos e escolhas (2026-09-18)
 
-旧实现将完整 OAuth authorizeUrl 写入 `app_login_ck.login_url`，并允许任意事件的
-`error_msg` 原文进入 HTTP body；自动化的局部正则会漏掉 Bearer 后的值和未知格式密钥。
-用户确认首期优先隐私：不加密上传错误原文，不依赖正则猜测哪些片段是秘密。
+A implementação antiga gravava a authorizeUrl OAuth completa em `app_login_ck.login_url` e permitia que o texto
+original de `error_msg` de qualquer evento fosse para o HTTP body; as regex parciais da automação deixavam passar
+o valor após um Bearer e chaves em formatos desconhecidos. O usuário confirmou que a primeira fase prioriza
+privacidade: não enviar o texto original do erro criptografado e não depender de regex para adivinhar quais
+fragmentos são segredos.
 
-- 保留 `login_url` 字段名，仅发送 HTTP(S) URL 的小写 hostname，去掉 userinfo、端口、
-  路径、query 和 fragment。无效或非 HTTP(S) URL 返回空串；已规范化 hostname 可重复处理。
-- **所有事件**的 `event_extra_detail.error_msg`：非空字符串统一为 `[redacted]`；空串保持空，
-  原本缺失的字段不新增。包括当前 conversation/automation 及未来新增事件。
-- 对话事件保留既有 `error_type`；自动化创建失败补齐固定 `error_code`：
-  `limit` / `timeout` / `network` / `auth` / `validation` / `unknown`，成功为空。
-  在本地按此顺序识别已知错误码/模式；未知或缺失文本归为 `unknown`，只提供粗粒度归因，
-  不回传匹配内容、不承诺恢复原文的全部诊断能力。状态、耗时和关联 ID 保持不变。
-- 处理只作用于 telemetry 副本，不改 OAuth 浏览器地址、登录 state、工具结果或业务错误展示。
-- UI 上报前与 Core 序列化前使用同一个纯函数；函数幂等、不修改调用方对象。
-  agent_step/message_completion 调试 payload 只记录已清洗副本，改用 debug。
-- 认证请求头 Authorization 仍用于正常鉴权，不移除或复制进 JSON；与错误正文的删除是两回事。
+- Mantém-se o nome do campo `login_url`, enviando apenas o hostname em minúsculas de URLs HTTP(S), removendo
+  userinfo, porta, caminho, query e fragment. URLs inválidas ou não-HTTP(S) retornam string vazia; um hostname já
+  normalizado pode ser processado de forma idempotente.
+- **Em todos os eventos**, `event_extra_detail.error_msg`: strings não vazias viram uniformemente `[redacted]`;
+  string vazia permanece vazia e campos originalmente ausentes não são adicionados. Isso vale para os eventos
+  atuais de conversation/automation e para eventos futuros.
+- Eventos de conversa mantêm o `error_type` existente; falhas de criação de automation passam a ter um
+  `error_code` fixo: `limit` / `timeout` / `network` / `auth` / `validation` / `unknown`, vazio em caso de
+  sucesso. Localmente os códigos/padrões conhecidos são reconhecidos nessa ordem; textos desconhecidos ou
+  ausentes são classificados como `unknown`, oferecendo apenas atribuição grosseria, sem devolver o conteúdo
+  casado e sem prometer recuperar toda a capacidade de diagnóstico do texto original. Estado, duração e IDs
+  correlatos permanecem inalterados.
+- O tratamento age apenas sobre a cópia de telemetry; não altera o endereço do navegador OAuth, o login state,
+  os resultados de ferramentas ou a exibição de erros de negócio.
+- Antes do envio da UI e antes da serialização do Core, usa-se a mesma função pura; a função é idempotente e não
+  modifica os objetos do chamador. Os payloads de debug de agent_step/message_completion registram apenas a cópia
+  higienizada, passando a usar debug.
+- O header de autenticação Authorization continua sendo usado normalmente para a autenticação, sem remoção nem
+  cópia para o JSON; isso é separado da remoção do corpo de erro.
 
-## 链路与兼容性
+## Cadeia e compatibilidade
 
 ```text
-OAuth 原 URL -> 浏览器（原值）
-           `-> login_url hostname -> UI sanitize -> IPC -> Core sanitize -> POST
-其他 UI 事件 -> error_msg [redacted] -> 同一链路
-Host/Main 事件 ---------------------------------> Core sanitize -> POST
+URL original do OAuth -> navegador (valor original)
+           `-> hostname do login_url -> UI sanitize -> IPC -> Core sanitize -> POST
+Outros eventos de UI -> error_msg [redacted] -> mesma cadeia
+Eventos de Host/Main ---------------------------------> Core sanitize -> POST
 ```
 
-共享实现不依赖 Node、文件系统或平台 API。Windows/macOS/Linux 的路径、任意 URL、
-Authorization 值、密钥（含多行 PEM）都随着非空错误正文整体移除。
-Desktop continuous 和手机 web-remote-replayable 的订阅、队列、恢复、消息归属不改；
-手机仍只转发既有 strict session_create。主题、语言和 UI 交互不改。
-本期范围是 `/event/report` 的 login_url/error_msg；不扩展到 ARMS、OTLP、compaction.reason、
-模板正文、`event_text` 或其他业务字段。既有服务端历史数据不由此客户端修复清除。
+A implementação compartilhada não depende de Node, sistema de arquivos nem APIs de plataforma. Caminhos de
+Windows/macOS/Linux, URLs arbitrárias, valores de Authorization e chaves (incluindo PEM multilinha) são removidos
+por inteiro junto com qualquer corpo de erro não vazio.
 
-## 验收
+A assinatura, a fila, a restauração e a atribuição de mensagens do desktop continuous e do
+web-remote-replayable do celular não mudam; o celular continua encaminhando apenas a session_create strict já
+existente. Tema, idioma e interações de UI não mudam.
 
-先用旧代码运行新增用例确认失败，再验证：登录完整 URL 只用于 openExternal；
-UI reporter/调试日志和直接调用 Core 的最终请求体都没有错误原文；空/缺失/重复清洗语义稳定；
-未来未知事件同样清洗；原对象不变；网络重试复用清洗后的 body 和 event_id；正常 Authorization
-header 保持；以本机受控 HTTP 接收器验证实际收到的 body 不含合成敏感标记。
-运行相关单测、pnpm typecheck、pnpm lint；未覆盖的真实 Electron/手机/跨 OS 实机记录在提交说明。
+O escopo desta fase é `login_url`/`error_msg` de `/event/report`; não é estendido para ARMS, OTLP,
+`compaction.reason`, corpo de templates, `event_text` nem outros campos de negócio. Dados históricos já
+existentes no servidor não são corrigidos nem removidos por este cliente.
 
-## 验证记录
+## Aceitação
 
-- 新增回归先在旧实现上运行：33 项失败，涵盖原 URL、原错误正文、日志和最终 HTTP body。
-- 修改后相关 15 个测试文件、202 项通过，含真实本机 HTTP 接收器、重试 body、
-  正常鉴权 header、OAuth 原地址、父/子代理、workflow、自动化、手机 session_create 边界。
-- macOS + Node 24.14.0 执行；没有真实账号、生产网络上报或真实用户隐私样本。
-- Windows/Linux 路径作为输入用例覆盖，未跑 Windows/Linux 实机、真实 Electron 登录或手机浏览器 E2E。
-- architecture:check 通过；shared/ui/services 是当前策略的 legacy/unmanaged 模块，
-  通过不等于自动证明其全部运行时边界。共享清洗是无 I/O 的纯函数，未改变业务状态 owner。
+Primeiro executar os novos casos com o código antigo para confirmar a falha e depois verificar: a URL de login
+completa é usada apenas em openExternal; o reporter da UI, os logs de debug e o body final da chamada direta ao
+Core não contêm o texto original do erro; a semântica de higienização de vazio/ausente/repetida é estável;
+eventos desconhecidos futuros também são higienizados; o objeto original permanece inalterado; as retentativas
+de rede reutilizam o body higienizado e o event_id; o header Authorization normal é preservado; e o body
+efetivamente recebido não contém marcadores sensíveis sintéticos, verificado com um receptor HTTP local
+controlado.
 
-完整 `pnpm typecheck`、`pnpm lint`（55 条非本次修改文件警告，0 errors）、
-修改文件 oxfmt 检查与 `git diff --check` 通过。
+Executar os testes relacionados, `pnpm typecheck` e `pnpm lint`; registrar na descrição do commit as
+verificações em máquinas reais de Electron/celular/cross-OS que ficaram sem cobertura.
 
-## 字段表与报表迁移
+## Registro de Verificação
 
-- [业务监控 agent_step / message_completion 字段表](business-monitoring.md)：使用 `error_type` 聚合失败，不再按 `error_msg` 原文聚类或搜索。
-- [自动化消息 telemetry 字段表](automation-message-telemetry.md)：同一错误正文隐私语义。
-- [性能 telemetry 目录](performance-telemetry-catalog.md)：这里只约束 `/event/report` 的字段，不扩大到 ARMS/OTLP。
-- [定时任务管理上报](../ui/scheduled-tasks-main-view.md)：`automation_create_result` 原来的 `error_code` 恒空；本次补齐分类，报表使用该字段。分类覆盖需单独看 `unknown` 比例，不能把未知分类当成功。
+- A nova regressão foi executada primeiro na implementação antiga: 33 itens falhando, cobrindo URL original,
+  corpo de erro original, logs e body HTTP final.
+- Após a modificação, 15 arquivos de teste relacionados e 202 casos passaram, incluindo receptor HTTP local real,
+  body de retry, header de autenticação normal, endereço OAuth original, agente pai/filho, workflow, automation e
+  boundary de session_create do celular.
+- Execução em macOS + Node 24.14.0; sem conta real, sem envio para rede de produção e sem amostras reais de
+  privacidade de usuário.
+- Caminhos de Windows/Linux foram cobertos como casos de entrada, mas não houve execução em máquinas reais de
+  Windows/Linux, nem login real do Electron ou E2E de navegador no celular.
+- `architecture:check` aprovado; shared/ui/services são módulos legacy/unmanaged da política atual, e a
+  aprovação não prova automaticamente todas as suas boundaries de runtime. A higienização compartilhada é uma
+  função pura sem I/O e não mudou o owner de estado de negócio.
 
-修复审查 CR-01/CR-02：先同步以上既有 spec，再以实际 reporter 的失败/成功上报验证分类及隐私；缺少错误信息的失败也必须发出 `unknown`，成功不得携带过期错误分类。
+O `pnpm typecheck` completo, o `pnpm lint` (55 avisos de arquivos fora desta modificação, 0 erros), a verificação
+oxfmt dos arquivos modificados e o `git diff --check` passaram.
+
+## Tabela de Campos e Migração de Relatórios
+
+- [Tabela de campos de agent_step / message_completion do monitoramento de negócio](business-monitoring.md):
+  usa `error_type` para agregar falhas, sem agrupar nem buscar pelo texto original de `error_msg`.
+- [Tabela de campos de telemetry de mensagens de automation](automation-message-telemetry.md): mesma semântica de
+  privacidade do corpo de erro.
+- [Catálogo de performance telemetry](performance-telemetry-catalog.md): aqui só restringem-se os campos de
+  `/event/report`, sem ampliação para ARMS/OTLP.
+- [Relatório da visão principal de tarefas agendadas](../ui/scheduled-tasks-main-view.md): o `error_code` de
+  `automation_create_result` era sempre vazio; esta rodada completa a classificação, e os relatórios passam a usar
+  esse campo. A cobertura da classificação precisa ser avaliada olhando a proporção de `unknown` separadamente,
+  sem tratar classificação desconhecida como sucesso.
+
+Correções de revisão CR-01/CR-02: sincronizar primeiro os specs existentes acima e depois validar a classificação
+e a privacidade com os envios reais de falha/sucesso do reporter; falhas sem informação de erro também precisam
+emitir `unknown`, e sucessos não podem carregar classificação de erro desatualizada.

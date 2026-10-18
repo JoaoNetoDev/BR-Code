@@ -1,25 +1,25 @@
-# M3：Provider 架构切换
+# M3: Cutover da arquitetura de Provider
 
-> 状态：当前基线实现完成，待集成裁决与上线门禁
+> Status: implementação da linha de base atual concluída, aguardando decisão de integração e portão de lançamento
 >
-> 最近更新：2026-08-21
+> Atualizado em: 2026-08-21
 >
-> 实施载体：当前 Draft Merge Request；源分支暂时保留历史 M2 命名，阶段与评审语义以 M3 为准，不另开并行分支
+> Veículo de implementação: o Draft Merge Request atual; o branch de origem mantém temporariamente a nomenclatura histórica do M2, mas as semânticas de fase e de revisão seguem o M3, sem abrir branches paralelos
 
-M3 是一次完整架构切换。当前 Merge Request 中已经完成的 Provider Config、Registry、ModelFactory 与生产接入构成它的基础；本阶段继续完成原子 Submission、模型选择状态、Provider 设置页，并删除被新链路取代的旧协议和旧运行状态。整个变更作为一个大 Merge Request 接受评审和上线验证，这是本次迁移的明确实验，不再把已完成的 M2 基础单独发布后另开 M3。
+O M3 é um cutover completo de arquitetura. O Provider Config, o Registry, o ModelFactory e a integração de produção já concluídos no Merge Request atual constituem sua base; esta fase continua com a Submission atômica, o estado de seleção de modelo, a página de configurações de Provider, e remove os protocolos antigos e os antigos estados de runtime substituídos pela nova cadeia. Toda a alteração é aceita como um único Merge Request grande para revisão e verificação de lançamento; esta é a experimentação explícita desta migração, sem publicar separadamente a base M2 já concluída e depois abrir o M3.
 
-目标设计分别位于：
+Os designs alvo estão respectivamente em:
 
-- [`../design/registry/registry.md`](../design/registry/registry.md)：Config、Registry 与 Model 创建；
-- [`../design/interaction/interaction.md`](../design/interaction/interaction.md)：Draft、Selection、Submission、Queue 与 Guide；
-- [`../design/registry/settings.md`](../design/registry/settings.md)：设置页保存、调序与连通性测试；
-- [`../design/execution/execution.md`](../design/execution/execution.md)：当前阶段与 execution-scoped Provider 的边界。
+- [`../design/registry/registry.md`](../design/registry/registry.md): Config, Registry e criação de Model;
+- [`../design/interaction/interaction.md`](../design/interaction/interaction.md): Draft, Selection, Submission, Queue e Guide;
+- [`../design/registry/settings.md`](../design/registry/settings.md): salvamento na página de configurações, reordenação e teste de conectividade;
+- [`../design/execution/execution.md`](../design/execution/execution.md): limite entre a fase atual e o Provider de escopo de execução.
 
-本文负责把这些已确定的设计组织成一个可执行、可评审、可验收的迁移计划。
+Este documento é responsável por organizar esses designs já definidos em um plano de migração executável, revisável e verificável.
 
-## 完成后的主链
+## Cadeia principal após a conclusão
 
-M3 完成后，Provider 静态事实、用户提交意图和模型执行分别经过唯一入口：
+Após o M3, os fatos estáticos de Provider, a intenção de envio do usuário e a execução de modelos passam por pontos de entrada únicos:
 
 ```text
 Official Config ─┐
@@ -50,60 +50,60 @@ Session Selection + Active Model
       ModelRequest
 ```
 
-这条链路形成三个清晰边界：
+Essa cadeia forma três fronteiras claras:
 
-1. Config 与 Account Source 决定当前 Environment 中有哪些 Provider 和模型。
-2. Submission 固定一次用户输入及其模型意图，投递过程中不再读取 Composer 的后来状态。
-3. Registry 根据 Selection 创建 Model；Model 与请求结果是 Usage、Trace 和错误归因的执行事实。
+1. Config e Account Source determinam quais Providers e modelos existem no Environment atual.
+2. A Submission fixa uma entrada do usuário e sua intenção de modelo; durante a entrega, o estado posterior do Composer não é mais lido.
+3. O Registry cria o Model conforme a Selection; o Model e o resultado da requisição são os fatos de execução para atribuição de Usage, Trace e erros.
 
-## 当前基础与阶段关系
+## Base atual e relação entre fases
 
-原 M2 已经完成 M3 的 Provider 基础设施：
+O antigo M2 já concluiu a infraestrutura de Provider do M3:
 
-- Official、Personal、Account 三层 Provider Config；
-- 进程级 Registry、Settings/Selection Facade 与 ModelFactory；
-- Host、Worker、Prompt CLI、TUI 的主要生产装配；
-- Account Provider 的静态配置与请求期鉴权边界；
-- 旧 Catalog、Preset、Workspace Snapshot 和 Runtime Provider 静态事实的退役。
+- as três camadas de Provider Config: Official, Personal e Account;
+- o Registry em nível de processo, as Facades Settings/Selection e o ModelFactory;
+- as principais montagens de produção de Host, Worker, Prompt CLI e TUI;
+- a configuração estática do Account Provider e a fronteira de autenticação no momento da requisição;
+- a aposentadoria do Catalog antigo, do Preset, do Workspace Snapshot e dos fatos estáticos de Provider do runtime.
 
-这些改动尚未独立合入，因此 Roadmap 中的 M2 视为 M3 的已完成基础切片。M3 不重新实现它们，而是在同一分支上完成交互和设置链路，随后以一份自洽的系统进入上线验证。
+Essas alterações ainda não foram integradas isoladamente, portanto o M2 do Roadmap é tratado como a fatia de base já concluída do M3. O M3 não as reimplementa; em vez disso, conclui a cadeia de interação e de configurações no mesmo branch, entrando depois em verificação de lançamento como um sistema coerente.
 
-## 实施范围
+## Escopo de implementação
 
-### M3.0：固定基线与评审结构（远端拓扑待裁决）
+### M3.0: Fixar a linha de base e a estrutura de revisão (topologia remota pendente de decisão)
 
-具体方案见 [`03-staging-integration.md`](./03-staging-integration.md)。当前本地 staging 已发生历史重建，用户裁决前不 merge 或 rebase 远端分支；M3 先以当前 M2 工作树为权威推进可审计切片。最终上线前仍需完成拓扑裁决，确认只保留有效 Provider 改动，并完整验证 Video Input、模型输入类型和 ox-alpha reasoning 等产品语义；任何集成都不能恢复 staging 已删除的旧实现。
+O plano concreto está em [`03-staging-integration.md`](./03-staging-integration.md). O staging local atual passou por um rebuild histórico; antes da decisão do usuário não se faz merge nem rebase das branches remotas. O M3 avança primeiro com fatias auditáveis usando a árvore de trabalho M2 atual como autoridade. Antes do lançamento final ainda é necessária a decisão de topologia, confirmando que apenas as alterações de Provider válidas são mantidas e validando integralmente as semânticas de produto como Video Input, tipos de entrada de modelo e raciocínio ox-alpha; nenhuma integração pode restaurar as implementações antigas já removidas do staging.
 
-大 Merge Request 保留多个职责清晰的提交，并按以下评审区域组织 Changes：
+O Merge Request grande mantém vários commits com responsabilidades claras e organiza as Changes pelas seguintes áreas de revisão:
 
 ```text
-A  Config / Registry 基础
-B  Submission / Selection 协议
+A  Base de Config / Registry
+B  Protocolo Submission / Selection
 C  CLI Admission / Queue / Guide / Session
-D  ModelRef 与旧运行状态退役
+D  ModelRef e aposentadoria do antigo estado de runtime
 E  Provider Settings Service
 F  Provider Settings UI
-G  连通性测试 / Model / Adapter
-H  迁移清理、测试与文档
+G  Teste de conectividade / Model / Adapter
+H  Limpeza de migração, testes e documentação
 ```
 
-区域用于降低评审成本，不形成可长期共存的双轨实现。
+As áreas servem para reduzir o custo de revisão e não formam uma implementação de dois trilhos de longo prazo coexistindo.
 
-### M3.1：更新正式行为 Spec 与测试地图
+### M3.1: Atualizar o spec de comportamento oficial e o mapa de testes
 
-实现前先把原子 Submission 写入长期 Spec，并消除现有文档中“Queue 消费时读取最新 Session 模型”的旧表述。需要同步检查：
+Antes da implementação, a Submission atômica é escrita no Spec de longo prazo, eliminando nos documentos existentes a formulação antiga de "a Queue lê o modelo mais recente da Session ao consumir". É preciso verificar sincronamente:
 
-- Conversation Protocol Declaration；
-- Conversation Product State Space；
-- Conversation Case Catalog 与 Coverage Matrix；
-- Feature Graph 中 Composer、Queue、Guide、Edit、Retry 和模型切换的边；
-- Desktop continuous 与 Mobile replayable 对同一 Submission 的投递边界。
+- a Conversation Protocol Declaration;
+- o Conversation Product State Space;
+- o Conversation Case Catalog e o Coverage Matrix;
+- as arestas de Composer, Queue, Guide, Edit, Retry e troca de modelo no Feature Graph;
+- a fronteira de entrega da mesma Submission no Desktop continuous e no Mobile replayable.
 
-Working Memory 决定迁移目标，正式 Spec 决定上线后的产品行为。测试用例从 Spec 中提取，不从当前实现反推。
+O Working Memory determina o alvo da migração; o Spec oficial determina o comportamento do produto após o lançamento. Os casos de teste são extraídos do Spec, não inferidos da implementação atual.
 
-### M3.2：建立原子 CoreSubmission 协议
+### M3.2: Estabelecer o protocolo atômico de CoreSubmission
 
-Shared Protocol、Renderer、Services 与 CLI 使用同一个 Submission 结构：
+Shared Protocol, Renderer, Services e CLI usam a mesma estrutura de Submission:
 
 ```ts
 interface CoreSubmission {
@@ -114,117 +114,117 @@ interface CoreSubmission {
 }
 ```
 
-协议接收 prompt、attachments、mode 和 ModelSelection 的单次原子提交。普通发送不再依靠 `switchModelConfig` 与 `sendText` 的调用顺序，也不通过可变 Runtime 传递“下一条消息的模型”。
+O protocolo recebe um envio único e atômico de prompt, attachments, mode e ModelSelection. O envio normal deixa de depender da ordem de chamada entre `switchModelConfig` e `sendText`, e também deixa de passar "o modelo da próxima mensagem" por um Runtime mutável.
 
-Desktop continuous 和 Mobile replayable 可以采用不同的传输恢复机制，但两端携带同一个完整 Submission。远程 Workspace 继续传递 `workspaceIdentity` 与 `remoteSessionId`，Provider 重构不改变远控的 owner、lease 或 replayable 恢复职责。
+Desktop continuous e Mobile replayable podem adotar mecanismos diferentes de recuperação de transporte, mas ambos carregam a mesma Submission completa. O Workspace remoto continua repassando `workspaceIdentity` e `remoteSessionId`, e o refatoramento de Provider não altera o owner, o lease nem a responsabilidade de recuperação replayable do controle remoto.
 
-### M3.3：让 CLI Admission 成为执行权威
+### M3.3: Tornar o CLI Admission a autoridade de execução
 
-CLI 在接收 Submission 时明确选择一种 admission 结果：
+O CLI escolhe explicitamente um resultado de admission ao receber a Submission:
 
 ```text
 Core idle
 └─ start-now
-   ├─ Registry 创建 Model
+   ├─ Registry cria o Model
    ├─ Session Selection = Submission Selection
-   └─ 启动 Agent Loop
+   └─ inicia o Agent Loop
 
 Core busy
 └─ queue
-   └─ Queue item 保存完整 Submission
+   └─ o item da Queue guarda a Submission completa
 
-Guide accepted
-├─ 当前已发出的 Request 继续使用旧 Model
-├─ Step 边界创建并切换新 Model
+Guide aceito
+├─ a Request já enviada continua usando o Model antigo
+├─ o novo Model é criado e trocado no limite de Step
 ├─ Session Selection = Guide Selection
-└─ 后续 Step 使用新 Model
+└─ os Steps seguintes usam o novo Model
 ```
 
-Queue 出队时使用入队对象中的 Selection。Composer 后续切换、Session 期间发生的其他输入和 Config 更新，都不能改写已经接受的 Queue item。
+A Queue usa a Selection contida no objeto enfileirado. Trocas posteriores no Composer, outras entradas durante a Session e atualizações de Config não podem reescrever um item de Queue já aceito.
 
-Guide 与“立即”使用同一语义。创建 Model、注入 Context 或更新 Session 状态无法整体完成时，完整 Submission 转入 Queue，不留下只切换模型或只插入文本的中间状态。
+Guide e "imediato" usam a mesma semântica. Quando criar o Model, injetar o Context ou atualizar o estado da Session não puder ser concluído integralmente, a Submission completa vai para a Queue, sem deixar estados intermediários que só troquem o modelo ou só insiram texto.
 
-Edit 与 Retry 从源 Submission 派生，缺省继承源 Selection；如将来提供“使用当前模型重试”，必须形成携带新 Selection 的显式 Submission。
+Edit e Retry derivam da Submission de origem e, por padrão, herdam a Selection de origem; caso futuramente seja oferecida a opção "tentar novamente com o modelo atual", ela deve formar uma Submission explícita carregando a nova Selection.
 
-### M3.4：收敛 Renderer 的选择状态
+### M3.4: Convergir o estado de seleção do Renderer
 
-Composer 中的选择只表达下一次 Submission。Renderer 负责 Draft 与 App Recent，不再预先修改 CLI Runtime：
+A seleção no Composer expressa apenas a próxima Submission. O Renderer é responsável pelo Draft e pelo App Recent e não modifica mais o CLI Runtime antecipadamente:
 
 ```text
-Composer 编辑 ModelSelection B
-├─ 更新 Draft
-└─ 不影响 Active Model A
+O Composer edita ModelSelection B
+├─ atualiza o Draft
+└─ não afeta o Active Model A
 
-用户提交
-├─ 形成 Submission B
-├─ App 接受后更新 App Recent
-└─ CLI 开始执行后更新 Session Selection
+O usuário envia
+├─ forma a Submission B
+├─ o App atualiza o App Recent após aceitar
+└─ a CLI atualiza o Session Selection após iniciar a execução
 ```
 
-App Recent、Configured Default、Draft、Session Selection 和 Active Model 的初始化及写入时机继续以 [`../design/interaction/selection-state.md`](../design/interaction/selection-state.md) 为准。Prompt CLI 与 TUI 不读写 App Recent。
+A inicialização e os momentos de escrita de App Recent, Configured Default, Draft, Session Selection e Active Model continuam conforme [`../design/interaction/selection-state.md`](../design/interaction/selection-state.md). O Prompt CLI e o TUI não leem nem escrevem o App Recent.
 
-### M3.5：退役 ModelRef 与共享可变模型状态
+### M3.5: Aposentar o ModelRef e o estado de modelo compartilhado mutável
 
-M3 删除普通执行链上的 `ModelRef`、`defaultModelRef` 和基于字符串 `providerId/modelId` 的内部协议。现有字段按真实语义迁移：
+O M3 remove, da cadeia de execução normal, o `ModelRef`, o `defaultModelRef` e o protocolo interno baseado em strings `providerId/modelId`. Os campos existentes migram conforme sua semântica real:
 
 ```text
 ModelRef.providerId / modelId -> ModelSelection
 ModelRef.variant              -> ModelSelection.options.reasoningLevel
-ModelRef.role / Lite          -> 删除
-ModelRef.source               -> Submission 或 Trace metadata
+ModelRef.role / Lite          -> remoção
+ModelRef.source               -> Submission ou metadata de Trace
 ```
 
-结构化 `ModelSelection` 是进程内状态和跨进程协议的模型意图。CLI 人类输入可以继续提供 `provider/model` 简写，但解析只发生在 Entry 边界；内部不保存、拼接或重新解析该字符串。
+A `ModelSelection` estruturada é a intenção de modelo do estado no processo e do protocolo entre processos. A entrada humana da CLI pode continuar oferecendo a forma abreviada `provider/model`, mas a resolução acontece apenas na fronteira de entrada; internamente essa string não é armazenada, concatenada nem reanalisada.
 
-删除前使用引用审计确认所有生产消费者已经迁移。`turnRuntimeModel` 属于 execution-scoped Provider 的 M4 边界，本阶段既不扩大它的用途，也不以删除它作为 M3 完成条件。
+Antes da remoção, use uma auditoria de referências para confirmar que todos os consumidores de produção já migraram. O `turnRuntimeModel` pertence à fronteira do M4 para o Provider de escopo de execução; nesta fase seu uso não é ampliado, e sua remoção não é condição de conclusão do M3.
 
-### M3.6：完成 Provider Settings Service
+### M3.6: Concluir o Provider Settings Service
 
-Renderer 通过目标 Environment 的 Provider Settings Service 读取和修改 Provider。Service 负责：
+O Renderer lê e modifica Providers através do Provider Settings Service do Environment alvo. O Service é responsável por:
 
-- 返回适合设置页的 Settings View；
-- 保存完整 Provider Draft，并计算稀疏 Personal Overlay；
-- Provider/Model 新增、重命名、删除与调序；
-- 等待 Config 持久化和相应 Registry revision 生效；
-- 使用 Registry 创建 Model 并执行连通性测试；
-- 将领域错误投影为稳定的设置页错误结构。
+- retornar a Settings View adequada para a página de configurações;
+- salvar o Draft completo do Provider e calcular o Overlay esparso do Personal;
+- adicionar, renomear, excluir e reordenar Provider/Model;
+- aguardar a persistência da Config e a vigência da revision correspondente do Registry;
+- usar o Registry para criar o Model e executar o teste de conectividade;
+- projetar erros de domínio como uma estrutura de erro estável para a página de configurações.
 
-Renderer 不读取物理配置、不执行 Overlay、不判断 Registry 准入，也不拼装 Provider 请求。
+O Renderer não lê a configuração física, não executa Overlay, não avalia a admissão do Registry e não monta requisições de Provider.
 
-保存的时序需要形成一个明确完成点：
+O momento do salvamento precisa formar um ponto de conclusão explícito:
 
 ```text
-Renderer submit Draft revision N
+O Renderer envia o Draft de revision N
         |
         v
-Settings Service 保存 Personal Config
+O Settings Service salva a Personal Config
         |
         v
-Registry 观察到 Config revision N
+O Registry observa a Config de revision N
         |
         v
-Service 返回 Settings View revision N
+O Service retorna a Settings View de revision N
         |
         v
-Renderer 才显示“已保存”
+O Renderer só então exibe "salvo"
 ```
 
-### M3.7：完成设置页交互
+### M3.7: Concluir a interação da página de configurações
 
-设置页采用已经确定的自动保存语义：文本在失焦、Enter 或切换 Provider 时提交；选择、开关和拖动在操作完成后立即提交。页面显示 dirty、saving、success 和 failure 状态，只有 Host 确认相应 revision 后才显示成功勾。
+A página de configurações adota a semântica de salvamento automático já definida: o texto é enviado ao perder o foco, ao pressionar Enter ou ao trocar de Provider; seleções, interruptores e arrastos são enviados assim que a operação é concluída. A página exibe os estados dirty, saving, success e failure, e só mostra o visto de sucesso depois que o Host confirma a revision correspondente.
 
-本切片同时完成：
+Esta fatia conclui simultaneamente:
 
-- 添加 Provider 后立即创建 `new-provider[-N]`，不保留二次“保存”按钮；
-- Provider ID 与用户名称统一，重命名通过原子 Service 操作完成；
-- 模型 ID 在独立模型编辑页修改，列表不提供内联名称编辑；
-- Personal-only Provider 和允许调序的 Personal 模型支持拖动；
-- 调序后按 Effective 顺序重排 Personal Overlay，Official 覆盖项保持 Official 顺序；
-- Desktop 与 Mobile Web 使用相同 Service 契约，布局和反馈遵循项目 UI 规范与国际化要求。
+- criar imediatamente `new-provider[-N]` após adicionar um Provider, sem manter um segundo botão "salvar";
+- unificar o Provider ID com o nome do usuário, com a renomeação concluída por uma operação atômica do Service;
+- alterar o ID do modelo em uma página de edição de modelo separada; a lista não oferece edição de nome embutida;
+- oferecer arrastar para Providers Personal-only e modelos Personal reordenáveis;
+- reordenar o Personal Overlay pela ordem efetiva após a reordenação, mantendo os itens sobrescritos Official na ordem Official;
+- usar o mesmo contrato de Service no Desktop e no Mobile Web, com layout e feedback seguindo as normas de UI do projeto e os requisitos de internacionalização.
 
-### M3.8：使用正式 Model 进行连通性测试
+### M3.8: Usar o Model oficial para o teste de conectividade
 
-设置页点击测试时，先提交尚未保存的 Draft，等待 Config 与 Registry 更新完成，再由 Registry 创建正式 Model：
+Ao clicar em testar na página de configurações, primeiro envia-se o Draft ainda não salvo, aguarda-se a atualização da Config e do Registry, e só então o Registry cria o Model oficial:
 
 ```text
 flush Draft
@@ -235,65 +235,65 @@ flush Draft
     -> normalized result
 ```
 
-这条链路复用正式 Adapter、Request Auth、Reasoning Mapping 和错误边界。M3 删除独立 Connectivity Probe，以及 Renderer/Host 手工拼 Endpoint、Header 或请求体的旁路。
+Essa cadeia reutiliza o Adapter oficial, o Request Auth, o mapeamento de Reasoning e as fronteiras de erro. O M3 remove a Connectivity Probe independente, bem como as vias alternativas em que Renderer/Host montavam manualmente Endpoint, Header ou corpo de requisição.
 
-### M3.9：删除旧链路并完成全量审计
+### M3.9: Remover a cadeia antiga e concluir a auditoria completa
 
-最后一个切片根据引用和运行时验证删除被替代的代码。删除门禁是行为条件，不是按文件名猜测：
+A última fatia remove o código substituído com base em referências e verificação de runtime. O portão de remoção é uma condição comportamental, não uma adivinhação por nome de arquivo:
 
-- 普通发送不存在 `switchModelConfig -> sendText` 时序；
-- Queue 不在消费时读取当前 Composer 或最新 Session 模型；
-- 普通执行链不再读取 `ModelRef`、`defaultModelRef` 或 Lite role；
-- Renderer 不再解析 Provider Config、Account 状态或 Registry 准入；
-- 连通性测试不存在独立 Probe；
-- Provider 静态事实不再从 Catalog、Preset、Workspace Snapshot 或旧 CLI Config 回流；
-- Usage 与 Trace 从实际 Model 取得模型身份；
-- 旧兼容代码只保留已在 Design 中明确划定的 M4、M6、M7 边界。
+- o envio normal não tem mais a sequência `switchModelConfig -> sendText`;
+- a Queue não lê mais o Composer atual ou o modelo mais recente da Session ao consumir;
+- a cadeia de execução normal não lê mais `ModelRef`, `defaultModelRef` ou Lite role;
+- o Renderer não resolve mais Config de Provider, estado de Account ou admissão do Registry;
+- o teste de conectividade não tem mais Probe independente;
+- os fatos estáticos de Provider não voltam mais de Catalog, Preset, Workspace Snapshot ou Config antiga da CLI;
+- Usage e Trace obtêm a identidade do modelo a partir do Model real;
+- o código de compatibilidade antigo mantém apenas as fronteiras de M4, M6 e M7 explicitamente delimitadas no Design.
 
-无法证明仍有生产消费者的旧代码直接删除，不建立新的 fallback。
+Código antigo cuja existência de consumidores de produção não possa ser provada é removido diretamente, sem criar novo fallback.
 
-## 验收矩阵
+## Matriz de aceitação
 
-M3 的最低行为矩阵如下。每一项都需要单元或集成测试；跨进程、恢复和 UI 时序使用相应 E2E 覆盖。
+A matriz comportamental mínima do M3 é a seguinte. Cada item precisa de teste unitário ou de integração; casos entre processos, recuperação e temporização de UI usam a cobertura E2E correspondente.
 
-| 场景                                | 必须保持的结果                                                                   |
-| ----------------------------------- | -------------------------------------------------------------------------------- |
-| Loop 正在使用 A，Composer 切换 B    | 当前 Request 和后续 Step 继续 A，直到新的 Submission 或 Guide 被接收             |
-| 空闲时提交 B                        | Submission、Session Selection、Active Model 与 Usage 使用 B                      |
-| 忙碌时 B 入队，随后 Composer 切换 C | B 出队时仍使用 B                                                                 |
-| Guide 使用 B                        | 当前已发 Request 使用 A，后续 Step 使用 B，Session Selection 更新为 B            |
-| Edit / Retry                        | 缺省继承源 Submission 的 Selection                                               |
-| App 重启或恢复                      | Draft、App Recent、Session Selection 按各自作用域恢复；CLI/TUI 不消费 App Recent |
-| API Key 或 Config 更新              | 已有 Active Model 不变；下一次创建 Model 使用最新 Registry                       |
-| 设置页测试                          | 先保存并等待 Registry，再通过正式 Model 调用                                     |
-| Provider / Model 拖动               | Effective 顺序和 Personal Overlay 顺序符合设置设计，失败时回滚 UI                |
-| Provider / Model 重命名             | 当前选择前向迁移；已完成历史保留旧身份                                           |
-| Desktop / Mobile 提交               | 两端传输同一完整 Submission，continuous/replayable 边界不变                      |
-| Remote Workspace                    | 使用远端 Environment Registry，不传递本机 Provider 配置或鉴权                    |
+| Cenário                                     | Resultado que deve ser preservado                                                            |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Loop está usando A e o Composer troca para B | a Request atual e os Steps seguintes continuam com A, até que uma nova Submission ou Guide seja recebida |
+| Envio de B em estado ocioso                  | Submission, Session Selection, Active Model e Usage usam B                                     |
+| B é enfileirado enquanto ocupado e depois o Composer troca para C | B ainda é usado quando sai da fila                                        |
+| Guide usa B                                  | a Request já enviada usa A, os Steps seguintes usam B e o Session Selection passa a B         |
+| Edit / Retry                                 | herdam por padrão a Selection da Submission de origem                                         |
+| Reinício ou recuperação do App              | Draft, App Recent e Session Selection são restaurados em seus respectivos escopos; a CLI/TUI não consome o App Recent |
+| Atualização de API Key ou Config              | o Active Model existente não muda; a próxima criação de Model usa o Registry mais recente      |
+| Teste na página de configurações             | salva e aguarda o Registry primeiro, e só então chama pelo Model oficial                     |
+| Arrastar Provider / Model                     | a ordem efetiva e a ordem do Personal Overlay seguem o design de configurações, com rollback da UI em caso de falha |
+| Renomear Provider / Model                    | a seleção atual é migrada para a frente; o histórico concluído mantém a identidade antiga    |
+| Envio do Desktop / Mobile                    | ambos os lados transportam a mesma Submission completa, com a fronteira continuous/replayable inalterada |
+| Workspace remoto                             | usa o Registry do Environment remoto e não transmite a configuração ou a autenticação de Provider da máquina local |
 
-## 明确留到后续阶段的内容
+## Conteúdo explicitamente deixado para fases posteriores
 
-M3 不借机扩展以下问题：
+O M3 não aproveita para expandir os seguintes pontos:
 
-- execution-scoped Provider、闲时任务和 Subagent 强制模型策略，继续由 M4 处理；
-- Provider Config 的远端管理发布、跨 Environment 同步与独立登录，继续由 M5/M7 处理；
-- Account Provider 的身份、权益和动态凭据内部模型，继续由 M6 深化；
-- Adapter 的 Reasoning 方言重构不与原子 Submission 混合，现有行为保持兼容；
-- `turnRuntimeModel` 仅保留在已经划定的特殊执行边界。
+- Provider de escopo de execução, tarefas ociosas e política de modelo forçado de Subagent, continuam tratados pelo M4;
+- publicação de gerenciamento remoto da Provider Config, sincronização entre Environments e login independente, continuam tratados por M5/M7;
+- o modelo interno de identidade, direitos e credenciais dinâmicas do Account Provider, continua aprofundado pelo M6;
+- o refatoramento do dialeto de Reasoning do Adapter não é misturado com a Submission atômica, e o comportamento existente permanece compatível;
+- o `turnRuntimeModel` é mantido apenas nas fronteiras de execução especiais já delimitadas.
 
-这些边界允许当前大 Merge Request 完整切换普通产品链路，同时避免再次把闲时任务、Plan 和远端账号重构卷入本阶段。
+Essas fronteiras permitem que o Merge Request grande atual complete a troca da cadeia de produto normal, evitando trazer tarefas ociosas, Plan e o refatoramento de conta remota para esta fase novamente.
 
-## 完成定义
+## Definição de conclusão
 
-M3 只有在下列条件同时满足时完成：
+O M3 só é concluído quando as condições a seguir forem simultaneamente atendidas:
 
-1. 三层 Config 和进程级 Registry 是普通 Provider 的唯一事实来源。
-2. 所有用户输入以完整 Submission 进入 Core，Queue 与 Guide 使用同一结构。
-3. Composer、App Recent、Session Selection 和 Active Model 的状态与时机符合 Design。
-4. ModelRef 和共享可变 Runtime 模型状态退出普通执行链。
-5. 设置页通过正式 Service 完成自动保存、编辑、调序和连通性测试。
-6. 旧 Provider、模型切换和 Connectivity Probe 链路已经删除。
-7. 类型检查、Lint、受影响单测、Provider/Conversation 专项测试及必要 E2E 通过。
-8. Merge Request 的提交和 Changes 能按评审区域追溯，Working Memory 与正式 Spec 已同步实际结果。
+1. As três camadas de Config e o Registry em nível de processo são a única fonte de verdade para o Provider normal.
+2. Todas as entradas do usuário entram no Core como Submission completa, e Queue e Guide usam a mesma estrutura.
+3. O estado e os momentos de Composer, App Recent, Session Selection e Active Model seguem o Design.
+4. O ModelRef e o estado de modelo compartilhado mutável do Runtime saem da cadeia de execução normal.
+5. A página de configurações conclui salvamento automático, edição, reordenação e teste de conectividade por meio do Service oficial.
+6. As cadeias antigas de Provider, troca de modelo e Connectivity Probe foram removidas.
+7. A verificação de tipos, o lint, os testes unitários afetados, os testes especializados de Provider/Conversation e os E2E necessários passam.
+8. Os commits e as Changes do Merge Request podem ser rastreados por área de revisão, e o Working Memory e o Spec oficial estão sincronizados com os resultados reais.
 
-实现过程中若出现设计未覆盖的问题，记录在 M3 implementation log，并按已确定原则作出推荐决策继续推进；会改变目标语义、公共协议或阶段边界的问题进入 Human in the Loop 后再修改 Design。
+Se durante a implementação surgir algum problema não coberto pelo design, registre-o no log de implementação do M3 e avance tomando uma decisão recomendada conforme os princípios já definidos; problemas que alterem a semântica alvo, o protocolo público ou as fronteiras de fase entram em Human in the Loop antes de modificar o Design.

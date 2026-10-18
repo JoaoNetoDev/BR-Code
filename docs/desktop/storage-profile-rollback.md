@@ -1,38 +1,42 @@
-# Desktop storage profile 回滚
+# Rollback do storage profile do Desktop
 
-## 决策
+## Decisão
 
-回滚 `2a9e692862` 引入、`8e3a2ded32` 调整的 Desktop storage profile 隔离，
-以及 `59548dc60a` 为该隔离补充的 Local Host → Agent CLI 路径覆盖。
+Reverter o isolamento de storage profile do Desktop introduzido em `2a9e692862` e ajustado em `8e3a2ded32`, bem
+como a cobertura de caminho Local Host → Agent CLI adicionada por `59548dc60a` para esse isolamento.
 
-回滚后恢复以下历史语义：
+Após o rollback, a seguinte semântica histórica é restaurada:
 
-- Desktop、Host 和 bundled Agent 的默认用户数据目录统一为 `~/.zcode`。
-- 不再根据源码开发、Stable 或 Preview 选择 `.zcode-dev`、`.zcode-beta` 等目录。
-- 设置页的 `dataBaseDir` 仍只通过既有 `ZCODE_DATA_BASE_DIR` 传给 Host，用于 App 数据迁移。
-- Host 不向子进程注入 `ZCODE_STORAGE_PROFILE`、`ZCODE_STORAGE_DIR` 或 `ZCODE_HOME`。
-- 用户级 session、plugins、agents、commands、skills、logs 和 rollout 继续沿用既有
-  `~/.zcode` 数据，避免升级后表现为历史数据丢失。
-- workspace 内的 `.zcode/*` 路径保持不变。
+- o diretório padrão de dados do usuário do Desktop, do Host e do Agent bundled volta a ser `~/.zcode`.
+- deixa-se de escolher `.zcode-dev`, `.zcode-beta` etc. conforme desenvolvimento a partir do código-fonte, Stable ou
+  Preview.
+- o `dataBaseDir` da página de configurações continua sendo passado ao Host somente pela `ZCODE_DATA_BASE_DIR`
+  existente, usada para a migração de dados do App.
+- o Host deixa de injetar `ZCODE_STORAGE_PROFILE`, `ZCODE_STORAGE_DIR` ou `ZCODE_HOME` em subprocessos.
+- sessions, plugins, agents, commands, skills, logs e rollout no nível do usuário continuam usando os dados existentes
+  em `~/.zcode`, evitando que a atualização apareça como perda de dados históricos.
+- caminhos `.zcode/*` dentro do workspace permanecem inalterados.
 
-## 根因
+## Causa raiz
 
-storage profile 把 App 自定义数据根作为精确 `ZCODE_STORAGE_DIR` 注入 Host，随后该环境
-被 CLI 资源扫描和 Agent 子进程继承。用户原有资源仍位于 `~/.zcode`，因此运行时出现
-session、插件、子智能体和命令同时缺失。3.7.2 只在 Agent spawn 边界覆盖 CLI 根，造成
-Host/UI 与 Agent 分别读取两套目录，不能完整恢复历史数据。
+O storage profile injeta a raiz de dados custom do App no Host como `ZCODE_STORAGE_DIR` exato, e esse ambiente é em
+seguida herdado pela varredura de recursos do CLI e pelos subprocessos do Agent. Os recursos originais do usuário
+continuam em `~/.zcode`, de modo que em tempo de execução sessions, plugins, subagentes e comandos apareciam
+simultaneamente como ausentes. A versão 3.7.2 sobrescrevia a raiz do CLI apenas na fronteira de spawn do Agent,
+produzindo duas séries de diretórios lidas separadamente por Host/UI e por Agent, sem conseguir restaurar
+completamente os dados históricos.
 
-回滚实现还必须同时清理所有已删除 storage profile 模块的 import，并让保留的 E2E 路径
-helper 明确返回隔离 HOME 下的 `.zcode`。只恢复调用点而遗留 `zcode-storage-root` 的静态
-引用，会导致 bundled Agent CLI 在 TypeScript 构建阶段失败；删除 E2E helper 的旧导出却
-保留调用方，则会让仓库 typecheck 失败。
+A implementação do rollback também precisa limpar os imports de todos os módulos de storage profile removidos e fazer
+com que o path helper de E2E mantido retorne explicitamente o `.zcode` sob o HOME isolado. Restaurar apenas os pontos de
+chamada deixando referências estáticas a `zcode-storage-root` faz o build TypeScript do Agent CLI bundled falhar; já
+remover as exportações antigas do helper de E2E mantendo os chamadores faz o typecheck do repositório falhar.
 
-## 验收
+## Aceitação
 
-| Case | 条件 | 期望 |
+| Case | Condição | Expectativa |
 | --- | --- | --- |
-| STORAGE-ROLLBACK-001 | 任意 Desktop 运行形态启动 Host | 不注入 storage profile、精确 storage root 或 `ZCODE_HOME` |
-| STORAGE-ROLLBACK-002 | 用户配置 App 自定义 `dataBaseDir` | App 数据按既有逻辑迁移；CLI 用户资源仍从 `~/.zcode` 读取 |
-| STORAGE-ROLLBACK-003 | Stable/Preview/源码开发访问同一用户资源 | session、plugins、agents、commands、skills 均沿用 `~/.zcode` |
-| STORAGE-ROLLBACK-004 | 打开含 `.zcode` 配置的 workspace | 项目级 agents、commands、skills 路径不变 |
-| STORAGE-ROLLBACK-005 | 构建 bundled Agent CLI 并执行仓库 typecheck | adapters 不再引用已删除的 storage profile 模块；E2E helper 固定解析隔离 HOME 下的 `.zcode`；两项检查均通过 |
+| STORAGE-ROLLBACK-001 | Qualquer forma de execução do Desktop inicia o Host | Não injeta storage profile, storage root exato nem `ZCODE_HOME` |
+| STORAGE-ROLLBACK-002 | O usuário configura um `dataBaseDir` custom no App | Os dados do App são migrados pela lógica existente; os recursos de usuário do CLI continuam sendo lidos de `~/.zcode` |
+| STORAGE-ROLLBACK-003 | Stable/Preview/desenvolvimento a partir do código-fonte acessa os mesmos recursos de usuário | sessions, plugins, agents, commands e skills seguem usando `~/.zcode` |
+| STORAGE-ROLLBACK-004 | Abre um workspace com configuração `.zcode` | Os caminhos de agents, commands e skills no nível do projeto permanecem inalterados |
+| STORAGE-ROLLBACK-005 | Constrói o Agent CLI bundled e executa o typecheck do repositório | Os adapters não referenciam mais os módulos de storage profile removidos; o helper de E2E resolve fixamente o `.zcode` sob o HOME isolado; ambas as verificações passam |

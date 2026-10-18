@@ -1,23 +1,23 @@
-# 手机远控主题控制
+# Controle de tema do controle remoto no celular
 
-手机远控主题分两段处理：
+O controle de tema do controle remoto no celular é tratado em duas etapas:
 
-1. 二维码链接不再追加 `theme` query 参数，避免桌面端主题继续耦合手机端首次进入链路。
-2. 手机端 `/remote` 首次打开时，若本机浏览器没有 `localStorage["zcode-theme"]`，会使用默认 `zai-dark` 作为初始主题；后续只使用手机端本地偏好。
+1. O link do QR code não acrescenta mais o parâmetro de query `theme`, evitando que o tema do desktop continue acoplado ao fluxo de primeira entrada no celular.
+2. Quando `/remote` é aberto pela primeira vez no celular, se o navegador local não tiver `localStorage["zcode-theme"]`, será usado o padrão `zai-dark` como tema inicial; depois disso, apenas a preferência local do celular é usada.
 
-这样可以保证之后两端互不影响：手机端切主题只改手机浏览器本地存储，桌面端切主题只改桌面 renderer 的本地存储。
+Assim, garante-se que as duas pontas não se afetem depois: trocar o tema no celular altera apenas o armazenamento local do navegador do celular, e trocar o tema no desktop altera apenas o armazenamento local do renderer do desktop.
 
-手机端任务列表页和聊天页顶部 header 右侧都渲染 `WebRemoteControlThemeMenu`。菜单只暴露 `system`、`zai-dark`、`zai-light`，其中 `zai-dark` / `zai-light` 分别显示为 Dark Theme / Light Theme。
+Tanto a página de lista de tasks quanto a página de chat do celular renderizam `WebRemoteControlThemeMenu` à direita do header no topo. O menu expõe apenas `system`, `zai-dark` e `zai-light`, sendo `zai-dark` / `zai-light` exibidos respectivamente como Dark Theme / Light Theme.
 
-## 浏览器表面同步
+## Sincronização das superfícies do navegador
 
-手机远控运行在普通浏览器页面中，主题切换不能只改变 React 子树。Web 入口必须把同一个 resolved theme 同步到以下浏览器级表面：
+O controle remoto no celular roda em uma página comum de navegador, então a troca de tema não pode alterar apenas a subárvore React. A entrada Web deve sincronizar o mesmo tema resolvido com as seguintes superfícies de nível de navegador:
 
-- `html`、`body` 和 `#root` 使用当前主题的 `--color-background`，不能继承 Electron vibrancy 所需的透明根背景。
-- `color-scheme` 声明当前页面采用的亮暗配色，使原生控件和浏览器默认表面使用一致的配色方案。
-- `meta[name="theme-color"]` 使用当前主题的页面背景色，供支持该标准的浏览器着色自身界面。
+- `html`, `body` e `#root` usam o `--color-background` do tema atual, e não podem herdar o fundo raiz transparente exigido pelo Electron vibrancy.
+- `color-scheme` declara o esquema de cores claro/escuro adotado pela página atual, para que controles nativos e superfícies padrão do navegador usem o mesmo esquema.
+- `meta[name="theme-color"]` usa a cor de fundo de página do tema atual, para que navegadores que suportam esse padrão coloram a própria interface.
 
-该同步是浏览器能力边界，不按 Safari、Chrome、Firefox 或具体系统版本分支。首次加载由 `index.html` 在业务 bundle 执行前根据手机本地偏好完成；运行时切换和 `system` 模式的系统主题变化继续由共享 `applyTheme()` 使用同一 resolved theme 更新。Desktop Electron 不声明浏览器表面 opt-in，继续保留透明根背景和原生窗口 vibrancy。
+Essa sincronização é um limite de capacidade do navegador e não faz branching por Safari, Chrome, Firefox ou versão específica do sistema. Na primeira carga, `index.html` conclui isso antes da execução do bundle de negócio, com base na preferência local do celular; as trocas em runtime e as mudanças de tema do sistema no modo `system` continuam sendo atualizadas pelo `applyTheme()` compartilhado, usando o mesmo tema resolvido. O Desktop Electron não declara opt-in de superfícies de navegador e continua preservando o fundo raiz transparente e o vibrancy nativo da janela.
 
 ```text
 localStorage / system preference

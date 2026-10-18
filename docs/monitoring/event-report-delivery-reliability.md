@@ -1,40 +1,39 @@
-# `/event/report` 桌面投递可靠性
+# Confiabilidade de entrega do `/event/report` no desktop
 
-> 状态：首期实现规范。
+> Status: especificação de implementação da primeira fase.
 >
-> 目标：在不阻塞业务、不引入持久化 outbox 的前提下，使已经生成的业务事件尽量与业务数据对齐。
+> Objetivo: fazer com que os eventos de negócio já gerados fiquem o mais alinhados possível aos dados de negócio, sem bloquear o negócio e sem introduzir uma outbox persistente.
 
-## 范围
+## Escopo
 
-首期只修改 Desktop Main 中公共 `TelemetryCore` 的 `/api/v1/event/report` 投递策略。
-Renderer 调用点、`IPlatformService`、IPC schema、事件 payload、ARMS、CLI OTLP telemetry 和
-Web/mobile `web-remote-replayable` 均保持不变。
+A primeira fase altera apenas a estratégia de entrega de `/api/v1/event/report` do `TelemetryCore` comum no Desktop Main.
 
-业务结果、toast、导航、登录/登出和任务执行均不得等待 telemetry。崩溃、强杀、断电、长期离线、
-事件源未生成以及持久化补发不在首期范围。
+Os pontos de chamada do Renderer, `IPlatformService`, o schema IPC, o payload dos eventos, ARMS, a telemetry OTLP da CLI e o `web-remote-replayable` de Web/mobile permanecem inalterados.
 
-## 投递合同
+Resultados de negócio, toast, navegação, login/logout e execução de tarefas não podem aguardar a telemetry. Crash, kill forçado, queda de energia, offline prolongado, fonte de evento que não gera evento e reenvio persistido não estão no escopo da primeira fase.
 
-### 请求头（2026-09-16）
+## Contrato de entrega
 
-仅 App `/api/v1/event/report` 复用 `buildZCodeSourceHeadersFromContext` 的完整公共头：User-Agent、HTTP-Referer、X-Title、X-ZCode-App-Version、X-Platform、X-Release-Channel、X-Client-Language、X-Client-Timezone、X-Os-Category、X-Os-Version、X-Device-Mid。语言、时区和设备 ID 与本事件上下文一致；环境来源为当前 endpoint，版本/平台取 App 上下文。缺失或非法值沿用公共函数的归一化规则。
+### Cabeçalhos de requisição (2026-09-16)
 
-凭据服务仍是登录身份唯一 owner；Main 注入只读 Authorization loader，每次发送（包括重试）从当前活动账户读取 `zcodejwttoken`。账户与事件 user_id 一致且 token 非空时发 `Authorization: Bearer <ZCode JWT>`，匿名、退出、切换到其他账号、凭据读取失败时不带该头。禁止 OAuth token / API key 替代，禁止缓存 JWT、将 JWT 写入事件体或日志。读取后复核活动账户和 user_id，丢弃跨账户异步结果。
+Somente o `/api/v1/event/report` do App reutiliza os cabeçalhos comuns completos de `buildZCodeSourceHeadersFromContext`: User-Agent, HTTP-Referer, X-Title, X-ZCode-App-Version, X-Platform, X-Release-Channel, X-Client-Language, X-Client-Timezone, X-Os-Category, X-Os-Version, X-Device-Mid. Idioma, fuso horário e device ID são consistentes com o contexto deste evento; a origem do ambiente é o endpoint atual, e versão/plataforma vêm do contexto do App. Valores ausentes ou inválidos seguem as regras de normalização da função comum.
 
-上报请求禁用自动重定向，避免服务端 3xx 将携带的身份/设备头转发到其他地址；失败仍沿用有界重试，不扩大目的地。
+O serviço de credenciais continua sendo o único owner da identidade de login; o Main injeta um Authorization loader somente leitura, e a cada envio (inclusive nas retentativas) lê `zcodejwttoken` da conta ativa corrente. Quando a conta é consistente com o `user_id` do evento e o token não é vazio, envia `Authorization: Bearer <ZCode JWT>`; em caso de anônimo, logout, troca para outra conta ou falha na leitura das credenciais, envia sem esse cabeçalho. É proibido substituir por OAuth token / API key, proibido cachear o JWT e proibido gravar o JWT no corpo do evento ou em logs. Após a leitura, reconferir a conta ativa e o `user_id`, descartando resultados assíncronos entre contas.
+
+As requisições de reporte desabilitam o redirecionamento automático, para evitar que um 3xx do servidor encaminhe os cabeçalhos de identidade/dispositivo para outro endereço; em caso de falha continua valendo a retentativa limitada, sem ampliar o destino.
 
 ```text
-事件上下文 + 持久化 deviceMid → 公共通参（无额外磁盘读取）
-每个 attempt → 凭据服务读取并复核当前账号 → 可选 Bearer JWT → HTTP POST
+contexto do evento + deviceMid persistido → cabeçalhos comuns (sem leitura extra de disco)
+cada attempt → serviço de credenciais lê e reconfere a conta atual → Bearer JWT opcional → HTTP POST
 ```
 
-奖励页网页请求不注入这些头，Website 上报不在本次修改范围。Bridge 登录/主题/语言同步、桌面 continuous 和手机 replayable 边界保持不变。
+As requisições web da página de recompensas não injetam esses cabeçalhos; o reporte do Website está fora do escopo desta alteração. Os limites de login/tema/idioma do Bridge, o continuous do desktop e o replayable do celular permanecem inalterados.
 
-验收：完整公共头与 payload 一致；登录/匿名、退出及切账号、token 轮换、重试凭据重读、读取异常匿名降级；本机 Electron 观测 App 上报携带头，同时奖励页初始/刷新请求不再注入 App 专用头且 Bridge 可用。
+Aceitação: cabeçalhos comuns completos consistentes com o payload; login/anônimo, logout e troca de conta, rotação de token, releitura de credenciais nas retentativas, degradação anônima em caso de erro de leitura; observar em Electron local que o reporte do App carrega os cabeçalhos e que as requisições inicial/de atualização da página de recompensas não injetam mais cabeçalhos exclusivos do App e que o Bridge funciona.
 
-验证记录：2026-09-16 相关单测 9 文件 65 项通过；本机 macOS Electron 正式 Rewards 回归 `desktop-e2e-20260916-043702-139` 3/3 通过，runner exit 0。隔离 HTTP fixture 观测登录/退出后的 App 上报，断言全部公共头及可选 Bearer 格式（不输出 JWT）；网页首次/刷新无 App 专用头，Bridge 明暗/语言及菜单流程保持。根 typecheck、desktop typecheck:e2e、lint（47 既存 warnings / 0 errors）、architecture check 通过。未用 Docker；未验证真实服务端验签、Windows/Linux 实机或生产部署。
+Registro de verificação: em 2026-09-16, 9 arquivos de teste unitário com 65 casos passaram; regressão formal de Rewards em Electron macOS local `desktop-e2e-20260916-043702-139` 3/3 passou, runner exit 0. Fixture HTTP isolado observou o reporte do App após login/logout, assertando todos os cabeçalhos comuns e o formato opcional do Bearer (sem imprimir o JWT); primeira carga/atualização da web sem cabeçalhos exclusivos do App, Bridge claro/escuro/idioma e fluxo de menu preservados. Typecheck raiz, typecheck:e2e do desktop, lint (47 warnings pré-existentes / 0 erros) e architecture check passaram. Não foi usado Docker; não foram verificados assinatura pelo servidor real, máquinas reais Windows/Linux ou deploy em produção.
 
-一个逻辑事件只构造一次 endpoint、完整请求体和 `event_id`，所有 attempt 复用相同值：
+Um evento lógico constrói endpoint, corpo completo da requisição e `event_id` apenas uma vez, e todos os attempts reutilizam os mesmos valores:
 
 ```text
 logical event (stable event_id + body)
@@ -45,36 +44,35 @@ logical event (stable event_id + body)
        `-- other 4xx ----------------> failed
 ```
 
-- 每次请求 5 秒超时；最多发送两次。
-- 2xx 视为服务端接收成功，不解析 response body 业务码。
-- 第二次失败后 `TelemetryCore` 保持 reject 语义；既有 UI helper 继续吞掉失败，业务不回滚。
-- `TelemetryCore` 记录一条最终脱敏 warn，只含事件名、event ID、attempt 数、状态分类和耗时；
-  attempt 级细节仅用 debug。
-- 服务端按 `event_id` 去重；验收要求是去重后业务重复为零，原始请求允许出现相同 `event_id`。
+- Timeout de 5 segundos por requisição; no máximo dois envios.
+- 2xx é considerado sucesso de recebimento pelo servidor, sem parsear o response body em busca de código de negócio.
+- Após a segunda falha, `TelemetryCore` mantém a semântica de reject; o helper de UI existente continua engolindo as falhas e o negócio não sofre rollback.
+- `TelemetryCore` registra um único warn final, anonimizado, contendo apenas nome do evento, event ID, número de attempts, classificação de status e duração;
+  detalhes por attempt ficam apenas em debug.
+- O servidor deduplica por `event_id`; o requisito de aceitação é duplicidade de negócio igual a zero após a deduplicação, e requisições originais com o mesmo `event_id` são permitidas.
 
-## 退出 drain
+## Drain na saída
 
-`TelemetryCore` 跟踪 Main 进程内尚未 settled 的逻辑报告。正常退出时，
-`flushPendingReports({ timeoutMs: 2000 })` 与 Host、Cron 和窗口设置清理并行进入
-`prepareAppQuit` 屏障。
+`TelemetryCore` rastreia, dentro do processo Main, os relatórios lógicos que ainda não kolidiram (settled). Na saída normal,
+`flushPendingReports({ timeoutMs: 2000 })` entra em paralelo com a limpeza de Host, Cron e configurações de janela na barreira
+`prepareAppQuit`.
 
-flush 在 deadline 内持续等待期间新增的 in-flight；集合为空即提前返回。到期后只记录剩余数量，
-不取消业务、不改变退出结果，也不无限延长退出。
+O flush continua aguardando, dentro do deadline, os in-flight que surgirem durante a espera; retorna mais cedo assim que o conjunto fica vazio. Ao expirar, registra apenas a quantidade restante,
+sem cancelar o negócio, sem alterar o resultado da saída e sem estender a saída indefinidamente.
 
-## 性能边界
+## Limites de performance
 
-- 正常 2xx 路径仍只有一次请求；公共头不新增磁盘 IO，Authorization 每次 attempt 通过现有凭据服务异步读取和复核。
-- 重试只发生在可恢复失败，最多额外一次请求。
-- 5 秒超时替代无限悬挂，使失败场景的内存和连接占用有界。
-- 退出最多并行等待 2 秒，不串行放大现有退出预算。
+- O caminho normal 2xx continua com uma única requisição; os cabeçalhos comuns não adicionam IO de disco, e o Authorization é lido e reconferido de forma assíncrona a cada attempt pelo serviço de credenciais existente.
+- As retentativas só ocorrem em falhas recuperáveis, com no máximo uma requisição extra.
+- O timeout de 5 segundos substitui o travamento indefinido, tornando memória e conexões limitadas no cenário de falha.
+- A saída aguarda em paralelo por no máximo 2 segundos, sem amplificar serialmente o orçamento de saída existente.
 
-## 验证与验收
+## Verificação e aceitação
 
-单元测试覆盖网络错误后成功、408/429/5xx、永久 4xx、请求 abort、稳定请求体/event ID、最终告警、
-动态 drain 和 drain 超时。Desktop 退出测试验证 telemetry flush 已并行进入现有屏障。
+Os testes unitários cobrem sucesso após erro de rede, 408/429/5xx, 4xx permanente, abort da requisição, corpo/event ID estáveis, alerta final,
+drain dinâmico e timeout de drain. O teste de saída do desktop verifica que o flush de telemetry já entrou em paralelo na barreira existente.
 
-上线后仅统计包含修复版本的 Desktop 客户端，连续观察三个完整自然日。以创建成功的去重
-`off_peak_task_id` 为分母，以成功匹配 telemetry 的去重任务数为分子，按业务任务创建日归属。
-目标是从约 87.6% 提升到至少 95%，且绝对提升不少于 5 个百分点。
+Após o lançamento, contar apenas clientes desktop que contenham a versão corrigida, observando continuamente três dias naturais completos. Usar como denominador o `off_peak_task_id` deduplicado criado com sucesso e como numerador o número deduplicado de tarefas com telemetry correspondente, atribuídos pelo dia de criação da tarefa de negócio.
+O objetivo é elevar de cerca de 87,6% para pelo menos 95%, com melhoria absoluta de no mínimo 5 pontos percentuais.
 
-若未达到目标，再单独设计持久化 outbox、启动恢复和长期离线补发。
+Se o objetivo não for atingido, desenhar separadamente uma outbox persistente, recuperação na inicialização e reenvio para offline prolongado.

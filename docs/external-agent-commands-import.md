@@ -1,60 +1,60 @@
-# External Agent Commands Import
+# Importação de Comandos de Agentes Externos
 
-## 目标
+## Objetivo
 
-设置页「命令」支持从外部 Agent 的本地 commands 目录一键导入到 ZCode。交互与「技能」导入保持一致，只处理命令文件，不导入 skills、MCP 服务器或插件。
+A página de configurações, em "Comandos", oferece a importação com um clique a partir do diretório local de comandos de um Agente externo para o ZCode. A interação é mantida consistente com a importação de "Habilidades": apenas arquivos de comando são tratados, sem importar skills, servidores MCP ou plugins.
 
-## 来源范围
+## Escopo das Origens
 
-导入入口自动扫描以下本地来源：
+A entrada de importação varre automaticamente as seguintes origens locais:
 
-- Claude Code：用户级 `~/.claude/commands` 与工作区级 `<workspace>/.claude/commands`
-- Codex CLI：用户级 `~/.codex/commands` 与工作区级 `<workspace>/.codex/commands`
-- OpenCode：用户级 `~/.config/opencode/commands` 与工作区级 `<workspace>/.opencode/commands`
-- OpenClaw：用户级 `~/.openclaw/commands` 与工作区级 `<workspace>/commands`
-- Augment：用户级 `~/.augment/commands` 与工作区级 `<workspace>/.augment/commands`
-- Continue：用户级 `~/.continue/commands` 与工作区级 `<workspace>/.continue/commands`
-- Goose：用户级 `~/.config/goose/commands` 与工作区级 `<workspace>/.goose/commands`
-- Qwen Code：用户级 `~/.qwen/commands` 与工作区级 `<workspace>/.qwen/commands`
-- Qoder：用户级 `~/.qoder/commands` 与工作区级 `<workspace>/.qoder/commands`
-- Qoder CN：用户级 `~/.qoder-cn/commands` 与工作区级 `<workspace>/.qoder/commands`
-- Windsurf：用户级 `~/.codeium/windsurf/commands` 与工作区级 `<workspace>/.windsurf/commands`
-- Trae：用户级 `~/.trae/commands` 与工作区级 `<workspace>/.trae/commands`
-- Kiro CLI：用户级 `~/.kiro/commands` 与工作区级 `<workspace>/.kiro/commands`
-- Roo Code：用户级 `~/.roo/commands` 与工作区级 `<workspace>/.roo/commands`
-- CodeBuddy：用户级 `~/.codebuddy/commands` 与工作区级 `<workspace>/.codebuddy/commands`
+- Claude Code: nível de usuário `~/.claude/commands` e nível de workspace `<workspace>/.claude/commands`
+- Codex CLI: nível de usuário `~/.codex/commands` e nível de workspace `<workspace>/.codex/commands`
+- OpenCode: nível de usuário `~/.config/opencode/commands` e nível de workspace `<workspace>/.opencode/commands`
+- OpenClaw: nível de usuário `~/.openclaw/commands` e nível de workspace `<workspace>/commands`
+- Augment: nível de usuário `~/.augment/commands` e nível de workspace `<workspace>/.augment/commands`
+- Continue: nível de usuário `~/.continue/commands` e nível de workspace `<workspace>/.continue/commands`
+- Goose: nível de usuário `~/.config/goose/commands` e nível de workspace `<workspace>/.goose/commands`
+- Qwen Code: nível de usuário `~/.qwen/commands` e nível de workspace `<workspace>/.qwen/commands`
+- Qoder: nível de usuário `~/.qoder/commands` e nível de workspace `<workspace>/.qoder/commands`
+- Qoder CN: nível de usuário `~/.qoder-cn/commands` e nível de workspace `<workspace>/.qoder/commands`
+- Windsurf: nível de usuário `~/.codeium/windsurf/commands` e nível de workspace `<workspace>/.windsurf/commands`
+- Trae: nível de usuário `~/.trae/commands` e nível de workspace `<workspace>/.trae/commands`
+- Kiro CLI: nível de usuário `~/.kiro/commands` e nível de workspace `<workspace>/.kiro/commands`
+- Roo Code: nível de usuário `~/.roo/commands` e nível de workspace `<workspace>/.roo/commands`
+- CodeBuddy: nível de usuário `~/.codebuddy/commands` e nível de workspace `<workspace>/.codebuddy/commands`
 
-不支持 Gemini，也不扫描用户级或项目级 `.agents/commands`，因为命令列表已经直接回读 `.agents` 命令目录。
+O Gemini não é suportado, e nem `.agents/commands` de nível de usuário ou de projeto é varrido, porque a lista de comandos já faz leitura direta do diretório de comandos `.agents`.
 
-## 导入策略
+## Estratégia de Importação
 
-- 只处理 `.md` 命令文件，跳过隐藏目录与隐藏文件。
-- 导入目标由用户在导入按钮下拉菜单中选择：
-  - `Global` 写入 `~/.zcode/commands/`。
-  - `Project` 写入 `<workspace>/.zcode/commands/`。
-- 导入时保留命令文件相对来源根目录的层级，例如 `review/code.md` 仍导入为 `review/code.md`。
-- 导入方式与技能一致：
-  - `软链`：在目标路径创建指向来源命令文件的符号链接，默认选项。
-  - `直接复制`：复制命令文件到目标路径。
-- 若没有打开工作区，`Project` 目标不可选。
-- 已存在同名目标文件，或目标 ZCode commands 中已存在相同 slash command 名称时跳过，不覆盖现有 ZCode 命令。
-- 打开弹窗或重新扫描后默认停留在 `Global`，但 `Global` 与 `Project` 来源都不默认勾选，需要用户显式选择。
+- Apenas arquivos de comando `.md` são tratados; diretórios e arquivos ocultos são ignorados.
+- O destino da importação é escolhido pelo usuário no menu suspenso do botão de importação:
+  - `Global` grava em `~/.zcode/commands/`.
+  - `Project` grava em `<workspace>/.zcode/commands/`.
+- A hierarquia do arquivo de comando em relação à raiz de origem é preservada na importação; por exemplo, `review/code.md` continua sendo importado como `review/code.md`.
+- O método de importação é o mesmo das habilidades:
+  - `软链` (symlink): cria um link simbólico no caminho de destino apontando para o arquivo de comando de origem; é a opção padrão.
+  - `直接复制` (cópia direta): copia o arquivo de comando para o caminho de destino.
+- Se não houver workspace aberto, o destino `Project` fica indisponível.
+- A importação é ignorada quando já existe um arquivo de destino com o mesmo nome, ou quando já existe nos comandos do ZCode um slash command com o mesmo nome; comandos existentes do ZCode não são sobrescritos.
+- Ao abrir o diálogo ou após uma nova varredura, a seleção padrão permanece em `Global`, mas nenhuma das origens `Global` e `Project` é marcada por padrão: o usuário precisa escolher explicitamente.
 
-## UI 行为
+## Comportamento da UI
 
-- 「命令」设置页在新建按钮旁展示导入图标按钮。
-- 弹窗结构、范围 Select、刷新按钮、两层来源树、全选/取消全选、导入目标分裂按钮、导入方式下拉菜单、完成结果列表均与技能导入保持一致。
-- 第二层展示命令名称，名称来自命令文件相对路径转换出的 slash command，如 `/review/code`。
-- 导入完成页展示本次涉及的命令列表；每项显示状态图标和命令名，不展示文件路径。
+- A página de configurações de "Comandos" exibe um botão de ícone de importação ao lado do botão de novo.
+- A estrutura do diálogo, o Select de escopo, o botão de atualização, a árvore de origens em dois níveis, selecionar/desselecionar tudo, o botão dividido de destino de importação, o menu suspenso de método de importação e a lista final de resultados são mantidos consistentes com a importação de habilidades.
+- O segundo nível exibe o nome do comando, derivado do caminho relativo do arquivo de comando convertido em slash command, como `/review/code`.
+- A página de conclusão da importação exibe a lista dos comandos envolvidos; cada item mostra o ícone de status e o nome do comando, sem exibir o caminho do arquivo.
 
-## 兼容与边界
+## Compatibilidade e Limites
 
-- `settings-sync` 新增 `commands` 分类，命令来源表独立维护，不从 `skills` 来源表派生；资源扫描、去重和导入也与 skills 各自独立。
-- 远程 workspace 只使用当前 host process 可访问的文件系统路径；身份隔离语义仍传递 `workspaceIdentity`，路径执行仍使用 `workspacePath`。
-- 直接复制模式不引用外部目录；软链模式会持续指向外部命令文件，适合希望跟随外部 Agent 命令变更的用户。
+- `settings-sync` ganha uma nova categoria `commands`, com uma tabela de origens de comandos mantida de forma independente, sem derivação da tabela de origens de `skills`; a varredura de recursos, a deduplicação e a importação também são independentes das de skills.
+- Workspaces remotos usam apenas caminhos do sistema de arquivos acessíveis ao processo host atual; a semântica de isolamento de identidade continua passando `workspaceIdentity`, e a execução de caminhos continua usando `workspacePath`.
+- O modo de cópia direta não referencia diretórios externos; o modo de symlink aponta continuamente para os arquivos de comando externos, sendo adequado para quem deseja acompanhar as mudanças nos comandos do agente externo.
 
-## 验证
+## Verificação
 
-- 覆盖缺失目录、空目录、同名跳过、用户级导入、工作区级导入、copy/symlink 两种模式。
-- UI 覆盖导入按钮、弹窗来源列表、导入完成刷新。
-- 必须运行 `pnpm typecheck` 和 `pnpm lint`。
+- Cobertura para diretórios ausentes, diretórios vazios,ignorar nomes duplicados, importação de nível de usuário, importação de nível de workspace e os dois modos copy/symlink.
+- Cobertura de UI para o botão de importação, a lista de origens no diálogo e a atualização após a conclusão da importação.
+- É obrigatório executar `pnpm typecheck` e `pnpm lint`.

@@ -1,43 +1,43 @@
-# M2：Provider 配置与 Registry 实施
+# M2: implementação de configuração de Provider e Registry
 
-> 状态：实现、退役清理与最终分支验证完成；等待上线
+> Status: implementação, limpeza de descontinuação e verificação final de branches concluídas; aguardando lançamento
 >
-> 最近更新：2026-08-21
+> Atualizado em: 2026-08-21
 
-目标设计见 [`../design/registry/registry.md`](../design/registry/registry.md)。本篇记录 M2 的实施目标和切片。普通长期 Provider 的主体生产链路与退役清理已经完成；清理结果、保留的窄兼容边界和最终验证见 [`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md)，新增代码规模与过渡边界评审见 [`02-provider-config-and-registry-review.md`](./02-provider-config-and-registry-review.md)。Merge Request 静态审查及其修复证据保存在 [`02-provider-config-and-registry-mr-review.md`](./02-provider-config-and-registry-mr-review.md)；其中的上线阻断项已经全部收口。
+O design alvo está em [`../design/registry/registry.md`](../design/registry/registry.md). Este documento registra os objetivos de implementação e as fatias do M2. O principal caminho de produção de Providers comuns de longo prazo e a limpeza de descontinuação já foram concluídos; os resultados da limpeza, as fronteiras estreitas de compatibilidade preservadas e a verificação final estão em [`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md), e a avaliação da escala do novo código e das fronteiras de transição está em [`02-provider-config-and-registry-review.md`](./02-provider-config-and-registry-review.md). A revisão estática do Merge Request e as evidências das correções ficam em [`02-provider-config-and-registry-mr-review.md`](./02-provider-config-and-registry-mr-review.md); os itens bloqueadores de lançamento já foram todos fechados.
 
-## 最高优先级迁移原则
+## Princípio de migração de maior prioridade
 
-Official、Personal 与 Account 三层 Provider Config 是 Provider Registry 的唯一事实来源。现有 Catalog/Preset 分支、Builtin hardcode、Provider Family resolver、旧 CLI Provider Config 和 Runtime Snapshot 中重复表达的静态事实，都必须迁入这三层或删除。
+As três camadas de Provider Config — Official, Personal e Account — são a única fonte de verdade do Provider Registry. Todos os fatos estáticos expressos de forma duplicada nos ramos atuais de Catalog/Preset, no hardcode Builtin, no resolver de Provider Family, no Provider Config antigo do CLI e no Runtime Snapshot devem ser migrados para essas três camadas ou removidos.
 
 ```text
-旧静态事实仍然有效
-└─ 搬入 Official / Personal Config
+Fatos estáticos antigos ainda válidos
+└─ movidos para Official / Personal Config
 
-旧账号与套餐判断仍然有效
-└─ 收敛为 Account ProviderConfigMap
+Julgamentos antigos de conta e plano ainda válidos
+└─ convergidos para Account ProviderConfigMap
 
-旧动态凭据逻辑仍然有效
-└─ 收敛到请求期鉴权 Service
+Lógica antiga de credenciais dinâmicas ainda válida
+└─ convergida para o Service de autenticação em tempo de requisição
 
-无法证明仍然必要的旧分支
-└─ 删除
+Ramos antigos que não é possível provar ainda necessários
+└─ removidos
 ```
 
-迁移期不建立“旧 Snapshot + 新 Registry”的长期兼容层。允许在物理存储边界做一次性格式迁移，但迁移后的运行链路只能读取新的唯一事实来源。这一原则优先于按旧模块边界逐个兼容，M2 应尽快让生产路径开始消费正式 Config 与 Access Source。
+Durante a migração não se estabelece uma camada de compatibilidade de longo prazo do tipo "Snapshot antigo + Registry novo". É permitido fazer uma migração de formato única no limite de armazenamento físico, mas o caminho de execução pós-migração só pode ler a nova fonte única de verdade. Este princípio tem precedência sobre compatibilizar módulo a módulo segundo as antigas fronteiras de módulo; o M2 deve fazer o caminho de produção começar a consumir a Config oficial e a Access Source o quanto antes.
 
-## 实施目标
+## Objetivos de implementação
 
-M2 统一“Model 如何从当前 Environment 的 Provider 事实产生”。M2 启动前，Host Provider Service、Worker Workspace Catalog、CLI Config Parser 和 Runtime Overlay 分别解释 Provider 静态信息，导致 Host 选择的模型与 Worker 真正执行的模型需要靠完整快照和兼容 Overlay 维持一致。
+O M2 unifica "como o Model é produzido a partir dos fatos de Provider do Environment atual". Antes do M2 começar, o Host Provider Service, o Worker Workspace Catalog, o CLI Config Parser e o Runtime Overlay interpretavam separadamente as informações estáticas de Provider, fazendo com que o modelo escolhido pelo Host e o modelo realmente executado pelo Worker precisassem ser mantidos coerentes por meio de um snapshot completo e um Overlay de compatibilidade.
 
-目标链路是：
+O caminho alvo é:
 
 ```text
 ProviderConfigService
 ├─ Official ProviderConfigMap
 ├─ Personal ProviderConfigMap
 └─ Official / Personal ModelConfigRules ──┐
-                                            ├─> Registry 输入聚合
+                                            ├─> agregação de entrada do Registry
 AccountProviderService                      │
 └─ Account ProviderConfigMap ───────────────┘
                              |
@@ -53,407 +53,649 @@ AccountProviderService                      │
                                 Model
 ```
 
-Host、Core Worker、Prompt CLI 和 TUI 复用相同 Config 与 Registry 领域实现，各自在进程内持有实例。
+Host, Core Worker, Prompt CLI e TUI reutilizam a mesma implementação de domínio de Config e Registry, cada um mantendo uma instância dentro do próprio processo.
 
-## 已完成的设计准备
+## Preparo de design já concluído
 
-当前已经确定：
+Atualmente já está definido:
 
-- Config 使用统一 ConfigOverlay 语义，稀疏层和最终结果使用同一类型；key 有序，覆盖已有 key 时保留位置，新 key 按后层顺序追加。
-- ProviderConfig 与 ModelConfigRules 都有 Official 和 Personal 两组有序输入。
-- Account Source 直接产生第三层稀疏 `ProviderConfigMap`，与 Official、Personal 复用同一种 Overlay。Account Provider 的 `accessId` 和当前 `models` 都是 kind-specific Config 字段；Registry 不额外验证账号权益，请求鉴权由 Account Service 最终裁定。裁决背景见 [`02-provider-config-and-registry-human-in-the-loop.md`](./02-provider-config-and-registry-human-in-the-loop.md#1-account-access-复用-provider-config-overlay)。
-- Registry 分两轮形成 ProviderConfig 和 ModelConfig。
-- Provider 与模型对外保持顺序，内部索引支持查询、Selection 校验和 Model 创建。
-- 设置页面和模型选择页面使用各自 Facade，不在 Renderer 复制解析逻辑。
-- 设置页面只拖动 Personal-only Provider 和 Personal Provider 内模型；保存时按照 Effective 顺序重排 Personal Overlay，不建立独立排序 Preference。
-- 每个进程拥有独立 Registry 实例；进程 Registry 启用后，Host Snapshot 不再参与普通长期
-  Provider 的成员、属性、执行或展示。
-- 闲时任务从进程级 Registry 选择 Official Builtin Provider；执行期只补充 Request Auth 与 Ticket，不建立临时 Provider 静态事实源。
+- A Config usa a semântica unificada de ConfigOverlay; a camada esparsa e o resultado final usam o mesmo tipo; as keys são ordenadas, e ao sobrescrever uma key existente a posição é preservada, enquanto novas keys são anexadas na ordem das camadas posteriores.
+- ProviderConfig e ModelConfigRules têm ambos dois conjuntos ordenados de entradas: Official e Personal.
+- A Account Source produz diretamente a terceira camada esparsa `ProviderConfigMap`, reutilizando o mesmo tipo de Overlay que Official e Personal. O `accessId` do Account Provider e o `models` atual são campos de Config específicos de kind; o Registry não valida/entitlement adicional da conta — a autenticação da requisição é definitivamente decidida pelo Account Service. O contexto da decisão está em [`02-provider-config-and-registry-human-in-the-loop.md`](./02-provider-config-and-registry-human-in-the-loop.md#1-account-access-reutiliza-provider-config-overlay).
+- O Registry forma ProviderConfig e ModelConfig em duas rodadas.
+- Externamente, Providers e modelos mantêm a ordem; internamente, os índices suportam consulta, validação de Selection e criação de Model.
+- A página de configurações e a página de seleção de modelos usam suas respective Facades, sem duplicar lógica de parsing no Renderer.
+- A página de configurações só arrasta Providers Personal-only e modelos dentro de Personal Providers; ao salvar, reordena o Personal Overlay conforme a ordem Efetiva, sem criar uma Preference de ordenação separada.
+- Cada processo tem sua própria instância do Registry; com o Registry por processo habilitado, o Host Snapshot deixa de participar da associação, atributos, execução ou exibição de Providers comuns de longo prazo.
+- Tarefas ociosas selecionam Providers Official Builtin a partir do Registry de nível de processo; em tempo de execução apenas complementam Request Auth e Ticket, sem criar uma fonte temporária de fatos estáticos de Provider.
 
-具体设计从 [`../design/registry/registry.md`](../design/registry/registry.md) 逐层下钻。
+O design concreto desce camada a camada a partir de [`../design/registry/registry.md`](../design/registry/registry.md).
 
-## 首个实施切片的边界
+## Fronteiras da primeira fatia de implementação
 
-M2 的第一批代码先建立了一条不依赖文件、网络、React、Electron、Services 或 Provider SDK 的领域链路：
+O primeiro lote de código do M2 estabeleceu um caminho de domínio que não depende de arquivos, rede, React, Electron, Services ou SDKs de Provider:
 
 ```text
-普通 Object / RPC 数据
+Dados comuns de Object / RPC
           |
           v
 Config Schema + ConfigOverlay
           |
           v
 ProviderConfigResolver
-├─ Settings 可用的完整解析结果与问题
-└─ Registry 可发布的有效 Provider View
+├─ resultado completo de resolução e problemas para Settings
+└─ visão válida de Provider publicável no Registry
           |
           v
-内存 ProviderRegistry
-├─ 有序 View
-├─ provider/model 索引
-├─ ModelSelection 校验
-└─ 变化通知
+ProviderRegistry em memória
+├─ View ordenado
+├─ índices de provider/model
+├─ validação de ModelSelection
+└─ notificação de mudanças
 ```
 
-这一切片建立在新的纯领域包 `@zcode/provider` 中。后续切片已经让 Host、Worker、Prompt CLI 和 TUI 复用这套代码；文件监听、远端管理配置和账号接口继续由各自 Source Service 负责。
+Essa fatia se apoia no novo pacote de domínio puro `@zcode/provider`. As fatias seguintes fizeram Host, Worker, Prompt CLI e TUI reutilizarem este código; o monitoramento de arquivos, a management config remota e as interfaces de conta continuam sendo de responsabilidade dos respectivos Source Services.
 
-这一节只记录首个领域切片当时的边界，不代表 M2 最终交付范围。后续切片已经接入 Host、Worker、设置页、模型选择和模型执行；Adapter reasoning 映射仍保持原有执行语义。
+Esta seção registra apenas as fronteiras da primeira fatia de domínio na época; não representa o escopo final de entrega do M2. As fatias seguintes já conectaram Host, Worker, página de configurações, seleção de modelos e execução de modelos; o mapeamento de reasoning do Adapter mantém a semântica de execução original.
 
-首个切片开工时的影响面和测试契约保存在
-[`02-provider-config-and-registry-impact.md`](./02-provider-config-and-registry-impact.md)；它是历史实施证据，不描述当前完成状态。
+A superfície de impacto e os contratos de teste no início da primeira fatia estão em
+[`02-provider-config-and-registry-impact.md`](./02-provider-config-and-registry-impact.md); é evidência histórica de implementação e não descreve o estado atual de conclusão.
 
-## 实施切片与结果
+## Fatias de implementação e resultados
 
 ```text
-M2.1  @zcode/provider 包                                      [完成]
-      + ConfigOverlay、ProviderConfig、ModelConfigRules 与解析测试
+M2.1  pacote @zcode/provider                                      [concluído]
+      + ConfigOverlay, ProviderConfig, ModelConfigRules e testes de resolução
 
 M2.2  ProviderConfigResolver
-      + 两轮解析、顺序、三层 Provider Config Overlay 和完整性门禁
-      + 无 IO 的内存 ProviderRegistry、索引、Selection 校验和变化通知 [完成]
-      + Selection 统一校验 Provider/Model、reasoningLevel 和 maxOutputTokens；
-        Configured Default 与 Facade 复用同一套 Option 规则 [完成]
+      + resolução em duas rodadas, ordenação, Overlay de Provider Config de três
+        camadas e portão de integridade
+      + ProviderRegistry em memória sem IO, índices, validação de Selection e
+        notificação de mudanças [concluído]
+      + Selection valida Provider/Model, reasoningLevel e maxOutputTokens de
+        forma unificada; Default Configurado e Facade reutilizam o mesmo conjunto
+        de regras de Option [concluído]
 
 M2.2b ProviderRegistryService
-      + 注入 Official、Personal 与 Account Config Source
-      + revision 去重、并发刷新代际守卫和 last-known-good 失败边界 [完成]
+      + injeção de Config Sources de Official, Personal e Account
+      + deduplicação de revision, guarda de geração para refresco concorrente e
+        fronteira de falha last-known-good [concluído]
 
-M2.3a Provider Settings / Model Selection 纯投影
-      + Settings 查看 Personal / Effective / Issues
-      + Selection 只投影 Registry 中可选模型 [完成]
+M2.3a Projeção pura de Provider Settings / Model Selection
+      + Settings visualiza Personal / Effective / Issues
+      + Selection projeta apenas modelos selecionáveis do Registry [concluído]
 
-M2.3b ProviderConfigService 与 Personal 持久化边界
-      + 可注入 Official Source 与 Personal Repository 的 ProviderConfigService
-      + Personal Provider / Model 保存与调序 [完成]
+M2.3b ProviderConfigService e fronteira de persistência Personal
+      + ProviderConfigService com Official Source e Personal Repository injetáveis
+      + salvamento e reordenação de Personal Provider / Model [concluído]
 
-M2.3c 生产 Official / Personal Config Source                         [完成]
-      + 开发阶段曾建立带 schemaVersion 的独立 provider-config.json 与物理 Repository
-        [完成；最终路径裁决已取代独立文件名]
-      + ModelConfigRules 支持 apiFormatMatch 与无状态 reasoningMapping [完成]
-      + 只读、可注入的单文件 OfficialProviderConfigSource [完成]
-      + 首批 API / Account Provider 与模型静态事实写入 config/provider/official.json [完成]
-      + 从旧 config.json 单向导入稀疏 Personal Config，并在原路径完成备份、迁移与原子替换
-        [完成]
-      + 旧文件只在 Personal Config 不存在时参与首次导入；运行期旧 Provider Store
-        不再把完整列表反向同步回 Personal Config；正式 Schema 通过同路径版本检测
-        [完成]
-      + Provider Config schemaVersion 4 与相邻版本迁移 [未发布开发历史，已完成]
-      + 以 `access.type` 表达访问方式，以 `api.type` 表达公开 API；Model Config 使用
-        `apiMatch + reasoningMapping` 表达模型/API 组合行为 [完成]
-      + Personal Config 使用既有 `~/.zcode/v2/config.json` 路径；迁移前完整备份原文件，
-        备份失败不覆盖，转换成功后原子替换同一路径 [完成]
-      + 最终完整 Schema 作为首次发布的 `schemaVersion: 1`；未发布的开发期
-        v1–v5 迁移分支不进入长期兼容链路 [完成]
-      + OpenAI-compatible 始终请求 Usage，Config 不再提供关闭开关 [完成]
-      + 设置页新增模型通过 Settings Facade 预览 Official / Personal ModelConfigRules，
-        删除 Renderer Catalog 查询、停用的 Catalog Provider 新增入口和旧公共 Catalog API [完成]
-      + 旧 Provider Store 读取与迁移不再按 Model ID 注入 Catalog metadata；删除旧 Catalog
-        Loader、仓库 JSON 与 Electron 打包资源，模型缺省事实只由 ModelConfigRules 提供 [完成]
-      + 旧 Builtin Preset 首次迁移只保留用户 API Key 与 modified 模型覆盖；Preset 生成的
-        label、endpoint、模型列表和账号状态不再固化为 Personal Config [完成]
-      + 设置页、Shared 工厂、旧 Store 与协议投影停止解释 `[1m]` 模型后缀；通用 200K
-        缺省与 `[1m]` 的 1M context 改由 Official ModelConfigRules 提供 [完成]
-      + 删除设置页已经停用的 Endpoint 建议与按 Endpoint 探测模型接口；Add Provider
-        只编辑显式 Provider Config，不再从 `client/configs` 引入另一套配置候选 [完成]
-      + 删除 Renderer 与旧 Store 的 Start Plan 免费模型白名单和占位 Provider；Official
-        Config 声明静态模型，Account Overlay 决定当前账号可用成员，断网兜底不再伪造
-        Account Provider [完成]
-      + 设置页模型连通性测试只使用 Model Config 中的 reasoningMapping，
-        退出按 GLM 模型名补齐 thinking / effort 的旧硬编码 [完成]
-      + 把现有有效静态事实迁入正式 Config；生产 Registry 不再从 Catalog、Preset 或旧
-        Provider Store 补充 Provider/Model 事实 [完成]
-      + 删除无消费者的旧 Preset 构建器、远端 Config 拉取与 Store 稳态同步；旧 Store 只保留
-        Personal/Account 一次性物理迁移，历史修正规则均为迁移文件私有实现 [完成]
-      + 删除 Workspace Snapshot 的重复 `modelCatalog`、旧 Provider 分组投影与无生产调用者的
-        App Config→Protocol Provider 转换；模型状态统一由 `settings.model` 表达 [完成]
-      + 删除 App 的 Workspace Provider/Model Overlay 写入口、状态与监听器；只保留
-        execution-scoped Turn Overlay [完成]
+M2.3c Config Source de produção Official / Personal                         [concluído]
+      + na fase de desenvolvimento existiu um provider-config.json separado com
+        schemaVersion e um Repository físico
+        [concluído; a decisão final de caminho substituiu o nome de arquivo separado]
+      + ModelConfigRules suporta apiFormatMatch e reasoningMapping sem estado
+        [concluído]
+      + OfficialProviderConfigSource somente leitura e injetável, de arquivo único
+        [concluído]
+      + primeiros lotes de fatos estáticos de API / Account Providers e modelos
+        gravados em config/provider/official.json [concluído]
+      + importação unidirecional de Personal Config esparso a partir do antigo
+        config.json, com backup, migração e substituição atômica no caminho
+        original [concluído]
+      + o arquivo antigo participa da primeira importação apenas quando Personal
+        Config ainda não existe; em execução, o antigo Provider Store não
+        sincroniza mais a lista completa de volta para Personal Config; o Schema
+        oficial detecta versão no mesmo caminho [concluído]
+      + schemaVersion 4 do Provider Config e migração de versões adjacentes
+        [histórico de desenvolvimento não publicado, concluído]
+      + `access.type` expressa a forma de acesso e `api.type` expressa a API
+        pública; Model Config usa `apiMatch + reasoningMapping` para expressar o
+        comportamento da combinação modelo/API [concluído]
+      + Personal Config usa o caminho existente `~/.zcode/v2/config.json`; antes da
+        migração faz backup completo do arquivo original, não sobrescreve se o
+        backup falhar e faz substituição atômica no mesmo caminho após sucesso
+        [concluído]
+      + o Schema completo final é o `schemaVersion: 1` do primeiro lançamento; os
+        ramos de migração v1–v5 do período de desenvolvimento não publicado não
+        entram na cadeia de compatibilidade de longo prazo [concluído]
+      + OpenAI-compatible sempre solicita Usage e a Config não oferece mais
+        interruptor de desligamento [concluído]
+      + a adição de modelo na página de configurações passa a pré-visualizar
+        Official / Personal ModelConfigRules pela Settings Facade; remoção das
+        consultas de Catalog no Renderer, da entrada de adição de Catalog Provider
+        desativada e da antiga API pública de Catalog [concluído]
+      + a leitura e migração do antigo Provider Store não injetam mais metadata de
+        Catalog por Model ID; remoção do antigo Catalog Loader, do JSON de
+        repositório e dos recursos empacotados do Electron; fatos padrão de modelo
+        passam a ser fornecidos apenas por ModelConfigRules [concluído]
+      + a primeira migração do antigo Builtin Preset mantém apenas a API Key do
+        usuário e as sobrescritas de modelo modificadas; label, endpoint, lista de
+        modelos e estado de conta gerados pelo Preset não são mais cristalizados em
+        Personal Config [concluído]
+      + a página de configurações, a fábrica Shared, o antigo Store e a projeção
+        de protocolo param de interpretar o sufixo de modelo `[1m]`; o padrão
+        genérico de 200K e o contexto de 1M de `[1m]` passam a ser fornecidos por
+        Official ModelConfigRules [concluído]
+      + remoção das sugestões de Endpoint já desativadas na página de configurações
+        e da interface de sondagem de modelos por Endpoint; Add Provider passa a
+        editar apenas Provider Config explícito, sem introduzir outro conjunto de
+        candidatos de config vindo de `client/configs` [concluído]
+      + remoção da lista de Permitidos de modelos gratuitos do Start Plan e do
+        Provider placeholder no Renderer e no antigo Store; a Official Config
+        declara modelos estáticos e o Account Overlay decide os membros disponíveis
+        para a conta atual; o fallback offline não fabrica mais Account Provider
+        [concluído]
+      + o teste de conectividade de modelo da página de configurações usa apenas o
+        reasoningMapping do Model Config; remoção do hardcode antigo que completava
+        thinking / effort pelo nome do modelo GLM [concluído]
+      + migração dos fatos estáticos válidos existentes para a Config oficial; o
+        Registry de produção não complementa mais fatos de Provider/Model a partir
+        de Catalog, Preset ou do antigo Provider Store [concluído]
+      + remoção dos antigos construtores de Preset sem consumidores, do pull de
+        Config remota e da sincronização de estado estável do Store; o antigo Store
+        mantém apenas a migração física única de Personal/Account, e as regras
+        históricas de correção são implementações privadas do arquivo de migração
+        [concluído]
+      + remoção do `modelCatalog` duplicado do Workspace Snapshot, da projeção de
+        agrupamento de Provider antigo e da conversão App Config→Protocol Provider
+        sem chamadas de produção; o estado do modelo é expresso uniformemente por
+        `settings.model` [concluído]
+      + remoção da escrita de Workspace Provider/Model Overlay, do estado e dos
+        listeners do App; mantém-se apenas o Turn Overlay de escopo de execução
+        [concluído]
 
-M2.3d Account Provider Config Source                             [完成]
-      + 现有登录与套餐判断投影稀疏 Account ProviderConfigMap
-      + Official、Personal、Account 使用同一种 Provider Config Overlay [完成]
-      + 每个 Access Entry 携带 Model 创建时固定的非敏感 accessId
-        [领域类型、Host/Worker 迁移 Source 与 Official Account Config 已完成]
-      + Account Model 的 Properties、Option Specs 与 reasoning 映射改用新 Registry [完成]
-      + Account Model 固定 accessId，并在每个请求 attempt 传到 Host [完成]
-      + Host Request Auth Service 按固定 accessId 解析 Start / Personal / Team 凭据 [完成]
-      + Account Request Auth 从旧 ModelProviderService 内部 Resolver 提升为窄服务契约，
-        Local Host 进程内持有，Agent 与 Off-Peak 只依赖该契约；跨 Host 路由裁决前
-        不通过通用 RPC 暴露 [完成]
-      + Local Host 在 composition root 独立装配 Account Request Auth；旧
-        ModelProviderService 不再创建或暴露 Resolver；Personal Coding Plan Key 的一次性
-        旧 Store 读取收敛为独立窄迁移函数 [完成]
-      + Team Plan 请求期 Key 的组织/项目校验、创建与 Secret 复制移入独立 Account Runtime
-        模块；新 Request Auth 与旧 Snapshot 兼容调用共享实现，不再由旧 Provider Service 定义 [完成]
-      + Account Model 无需旧 Workspace Secret 即可从新 Registry 创建 [完成]
-      + Account 权益判定退出旧 ModelProviderConfig，收窄为 providerId、鉴权输入与
-        Account 上下文 [完成]
-      + 无 IO AccountProviderService 管理 Config 依赖、ready barrier、刷新通知与
-        last-known-good Account ProviderConfigMap [完成]
-      + 本地 Host 以账号连接 Setting 更新和显式 Account Facts 事件触发刷新，退出
-        旧 Provider Registry 全量 change event [完成]
-      + Account Connection Result 统一解析 available / unavailable / unknown，按 Provider
-        保留已知结果并形成 accessId/models Overlay [完成]
-      + Services 适配当前账号域、Family 连接模式、Personal/Team 选择与
-        Start/Coding 权益结果，统一产生 Account Connection Result [完成]
-      + Start Plan 从同一次 billing/balance 权益查询提取远端模型集合，
-        存在时随 Connection Result 进入 Account Config [完成]
-      + 本地 Host 使用 AccountProviderService 与 Connection Resolver 直接产生第三层
-        Account Config；旧完整 Registry Snapshot 不再参与本地账号 Provider 解析 [完成]
-      + Personal Coding Plan Key 按 accessId 迁入 Credential Service，Connection Resolver
-        与 Request Auth 共用同一读取入口，旧 Provider Key 只保留一次性迁移 [完成]
-      + OAuth logout 删除 Account Credential Store 中的 Personal Coding Plan Key，并刷新
-        Account Source；退出旧 Provider Store 的派生 Key 清理 [完成]
-      + 旧 `refreshCodingPlanApiKey` / `clearCodingPlanApiKey` 公共 API 与 Store 改写链路退出；
-        Start/Coding 互斥、Team Project 与暂时错误语义由独立 Availability 测试保护 [完成]
-      + 本地 Host → Worker Registry 删除 Account Secret 投影 [完成]
-      + 删除旁路 Account Access/allowedModelIds，直接 Overlay accessId/models [完成]
-      + Host 通过独立的进程级协议同步 Account ProviderConfigMap，Worker 不再从
-        workspace/updateProviderRegistry 完整快照反向提取 Account Config [完成]
-      + desktop-attached remote 不建立跨 Host Auth 路由；Remote Environment 使用自己的
-        Config、Credential、Account Source 与 Registry [目标已裁决，实施见 M2.8]
-      + 在现有 accessId 传递链上升级账号身份语义：Personal、Start 与 Team accessId
-        标识具体账号连接；同账号刷新凭据时稳定，切换账号时变化 [完成]
-      + Request Auth 核对 accessId 与当前凭据所属账号，拒绝旧 Model 身份与新账号凭据
-        组合；Team 同时核对账号、organization 与 project [完成]
-      + Account Credential Store 改用账号级 accessId。当前 provider 级稳定 key 尚未发布，
-        不迁移该中间 key；Personal/Team Key 直接按新身份重新取得 [完成]
-      + Usage Source 与缓存统一使用账号级 accessId；Team 请求补齐必填 accessId，继续携带
-        organization/project 上下文，不增加平行 accountCacheIdentity [完成]
+M2.3d Account Provider Config Source                             [concluído]
+      + o login e o julgamento de plano existentes projetam um Account
+        ProviderConfigMap esparso
+      + Official, Personal e Account usam o mesmo Provider Config Overlay
+        [concluído]
+      + cada Access Entry carrega um accessId não sensível fixado na criação do
+        Model [tipos de domínio, Source de migração Host/Worker e Official Account
+        Config concluídos]
+      + Properties, Option Specs e mapeamento de reasoning do Account Model passam
+        a usar o novo Registry [concluído]
+      + o Account Model fixa o accessId e o passa ao Host em cada tentativa de
+        requisição [concluído]
+      + o Host Request Auth Service resolve credenciais Start / Personal / Team pelo
+        accessId fixo [concluído]
+      + o Account Request Auth sai do Resolver interno do antigo ModelProviderService
+        e passa a ser um contrato de serviço estreito, mantido no processo do Local
+        Host; Agent e Off-Peak dependem apenas desse contrato; antes da decisão de
+        roteamento entre Hosts não é exposto via RPC genérica [concluído]
+      + o Local Host monta o Account Request Auth de forma independente no
+        composition root; o antigo ModelProviderService não cria mais nem expõe o
+        Resolver; a leitura única da Key do Personal Coding Plan pelo antigo Store
+        converge para uma função de migração estreita e independente [concluído]
+      + a validação de organização/projeto, a criação e a cópia do Secret da Key de
+        tempo de requisição do Team Plan passam para um módulo Account Runtime
+        independente; o novo Request Auth e a chamada de compatibilidade com o
+        antigo Snapshot compartilham a implementação, e ela não é mais definida
+        pelo antigo Provider Service [concluído]
+      + o Account Model pode ser criado a partir do novo Registry sem o antigo
+        Workspace Secret [concluído]
+      + o julgamento de entitlement de Account sai do antigo
+        ModelProviderConfig e é estreitado para providerId, entrada de
+        autenticação e contexto de Account [concluído]
+      + o AccountProviderService sem IO gerencia dependências de Config, barreira
+        de prontidão, notificação de refresco e o AccountProviderConfigMap
+        last-known-good [concluído]
+      + o Host local dispara o refresco pela atualização da Setting de conexão de
+        conta e por eventos explícitos de Account Facts, saindo do evento change
+        total do antigo Provider Registry [concluído]
+      + o Account Connection Result unifica a interpretação de available /
+        unavailable / unknown, preserva resultados conhecidos por Provider e forma
+        o Overlay de accessId/models [concluído]
+      + os Services adaptam o domínio de conta atual, o modo de conexão de Family,
+        a seleção Personal/Team e o resultado de entitlement Start/Coding,
+        produzindo uniformemente o Account Connection Result [concluído]
+      + o Start Plan extrai o conjunto remoto de modelos da mesma consulta de
+        entitlement de billing/balance e, quando presente, o leva ao Account Config
+        pela Connection Result [concluído]
+      + o Host local usa o AccountProviderService e o Connection Resolver para
+        produzir diretamente a terceira camada de Account Config; o antigo Snapshot
+        completo do Registry deixa de participar da resolução de Providers de conta
+        local [concluído]
+      + a Personal Coding Plan Key migra por accessId para o Credential Service, e
+        o Connection Resolver e o Request Auth passam a compartilhar a mesma
+        entrada de leitura; a Provider Key antiga mantém apenas a migração única
+        [concluído]
+      + o logout OAuth remove a Personal Coding Plan Key do Account Credential
+        Store e refresca a Account Source; sai da limpeza da Key derivada pelo
+        antigo Provider Store [concluído]
+      + a API pública antiga `refreshCodingPlanApiKey` / `clearCodingPlanApiKey` e
+        a cadeia de reescrita do Store saem; a mutualidade Start/Coding, o Team
+        Project e a semântica de erro temporário passam a ser protegidos por testes
+        de Availability independentes [concluído]
+      + a projeção de Account Secret de Host → Worker é removida [concluído]
+      + remoção do bypass de Account Access/allowedModelIds, aplicando Overlay
+        direto de accessId/models [concluído]
+      + o Host sincroniza o Account ProviderConfigMap por um protocolo de nível de
+        processo independente; o Worker deixa de extrair o Account Config de um
+        snapshot completo em workspace/updateProviderRegistry [concluído]
+      + o remote anexado ao desktop não estabelece roteamento de Auth entre Hosts;
+        o Remote Environment usa sua própria Config, Credential, Account Source e
+        Registry [alvo decidido; implementação em M2.8]
+      + na cadeia de passagem de accessId existente, a semântica de identidade de
+        conta é elevada: os accessId Personal, Start e Team identificam uma conexão
+        de conta concreta; são estáveis ao renovar credenciais da mesma conta e
+        mudam ao trocar de conta [concluído]
+      + o Request Auth confere o accessId com a conta à qual as credenciais atuais
+        pertencem e rejeita a combinação de identidade de Model antigo com
+        credenciais de nova conta; para Team confere também conta, organization e
+        project [concluído]
+      + o Account Credential Store passa a usar accessId em nível de conta. A key
+        estável em nível de provider atual ainda não foi publicada e essa key
+        intermediária não é migrada; as Keys Personal/Team são obtidas
+        diretamente pela nova identidade [concluído]
+      + a Usage Source e o cache passam a usar uniformemente o accessId em nível
+        de conta; a requisição Team preenche o accessId obrigatório e continua
+        carregando o contexto organization/project, sem adicionar um
+        accountCacheIdentity paralelo [concluído]
 
-M2.4  Host Settings / Selection Facade 使用唯一 Registry
-      + ProviderRuntime 组装 Config、可注入 Account Source、Registry 与 Facade [完成]
-      + ProviderRuntime 支持显式注入先创建的 Config Runtime，为 Account Source
-        依赖同一 Config Service 建立正式装配顺序 [完成]
-      + Host RPC 频道与 Client 代理 [完成]
-      + Facade 共用 Runtime ready barrier，消除 Host 异步启动竞态 [完成]
-      + 主 Composer 的普通 API Provider 选择切到 ModelSelectionView [完成]
-      + Account Provider 模型候选与当前连接改由 ModelSelectionView 直接表达；
-        Renderer 仅根据固定 accessId 展示 Start/Individual/Team 徽标 [完成]
-      + 设置页 API Provider 静态展示事实切到 ProviderSettingsView [完成]
-      + 设置页 Account Provider 的名称、Endpoint、模型属性与 Option Specs 切到
-        ProviderSettingsView；常驻设置投影不再携带旧运行凭据或状态字段 [完成]
-      + 设置页连通性测试通过 Provider Settings RPC 提交当前未保存草稿；Host 使用最新
-        Settings View 识别 Account Provider，并从请求期鉴权边界取得动态凭据，不读取旧
-        Provider Snapshot [完成]
-      + 新 Settings Service 已装配时，cold start 等待 ProviderSettingsView，手动刷新
-        直接刷新 Account Source 与 Registry；不订阅、读取或刷新旧 Provider Snapshot [完成]
-      + Provider 显示顺序与 Personal-only 拖动写入切到 Personal Overlay [完成]
-      + 页面顺序只来自 Effective Provider View，不再读写旧 display-order Preference [完成]
-      + Personal Provider 内模型顺序与拖动写入切到 Personal Overlay [完成]
-      + Personal-only Provider 删除切到 Personal Overlay 第一写入 [完成]
-      + Personal-only API Provider 创建/编辑切到 Personal Overlay 第一写入 [完成]
-      + Welcome API Key 登录只写 Official API Provider 的稀疏 Personal Override [完成]
-      + Welcome API Key 登录在新 Host 上从 Settings View 确认 Provider，并在保存后从
-        Selection View 选择默认模型；不再写入旧 Provider 镜像 [完成]
-      + Provider Settings Service 成为所有生产 Entry 的必备服务；API Key 读取、写入和
-        Management URL 只使用 Settings View，失败不再回退旧 ModelProviderService [完成]
-      + Custom Model 恢复优先使用 Registry Selection View [完成]
-      + 草稿启动门禁优先使用 Model Selection Service [完成]
-      + V4 草稿启动门禁删除旧 Provider Registry Snapshot fallback，只使用
-        Model Selection View 作为可选模型事实 [完成]
-      + ZCode Agent 的最近选择/当前回包 Provider 可用性裁决改读 Model Selection View，
-        不再读取旧 ModelProviderConfig 全局快照 [完成]
-      + OAuth 登录后与启动恢复的 Family Selection 删除未参与裁决的旧
-        ModelProviderConfig 读取，只使用权益、Team Products 与当前选择状态 [完成]
-      + 删除 Settings Sync 对旧 Provider Snapshot 的刷新；当前尚未提供 Provider 导入，
-        未来导入必须显式写入 Personal Config [完成]
-      + 生产 Root 的启动 Provider 可用性与登录门禁只读 Model Selection View；删除
-        Renderer 旧 Provider Snapshot 状态、订阅和刷新模块 [完成]
-      + OAuth 登录、会话恢复与登出在账号选择状态收敛后统一刷新 Account Source 与
-        Registry，不再在 Renderer 按 Provider 调用旧 refreshCodingPlanApiKey [完成]
-      + 模型切换提示、时间线与发送埋点只从 Model Selection View 读取 Provider
-        label/baseURL，不再使用旧 Provider 快照兜底 [完成]
-      + Workspace 模型偏好裁决直接消费 Model Selection View，删除非 ZCode Agent
-        分支对旧 ModelProviderConfig Snapshot 的可选性判断 [完成]
-      + Workspace reload 删除旧多 Agent Provider 配置裁决器；历史 provider 标识在边界
-        归一到当前唯一 ZCode Agent，模型回显只使用 prepare 回包、App Recent 与
-        Model Selection View，不再读取 workspace 下的旧 GLM Provider Config [完成]
-      + V4 custom provider 恢复删除旧 ModelProviderConfig fallback，只从
-        Model Selection View 选择首个模型 [完成]
-      + 本地 Host 的 Bot `/model` Provider/Model 候选改读 Model Selection Service；
-        workspace runtime configOptions cache 保持独立；Bot Service 不再接受旧
-        ModelProviderService 作为候选事实源 [完成]
-      + Bot `/status` 的自定义 Provider label 改读所属 Environment 的 Model Selection Service，
-        不再从旧 ModelProviderConfig 取得展示事实 [完成]
-      + Bot 启动迁移使用所属 Environment 的 Model Selection View 的 Provider/Model 索引，
-        并停止旧 Provider Config 缓存预热与持久菜单 fallback [完成]
-      + Provider Family Domain 的一次性启动迁移从 Model Selection View 推断
-        当前唯一可选 Family，不再从旧 Provider Config 重做可用性判断 [完成]
-      + Root 登出和设置页 Plan 解绑在操作发生时读取 Model Selection View，
-        仅以可选 API Provider 判断是否保留当前 Family Domain [完成]
-      + Composer、Automation、Subagent 与 Repo Wiki 的模型思考档位改读
-        Model Selection View 中的 ModelConfig Option Specs；生产 Entry 不再从旧 Provider
-        metadata 或 GLM 名称规则补充 Registry 静态事实 [完成]
-      + 模型菜单在 Model Selection View 发布后只投影 Registry 候选；被 Registry
-        过滤的旧 Provider 不再按 ID 缺口追加，确认空 View 也不回退 [完成]
-      + Subagent 设置页删除 useModelProviders 订阅和永远为空的 Legacy Provider 参数；
-        模型候选、加载状态及无 Workspace 时的 reasoning Option Specs 只使用进程级
-        Model Selection View [完成]
-      + Repo Wiki 生成设置删除永远为空的 Legacy Provider 参数；模型菜单只投影
-        Model Selection View，reasoning 在 View 未发布时保持未知，不按模型名补事实 [完成]
-      + Composer 模型菜单、Provider 存在性、label 与 API Provider 恢复资格只使用
-        Model Selection View；View 未发布时保持空，不再订阅旧 Provider Snapshot [完成]
-      + Composer 草稿 reasoning 默认值只读 Model Selection View；View 未发布或模型没有
-        Option Spec 时保持未知，不再使用旧 Provider metadata 与 GLM 名称规则 [完成]
-      + UI 统一 reasoning helper 删除旧 ModelProviderConfig 解析器与 GLM 名称硬编码，
-        公共输入收窄为已发布的 Model Selection View [完成]
-      + 设置页在 Provider Settings View 发布后只投影 View 中的 Provider；旧快照既不补
-        Account 运行字段，也不追加新事实源未收录的 Provider [完成]
-      + Coding Plan entitlement Hook 改用 Account Overlay 的 accessId 判断连接并构造刷新身份；
-        Renderer 不再读取 API Key 判断套餐可用性，禁用模型入口仍保留 Account Access [完成]
-      + Session 提交时的 Plan Identity Snapshot 改用 Account Overlay 的 accessId；套餐身份、
-        Entitlement Cache 与提交遥测不再订阅旧 Provider 快照或读取 API Key [完成]
-      + 设置页 Usage 套餐来源、查询门禁与缓存身份改用 Account Overlay 的 accessId；
-        SettingsPage 不再为 Usage 订阅旧 Provider 列表，Usage 面板只消费最终来源 [完成]
-      + 侧栏 Usage 的连接门禁、缓存身份与 Team Products 探测改用 Account Overlay；
-        公共余额/升级状态解析器只接收 providerId/label，不再依赖 ModelProviderConfig [完成]
-      + Composer Context Usage 的个人套餐候选、加载状态与 Team Products 门禁改用
-        Account Overlay；模型菜单也只消费 Model Selection View [完成]
-      + Automation 在 Model Selection View 发布后直接投影 Registry 菜单并读取 Registry
-        Provider label，不再用旧 Provider 重做 entitlement 过滤或覆盖静态展示 [完成]
-      + Automation 编辑表单删除 ModelProviderConfig 输入；模型 label 与 reasoning Option Specs
-        只读 Model Selection View，View 未发布时不再回退旧 metadata [完成]
-      + Automation 主页面删除旧 Provider 与 Entitlement 订阅；模型菜单在 Registry View
-        未发布时保持空，创建/运行遥测从 Provider Settings View 读取 Personal API 静态字段 [完成]
-      + 闲时任务首页与购买漏斗从 Provider Settings View 的 Account accessId 判断当前
-        Start/Coding Plan，不再从旧 Provider enabled、systemDisabledReason 或 Team ID 反推 [完成]
-      + 设置页 Coding/Start/Team Plan 的连接状态、登录完成等待与自动同步
-        改用 Account Overlay accessId；生产 UI 不再保留未装配 Provider Settings Service
-        时读取旧 Provider API Key 的分支 [完成]
-      + 全局 Coding Plan 购买完成后显式等待 Account Source 与 Registry 刷新；
-        删除旧 Provider Hook 订阅、Snapshot 刷新与 refreshCodingPlanApiKey 分支 [完成]
-      + Root 启动、OAuth 恢复/登录/登出与 Provider Family 迁移的刷新入口，
-        新 Host 直接刷新 Provider Settings / Account Source / Registry，不再预热旧 Snapshot [完成]
-      + 本地 Host 必须装配 Provider Runtime；Official / Personal / Account Source 成为启动事实，
-        不再存在旧 Preset 兼容预热分支 [完成]
-      + 删除旧 ModelProviderService 的公共服务面、RPC 注册、Host 代理与旧 Preset Sync；旧物理
-        Store 只保留给一次性 Personal/Account 迁移读取，不再形成运行时服务或刷新事实源 [完成]
-      + 设置页显式连通性测试从 Host Registry 取得静态模型事实，并通过请求期鉴权边界
-        取得动态凭据；未保存的静态编辑草稿随本次 Settings RPC 提交，Start Plan 仅由
-        Renderer 补充本次交互产生的一次性安全校验 Header。既有 Probe 暂时只承担网络探测，
-        不再解析 Provider 事实或 Account 身份 [完成]
-      + 设置连通性测试把鉴权后的单次网络探测提升为窄依赖，不再回调旧
-        ModelProviderService 或通过 `requestAuthResolved` 绕过旧 Snapshot 逻辑 [完成]
-      + 删除旧 ModelProviderService 的公开 `testModelConnectivity`；连通性测试覆盖迁移到
-        独立 Probe 测试，旧 Service 与远端 Host 不再保留该兼容入口 [完成]
-      + 删除旧 ModelProviderService 的 `getProviderRegistrySnapshot`、快照缓存和专属测试；
-        Repo Wiki 也直接使用 Model Selection View 与统一 Model [完成]
-      + 清理 UI 测试中已删除 Snapshot API 的 mock、初始化和断言；Personal Config 首次迁移
-        直接读取旧物理 Store，不再经过旧 ModelProviderService View [完成]
-      + 其余 Selection 消费者与 Settings 配置读写切换 [完成]
-      + Settings 保存入口接收结构化的完整 Effective Provider/Model Config；Facade
-        相对 Official Config 计算稀疏 Personal Overlay，并通过一次原子替换写入
-        Personal Config。Renderer 使用私有表单状态，不再复用共享旧 Store 类型 [完成]
-      + Renderer 编辑态直接承载 `ProviderConfigObject` 与 `ModelConfigObject`，只额外保存
-        `providerId/modelId` 和 Registry 投影状态。删除复刻旧 Store 的 endpoints、kind、
-        modalities、ProviderOptionsPatch 与时间戳字段；草稿仍由 Renderer 持有，保存继续调用
-        `saveEffectiveProvider()` 计算稀疏 Personal Overlay [完成]
+M2.4  Host Settings / Selection Facade usando o Registry único
+      + ProviderRuntime monta Config, Account Source injetável, Registry e Facade
+        [concluído]
+      + ProviderRuntime suporta injeção explícita de um Config Runtime criado antes,
+        para que a Account Source dependa do mesmo Config Service e exista uma
+        ordem de montagem formal [concluído]
+      + canal Host RPC e proxy do Client [concluído]
+      + a Facade compartilha a barreira de prontidão do Runtime, eliminando a
+        corrida de inicialização assíncrona do Host [concluído]
+      + a seleção de API Provider comum do Composer principal passa a usar
+        ModelSelectionView [concluído]
+      + os candidatos de modelo do Account Provider e a conexão atual passam a ser
+        expressos diretamente por ModelSelectionView; o Renderer exibe apenas os
+        badges Start/Individual/Team com base no accessId fixo [concluído]
+      + os fatos de exibição estática de API Provider da página de configurações
+        passam a usar ProviderSettingsView [concluído]
+      + o nome, o Endpoint, os atributos de modelo e os Option Specs do Account
+        Provider na página de configurações passam a usar ProviderSettingsView; a
+        projeção de configurações residente não carrega mais campos antigos de
+        credencial ou estado de execução [concluído]
+      + o teste de conectividade da página de configurações envia o rascunho atual
+        não salvo pelo Provider Settings RPC; o Host usa o Settings View mais
+        recente para identificar o Account Provider e obtém credenciais dinâmicas
+        pela fronteira de autenticação em tempo de requisição, sem ler o antigo
+        Provider Snapshot [concluído]
+      + com o novo Settings Service já montado, o cold start espera o
+        ProviderSettingsView e o refresco manual atualiza diretamente a Account
+        Source e o Registry; não assina, lê nem atualiza o antigo Provider Snapshot
+        [concluído]
+      + a ordem de exibição de Providers e a escrita de arrasto Personal-only
+        passam para o Personal Overlay [concluído]
+      + a ordem da página vem apenas da Effective Provider View e não lê/grava
+        mais a Preference antiga de display-order [concluído]
+      + a ordem e a escrita de arrasto de modelos dentro de um Personal Provider
+        passam para o Personal Overlay [concluído]
+      + a remoção de Provider Personal-only passa para a primeira escrita do
+        Personal Overlay [concluído]
+      + a criação/edição de API Provider Personal-only passa para a primeira escrita
+        do Personal Overlay [concluído]
+      + o login por Welcome API Key escreve apenas um Personal Override esparso do
+        Official API Provider [concluído]
+      + o login por Welcome API Key em um novo Host confirma o Provider pelo
+        Settings View e, após salvar, escolhe o modelo padrão pelo Selection View;
+        não escreve mais o espelho antigo de Provider [concluído]
+      + o Provider Settings Service se torna um serviço obrigatório para todos os
+        Entry de produção; a leitura/escritura de API Key e a Management URL usam
+        apenas o Settings View, sem voltar ao antigo ModelProviderService em caso
+        de falha [concluído]
+      + a restauração de Custom Model volta a priorizar o Registry Selection View
+        [concluído]
+      + o portão de inicialização de rascunho prioriza o Model Selection Service
+        [concluído]
+      + o portão de inicialização de rascunho do V4 remove o fallback do antigo
+        Provider Registry Snapshot e usa apenas o Model Selection View como fato de
+        modelos selecionáveis [concluído]
+      + o julgamento de disponibilidade de Provider da última seleção/retorno atual
+        do ZCode Agent passa a ler o Model Selection View e não lê mais o snapshot
+        global do antigo ModelProviderConfig [concluído]
+      + a Family Selection após login OAuth e na restauração de inicialização
+        remove a leitura do antigo ModelProviderConfig que não participava do
+        julgamento e usa apenas entitlement, Team Products e estado da seleção
+        atual [concluído]
+      + remoção do refresho do antigo Provider Snapshot pelo Settings Sync; hoje
+        ainda não há importação de Provider, e qualquer importação futura deve
+        gravar explicitamente no Personal Config [concluído]
+      + a disponibilidade de Provider na inicialização e os portões de login do Root
+        de produção leem apenas o Model Selection View; remoção do estado, das
+        assinaturas e dos módulos de refresco do antigo Provider Snapshot no
+        Renderer [concluído]
+      + o login OAuth, a restauração de sessão e o logout, após convergir o estado
+        de seleção de conta, atualizam uniformemente a Account Source e o Registry
+        e não chamam mais o antigo refreshCodingPlanApiKey por Provider no Renderer
+        [concluído]
+      + o aviso de troca de modelo, a timeline e o telemetry de envio leem
+        label/baseURL do Provider apenas do Model Selection View e não usam mais o
+        fallback do antigo Provider snapshot [concluído]
+      + o julgamento de preferência de modelo do Workspace consome diretamente o
+        Model Selection View e remove o julgamento de opcionalidade sobre o antigo
+        ModelProviderConfig Snapshot no ramo que não é do ZCode Agent [concluído]
+      + o reload do Workspace remove o antigo arbitrador de configuração de Provider
+        multi-Agent; o identificador histórico de provider é normalizado na fronteira
+        para o único ZCode Agent atual, e o eco do modelo usa apenas o retorno de
+        prepare, o App Recent e o Model Selection View, sem ler a antiga GLM
+        Provider Config sob o workspace [concluído]
+      + a restauração de custom provider do V4 remove o fallback do antigo
+        ModelProviderConfig e escolhe o primeiro modelo apenas pelo Model Selection
+        View [concluído]
+      + os candidatos de Provider/Model do comando Bot `/model` no Host local
+        passam a ler o Model Selection Service; o cache workspace
+        runtime configOptions permanece independente; o Bot Service não aceita
+        mais o antigo ModelProviderService como fonte de fatos candidatos
+        [concluído]
+      + o label de Provider customizado do Bot `/status` passa a ler o Model
+        Selection Service do Environment pertence e não obtém mais fatos de
+        exibição do antigo ModelProviderConfig [concluído]
+      + a migração de inicialização do Bot usa o índice de Provider/Model do Model
+        Selection View do Environment pertence e para o pré-aquecimento do cache de
+        Config de Provider antigo e o fallback de menu persistente [concluído]
+      + a migração única de inicialização do Provider Family Domain infere a atual
+        única Family selecionável pelo Model Selection View e não refaz o
+        julgamento de disponibilidade a partir do antigo Provider Config
+        [concluído]
+      + o logout do Root e o desvinculamento de plano na página de configurações leem
+        o Model Selection View no momento da operação e usam apenas a optionalidade
+        de API Provider para decidir manter o atual Family Domain [concluído]
+      + as faixas de pensamento de modelo de Composer, Automation, Subagent e Repo
+        Wiki passam a ler os ModelConfig Option Specs do Model Selection View; os
+        Entry de produção não complementam mais fatos estáticos do Registry a
+        partir de metadata antigo de Provider ou regras de nome GLM [concluído]
+      + após a publicação do Model Selection View, o menu de modelos projeta apenas
+        candidatos do Registry; Providers antigos filtrados pelo Registry não são
+        mais adicionados por lacuna de ID, e a confirmação de View vazio também não
+        faz fallback [concluído]
+      + a página de configurações do Subagent remove a assinatura de
+        useModelProviders e o parâmetro Legacy Provider sempre vazio; candidatos de
+        modelo, estado de carregamento e Option Specs de reasoning sem Workspace
+        usam apenas o Model Selection View de nível de processo [concluído]
+      + as configurações de geração do Repo Wiki removem o parâmetro Legacy
+        Provider sempre vazio; o menu de modelos projeta apenas o Model Selection
+        View e o reasoning permanece desconhecido quando o View não foi publicado,
+        sem completar fatos pelo nome do modelo [concluído]
+      + o menu de modelos do Composer, a existência de Provider, o label e a
+        elegibilidade de restauração de API Provider usam apenas o Model Selection
+        View; quando o View não é publicado permanece vazio e não assina mais o
+        antigo Provider Snapshot [concluído]
+      + o valor padrão de reasoning do rascunho do Composer lê apenas o Model
+        Selection View; quando o View não é publicado ou o modelo não tem Option
+        Spec, permanece desconhecido e não usa mais metadata antigo de Provider
+        nem regras de nome GLM [concluído]
+      + o helper de reasoning unificado da UI remove o parser antigo de
+        ModelProviderConfig e o hardcode de nomes GLM, e estreita a entrada pública
+        ao Model Selection View já publicado [concluído]
+      + após a publicação do Provider Settings View, a página de configurações
+        projeta apenas os Providers do View; o snapshot antigo não completa campos
+        de execução de Account nem adiciona Providers ausentes da nova fonte de
+        fatos [concluído]
+      + o Hook de entitlement do Coding Plan passa a usar o accessId do Account
+        Overlay para julgar a conexão e construir a identidade de refresco; o
+        Renderer não lê mais a API Key para julgar a disponibilidade do plano e a
+        entrada de modelos desabilitados mantém o Account Access [concluído]
+      + o Plan Identity Snapshot no envio de Session passa a usar o accessId do
+        Account Overlay; a identidade do plano, o Entitlement Cache e o telemetry
+        de envio não assinam mais o snapshot antigo de Provider nem leem a API Key
+        [concluído]
+      + a fonte de plano de Usage, o portão de consulta e a identidade de cache da
+        página de configurações passam a usar o accessId do Account Overlay; o
+        SettingsPage não assina mais a lista antiga de Providers para Usage e o
+        painel de Usage consome apenas a fonte final [concluído]
+      + o portão de conexão, a identidade de cache e a sondagem de Team Products do
+        Usage na barra lateral passam a usar o Account Overlay; o parser público
+        de saldo/status de upgrade recebe apenas providerId/label e não depende mais
+        do ModelProviderConfig [concluído]
+      + os candidatos de plano pessoal, o estado de carregamento e o portão de Team
+        Products do Composer Context Usage passam a usar o Account Overlay; o menu
+        de modelos também consome apenas o Model Selection View [concluído]
+      + após a publicação do Model Selection View, a Automation projeta
+        diretamente o menu do Registry e lê o label de Provider do Registry, sem
+        refazer o filtro de entitlement com o Provider antigo nem sobrepor a
+        exibição estática [concluído]
+      + o formulário de edição de Automation remove a entrada de ModelProviderConfig;
+        o label do modelo e os Option Specs de reasoning leem apenas o Model
+        Selection View e não voltam ao metadata antigo quando o View não é publicado
+        [concluído]
+      + a página principal de Automation remove as assinaturas antigas de Provider e
+        de Entitlement; o menu de modelos permanece vazio enquanto o Registry View
+        não é publicado, e o telemetry de criação/execução lê os campos estáticos de
+        Personal API pelo Provider Settings View [concluído]
+      + a home de tarefas ociosas e o funil de compra julgam o atual Start/Coding Plan
+        pelo accessId de Account do Provider Settings View e não deduzem mais isso
+        pelo enabled antigo, systemDisabledReason ou Team ID [concluído]
+      + o estado de conexão, a espera pela conclusão do login e a sincronização
+        automática dos planos Coding/Start/Team na página de configurações passam a
+        usar o accessId do Account Overlay; a UI de produção não mantém mais o
+        ramo que lia a API Key antiga de Provider quando o Provider Settings Service
+        não está montado [concluído]
+      + após a compra global do Coding Plan, espera-se explicitamente o refresco da
+        Account Source e do Registry; remoção da assinatura antiga de Hook de
+        Provider, do refresco de Snapshot e do ramo refreshCodingPlanApiKey
+        [concluído]
+      + os pontos de entrada de refresco da inicialização do Root, da recuperação/
+        login/logout OAuth e da migração de Provider Family, em um novo Host,
+        atualizam diretamente Provider Settings / Account Source / Registry e não
+        pré-aquecem mais o Snapshot antigo [concluído]
+      + o Host local deve montar o Provider Runtime; Official / Personal / Account
+        Source se tornam fatos de inicialização e não existe mais ramo de
+        compatibilidade de pré-aquecimento do Preset antigo [concluído]
+      + remoção da superfície pública de serviço, do registro RPC, do proxy do Host
+        e do Sync de Preset antigo do antigo ModelProviderService; o Store físico
+        antigo permanece apenas para leitura da migração única de Personal/Account
+        e não forma mais um serviço de execução nem fonte de fatos de refresco
+        [concluído]
+      + o teste explícito de conectividade da página de configurações obtém os fatos
+        estáticos de modelo do Registry do Host e as credenciais dinâmicas pela
+        fronteira de autenticação em tempo de requisição; o rascunho de edição
+        estática não salvo é enviado nesta mesma chamada de Settings RPC, e o
+        Start Plan recebe do Renderer apenas o Header de verificação segura
+        pontual gerado por esta interação. O Probe existente assume temporariamente
+        apenas a sondagem de rede e não interpreta mais fatos de Provider nem
+        identidade de Account [concluído]
+      + o teste de conectividade de settings eleva a sondagem de rede única após
+        autenticação a dependência estreita e não chama mais o antigo
+        ModelProviderService nem contorna a lógica do Snapshot antigo via
+        `requestAuthResolved` [concluído]
+      + remoção do `testModelConnectivity` público do antigo ModelProviderService; a
+        cobertura de conectividade migra para testes independentes de Probe, e o
+        antigo Service e o Host remoto não mantêm mais essa entrada de compatibilidade
+        [concluído]
+      + remoção do `getProviderRegistrySnapshot`, do cache de snapshot e dos testes
+        dedicados do antigo ModelProviderService; o Repo Wiki também usa
+        diretamente o Model Selection View e o Model unificado [concluído]
+      + limpeza dos mocks, inicializações e asserções da API de Snapshot removida
+        nos testes de UI; a primeira migração de Personal Config lê diretamente o
+        Store físico antigo e não passa mais pelo View do antigo
+        ModelProviderService [concluído]
+      + os demais consumidores de Selection e as leituras/escritas de configuração
+        de Settings foram trocados [concluído]
+      + a entrada de salvamento de Settings recebe a Config completa e estruturada de
+        Provider/Model Efetiva; a Facade calcula o Personal Overlay esparso em
+        relação à Official Config e o grava por uma única substituição atômica no
+        Personal Config. O Renderer usa estado de formulário privado e não reutiliza
+        mais os tipos do Store compartilhado antigo [concluído]
+      + o estado de edição do Renderer carrega diretamente `ProviderConfigObject` e
+        `ModelConfigObject`, guardando apenas `providerId/modelId` e o estado de
+        projeção do Registry. Remoção dos campos endpoints, kind, modalities,
+        ProviderOptionsPatch e timestamps que replicavam o Store antigo; o rascunho
+        continua sendo mantido pelo Renderer e o salvamento continua chamando
+        `saveEffectiveProvider()` para calcular o Personal Overlay esparso
+        [concluído]
 
-M2.5  API Provider 的 Worker Registry 与 ModelFactory 正式装配
-      + M2.5a 新 Registry -> AI SDK 执行投影与 ModelFactory 边界 [完成]
-      + M2.5b 共享 Node Config 边界；Worker 进程启动并持有 Registry [完成]
-      + M2.5c 每个 App 装配 Model Runtime，切换普通 API Provider 生产调用，
-              同步切换最终 Personal 迁移/写入口并删除对应旧事实读取 [完成]
-              - 新 Settings 入口只写 Personal Config；删除旧 Store 镜像写入和
-                旧 Store -> Personal Config 的稳态反向同步 [完成]
-              - Expert Workflow 与 Script Workflow 子 Runtime 复用进程 Registry 的
-                ModelFactory，不再退回旧 ModelAdapter / Catalog 执行链 [完成]
-              - Core 兼容运行配置所需的 context、output、媒体能力和 reasoning 参数，
-                对已进入 Registry 的 Provider 统一从 Registry Model Config 投影；旧
-                Catalog 只留在首次迁移和当前 Turn 的临时执行输入边界 [完成]
-              - 主动初始化与 `setModel` 遵守 Provider 级迁移边界：Registry 已拥有
-                Provider 时，缺失 Model 直接报错，不再从旧 Runtime Overlay 拼接；
-                Session 恢复仍保留历史 Selection，状态读取也不借旧 Catalog 解释已删除
-                Model，直到执行时明确报告不可用 [完成]
-              - Bootstrap 的主动 Registry Selection 通过 Registry `validateSelection()`
-                校验通用 Options，不再仅凭 Provider/Model 索引创建运行选择 [完成]
+M2.5  Montagem formal do Registry do Worker e do ModelFactory para API Provider
+      + M2.5a projeção de execução do novo Registry para o AI SDK e fronteira do
+        ModelFactory [concluído]
+      + M2.5b fronteira compartilhada de Node Config; o processo do Worker inicia e
+        mantém o Registry [concluído]
+      + M2.5c cada App monta o Model Runtime e passa as chamadas de produção de API
+        Provider comum, trocando simultaneamente a entrada final de
+        escrita/migração Personal e removendo as leituras de fatos antigos
+        correspondentes [concluído]
+              - a nova entrada de Settings escreve apenas no Personal Config;
+                remoção da escrita no espelho do Store antigo e da sincronização
+                de estado antigo Store → Personal Config [concluído]
+              - os sub-Runtimes de Expert Workflow e Script Workflow reutilizam o
+                ModelFactory do Registry de processo e não voltam mais para a cadeia
+                de execução do antigo ModelAdapter / Catalog [concluído]
+              - o context, output, capacidades de mídia e parâmetros de reasoning
+                exigidos pela configuração de compatibilidade do Core são projetados
+                uniformemente do Model Config do Registry para Providers já
+                presentes no Registry; o antigo Catalog permanece apenas na primeira
+                migração e na fronteira de entrada de execução temporária do Turn
+                atual [concluído]
+              - a inicialização ativa e o `setModel` respeitam a fronteira de migração
+                em nível de Provider: quando o Registry já possui o Provider, um
+                Model ausente gera erro direto e não é mais montado a partir do
+                antigo Runtime Overlay; a restauração de Session ainda preserva a
+                Selection histórica, e a leitura de estado também não usa o antigo
+                Catalog para explicar um Model removido, até relatar explicitamente
+                a indisponibilidade no momento da execução [concluído]
+              - a Selection ativa de Registry no Bootstrap é validada pelo
+                `validateSelection()` do Registry para as Options genéricas e não
+                cria mais a seleção de execução apenas com base no índice
+                Provider/Model [concluído]
 
-M2.6  Prompt CLI / TUI 改用共享 Provider 领域实现                 [完成]
-      + 已注入 Official / Personal 路径时启动一份进程级 Registry
-      + Prompt CLI 在单次 App 生命周期内借用并释放 Registry
-      + TUI 跨 /new、resume 复用同一 Registry，只在 Entry 结束时释放
-      + Prompt CLI / TUI 创建 App 时显式使用 registry-only；完成旧配置导入后不再装配
-        Workspace Legacy Compatibility Source [完成]
-      + CLI/TUI 随包 Official Config 定位与 Personal 路径装配 [完成]
-      + 旧 CLI 用户文件中的显式 Provider 一次性差异导入 [完成]
-      + Standalone Selection View 与 Session 模型切换改读 Registry [完成]
-      + 独立、版本化的 Environment Configured Default 存储 [完成]
-      + 新 Session 的 Configured Default / Registry Fallback 退出旧 Runtime Model Config [完成]
-      + 已有 Session 优先恢复 Session Selection [完成]
+M2.6  Prompt CLI / TUI passando a usar a implementação de domínio compartilhada
+      de Provider                                        [concluído]
+      + inicia um Registry de nível de processo quando os caminhos Official /
+        Personal já foram injetados
+      + o Prompt CLI toma emprestado e libera o Registry dentro de um único ciclo
+        de vida do App
+      + o TUI reutiliza o mesmo Registry entre /new e resume, liberando-o apenas ao
+        fim do Entry
+      + o Prompt CLI / TUI usa explicitamente registry-only ao criar o App; após a
+        importação da configuração antiga, não monta mais o Workspace Legacy
+        Compatibility Source [concluído]
+      + montagem do CLI/TUI com a localização da Official Config empacotada e do
+        caminho Personal [concluído]
+      + importação única das diferenças explícitas de Provider do arquivo de
+        usuário antigo do CLI [concluído]
+      + o Standalone Selection View e a troca de modelo de Session passam a ler o
+        Registry [concluído]
+      + armazenamento versionado e independente do Environment Configured Default
+        [concluído]
+      + o Configured Default / Registry Fallback de uma nova Session sai do antigo
+        Runtime Model Config [concluído]
+      + uma Session existente prioriza a restauração da Session Selection
+        [concluído]
 
-M2.7  现有 Account Provider 与闲时任务执行模型接入统一 ModelFactory [完成]
-      + Account Provider 与闲时任务模型统一进入 M1 ModelFactory [完成]
-      + 闲时任务编辑器只从 execution-scoped `allowedModelConfigs` 读取
-        reasoning 档位，退出 Renderer 按 GLM 模型名补齐静态事实 [完成]
+M2.7  Modelos existentes de Account Provider e de execução de tarefas ociosas
+      conectados ao ModelFactory unificado [concluído]
+      + Account Providers e modelos de tarefas ociosas entram uniformemente no M1
+        ModelFactory [concluído]
+      + o editor de tarefas ociosas lê as faixas de reasoning apenas do
+        `allowedModelConfigs` de escopo de execução e sai da completude Renderer
+        por nome de modelo GLM [concluído]
 
-M2.8  退出 Host -> Worker 完整 Registry Snapshot 和旧 Provider 事实链路 [完成]
-      + 本地 Worker 的 ModelFactory 退出 Workspace Compatibility Source；旧 Snapshot
-        不再参与 Worker Model 创建 [完成]
-      + Local Host 停止在 Session、Workspace Read、Generate 与 V4 入口下发完整 Snapshot；
-        这些入口只建立 Account Config 顺序屏障 [完成]
-      + 设置保存后的 runtime sync target 只收集已连接远端 workspace，本地 tab 不再
-        触发 workspace/updateProviderRegistry [完成]
-      + 本地 Bot 切换 custom model 只提交 modelRef，不再 apply Provider 或下发旧完整
-        Registry Snapshot；desktop-attached remote 暂时保留兼容同步 [完成]
-      + Repo Wiki 直接消费所属 Environment 的 ModelSelectionView；旧
-        ZCodeProviderRegistrySnapshot 投影、反向解析器与 readiness resolver 已删除 [完成]
-      + 闲时任务套餐判断和派发凭据解析退出旧 Provider 列表与完整 Registry Snapshot；
-        Account Overlay 提供固定 accessId/baseURL，请求时由 Account Request Auth Resolver
-        取得当前动态凭据 [完成]
-      + 本地 Host 的启动门禁改读 ModelSelectionView；普通 Session create/resume/set/send
-        只提交 ModelSelection，不再从旧 Snapshot 派生 runtimeModel 覆盖 Worker Registry；
-        显式 execution-scoped runtimeModel 继续作为一次执行的输入 [完成]
-      + V4 本地模型切换收到 provider.notInRegistry 时直接保留 Worker Registry 的拒绝结果，
-        不再重推旧 Snapshot 或携带 Host runtimeModel 重试；远端遵守同一规则 [完成]
-      + V4 本地与远端草稿预热都只携带初始 ModelSelection/Options，不再由 Host 解析
-        runtimeModel [完成]
-      + Start Plan 请求前 Runtime Header 从 Provider Settings View 读取
-        apiFormat/baseURL 静态事实；官方版本安全校验判定没有旧 Provider Snapshot fallback [完成]
-      + 官方版本安全校验材料获取与 request-scoped Header 准备删除旧 Registry Snapshot 契约依赖；
-        动态材料、请求级 Header、重试与回执仍由原运行时鉴权链路负责 [完成]
-      + 删除旧 `setProviderRuntimeHeaders` 全局可变 Header 与 UI 兼容入口；一次性 Header
-        只通过 request/response 进入对应模型请求，静态 Registry 始终剥离历史一次性 Header [完成]
-      + Services replayable/Bot 的本地与远端 V4 createSession 都只提交 ModelSelection [完成]
-      + Automation 的本地与远端 V4 switchModelConfig 都只提交 ModelSelection/Options [完成]
-      + 删除 Host `session/updateRuntimeModelConfig` 热同步协议；冷恢复由 Worker Registry
-        创建 Model，请求级凭据与 Header 由 Adapter 在请求时获取 [完成]
-      + Remote Workspace Host 的 Bot 注入 Remote Model Selection Service；Bot 模型菜单、
-        状态展示与旧状态迁移不再读取 Desktop Local Host 的 Provider 事实 [完成]
-      + Remote Host 的 ProviderRuntime 成为 Remote Worker 唯一长期 Model 来源；
-        desktop-attached remote 不再禁用自身 Registry [完成]
-      + 远端模型就绪、设置与选择读取 Remote Settings / Selection View，不再读取
-        Desktop base Host 的模型事实 [完成]
-      + 删除 Desktop -> Remote 的 workspace/updateProviderRegistry、runtimeModel、
-        Account Config 与 Secret Snapshot 注入主链路 [完成]
-      + Remote Account Request Auth 只读取 Remote Credential Store；不建立 Renderer
-        Auth 中转或 Local Host -> Remote Host Auth Broker [完成]
-      + Session 模型 preflight 在进程 Registry 模式只使用 Registry-backed
-        `app.listModels()` 判断成员和选择回退项；未装配 Process Registry 时仍存在旧
-        Workspace Model Preferences，只保存交互与持久选择
-      + Registry App 创建、Workspace State、V4 模型切换与冷恢复 usage 全部退出旧 Workspace
-        Catalog Provider：不再生成 bootstrap config、同步 overlay/limits、混入 Provider View 或
-        发布旧 providerRevision；当前模型属性取自 App Runtime 已固定的 Registry Model [完成]
-      + Registry 进程收到旧 Host `runtimeModel` 时不再写入 Workspace Provider 状态；长期模型
-        仍由 Registry 解析，execution-scoped 临时模型只走独立 Turn Source [完成]
-      + `workspace/readState` 收敛为纯投影协议，删除 `runtimeModel` 输入和 Active Session
-        thought 写入；草稿准备与 Repo Wiki 不再保留 `preferredRuntimeModel` 入口 [完成]
-      + `workspace/setDefaultModel` 只保存 ModelSelection；协议、Services 与 Worker 删除
-        `runtimeModel` 输入，不再用 Workspace 偏好写入补充 Provider [完成]
-      + V4 create/switch 命令删除普通 `runtimeModel` 回落，只由 Worker Registry 校验
-        ModelSelection；Repo Snapshot 旁路不再读取 Workspace State 猜测 Provider [完成]
-      + 旧 Session create/resume/send/compact/setModel/setThoughtLevel 协议删除完整
-        `runtimeModel` 与派生 revision；普通 Session 只传 Selection，Worker 不再缓存或应用
-        Host Runtime Snapshot [完成]
-      + 后续独立 Provisioning Sync 把本地 Config/Credential 写入 Remote Store；它不参与
-        Registry 构建或请求执行。本步骤只保留接入边界，不实现该同步功能 [后续课题]
-      + 更后续允许 App 通过 Remote Settings / OAuth Service 操作远端配置与登录 [后续课题]
+M2.8  Saída do Snapshot completo do Registry Host -> Worker e da cadeia antiga de
+      fatos de Provider [concluído]
+      + o ModelFactory do Worker local sai do Workspace Compatibility Source; o
+        Snapshot antigo deixa de participar da criação de Model no Worker
+        [concluído]
+      + o Local Host para de enviar o Snapshot completo nas entradas de Session,
+        Workspace Read, Generate e V4; essas entradas apenasestablecem uma barreira
+        de ordem de Account Config [concluído]
+      + o alvo de runtime sync após o salvamento de configurações coleta apenas
+        workspaces remotos já conectados e a tab local não dispara mais
+        workspace/updateProviderRegistry [concluído]
+      + a troca de custom model do Bot local envia apenas modelRef e não aplica mais
+        Provider nem envia o Snapshot completo antigo do Registry; o remote
+        anexado ao desktop mantém temporariamente a sincronização de compatibilidade
+        [concluído]
+      + o Repo Wiki consome diretamente o ModelSelectionView do Environment
+        pertence; a projeção antiga ZCodeProviderRegistrySnapshot, o parser
+        inverso e o readiness resolver foram removidos [concluído]
+      + o julgamento de plano e a resolução de credenciais de despacho de tarefas
+        ociosas saem da lista antiga de Providers e do Snapshot completo do Registry;
+        o Account Overlay fornece accessId/baseURL fixos, e no momento da requisição
+        o Account Request Auth Resolver obtém as credenciais dinâmicas atuais
+        [concluído]
+      + o portão de inicialização do Host local passa a ler o ModelSelectionView;
+        Session create/resume/set/send comuns enviam apenas ModelSelection e não
+        derivam mais runtimeModel do Snapshot antigo para sobrescrever o Registry do
+        Worker; um runtimeModel explícito de escopo de execução continua servindo
+        como entrada de uma execução [concluído]
+      + ao receber provider.notInRegistry, a troca de modelo local do V4 mantém
+        diretamente o resultado de recusa do Registry do Worker e não reenvia o
+        Snapshot antigo nem carrega o runtimeModel do Host para tentar de novo; o
+        remoto segue a mesma regra [concluído]
+      + o pré-aquecimento de rascunho local e remoto do V4 carrega apenas o
+        ModelSelection/Options inicial e o Host não resolve mais o runtimeModel
+        [concluído]
+      + antes da requisição do Start Plan, o Runtime Header lê os fatos estáticos
+        apiFormat/baseURL do Provider Settings View; o julgamento de verificação
+        segura da versão oficial não tem fallback para o antigo Provider Snapshot
+        [concluído]
+      + a obtenção de material de verificação segura da versão oficial e a
+        preparação de Header de escopo de requisição removem a dependência do
+        contrato do Registry Snapshot antigo; o material dinâmico, o Header de
+        nível de requisição, os retries e os recibos continuam sendo responsabilidade
+        da cadeia de autenticação original em tempo de execução [concluído]
+      + remoção do Header global mutável antigo `setProviderRuntimeHeaders` e da
+        entrada de compatibilidade da UI; o Header pontual entra apenas na
+        requisição de modelo correspondente via request/response, e o Registry
+        estático sempre remove Headers pontuais históricos [concluído]
+      + o createSession V4 local e remoto de Services replayable/Bot envia apenas
+        ModelSelection [concluído]
+      + o switchModelConfig V4 local e remoto de Automation envia apenas
+        ModelSelection/Options [concluído]
+      + remoção do protocolo de hot sync `session/updateRuntimeModelConfig` do
+        Host; a restauração a frio cria o Model pelo Registry do Worker, e as
+        credenciais e Headers de nível de requisição são obtidos pelo Adapter no
+        momento da requisição [concluído]
+      + o Bot do Remote Workspace Host recebe o Remote Model Selection Service; o
+        menu de modelos do Bot, a exibição de status e a migração do status antigo
+        não leem mais os fatos de Provider do Desktop Local Host [concluído]
+      + o ProviderRuntime do Remote Host se torna a única fonte de Model de longo
+        prazo do Remote Worker; o remote anexado ao desktop não desativa mais seu
+        próprio Registry [concluído]
+      + a prontidão de modelo remoto, as configurações e as leituras de seleção leem
+        o Remote Settings / Selection View e não leem mais os fatos de modelo do
+        Desktop base Host [concluído]
+      + remoção da injeção principal de workspace/updateProviderRegistry,
+        runtimeModel, Account Config e Secret Snapshot de Desktop -> Remote
+        [concluído]
+      + o Remote Account Request Auth lê apenas o Remote Credential Store; não há
+        relay de Auth pelo Renderer nem Auth Broker de Local Host -> Remote Host
+        [concluído]
+      + o preflight de modelo de Session, no modo de Registry de processo, usa
+        apenas o `app.listModels()` apoiado no Registry para julgar associação e
+        itens de fallback da seleção; sem Process Registry montado ainda existe o
+        antigo Workspace Model Preferences, que guarda apenas interação e seleção
+        persistente
+      + a criação do Registry App, o Workspace State, a troca de modelo do V4 e o
+        usage de restauração a fria saem do antigo Workspace Catalog Provider: não
+        geram mais bootstrap config, não sincronizam overlay/limits, não misturam
+        Provider View nem publicam o antigo providerRevision; os atributos do
+        modelo atual vêm do Registry Model já fixado pelo App Runtime [concluído]
+      + ao receber um `runtimeModel` antigo do Host, o processo com Registry não
+        escreve mais o estado de Provider do Workspace; o modelo de longo prazo
+        continua sendo resolvido pelo Registry e o modelo temporário de escopo de
+        execução passa apenas pelo Turn Source independente [concluído]
+      + `workspace/readState` converge para um protocolo de projeção pura e remove a
+        entrada `runtimeModel` e a escrita de thought de Active Session; a
+        preparação de rascunho e o Repo Wiki não mantêm mais a entrada
+        `preferredRuntimeModel` [concluído]
+      + `workspace/setDefaultModel` salva apenas ModelSelection; o protocolo, os
+        Services e o Worker removem a entrada `runtimeModel` e não usam mais
+        escrita de preferência do Workspace para complementar o Provider
+        [concluído]
+      + os comandos de create/switch do V4 removem o fallback de `runtimeModel`
+        comum e o ModelSelection é validado apenas pelo Registry do Worker; o
+        bypass de Repo Snapshot não lê mais o Workspace State para adivinhar o
+        Provider [concluído]
+      + os protocolos antigos de create/resume/send/compact/setModel/setThoughtLevel
+        de Session removem o `runtimeModel` completo e a revision derivada; uma
+        Session comum transmite apenas Selection e o Worker não armazena nem
+        aplica mais o Host Runtime Snapshot [concluído]
+      + o Provisioning Sync independente posterior grava Config/Credential local
+        no Store remoto; ele não participa da construção do Registry nem da
+        execução de requisições. Este passo mantém apenas a fronteira de integração
+        e não implementa essa sincronização [tópico futuro]
+      + posteriormente o App poderá operar configurações e login remotos pelo
+        Remote Settings / OAuth Service [tópico futuro]
 ```
 
-同一 Environment 内的 Account Config 跨进程同步先从 Workspace Snapshot 中拆出。Host 从自己的 Account
-Provider Source 读取当前第三层 Overlay，通过 `provider/updateAccountConfig` 发送普通对象；
-Worker 在 Provider 领域边界解析为 `ProviderConfigMap`，替换进程级 Account Source 并刷新
-Registry。该协议不携带 JWT、API Key、一次性安全校验材料或请求 Header，也不绑定某个 Workspace。
+O Account Config dentro do mesmo Environment é primeiro separado do Workspace Snapshot em sincronização entre processos. O Host lê a Overlay atual de terceira camada a partir da sua própria Account Provider Source e envia objetos comuns via `provider/updateAccountConfig`; o Worker resolve isso como `ProviderConfigMap` na fronteira de domínio de Provider, substitui a Account Source de nível de processo e atualiza o Registry. Esse protocolo não carrega JWT, API Key, material de verificação segura pontual nem Header de requisição, e não está vinculado a um Workspace específico.
 
 ```text
 Host Account Provider Source
@@ -469,34 +711,22 @@ Worker MutableAccountProviderConfigSource
 ProviderRegistryService.refresh()
 ```
 
-Account Config 最初先从旧完整 Snapshot 中拆出，随后 M2.8 按执行、展示和远端来源分别退出了
-Workspace Snapshot。当前 `provider/updateAccountConfig` 是仍然保留的窄同步边界。
+O Account Config foi inicialmente separado do Snapshot completo antigo e, em seguida, o M2.8 saiu do Workspace Snapshot conforme execução, exibição e origem remota. Atualmente, `provider/updateAccountConfig` é a fronteira estreita de sincronização que permanece.
 
-`provider/updateAccountConfig` 不跨 Environment 使用。Remote Host 从自己的账号状态形成
-Account Config，再把它同步给自己管理的 Remote Worker。Desktop Local Host 不向 Remote Host
-或 Remote Worker 发送这份 Overlay。
+`provider/updateAccountConfig` não é usado entre Environments. O Remote Host forma o Account Config a partir do próprio estado de conta e então o sincroniza com o Remote Worker que ele gerencia. O Desktop Local Host não envia essa Overlay ao Remote Host nem ao Remote Worker.
 
-本地与远端生产 Worker 都拥有 Official、Personal、Account 三层 Registry。普通生产路径的
-ModelFactory 查询所属进程的 Registry；协议 Entry 必须装配 Process Registry，缺少 Official 或
-Personal Config 路径时启动直接失败，不再回落到 Workspace Provider Catalog。
+Tanto o Worker de produção local quanto o remoto possuem o Registry de três camadas Official, Personal e Account. O ModelFactory do caminho de produção comum consulta o Registry do próprio processo; o Entry de protocolo precisa montar o Process Registry e a inicialização falha diretamente quando faltam os caminhos de Official ou Personal Config, sem voltar ao Workspace Provider Catalog.
 
-Local Host 通过自己的 `ModelSelectionView` 判断至少存在一个可选择模型，并在空 Registry 变为
-可用时唤醒等待启动的 Worker。这个 View 不携带执行凭据，也不用于构造普通 `runtimeModel`。
-Session create/resume/set/send 等本地入口只传 `providerId/modelId/reasoningLevel`；Worker 依据自身
-最新 Registry 创建 Model。Worker 的 Official 与 Personal 来自自己的 Config Source，Account 由
-独立进程协议同步。M2 实现中仍保留的 execution-scoped `runtimeModel` 只服务闲时任务，是迁移期
-兼容输入；最新裁决要求后续把它收窄为 ModelSelection + Request Auth + Ticket，删除其中的 Provider
-和 Model 静态配置。它从不表达 Workspace 或另一个 Environment 的长期 Provider 事实。
+O Local Host usa o próprio `ModelSelectionView` para julgar que existe ao menos um modelo selecionável e desperta o Worker que aguarda a inicialização quando um Registry vazio fica disponível. Essa View não carrega credenciais de execução e não é usada para construir um `runtimeModel` comum.
 
-desktop-attached remote 不再建立动态鉴权的跨 Host 路由。Remote Worker 的请求只到达 Remote Host，
-由 Remote Account Request Auth 读取 Remote Credential Store。后续本地到远端的持续同步功能可以更新
-Remote Config 与 Credential Store，但同步完成后仍由 Remote Source 重建 Registry、由 Remote Request
-Auth 解析请求凭据。它不会恢复 Desktop Snapshot 或跨 Host 请求鉴权。
+Entradas locais como Session create/resume/set/send transmitem apenas `providerId/modelId/reasoningLevel`; o Worker cria o Model conforme o seu Registry mais recente. As camadas Official e Personal do Worker vêm dos seus próprios Config Sources, e a camada Account é sincronizada por um protocolo de processo independente. O `runtimeModel` de escopo de execução ainda mantido na implementação do M2 existe apenas para tarefas ociosas e é uma entrada de compatibilidade do período de migração; a decisão mais recente exige que ele seja depois estreitado para ModelSelection + Request Auth + Ticket, removendo dele a configuração estática de Provider e Model. Ele nunca expressa fatos de longo prazo de Workspace ou de outro Environment.
+
+O remote anexado ao desktop não estabelece mais roteamento de autenticação dinâmica entre Hosts. As requisições do Remote Worker só chegam ao Remote Host, e o Remote Account Request Auth lê o Remote Credential Store. A futura sincronização contínua local→remoto pode atualizar a Remote Config e o Credential Store, mas mesmo após a sincronização o Registry é reconstruído pela Remote Source e o Remote Request Auth resolve as credenciais da requisição. Isso não restaura o Desktop Snapshot nem a autenticação de requisição entre Hosts.
 
 ```text
 Local Host ModelSelectionView
         |
-        +-- 启动门禁 / 模型选择
+        +-- portão de inicialização / seleção de modelo
         |
         +-- Submission(ModelSelection)
                     |
@@ -509,85 +739,80 @@ Local Host ModelSelectionView
                     v
                   Model
 
-迁移期 execution-scoped runtimeModel
+runtimeModel de escopo de execução durante a migração
         |
         v
-闲时任务兼容输入
+entrada de compatibilidade de tarefas ociosas
 ```
 
-## M2.8 的来源退出顺序
+## Ordem de saída das origens em M2.8
 
-M2.8 完成时，Worker 仍保留下面两类 Model 来源。这张图记录已经交付的迁移状态，不是最终设计：
+Quando o M2.8 foi concluído, o Worker ainda mantinha os dois tipos de origem de Model abaixo. Este diagrama registra o estado de migração já entregue e não é o design final:
 
 ```text
-一次 Agent Loop 创建 Model
+Um Agent Loop cria um Model
         |
         v
 Turn Execution Source
-├─ 仅当前执行存在
-├─ 当前用于闲时任务兼容 runtimeModel
-└─ 命中时覆盖同名 Registry 模型
+├─ existe apenas na execução atual
+├─ atualmente usado para o runtimeModel de compatibilidade de tarefas ociosas
+└─ quando casa, sobrescreve o modelo homônimo do Registry
         |
-        | 未命中
+        | não casou
         v
 Process Provider Registry
 ├─ Official ProviderConfigMap
 ├─ Personal ProviderConfigMap
 ├─ Account ProviderConfigMap
-└─ 普通长期 Provider 的唯一事实来源
+└─ única fonte de verdade de Providers comuns de longo prazo
 ```
 
-Turn Source 与 Process Registry 分别判断自己持有的 target。二者即使包含相同 `providerId/modelId`，
-也不能借另一层的成员判断宣称自己能够创建 Model。M2.8 已经让主要生产路径退出 Workspace
-Compatibility Source；上线清理随后删除了它的 Bootstrap fallback 和旧协议类型。后续 M4 再删除
-Turn Source 的 Provider 静态配置：闲时任务改从 Process Registry 选择 Builtin Model，只保留
-turn-scoped Request Auth 与 Ticket。
+O Turn Source e o Process Registry julgam cada um o target que possui. Mesmo que ambos contenham o mesmo `providerId/modelId`, nenhum pode afirmar que consegue criar o Model com base na associação da outra camada. O M2.8 já fez os principais caminhos de produção saírem do Workspace Compatibility Source; a limpeza de lançamento removeu em seguida seu fallback de Bootstrap e os tipos de protocolo antigos. O M4 posterior removerá a configuração estática de Provider do Turn Source: as tarefas ociosas passarão a escolher o Builtin Model pelo Process Registry, mantendo apenas Request Auth e Ticket de escopo de turn.
 
-切片编号用于当前规划，可以根据代码依赖调整。调整时先更新本篇，不在实现中另造平行架构。
+Os números das fatias servem ao planejamento atual e podem ser ajustados conforme as dependências do código. Ao ajustar, atualize primeiro este documento e não crie uma arquitetura paralela na implementação.
 
-## 后续阶段接续的边界
+## Fronteiras de continuidade para as fases seguintes
 
-Config、Registry、主要生产装配和旧事实源退役已经完成，并由 M2 清理门禁持续保护。后续阶段在当前边界上继续：
+Config, Registry, a montagem principal de produção e a descontinuação das fontes antigas de fatos já foram concluídos e são mantidos pelo portão de limpeza do M2. As fases seguintes continuam a partir da fronteira atual:
 
-- M3 把模型选择与 Prompt 原子封装为 Submission，并统一 Session、Draft、Recent 与 Loop 内切换语义。
-- M4 删除通用 execution-scoped Provider；闲时任务改用 Registry ModelSelection，并仅携带本 Turn 的 Request Auth 与 Ticket。
-- M6 继续整理 Account Provider 的身份、权益、凭据刷新与请求期鉴权内部结构。
-- M7 实现 Remote Environment 的 Provisioning Sync 与远端设置操作；远端 Registry 始终读取远端自己的事实源。
+- M3 encapsula atômicamente a seleção de modelo e o Prompt como Submission e unifica Session, Draft, Recent e a semântica de troca dentro do Loop.
+- M4 remove o Provider de escopo de execução genérico; as tarefas ociosas passam a usar o ModelSelection do Registry e carregam apenas o Request Auth e o Ticket do Turn atual.
+- M6 continua a organizar a estrutura interna de identidade, entitlement, refresco de credenciais e autenticação em tempo de requisição do Account Provider.
+- M7 implementa o Provisioning Sync e as operações de configuração remota do Remote Environment; o Registry remoto sempre lê as próprias fontes de fatos remotas.
 
-旧 Store Reader 的删除以一次性 Personal Config 与 Account Key 迁移停止支持为前提，不再参与任何运行时设计。
+A remoção do antigo Store Reader pressupõe que o suporte à migração única de Personal Config e Account Key seja descontinuado, e ele não participa mais de nenhum design de execução.
 
-相关现状证据见 [`../research/m2-registry-aggregation-and-refresh.md`](../research/m2-registry-aggregation-and-refresh.md)。实施中超出原计划的自主决策见 [`02-provider-config-and-registry-implementation-log.md`](./02-provider-config-and-registry-implementation-log.md)。
+As evidências do estado atual estão em [`../research/m2-registry-aggregation-and-refresh.md`](../research/m2-registry-aggregation-and-refresh.md). As decisões autônomas tomadas durante a implementação e que excederam o plano original estão em [`02-provider-config-and-registry-implementation-log.md`](./02-provider-config-and-registry-implementation-log.md).
 
-## 实施记录与裁决去向
+## Registro de implementação e destino das decisões
 
-本篇维护 M2 切片的当前状态。实施期间超出原计划的自主决策按时间顺序保存在
-[`02-provider-config-and-registry-implementation-log.md`](./02-provider-config-and-registry-implementation-log.md)；需要人裁决的架构、产品和公共契约问题保存在
-[`02-provider-config-and-registry-human-in-the-loop.md`](./02-provider-config-and-registry-human-in-the-loop.md)。历史记录可能被后续裁决或实现取代，当前事实以本篇、Design 和 M2 Cleanup 为准。
+Este documento mantém o estado atual das fatias do M2. As decisões autônomas tomadas durante a implementação e que excederam o plano original são salvas em ordem cronológica em
+[`02-provider-config-and-registry-implementation-log.md`](./02-provider-config-and-registry-implementation-log.md); as questões de arquitetura, produto e contrato público que exigem decisão humana ficam em
+[`02-provider-config-and-registry-human-in-the-loop.md`](./02-provider-config-and-registry-human-in-the-loop.md). O registro histórico pode ser substituído por decisões ou implementações posteriores; os fatos atuais são os deste documento, do Design e do M2 Cleanup.
 
 ```text
-设计已经回答的问题
-└─ 直接按设计实施
+Questões já respondidas pelo design
+└─ implementar diretamente conforme o design
 
-实现细节但不改变边界
-└─ 自主决策并记录
+Detalhes de implementação que não alteram fronteiras
+└─ decidir de forma autônoma e registrar
 
-会改变目标边界的问题
-└─ 先回到 design 讨论
+Questões que alteram a fronteira alvo
+└─ voltar antes à discussão de design
 ```
 
-## 完成条件
+## Condições de conclusão
 
-- Official/Personal/Account ProviderConfigMap 只有一套 Overlay 逻辑，Official/Personal ModelConfigRules 只有一套解析逻辑。
-- Catalog、Preset、Builtin hardcode、Family resolver 和旧 Runtime Snapshot 不再作为额外 Provider/Model 事实来源。
-- Host、Core Worker、Prompt CLI 和 TUI 复用相同 Provider 领域实现。
-- Registry 维护当前有序 Provider View、查询索引和 Selection 校验。
-- 普通 API Provider 的 Submission 只携带 ModelSelection，Worker 使用自己的 Registry 创建 Model。
-- 设置和选择 Facade 使用 Registry，Renderer 不解释配置来源。
-- Official Provider 顺序稳定，Personal-only Provider 与其模型的拖动结果由 Personal Config 自身顺序表达。
-- Registry 更新只影响新 Model，当前 Agent Loop 保持稳定。
-- Official/Personal Config Source 只在 content revision 改变时发布 invalidation；
-  Personal 进程自写不会被文件 watcher 重复通知，外部编辑仍即时生效。
-- 迁移期兼容逻辑已经退出生产权威，并按
-  [`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md) 删除残留接口、类型和 fallback。
+- Official/Personal/Account ProviderConfigMap têm apenas uma lógica de Overlay, e Official/Personal ModelConfigRules têm apenas uma lógica de resolução.
+- Catalog, Preset, Builtin hardcode, Family resolver e o antigo Runtime Snapshot deixam de ser fontes adicionais de fatos de Provider/Model.
+- Host, Core Worker, Prompt CLI e TUI reutilizam a mesma implementação de domínio de Provider.
+- O Registry mantém a Provider View ordenada atual, os índices de consulta e a validação de Selection.
+- A Submission de um API Provider comum carrega apenas ModelSelection, e o Worker cria o Model usando o seu próprio Registry.
+- As Facades de configuração e seleção usam o Registry, e o Renderer não interpreta a origem da configuração.
+- A ordem dos Official Providers é estável, e o resultado de arrastar Providers Personal-only e seus modelos é expresso pela própria ordem do Personal Config.
+- Uma atualização do Registry afeta apenas Models novos, e o Agent Loop atual permanece estável.
+- Official/Personal Config Source publica invalidação apenas quando a revision de conteúdo muda; a autoescrita do processo Personal não é notificada duplicadamente pelo file watcher, e edições externas continuam valendo imediatamente.
+- A lógica de compatibilidade do período de migração já saiu da autoridade de produção e os respingos de interfaces, tipos e fallbacks foram removidos conforme
+  [`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md).
 
-上述条件和 M2 Cleanup 的退役门禁全部满足后，M2 才标记完成。M2 已经建立 Provider/Model Config、账号级 accessId、Usage/Entitlement 事实源、请求鉴权账号核对和 Credential 隔离的统一边界。它不重新定义产品权益规则，不重做 Token 刷新协议、Usage API 行为和闲时任务状态；M4 与 M6 再分别处理 execution-scoped 执行语义和更完整的 Account Provider 状态模型。
+Só depois que todas as condições acima e os portões de descontinuação do M2 Cleanup forem atendidos o M2 é marcado como concluído. O M2 já estabeleceu a fronteira unificada de Provider/Model Config, accessId em nível de conta, fontes de fatos de Usage/Entitlement, verificação de conta na autenticação de requisição e isolamento de Credential. Ele não redefine as regras de entitlement do produto, não refaz o protocolo de refresh de Token, o comportamento da API de Usage nem o estado das tarefas ociosas; M4 e M6 tratarão, respectivamente, a semântica de execução de escopo de execução e um modelo de estado mais completo do Account Provider.

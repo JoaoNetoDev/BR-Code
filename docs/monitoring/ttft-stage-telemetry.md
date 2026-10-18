@@ -1,4 +1,4 @@
-# 桌面本地消息 TTFT 分阶段遥测
+# Telemetria de TTFT em fases para mensagens locais do desktop
 
 Status: ready-for-agent
 
@@ -6,20 +6,20 @@ Issue-Tracker: local-markdown
 
 ## Problem Statement
 
-用户需要深入分析从点击发送一条消息到客户端收到第一个有效输出之间，经过了哪些链路阶段、每个阶段花了多久，并通过各阶段的 P50、P95 和单条慢消息瀑布图定位瓶颈。
+O usuário precisa analisar em profundidade quais etapas de encadeamento ocorreu entre clicar em enviar uma mensagem e o cliente receber a primeira saída válida, quanto tempo cada etapa levou, e usar P50, P95 de cada etapa mais o waterfall de uma mensagem lenta para localizar gargalos.
 
-当前整体 TTFT 分散在业务事件和 ARMS RUM 中；发送漏斗记录 ACK 和用户消息显示耗时；CLI OpenTelemetry 记录模型请求 attempt 的首事件、首内容和首文本耗时。这些记录的起止点、采样与适用范围不同，没有构成一条完整、可核对的点击到首输出链路。
+Atualmente o TTFT geral está espalhado por eventos de negócio e ARMS RUM; o funil de envio registra ACK e tempo de exibição da mensagem do usuário; o OpenTelemetry do CLI registra o primeiro evento, o primeiro conteúdo e o primeiro texto da tentativa de requisição ao modelo. Esses registros têm pontos de início e fim, amostragem e escopo de aplicação diferentes, e não formam uma cadeia completa e verificável do clique à primeira saída.
 
-尤其是 CLI 受理前等待、执行队列、hooks、上下文准备、压缩以及首内容返回客户端，尚不能作为同一条消息的连续阶段统一统计。现有模型 first_content 还可能接受内容块开始事件，不能直接等同于非空可展示输出。直接相减不同指标的 P95，无法还原某个阶段的 P95。
+Em especial, a espera antes do aceite pelo CLI, a fila de execução, os hooks, a preparação de contexto, a compactação e o retorno do primeiro conteúdo ao cliente ainda não podem ser contabilizados como fases contínuas da mesma mensagem. O `first_content` atual do modelo ainda pode aceitar o evento de início de um bloco de conteúdo, portanto não pode ser equiparado diretamente a uma saída não vazia e exibível. Subtrair diretamente os P95 de métricas diferentes não permite recuperar o P95 de uma certa fase.
 
 ## Solution
 
-为桌面本地工作区新增专用 TTFT 遥测，复用已有 OpenTelemetry/OTLP 导出能力及 ARMS 接入，提供两种互相关联的观察方式：
+Adicionar telemetria de TTFT dedicada ao workspace local do desktop, reutilizando a capacidade de exportação OpenTelemetry/OTLP existente e a integração ARMS, oferecendo duas formas de observação relacionadas entre si:
 
-- 阶段 Metric：查看每个阶段的样本数量、耗时分布、P50 和 P95，并按受控维度筛选和比较。
-- 消息 Trace：使用稳定关联 ID 查看单条发送的阶段树、重试、等待、结果和瀑布图，解释具体慢样本。
+- Métricas por fase: ver a contagem de amostras, a distribuição de duração, P50 e P95 de cada fase, filtrando e comparando por dimensões controladas.
+- Trace por mensagem: usar um ID de correlação estável para ver a árvore de fases, as retentativas, as esperas, o resultado e o waterfall de um único envio, explicando amostras lentas específicas.
 
-主 TTFT 从点击发送或 Enter 提交并通过发送门禁时开始，到发起发送的 Renderer 沿实际内容链路收到第一份非空、可展示的正文、思考或工具调用时结束。空事件、心跳和状态通知不构成首输出，不把 telemetry 旁路通知或 React 上屏时刻作为终点。另行观察点击到首正文的耗时。
+O TTFT principal começa ao clicar em enviar ou ao submeter com Enter e passar pelo gate de envio, e termina quando o Renderer que originou o envio recebe, pelo caminho real de conteúdo, o primeiro corpo de texto, pensamento ou tool call não vazio e exibível. Eventos vazios, heartbeats e notificações de status não constituem primeira saída; notificações de bypass de telemetria ou o momento de pintura pelo React não são o ponto final. O tempo do clique até o primeiro corpo de texto é observado separadamente.
 
 ```mermaid
 flowchart TD
@@ -36,175 +36,175 @@ flowchart TD
     F --- F1[各 attempt 的等待、失败与重试间隔]
 ```
 
-图表示需要观测的主要边界；准备和重试可能交错，子操作也可能并行。实现必须按真实时间线记录，不能强行把实际并发或重复操作改成图中的单次串行执行。
+O diagrama representa as principais fronteiras que precisam ser observadas; preparação e retentativas podem se entrelaçar e suboperações podem ser paralelas. A implementação deve registrar pela linha do tempo real, sem forçar concorrência real ou operações repetidas a uma execução serial única do diagrama.
 
 ## User Stories
 
-1. As a 性能分析人员, I want 查看点击到首有效输出的总耗时, so that 我能判断用户实际等待了多久。
-2. As a 性能分析人员, I want 查看各主阶段的 P50 和 P95, so that 我能识别普遍瓶颈和长尾瓶颈。
-3. As a 性能分析人员, I want 同时查看各分位数的样本数, so that 我不会把小样本波动误判为退化。
-4. As a 性能分析人员, I want 按阶段、模型和 provider 筛选, so that 我能区分本地处理与模型请求相关问题。
-5. As a 性能分析人员, I want 按应用版本和操作系统比较, so that 我能定位发布回归及平台差异。
-6. As a 性能分析人员, I want 分开查看空闲发送和排队发送, so that 正常业务排队不会掩盖实际处理速度。
-7. As a 性能分析人员, I want 同时查看含排队的总 TTFT 和开始执行后的耗时, so that 我能分别评价用户等待和执行效率。
-8. As a 性能分析人员, I want 将队列确认弹窗中的用户等待单独标记, so that 我不会把用户停留误判为系统处理耗时。
-9. As a 性能分析人员, I want 将立即引导输入与可独立归因的普通发送分开, so that 运行中已有输出不会被归因给错误的消息。
-10. As a 故障排查人员, I want 用一次发送的关联 ID 找到瀑布图, so that 我能解释一条具体慢消息。
-11. As a 故障排查人员, I want 查看 Renderer 的发送准备耗时, so that 我能发现发送前的本地处理延迟。
-12. As a 故障排查人员, I want 查看命令传递、CLI 受理及受理前等待, so that 我能定位通信和 admission 竞争。
-13. As a 故障排查人员, I want 查看消息等待开始执行的时间, so that 我能区分队列等待与执行准备。
-14. As a 故障排查人员, I want 展开 hooks、上下文加载和持久化, so that 我能定位具体的请求前准备瓶颈。
-15. As a 故障排查人员, I want 识别首输出之前的上下文压缩, so that 压缩耗时不会被误算成主模型首响应。
-16. As a 故障排查人员, I want 查看 MCP、工具准备和请求组装, so that 我能分析扩展初始化对首响应的影响。
-17. As a 故障排查人员, I want 查看每次模型 attempt 及其重试等待, so that 我能区分一次慢请求与多次失败累积。
-18. As a 故障排查人员, I want 查看首有效输出从 CLI 返回 Renderer 的耗时, so that 我能发现回传链路瓶颈。
-19. As a 故障排查人员, I want 看到并行、缺失及未归因区间, so that 瀑布图不会用虚构的阶段填满总耗时。
-20. As a 性能分析人员, I want 区分首输出为正文、思考或工具调用, so that 不同输出方式的体验可以正确比较。
-21. As a 性能分析人员, I want 另行查看点击到首正文的耗时, so that 我能区分开始有反馈与开始文字回答。
-22. As a 性能分析人员, I want 首输出一到达就完成主记录, so that 我不必等整轮任务结束才观察首响应。
-23. As a 性能分析人员, I want 查看首输出前失败和取消的数量、比例及已等待时长, so that 最差体验不会从统计中消失。
-24. As a 故障排查人员, I want 查到发送开始及已完成阶段的检查点, so that 进程异常退出后仍可能保留排查线索。
-25. As a 性能分析人员, I want 区分未收口、明确中断和明确失败, so that 缺少结束记录不会被错误地解释为超时。
-26. As a 性能分析人员, I want 前后台都继续采集并保留状态变化, so that 慢消息不会因为切换会话而丢失。
-27. As a 性能分析人员, I want 默认查看持续前台样本并识别休眠或暂停, so that 后台调度不会污染正常前台体验统计。
-28. As a 性能分析人员, I want 对灰度启用人群不主动抽样 TTFT 明细, so that 慢样本不会因独立的 Trace 抽样而不可查。
-29. As a 运维人员, I want 在 ARMS 中复用既有接入并获得专用查询和看板配置, so that 无需另建一套诊断产品。
-30. As a 运维人员, I want 控制灰度、事件量、标签基数与保留期, so that 可观测成本可以在扩大覆盖前验证。
-31. As a 用户, I want 遥测网络失败或队列满时不影响发送和接收, so that 诊断功能不会降低正常使用体验。
-32. As a 用户, I want 遥测只包含耗时、状态和必要关联信息, so that 消息正文、文件内容和凭据不会进入该链路。
-33. As a 测试人员, I want 注入已知阶段延迟并检查最终导出的数据, so that 我能证明阶段归因与真实执行一致。
-34. As a 测试人员, I want 验证乱序、重复、早于 ACK 的输出及多会话并发, so that 记录不会错绑或重复计数。
-35. As a 维护人员, I want 新埋点不改变既有业务事件和 RUM 口径, so that 历史看板和其他客户端保持兼容。
+1. As a analista de performance, I want ver o tempo total do clique até a primeira saída válida, so that eu possajudicar quanto tempo o usuário realmente esperou.
+2. As a analista de performance, I want ver o P50 e o P95 de cada fase principal, so that eu possa identificar gargalos geralizados e de cauda longa.
+3. As a analista de performance, I want ver a contagem de amostras de cada quantil ao mesmo tempo, so that eu não confunda flutuação de pouca amostra com regressão.
+4. As a analista de performance, I want filtrar por fase, modelo e provider, so that eu possa distinguir problemas de processamento local dos relacionados à requisição ao modelo.
+5. As a analista de performance, I want comparar por versão do app e sistema operacional, so that eu possa localizar regressões de release e diferenças de plataforma.
+6. As a analista de performance, I want ver separadamente envios ociosos e enfileirados, so that o enfileiramento normal de negócio não mascare a velocidade real de processamento.
+7. As a analista de performance, I want ver simultaneamente o TTFT total com enfileiramento e o tempo após o início da execução, so that eu possa avaliar a espera do usuário e a eficiência de execução separadamente.
+8. As a analista de performance, I want marcar separadamente a espera do usuário no diálogo de confirmação da fila, so that eu não confunda a permanência do usuário com tempo de processamento do sistema.
+9. As a analista de performance, I want separar o direcionamento imediato de entrada dos envios comuns atribuíveis de forma independente, so that saídas já existentes em execução não sejam atribuídas à mensagem errada.
+10. As a pessoa de troubleshooting, I want encontrar o waterfall pelo ID de correlação de um envio, so that eu possa explicar uma mensagem lenta específica.
+11. As a pessoa de troubleshooting, I want ver a duração da preparação de envio no Renderer, so that eu possa descobrir latências locais antes do envio.
+12. As a pessoa de troubleshooting, I want ver a passagem do comando, o aceite pelo CLI e a espera antes do aceite, so that eu possa localizar contestações de comunicação e de admission.
+13. As a pessoa de troubleshooting, I want ver o tempo desde a mensagem até o início da execução, so that eu possa distinguir espera de fila de preparação de execução.
+14. As a pessoa de troubleshooting, I want expandir hooks, carregamento de contexto e persistência, so that eu possa localizar gargalos específicos de preparação antes da requisição.
+15. As a pessoa de troubleshooting, I want identificar compactação de contexto antes da primeira saída, so that o tempo de compactação não seja contabilizado como primeira resposta do modelo principal.
+16. As a pessoa de troubleshooting, I want ver MCP, preparação de ferramentas e montagem da requisição, so that eu possa analisar o impacto da inicialização de extensões na primeira resposta.
+17. As a pessoa de troubleshooting, I want ver cada tentativa ao modelo e sua espera de retentativa, so that eu possa distinguir uma requisição lenta de múltiplas falhas acumuladas.
+18. As a pessoa de troubleshooting, I want ver a duração da primeira saída válida retornando do CLI ao Renderer, so that eu possa descobrir gargalos no caminho de retorno.
+19. As a pessoa de troubleshooting, I want ver operações paralelas, ausentes e intervalos não atribuídos, so that o waterfall não preencha a duração total com fases fictícias.
+20. As a analista de performance, I want distinguir se a primeira saída é corpo de texto, pensamento ou tool call, so that experiências com tipos de saída diferentes possam ser comparadas corretamente.
+21. As a analista de performance, I want ver separadamente o tempo do clique até o primeiro corpo de texto, so that eu possa distinguir o início de feedback do início de resposta textual.
+22. As a analista de performance, I want que o registro principal seja concluído assim que a primeira saída chegar, so that eu não precise esperar o fim do turno para observar a primeira resposta.
+23. As a analista de performance, I want ver a contagem, a proporção e a duração já esperada de falhas e cancelamentos antes da primeira saída, so that a pior experiência não desapareça das estatísticas.
+24. As a pessoa de troubleshooting, I want encontrar os checkpoints do início do envio e das fases concluídas, so que ainda possam restar pistas após uma saída anormal do processo.
+25. As a analista de performance, I want distinguir não-concluído, interrupção explícita e falha explícita, so that a ausência do registro final não seja interpretada erroneamente como timeout.
+26. As a analista de performance, I want continuar coletando em primeiro e segundo plano e preservar as mudanças de estado, so that mensagens lentas não se percam por troca de sessão.
+27. As a analista de performance, I want ver por padrão amostras de primeiro plano contínuo e identificar suspensão ou pausa, so that o agendamento em segundo plano não contamine as estatísticas da experiência normal em primeiro plano.
+28. As a analista de performance, I want não amostrar ativamente o detalhe de TTFT para a população de canário, so that amostras lentas não fiquem inacessíveis por amostragem independente de Trace.
+29. Como pessoa de operações, I want reutilizar a integração existente no ARMS e obter configuração de consultas e dashboards dedicada, so that não seja preciso criar outro produto de diagnóstico.
+30. Como pessoa de operações, I want controlar canário, volume de eventos, cardinalidade de labels e retenção, so que o custo de observabilidade possa ser validado antes de ampliar a cobertura.
+31. Como usuário, I want que falhas de rede de telemetria ou fila cheia não afetem envio e recebimento, so que a funcionalidade de diagnóstico não reduza a experiência normal de uso.
+32. Como usuário, I want que a telemetria contenha apenas duração, status e informações de correlação necessárias, so que o corpo das mensagens, o conteúdo de arquivos e credenciais não entrem neste encadeamento.
+33. Como pessoa de testagem, I want injetar atrasos de fase conhecidos e verificar os dados finalmente exportados, so that eu possa provar que a atribuição de fases corresponde à execução real.
+34. Como pessoa de testagem, I want verificar desordem, duplicação, saída anterior ao ACK e concorrência de múltiplas sessões, so que os registros não sejam ligados errado nem contados em duplicidade.
+35. Como pessoa de manutenção, I want que os novos pontos de instrumentação não alterem os eventos de negócio e a métrica RUM existentes, so que dashboards históricos e outros clientes continuem compatíveis.
 
 ## Implementation Decisions
 
-### 覆盖与兼容边界
+### Cobertura e limites de compatibilidade
 
-- 第一版只为桌面本地工作区的用户发送建立 TTFT 记录。桌面远程工作区、手机和 Web 远控不纳入首版采集；其现有行为必须保持兼容。
-- 桌面保持 desktop-continuous 的实际内容链路，不引入手机 replayable 的 snapshot、gap 或恢复语义。历史 hydration、回放和后台自动任务不得伪造本地用户点击记录。
-- 预留客户端类型、执行环境及阶段来源的扩展位置，不提前实现跨机器测时、远程连接或移动端重连归因。
-- 保留现有业务 completion、RUM TTFT 与发送漏斗事件；新模型不改变旧口径、采样和计数，不要求将全部新阶段双发到业务接口或 RUM。
+- A primeira versão estabelece registros de TTFT apenas para envios do usuário no workspace local do desktop. Workspace remoto do desktop, celular e controle remoto por Web não entram na coleta da primeira versão; seus comportamentos atuais devem permanecer compatíveis.
+- O desktop mantém a cadeia de conteúdo real desktop-continuous, sem introduzir semântica de snapshot, gap ou recuperação do replayable do celular. Hydration histórico, replay e tarefas automáticas em segundo plano não devem fabricar registros de clique local do usuário.
+- Reservar pontos de extensão para tipo de cliente, ambiente de execução e origem das fases, sem implementar antecipadamente medição de tempo entre máquinas, conexão remota ou atribuição de reconexão móvel.
+- Preservar os eventos existentes de completion de negócio, TTFT de RUM e funil de envio; o novo modelo não altera definições, amostragem nem contagens antigas, nem exige enviar todas as novas fases em duplicidade para as interfaces de negócio ou para o RUM.
 
-### 模块职责和接口
+### Responsabilidades de módulo e interfaces
 
-- Composer 在真实提交门禁通过后建立一次发送的观测上下文；队列二次确认复用同一次发送，不重置起点。
-- Renderer 的专用观测生命周期负责点击总时钟、客户端前后台状态、实际首内容接收、主记录收口及首正文补充观察。
-- CLI 在既有 admission、排队、执行准备和模型调用边界记录权威阶段事实。Host 保留调度和传输职责，不引入第二份 accepted input queue，也不成为业务生命周期的第二数据源。
-- 若需要将 CLI 阶段事实和观测上下文跨进程传递，通过共享协议的严格类型、运行时 schema 和受控桥接完成；保持旧调用兼容。Main 仅负责受控遥测导出调度，不承载 task、queue 或模型业务状态。
-- 复用现有服务接口、平台注入及 OTLP 导出设施。Renderer 不直接访问 Repo 或 CLI 实现，不把导出网络调用放入发送或输出的阻塞路径。
-- workspaceIdentity 仍表达身份隔离，workspacePath 表达文件执行路径；本地继续允许路径 fallback，不另造本地工作区身份格式。遥测隔离必须覆盖工作区、会话和进程实例，且不导出原始工作区路径。
+- O Composer cria o contexto de observação de um envio depois que o gate real de submissão passa; a confirmação secundária da fila reaproveita o mesmo envio e não reinicia o ponto de início.
+- O ciclo de vida de observação dedicado do Renderer responde pelo relógio total do clique, o estado de primeiro/segundo plano do cliente, o recebimento real do primeiro conteúdo, o fechamento do registro principal e a observação complementar do primeiro corpo de texto.
+- O CLI registra fatos autoritativos de fase nas fronteiras existentes de admission, enfileiramento, preparação de execução e chamada ao modelo. O Host mantém as responsabilidades de agendamento e transporte, não introduz uma segunda fila de entrada aceita e não se torna uma segunda fonte de dados do ciclo de vida de negócio.
+- Se for necessário passar fatos de fase do CLI e o contexto de observação entre processos, isso é feito por meio de um protocolo compartilhado com tipagem estrita, schema de runtime e uma ponte controlada; a compatibilidade das chamadas antigas é mantida. A Main responde apenas pelo agendamento da exportação de telemetria controlada e não carrega estado de negócio de task, queue ou modelo.
+- Reutilizar as interfaces de serviço existentes, a injeção de plataforma e as instalações de exportação OTLP. O Renderer não acessa diretamente o Repo nem a implementação do CLI, e não coloca chamadas de rede de exportação no caminho bloqueante de envio ou saída.
+- `workspaceIdentity` continua expressando isolamento de identidade, `workspacePath` expressa o caminho de execução de arquivos; localmente continua permitido o fallback de caminho, sem criar outro formato de identidade de workspace local. O isolamento da telemetria deve cobrir workspace, sessão e instância de processo, e não exportar o caminho bruto do workspace.
 
-### 关联、首输出及生命周期
+### Correlação, primeira saída e ciclo de vida
 
-- 一次发送有稳定观测关联 ID，在发送前准备阶段即可建立，并关联 commandId、inputId、queryId、turnId、逻辑模型调用 ID 和各物理 attempt 的 requestId。
-- V4 中 inputId、queryId 与原发送 commandId 的既有关系用于关联。队列编辑或 send-now 操作命令不能替换原输入归因。requestId 随重试变化，不能作为整次发送的主键。
-- 观测上下文及启用决策在进程间一致传播，不能让 Renderer 与 CLI 独立随机采样而产生碎片。新的 TTFT 记录与已有 Agent Trace 可关联，但不依赖已有 10% Trace 抽样获得完整性，也不改变旧业务 Trace 的父子归属。
-- 首输出只接受沿实际会话内容路径到达发起 Renderer 的非空可展示正文、思考或工具调用。仅有 text_start、reasoning_start、tool_input_start、空 block、状态、心跳或旁路通知均不足以判定。记录 first_output_kind。
-- 不把此前运行轮次、其他会话、其他输入或子任务旁路进展抢先归为本条消息；输出归属必须使用真实输入和执行因果关系验证。无法唯一归因的输入保留明确标记，不伪造独立 TTFT。
-- ACK 不代表开始执行或开始请求；首输出也可能早于 ACK。关联、去重与收口必须接受合法乱序，不能使用固定等待时间来同步业务状态。
-- 主 TTFT 收口后继续轻量观察首正文，首正文晚到时另行产生补充指标；整轮结束仍无正文则标记无正文。主记录已成功收口后，后续错误不得反转其首输出结果。
-- 发送开始和已完成阶段生成异步检查点，不只依赖最终根 Span 结束才导出。不得在首输出后补造尚未完成的准备步骤或重试阶段。
+- Um envio tem um ID de correlação de observação estável, que pode ser estabelecido já na fase de preparação antes do envio, e é correlacionado com commandId, inputId, queryId, turnId, o ID lógico de chamada ao modelo e o requestId de cada tentativa física.
+- No V4, a relação existente entre inputId, queryId e o commandId do envio original é usada para correlação. Uma edição de fila ou um comando send-now não pode substituir a atribuição do input original. O requestId muda a cada retentativa e não pode servir de chave primária de todo o envio.
+- O contexto de observação e a decisão de habilitação propagam de forma consistente entre processos, para que Renderer e CLI não façam amostragem aleatória independente gerando fragmentos. Os novos registros de TTFT podem ser correlacionados ao Agent Trace existente, mas não dependem da amostragem de Trace de 10% já existente para obter completude, nem alteram a atribuição pai-filho dos traces de negócio antigos.
+- A primeira saída só aceita corpo de texto, pensamento ou tool call não vazios e exibíveis que cheguem ao Renderer de origem pelo caminho real de conteúdo da sessão. Apenas text_start, reasoning_start, tool_input_start, bloco vazio, status, heartbeat ou notificação de bypass não são suficientes para determinar. Registrar `first_output_kind`.
+- Não atribuir antecipadamente a esta mensagem o progresso de bypass de turnos anteriores executados, de outras sessões, outros inputs ou subtarefas; a atribuição da saída deve ser verificada com a causalidade real de input e execução. Inputs que não podem ser atribuídos de forma única recebem uma marcação explícita, sem fabricar um TTFT independente.
+- ACK não representa início de execução nem início de requisição; a primeira saída também pode chegar antes do ACK. Correlação, deduplicação e fechamento devem aceitar desordem legítima e não podem sincronizar estado de negócio com tempo de espera fixo.
+- Depois de fechar o TTFT principal, continua-se observando de forma leve o primeiro corpo de texto; quando o primeiro corpo de texto chega atrasado, uma métrica complementar é gerada; se o turno inteiro terminar sem corpo de texto, marca-se como sem corpo de texto. Depois que o registro principal é fechado com sucesso, erros posteriores não podem reverter seu resultado de primeira saída.
+- O início do envio e as fases concluídas geram checkpoints assíncronos, sem depender apenas do fim do Span raiz para exportar. Não fabricar etapas de preparação ou fases de retentativa ainda não concluídas após a primeira saída.
 
-### 阶段与时间合同
+### Fases e contrato de tempo
 
-| 主阶段              | 需要解释的边界                               | 可展开的观察                                                                     |
-| ------------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
-| Renderer 发送准备   | 提交起点到命令向 Host 分发                   | 真实发生的本地准备；用户二次确认等待另标                                         |
-| 命令传递与 CLI 受理 | 分发到 CLI 权威受理                          | Host 转发、CLI 收到、admission gate 等待、必要受理持久化；ACK 返回另记为往返观察 |
-| 等待执行            | 受理后到该输入开始执行                       | 空闲或排队类型、队列等待；不与 ACK 往返重复累计                                  |
-| 执行与请求准备      | 开始执行到主响应模型请求，并保留实际重复区间 | hooks、上下文加载、持久化、必要压缩、MCP/工具准备和请求组装                      |
-| 模型请求与重试      | 请求准备后到 CLI 形成该输入的首有效输出      | 各 attempt 的失败或输出、重试间隔；内部压缩模型请求与主响应请求分开归因          |
-| 首输出回传          | CLI 产生首有效输出到 Renderer 实际接收       | 真实协议内容经过的发送、Host 转发和客户端接收边界                                |
+| Fase principal             | Fronteira a explicar                                                | Observações expansíveis                                                                                     |
+| -------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Preparação de envio no Renderer | Do ponto de submissão até a distribuição do comando ao Host       | Preparação local realmente ocorrida; a espera por confirmação do usuário é marcada separadamente            |
+| Passagem do comando e aceite pelo CLI | Da distribuição até o aceite autoritativo pelo CLI                | Encaminhamento pelo Host, recebimento pelo CLI, espera do admission gate, persistência de aceite necessária; o retorno do ACK é registrado como observação de ida e volta |
+| Espera de execução         | Do aceite até o início da execução deste input                      | Tipo ocioso ou enfileirado, espera de fila; não acumular em duplicidade com a ida e volta do ACK           |
+| Execução e preparação da requisição | Do início da execução até a requisição ao modelo da resposta principal, preservando intervalos realmente repetidos | hooks, carregamento de contexto, persistência, compactação necessária, preparação de MCP/ferramentas e montagem da requisição |
+| Requisição ao modelo e retentativas | Do fim da preparação da requisição até o CLI formar a primeira saída válida deste input | Falhas ou saída de cada tentativa, intervalos de retentativa; requisições internas de compactação ao modelo são atribuídas separadamente da requisição principal |
+| Retorno da primeira saída   | Da geração da primeira saída válida pelo CLI até o recebimento real pelo Renderer | Envio pelo qual o conteúdo real do protocolo passou, encaminhamento pelo Host e fronteira de recebimento no cliente |
 
-- 主阶段按真实路径尽可能划分为连续且互不重叠的时间区间；边界必须在实现前和实际挂点核对。允许阶段缺省、重复和子阶段并行，不把未执行的阶段填成零耗时。
-- CLI 收到命令和获得 admission gate 后受理是不同边界；不能仅使用 admittedAt 代替全部受理阶段。
-- CLI 受理后的执行可与 ACK 返回并行。发送到 ACK、用户消息呈现等累计观察不作为可直接相加的串行主阶段。
-- 端到端 TTFT 使用发起 Renderer 的同一时钟。各进程内部使用单调时钟记录 duration；跨进程时间对齐需有实测误差界限，不能直接混用不同进程的单调时钟或未经校验的墙钟。
-- 第一版精度目标是可靠区分几十毫秒、几百毫秒和数秒的慢点，不承诺亚毫秒测量。短阶段采用专门的毫秒级分桶，不能沿用最小 250ms 的旧 TTFT 分桶。
-- 对齐误差超界、负区间、休眠或时钟异常显式记录质量状态。不用钳零掩盖错误，不将不可靠跨进程样本混入精确阶段分布；同进程仍可靠的观察可以独立保留。
-- 明细保留阶段 interval、duration、因果关联与缺失信息。可解释区间的并集与总时长核对，重叠不重复累计，差额展示为未归因或缺失，不强行塞给模型或网络。
-- 模型服务内部排队和推理、DNS/TLS/网络 TTFB 不在缺乏对应事实时细分；SDK 首事件不能冒充网络首字节。
+- As fases principais devem ser divididas, tanto quanto possível, em intervalos de tempo contínuos e mutuamente exclusivos seguindo o caminho real; as fronteiras devem ser conferidas antes da implementação e nos pontos de captura reais. Fases ausentes, repetidas e subfases paralelas são permitidas; não preencher com duração zero fases que não foram executadas.
+- O recebimento do comando pelo CLI e o aceite após obter o admission gate são fronteiras diferentes; não se pode usar apenas `admittedAt` no lugar de todas as fases de aceite.
+- A execução após o aceite pelo CLI pode ocorrer em paralelo com o retorno do ACK. Observações acumuladas como envio até ACK e apresentação da mensagem do usuário não são fases principais seriais diretamente somáveis.
+- O TTFT end-to-end usa o mesmo relógio do Renderer de origem. Dentro de cada processo, a duração é registrada com relógio monótono; o alinhamento de tempo entre processos precisa ter um limite de erro medido e não pode misturar diretamente relógios monotônicos de processos diferentes nem relógios de parede não validados.
+- A meta de precisão da primeira versão é distinguir de forma confiável pontos lentos de dezenas de milissegundos, centenas de milissegundos e segundos, sem prometer medição de submissegundos. Fases curtas usam bucketing dedicado em milissegundos e não podem reutilizar o bucketing antigo de TTFT com mínimo de 250ms.
+- Erro de alinhamento fora do limite, intervalos negativos, suspensão ou anomalia de relógio são registrados explicitamente como estado de qualidade. Não mascarar erros zerando por clamping e não misturar amostras não confiáveis entre processos nas distribuições precisas de fase; observações ainda confiáveis dentro do mesmo processo podem ser mantidas separadamente.
+- O detalhe preserva interval, duration, causalidade e informação de ausência de fase. A união dos intervalos explicáveis é conferida em relação à duração total, sobreposições não são acumuladas em duplicidade e a diferença é exibida como não atribuída ou ausente, sem ser forçada para o modelo ou para a rede.
+- Enfileiramento interno e inferência do serviço de modelo, assim como DNS/TLS/network TTFB, não são detalhados na ausência dos fatos correspondentes; o primeiro evento do SDK não pode se passar pelo primeiro byte da rede.
 
-### 统计、结果和查询
+### Estatística, resultados e consultas
 
-- 一次独立发送是主 TTFT 统计单位。模型 attempt 和准备子阶段有各自统计单位，查询必须标明，避免将后续工具循环请求混入用户首次响应统计。
-- 空闲发送与排队发送分组；同时给出点击起算总 TTFT、开始执行后到首输出的耗时及队列等待。立即引导输入只进入发送结果或独立分类，不进入普通 TTFT 分位数。
-- 首输出前失败、拒绝、取消等明确结果记录已等待时长和已有阶段，并单独统计数量、比例；无首输出样本不得以 0 或 -1 进入成功 TTFT 分布。
-- 仅有开始或阶段检查点的记录展示为未收口，可能仍在运行或已中断。缺少终态、超过某个查询时间窗口都不足以判定失败；有明确退出或中断证据才给出对应结果。
-- 前后台都继续采集。保存发送时、接收时及期间必要状态变化，才能判断持续前台；仅比较起止状态不足以排除中途切后台。默认体验看板筛选持续前台且计时可靠的样本，诊断看板可查看全部。
-- 支持按阶段、模型/provider、应用版本、操作系统、空闲/排队及前后台状态筛选和分组。采用受控标签和预定义常用组合，不构造全部维度的笛卡尔积；高基数消息、Trace、工作区和用户关联信息不进入 Metric labels。
-- 同一份阶段事实生成 Metric 与 Trace，明确 schema version、应用及 CLI 版本。统计使用有效阶段原始样本或其 Histogram，显示样本数及分桶精度；不相加 P95，也不使用总 P95 减去模型 P95 推导其他阶段。
-- ARMS 交付物包括总 TTFT、各主阶段和准备子阶段 P50/P95、样本数、结果比例、未收口与数据质量视图，以及通过关联 ID 打开的单消息阶段瀑布图或关联查询。实际平台的查询、跳转和瀑布展示能力必须验证，不能仅以本地 Span 已生成视为交付完成。
+- Um envio independente é a unidade estatística do TTFT principal. Tentativas de modelo e subfases de preparação têm suas próprias unidades estatísticas, que as consultas devem indicar, evitando misturar requisições de ciclos de ferramentas posteriores na estatística da primeira resposta do usuário.
+- Envios ociosos e enfileirados são agrupados; são fornecidos simultaneamente o TTFT total contado a partir do clique, o tempo do início da execução até a primeira saída e a espera de fila. O direcionamento imediato de input entra apenas no resultado de envio ou em uma classificação independente, e não nos quantis de TTFT comuns.
+- Falhas, rejeições, cancelamentos e outros resultados explícitos antes da primeira saída registram a duração já esperada e as fases existentes, e são contabilizados separadamente em número e proporção; amostras sem primeira saída não podem entrar na distribuição de TTFT bem-sucedido com valor 0 ou -1.
+- Registros com apenas início ou checkpoints de fase são exibidos como não fechados, e ainda podem estar em execução ou ter sido interrompidos. A ausência de estado final ou o exceder de uma janela de consulta não bastam para determinar falha; só com evidência explícita de saída ou interrupção o resultado correspondente é apresentado.
+- A coleta continua em primeiro e segundo plano. É preciso salvar o estado no envio, no recebimento e as mudanças necessárias no meio do caminho para determinar primeiro plano contínuo; comparar apenas os estados inicial e final não basta para descartar uma ida temporária para segundo plano. O dashboard de experiência padrão filtra amostras de primeiro plano contínuo com temporização confiável, e o dashboard de diagnóstico pode ver todas.
+- Suportar filtro e agrupamento por fase, modelo/provider, versão do app, sistema operacional, ocioso/enfileirado e estado de primeiro/segundo plano. Usar labels controlados e combinações predefinidas comuns, sem construir o produto cartesiano de todas as dimensões; informações de mensagens, Trace, workspace e usuário, de alta cardinalidade, não entram em Metric labels.
+- Os mesmos fatos de fase geram Metric e Trace, com schema version, aplicativo e versão do CLI explícitos. A estatística usa as amostras brutas de fase válidas ou seu Histogram, exibindo a contagem de amostras e a granularidade dos buckets; não se somam P95 nem se usa o P95 total menos o P95 do modelo para derivar outras fases.
+- Os entregáveis no ARMS incluem TTFT total, P50/P95 de cada fase principal e subfase de preparação, contagem de amostras, proporção de resultados, visões de não fechamento e qualidade de dados, além do waterfall de fases de uma mensagem única aberto pelo ID de correlação ou consulta correlacionada. As capacidades de consulta, navegação e exibição de waterfall da plataforma real devem ser verificadas; não se pode considerar a entrega concluída apenas porque o Span local foi gerado.
 
-### 导出、灰度与存储
+### Exportação, canário e armazenamento
 
-- 新 TTFT 使用专用 OTel Metric 和 Trace 数据模型，复用已有 OTLP 导出器、配置注入及批量上报机制。ARMS RUM 自定义事件与业务 event/report 都不是这套新阶段数据的主要存储路径。
-- 第一阶段只对灰度启用人群全量采集有界的 TTFT 明细及统计，不继承旧 Renderer 的独立随机抽样或旧 CLI 的 10% head sampling。主链路覆盖只延伸到首输出，首正文为轻量补充；不扩张为整轮所有业务 Span 的全量采集。
-- 开始及阶段检查点应能在主记录收口前独立被异步提交。先到终态、后到阶段或重复传输时，以稳定记录身份和阶段身份合并，不能重复计数；检查点不要求为每个 token 或每个循环迭代发事件。
-- 首输出到达立即完成主记录并交给异步 exporter，不要求逐条同步发送网络请求。健康运行下明细以秒到几十秒级可查为目标，聚合指标允许约 5 分钟更新。
-- 队列、阶段记录数量和内存都设边界，导出失败、积压或满队列不能回压发送和输出。发生丢弃或截断时保留可观测的数据质量信号，不能宣称已实现 exactly-once 网络交付或强杀零丢失。
-- 明细保留 7 天、聚合指标至少 30 天为需求目标；上线前核对 ARMS 实际接入、权限、容量、保留配置和费用。已有配置满足目标时沿用，未核验事项必须标注为待上线验证。
-- 遥测仅记录耗时、受控阶段名、结果、版本及必要关联信息；不采 prompt、回复正文、文件内容、原始路径、凭据或请求 Header/Body。复用项目现有隐私和鉴权约束，不假定当前存在统一控制全部 exporter 的隐私总开关。
+- O novo TTFT usa um modelo de dados próprio de OTel Metric e Trace, reutilizando o exportador OTLP existente, a injeção de configuração e o mecanismo de envio em lote. Eventos customizados de ARMS RUM e os event/report de negócio não são o caminho principal de armazenamento desses novos dados de fase.
+- Na primeira etapa, coleta em volume total os detalhes e estatísticas de TTFT limitados apenas para a população de canário, sem herdar a amostragem aleatória independente do Renderer antigo nem o head sampling de 10% do CLI antigo. A cobertura da cadeia principal se estende apenas até a primeira saída, e o primeiro corpo de texto é um complemento leve; não se expande para coleta em volume total de todos os spans de negócio do turno inteiro.
+- Os checkpoints de início e de fase devem poder ser submetidos de forma assíncrona e independente antes do fechamento do registro principal. Quando o estado final chega primeiro, a fase chega depois ou há transmissão duplicada, a mesclagem é feita por identidade estável de registro e de fase, sem contagem em duplicidade; os checkpoints não precisam emitir evento para cada token nem para cada iteração do loop.
+- A chegada da primeira saída conclui imediatamente o registro principal e o entrega ao exportador assíncrono, sem exigir envio síncrono de requisição de rede item a item. Em operação saudável, o objetivo é que os detalhes sejam consultáveis de segundos a dezenas de segundos, e as métricas agregadas podem atualizar em cerca de 5 minutos.
+- Fila, quantidade de registros de fase e memória têm limites, e falhas de exportação, acúmulo ou fila cheia não podem aplicar contrapressão sobre envio e saída. Em caso de descarte ou truncamento, preserva-se um sinal observável de qualidade de dados, sem alegar entrega de rede exactly-once nem zero perda em encerramento forçado.
+- Retenção de 7 dias para os detalhes e pelo menos 30 dias para as métricas agregadas são metas de requisito; antes do lançamento, verificar a integração real, permissões, capacidade, configuração de retenção e custos no ARMS. Onde a configuração existente já atende à meta, reutilizá-la, e itens não verificados devem ser marcados como pendentes de validação no lançamento.
+- A telemetria registra apenas duração, nome de fase controlado, resultado, versões e informações de correlação necessárias; não coleta prompt, corpo de resposta, conteúdo de arquivos, caminho bruto, credenciais ou Header/Body de requisição. Reutilizar as restrições de privacidade e autenticação existentes do projeto, sem assumir que hoje existe um interruptor geral de privacidade que controle todos os exportadores.
 
 ## Testing Decisions
 
-### 主要测试边界
+### Principais fronteiras de teste
 
-以“真实桌面 Composer 发送输入，到最终 OTLP 接收端解码出的 Trace 和 Metric”为最高测试边界。真实经过 Renderer、窗口 Host、CLI 和会话内容回传，使用可控模型回放及本地测试 OTLP 接收器，检查外部可观察的时间线和最终导出合同，而不是断言某个私有函数被调用了几次。
+A fronteira máxima de teste é "do input de envio pelo Composer real do desktop até o Trace e a Metric decodificados pelo receptor OTLP final". Passa pelo Renderer, pelo Host da janela, pelo CLI e pelo retorno do conteúdo da sessão, usando replay de modelo controlado e um receptor OTLP de teste local, verificando a linha do tempo observável externamente e o contrato final de exportação, em vez de afirmar quantas vezes alguma função privada foi chamada.
 
-优先复用已有 conversation-session E2E、遥测最终出口捕获的测试组织方式，以及现有 OTel HTTP 接收器的 gzip/protobuf 解码和 Trace/Metric 断言。现有 RUM/event-report 捕获器不能直接充当新 OTLP 通道的验收；如需新增测试能力，应在最终 OTLP 导出边界提供一个可复用接收器，而不是在每一层新增测试专用业务接口。
+Priorizar a reutilização da organização de testes E2E de conversation-session existente, dos testes de captura da saída final de telemetria e da decodificação gzip/protobuf e das asserções de Trace/Metric do receptor HTTP OTel existente. Os captadores de RUM/event-report existentes não podem servir diretamente como aceitação do novo canal OTLP; se for preciso adicionar capacidade de teste, deve-se fornecer um receptor reutilizável na fronteira final de exportação OTLP, em vez de adicionar interfaces de negócio exclusivas para teste em cada camada.
 
-底层只补充真实 E2E 难以稳定制造的时钟、乱序、去重、统计与协议边界测试。沿用既有 telemetry runtime、model-api recorder、supervisor 和 composer send-funnel 测试的注入模式，不为实现细节建立重复测试层。
+Na camada baixa, só complementar testes de fronteira de relógio, desordem, deduplicação, estatística e protocolo que o E2E real tem dificuldade de fabricar de forma estável. Reutilizar os padrões de injeção dos testes existentes de telemetry runtime, model-api recorder, supervisor e composer send-funnel, sem criar camadas de teste duplicadas para detalhes de implementação.
 
-### 验收场景
+### Cenários de aceitação
 
-| 场景                             | 应观察到的外部结果                                                               |
-| -------------------------------- | -------------------------------------------------------------------------------- |
-| 普通正文首发                     | 一个发送关联、一份主 TTFT、正确阶段和首正文；无需等待整轮 terminal               |
-| 思考或工具先到                   | 正确 first_output_kind；主 TTFT 先收口，首正文后来单独补充；空 start 事件不触发  |
-| 指定阶段注入已知延迟             | 该阶段时长及总 TTFT 按真实顺序变化，其他阶段不吸收该延迟；偏差在已验证误差范围内 |
-| CLI admission 竞争               | 收到命令到权威受理的等待可见，不能隐藏在业务队列或模型耗时中                     |
-| 排队、转正与二次确认             | 原发送关联持续保留；含排队和执行后耗时可区分；用户确认等待单独标记               |
-| 立即引导                         | 不抢占前一输入的输出，不混入普通 TTFT 分位数                                     |
-| hooks、压缩和 MCP 准备           | 真正发生的准备子阶段可见；压缩的内部模型调用不冒充主响应模型请求                 |
-| 重试后首输出                     | 多个 attempt 和等待关联同一次发送；主 TTFT 不因 attempt 数重复计数               |
-| 首输出早于 ACK、阶段乱序或重复   | 主关联和收口正确，晚到合法阶段能合并，无重复 Metric 或重复消息 Trace             |
-| 多会话、多窗口或工作区           | 消息、运行实例和观测上下文不串线；旧轮次与子任务旁路输出不抢占首响应             |
-| 首输出前失败或取消               | 结果计数和已等待时长正确，无虚构成功 TTFT 或零值污染                             |
-| 首输出后失败、无正文结束         | 主 TTFT 保持成功首输出事实；首正文状态独立正确                                   |
-| 进程退出、强杀或缺失终态         | 已导出的检查点可查；无结束证据时保持未收口，不伪造超时或剩余阶段                 |
-| 切后台再返回、机器暂停或时钟异常 | 持续前台判断准确；异常质量样本可筛除，不制造负耗时或强制钳零                     |
-| 并行、重复准备和缺失阶段         | 瀑布图呈现真实 interval；并集对账，不重复相加，不将缺口硬归因                    |
-| 灰度关闭、启用及关联采样         | 关闭时无新采集；启用人群全链路一致，旧 Trace 10% 采样不制造 TTFT 缺段            |
-| exporter 超时、拒绝、满队列      | 发送和输出继续；内存/队列有界，丢弃可观察，正常收口不依赖导出成功                |
-| 最终数据合同                     | 严格 schema、单位、版本、低基数标签和脱敏规则正确，Trace/Metric 可按定义对账     |
-| 旧通道和排除场景                 | 旧业务/RUM 计数不变；远程、手机、回放和自动任务不生成本地用户 TTFT               |
+| Cenário                                    | Resultado externo esperado                                                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Primeiro envio de corpo de texto comum      | Uma correlação de envio, um TTFT principal, fases corretas e primeiro corpo de texto; sem necessidade de esperar o terminal do turno inteiro |
+| Pensamento ou ferramenta chegando primeiro   | `first_output_kind` correto; o TTFT principal fecha primeiro e o primeiro corpo de texto é complementado depois; eventos start vazios não disparam |
+| Latência conhecida injetada em uma fase    | A duração da fase e o TTFT total variam na ordem real, e as outras fases não absorvem essa latência; o desvio está dentro do limite de erro verificado |
+| Contenção de admission no CLI              | A espera entre o recebimento do comando e o aceite autoritativo é visível e não fica escondida na fila de negócio ou no tempo do modelo |
+| Enfileiramento, liberação e confirmação secundária | A correlação do envio original é preservada; dá para distinguir o tempo com enfileiramento e o tempo após a execução; a espera de confirmação do usuário é marcada separadamente |
+| Direcionamento imediato                     | Não rouba a saída do input anterior e não se mistura aos quantis de TTFT comuns                                         |
+| hooks, compactação e preparação de MCP      | As subfases de preparação realmente ocorridas são visíveis; as chamadas internas de compactação ao modelo não se passam pela requisição ao modelo da resposta principal |
+| Primeira saída após retentativas            | Múltiplas tentativas e esperas são correlacionadas ao mesmo envio; o TTFT principal não é contado em duplicidade pelo número de tentativas |
+| Primeira saída antes do ACK, fases fora de ordem ou duplicadas | A correlação principal e o fechamento estão corretos, fases legítimas atrasadas são mescladas e não há Metric duplicada nem Trace de mensagem duplicada |
+| Múltiplas sessões, janelas ou workspaces     | Mensagens, instâncias de execução e contextos de observação não se cruzam; saídas de bypass de turnos antigos e de subtarefas não roubam a primeira resposta |
+| Falha ou cancelamento antes da primeira saída | A contagem de resultados e a duração já esperada estão corretas, sem TTFT bem-sucedido fictício nem poluição por valor zero |
+| Falha após a primeira saída, fim sem corpo de texto | O TTFT principal mantém o fato da primeira saída bem-sucedida; o estado do primeiro corpo de texto está correto e independente           |
+| Saída do processo, encerramento forçado ou estado final ausente | Os checkpoints exportados são consultáveis; sem evidência de fim, o registro permanece não fechado, sem fabricar timeout ou fases restantes |
+| Ir a segundo plano e voltar, pausa da máquina ou anomalia de relógio | A determinação de primeiro plano contínuo é precisa; amostras anômalas de qualidade podem ser filtradas, sem criar duração negativa nem forçar clamping em zero |
+| Paralelismo, preparação duplicada e fases ausentes | O waterfall apresenta os intervals reais; a união é reconciliada, sem soma duplicada e sem atribuir Rigidamente as lacunas                |
+| Canário desligado, habilitado e amostragem por correlação | Desligado não há nova coleta; na população habilitada a cadeia é consistente e a amostragem de 10% do Trace antigo não cria trechos faltantes de TTFT |
+| Timeout, rejeição ou fila cheia do exporter | Envio e saída continuam; memória/fila são limitadas, o descarte é observável e o fechamento normal não depende do sucesso da exportação |
+| Contrato final de dados                    | Schema estrito, unidades, versões, labels de baixa cardinalidade e regras de mascaramento corretos, com Trace/Metric reconciliáveis conforme definido |
+| Canais antigos e cenários excluídos        | As contagens antigas de negócio/RUM não mudam; remoto, celular, replay e tarefas automáticas não geram TTFT de usuário local           |
 
-实现时必须先写适当的测试再写代码；交互链路必须有 E2E。完成类型检查、lint、架构门禁和相关测试，保持 E2E 用例与实现一致。核心验证覆盖 macOS、Windows、Linux，无法完成的平台验证如实列出，不以 mock 成功冒充真机完成。
+Na implementação é obrigatório escrever primeiro os testes apropriados e depois o código; o encadeamento interativo precisa ter E2E. Concluir a verificação de tipos, lint, os gates de arquitetura e os testes relevantes, mantendo os casos de E2E consistentes com a implementação. A verificação principal cobre macOS, Windows e Linux; validações de plataforma que não puderem ser concluídas devem ser listadas com honestidade, sem passar sucesso de mock como conclusão em máquina real.
 
-发布前另做一次真实桌面运行取证，将用户提交、实际内容接收、阶段记录和最终导出结果对齐；并测量采集带来的消息延迟、主线程负担、内存和事件量。ARMS 环境需验证分位数查询、记录关联、瀑布展示及数据可见时延。平台侧验收和本地测试的完成状态分别记录。
+Antes do lançamento, fazer uma verificação forense em uma execução real do desktop, alinhando o envio pelo usuário, o recebimento real do conteúdo, os registros de fase e o resultado final da exportação; e medir a latência de mensagem, a carga na thread principal, a memória e o volume de eventos causados pela coleta. No ambiente ARMS é preciso validar consultas de quantis, correlação de registros, exibição de waterfall e latência de visibilidade dos dados. O status de conclusão da aceitação no lado da plataforma e o dos testes locais são registrados separadamente.
 
 ## Out of Scope
 
-- 桌面远程工作区、手机/Web 远控的 TTFT 采集及跨机器时钟同步实现。
-- 为手机新建独立 Host 或 Agent，或改动 continuous/replayable 的业务交付语义。
-- 模型服务内部排队、推理的服务端阶段追踪，以及无事实支撑的 DNS/TLS/网络首字节拆分。
-- React commit、浏览器 paint、首输出真正上屏的性能指标。
-- 立即引导输入的独立普通 TTFT 归因；自动化、闲时任务、后台子任务等非用户点击入口的新增测量。
-- 整轮所有 token、模型调用和工具执行的全量追踪；首输出之后仅补充首正文观察。
-- 在 ZCode 产品内新建诊断页面，或迁移替换现有业务/RUM 埋点。
-- 亚毫秒计时精度、遥测强杀零丢失、未经容量验证的全用户全量上线。
+- Coleta de TTFT para workspace remoto do desktop, controle remoto por celular/Web e implementação de sincronização de relógio entre máquinas.
+- Criar um Host ou Agent separado para o celular, ou alterar a semântica de entrega de negócio continuous/replayable.
+- Rastreamento de fases no lado do servidor para enfileiramento interno e inferência do serviço de modelo, bem como a divisão de DNS/TLS/primeiro byte de rede sem fatos que a sustentem.
+- Métricas de performance de commit do React, paint do navegador e a chegada real da primeira saída à tela.
+- Atribuição de TTFT comum independente para o direcionamento imediato de input; novas medições para entradas sem clique do usuário, como automação, tarefas ociosas e subtarefas em segundo plano.
+- Rastreamento em volume total de todos os tokens, chamadas ao modelo e execuções de ferramentas do turno inteiro; após a primeira saída, apenas complementar a observação do primeiro corpo de texto.
+- Criar novas páginas de diagnóstico dentro do produto ZCode, ou migrar/substituir a instrumentação de negócio/RUM existente.
+- Precisão de temporização de submissegundos, telemetria com zero perda em encerramento forçado e lançamento em volume total para todos os usuários sem validação de capacidade.
 
 ## Further Notes
 
-- 需求和上述范围由本次讨论确认；本文是待实现 spec，不代表埋点、E2E、ARMS 查询或存储配置已经落地。
-- 交付顺序为 spec 与协议/阶段合同、测试、实现、真实运行验证、ARMS 验收、灰度容量评估。实现前核对现有遥测规范；新增专用合同不得悄然改写旧 ui_action 或 Agent Trace 规范中的边界。
-- 实现评审必须明确记录阶段挂点、时钟对齐方案及误差界限、阶段容量与截断策略、Metric 分桶和标签组合。这些是受本 spec 约束的工程细化项，不应回退为重新访谈已确认的产品范围。
-- 保留期、ARMS 权限和容量仍属待核验的部署条件；不能把文档中存在接入示例当成线上已经配置的证据。
+- Os requisitos e o escopo acima foram confirmados nesta discussão; este documento é uma spec a implementar e não representa instrumentação, E2E, consultas no ARMS ou configuração de armazenamento já em vigor.
+- A ordem de entrega é spec e contrato de protocolo/fases, testes, implementação, verificação em execução real, aceitação no ARMS e avaliação de capacidade do canário. Antes de implementar, conferir a especificação de telemetria existente; novos contratos dedicados não podem reescrever silenciosamente as fronteiras das especificações antigas de ui_action ou Agent Trace.
+- A revisão de implementação deve registrar explicitamente os pontos de captura de fase, o esquema de alinhamento de relógio com seus limites de erro, a capacidade de fases e a estratégia de truncamento, os buckets de Metric e as combinações de labels. Esses são itens de engenharia detalhados sob a restrição desta spec e não devem regredir para uma nova entrevista do escopo de produto já confirmado.
+- Retenção, permissões e capacidade do ARMS ainda são condições de deploy a verificar; não se pode tomar a existência de exemplos de integração no documento como evidência de que a configuração já está em produção.
 
-## Ticket 01 实现合同（2026-09-14）
+## Contrato de implementação do Ticket 01 (2026-09-14)
 
-Renderer 是一次发送观测的唯一 owner；CLI 只记录有界、无正文的阶段事实，通过实际 continuous 内容帧携带。Main 只验证、批量导出已完成的事实，不保存业务状态。命令的可选 `ttft` 上下文冻结启用决策和关联 ID；旧调用缺省关闭。不会改变 Agent Trace 的上下文或采样。
+O Renderer é o único owner da observação de um envio; o CLI registra apenas fatos de fase limitados e sem corpo, transportados pelo frame de conteúdo continuous real. A Main apenas verifica e exporta em lote os fatos concluídos, sem guardar estado de negócio. O contexto opcional `ttft` do comando congela a decisão de habilitação e o ID de correlação; chamadas antigas têm omissão, ou seja, desligado. O contexto e a amostragem do Agent Trace não são alterados.
 
 ```text
 Composer gate → Renderer prepare → command dispatch → CLI received → admitted
@@ -213,22 +213,22 @@ Renderer actual continuous content receipt ← Host passthrough ← content fram
   └→ bounded async OTLP export; continue observing first text
 ```
 
-测试 seam 沿用本 spec 的 Testing Decisions：真实 Composer 到最终 OTLP；仅协议、时钟和重复边界补单测。评审基点为开工 HEAD `5cc3713d3a35a404157b0ac513fba30cce18b08c`。
+Os seams de teste seguem as Testing Decisions desta spec: do Composer real até o OTLP final; apenas protocolo, relógio e fronteiras de duplicidade ganham testes unitários. A base de revisão é o HEAD inicial `5cc3713d3a35a404157b0ac513fba30cce18b08c`.
 
-CLI 与 Renderer 使用 `performance.timeOrigin + performance.now()` 表达单调 epoch；命令查询返回进程实例和采样时钟，用 Renderer 往返区间给出 offset 和最大误差，最多 10ms、有效期 60 秒。校准不等待用户发送；传输握手、CLI 检查点和实际内容帧到达时若校准已过期都会重新探测。无可信校准时保留总 TTFT 和同进程 interval，跨进程阶段不进入成功分布，质量记为 missing 而非 clock_invalid。每个 interval 检查顺序和质量，不钳零。
+CLI e Renderer usam `performance.timeOrigin + performance.now()` para expressar um epoch monotônico; a consulta de comando retorna a instância do processo e o relógio de amostragem, dando o offset e o erro máximo pelo intervalo de ida e volta do Renderer, no máximo 10ms, com validade de 60 segundos. A calibração não espera o envio do usuário; o handshake de transporte, os checkpoints do CLI e a chegada do frame de conteúdo real re-sondam se a calibração já expirou. Sem calibração confiável, preserva-se o TTFT total e os intervals dentro do mesmo processo, e as fases entre processos não entram na distribuição de sucesso, com qualidade registrada como missing em vez de clock_invalid. Cada interval verifica ordem e qualidade, sem clamping em zero.
 
-灰度配置独立 `localTtftEnabled`，缺省 false；本机验证可显式设置 `ZCODE_LOCAL_TTFT_ENABLED=1`。配置由 Desktop 注入 Renderer，同一次发送携带至 CLI，不独立随机采样。Renderer 最多 128 个在途观测，CLI 分别保留最多 128 个活跃事实和 128 个末态事实、每个最多 6 个主阶段，5 分钟过期明确记为 expired 而非 failed；每批最多 32 条，出口最多 32 批，网络超时 3 秒。毫秒 Histogram 边界为 1、5、10、20、50、100、200、500、1000、2000、5000、10000、30000、60000、300000。
+A configuração de canário é independente, `localTtftEnabled`, com omissão false; a verificação local pode definir explicitamente `ZCODE_LOCAL_TTFT_ENABLED=1`. A configuração é injetada pelo Desktop no Renderer e carregada até o CLI no mesmo envio, sem amostragem aleatória independente. O Renderer mantém no máximo 128 observações em voo; o CLI mantém no máximo 128 fatos ativos e 128 fatos de estado terminal, cada um com no máximo 6 fases principais; expiração de 5 minutos é registrada explicitamente como expired e não como failed; no máximo 32 itens por lote, no máximo 32 lotes na saída e timeout de rede de 3 segundos. Os limites do Histogram em milissegundos são 1, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 30000, 60000, 300000.
 
-Ticket 01 只支持本地持续前台空闲发送无重试。排队/引导、重试、取消、失败、后台、恢复、关联缺失分别标记，不伪装完整样本。ARMS 平台查询验收单独记录；本地 OTLP 通过不能将平台验收勾选完成。
+O Ticket 01 suporta apenas envio local ocioso de primeiro plano contínuo sem retentativas. Enfileiramento/direcionamento, retentativas, cancelamento, falha, segundo plano, recuperação e correlação ausente são marcados separadamente, sem se passar por amostra completa. A aceitação de consulta na plataforma ARMS é registrada separadamente; a aprovação do OTLP local não permite marcar a aceitação da plataforma como concluída.
 
-协议兼容：只有 `commands/query` 请求显式携带 `clock:true` 才附带校准响应；旧查询响应、旧 conversation telemetry fact 形状和计数保持不变。CLI 源事件的 executionStartedAt 在 hooks/持久化之前捕获，仅新 TTFT observer 消费。Metrics signal 的独立 endpoint/header 与 Trace 一样私有捕获并从 tool env 剔除。
+Compatibilidade de protocolo: apenas requisições `commands/query` que carregam explicitamente `clock:true` recebem resposta de calibração anexada; respostas de consulta antigas, o formato e a contagem dos fatos antigos de telemetria de conversa permanecem inalterados. O `executionStartedAt` dos eventos de origem do CLI é capturado antes dos hooks/persistência e é consumido apenas pelo novo observador de TTFT. O signal de Metrics tem endpoint/header próprios, capturados de forma privada como o Trace e removidos do tool env.
 
-实现与验证入口：[查询合同](local-ttft-queries.md)、[出口证据](local-ttft-evidence.json)。ARMS 本次新样本平台验收与 CLI 全量未通过项见 Ticket 01，不能据本地成功标为整个需求完成。
+Pontos de entrada de implementação e verificação: [contrato de consultas](local-ttft-queries.md), [evidência de saída](local-ttft-evidence.json). A aceitação de plataforma das novas amostras no ARMS desta vez e os itens não aprovados do CLI em cobertura total estão no Ticket 01; não se pode marcar todo o requisito como concluído com base no sucesso local.
 
-校准的 `clock:true` 请求只接受 null session 探测 key，不查命令账本或 admission gate，也不抢占 Host 的 command query workspace 绑定；普通命令查询继续执行原有工作区隔离校验。
+A requisição de calibração com `clock:true` aceita apenas a chave de sondagem de sessão null, não consulta o ledger de comandos nem o admission gate, e não sequestra a vinculação de workspace de command query do Host; consultas de comandos comuns continuam executando as verificações de isolamento de workspace existentes.
 
-### Ticket 02 实施补充
+### Suplemento de implementação do Ticket 02
 
-细分合同、统计单位、窗口、时钟质量和灰度资源边界统一见 [查询与诊断合同](local-ttft-queries.md#ticket-02排队准备重试和未收口)。保持原 accepted input 的关联与 CommandInbox owner，Core 通过可选 `observeLocalTurnPreparation` 合同观察真实准备区间；没有观察订阅时不启动准备计时。新增 V4 `localTtftFacts` 检查点走既有 stdio/service，不参与业务投影或首输出判断。`initial` 初始快照仅忽略；`recovery` 明确排除，不能把手机恢复语义带入桌面。桌面 continuous 因订阅缓冲溢出或投影重建产生的 online snapshot 同样无法唯一归因首输出，按独立结果 `resync` 排除，不记为 `recovery`。
+O contrato de detalhamento, as unidades estatísticas, as janelas, a qualidade de relógio e os limites de recursos do canário estão unificados em [contrato de consultas e diagnóstico](local-ttft-queries.md#ticket-02排队准备重试和未收口). Mantém-se a correlação e o owner de CommandInbox do accepted input existente, e o Core observa o intervalo real de preparação através do contrato opcional `observeLocalTurnPreparation`; sem assinatura de observação, o cronômetro de preparação não é iniciado. O novo checkpoint V4 `localTtftFacts` usa o stdio/service existente e não participa da projeção de negócio nem da decisão de primeira saída. O snapshot inicial `initial` é apenas ignorado; `recovery` é explicitamente excluído, e a semântica de recuperação do celular não pode ser trazida para o desktop. O online snapshot do desktop continuous, gerado por overflow do buffer de assinatura ou reconstrução de projeção, também não permite atribuir unicamente a primeira saída e é excluído como resultado independente `resync`, sem ser registrado como `recovery`.
 
-根首输出结果只收口一次，后到阶段重新计算阶段质量；已输出 Metric 不回写、不重复。整个观察内事件使用稳定 identity，有界出口去重按 observation 整组保留。实际内容帧可以携带多个原输入的事实，以覆盖同一批里旧轮输出与队列转正并存。CLI明确退出按 workspace 收口 interrupted，未收到退出/terminal 的记录仍是 unclosed。实现和平台验收各自记录于 [Ticket 02](../issues/ttft-stage-telemetry/02-queued-retry-and-failure-diagnostics.md)。
+O resultado de primeira saída raiz é fechado apenas uma vez, e fases que chegam depois recalculam a qualidade das fases; Metrics já emitidas não são reescritas nem duplicadas. Eventos dentro de toda a observação usam identidade estável, e a deduplicação da saída limitada retém o conjunto inteiro por observation. O frame de conteúdo real pode carregar fatos de vários inputs originais, para cobrir no mesmo lote a coexistência de saída de turno antigo e liberação da fila. Uma saída explícita do CLI é fechada como interrupted por workspace, e registros sem exit/terminal recebido continuam unclosed. A implementação e a aceitação na plataforma são registradas separadamente em [Ticket 02](../issues/ttft-stage-telemetry/02-queued-retry-and-failure-diagnostics.md).

@@ -1,16 +1,16 @@
 # Model Provider Context Window Badge
 
-模型供应商设置页的模型列表会在模型 ID 输入框右侧内嵌展示上下文窗口容量。
+A lista de modelos da página de configurações de provedores de modelo exibe a capacidade da janela de contexto embutida à direita do campo de entrada de ID do modelo.
 
-## 展示规则
+## Regras de exibição
 
-- 使用紧凑 token 容量格式：英文如 `128K`、`200K`、`1M`、`1.5M`，中文如 `12.8万`、`20万`、`100万`、`150万`。
-- token 容量格式跟随 locale 本地化；英文使用 `K` / `M` / `B`，中文使用 `万` / `亿`。
-- `[1m]` 后缀模型沿用运行时规则强制使用 1,000,000 上下文窗口，展示单位仍跟随 locale。
-- 完整含义通过可访问标签暴露为 `上下文窗口：{value}` / `Context window: {value}`。
+- Usa o formato compacto de capacidade em tokens: em inglês, como `128K`, `200K`, `1M`, `1.5M`; em chinês, como `12.8万`, `20万`, `100万`, `150万`.
+- O formato de capacidade em tokens é localizado conforme o locale; o inglês usa `K` / `M` / `B` e o chinês usa `万` / `亿`.
+- Modelos com o sufixo `[1m]` seguem a regra de runtime que força a janela de contexto de 1.000.000; a unidade exibida continua acompanhando o locale.
+- O significado completo é exposto por um rótulo acessível como `Janela de contexto: {value}` / `Context window: {value}`.
 
-## 布局规则
+## Regras de layout
 
-- 容量 pill 保持在模型 ID 输入框内部，避免新增列表列宽。
-- 输入框右侧预留固定空间，长模型 ID 仍由输入框自身收缩。
-- 使用语义 token：`bg-surface`、`border-border`、`text-foreground-subtle`，兼容浅色和深色主题。
+- O pill de capacidade permanece dentro do campo de entrada de ID do modelo, evitando adicionar largura de coluna à lista.
+- Reserva-se espaço fixo à direita do campo de entrada; IDs de modelo longos ainda fazem o próprio campo encolher.
+- Usa tokens semânticos: `bg-surface`, `border-border`, `text-foreground-subtle`, compatíveis com os temas claro e escuro.

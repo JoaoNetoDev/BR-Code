@@ -1,27 +1,66 @@
-# Reasoning Inline Streaming Summary
+# Resumo de Streaming Inline do Reasoning
 
-## 背景
+## Contexto
 
-Assistant thought / reasoning 块本身已经表达“模型正在思考”。流式阶段默认保持收起，触发器在 `Thinking ·` 后直接展示原始流式内容；摘要紧跟标签、宽度随内容增长，最大使用当前行剩余空间。用户仍可主动展开查看完整内容。
+O bloco de thought / reasoning do assistant já expressa "o modelo está pensando". Durante
+o streaming ele permanece colapsado por padrão, e o gatilho exibe o conteúdo bruto do
+streaming logo após `Thinking ·`; o resumo vem colado ao rótulo e sua largura cresce com o
+conteúdo, usando no máximo o espaço restante da linha atual. O usuário ainda pode expandir
+manualmente para ver o conteúdo completo.
 
-## 规则
+## Regras
 
-- thought 块 `isStreaming=true` 时默认保持收起，触发器的 `Thinking` 文案继续使用 `animated-gradient-text`，保持轻量文字渐变，不新增颜色 token。
-- 收起态格式为 `Thinking · <流式内容>`。中文运行态标签使用“正在思考”，完成态标签使用“思考”；英文保持 `Thinking` / `Thought`。
-- 流式内容按换行边界派生摘要快照，但不把换行转换为 `<br>`：同一行内的新 token 原位更新；出现下一条非空行时，旧行向上退出、新行从下方进入。纵向切换复用工具摘要的队列与节奏（300ms 动画、500ms 停留、最多当前项加两条待播项），主线程卡顿或 reduced motion 时直接收敛到最新行。
-- 当前行摘要视口紧跟分隔点，不使用 `ml-auto` 或 `text-right`。内容未撑满时从左向右自然增长；视口达到标签与箭头之外的剩余宽度后保持单行，并在当前行每次流式更新后滚到末尾，让旧内容向左移、最新 token 始终可见。
-- 摘要发生横向溢出时，视口左右两侧同时使用 16px mask 淡出；未溢出时不挂 mask，避免短内容边缘变淡。容器或内容宽度变化时必须重新测量溢出状态。
-- 流式摘要文字使用次要文字色 `text-foreground-subtle`；图标、分隔点与箭头继续使用更弱的 `text-foreground-subtlest`。
-- 运行中展开 thought 后，头部切换为 `icon + **Thought** + · + duration`，隐藏单行流式摘要及其横向 mask；duration 从思考开始计时并每秒更新，完整 thought 在下方继续流式追加。
-- 完成态显示为 `icon + **Thought** + · + duration`；三个文本节点使用 `gap-2`，中文为加粗的“思考”、普通字重的分隔点和普通字重的“持续了 N 秒”。
-- 英文 duration 直接显示为 `N seconds`，不添加 `for` 或 `took`；例如 `Thought · 2 seconds`。
-- 同一行 token 到达时直接更新当前文本节点；只有非空换行边界使用与 Explore 相同的纵向翻滚和摘要队列。reasoning 完成时立即切换为现有 `Thought · duration` 完成摘要并清空待播内容。
-- 用户展开后，完整 thought 继续流式追加并沿用现有换行、折行和吸底规则；收起态的 `whitespace-nowrap` 不得影响展开内容。
-- 用户仍可手动展开已完成 thought 查看内容。
-- 展开的 thought 内容只有在实际产生纵向滚动时才显示边缘 mask；位于顶部时只显示底部渐隐，位于中间时显示上下渐隐，位于底部时只显示顶部渐隐。
-- 展开的 thought 内容默认跟随底部；用户主动向上滚动离开底部后暂停吸底，用户回到底部后恢复吸底。
-- `open` 受控时尊重外部传入状态，只负责同步耗时与内容延迟卸载。
+- Quando o bloco thought tem `isStreaming=true`, ele permanece colapsado por padrão; o texto
+  `Thinking` do gatilho continua usando `animated-gradient-text`, mantendo o gradiente de
+  texto leve, sem novos tokens de cor.
+- No estado colapsado o formato é `Thinking · <conteúdo em streaming>`. Em runtime o rótulo
+  em chinês usa "正在思考" e no estado concluído usa "思考"; em inglês mantém
+  `Thinking` / `Thought`.
+- O conteúdo em streaming deriva o snapshot do resumo por limites de linha, mas não converte
+  quebras de linha em `<br>`: novos tokens na mesma linha são atualizados no lugar; quando
+  aparece a próxima linha não vazia, a linha antiga sai para cima e a nova entra por baixo.
+  A troca vertical reaproveita a fila e o ritmo do resumo de ferramentas (300ms de animação,
+  500ms de permanência, no máximo o item atual mais dois itens pendentes); em caso de travamento
+  da main thread ou reduced motion, converge-se direto para a linha mais recente.
+- O viewport do resumo da linha atual acompanha de perto o ponto separador, sem usar `ml-auto`
+  nem `text-right`. Enquanto o conteúdo não preenche, ele cresce naturalmente da esquerda
+  para a direita; ao atingir a largura restante fora do rótulo e da seta, mantém uma única
+  linha e rola para o fim a cada atualização de streaming da linha atual, de modo que o
+  conteúdo antigo se desloque para a esquerda e o token mais recente fique sempre visível.
+- Quando o resumo sofre overflow horizontal, o viewport usa simultaneamente uma máscara de
+  16px nas laterais esquerda e direita; sem overflow, nenhuma máscara é aplicada, evitando
+  que as bordas de conteúdos curtos fiquem esmaecidas. É preciso remedir o estado de overflow
+  quando a largura do container ou do conteúdo muda.
+- O texto do resumo em streaming usa a cor secundária `text-foreground-subtle`; ícone, ponto
+  separador e seta continuam usando o `text-foreground-subtlest`, ainda mais fraco.
+- Ao expandir um thought em execução, o cabeçalho passa para
+  `icon + **Thought** + · + duration`, ocultando o resumo em streaming de linha única e sua
+  máscara horizontal; a duration é contada a partir do início do pensamento e atualizada a
+  cada segundo, e o thought completo continua sendo anexado em streaming abaixo.
+- No estado concluído exibe-se `icon + **Thought** + · + duration`; os três nós de texto usam
+  `gap-2`, com o "思考" em negrito e o ponto separador e o "持续了 N 秒" em peso normal.
+- A duration em inglês é exibida diretamente como `N seconds`, sem adicionar `for` ou
+  `took`; por exemplo `Thought · 2 seconds`.
+- Quando tokens chegam na mesma linha, o nó de texto atual é atualizado diretamente; apenas
+  limites de linha não vazios usam a rolagem vertical e a fila de resumo iguais às do Explore.
+  Quando o reasoning termina, muda-se imediatamente para o resumo de conclusão existente
+  `Thought · duration` e o conteúdo pendente é descartado.
+- Após o usuário expandir, o thought completo continua sendo anexado em streaming e segue as
+  regras existentes de quebra de linha, quebra por largura e ancoragem ao fundo; o
+  `whitespace-nowrap` do estado colapsado não pode afetar o conteúdo expandido.
+- O usuário ainda pode expandir manualmente um thought concluído para ver o conteúdo.
+- O conteúdo de thought expandido só exibe a máscara de borda quando há rolagem vertical real:
+  no topo mostra apenas o esmaecimento inferior; no meio, esmaecimento em cima e embaixo; na
+  parte de baixo, apenas o esmaecimento superior.
+- O conteúdo de thought expandido segue o fundo por padrão; depois que o usuário rola
+  ativamente para cima e se afasta do fundo, a ancoragem é pausada, e é retomada quando ele
+  volta ao fundo.
+- Quando `open` é controlado, o estado externo passado é respeitado, ficando responsável
+  apenas por sincronizar a duração e o atraso de descarregamento do conteúdo.
 
-## 兼容性
+## Compatibilidade
 
-该变更只影响 UI 层 thought / reasoning 展示，不修改 ZCode Protocol、消息快照、desktop continuous 或 mobile replayable 语义。移动 Web 与桌面端消费同一 message parts，共用默认收起和单行原位流式摘要规则。
+Esta alteração afeta apenas a exibição de thought / reasoning na camada de UI, sem modificar
+o ZCode Protocol, o snapshot de mensagens, nem a semântica de desktop continuous ou mobile
+replayable. O Web mobile e o desktop consomem as mesmas message parts e compartilham o
+padrão de colapsado por padrão e o resumo de streaming de linha única atualizado no lugar.

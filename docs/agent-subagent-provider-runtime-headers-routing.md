@@ -1,35 +1,37 @@
-# Explore 子 agent provider runtime headers 路由说明
+# Rotas de provider runtime headers do subagent Explore
 
-## 背景
+## Contexto
 
-桌面端通过父 task 的 sessionId 订阅动态 session event。Explore 子 agent 在 CLI 内部会创建独立的子 sessionId，用于子会话事件、持久化和 trace 归档。
+O desktop assina os dynamic session events pelo sessionId da task pai. O subagent Explore cria internamente no CLI um sessionId de sessão filha próprio, usado para eventos da subsessão, persistência e arquivamento de trace.
 
-Start Plan / bigmodel Start Plan 在每次真实模型请求前需要刷新 `provider-runtime-headers`，例如官方版本请求安全校验所需的一次性 header。这个刷新不是普通 session event，也不会经过 `mirrorSubagentToolEvent` 镜像回父 task，而是独立的 ZCode Protocol 请求。
+Start Plan / bigmodel Start Plan precisam atualizar `provider-runtime-headers` antes de cada requisição real de modelo, por exemplo o header único exigido pela verificação de segurança da build oficial. Essa atualização não é um session event comum, não passa pelo espelhamento em `mirrorSubagentToolEvent` de volta para a task pai, e é uma requisição ZCode Protocol independente.
 
-## 问题
+## Problema
 
-修复前，Explore 子 agent 复用父 runtime 的 `providerRuntimeHeadersPort`，但刷新请求由子 runtime 发起，因此请求里带的是子 sessionId。
+Antes da correção, o subagent Explore reutilizava o `providerRuntimeHeadersPort` do runtime pai, mas a requisição de atualização era iniciada pelo runtime filho, portanto carregava o sessionId da sessão filha.
 
-桌面 agent service 收到 `provider-runtime-headers` 请求后，会按请求里的 sessionId 派发动态事件；UI 只订阅父 task 的 sessionId，不会订阅 `sess_subagent_agent_*`。结果是子 agent 的 runtime headers 请求落到无人监听的子 session 通道，渲染端不会处理该请求，也不会调用 `respondProviderRuntimeHeaders`，子 agent 的模型请求就会一直等待，直到用户 stop 或请求被取消。
+Ao receber uma requisição `provider-runtime-headers`, o desktop agent service dispara o evento dinâmico conforme o sessionId da requisição; a UI assina apenas o sessionId da task pai e nunca assina `sess_subagent_agent_*`. O resultado é que a requisição de runtime headers do subagent cai no canal de sessão filha, sem ninguém ouvindo: o renderizador não processa a requisição nem chama `respondProviderRuntimeHeaders`, e a requisição de modelo do subagent fica esperando até o usuário fazer stop ou a requisição ser cancelada.
 
-## 修复原则
+## Princípio da correção
 
-Explore 子 agent 的子 sessionId 仍然保留，用于 CLI 内部账本：
+O sessionId da sessão filha do subagent Explore é mantido, para o livro-razão interno do CLI:
 
-- 子 session 的事件持久化仍写入子 sessionId。
-- 子 agent lifecycle / tool event 仍按既有逻辑镜像到父 task。
-- trace context 和 parentSessionId 关系不变。
+- Os eventos da sessão filha continuam sendo persistidos com o sessionId da sessão filha.
+- O lifecycle / tool events do subagent continuam sendo espelhados para a task pai conforme a lógica existente.
+- O trace context e a relação parentSessionId permanecem inalterados.
 
-只在子 agent 对外调用 `providerRuntimeHeadersPort.refreshBeforeModelRequest` 时，把请求 sessionId 改成父 task 的 sessionId。这样 runtime headers 请求会路由到桌面 UI 已订阅的父 task 通道，符合现有 `mirrorSubagentToolEvent` 的对外语义：子 agent 对用户可见的阻塞交互归属父 task。
+Apenas quando o subagent chama `providerRuntimeHeadersPort.refreshBeforeModelRequest` externamente, o sessionId da requisição é trocado pelo sessionId da task pai. Assim, a requisição de runtime headers é roteada para o canal da task pai, que a UI do desktop já assina, alinhando-se à semântica externa já existente de `mirrorSubagentToolEvent`: interações bloqueantes visíveis ao usuário do subagent pertencem à task pai.
 
-## 影响范围
+## Escopo de impacto
 
-该修复只影响需要 `provider-runtime-headers` 的模型请求，目前主要是 Start Plan / bigmodel Start Plan。它不改变 session 存储主键，也不把子 session 的持久化数据写入父 session。
+Essa correção afeta apenas as requisições de modelo que precisam de `provider-runtime-headers`, hoje principalmente Start Plan / bigmodel Start Plan. Ela não altera a chave primária de armazenamento das sessões nem grava os dados de persistência da sessão filha na sessão pai.
 
-如果以后新增子 agent 的其他独立阻塞协议请求，也需要显式判断它应该路由到子 session 还是父 task session，不能假设 eventSink 镜像会覆盖协议请求。
+Se no futuro forem adicionadas outras requisições de protocolo bloqueantes e independentes de subagents, também será preciso julgar explicitamente se elas devem ser roteadas para a sessão filha ou para a sessão da task pai; não se pode assumir que o espelhamento via eventSink cobre requisições de protocolo.
 
-## 2026-09-08 请求隔离
+## Isolamento de requisições em 2026-09-08
 
-桌面生产消费者现为 workspace 常驻 controller；父 session 路由继续保留。
-runtime headers 响应通过唯一 requestId 返回子 agent 当前模型调用，Host 不再用子模型改写父 runtimeModel。
-每个子/父模型调用各自拥有独立的请求期重试预算，互不共享；不编辑父用户输入或重放已完成工具。
+O consumidor de produção do desktop agora é o controller permanente do workspace; o roteamento para a sessão pai foi mantido.
+
+A resposta de runtime headers é devolvida ao subagent por meio de um requestId único, correspondente à chamada de modelo atual; o Host não usa mais o modelo filho para reescrever o runtimeModel do pai.
+
+Cada chamada de modelo (filha ou pai) possui seu próprio orçamento de retentativas por requisição, sem compartilhamento; o input do usuário pai não é editado e ferramentas já concluídas não são repetidas.

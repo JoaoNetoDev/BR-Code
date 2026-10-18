@@ -1,70 +1,113 @@
-# Todo 92：智能配置与模型编辑器的个人覆盖反馈
+# Todo 92: Configuração inteligente e feedback de override pessoal no editor de modelo
 
-> 底色反馈后续裁决（2026-09-11）：[Todo132](todo-132-model-option-feedback-and-provider-name-edit.md) 局部增强方块选项选中/未选中底色差异，确保 Hover 中也可辨；文字、图标、尺寸与边框仅表示覆盖的规则保持。本项待执行，下文旧样式验收保留为历史。
+> Decisão posterior sobre o feedback de cor de fundo (2026-09-11): o
+> [Todo132](todo-132-model-option-feedback-and-provider-name-edit.md) refuerza localmente a diferença de
+> cor de fundo entre opção selecionada/não selecionada de blocos, garantindo que também seja
+> discernível no Hover; texto, ícone, tamanho e borda continuam indicando apenas a regra de override
+> coberta. Este item está pendente de execução; os antigos critérios de aceitação de estilo abaixo são
+> mantidos como histórico.
 
-> 后续裁决（2026-09-11）：[Todo130](todo-130-manual-model-config-editable-field-boundary.md) 已取代本文中“推荐未就绪禁用开关／手动整份配置固化与完整校验”的相关规则：仅保存中禁用，手动只要求可编辑字段，系统字段继续解析。**Todo130 待执行**；下文旧实现与验收保留为历史，不代表新语义已经落地。
+> Decisão posterior (2026-09-11): o
+> [Todo130](todo-130-manual-model-config-editable-field-boundary.md) substituiu neste documento as
+> regras de "desabilitar o toggle quando a recomendação não está pronta / congelar e validar
+> integralmente a configuração manual": apenas desabilita durante o salvamento, o manual exige apenas
+> os campos editáveis e os campos de sistema continuam sendo resolvidos. **O Todo130 está pendente de
+> execução**; a implementação e os critérios de aceitação antigos abaixo são mantidos como histórico e
+> não representam a semântica nova já implementada.
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização de atribuição de verificação (2026-09-09): toda a dívida de teste restante, falhas e
+> promoção manual deste documento foram transferidas unicamente para o
+> [Todo102](todo-102-verification-debt-closeout.md), encerrando o agendamento de verificação
+> independente neste documento; as evidências históricas são mantidas, e a transferência não significa
+> que os testes passaram.
 
-> 状态：最终方案已实现，2026-09-08 Pro 联合验收见第 7 节。
-> Air 的旧分组恢复预览不是最终实现或验收证据。
-> 模式及保存主线见 [Todo90](todo-90-model-add-edit-shared-recommended-draft.md)。两项联合验收，不各写一套草稿逻辑。
+> Status: a solução final foi implementada; a aceitação conjunta Pro de 2026-09-08 está na seção 7.
+> A antiga pré-visualização de grupos restaurados do Air não é a implementação final nem evidência de
+> aceitação.
+> O modo e a linha principal de salvamento estão no
+> [Todo90](todo-90-model-add-edit-shared-recommended-draft.md). São duas aceitações conjuntas, sem
+> duplicar a lógica de rascunho.
 
-## 1. 最终裁决（替代本轮中间方案）
+## 1. Decisão final (substitui o esquema intermediário deste ciclo)
 
-| 项目         | 最终规则                                                                                                                                |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 底部开关     | 保留，名称改为“智能配置”；英文 `Smart configuration`。仍在保存/取消同一操作行左侧                                                       |
-| 说明         | “根据模型 ID 自动匹配推荐配置，允许单独修改。”；英文 `Automatically match recommended settings by model ID, with individual overrides.` |
-| 开启         | 按模型 ID 匹配并继承推荐配置，允许个人覆盖；显示个人覆盖边框                                                                            |
-| 关闭         | 将关闭瞬间的当前有效草稿完整填入；全部模型配置必填，不按模型 ID 匹配或补齐，不显示个人覆盖边框                                          |
-| 重新开启     | 清掉模型配置的个人覆盖，按当前 ID 恢复推荐；之后的新编辑仍可保留                                                                        |
-| 保存         | 模式切换、字段编辑都只改草稿；保存成功才持久化，取消放弃，失败保留                                                                      |
-| 身份/启停    | 不因模式切换修改模型 ID、模型列表顺序或 enabled；添加沿用创建时启用规则                                                                 |
-| 全局恢复默认 | 不添加，不以它取代开关                                                                                                                  |
-| 分组恢复     | 不添加；“自定义 · 恢复推荐”文案、组恢复按钮及恢复标志全部撤销                                                                           |
-| 兼容         | “不跟随”未上线，不设计旧数据迁移/自动清理；现有 useRecommendedConfig 等字段可继续复用，不为改文案重命名持久化字段                       |
+| Item                   | Regra final                                                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Toggle inferior        | Mantido, com o nome alterado para "Configuração inteligente"; em inglês `Smart configuration`. Continua no lado esquerdo da mesma linha de ação salvar/cancelar |
+| Descrição              | "Combina automaticamente as configurações recomendadas pelo ID do modelo, permitindo modificações individuais."; em inglês `Automatically match recommended settings by model ID, with individual overrides.` |
+| Ligado                 | Combina pelo ID do modelo e herda as configurações recomendadas, permitindo override pessoal; exibe a borda de override pessoal |
+| Desligado              | Preenche integralmente com o rascunho efetivo vigente no instante do desligamento; todos os campos de configuração são obrigatórios, sem combinação nem preenchimento por ID do modelo, e sem exibir a borda de override pessoal |
+| Religar                | Limpa o override pessoal da configuração do modelo, restaura a recomendação pelo ID atual; novas edições posteriores ainda podem ser mantidas |
+| Salvar                 | Troca de modo e edição de campo só alteram o rascunho; só persiste após sucesso do salvamento, cancelar descarta, falha mantém |
+| Identidade/on-off      | A troca de modo não altera o ID do modelo, a ordem da lista de modelos nem `enabled`; ao adicionar, vale a regra de ativação da criação |
+| Restaurar padrão global| Não adicionar; não substitui o toggle |
+| Restauração de grupos  | Não adicionar; todo o texto "Personalizado · Restaurar recomendação", o botão de restauração do grupo e a marca de restauração são revertidos |
+| Compatibilidade        | "Não seguir" não foi lançado; não se projeta migração/limpeza automática de dados antigos; campos existentes como `useRecommendedConfig` podem continuar sendo reutilizados e os campos persistidos não são renomeados só por mudança de texto |
 
-“必填”表示完整配置，不是所有能力都开启。布尔 `false` 是明确有效值，Mapping 的合法 `{}` 有效；空字符串不能借继承值完成固定配置校验。
-隐藏字段不能丢失：关闭时保留有效配置中的 Audio、Tool Call 等，不因为 UI 没有输入控件就抹掉。
-2026-09-08 文案追加裁决：匹配提示统一为“已匹配到智能配置”，与“智能配置”开关命名一致；“推理参数 Mapping”改为“推理参数映射”，校验错误同步使用“推理参数映射无效”。仅修改展示文案，不更改配置字段、匹配和交互行为。
+"Obrigatório" significa configuração completa, não que todos os recursos estejam ligados. O booleano
+`false` é um valor válido explícito e o `{}` válido de Mapping também vale; uma string vazia não pode
+usar um valor herdado para completar a validação de configuração congelada.
+Campos ocultos não podem ser perdidos: ao desligar, Audio, Tool Call etc. da configuração válida são
+mantidos e não são apagados só porque a UI não tem controle de entrada.
+Decisão adicional de texto em 2026-09-08: a dica de combinação é uniformizada como "Configuração
+inteligente combinada", consistente com o nome do toggle "Configuração inteligente"; "推理参数 Mapping"
+passa a "推理参数映射" e o erro de validação passa a usar "推理参数映射 inválido". Apenas o texto
+exibido muda; campos de configuração, comportamento de combinação e de interação não mudam.
 
-## 2. 边框、背景与布局
+## 2. Borda, fundo e layout
 
-### 2.1 个人覆盖
+### 2.1 Override pessoal
 
-- 边框只表达两种状态：无覆盖为中性细边框，有覆盖为淡强调色细边框；粗细、大小、布局不变。
-- 标记的是个人配置来源，不是“本次未保存”。保存重开仍标记，移除覆盖后取消标记。
-- 必须从当前个人草稿推导，不能依赖整张表单校验成功，也不能引入一份可写的 highlighted 状态。
-- 显式覆盖恰好等于推荐值仍是个人意图；不得仅凭 Effective 与推荐值相等就断言没覆盖。这与 Todo90 的改 ID 保留个人意图规则一致。
-- 关闭智能配置后不显示个人覆盖样式；不是把全部必填字段一起点亮。
+- A borda expressa apenas dois estados: sem override, borda neutra fina; com override, borda fina em
+  tom de destaque suave. Espessura, tamanho e layout não mudam.
+- O que é marcado é a origem da configuração pessoal, não "não salvo nesta sessão". Após salvar e
+  reabrir a marca continua; ao remover o override, a marca é cancelada.
+- Precisa ser derivado do rascunho pessoal atual, sem depender do sucesso da validação do formulário
+  inteiro e sem introduzir um estado `highlighted` gravável.
+- Um override explícito exatamente igual ao valor recomendado ainda é intenção pessoal; não se pode
+  afirmar ausência de override apenas porque Effective é igual ao valor recomendado. Isso é coerente com
+  a regra do Todo90 de preservar a intenção pessoal ao mudar o ID.
+- Com a configuração inteligente desligada, não se exibe o estilo de override pessoal; não se acende
+  junto todo o conjunto de campos obrigatórios.
 
-| 控件                     | 覆盖反馈范围                                                                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 上下文窗口、最大输出     | 各自输入框独立高亮，不高亮整个 tokens 容器                                                                                                  |
-| 输入类型、模型能力、MFJS | 对应选项按钮独立高亮；推荐 true 被改成 false 也必须能标记                                                                                   |
-| 推理档位                 | values 是一个有序配置项；改任一名称、增加、删除、排序，所有实际档位框一起高亮；不是只亮一个，也不是亮外层容器；添加按钮不是档位，不跟着标记 |
-| 推理参数 Mapping         | 独立输入框高亮；只改 Mapping 不使档位高亮，反之亦然                                                                                         |
-| 模型 ID、锁定项          | 不属于推荐配置覆盖反馈；保留身份/只读语义                                                                                                   |
+| Controle                    | Escopo do feedback de override                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| Janela de contexto, saída máxima | cada campo de entrada é destacado individualmente, sem acender todo o container de tokens |
+| Tipo de entrada, capacidades do modelo, MFJS | o botão de opção correspondente é destacado individualmente; um true recomendado alterado para false também precisa ser marcado |
+| Nível de raciocínio         | values é um único item de configuração ordenado; alterar qualquer nome, adicionar, remover ou reordenar marca todos os quadros de nível reais juntos; não se acende apenas um nem o container externo, e o botão de adicionar não é um nível, portanto não é marcado junto |
+| Mapping de parâmetros de raciocínio | campo de entrada destacado individualmente; alterar só o Mapping não marca o nível, e vice-versa |
+| ID do modelo, itens travados | não fazem parte do feedback de override de configuração recomendada; preservam a semântica de identidade/somente leitura |
 
-### 2.2 Hover 与聚焦
+### 2.2 Hover e foco
 
-- Hover 与聚焦共用轻微背景变化，不再靠边框区分，也不新增焦点外圈。
-- Hover 在鼠标移出后消失；聚焦一直持续到焦点离开。两者同时存在不叠加出第三种更强样式。
-- 选项按钮继续用底色表达开/关。交互背景在各自状态底色上变化，关闭态 Hover 不能看起来像开启。
-- 键盘 Tab、文本编辑焦点必须清晰可辨；去掉 ring 不能等于去掉所有可见焦点反馈。
-- 使用 DESIGN.md 的语义 token，验证深浅主题。不要以固定色值、改变控件尺寸或全局覆盖 Button/Input 样式实现。
-- 作用域限模型编辑器的共享控件；不要把本次焦点规则扩散到全站输入框、其他设置或聊天 Composer。
+- Hover e foco compartilham a mesma variação leve de fundo; não se distinguem mais pela borda e nenhum
+  anel de foco adicional é criado.
+- O Hover desaparece quando o mouse sai; o foco persiste até o foco deixar o controle. Quando ambos
+  existem, não se soma um terceiro estilo mais forte.
+- Os botões de opção continuam expressando ligado/desligado pela cor de fundo. O fundo interativo varia
+  sobre a cor de fundo de cada estado, e o Hover no estado desligado não pode parecer ligado.
+- Tab por teclado e foco de edição de texto precisam ser claramente discerníveis; remover o ring não
+  pode equivaler a remover todo feedback de foco visível.
+- Usar os tokens semânticos do DESIGN.md e validar temas claro e escuro. Não implementar com valores
+  fixos de cor, alterando o tamanho dos controles ou sobrescrevendo globalmente o estilo de
+  Button/Input.
+- Escopo limitado aos controles compartilhados do editor de modelo; não espalhar as regras de foco
+  deste ciclo para inputs de todo o site, outras configurações ou o Composer do chat.
 
-### 2.3 MFJS 与容器
+### 2.3 MFJS e containers
 
-- BooleanModelOption 不再用“有没有 icon”决定另一套控件样式。
-- 有 icon 时显示图标＋文字，无 icon 时只有文字；彻底删除无 icon 时自动绘制小复选框的分支和对应 CSS/测试。
-- MFJS 使用与模型能力一致的按钮、选中和交互反馈；不带图标或前置复选框。移除的是视觉复选框，不是键盘操作/aria-checked 等可访问性语义。
-- 保留现有分组外框；推理外框内仍为档位编辑器与 Mapping 输入框，去掉重复的“推理设置”标题。
-- 高级设置保留标题和独立容器，承载 MFJS；所有外层容器保持中性边框。
+- BooleanModelOption não decide mais um conjunto alternativo de estilo de controle com base em "ter ou
+  não ícone".
+- Com ícone, mostra ícone + texto; sem ícone, apenas texto; o ramo que desenhava automaticamente uma
+  pequena checkbox na ausência de ícone e o CSS/testes correspondentes são removidos por completo.
+- MFJS usa botões, seleção e feedback interativo consistentes com os das capacidades do modelo; sem
+  ícone e sem checkbox inicial. O que é removido é a checkbox visual, não a semântica de acessibilidade
+  como operação por teclado/aria-checked.
+- Manter o contorno externo dos agrupamentos existentes; dentro do contorno de raciocínio continuam o
+  editor de níveis e o campo de Mapping, removendo o título duplicado "Configurações de raciocínio".
+- Configurações avançadas mantêm título e container próprio, hosting o MFJS; todos os containers
+  externos mantêm borda neutra.
 
-## 3. 状态与提交边界
+## 3. Estado e limites de commit
 
 ```text
 添加 / 编辑初始化 -> 同一份个人草稿 + 智能配置模式
@@ -82,78 +125,123 @@
                 取消 -> 不写入
 ```
 
-关闭前仍可用推荐值把当前草稿物化；关闭后任何空字段必须报具体校验问题，不借推荐值静默补齐。
-切换关闭使在途推荐响应失效，不允许迟到结果覆盖固定草稿；重新开启只接收当前 Provider/ID/编辑代次的响应。
-关闭模式不需要等名称推荐请求成功才能保存，但身份、成员权限、重复 ID、版本和完整性校验不能省略。
-保持 Provider/Account 的成员、凭据、权限和请求协议解析：禁止匹配说的是模型配置推荐，不是绕过这些运行边界。
+Antes de desligar, ainda é possível materializar o rascunho atual com os valores recomendados; após
+desligar, qualquer campo vazio precisa gerar um problema de validação específico, sem preenchimento
+silencioso por valor recomendado.
+Desligar o modo invalida as respostas de recomendação em trânsito e não permite que resultados
+atrasados sobrescrevam o rascunho congelado; religar só aceita respostas do Provider/ID/geração de
+edição atuais.
+O modo desligado não precisa esperar a requisição de nome recomendado ter sucesso para salvar, mas as
+validações de identidade, permissão de membro, ID duplicado, versão e completude não podem ser omitidas.
+Manter a resolução de membros, credenciais, permissões e protocolo de requisição de Provider/Account:
+o que se proíbe é a combinação significar recomendação de configuração de modelo e não o contorno
+desses limites de execução.
 
-## 4. Impact Brief 与职责分工
+## 4. Impact Brief e divisão de responsabilidades
 
-| 入口         | 共享组件/草稿 owner                                                      | 推荐与验证                               | 提交/权威                                                          | 端与隔离                               |
-| ------------ | ------------------------------------------------------------------------ | ---------------------------------------- | ------------------------------------------------------------------ | -------------------------------------- |
-| 添加模型     | ProviderModelsSection → ProviderModelMetadataDialog，Todo90 公共草稿逻辑 | 智能模式按 Host 推荐，固定模式完整性校验 | addPersonalModel → Settings Facade/ConfigService → Personal Config | Desktop/Web 同一组件，目标 Environment |
-| 编辑个人模型 | ModelRowInput → 同一弹窗/草稿规则                                        | 同上，允许改 ID，版本冲突保护            | savePersonalModelDraft，原子更新/重命名                            | 不修改其他模型                         |
-| 编辑继承模型 | 同一弹窗，ID 只读                                                        | 同上，Account/模板成员权限保留           | 同一配置更新入口                                                   | 不修改账号权益/连接方式                |
+| Entrada                | Componente/owner de rascunho compartilhado                                             | Recomendação e validação                          | Commit/autoridade                                                                                 | Cliente e isolamento                                    |
+| ---------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Adicionar modelo       | ProviderModelsSection → ProviderModelMetadataDialog, lógica de rascunho comum do Todo90 | modo inteligente pela recomendação do Host, validação de completude no modo fixo | addPersonalModel → Settings Facade/ConfigService → Personal Config | mesmo componente em Desktop/Web, alvo Environment |
+| Editar modelo pessoal  | ModelRowInput → mesmo diálogo/regras de rascunho                                       | o mesmo, permitindo mudar o ID, com proteção de conflito de versão | savePersonalModelDraft, atualização/renomeação atômica           | não modifica outros modelos                            |
+| Editar modelo herdado  | mesmo diálogo, ID somente leitura                                                      | o mesmo, preservando permissão de membro de Account/Modelo | mesma entrada de atualização de configuração                | não altera os direitos da conta nem o modo de conexão                       |
 
-| 关系级别       | 检查点及证据                                                                                                                 |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| must-inspect   | Dialog、MetadataFields、ModalityOptions、ReasoningLevelEditor、SettingsGroups 的默认/hover/focus/override 组合               |
-| must-inspect   | ProviderModelMetadata、ProviderFormControls、ProviderCardSections、useModelConfigResolution；Todo90 收口草稿、模式与迟到回包 |
-| should-inspect | 固定模式的服务校验及最终解析，不能 UI 显示固定、保存/运行仍借推荐补齐                                                        |
-| invariant-only | enabled、隐藏能力、Provider/Account/Selection/Session、Desktop continuous / Web replayable 不改变                            |
-| evidence-only  | 组件单测、草稿转换、Host 校验和隔离 Electron，不发真实模型请求                                                               |
+| Nível de relação      | Checkpoint e evidência                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| must-inspect          | combinações de default/hover/focus/override de Dialog, MetadataFields, ModalityOptions, ReasoningLevelEditor, SettingsGroups |
+| must-inspect          | ProviderModelMetadata, ProviderFormControls, ProviderCardSections, useModelConfigResolution; fechamento de rascunho, modo e resposta atrasada do Todo90 |
+| should-inspect        | validação de serviço e resolução final no modo fixo, sem a UI mostrar fixo e o salvamento/execução ainda completarem por recomendação |
+| invariant-only        | enabled, capacidades ocultas, Provider/Account/Selection/Session, Desktop continuous / Web replayable inalterados                    |
+| evidence-only         | testes unitários de componentes, conversão de rascunho, validação do Host e isolamento do Electron, sem requisições reais de modelo |
 
-codegraph 未提供可调用工具；已按现有 surface.provider-settings 的 seeds 以直接 imports/callers 核对深度 2。
-无新增 surface/持久化 owner，图谱只更新来源文档。无新增 graph drift；已有全图 dangling edges 不在本项修复范围。
-Todo90 是模式行为/保存/代码简化的唯一主线，本项是交互和样式的唯一主线。先落实 Todo90 统一草稿，再按本项加派生样式，最后联合验收。
+O codegraph não fornece ferramenta chamável; a profundidade 2 foi verificada pelos imports/callers
+diretos a partir dos seeds existentes de surface.provider-settings.
+Sem novo owner de surface/persistência, o grafo apenas atualiza o documento de origem. Sem novo graph
+drift; as dangling edges já existentes em todo o grafo não estão no escopo deste item.
+O Todo90 é a linha principal única de comportamento de modo/salvamento/simplificação de código, e
+este item é a linha principal única de interação e estilo. Primeiro implementar o rascunho unificado do
+Todo90, depois aplicar os estilos derivados deste item e, por último, fazer a aceitação conjunta.
 
-## 5. 验收计划
+## 5. Plano de aceitação
 
-旧 G92 分组恢复用例全部作废，不移植其产品断言；以下 F92 为新的稳定编号。
+Todos os cases antigos de restauração de grupo do G92 são anulados e suas asserções de produto não
+são portadas; os F92 abaixo são os novos identificadores estáveis.
 
-| ID     | 前置/操作                                    | 必须断言                                                                     | 证据/状态                              |
-| ------ | -------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------- |
-| F92-01 | 智能配置开启，分别改数值/能力/输入类型/MFJS  | 只对应控件覆盖边框变化；关闭能力也有覆盖反馈；尺寸不变                       | accepted；组件/草稿 + Electron 待执行  |
-| F92-02 | 改档位名称、数量、顺序；另测只改 Mapping     | 全部实际档位框一起标记；Mapping 独立；外框中性                               | accepted；参数化单测 + Electron 待执行 |
-| F92-03 | Hover 移入移出、Tab 聚焦、鼠标移走但焦点保留 | 相同交互底色、无新增 ring/边框跳变；开关背景区别保留                         | accepted；真实 DOM/样式 + 人工审阅     |
-| F92-04 | 无图标 MFJS 与有图标能力选项                 | 共用按钮样式、没有前置复选框；键盘及 aria 状态可用                           | accepted；组件 + Electron              |
-| F92-05 | 关闭智能配置、清空一个必填项/改 ID           | 所有字段明确填入且不标记覆盖；空字段阻止保存，不匹配补齐；false/合法 {} 允许 | accepted；与 M90-02/05 联合验证        |
-| F92-06 | 关闭再开启，再编辑保存；或取消               | 开启清旧覆盖但保留后续新编辑；取消不写；enabled/ID/顺序不变                  | accepted；与 M90-03 联合验证           |
-| F92-07 | 智能开启保存重开；临时无效输入               | 覆盖来源仍可见；不能因无效数值/Mapping 而丢失其他修改标记                    | accepted；组件 + 读盘 E2E              |
-| F92-08 | 中英文、深浅主题、390px                      | 开关同一 footer 可换行，标签/交互不溢出，焦点可辨                            | accepted；Air 视觉 + 隔离 Electron     |
+| ID     | Pré-condição/operação                                          | Asserções obrigatórias                                                                  | Evidência/status                                     |
+| ------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| F92-01 | configuração inteligente ligada, alterando valor/capacidade/tipo de entrada/MFJS | só a borda de override do controle correspondente muda; capacidade desligada também tem feedback de override; tamanho inalterado | accepted; componente/rascunho + Electron pendente |
+| F92-02 | alterar nome, quantidade e ordem dos níveis; testar também alterar só o Mapping | todos os quadros de nível reais são marcados juntos; Mapping independente; contorno externo neutro | accepted; teste unitário parametrizado + Electron pendente |
+| F92-03 | entrar/sair do Hover, foco por Tab, mouse sai mas o foco permanece | mesma cor de fundo interativa, sem novo ring/salto de borda; diferença de fundo do toggle preservada | accepted; DOM/estilo real + revisão manual |
+| F92-04 | MFJS sem ícone e opções de capacidade com ícone                 | estilo de botão compartilhado, sem checkbox inicial; teclado e estado aria utilizáveis     | accepted; componente + Electron                      |
+| F92-05 | desligar configuração inteligente, esvaziar um campo obrigatório/mudar o ID | todos os campos explicitamente preenchidos e sem marca de override; campo vazio impede salvar, sem preenchimento por combinação; false/{} válido permitido | accepted; validação conjunta com M90-02/05 |
+| F92-06 | desligar e religar, depois editar e salvar; ou cancelar         | ligar limpa overrides antigos mas preserva novas edições posteriores; cancelar não escreve; enabled/ID/ordem inalterados | accepted; validação conjunta com M90-03 |
+| F92-07 | salvar e reabrir com o inteligente ligado; entrada temporariamente inválida | a origem do override continua visível; valor/Mapping inválido não pode apagar outras marcas de modificação | accepted; componente + E2E de leitura em disco |
+| F92-08 | chinês/inglês, temas claro/escuro, 390px                        | o toggle quebra linha no mesmo footer, rótulo/interação não estouram, foco discernível   | accepted; visual do Air + Electron isolado           |
 
-按高风险组合/代表用例覆盖，不枚举所有 Provider 品牌或请求协议。无模型请求、无真实账号文件；Mac Electron 隔离数据验证保存，手机窄视口不冒充远控链路验证。
-新 E2E 待语义实现后放 settings/manual-review/pending，人工确认后转正；不将旧预览测试计为通过。
+A cobertura segue combinações de alto risco e cases representativos, sem enumerar todas as marcas de
+Provider ou protocolos de requisição. Sem requisições de modelo e sem arquivos de conta reais;
+validação de salvamento em Electron isolado no Mac, e a visão estreita do celular não se faz passar
+por validação do enlace de controle remoto.
+Novos E2E vão para settings/manual-review/pending depois que a semântica for implementada e são
+promovidos após confirmação manual; os testes da antiga pré-visualização não contam como aprovados.
 
-## 6. 前期试验清理记录（历史，不代表以下最终实现）
+## 6. Registro de limpeza dos experimentos anteriores (histórico; não representa a implementação final abaixo)
 
-- 撤回本轮未提交的分组恢复 UI、resetGroupsValue/分组转换 helper、定向单测与 pending E2E、Custom/Restore 推荐实验文案。
-- 同时撤回试验版 MFJS/容器调整，避免只保留最终设计的一半；最终去复选框/去标题仍列为待实现，不丢需求。
-- 已有已提交的智能配置底层前身字段/逻辑保留；不回退 Todo89 或推荐提示文案提交。
-- 本地/Air 旧预览从工作位置移出并关闭独立预览进程；只处理本轮精确路径，不修改安装版、账号数据或其他任务改动。
-- 本次仅说明、清理和验证基线；不得把 Todo90/Todo92 标成实现完成。
+- Revertida a UI de restauração de grupo não commitada neste ciclo, o helper `resetGroupsValue`/de
+  conversão de grupos, os testes unitários direcionados e o E2E pending, e o texto experimental
+  Custom/Restore de recomendação.
+- Revertido também o ajuste experimental de MFJS/container, para não manter metade do design final; a
+  remoção final de checkbox/título continua listada como pendente de implementação, sem perder o
+  requisito.
+- Mantidos os campos/lógica subjacentes de configuração inteligente já commitados; sem reverter o
+  Todo89 nem o commit do texto de dica de recomendação.
+- Pré-visualizações antigas local/Air removidas da posição de trabalho e o processo de pré-visualização
+  independente foi encerrado; apenas caminhos exatos deste ciclo foram tratados, sem modificar a versão
+  instalada, dados de conta ou alterações de outras tarefas.
+- Aqui são apenas registrados texto, limpeza e linha de base de verificação; é proibido marcar o
+  Todo90/Todo92 como implementação concluída.
 
-清理后验证：`packages/ui` 和本次 desktop E2E 范围相对 HEAD 无差异；两个原有相关单测文件共 43 条通过，`pnpm typecheck` 通过，`pnpm lint` 0 errors / 40 个既有 warnings。图谱 YAML、唯一 ID、设置页来源文档和代码 seed 路径检查通过，edges 未变；未重跑完整桌面 E2E，也不宣称新方案已通过。
+Verificação após a limpeza: `packages/ui` e o escopo de E2E desktop desta rodada sem diferenças em
+relação ao HEAD; 43 casos aprovados somados aos dois arquivos de teste unitário relacionados já
+existentes, `pnpm typecheck` aprovado, `pnpm lint` com 0 errors / 40 warnings já existentes. YAML do
+grafo, IDs únicos, documento de origem da página de configurações e verificação dos caminhos de seed de
+código aprovados, com edges inalterados; não foi reexecutado o E2E desktop completo nem se afirma que a
+nova solução passou.
+Locais preservados das pré-visualizações antigas: local `/tmp/zcode-retired-group-preview.6IUa9h`;
+Air `/Users/dev/.Trash/zcode-model-group-preview.oRYZZn`. Ambos não estão mais em posições de trabalho
+ativas e podem ser restaurados; não servem como entrada de inicialização da nova versão.
 
-旧预览保留位置：本地 `/tmp/zcode-retired-group-preview.6IUa9h`；Air `/Users/dev/.Trash/zcode-model-group-preview.oRYZZn`。两者已不在活动工作位置，可恢复；不作为新版本启动入口。
+## 7. Implementação final e aceitação conjunta de 2026-09-08
 
-## 7. 2026-09-08 最终实现与联合验收
+| Escopo                      | Implementação e evidência                                                                                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Origem do override F92-01/07 | derivada da intenção pessoal do rascunho comum; valores e Map leem cada entrada bruta, booleanos e modalidades preservam a fonte explícita e não dependem da validação da tabela inteira; campo inválido não limpa as outras marcas. Funções puras/testes unitários de componentes e leitura em disco do SC90-01 aprovados |
+| F92-02 Nível/Mapping         | todos os chips reais marcados simultaneamente, Mapping marcado à parte, contorno externo neutro; o botão de adicionar não acompanha. Apenas visualizar os níveis não cria override. Ordenação por teclado, edição, adição/remoção e arrastar cobertos por teste unitário; MP-UI-06 cobre reordenação por teclado e reabertura após salvar |
+| F92-03 Hover/foco            | modelEditorControlStyle serve apenas a este diálogo; a borda reflete somente o override e hover/focus-visible usam o mesmo fundo, preservando a base de selecionado/não selecionado. O Pro validou em MFJS a consistência de fundo ao entrar/sair de fato e ao sair com o mouse após foco por teclado, sem salto de borda; aprovação nos dois temas |
+| F92-04 MFJS                 | remoção do ramo de checkbox automático sem ícone e do wrapper BooleanSwitchField; reaproveitamento direto do BooleanModelOption, preservando role/aria-checked, sem ícone/checkbox inicial |
+| F92-05/06 Modo              | compartilhado com o Todo90 o modo, a completude e o fluxo cancelar/salvar; o toggle de configuração inteligente fica no footer e o estado fixo oculta todo o feedback de override; nenhum novo agrupamento ou reset global foi adicionado |
+| F92-08 Layout               | removido o título duplicado de raciocínio, mantidos o título de configurações avançadas e os dois agrupamentos; Pro validou 390px nos dois temas e nos dois idiomas, os limites dos controles, o foco, o título e o footer. Electron com visão estreita não equivale a celular real por controle remoto |
 
-| 范围                 | 实现与证据                                                                                                                                                                                          |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F92-01 / 07 覆盖来源 | 从公共草稿的个人意图派生；数值与 Map 各自读取原始输入，布尔与模态保留显式来源，不依赖整表校验；无效字段不清除其他标记。纯函数/组件单测及 SC90-01 读盘重开通过                                       |
-| F92-02 档位/Mapping  | 所有真实 chips 同时标记，Mapping 单独标记、外框中性；新增按钮不跟随。只查看档位不创建覆盖。键盘排序、编辑、增删和拖动由单测覆盖，MP-UI-06 覆盖键盘调序及保存重开                                    |
-| F92-03 Hover/焦点    | modelEditorControlStyle 仅服务本弹窗；边框只反映覆盖，Hover/focus-visible 使用同一背景，保持选中与未选中的基底。Pro 对 MFJS 实际移入/移出、键盘聚焦后鼠标离开验证背景一致、边框不跳；深浅主题均通过 |
-| F92-04 MFJS          | 删除无图标自动画复选框分支和 BooleanSwitchField 包装；直接复用 BooleanModelOption，保留 role/aria-checked，无前置图标/复选框                                                                        |
-| F92-05 / 06 模式     | 与 Todo90 共用模式、完整性、取消/保存链路；智能配置开关在 footer，固定态隐藏全部覆盖反馈；没有新增分组/全局重置                                                                                     |
-| F92-08 布局          | 去除重复推理标题，高级标题/两个分组保留；Pro 390px 深浅主题/中英文、控件边界、焦点、标题与 footer 验证。Electron 窄视口不等于真实手机远控                                                           |
+Problemas reais encontrados na revisão por screenshot: em tela estreita, após trocar de chinês para
+inglês, o `overflow-hidden` original do Dialog permitia que o foco rolasse o contorno externo,
+observando-se scrollTop=29.5 e o topo do título cortado; trocar o elemento do corpo não resolveu. Por
+fim, o contorno externo passou a usar `overflow-clip`, que apenas recorta, e o corpo continuou sendo a
+única área de rolagem. O problema não foi mascarado com reset de scrollTop, timeout ou estado de foco
+adicional. Foram adicionadas asserções reais de DOM de visibilidade do título e de ausência de
+rolagem do contorno; `desktop-e2e-20260908-110410-575` aprovado e os screenshots dos dois temas foram
+lidos.
 
-截图复审补到的真实问题：窄屏从中文切英文后，原 Dialog 的 overflow-hidden 允许聚焦滚动外框，观测到 scrollTop=29.5、标题顶部被裁切；更换正文元素并不能解决。最后将外框改为只裁切的 overflow-clip，正文仍是唯一滚动区。没有用 scrollTop 重置、超时或额外焦点状态掩盖问题。新增标题可见/外框不滚动的真实 DOM 断言；`desktop-e2e-20260908-110410-575` 验证通过，双主题截图已阅读。
+Regressão final conjunta: Pro `desktop-e2e-20260908-110541-867`, 3 specs **9/9**:
 
-联合最终回归：Pro `desktop-e2e-20260908-110541-867`，3 个 spec **9/9**：
+- Novo pending `provider-model-smart-config.test.ts`: SC90-01.
+- Existente `settings-ui-polish.test.ts`: UP-01, MP-UI-01～06 (7 itens, excluindo os itens de remote
+  que exigem explicitamente SSH).
+- Existente pending `provider-settings-write-recovery.test.ts`: entrada de recuperação e preservação do
+  rascunho quando a adição falha.
 
-- 新 pending `provider-model-smart-config.test.ts`：SC90-01。
-- 既有 `settings-ui-polish.test.ts`：UP-01、MP-UI-01～06（7 项，排除明确需要 SSH 的 remote 项）。
-- 既有 pending `provider-settings-write-recovery.test.ts`：修复入口、添加失败保留草稿。
-
-产物：Pro `/Users/dev/zcode-todo93-e2e.88xgST/packages/desktop/.e2e-artifacts/`，上述 run 的 summary；`todo90-92/model-editor-{dark,light}-390.png` 为最终视觉证据。317 条相关单测及 root typecheck/lint 通过（lint 40 个既有 warnings）。未改变共享 Button/Input 的全局样式、用户真实配置、账号/Selection/会话/remote 协议；未宣称 Windows、真实手机链路或所有品牌账号排列已实测。新 E2E 保留 pending，未代替用户人工转正。
+Artefatos: Pro `/Users/dev/zcode-todo93-e2e.88xgST/packages/desktop/.e2e-artifacts/`, o summary das
+execuções acima; `todo90-92/model-editor-{dark,light}-390.png` como evidência visual final. 317 testes
+unitários relacionados e typecheck/lint da raiz aprovados (lint com 40 warnings já existentes). Não
+foram alterados o estilo global dos componentes Button/Input compartilhados, a configuração real do
+usuário, o protocolo de conta/Selection/sessão/remote; não se afirma que Windows, o enlace de celular
+real ou o arranjo de contas de todas as marcas foram testados. Os novos E2E permanecem pending, sem
+substituir a promoção manual do usuário.

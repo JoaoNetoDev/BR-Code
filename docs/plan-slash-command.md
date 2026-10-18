@@ -1,26 +1,26 @@
-# `/plan` Composer 快捷命令
+# Comando de atalho `/plan` do Composer
 
-## 目标
+## Objetivo
 
-为桌面端、Web 端和手机 `/remote` 的 V4 Composer 提供可发现的 `/plan` 快捷命令，
-把“切换到 Plan 模式”和“提交一个任务”组合成一次输入操作。
+Fornecer ao V4 Composer do desktop, da Web e do `/remote` no celular um comando de atalho `/plan` descobrível,
+combinando "mudar para o modo Plan" e "enviar uma tarefa" em uma única operação de entrada.
 
-本命令只属于 App Composer 表面，不扩展 CLI TUI、`--prompt` 或 headless 输入入口。
+Este comando pertence apenas à superfície do App Composer e não estende a CLI TUI, `--prompt` nem as entradas headless.
 
-## 语法与结果
+## Sintaxe e resultado
 
-| 输入                                       | 结果                                                                                              |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `/plan`                                    | draft 更新 renderer draft mode；已有 session 发送 `switchCollaborationMode(plan)`；不发模型请求。 |
-| `/plan <task>`                             | 先完成 mode CAS，再按普通 `sendText(<task>)` 发送；provider 和 transcript 只看到 `<task>`。       |
-| `/plan` 或 `/plan <task>` 携带附件/context | 显式提示首版不支持，保留输入、附件和 context，不切换模式、不发送。                                |
-| 其他文本（例如 `/planner`）                | 按普通文本处理。                                                                                  |
+| Entrada                                     | Resultado                                                                                                |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `/plan`                                     | o draft atualiza o renderer draft mode; em uma session existente, envia `switchCollaborationMode(plan)`; não envia requisição ao modelo. |
+| `/plan <task>`                              | conclui primeiro o CAS de modo e depois envia com o `sendText(<task>)` comum; o provider e o transcript veem apenas `<task>`. |
+| `/plan` ou `/plan <task>` com anexo/contexto | exibe explicitamente que a primeira versão não suporta isso, preservando entrada, anexos e contexto, sem trocar de modo e sem enviar. |
+| Outros textos (por exemplo `/planner`)     | tratados como texto comum.                                                                                  |
 
-参数名称大小写不敏感，任务正文去除首尾空白但保留内部换行与内容。
-命令被消费后，Composer 清空命令输入；`/plan` 本身不生成 user transcript row。
-原始命令可以保留在本地 prompt history，但不得进入 provider prompt 或 conversation transcript。
+O nome do parâmetro não diferencia maiúsculas de minúsculas; o corpo da tarefa remove os espaços das pontas, mas preserva as quebras de linha e o conteúdo internos.
+Depois que o comando é consumido, o Composer limpa a entrada do comando; o `/plan` em si não gera nenhuma user transcript row.
+O comando original pode permanecer no prompt history local, mas não pode entrar no prompt do provider nem no conversation transcript.
 
-## 状态与失败边界
+## Estado e limites de falha
 
 ```text
 Composer submit
@@ -38,26 +38,26 @@ Composer submit
                 └─ task -> ordinary sendText(task)
 ```
 
-配置命令与发送命令继续使用现有 config barrier。CAS stale 使用已有有界重试；如果最终不是
-`accepted`、`noop` 或 `duplicate`，返回 `blocked`，不清空 Composer，也不发送任务。
-已处于 Plan 模式时，mode CAS 以 noop 收敛后仍允许发送任务。
+Os comandos de configuração e de envio continuam usando a config barrier existente. Um CAS stale usa a retry limitada já existente; se o resultado final não for
+`accepted`, `noop` ou `duplicate`, retorna `blocked`, sem limpar o Composer e sem enviar a tarefa.
+Quando já está no modo Plan, o CAS de modo converge como noop e ainda permite enviar a tarefa.
 
-draft 的 `/plan` 与工具栏模式切换共享 renderer draft preference；已有 session 的切换不会改写
-后续 draft 默认值。running/queued 输入仍由 CLI runtime `CommandInbox` 按现有 FIFO 接纳，
-不会创建 `/plan` 专用队列或 mode snapshot。
+O `/plan` de draft compartilha a renderer draft preference com a troca de modo pela barra de ferramentas; a troca em uma session existente não reescreve
+o valor padrão dos drafts seguintes. Entradas running/queued continuam sendo admitidas pelo `CommandInbox` do runtime da CLI conforme o FIFO existente,
+sem criar uma fila específica para `/plan` nem um mode snapshot.
 
-## 跨端边界
+## Limites entre plataformas
 
-desktop local/remote workspace 继续使用可信 `desktop-continuous` attachment，手机 `/remote`
-继续使用可信 `web-remote-replayable` attachment。两端复用同一 Composer 命令顺序，但不改变
-relay、desktop main、Host、workspace identity、remoteSessionId 或 replayable snapshot/gap 责任。
+O workspace local/remoto do desktop continua usando o attachment confiável `desktop-continuous`, e o `/remote` no celular
+continua usando o attachment confiável `web-remote-replayable`. Os dois lados reutilizam a mesma ordem de comandos do Composer, sem alterar
+as responsabilidades de relay, desktop main, Host, workspace identity, remoteSessionId ou snapshot/gap replayable.
 
-不新增 V4 wire command、协议字段、持久化结构或独立 runtime。
+Não é adicionado nenhum V4 wire command, campo de protocolo, estrutura persistida ou runtime separado.
 
-## 验收证据
+## Evidências de verificação
 
-- slash catalog 显示 `/plan [task]`，选择后插入 `/plan `。
-- draft 空命令只改变模式；已有 session 空命令不产生模型请求或 user row。
-- 带任务时 mode CAS 先于 `sendText`，provider/transcript 只出现任务正文。
-- CAS 失败、附件/context 拒绝均保留完整 Composer 状态。
-- desktop continuous 与 mobile replayable 只在 delivery profile 上不同，最终命令语义一致。
+- O slash catalog exibe `/plan [task]` e, ao selecionar, insere `/plan `.
+- O comando vazio em draft apenas muda o modo; o comando vazio em uma session existente não gera requisição ao modelo nem user row.
+- Com tarefa, o CAS de modo precede o `sendText`, e apenas o corpo da tarefa aparece no provider/transcript.
+- Falha de CAS e rejeição por anexo/contexto preservam o estado completo do Composer.
+- Desktop continuous e mobile replayable diferem apenas no delivery profile, com semântica final de comando idêntica.

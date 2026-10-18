@@ -1,28 +1,28 @@
-# Agent tool relaxed execution policy
+# Política de execução flexível de ferramentas do agente
 
-## 背景
+## Contexto
 
-2026-06-29 的日志排查显示，连续 subagent 失败的第一层原因不是同类型 `Agent` tool call 被拒绝，而是：
+A análise de logs de 2026-06-29 mostrou que a primeira causa das falhas consecutivas de subagent não foi a rejeição de chamadas de ferramenta `Agent` do mesmo tipo, mas sim:
 
-- `TodoWriteInputSchema` 在 schema 层拒绝多个 `in_progress` todo，导致 `TodoWrite` 失败；
-- `executeToolSchedule` 看到前序非 `concurrentSafe` 工具失败后，对后续调度组生成 skipped 结果并停止执行。
+- `TodoWriteInputSchema` rejeitando múltiplos todos `in_progress` na camada de schema, fazendo `TodoWrite` falhar;
+- `executeToolSchedule` gerando resultados skipped para os grupos de agendamento seguintes e interrompendo a execução após ver uma falha em uma ferramenta anterior que não era `concurrentSafe`.
 
-这两个策略都会把模型一次性产出的后续工具调用提前截断。为了让 agent 能继续执行模型已经排好的后续 tool calls，本次放宽这两个本地策略。
+As duas políticas truncam prematuramente as chamadas de ferramenta seguintes que o modelo produziu de uma só vez. Para que o agente possa continuar executando os tool calls que o modelo já enfileirou, esta alteração flexibiliza as duas políticas locais.
 
-## 行为
+## Comportamento
 
-- `TodoWrite` 不再在 runtime schema 层硬拒绝多个 `in_progress` todo。`summary.inProgress` 继续按真实数量统计。
-- `TodoWrite` 的 provider-visible description 保持原样，不主动提示模型写入多个 `in_progress`。
-- 工具调度按既有 `parallelGroups` 顺序执行。某一组出现普通失败后，不再自动跳过后续组；后续工具是否能运行仍由各自权限、取消信号、handler 错误和调度分组决定。
-- `turnControl.stopTurnAfterResult` 是显式 turn 边界。某个工具结果请求停止当前 turn 时，后续调度组不再执行真实 handler，并会生成取消结果来闭合 provider-visible tool call history。
+- `TodoWrite` não rejeita mais múltiplos todos `in_progress` de forma rígida na camada de schema de runtime. `summary.inProgress` continua contando a quantidade real.
+- A description visível ao provider de `TodoWrite` permanece igual, sem incentive ativo ao modelo para escrever vários `in_progress`.
+- O agendamento de ferramentas é executado na ordem dos `parallelGroups` já existente. Depois que um grupo tem uma falha comum, os grupos seguintes não são mais pulados automaticamente; se as ferramentas seguintes podem rodar continua dependendo de suas próprias permissões, do sinal de cancelamento, de erros no handler e do agrupamento de agendamento.
+- `turnControl.stopTurnAfterResult` é uma fronteira explícita de turn. Quando o resultado de uma ferramenta pede para parar o turn atual, os grupos de agendamento seguintes não executam handlers reais e geram resultados de cancelamento para fechar o histórico de tool calls visível ao provider.
 
-## 非目标
+## Não objetivos
 
-- 不修改 todo 存储结构，也不引入 id-based task store。
-- 不扩展 UI/TUI 摘要展示策略；如果界面当前只突出一个 `in_progress`，本次不改变该展示语义。
-- 不删除旧策略代码。旧校验和跳过分支保留为注释，方便后续对比或回滚。
+- Não modificar a estrutura de armazenamento dos todos nem introduzir um task store baseado em id.
+- Não estender a política de exibição de resumo na UI/TUI; se a interface hoje destaca apenas um `in_progress`, essa semântica de exibição não muda nesta alteração.
+- Não remover o código das políticas antigas. As validações e os ramos de skip antigos são mantidos como comentários, para facilitar comparações futuras ou rollback.
 
-## 验收
+## Aceitação
 
-- 多个 `in_progress` 的 `TodoWrite` 能成功写入并读回。
-- plan mode 下前序写工具被权限拒绝时，后续只读工具仍会执行并把真实结果返回给模型。
+- Um `TodoWrite` com vários `in_progress` é gravado com sucesso e lido de volta.
+- No plan mode, quando uma ferramenta de escrita anterior é rejeitada por permissão, as ferramentas somente leitura seguintes ainda são executadas e o resultado real é devolvido ao modelo.

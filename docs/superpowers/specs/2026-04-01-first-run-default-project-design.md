@@ -1,23 +1,26 @@
-# 启动时自动兜底非项目对话工作区（已替代默认项目）
+# Fallback Automático para o Workspace de Conversa sem Projeto na Inicialização (substitui o Projeto Padrão)
 
-## 概述
+## Resumo
 
-app 启动时优先恢复 `lastWorkspaceSession`；如果没有任何可恢复的工作区，则确保存在 `<dataBaseDir>/.zcode/workspace/default`，以 `workspacePurpose=conversation` 激活并预热。UI 保持“未选择项目”，用户可以直接对话。
+Na inicialização do app, o app prioriza restaurar `lastWorkspaceSession`; se não houver nenhum workspace restaurável,
+garante a existência de `<dataBaseDir>/.zcode/workspace/default`, ativa-o com `workspacePurpose=conversation` e faz o
+pré-aquecimento. A UI permanece como "nenhum projeto selecionado", e o usuário pode conversar diretamente.
 
-## 判断标准
+## Critério de decisão
 
-- `lastWorkspaceSession.length > 0` → 正常恢复上次会话
-- `lastWorkspaceSession.length === 0` 或 settings 文件不存在 → 兜底进入 conversation backing workspace
+- `lastWorkspaceSession.length > 0` → restaura normalmente a sessão anterior
+- `lastWorkspaceSession.length === 0` ou arquivo de settings inexistente → entra no fallback, no conversation backing
+  workspace
 
-## 平台范围
+## Escopo de plataforma
 
-Desktop（Electron）优先落地；Web 保持同样的启动语义。
+O Desktop (Electron) recebe a implementação primeiro; a Web mantém a mesma semântica de inicialização.
 
-## Service 层改动
+## Mudanças na camada de Service
 
-### fileService 扩展
+### Extensão do fileService
 
-在 `IFileService` 提供幂等方法：
+No `IFileService` é fornecido um método idempotente:
 
 ```typescript
 interface IFileService {
@@ -31,33 +34,36 @@ interface IFileService {
 
 #### `ensureConversationWorkspace()`
 
-- 检查 `<dataBaseDir>/.zcode/workspace/default` 是否存在
-- 不存在：`mkdir` 创建，返回 `{ path, created: true }`
-- 存在：返回 `{ path, created: false }`
+- verifica se `<dataBaseDir>/.zcode/workspace/default` existe
+- se não existe: cria com `mkdir` e retorna `{ path, created: true }`
+- se existe: retorna `{ path, created: false }`
 
-该方法是幂等的，多次调用不会产生额外副作用。
+O método é idempotente e múltiplas chamadas não produzem efeitos colaterais adicionais.
 
-### settings 写入约束
+### Restrições de escrita em settings
 
-- `recentProjects` 和 `lastOpenTabs` 可能在同一条打开工作区链路里先后写入
-- settings 更新必须串行化，避免后写入的补丁把前一个字段覆盖掉
+- `recentProjects` e `lastOpenTabs` podem ser escritos em sequência na mesma cadeia de abertura de workspace
+- a atualização de settings deve ser serializada, para evitar que um patch escrito depois sobrescreva o campo anterior
 
-## Desktop 启动入口
+## Ponto de entrada da inicialização no Desktop
 
-Desktop 在 main 进程启动时读取 settings：
+O Desktop lê as settings na inicialização do processo main:
 
-1. `lastWorkspaceSession.length > 0` 时，不分配新路径，交给 renderer 正常恢复会话
-2. `lastWorkspaceSession.length === 0` 时，确保 backing path 存在，并把完整 conversation descriptor 传给 renderer，同时作为 Agent warmup target
+1. quando `lastWorkspaceSession.length > 0`, não aloca um novo caminho e deixa o renderer restaurar a sessão normalmente
+2. quando `lastWorkspaceSession.length === 0`, garante a existência do backing path e passa ao renderer o conversation
+   descriptor completo, usado também como target de warmup do Agent
 
-这样启动时只有两条主路径：恢复会话，或者直接进入默认工作区。
+Assim, na inicialização existem apenas dois caminhos principais: restaurar a sessão ou entrar diretamente no workspace
+padrão.
 
-## 涉及文件
+## Arquivos envolvidos
 
-| 文件 | 改动 |
+| Arquivo | Mudança |
 |------|------|
-| `packages/services/src/file/fileService.ts` | 实现 backing workspace 路径与幂等创建 |
-| `packages/shared/src/protocol.ts` | 增加 `WorkspacePurpose` 与 persisted descriptor |
-| `packages/desktop/src/main/startupWorkspace.ts` | 启动时解析恢复会话/conversation fallback |
-| `packages/desktop/src/main/index.ts` | 接入启动兜底逻辑 |
+| `packages/services/src/file/fileService.ts` | Implementa o caminho do backing workspace e a criação idempotente |
+| `packages/shared/src/protocol.ts` | Adiciona `WorkspacePurpose` e o descriptor persistido |
+| `packages/desktop/src/main/startupWorkspace.ts` | Resolve na inicialização entre restaurar sessão e fallback de conversa |
+| `packages/desktop/src/main/index.ts` | Integra a lógica de fallback da inicialização |
 
-完整当前设计见 [2026-07-10-non-project-conversation-workspace-design.md](./2026-07-10-non-project-conversation-workspace-design.md)。
+O desenho completo atual está em
+[2026-07-10-non-project-conversation-workspace-design.md](./2026-07-10-non-project-conversation-workspace-design.md).

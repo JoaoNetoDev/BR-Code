@@ -1,30 +1,30 @@
-# 引导迁移向导外部 Agent 导入步骤
+# Etapas de importação de agente externo no assistente de migração do onboarding
 
-## 背景
+## Contexto
 
-设置页已经具备从外部 Agent 导入 Skills、MCP 服务器、插件、命令的基础能力。插件导入当前仍需要 Agent 侧支持，入口暂时隐藏；首启引导的数据迁移向导需要先覆盖可用的 Skills、MCP 服务器、命令导入。
+A página de configurações já tem a capacidade básica de importar Skills, servidores MCP, plugins e comandos a partir de um agente externo. A importação de plugins ainda exige suporte do lado do Agent e a entrada está temporariamente oculta; o assistente de migração de dados do onboarding inicial precisa cobrir primeiro as importações disponíveis de Skills, servidores MCP e comandos.
 
-## 目标
+## Objetivos
 
-- 在引导迁移向导的正式迁移前加入三个可用外部导入步骤：
+- Adicionar três etapas disponíveis de importação externa antes da migração final do assistente de migração do onboarding:
   - Skills
-  - MCP 服务器
-  - 命令
-- 插件导入步骤暂时隐藏，原因是需要 Agent 侧支持完成后再开放。
-- 代理设置步骤暂时隐藏，不在引导的数据迁移向导里迁移 Agent 代理配置。
-- 每个步骤复用设置页导入弹窗的扫描、scope 切换、刷新、来源展开、逐项选择、全选/取消全选、导入目标、导入方式交互。
-- MCP 服务器步骤复用设置页 MCP 导入逻辑，仅合并配置，不显示软链/复制模式。
-- 进入最终迁移步骤时，将三个可用导入步骤中已选内容统一导入。
+  - Servidores MCP
+  - Comandos
+- A etapa de importação de plugins fica temporariamente oculta, porque depende da conclusão do suporte do lado do Agent.
+- A etapa de configurações de proxy fica temporariamente oculta; a configuração de proxy do Agent não é migrada no assistente de migração de dados do onboarding.
+- Cada etapa reutiliza as interações do diálogo de importação da página de configurações: varredura, troca de scope, atualização, expansão da origem, seleção item a item, selecionar tudo/desmarcar tudo, destino da importação e forma de importação.
+- A etapa de servidores MCP reutiliza a lógica de importação de MCP da página de configurações, apenas mesclando a configuração e sem exibir os modos de symlink/cópia.
+- Ao entrar na etapa final de migração, o conteúdo selecionado nas três etapas de importação disponíveis é importado de forma unificada.
 
-## 行为
+## Comportamento
 
-- 三个可用导入步骤按需扫描：用户进入对应步骤时扫描当前类别，避免首屏一次性触发所有外部目录读取。
-- 用户可以不选择任何外部导入项并继续下一步。
-- “开始迁移”在至少选中会话或任一外部导入项时可用。
-- 外部导入结果继续复用 settings-sync 结果统计，进入完成页统一展示导入成功、跳过、失败数量。
+- As três etapas de importação disponível fazem varredura sob demanda: a varredura da categoria atual ocorre quando o usuário entra na etapa correspondente, evitando disparar de uma vez todas as leituras de diretórios externos na primeira tela.
+- O usuário pode não selecionar nenhum item de importação externa e seguir para a próxima etapa.
+- "Iniciar migração" fica disponível quando pelo menos sessions ou algum item de importação externa está selecionado.
+- O resultado da importação externa continua reutilizando as estatísticas de resultado do settings-sync, exibidas de forma unificada na página final com as contagens de importado com sucesso, pulado e falho.
 
-## 兼容性
+## Compatibilidade
 
-- 桌面端与 Web 端共用 UI 状态；实际可扫描内容由 settings-sync service 决定。
-- Project 目标仍依赖当前 workspacePath；无 workspace 时 Project 目标禁用。
-- 不引入 Gemini 相关来源。
+- Desktop e Web compartilham o estado de UI; o conteúdo efetivamente varrido é determinado pelo settings-sync service.
+- O destino Project ainda depende do workspacePath atual; sem workspace, o destino Project fica desabilitado.
+- Não são introduzidas origens relacionadas ao Gemini.

@@ -1,48 +1,48 @@
-# 后台 session event 降频
+# Redução de frequência de eventos de session em segundo plano
 
-## 背景
+## Contexto
 
-深度检索类任务并发运行时，多个后台 task 会持续产生 `model.streaming`、`tool.updated:progress` 和恢复进度事件。即使当前界面只展示一个 task，renderer 仍会被后台任务的每个协议事件唤醒，继续做 projection、Zustand 写入和 React 更新，导致 5 并发时 renderer CPU 明显升高。
+Quando tarefas de busca profunda são executadas em paralelo, múltiplas tasks em segundo plano continuam produzindo `model.streaming`, `tool.updated:progress` e eventos de progresso de recuperação. Mesmo que a interface atual exiba apenas uma task, o renderer continua sendo acordado por cada evento de protocolo de tarefas em segundo plano, seguindo com projection, escritas no Zustand e atualizações do React, o que provoca um aumento perceptível do CPU do renderer com 5 tarefas concorrentes.
 
-## 策略
+## Estratégia
 
-- active task 继续使用 `desktop-continuous` 实时订阅，保留流式正文、思考和工具调用的体感。
-- inactive task 的后台 monitor 在订阅 `desktop-continuous` session event 时声明 `background-summary` 合并模式。
-- inactive desktop task 进入 tombstone 内容模式：后台 monitor 只维护运行态、标题、权限、usage、plan、队列、未读和终态，不再把正文/思考/tool progress chunk 持续写入 React 消息树。
-- 合并只发生在订阅者侧，不改变共享 emitter，不改变 agent/runtime 的事件事实源，也不改变手机 `/remote` 的 `web-remote-replayable` snapshot/gap 恢复语义。
-- 后台可合并事件：
+- A task ativa continua usando a assinatura em tempo real `desktop-continuous`, preservando a sensação de streaming do corpo, do raciocínio e das chamadas de ferramenta.
+- O monitor em segundo plano das tasks inativas declara o modo de coalescing `background-summary` ao assinar session events `desktop-continuous`.
+- A task desktop inativa entra no modo de conteúdo tombstone: o monitor em segundo plano mantém apenas estado de execução, título, permissões, usage, plan, fila, não lidas e estado final, sem continuar escrevendo chunks de corpo/pensamento/progresso de ferramentas na árvore de mensagens do React.
+- O coalescing acontece apenas no lado do assinante: não altera o emitter compartilhado, não altera a fonte factual de eventos do agent/runtime e não altera a semântica de recuperação por snapshot/gap do `web-remote-replayable` do celular `/remote`.
+- Eventos que podem ser coalescidos em segundo plano:
   - `model.streaming:text_delta`
   - `model.streaming:reasoning_delta`
   - `model.streaming:tool_input_delta`
   - `tool.updated:progress`
   - `streamRecovery.updated`
-- 后台不可延迟事件必须先 flush 已合并事件再立即投递：
-  - turn start / terminal
+- Eventos em segundo plano que não podem ser atrasados devem fazer flush dos eventos já coalescidos e então ser entregues imediatamente:
+  - início / estado final do turn
   - tool scheduled / started / result / error / batch
   - permission / user input
   - snapshot / state update / provider runtime headers
-  - title、mode、target 等结构化 session 变更
+  - mudanças estruturadas de session como title, mode, target
 
-## 目标
+## Objetivo
 
-后台 task 仍能保持运行态、权限请求、终态、未读状态和切回后的恢复能力，但不可见任务不再按 token/tool progress 频率驱动 renderer。用户切换到某个任务时，前台订阅通过 snapshot/live stream 重新接管完整 UI；后台合并只承担低频摘要，不作为 replayable 恢复边界。
+As tasks em segundo plano continuam mantendo estado de execução, solicitações de permissão, estado final, status de não lidas e a capacidade de recuperação ao voltar para elas, mas tasks invisíveis não conduzem mais o renderer na frequência de token/progresso de ferramentas. Quando o usuário alterna para uma task, a assinatura em primeiro plano retoma o controle da UI completa via snapshot/live stream; o coalescing em segundo plano carrega apenas o resumo de baixa frequência e não serve como fronteira de recuperação replayable.
 
-## Tombstone 内容模式
+## Modo de conteúdo tombstone
 
-- 桌面后台任务收到 `agent_message_chunk`、`agent_thought_chunk`、`tool_call`、普通 `tool_call_update` 时，不再调用 `updateTaskMessages`。
-- `tool_call_update:completed` 仍会用工具标题轻量补齐 todo plan，例如 `Write/Edit <path>` 对应某个 plan step 文件名时将该 step 标成 completed。
-- `task_complete` / `task_error` 对不可见桌面任务只收口 runtime、usage、错误、未读和队列，不主动拉 residual snapshot 写入大消息。
-- `task_snapshot_updated` 对不可见桌面任务只作为恢复提示；除归档/删除等显式释放原因外，不在后台读取全量消息。
-- 当前 active task、active task 前台订阅建立前的兜底窗口，以及手机 `web-remote-replayable` mirror 不使用 tombstone，仍保持原有实时/恢复语义。
-- 批量 session 压测不会在触发完成后自动切到最后一个成功任务；这些任务保持后台 tombstone，用户显式点开时再恢复完整内容。
-- 批量 session 压测的首发 session 会按 1000ms 轻微错峰启动，最多延迟 5s；这样 5 并发会在 4s 内全部进入运行态，10 并发在 5s 内完成触发，不会把 task 创建、订阅和运行态写入全部压在同一秒打到 renderer。
-- 批量 session 压测产生的后台首发任务使用轻量初始化：task 列表插入、optimistic meta、runtime=`streaming`、`activeInputId` 和 provider 绑定合并为一次 Zustand 写入，不再为不可见任务写入首发 user/assistant optimistic messages。
-- 后台 monitor 的单个事件处理包在 React batched updates 中，减少终态同时更新 runtime、usage、未读、权限等状态时的 React commit 次数。
-- 不可见桌面任务的 title-only `session_info_update` 会按 2s 合并写回任务缓存；带 `target` 的 goal/status 更新和终态事件会先 flush pending title，再继续通知和收口。
-- 工具输入投影采样、消息写入采样、后台 usage breakdown 等随流诊断日志必须走 `debug`，避免深度检索时 renderer 反复做大对象序列化和生产日志落盘。
+- Quando uma task desktop em segundo plano recebe `agent_message_chunk`, `agent_thought_chunk`, `tool_call` e `tool_call_update` normal, ela não chama mais `updateTaskMessages`.
+- `tool_call_update:completed` ainda completa de forma leve o todo plan com o título da ferramenta; por exemplo, quando `Write/Edit <path>` corresponde ao nome de arquivo de um plan step, aquele step é marcado como completed.
+- `task_complete` / `task_error` para tasks desktop invisíveis apenas fecham runtime, usage, erro, não lidas e fila, sem buscar ativamente um snapshot residual para escrever uma mensagem grande.
+- `task_snapshot_updated` para tasks desktop invisíveis serve apenas como aviso de recuperação; salvo motivos explícitos de liberação como arquivamento/exclusão, não se lê o conjunto completo de mensagens em segundo plano.
+- A task ativa atual, a janela de fallback anterior ao estabelecimento da assinatura em primeiro plano da task ativa e o mirror `web-remote-replayable` do celular não usam tombstone e mantêm a semântica original de tempo real/recuperação.
+- O teste de carga de session em lote não muda automaticamente para a última task bem-sucedida após o disparo; essas tasks permanecem em tombstone em segundo plano e o conteúdo completo é restaurado quando o usuário as abre explicitamente.
+- A primeira session do teste de carga em lote é iniciada com um pequeno escalonamento de 1000ms, com atraso máximo de 5s; assim, 5 execuções concorrentes entram todas em estado de execução em 4s e 10 execuções concluem o disparo em 5s, sem jogar criação de task, assinatura e escrita de estado de execução todas no mesmo segundo contra o renderer.
+- As primeiras tasks em segundo plano geradas pelo teste de carga em lote usam inicialização leve: inserção na lista de tasks, meta otimista, runtime=`streaming`, `activeInputId` e vinculação ao provider são fundidos em uma única escrita no Zustand, sem escrever mensagens otimistas de usuário/assistant de primeira entrega para tasks invisíveis.
+- O tratamento de um evento individual no monitor em segundo plano é envolvido em React batched updates, reduzindo o número de commits do React quando runtime, usage, não lidas e permissões são atualizados juntos no estado final.
+- O `session_info_update` title-only de tasks desktop invisíveis é gravado de volta no cache de tasks com coalescing de 2s; atualizações de goal/status com `target` e eventos de estado final fazem flush do title pendente antes de continuar notificando e fechando.
+- Logs de diagnóstico como amostragem da projeção de entrada de ferramenta, amostragem de escrita de mensagens e breakdown de usage em segundo plano devem passar por `debug`, evitando serializações repetidas de objetos grandes no renderer e gravação de logs de produção durante buscas profundas.
 
-## 边界
+## Limites
 
-- `clientMode` / `deliveryKind` 边界不扩散：本策略只在 UI 后台 monitor 的 `desktop-continuous` 订阅参数上启用。
-- 手机远控 replayable 不使用该合并模式，仍由 `seq`、gap recovery 和 snapshot 保证恢复。
-- app-agent 协议 `@zcode/protocol` 不新增字段；合并参数是 services 内部订阅者策略，不传给 zcode-cli runtime。
+- O limite de `clientMode` / `deliveryKind` não se espalha: esta estratégia só é ativada nos parâmetros de assinatura `desktop-continuous` do monitor de UI em segundo plano.
+- O replayable do controle remoto do celular não usa esse modo de coalescing; a recuperação continua garantida por `seq`, gap recovery e snapshot.
+- O protocolo app-agent `@zcode/protocol` não ganha campos novos; o parâmetro de coalescing é uma estratégia interna de assinante dos services e não é passado para o runtime zcode-cli.

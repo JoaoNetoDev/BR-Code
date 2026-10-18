@@ -1,19 +1,19 @@
-# Message Flow（当前事实）
+# Message Flow (fatos atuais)
 
-## 主链路
+## Cadeia principal
 
 ```text
 ConversationComposer / SessionPane
-  │ createSession | sendText | other V4 command
+  │ createSession | sendText | outro V4 command
   ▼
 agentConversationTransport
   ▼
 Host: sendConversationCommandV4
   ▼
-workspaceKey 对应的 zcode-cli
-  ├─ command inbox 裁决
-  ├─ core 执行
-  └─ ProductProjection 更新
+zcode-cli correspondente ao workspaceKey
+  ├─ command inbox decide
+  ├─ core executa
+  └─ ProductProjection atualiza
        │ snapshot / delta
        ▼
 SessionDataLayer
@@ -23,9 +23,9 @@ ConversationProjectionStore
 ConversationTimeline / Composer / StatusPanel
 ```
 
-UI 不调用旧 `sendPrompt()` 构造聊天状态，也不从 legacy task event 拼消息。`IZCodeTaskService` 仍可服务列表、元数据或过渡兼容面，但不是 V4 conversation 正文事实源。
+A UI não chama o antigo `sendPrompt()` para montar o estado da conversa, nem monta mensagens a partir de legacy task event. `IZCodeTaskService` ainda pode servir a lista, metadados ou a superfície de compatibilidade transitória, mas não é a fonte de verdade do corpo da conversa V4.
 
-## 输入时序
+## Sequenciamento da entrada
 
 ```text
 UI          Host             CLI inbox        Core/Projection
@@ -39,13 +39,13 @@ UI          Host             CLI inbox        Core/Projection
  |<========== snapshot/delta from conversation topic |
 ```
 
-ACK 与 projection 是两条不同语义：ACK 回答“命令是否被接纳/拒绝”，projection 回答“产品状态现在是什么”。UI 最终必须以后者收敛。
+ACK e projection têm semânticas diferentes: o ACK responde “o comando foi aceito/rejeitado?”, e a projection responde “qual é o estado do produto agora?”. A UI precisa convergir para a projection.
 
-## 多端交付
+## Entrega multiplataforma
 
-- 桌面：`desktop-continuous`，直接订阅 live topic；断线后按 seq 恢复。
-- 手机远控：`web-remote-replayable`，经 shared-host attachment 订阅同一 Host/CLI，并保留 gap/snapshot 恢复。
-- relay 与 Electron main 只做鉴权、配对、心跳、frame 透传和 attachment 调度，不拥有 conversation 状态。
+- Desktop: `desktop-continuous`, assinando diretamente o live topic; após queda, recupera por seq.
+- Controle remoto do celular: `web-remote-replayable`, assinando o mesmo Host/CLI por meio do shared-host attachment e preservando a recuperação por gap/snapshot.
+- relay e Electron main fazem apenas autenticação, pareamento, heartbeat, repasse de frames e agendamento de attachments; não são donos do estado da conversa.
 
 ```text
 mobile /remote
@@ -55,30 +55,28 @@ mobile /remote
   -> existing workspace CLI
 ```
 
-## SSH Remote Source 路由
+## Roteamento de source SSH Remote
 
-SSH remote workspace 由窗口唯一 Host 内的 registry 路由；Main 只转发连接控制请求和端口，不改变 V4 conversation 事实链：
+O workspace remoto SSH é roteado pelo registry dentro do Host único da janela; o Main apenas encaminha as requisições de controle de conexão e as portas, sem alterar a cadeia de fatos da conversa V4:
 
 ```text
 remoteSessionId A -- attachment A --┐
                                     ├-> Window Host / RemoteConnectionRegistry
 remoteSessionId B -- attachment B --┘
-                                    -> remoteHostKey 对应的 one SSH connection / zcode-server
-                                    -> workspaceKey A/B 对应的独立 CLI/runtime
+                                    -> uma SSH connection / zcode-server correspondente ao remoteHostKey
+                                    -> CLI/runtime independentes correspondentes ao workspaceKey A/B
 ```
 
-每个 attachment 都携带独立 `attachmentId` 和可信 `clientMode`。Renderer reload 只替换对应
-desktop attachment；`DetachServicePort` 只释放一个逻辑 workspace 的 RPC/订阅，不销毁窗口 Host 或仍被使用的 SSH connection，
-也不会把手机 replayable 恢复语义带入桌面 continuous 链路。
+Cada attachment carrega seu próprio `attachmentId` e um `clientMode` confiável. Um reload do Renderer substitui apenas o attachment desktop correspondente; o `DetachServicePort` libera somente o RPC/assinatura de um workspace lógico, sem destruir o Host da janela nem uma SSH connection ainda em uso, e também não traz a semântica de recuperação replayable do celular para a cadeia desktop continuous.
 
-## 关键入口
+## Entradas principais
 
-| 层                  | 当前入口                                                                   |
-| ------------------- | -------------------------------------------------------------------------- |
-| UI pane             | `packages/ui/src/v4/SessionPane.tsx`                                       |
-| UI transport        | `packages/ui/src/v4/agentConversationTransport.ts`                         |
-| UI projection       | `packages/ui/src/v4/sessionDataLayer.ts`、`packages/ui/src/v4/conversationProjectionStore.ts` |
-| Host service        | `packages/services/src/zcode-agent/zcodeAgentService.ts`                   |
-| V4 schema           | `packages/shared/src/zcode-protocol-v4/`                                   |
-| CLI gateway/reducer | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/`                 |
-| Desktop host        | `packages/desktop/src/host/index.ts`                                       |
+| Camada               | Entrada atual                                                              |
+| -------------------- | -------------------------------------------------------------------------- |
+| UI pane              | `packages/ui/src/v4/SessionPane.tsx`                                       |
+| UI transport         | `packages/ui/src/v4/agentConversationTransport.ts`                         |
+| UI projection        | `packages/ui/src/v4/sessionDataLayer.ts`、`packages/ui/src/v4/conversationProjectionStore.ts` |
+| Host service         | `packages/services/src/zcode-agent/zcodeAgentService.ts`                   |
+| V4 schema            | `packages/shared/src/zcode-protocol-v4/`                                   |
+| CLI gateway/reducer  | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/`                 |
+| Desktop host         | `packages/desktop/src/host/index.ts`                                       |

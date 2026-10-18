@@ -2,77 +2,79 @@
 
 ## Run Identity
 
-Desktop WDIO E2E uses one run identity for both file isolation and process cleanup:
+O E2E WDIO do desktop usa uma única identidade de execução tanto para isolamento de arquivos quanto para limpeza de processos:
 
 - `ZCODE_E2E_RUN_ID`
 - `ZCODE_E2E_HOME_DIR`
-- Electron app arg `--zcode-e2e-run-id=<runId>`
+- Argumento do app Electron `--zcode-e2e-run-id=<runId>`
 
-`ZCODE_E2E_HOME_DIR` isolates persisted app data. `ZCODE_E2E_RUN_ID` is also passed on the Electron command line so process scans can identify the root process for the current WDIO run without relying on shared build paths.
+`ZCODE_E2E_HOME_DIR` isola os dados persistidos do app. `ZCODE_E2E_RUN_ID` também é passado na linha de comando do Electron para que as varreduras de processo possam identificar o processo raiz da execução WDIO atual sem depender de caminhos de build compartilhados.
 
-## Cleanup Boundary
+## Limite de limpeza
 
-Process cleanup may only select a root process when its command line contains the current run id arg or the current normalized E2E home directory. After a root is selected, cleanup recursively includes its children so host and agent subprocesses are reclaimed even when their own command lines do not include the run marker.
+A limpeza de processos só pode selecionar um processo raiz quando a linha de comando dele contém o arg de run id atual ou o diretório E2E home normalizado atual. Depois que uma raiz é selecionada, a limpeza inclui recursivamente os filhos dela, de modo que os subprocessos de host e agent sejam reaproveitados mesmo quando as próprias linhas de comando deles não incluem o marcador de run.
 
-macOS 的 Electron main 与 ChromeDriver 可能不会保留 `appArgs`，但 renderer、utility、
-host 或 crash handler 的命令行仍会携带当前 run 的 HOME/profile 路径。清理器允许从这类
-精确命中的后代向上补齐连续的 Electron main 与 ChromeDriver 父链，再从得到的根节点
-向下回收整棵树；遇到 WDIO controller、shell、terminal 或其他非 Electron/ChromeDriver
-父进程必须停止。反向追溯必须由当前 runId/HOME 的精确命中触发；不能仅凭
-`ZCode E2E`、共享 build 路径或进程名称直接选择清理根。
+No macOS, o main do Electron e o ChromeDriver podem não preservar `appArgs`, mas a linha de comando do renderer, do utility,
+do host ou do crash handler ainda carrega o caminho HOME/profile do run atual. O limpador permite, a partir desses
+descendentes com acerto exato, completar para cima a cadeia contígua de main do Electron e ChromeDriver, e então
+reaproveitar toda a árvore para baixo a partir do nó raiz obtido; ao encontrar o controller do WDIO, um shell, um
+terminal ou outro processo pai que não seja Electron/ChromeDriver, é preciso parar. O rastreamento reverso precisa ser
+disparado por um acerto exato do runId/HOME atuais; não é permitido escolher a raiz de limpeza apenas por
+`ZCode E2E`, caminhos de build compartilhados ou nome de processo.
 
-`beforeSession` 的进程退出屏障、fixture/mock 初始化和 HOME reset 是一个 fail-closed
-前置事务。WDIO config hook 会吞掉普通 rejection，因此事务失败时必须保存原始错误，并由
-Mocha 原生 root hook 在任何产品 case body 前抛出；失败 worker 只能产生一条基础设施
-root-hook failure，不能带着缺失的 replay/capture、日志目录或旧 HOME 继续执行产品断言。
+A barreira de saída de processos, a inicialização de fixture/mock e o reset de HOME do `beforeSession` formam uma
+transação pré-requisito fail-closed. O hook de config do WDIO engole rejections comuns, portanto, quando a transação
+falha, o erro original precisa ser guardado e lançado pelo root hook nativo do Mocha antes de qualquer corpo de case
+de produto; um worker que falhou só pode produzir uma falha de infraestrutura no root hook, e não pode seguir executando
+asserções de produto com replay/capture ausente, diretório de log ausente ou HOME antigo.
 
-Shared markers are intentionally not cleanup identities:
+Marcadores compartilhados não são de propósito identidades de limpeza:
 
 - `ZCode E2E`
 - `APP_ENTRY_POINT`
 - `out/main`
 
-Those values only prove that a process belongs to this repository or product test build. They do not prove it belongs to the current WDIO run. Using them as kill conditions lets one shard or local run terminate another shard with a different `ZCODE_E2E_HOME_DIR`, causing DevTools disconnects, `DevToolsActivePort` failures, white screens, or random suite exits.
+Esses valores provam apenas que um processo pertence a este repositório ou build de teste do produto. Eles não provam que ele pertence à execução WDIO atual. Usá-los como condição de kill permite que um shard ou execução local termine outro shard com um `ZCODE_E2E_HOME_DIR` diferente, causando desconexões do DevTools, falhas de `DevToolsActivePort`, telas brancas ou saídas aleatórias da suíte.
 
-## Platform Notes
+## Observações por plataforma
 
-The same boundary applies on macOS, Linux, and Windows. Windows retry cleanup after HOME removal failures uses the shared cleanup helper as well, because stale file handles are common there and the fallback must remain parallel-run safe.
+O mesmo limite se aplica em macOS, Linux e Windows. No Windows, a nova tentativa de limpeza após falhas na remoção do HOME também usa o helper de limpeza compartilhado, porque handles de arquivo obsoletos são comuns ali e o fallback precisa continuar seguro em execuções paralelas.
 
 ## Continuous Windows Runner
 
-`scripts/ci/run-e2e-bitable-loop.ps1` provides a PowerShell 7 entry point for a dedicated Windows E2E host. Each iteration:
+`scripts/ci/run-e2e-bitable-loop.ps1` fornece um ponto de entrada em PowerShell 7 para um host E2E dedicado no Windows. A cada iteração:
 
-1. enters the configured z-code checkout;
-2. fetches `staging` from the configured HTTPS repository and updates the local branch with a fast-forward merge;
-3. clears inherited spec filters and runs the desktop E2E suite once, without entering the shard runner, through `pnpm --filter @zcode/desktop test:e2e:serial`;
-4. invokes `scripts/ci/push-e2e-metrics-to-bitable.mjs` and then `scripts/ci/push-e2e-report-to-feedback.mjs` for that artifact directory, including when the E2E command fails. Failure artifact collection is enabled so the report upload can attach failed-case videos.
+1. entra no checkout z-code configurado;
+2. busca `staging` no repositório HTTPS configurado e atualiza a branch local com um merge fast-forward;
+3. limpa os filtros de spec herdados e roda uma vez a suíte E2E do desktop, sem entrar no shard runner, por meio de `pnpm --filter @zcode/desktop test:e2e:serial`;
+4. invoca `scripts/ci/push-e2e-metrics-to-bitable.mjs` e depois `scripts/ci/push-e2e-report-to-feedback.mjs` para aquele diretório de artifact, inclusive quando o comando E2E falha. A coleta de artifacts de falha é habilitada para que o upload do report possa anexar vídeos de cases que falharam.
 
-The continuous loop owns exactly one run-specific output directory:
-`packages/desktop/.e2e-artifacts/continuous-<UTC timestamp>-<PID>/`. The serial
-WDIO child writes `summary.json` directly into that directory, so metrics upload
-does not need to discover or merge per-shard summaries. Its application state
-uses the fixed, ignored `packages/desktop/.e2e-home/` directory; the loop must not
-create run-specific `packages/desktop/.e2e-home-<run>-shard-*` siblings. The
-serial entry point applies only to this continuous loop. Other E2E entry points
-may keep their own sharding policy.
+O loop contínuo é dono de exatamente um diretório de saída específico da execução:
+`packages/desktop/.e2e-artifacts/continuous-<UTC timestamp>-<PID>/`. O child WDIO serial
+escreve `summary.json` diretamente nesse diretório, de modo que o upload de métricas
+não precisa descobrir nem combinar summaries por shard. O estado de aplicação dele usa o
+diretório fixo e ignorado `packages/desktop/.e2e-home/`; o loop não pode criar irmãos
+`packages/desktop/.e2e-home-<run>-shard-*` específicos de execução. O
+ponto de entrada serial se aplica apenas a este loop contínuo. Outros pontos de entrada E2E
+podem manter sua própria política de sharding.
 
-The loop never resets or discards repository changes. A dirty checkout, failed fetch, or non-fast-forward branch skips that iteration and retries after the configured delay. Generated E2E HOME directories are ignored by Git so test state from a prior interrupted run is not mistaken for a source change. Bitable credentials and `ZCODE_FEEDBACK_NOTIFICATION_TOKEN` remain environment variables consumed by the upload scripts. `-Once` runs one iteration for maintenance or validation.
+O loop nunca reseta nem descarta mudanças do repositório. Um checkout sujo, uma busca falha ou uma branch sem fast-forward pula aquela iteração e tenta de novo após o atraso configurado. Diretórios E2E HOME gerados são ignorados pelo Git, para que o estado de teste de uma execução interrompida anterior não seja confundido com uma mudança de código-fonte. As credenciais do Bitable e `ZCODE_FEEDBACK_NOTIFICATION_TOKEN` permanecem como variáveis de ambiente consumidas pelos scripts de upload. `-Once` executa uma iteração para manutenção ou validação.
 
-Before each fetch, the loop removes only runner-owned transient state from the
-previous iteration: the fixed `packages/desktop/.e2e-home/`, legacy
-`packages/desktop/.e2e-home-*` directories, and the legacy
-`packages/desktop/.e2e-network-capture/` directory. Every deletion target must
-resolve inside the checkout and must still be ignored by Git. The loop retains
-`.e2e-artifacts/` so a failed report upload can be diagnosed or retried, and it
-retains `.e2e-cache/` and normal build caches. After cleanup, any remaining
-tracked or non-ignored change is printed with its porcelain status and blocks
-the fetch; the runner never resets, checks out, or deletes source changes.
+Antes de cada busca, o loop remove apenas o estado transitório pertencente ao runner da
+iteração anterior: o diretório fixo `packages/desktop/.e2e-home/`, os diretórios legados
+`packages/desktop/.e2e-home-*` e o diretório legado
+`packages/desktop/.e2e-network-capture/`. Todo alvo de remoção precisa
+resolver dentro do checkout e continuar ignorado pelo Git. O loop mantém
+`.e2e-artifacts/` para que um upload de report que falhou possa ser diagnosticado ou
+tentado de novo, e mantém `.e2e-cache/` e os caches de build normais. Depois da limpeza,
+qualquer mudança rastreada ou não ignorada restante é impressa com seu status porcelain e
+bloqueia a busca; o runner nunca reseta, faz checkout nem apaga mudanças de código-fonte.
 
-Bitable HTTP requests have their own 30-second timeout. The loop limits the complete Bitable uploader process to 120 seconds by default (`-UploadTimeoutSeconds`) and the report/video uploader process to 1800 seconds (`-FeedbackUploadTimeoutSeconds`). Either timeout terminates the uploader process tree, records a non-zero result, and proceeds to the next iteration after the configured delay. Both uploaders are attempted even when one fails; an E2E failure remains the primary iteration exit code.
+As requisições HTTP do Bitable têm seu próprio timeout de 30 segundos. O loop limita o processo completo do uploader do Bitable a 120 segundos por padrão (`-UploadTimeoutSeconds`) e o processo do uploader de report/vídeo a 1800 segundos (`-FeedbackUploadTimeoutSeconds`). Qualquer um dos timeouts encerra a árvore de processos do uploader, registra um resultado não zero e segue para a próxima iteração após o atraso configurado. Os dois uploaders são tentados mesmo quando um deles falha; uma falha de E2E continua sendo o código de saída principal da iteração.
 
 ```powershell
 pwsh -File .\scripts\ci\run-e2e-bitable-loop.ps1
 pwsh -File .\scripts\ci\run-e2e-bitable-loop.ps1 -Once
 ```
 
-The runner validates `LARK_E2E_APP_ID`, `LARK_E2E_APP_SECRET`, `LARK_E2E_BITABLE_TOKEN`, `LARK_E2E_TABLE_ID`, and `ZCODE_FEEDBACK_NOTIFICATION_TOKEN` before starting the first E2E run. `ZCODE_FEEDBACK_BASE_URL` remains optional and uses the report uploader default when omitted.
+O runner valida `LARK_E2E_APP_ID`, `LARK_E2E_APP_SECRET`, `LARK_E2E_BITABLE_TOKEN`, `LARK_E2E_TABLE_ID` e `ZCODE_FEEDBACK_NOTIFICATION_TOKEN` antes de iniciar a primeira execução E2E. `ZCODE_FEEDBACK_BASE_URL` continua opcional e usa o padrão do uploader de report quando omitido.

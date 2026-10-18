@@ -1,42 +1,42 @@
-# 启动到能输入分阶段耗时埋点 Implementation Plan
+# Plano de Implementação: Telemetria de Tempo de Inicialização até o Momento de Poder Digitar
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 把桌面端「进程创建 → 用户能输入」的启动链路拆成 7 段独立耗时，经 ARMS 上报，替换仅测 renderer 渲染段的 `perf_ui_first_screen`。
+**Goal:** Dividir a cadeia de inicialização do desktop "criação do processo → usuário consegue digitar" em 7 segmentos independentes de tempo, reportados via ARMS, substituindo o `perf_ui_first_screen` que media apenas o segmento de renderização do renderer.
 
-**Architecture:** main 进程在四个时刻记 epoch 毫秒标记（锚点 `process.getCreationTime()` + 三个 `Date.now()`），经主窗口 loadURL 的 query string 注入 renderer；renderer 再记三个时刻（bundle 执行 / React commit / 启动门禁清除），在门禁清除那一刻统一算出 7 段差值并各发一条 ARMS 事件。序列化/解析/计算逻辑集中在纯函数里以便单测。
+**Architecture:** O processo main registra quatro marcadores de milissegundos epoch (âncora `process.getCreationTime()` + três `Date.now()`), injetados no renderer pela query string do `loadURL` da janela principal; o renderer registra mais três instantes (execução do bundle / commit do React / liberação do portão de startup) e, no momento da liberação do portão, calcula uniformemente os 7 valores de diferença e emite um evento ARMS para cada um. A lógica de serialização/análise/cálculo fica centralizada em funções puras para facilitar testes unitários.
 
-**Tech Stack:** TypeScript、Electron（main/preload/renderer）、React、Vitest。复用现有 `reportArmsCustomEvent` → IPC → `armsRum.sendCustom` 链路。
+**Tech Stack:** TypeScript, Electron (main/preload/renderer), React, Vitest. Reutiliza a cadeia existente `reportArmsCustomEvent` → IPC → `armsRum.sendCustom`.
 
-## Global Constraints
+## Restrições globais
 
-- 事件 `group` 统一为 `"ui_perf"`（常量 `UI_PERF_ARMS_GROUP`，已存在，复用）。
-- 所有 `value` 经 `Math.max(0, Math.round(...))` 钳为非负整数 ms。
-- 埋点失败绝不阻塞启动主流程：所有上报内部 try/catch，仅 `logger.warn`。
-- 总时长 `> LAUNCH_TO_INPUT_SANITY_MAX_MS`（300000）整批丢弃，不上报。
-- 锚点缺失（`getCreationTime()` 返回 null / query 未解析出 marks）整批跳过。
-- 未登录（WelcomeScreen）的启动不上报总链路（前提「能输入」不成立）。
-- 每个 renderer 进程冷启动仅上报一次。
-- loadURL query 参数名前缀常量 `LAUNCH_MARKS_QUERY_KEY = "zcodeLaunchMarks"`。
-- 测试运行：单测用 `pnpm exec vitest run <file>`；类型检查 `pnpm typecheck`。
+- O `group` dos eventos é uniformemente `"ui_perf"` (constante `UI_PERF_ARMS_GROUP`, já existente, reutilizada).
+- Todos os `value` são fixados como inteiros não negativos em ms por `Math.max(0, Math.round(...))`.
+- A falha da埋点 nunca bloqueia o fluxo principal de startup: todos os internals de reporte usam try/catch, apenas `logger.warn`.
+- Se a duração total `> LAUNCH_TO_INPUT_SANITY_MAX_MS` (300000), o lote inteiro é descartado e não é reportado.
+- Âncora ausente (`getCreationTime()` retorna null / query sem marks parseados) descarta o lote inteiro.
+- Startup sem login (WelcomeScreen) não reporta a cadeia completa (a premissa "pode digitar" não se cumpre).
+- Cada processo renderer reporta apenas uma vez por cold start.
+- Prefixo do nome do parâmetro de query do loadURL é a constante `LAUNCH_MARKS_QUERY_KEY = "zcodeLaunchMarks"`.
+- Execução de testes: unitários com `pnpm exec vitest run <file>`; verificação de tipos `pnpm typecheck`.
 
 ---
 
-### Task 1: 共享 launch marks 序列化/解析（`@zcode/shared`）
+### Tarefa 1: Serialização/análise compartilhada de launch marks (`@zcode/shared`)
 
-**Files:**
-- Create: `packages/shared/src/launchMarks.ts`
-- Modify: `packages/shared/src/index.ts:111`（在 `collectTelemetryRendererContext` 导出后追加）
-- Test: `packages/shared/test/launchMarks.test.ts`
+**Arquivos:**
+- Criar: `packages/shared/src/launchMarks.ts`
+- Modificar: `packages/shared/src/index.ts:111` (acrescentar após a exportação de `collectTelemetryRendererContext`)
+- Teste: `packages/shared/test/launchMarks.test.ts`
 
 **Interfaces:**
-- Produces:
+- Produz:
   - `interface LaunchMarks { createdAt: number; mainStart: number; appReady: number; loadUrl: number }`
   - `const LAUNCH_MARKS_QUERY_KEY = "zcodeLaunchMarks"`
-  - `serializeLaunchMarks(marks: LaunchMarks): string` — 返回 URL-safe 字符串（JSON）
-  - `parseLaunchMarks(raw: string | null | undefined): LaunchMarks | null` — 非法/缺字段返回 null
+  - `serializeLaunchMarks(marks: LaunchMarks): string` — retorna string URL-safe (JSON)
+  - `parseLaunchMarks(raw: string | null | undefined): LaunchMarks | null` — retorna null para entrada inválida/campos faltando
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Passo 1: Escrever o teste que falha**
 
 ```ts
 // packages/shared/test/launchMarks.test.ts
@@ -73,12 +73,12 @@ describe("launchMarks", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Passo 2: Executar o teste para verificar que falha**
 
-Run: `pnpm exec vitest run packages/shared/test/launchMarks.test.ts`
-Expected: FAIL（`Cannot find module ../src/launchMarks.js`）
+Executar: `pnpm exec vitest run packages/shared/test/launchMarks.test.ts`
+Esperado: FAIL (`Cannot find module ../src/launchMarks.js`)
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Passo 3: Escrever a implementação mínima**
 
 ```ts
 // packages/shared/src/launchMarks.ts
@@ -129,9 +129,9 @@ export function parseLaunchMarks(raw: string | null | undefined): LaunchMarks | 
 }
 ```
 
-- [ ] **Step 4: Add barrel export**
+- [ ] **Passo 4: Adicionar a exportação do barrel**
 
-`packages/shared/src/index.ts`，在第 111 行 `export { collectTelemetryRendererContext } from "./telemetry.js";` 之后追加：
+`packages/shared/src/index.ts`, acrescentar após a linha 111 `export { collectTelemetryRendererContext } from "./telemetry.js";`:
 
 ```ts
 export type { LaunchMarks } from "./launchMarks.js";
@@ -142,12 +142,12 @@ export {
 } from "./launchMarks.js";
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Passo 5: Executar o teste para verificar que passa**
 
-Run: `pnpm exec vitest run packages/shared/test/launchMarks.test.ts`
-Expected: PASS（4 个用例）
+Executar: `pnpm exec vitest run packages/shared/test/launchMarks.test.ts`
+Esperado: PASS (4 casos)
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commitar**
 
 ```bash
 git add packages/shared/src/launchMarks.ts packages/shared/src/index.ts packages/shared/test/launchMarks.test.ts
@@ -156,25 +156,25 @@ git commit -m "feat(shared): launch marks 序列化/解析"
 
 ---
 
-### Task 2: 7 段上报与计算逻辑（`uiPerfArmsTelemetry.ts`），废弃 first_screen
+### Tarefa 2: Reporte e lógica de cálculo dos 7 segmentos (`uiPerfArmsTelemetry.ts`), descontinuando first_screen
 
-**Files:**
-- Modify: `packages/ui/src/lib/uiPerfArmsTelemetry.ts`
-- Modify: `packages/ui/src/index.ts:84`
-- Test: `packages/ui/test/uiPerfArmsTelemetry.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/lib/uiPerfArmsTelemetry.ts`
+- Modificar: `packages/ui/src/index.ts:84`
+- Teste: `packages/ui/test/uiPerfArmsTelemetry.test.ts`
 
 **Interfaces:**
-- Consumes: `LaunchMarks` from `@zcode/shared`（Task 1）
-- Produces:
-  - 常量 `LAUNCH_TO_INPUT_SANITY_MAX_MS = 300000`
-  - 事件名常量：`UI_PERF_EVENT_LAUNCH_TO_INPUT="perf_ui_launch_to_input"`、`UI_PERF_EVENT_LAUNCH_ELECTRON_INIT="perf_ui_launch_electron_init_ms"`、`UI_PERF_EVENT_LAUNCH_APP_READY="perf_ui_launch_app_ready_ms"`、`UI_PERF_EVENT_LAUNCH_WINDOW="perf_ui_launch_window_ms"`、`UI_PERF_EVENT_LAUNCH_RENDERER_LOAD="perf_ui_launch_renderer_load_ms"`、`UI_PERF_EVENT_LAUNCH_REACT_COMMIT="perf_ui_launch_react_commit_ms"`、`UI_PERF_EVENT_LAUNCH_STARTUP_GATE="perf_ui_launch_startup_gate_ms"`
+- Consome: `LaunchMarks` de `@zcode/shared` (Tarefa 1)
+- Produz:
+  - constante `LAUNCH_TO_INPUT_SANITY_MAX_MS = 300000`
+  - constantes de nomes de eventos: `UI_PERF_EVENT_LAUNCH_TO_INPUT="perf_ui_launch_to_input"`、`UI_PERF_EVENT_LAUNCH_ELECTRON_INIT="perf_ui_launch_electron_init_ms"`、`UI_PERF_EVENT_LAUNCH_APP_READY="perf_ui_launch_app_ready_ms"`、`UI_PERF_EVENT_LAUNCH_WINDOW="perf_ui_launch_window_ms"`、`UI_PERF_EVENT_LAUNCH_RENDERER_LOAD="perf_ui_launch_renderer_load_ms"`、`UI_PERF_EVENT_LAUNCH_REACT_COMMIT="perf_ui_launch_react_commit_ms"`、`UI_PERF_EVENT_LAUNCH_STARTUP_GATE="perf_ui_launch_startup_gate_ms"`
   - `interface LaunchToInputTimings { marks: LaunchMarks; rendererStart: number; reactCommit: number; inputReady: number; sessionId: string }`
-  - `reportUiLaunchToInput(timings: LaunchToInputTimings): void` — 计算 7 段、做哨兵校验、发 ≤7 条
-- Removes: `UI_PERF_EVENT_FIRST_SCREEN`、`reportUiFirstScreen`、`pendingFirstScreenPayload` 及 `setUiPerfArmsReporter` 内补发分支
+  - `reportUiLaunchToInput(timings: LaunchToInputTimings): void` — calcula os 7 segmentos, faz a validação sentinela e envia ≤7 eventos
+- Remove: `UI_PERF_EVENT_FIRST_SCREEN`, `reportUiFirstScreen`, `pendingFirstScreenPayload` e o branch de reenvio dentro de `setUiPerfArmsReporter`
 
-- [ ] **Step 1: Rewrite the test file**
+- [ ] **Passo 1: Reescrever o arquivo de teste**
 
-完整替换 `packages/ui/test/uiPerfArmsTelemetry.test.ts`（删除 first_screen / 暂存补发用例，新增 launch 用例；first_token / message_complete / stream_stall 用例原样保留）：
+Substituir integralmente `packages/ui/test/uiPerfArmsTelemetry.test.ts` (remover os casos de first_screen / reenvio pendente, adicionar casos de launch; os casos de first_token / message_complete / stream_stall permanecem como estão):
 
 ```ts
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -353,20 +353,20 @@ describe("stream stall", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Passo 2: Executar o teste para verificar que falha**
 
-Run: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts`
-Expected: FAIL（`reportUiLaunchToInput` / 新常量未导出）
+Executar: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts`
+Esperado: FAIL (`reportUiLaunchToInput` / novas constantes não exportadas)
 
-- [ ] **Step 3: Edit `uiPerfArmsTelemetry.ts` — 删除 first_screen，新增 launch**
+- [ ] **Passo 3: Editar `uiPerfArmsTelemetry.ts` — remover first_screen, adicionar launch**
 
-3a. 顶部 import 增加 `LaunchMarks` 类型：
+3a. Adicionar o tipo `LaunchMarks` ao import do topo:
 
 ```ts
 import type { ArmsCustomEventPayload, IPlatformService, LaunchMarks } from "@zcode/shared";
 ```
 
-3b. 删除第 6 行 `export const UI_PERF_EVENT_FIRST_SCREEN = "perf_ui_first_screen";`，替换为新事件名 + 哨兵常量：
+3b. Remover a linha 6 `export const UI_PERF_EVENT_FIRST_SCREEN = "perf_ui_first_screen";`, substituindo pelos novos nomes de evento + constante sentinela:
 
 ```ts
 export const UI_PERF_EVENT_LAUNCH_TO_INPUT = "perf_ui_launch_to_input";
@@ -381,7 +381,7 @@ export const UI_PERF_EVENT_LAUNCH_STARTUP_GATE = "perf_ui_launch_startup_gate_ms
 export const LAUNCH_TO_INPUT_SANITY_MAX_MS = 300000;
 ```
 
-3c. 删除 `pendingFirstScreenPayload` 声明（第 20-23 行注释 + `let pendingFirstScreenPayload ...`），并把 `setUiPerfArmsReporter` 简化为：
+3c. Remover a declaração `pendingFirstScreenPayload` (comentário das linhas 20-23 + `let pendingFirstScreenPayload ...`) e simplificar `setUiPerfArmsReporter` para:
 
 ```ts
 export function setUiPerfArmsReporter(reporter: ArmsReporter | null): void {
@@ -389,9 +389,9 @@ export function setUiPerfArmsReporter(reporter: ArmsReporter | null): void {
 }
 ```
 
-3d. `clearUiPerfArmsReporterForTest` 删除 `pendingFirstScreenPayload = null;` 一行（保留 `armsReporter = null;` 与 `lastChunkAtByTask.clear();`）。
+3d. Em `clearUiPerfArmsReporterForTest`, remover a linha `pendingFirstScreenPayload = null;` (manter `armsReporter = null;` e `lastChunkAtByTask.clear();`).
 
-3e. 删除整个 `reportUiFirstScreen` 函数（第 54-67 行），替换为：
+3e. Remover toda a função `reportUiFirstScreen` (linhas 54-67), substituindo por:
 
 ```ts
 interface LaunchToInputTimings {
@@ -434,23 +434,23 @@ export function reportUiLaunchToInput(timings: LaunchToInputTimings): void {
 }
 ```
 
-- [ ] **Step 4: Update barrel export**
+- [ ] **Passo 4: Atualizar a exportação do barrel**
 
-`packages/ui/src/index.ts:84`，把
+`packages/ui/src/index.ts:84`, trocar
 ```ts
 export { reportUiFirstScreen } from "./lib/uiPerfArmsTelemetry.js";
 ```
-替换为：
+por:
 ```ts
 export { reportUiLaunchToInput } from "./lib/uiPerfArmsTelemetry.js";
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Passo 5: Executar o teste para verificar que passa**
 
-Run: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts`
-Expected: PASS（通用 4 + launch 3 + stall 4 = 11 个用例）
+Executar: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts`
+Esperado: PASS (geral 4 + launch 3 + stall 4 = 11 casos)
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commitar**
 
 ```bash
 git add packages/ui/src/lib/uiPerfArmsTelemetry.ts packages/ui/src/index.ts packages/ui/test/uiPerfArmsTelemetry.test.ts
@@ -459,21 +459,21 @@ git commit -m "feat(ui): 启动到能输入 7 段上报,废弃 perf_ui_first_scr
 
 ---
 
-### Task 3: main 进程采集 T0–T3 并经 loadURL query 注入
+### Tarefa 3: Processo main coleta T0–T3 e injeta via query do loadURL
 
-**Files:**
-- Modify: `packages/desktop/src/main/index.ts`（顶部记 T1；whenReady 回调记 T2；导出 getter）
-- Modify: `packages/desktop/src/main/desktopHostProcess.ts:86-112`（loadWindow 内记 T3、拼 query）
+**Arquivos:**
+- Modificar: `packages/desktop/src/main/index.ts` (registrar T1 no topo; registrar T2 no callback whenReady; exportar getter)
+- Modificar: `packages/desktop/src/main/desktopHostProcess.ts:86-112` (registrar T3 dentro de loadWindow, montar a query)
 
 **Interfaces:**
-- Consumes: `serializeLaunchMarks`, `LAUNCH_MARKS_QUERY_KEY`, `LaunchMarks` from `@zcode/shared`（Task 1）
-- Produces: `getMainLaunchPartialMarks(): { createdAt: number; mainStart: number; appReady: number }`（供 loadWindow 调用）
+- Consome: `serializeLaunchMarks`, `LAUNCH_MARKS_QUERY_KEY`, `LaunchMarks` de `@zcode/shared` (Tarefa 1)
+- Produz: `getMainLaunchPartialMarks(): { createdAt: number; mainStart: number; appReady: number }` (para loadWindow chamar)
 
-> 说明：`additionalArguments` 在 `BrowserWindow` 构造时固定，而 T3 在更晚的 `loadWindow` 才产生，故四个 marks 统一走 loadURL query（renderer 单点读取）。此任务无独立单测（Electron 主进程时序难纯函数化），靠 Task 1 的序列化单测 + Task 6 本地验证覆盖。
+> Observação: `additionalArguments` é fixado na construção do `BrowserWindow`, enquanto T3 só é produzido mais tarde em `loadWindow`; por isso os quatro marks passam uniformemente pela query do loadURL (leitura em um único ponto no renderer). Esta tarefa não tem teste unitário próprio (a ordem temporal do processo main do Electron é difícil de converter em função pura); a cobertura vem do teste de serialização da Tarefa 1 + da verificação local da Tarefa 6.
 
-- [ ] **Step 1: `index.ts` 顶部记 T1、声明 T0/T2 状态**
+- [ ] **Passo 1: Registrar T1 no topo de `index.ts` e declarar o estado de T0/T2**
 
-在 `packages/desktop/src/main/index.ts` 模块顶部 import 区之后、其它初始化之前，加入：
+Em `packages/desktop/src/main/index.ts`, após a área de imports no topo do módulo e antes de qualquer outra inicialização, adicionar:
 
 ```ts
 import { serializeLaunchMarks, type LaunchMarks } from "@zcode/shared";
@@ -488,19 +488,19 @@ export function getMainLaunchPartialMarks(): Omit<LaunchMarks, "loadUrl"> {
 }
 ```
 
-（若文件已 import `@zcode/shared` 的其它符号，合并到同一 import；`serializeLaunchMarks` 实际在 desktopHostProcess 用，这里仅需 `LaunchMarks` 类型——按需保留类型导入。）
+(Se o arquivo já importar outros símbolos de `@zcode/shared`, mesclar no mesmo import; `serializeLaunchMarks` é na verdade usado em desktopHostProcess — aqui só o tipo `LaunchMarks` é necessário — manter o import de tipo conforme a necessidade.)
 
-- [ ] **Step 2: whenReady 回调入口记 T2**
+- [ ] **Passo 2: Registrar T2 na entrada do callback whenReady**
 
-`index.ts:981` `app.whenReady().then(async () => {` 之后第一行加入：
+`index.ts:981` `app.whenReady().then(async () => {` — adicionar como primeira linha:
 
 ```ts
   launchAppReady = Date.now();
 ```
 
-- [ ] **Step 3: `loadWindow` 内记 T3 并拼入 query**
+- [ ] **Passo 3: Registrar T3 dentro de `loadWindow` e montar na query**
 
-`packages/desktop/src/main/desktopHostProcess.ts`，顶部 import 加：
+`packages/desktop/src/main/desktopHostProcess.ts`, adicionar no topo:
 
 ```ts
 import {
@@ -510,7 +510,7 @@ import {
 import { getMainLaunchPartialMarks } from "./index.js";
 ```
 
-在 `loadWindow` 内构造 `query` 对象处（第 91-99 行的 `Object.fromEntries(...)` 之后、`if (process.env["ELECTRON_RENDERER_URL"])` 之前）插入，仅主窗口 `index` 注入：
+Dentro de `loadWindow`, no ponto onde o objeto `query` é construído (após o `Object.fromEntries(...)` das linhas 91-99 e antes de `if (process.env["ELECTRON_RENDERER_URL"])`), inserir apenas para o `index` da janela principal:
 
 ```ts
   if (page === "index") {
@@ -522,14 +522,14 @@ import { getMainLaunchPartialMarks } from "./index.js";
   }
 ```
 
-> 注意：`query` 当前被 `.filter(...)` 收窄成 `Record<string,string>`，`query[KEY] = string` 合法。`loadFile` 分支已透传 `query`，`loadURL` 分支已遍历 `query` 设 searchParams，两条加载路径都会带上。
+> Atenção: `query` é hoje estreitado por `.filter(...)` para `Record<string,string>`, então `query[KEY] = string` é válido. O branch de `loadFile` já repassa `query`; o branch de `loadURL` já percorre `query` definindo searchParams — ambos os caminhos de carregamento carregam os dados.
 
-- [ ] **Step 4: 验证类型与构建**
+- [ ] **Passo 4: Verificar tipos e build**
 
-Run: `pnpm typecheck`
-Expected: PASS（无类型错误）。若出现 `index.ts` ↔ `desktopHostProcess.ts` 循环 import 告警：保持 `getMainLaunchPartialMarks` 为函数（惰性读取模块级变量），ESM 下函数调用时变量已初始化，循环可接受；如 tsc 仍报错，将三个 launch 变量与 getter 抽到新文件 `packages/desktop/src/main/launchMarks.ts` 再分别 import。
+Executar: `pnpm typecheck`
+Esperado: PASS (sem erros de tipo). Se aparecer aviso de import circular entre `index.ts` e `desktopHostProcess.ts`: mantenha `getMainLaunchPartialMarks` como função (leitura preguiçosa das variáveis de módulo), pois em ESM as variáveis já estão inicializadas no momento da chamada, e o ciclo é aceitável; se o tsc ainda reclamar, extraia as três variáveis de launch e o getter para um novo arquivo `packages/desktop/src/main/launchMarks.ts` e importe de lá.
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commitar**
 
 ```bash
 git add packages/desktop/src/main/index.ts packages/desktop/src/main/desktopHostProcess.ts
@@ -538,21 +538,21 @@ git commit -m "feat(desktop): main 采集 T0-T3 经 loadURL query 注入"
 
 ---
 
-### Task 4: renderer 读取 marks、记 T4/T5，移除旧 first_screen 调用
+### Tarefa 4: Renderer lê os marks, registra T4/T5 e remove a chamada antiga de first_screen
 
-**Files:**
-- Modify: `packages/desktop/src/renderer/src/main.tsx`
+**Arquivos:**
+- Modificar: `packages/desktop/src/renderer/src/main.tsx`
 
 **Interfaces:**
-- Consumes: `parseLaunchMarks`, `LAUNCH_MARKS_QUERY_KEY`, `LaunchMarks` from `@zcode/shared`
-- Produces:
-  - `window.__ZCODE_LAUNCH_MARKS__: LaunchMarks | null`（从 location query 解析，模块层一次）
-  - `window.__ZCODE_RENDERER_START__: number`（T4，模块顶部 Date.now()）
-  - `window.__ZCODE_REACT_COMMIT_AT__: number`（T5，startup-ready 时写入）
+- Consome: `parseLaunchMarks`, `LAUNCH_MARKS_QUERY_KEY`, `LaunchMarks` de `@zcode/shared`
+- Produz:
+  - `window.__ZCODE_LAUNCH_MARKS__: LaunchMarks | null` (parseado da query de location, uma vez no nível do módulo)
+  - `window.__ZCODE_RENDERER_START__: number` (T4, `Date.now()` no topo do módulo)
+  - `window.__ZCODE_REACT_COMMIT_AT__: number` (T5, escrito quando startup-ready dispara)
 
-- [ ] **Step 1: 模块顶部记 T4、解析 marks**
+- [ ] **Passo 1: Registrar T4 no topo do módulo e parsear os marks**
 
-`packages/desktop/src/renderer/src/main.tsx`，import 区把 `reportUiFirstScreen` 从 `@zcode/ui` 移除；从 `@zcode/shared` 增加 `parseLaunchMarks, LAUNCH_MARKS_QUERY_KEY, type LaunchMarks`。在 `startPerformanceTimelineCleanup();`（第 26 行）之前加入：
+Em `packages/desktop/src/renderer/src/main.tsx`, na área de imports remover `reportUiFirstScreen` de `@zcode/ui`; adicionar `parseLaunchMarks, LAUNCH_MARKS_QUERY_KEY, type LaunchMarks` de `@zcode/shared`. Antes de `startPerformanceTimelineCleanup();` (linha 26), adicionar:
 
 ```ts
 // T4:renderer bundle 开始执行。同时从 loadURL query 解析 main 注入的 T0-T3。
@@ -568,13 +568,13 @@ const launchMarks: LaunchMarks | null = parseLaunchMarks(
   launchMarks;
 ```
 
-- [ ] **Step 2: 删除旧 first_screen 计时块**
+- [ ] **Passo 2: Remover o bloco antigo de cronometragem first_screen**
 
-删除第 28-40 行整块（`uiFirstScreenStartedAt` 声明 + `window.addEventListener("zcode-react-startup-ready", ... reportUiFirstScreen ...)`）。
+Remover o bloco inteiro das linhas 28-40 (declaração de `uiFirstScreenStartedAt` + `window.addEventListener("zcode-react-startup-ready", ... reportUiFirstScreen ...)`).
 
-- [ ] **Step 3: `StartupReadyNotifier` 内记 T5**
+- [ ] **Passo 3: Registrar T5 dentro de `StartupReadyNotifier`**
 
-`StartupReadyNotifier`（第 235-243 行）的 `useEffect` 改为派发事件前先记 T5：
+O `useEffect` de `StartupReadyNotifier` (linhas 235-243) passa a registrar T5 antes de despachar o evento:
 
 ```ts
 function StartupReadyNotifier() {
@@ -590,12 +590,12 @@ function StartupReadyNotifier() {
 }
 ```
 
-- [ ] **Step 4: 验证类型**
+- [ ] **Passo 4: Verificar tipos**
 
-Run: `pnpm typecheck`
-Expected: PASS
+Executar: `pnpm typecheck`
+Esperado: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commitar**
 
 ```bash
 git add packages/desktop/src/renderer/src/main.tsx
@@ -604,20 +604,20 @@ git commit -m "feat(desktop): renderer 解析 launch marks 并记 T4/T5"
 
 ---
 
-### Task 5: Root 监听门禁清除记 T6 并触发上报
+### Tarefa 5: Root observa a liberação do portão, registra T6 e dispara o reporte
 
-**Files:**
-- Modify: `packages/ui/src/Root.tsx`
-- Test: `packages/ui/test/rootLaunchReport.test.ts`（纯函数 `buildLaunchToInputTimings` 单测）
-- Create: `packages/ui/src/lib/launchToInputReport.ts`（纯函数封装，便于单测）
+**Arquivos:**
+- Modificar: `packages/ui/src/Root.tsx`
+- Teste: `packages/ui/test/rootLaunchReport.test.ts` (teste unitário da função pura `buildLaunchToInputTimings`)
+- Criar: `packages/ui/src/lib/launchToInputReport.ts` (wrapper de função pura, para facilitar testes unitários)
 
 **Interfaces:**
-- Consumes: `reportUiLaunchToInput`、`LaunchMarks`（Task 2）
-- Produces:
+- Consome: `reportUiLaunchToInput`, `LaunchMarks` (Tarefa 2)
+- Produz:
   - `shouldReportLaunchToInput(state: { isStartupRenderBlocked: boolean; welcomeScreenOpen: boolean; alreadyReported: boolean }): boolean`
-  - `readRendererLaunchTimings(): { marks: LaunchMarks | null; rendererStart: number; reactCommit: number } | null`（从 window 读 T4/T5/marks）
+  - `readRendererLaunchTimings(): { marks: LaunchMarks | null; rendererStart: number; reactCommit: number } | null` (lê T4/T5/marks da window)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Passo 1: Escrever o teste que falha**
 
 ```ts
 // packages/ui/test/rootLaunchReport.test.ts
@@ -667,12 +667,12 @@ describe("shouldReportLaunchToInput", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Passo 2: Executar o teste para verificar que falha**
 
-Run: `pnpm exec vitest run packages/ui/test/rootLaunchReport.test.ts`
-Expected: FAIL（`Cannot find module .../launchToInputReport.js`）
+Executar: `pnpm exec vitest run packages/ui/test/rootLaunchReport.test.ts`
+Esperado: FAIL (`Cannot find module .../launchToInputReport.js`)
 
-- [ ] **Step 3: Write `launchToInputReport.ts`**
+- [ ] **Passo 3: Escrever `launchToInputReport.ts`**
 
 ```ts
 // packages/ui/src/lib/launchToInputReport.ts
@@ -708,14 +708,14 @@ export function readRendererLaunchTimings(): {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Passo 4: Executar o teste para verificar que passa**
 
-Run: `pnpm exec vitest run packages/ui/test/rootLaunchReport.test.ts`
-Expected: PASS（4 个用例）
+Executar: `pnpm exec vitest run packages/ui/test/rootLaunchReport.test.ts`
+Esperado: PASS (4 casos)
 
-- [ ] **Step 5: Wire into `Root.tsx`**
+- [ ] **Passo 5: Conectar em `Root.tsx`**
 
-5a. import 区加入：
+5a. Na área de imports adicionar:
 
 ```ts
 import { reportUiLaunchToInput } from "@/lib/uiPerfArmsTelemetry.js";
@@ -726,7 +726,7 @@ import {
 import { useRef } from "react"; // 若已 import react hooks，合并
 ```
 
-5b. 在 `isStartupRenderBlocked` 计算（第 547 行）之后加入 effect。`sessionId` 用 marks.createdAt 派生（同进程稳定且唯一）：
+5b. Adicionar o effect depois do cálculo de `isStartupRenderBlocked` (linha 547). O `sessionId` é derivado de marks.createdAt (estável e único dentro do mesmo processo):
 
 ```ts
   const launchReportedRef = useRef(false);
@@ -755,15 +755,15 @@ import { useRef } from "react"; // 若已 import react hooks，合并
   }, [isStartupRenderBlocked, welcomeScreenOpenReason]);
 ```
 
-- [ ] **Step 6: Run full ui telemetry + report tests**
+- [ ] **Passo 6: Executar a suíte completa de telemetria UI + report**
 
-Run: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts packages/ui/test/rootLaunchReport.test.ts`
-Expected: PASS
+Executar: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts packages/ui/test/rootLaunchReport.test.ts`
+Esperado: PASS
 
-- [ ] **Step 7: Typecheck + Commit**
+- [ ] **Passo 7: Typecheck + Commitar**
 
-Run: `pnpm typecheck`
-Expected: PASS
+Executar: `pnpm typecheck`
+Esperado: PASS
 
 ```bash
 git add packages/ui/src/Root.tsx packages/ui/src/lib/launchToInputReport.ts packages/ui/test/rootLaunchReport.test.ts
@@ -772,14 +772,14 @@ git commit -m "feat(ui): 启动门禁清除时上报 launch_to_input"
 
 ---
 
-### Task 6: 更新监控文档与本地验证
+### Tarefa 6: Atualizar o documento de monitoramento e fazer a verificação local
 
-**Files:**
-- Modify: `docs/monitoring/performance-monitoring.md:169-182`
+**Arquivos:**
+- Modificar: `docs/monitoring/performance-monitoring.md:169-182`
 
-- [ ] **Step 1: 替换事件一览中的 first_screen 行**
+- [ ] **Passo 1: Substituir a linha de first_screen na lista de eventos**
 
-把第 171 行 `| \`perf_ui_first_screen\` | ... |` 一行删除，替换为 7 行：
+Remover a linha 171 `| \`perf_ui_first_screen\` | ... |` e substituir por 7 linhas:
 
 ```markdown
 | `perf_ui_launch_to_input` | 启动到能输入总耗时 ms | 进程创建(`getCreationTime`)→ 启动门禁清除、输入框可用 | `session_id` |
@@ -791,28 +791,28 @@ git commit -m "feat(ui): 启动门禁清除时上报 launch_to_input"
 | `perf_ui_launch_startup_gate_ms` | 启动门禁 ms | React commit → 输入框可用(鉴权/provider/workspace 恢复) | `session_id` |
 ```
 
-- [ ] **Step 2: 更新「说明与边界」段**
+- [ ] **Passo 2: Atualizar a seção "Notas e limites"**
 
-在第 176 行附近补一条：
+Adicionar um item perto da linha 176:
 
 ```markdown
 - **启动分阶段**:7 段每进程冷启动各上报一次,`value` 为各段 ms(`Math.max(0,...)` 钳非负)。锚点 `process.getCreationTime()`,main 的 T0-T3 经主窗口 loadURL query(`zcodeLaunchMarks`)注入 renderer,在启动门禁清除(`isStartupRenderBlocked` 翻 false)时统一计算上报。未登录(WelcomeScreen)不上报;总时长 >300000ms 哨兵丢弃。`session_id` 关联同次启动各段。旧 `perf_ui_first_screen` 已废弃,语义并入 `perf_ui_launch_react_commit_ms`。
 ```
 
-- [ ] **Step 3: 全量单测回归**
+- [ ] **Passo 3: Regressão completa de testes unitários**
 
-Run: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts packages/ui/test/rootLaunchReport.test.ts packages/shared/test/launchMarks.test.ts`
-Expected: PASS
+Executar: `pnpm exec vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts packages/ui/test/rootLaunchReport.test.ts packages/shared/test/launchMarks.test.ts`
+Esperado: PASS
 
-- [ ] **Step 4: 本地验证（手动，开发构建 `arms_env=local`）**
+- [ ] **Passo 4: Verificação local (manual, build de desenvolvimento `arms_env=local`)**
 
-参照 memory「桌面版 dev 启动」用国内镜像启动桌面 dev：
-- 冷启动登录态 → main 日志 `beforeReport` 依次出现 7 条 `custom:perf_ui_launch_*`，`perf_ui_launch_to_input` ≈ 其余 6 段之和。
-- `perf_ui_launch_react_commit_ms` 应接近旧 first_screen 的 ~75ms（sanity）。
-- 未登录冷启动（WelcomeScreen）→ 不出现 `perf_ui_launch_to_input`。
-- 回归：`perf_ui_first_token` / `perf_ui_message_complete` / `perf_ui_stream_stall` 仍正常。
+Seguindo a memória "启动 do dev desktop", iniciar o dev do desktop usando o espelho doméstico:
+- Cold start autenticado → no log do main, `beforeReport` mostra 7 entradas `custom:perf_ui_launch_*` em sequência, e `perf_ui_launch_to_input` ≈ soma dos outros 6 segmentos.
+- `perf_ui_launch_react_commit_ms` deve ficar próximo dos ~75ms do antigo first_screen (sanity).
+- Cold start sem login (WelcomeScreen) → `perf_ui_launch_to_input` não aparece.
+- Regressão: `perf_ui_first_token` / `perf_ui_message_complete` / `perf_ui_stream_stall` continuam normais.
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commitar**
 
 ```bash
 git add docs/monitoring/performance-monitoring.md
@@ -821,6 +821,6 @@ git commit -m "docs(monitoring): 启动分阶段耗时事件,移除 perf_ui_firs
 
 ---
 
-## 实现顺序与依赖
+## Ordem de implementação e dependências
 
-Task 1（shared）→ Task 2（ui 上报）可并行于 Task 3（main）；Task 4 依赖 Task 1；Task 5 依赖 Task 2+4；Task 6 最后。建议顺序：1 → 2 → 3 → 4 → 5 → 6。
+Tarefa 1 (shared) → Tarefa 2 (reporte na UI) pode correr em paralelo com a Tarefa 3 (main); a Tarefa 4 depende da Tarefa 1; a Tarefa 5 depende das Tarefas 2 e 4; a Tarefa 6 vem por último. Ordem sugerida: 1 → 2 → 3 → 4 → 5 → 6.

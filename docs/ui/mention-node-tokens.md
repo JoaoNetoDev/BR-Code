@@ -1,8 +1,10 @@
 # Mention Node Tokens
 
-> **当前状态**：输入节点与 V4 conversation 用户消息回显共用这些 token。
+> **Estado atual**: os nós de input e a exibição das mensagens de usuário da conversation V4
+> compartilham estes tokens.
 
-`packages/ui/src/styles.css` 新增了一组专门给提示词 mention node 使用的主题 token：
+`packages/ui/src/styles.css` passou a ter um conjunto de theme tokens dedicados exclusivamente ao
+mention node do prompt:
 
 - `--color-file-node`
 - `--color-file-node-hover`
@@ -14,37 +16,52 @@
 - `--color-command-node-hover`
 - `--color-command-node-foreground`
 
-用途：
+Finalidade:
 
-- 统一提示词输入框里的 mention node 和 `UserPrompt` 里的回显样式
-- 允许 Zai Light / Zai Dark 分别调整 node 配色；默认 light / dark 仅作为 fallback token 基础保留
-- 避免在组件里继续写死 `sky/violet/primary` 的 Tailwind 原子颜色
-- mention node 是结构化视觉标签，不是可点击控件；输入框和消息回显都使用 `cursor-default`
-- command mention node 的图标语义保持稳定：`/goal` 使用 target，`/compact` 使用 scroll-text，普通/自定义 slash command 使用 `square-slash`，颜色仍走 command node token
+- Unificar o estilo do mention node no campo de input do prompt e o da exibição em `UserPrompt`
+- Permitir que Zai Light / Zai Dark ajustem a paleta dos nodes separadamente; light / dark padrão
+  são mantidos apenas como base dos tokens de fallback
+- Evitar continuar escrevendo cores atômicas Tailwind `sky/violet/primary` hardcoded nos
+  componentes
+- O mention node é uma tag visual estruturada, não um controle clicável; tanto o campo de input
+  quanto a exibição das mensagens usam `cursor-default`
+- A semântica de ícone do command mention node permanece estável: `/goal` usa target, `/compact`
+  usa scroll-text, slash commands comuns/customizados usam `square-slash`, e a cor continua vindo
+  do command node token
 
-## V4 UserPrompt 回显规则
+## Regras de exibição do UserPrompt na V4
 
-V4 conversation 的 `userInput.text` 保留发送给 Agent 的原始 mention markdown，展示层负责按旧版 `UserMessage` 的语义还原为结构化标签，不能把内部路径或 session id 直接暴露在用户气泡中：
+O `userInput.text` da conversation V4 preserva o markdown de mention original enviado ao Agent, e a
+camada de exibição é responsável por restaurá-lo como tags estruturadas conforme a semântica do
+antigo `UserMessage`, sem expor caminhos internos ou session id diretamente no balão do usuário:
 
-- `[$skill](.../SKILL.md)` 与旧格式 `$skill`：魔杖图标 + 可读 skill 名称，隐藏 `SKILL.md` 路径。
-- `[#标题](#sess_xxx)` 与裸 `#sess_xxx`：对话图标 + 标题或 session id；markdown 目标中的 session id 不重复展示。
-- `[文件名](path)` 与目录链接：按文件/目录类型显示 Material icon + label，隐藏 markdown destination。
-- `@subagent`：Bot 图标 + subagent 名称。
-- `/goal`、`/compact` 与其他 slash command：分别使用 Goal、ScrollText、SquareSlash 图标。
-- 已被发送入口认定为 goal 控制命令的开头 `/goal` / `/target` 在只读用户气泡中
-  还原为不带 `/` 的 `goal` / `target` mention 标签；输入框中的 command node 继续保留
-  原始 slash command 语义。
+- `[$skill](.../SKILL.md)` e o formato antigo `$skill`: ícone de varinha + nome legível do skill,
+  ocultando o caminho `SKILL.md`.
+- `[#标题](#sess_xxx)` e o `#sess_xxx` puro: ícone de conversa + título ou session id; o session id
+  no destino do markdown não é exibido em duplicidade.
+- `[文件名](path)` e links de diretório: exibem Material icon + label conforme o tipo
+  arquivo/diretório, ocultando o destino do markdown.
+- `@subagent`: ícone de Bot + nome do subagent.
+- `/goal`, `/compact` e outros slash commands: usam respectivamente os ícones Goal, ScrollText e
+  SquareSlash.
+- Um `/goal` / `/target` inicial já reconhecido pela entrada de envio como comando de controle de
+  goal é restaurado no balão do usuário somente leitura como a tag de mention `goal` / `target` sem
+  a `/`; o command node no campo de input continua preservando a semântica original do slash
+  command.
 
-`/goal` 仍受 V4 command intent 边界约束：只有发送入口认定为 goal 控制命令时才在
-command 标签中省略 `/`；携带普通附件或隐藏上下文而退化为普通 prompt 时必须保留原文，
-不能仅靠文本前缀重猜语义。复制和行内编辑继续使用原始 `userInput.text`，mention 标签只
-影响只读展示。
+`/goal` continua sujeito ao limite de V4 command intent: a `/` só é omitida na tag de command quando a
+entrada de envio reconhece o comando como comando de controle de goal; quando há anexos comuns ou
+contexto oculto que fazem o prompt degradar para um prompt comum, o texto original precisa ser
+preservado, sem tentar adivinhar a semântica apenas pelo prefixo de texto. A cópia e a edição inline
+continuam usando o `userInput.text` original; as tags de mention afetam apenas a exibição somente
+leitura.
 
-代码入口：
+Pontos de entrada de código:
 
-- 主题变量定义：`packages/ui/src/styles.css`
-- mention 样式复用：`packages/ui/src/mentions/mentionChip.ts`
-- command node 图标与输入节点：`packages/ui/src/mentions/nodes/PromptMentionNode.ts`
-- V4 用户消息回显：`packages/ui/src/v4/ConversationRowView.tsx`
+- Definição das variáveis de tema: `packages/ui/src/styles.css`
+- Reuso do estilo de mention: `packages/ui/src/mentions/mentionChip.ts`
+- Ícone do command node e nós de input: `packages/ui/src/mentions/nodes/PromptMentionNode.ts`
+- Exibição das mensagens de usuário da V4: `packages/ui/src/v4/ConversationRowView.tsx`
 
-后续如果要调 node 颜色，优先改 token，不要直接在组件里改原子类。
+Se for preciso ajustar a cor dos nodes futuramente, prefira alterar os tokens, e não trocar
+diretamente as classes atômicas nos componentes.

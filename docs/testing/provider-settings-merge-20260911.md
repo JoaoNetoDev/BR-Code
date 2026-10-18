@@ -1,49 +1,49 @@
-# Provider 稳定性分支合并记录（2026-09-11）
+# Registro de merge da ramificação de estabilidade de Provider (2026-09-11)
 
-## 范围
+## Escopo
 
-- 用户要求重命名当前分支，并合入 `codex/provider-settings-todos`。
-- 原分支：`codex/provider-schema-refinement-20260910`，基线 `cd81a0fc08`。
-- 新分支：`codex/provider-stabilization-20260911`；解除对旧远端分支的 tracking，避免后续误推旧分支。尚未推送新分支。
-- 合入本地目标分支固定提交 `9469388004`；fetch 后没有同名远端分支，目标位于另一个工作区，不修改其工作区或分支。
-- 双方独有提交数 14 / 77。目标包含 staging 至 `7a01923f58` 的更新，不只是 Todo 文档。
-- 正常双亲 merge，无显式冲突；不使用整文件 ours/theirs，不重做上游独立功能。
+- O usuário pediu renomear a ramificação atual e mesclar em `codex/provider-settings-todos`.
+- Ramificação original: `codex/provider-schema-refinement-20260910`, baseline `cd81a0fc08`.
+- Nova ramificação: `codex/provider-stabilization-20260911`; o tracking da ramificação remota antiga foi removido para evitar push acidental posterior. A nova ramificação ainda não foi enviada.
+- O merge usou o commit fixo `9469388004` da ramificação de destino local; após o fetch não havia ramificação remota com o mesmo nome, e o destino está em outro workspace, cujo workspace e ramificação não foram modificados.
+- Commits exclusivos de cada lado: 14 / 77. O destino contém atualizações de staging até `7a01923f58`, não apenas documentos de Todo.
+- Merge normal com dois pais, sem conflito explícito; sem uso de ours/theirs de arquivo inteiro e sem refazer funcionalidades independentes do upstream.
 
-## 交集复核
+## Revisão de interseção
 
-- 自动合并交集为 `model-execution.ts` 和中英文 locale 文件。
-- 请求安全校验：保留本分支两个官方套餐 URL 的手动 Key 安全校验准入，同时接入目标分支的安全校验观测、feature gate 日志与 attempt 观测链路。官方 URL 规则仍走原有安全校验，不被 access-mode 的未校验观测分支抢先截走。
-- API Key 入口：保留单一 `apiKeyManagementUrl`，未恢复团队专用字段和双按钮文案；旧字段仅保留于拒绝该字段的测试断言。
-- 设置布局：保留目标分支整页滚动和反馈定位改动，不恢复已删除的 ScrollEdgeShadowViewport；本分支卡片和 API Key 入口改动保持。
-- 双方所有 Todo 按文件完整保留，不根据编号自动覆盖或将待办当成已实现。
+- A interseção do merge automático foi `model-execution.ts` e os arquivos de locale em chinês e inglês.
+- Validação de segurança de requisições: mantém a validação de segurança de Key manual das duas URLs oficiais de plano deste ramo, ao mesmo tempo em que conecta a observabilidade de validação de segurança, o log de feature gate e a cadeia de observabilidade de attempt da ramificação de destino. A regra de URL oficial continua passando pela validação de segurança original e não é interceptada antes pela ramificação de observação não validada do access-mode.
+- Entrada de API Key: mantém o único `apiKeyManagementUrl`, sem restaurar o campo exclusivo de equipe nem o texto de dois botões; o campo antigo permanece apenas nas asserções de teste que rejeitam esse campo.
+- Layout das configurações: mantém a rolagem de página inteira e as alterações de posicionamento do feedback do ramo de destino, sem restaurar o ScrollEdgeShadowViewport já removido; as alterações de card e de entrada de API Key deste ramo são mantidas.
+- Todos os Todos dos dois lados são mantidos integralmente por arquivo, sem sobrescrita automática por número nem tratamento de item pendente como já implementado.
 
-## 验证
+## Verificação
 
-- 根目录 `pnpm typecheck`：通过。
-- Adapter `pnpm typecheck`：首次因 Contracts 旧 dist 缺少新增安全校验观测类型失败；重建当前 Contracts 后通过，无源码修补。
-- `pnpm lint`：0 errors、41 warnings；未借合并扩修无关告警。
-- `pnpm architecture:check --changed`：合并前后均通过，0 new violations。
-- 根目录 Provider／模板／安全校验共享代码／链接及布局定向测试：7 文件、87 项通过。
-- Agent 独立测试入口的 manual-coding-plan-signing：18 项通过；不能用根目录测试命令替代，该目录未被根配置纳入。
-- 模型行编辑、模板选择、API Key 链接组件测试：3 文件、55 项通过（链接测试与前批有重合，不累计成独立用例总数）。
-- 未进行 Pro／Air 实机、手机远控或全产品 E2E，不将本次合并检查等同于相关 Todo 的完整验收。
-- `git diff --cached --check` 指出目标分支已有的两份 Document Skills 文件末尾空行及决策模板的三处行尾空格；这些内容来自固定目标，不为合并单独修改上游插件内容。
+- `pnpm typecheck` na raiz: passou.
+- `pnpm typecheck` do Adapter: falhou na primeira vez porque o dist antigo de Contracts não tinha os novos tipos de observação da validação de segurança; passou após reconstruir o Contracts atual, sem correção no código-fonte.
+- `pnpm lint`: 0 errors, 41 warnings; o merge não serviu para ampliar a correção de avisos não relacionados.
+- `pnpm architecture:check --changed`: passou antes e depois do merge, 0 new violations.
+- Testes direcionados na raiz de Provider / template / código compartilhado de validação de segurança / links e layout: 7 arquivos, 87 itens passaram.
+- Entrada de teste independente do Agent para manual-coding-plan-signing: 18 itens passaram; não pode ser substituída pelo comando de teste da raiz, pois esse diretório não é incluído pela configuração da raiz.
+- Testes de edição de linha de modelo, seleção de template e do componente de link de API Key: 3 arquivos, 55 itens passaram (os testes de link têm sobreposição com o lote anterior e não são somados como um total independente de casos).
+- Não foram feitas verificações em máquinas reais Pro/Air, controle remoto pelo celular nem E2E de produto inteiro; a verificação deste merge não equivale à aceitação completa dos Todos relacionados.
+- `git diff --cached --check` apontou duas linhas em branco no final dos arquivos de Document Skills já existentes no ramo de destino e três espaços no fim de linha no template de decisão; esse conteúdo vem do destino fixo e o conteúdo de plugin do upstream não é alterado só por causa do merge.
 
-## 保留事项
+## Itens preservados
 
-合并时两边 Todo115～Todo122 编号重复。现按用户要求保留原分支编号，将合入分支的八项顺延为 Todo125～Todo132，文件名、标题、目录和交叉引用已同步更新：
+Na época do merge, Todo115～Todo122 estavam duplicados nos dois lados. Conforme pedido do usuário, os números da ramificação original foram mantidos e os oito itens do ramo mesclado foram renumerados como Todo125～Todo132, com arquivos, títulos, diretórios e referências cruzadas já atualizados:
 
-| 合入分支原编号 | 当前编号 | 主题 |
+| Número original do ramo mesclado | Número atual | Tema |
 | --- | --- | --- |
-| Todo115 | Todo125 | 模型设置页问号说明与定稿文案 |
-| Todo116 | Todo126 | GLM-5.3-Flash PDF 与 Coding Plan API Turbo 默认配置 |
-| Todo117 | Todo127 | Built-in 配置在线发布与更新链路修复 |
-| Todo118 | Todo128 | Provider 启动契约与闲时资格刷新修复 |
-| Todo119 | Todo129 | Provider 埋点适配与 Team 套餐识别修复 |
-| Todo120 | Todo130 | 智能配置开关与手动配置字段边界修正 |
-| Todo121 | Todo131 | 模型设置页智能配置位置与“恢复”按钮 |
-| Todo122 | Todo132 | 模型选项底色反馈与供应商名称编辑修复 |
+| Todo115 | Todo125 | Texto de ajuda da página de configurações de modelo e texto final |
+| Todo116 | Todo126 | Configuração padrão de GLM-5.3-Flash PDF e Coding Plan API Turbo |
+| Todo117 | Todo127 | Publicação online e correção do fluxo de atualização da configuração Built-in |
+| Todo118 | Todo128 | Contrato de inicialização de Provider e correção da atualização de elegibilidade em ocioso |
+| Todo119 | Todo129 | Adaptação da telemetria de Provider e correção do reconhecimento de plano de equipe |
+| Todo120 | Todo130 | Chave de configuração inteligente e correção da fronteira de campos de configuração manual |
+| Todo121 | Todo131 | Posição da configuração inteligente na página de configurações de modelo e botão "Restaurar" |
+| Todo122 | Todo132 | Feedback da cor de fundo das opções de modelo e correção da edição do nome do fornecedor |
 
-原分支 Todo115～Todo124 不变。此次仅整理文档身份，不改需求或实施状态；文档中的 M120／R121／T119 等已有用例追踪 ID 保持稳定，不随 Todo 编号重排。
+Todo115～Todo124 da ramificação original permanecem inalterados. Desta vez apenas a identidade documental foi organizada, sem mudar requisitos nem estado de implementação; IDs de rastreamento de casos já existentes nos documentos, como M120／R121／T119, permanecem estáveis e não são reordenados junto com a numeração dos Todos.
 
-本记录不承诺修复已记录的 Provider、迁移、Subagent、容量或连接测试问题，也不实施目标分支新增的待办。
+Este registro não promete corrigir os problemas já registrados de Provider, migração, Subagent, capacidade ou teste de conexão, nem implementa os novos itens pendentes do ramo de destino.

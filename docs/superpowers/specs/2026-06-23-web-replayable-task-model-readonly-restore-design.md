@@ -1,65 +1,61 @@
-# Web Replayable Task Model Readonly Restore Design
+# Design de Restauração Somente Leitura do Modelo da Task no Web Replayable
 
-## Background
+## Contexto
 
-手机 Web 远控打开历史 task 时走 `web-remote-replayable` 快照恢复。当前
-`getTaskSnapshot` 在缺少显式模型参数时会从 task index 回填历史模型，再调用
-`session/resume`。如果历史模型的 exact provider/model 已经从当前 registry 中不可用，
-服务层会抛出 `ZCODE_RUNTIME_MODEL_UNAVAILABLE`。
+Quando o controle remoto Web mobile abre uma task histórica, ele passa pela restauração por snapshot `web-remote-replayable`. Atualmente,
+`getTaskSnapshot`, na ausência de um parâmetro explícito de modelo, preenche o modelo histórico a partir do task index e depois chama
+`session/resume`. Se o provider/model exato do modelo histórico não estiver mais disponível no registry atual,
+a camada de serviço lança `ZCODE_RUNTIME_MODEL_UNAVAILABLE`.
 
-桌面端 `desktop-continuous` 已经在 UI helper 中对这个错误做了降级：恢复历史显示，
-并要求用户选择当前可用模型后再续聊。手机端没有同等降级，首屏 snapshot 直接失败，
-外层 catch 又把错误写成 runtime string，最终被展示成普通聊天错误横幅。
+O desktop `desktop-continuous` já faz o degradação desse erro em um helper de UI: exibe o histórico restaurado
+e exige que o usuário escolha um modelo atualmente disponível antes de continuar a conversa. O mobile não tem degradação equivalente, e o snapshot da primeira tela falha diretamente;
+o catch externo ainda escreve o erro como uma runtime string, o que acaba sendo exibido como um banner de erro de chat comum.
 
-## Goal
+## Objetivo
 
-只优化手机 `web-remote-replayable` 打开 task 的恢复路径：历史模型不可用时仍能显示历史消息，
-并把真正的 runtime 恢复延后到用户或工具栏选择可用模型之后。桌面
-`desktop-continuous` 行为保持不变。
+Otimizar apenas o caminho de restauração da abertura de task no mobile `web-remote-replayable`: quando o modelo histórico não estiver disponível, as mensagens históricas ainda devem ser exibidas,
+e a restauração real do runtime deve ser adiada até que o usuário ou a barra de ferramentas escolha um modelo disponível. O comportamento do desktop
+`desktop-continuous` permanece inalterado.
 
 ## Design
 
-- 为 task snapshot 参数增加手机专用恢复策略：
-  `resumeModelPolicy: "task-index" | "ui-resolved-only"`。
-- 默认策略为 `"task-index"`，保持现有行为。
-- 只有 `clientMode === "web-remote-replayable"` 且策略为
-  `"ui-resolved-only"` 时，`zcodeTaskServiceAdapter.getTaskSnapshot` 不再从 task index
-  回填历史模型。
-- `useTaskRestore` 在手机 replayable 分支中，如果恢复前模型解析结果表明历史模型不可用，
-  且没有可见模型 fallback，则首屏 snapshot 使用 `"ui-resolved-only"`。
-- `useTaskRestore` 在手机 replayable 分支中，如果 provider snapshot 尚未水合，也先使用
-  `"ui-resolved-only"`。此时 UI 还不能可靠判断历史模型是否可用，不能把旧模型 hint
-  提前传给 runtime；工具栏会在模型列表水合后重新判断并自动切到第一个可见可用模型。
-- provider snapshot 未水合时，UI 的 task meta 也可能尚未进 store；即使本地没有解析出
-  历史模型 hint，也必须先禁止 host 从 task index 回填旧模型。
-- provider snapshot 也可能已经被其它 workspace 提前水合，但当前 task meta 仍未进入
-  UI store。只要手机 replayable 恢复前的 task meta source 为 `missing`，首屏 snapshot
-  同样使用 `"ui-resolved-only"`，避免 host 在 UI fallback 判断前从 task index 回填旧模型。
-- 同一只读恢复分支跳过后续 `resumeTask`，避免它再次从 task index 回填同一个不可用模型。
-  UI 使用 snapshot meta 完成历史展示，并保留 task-scoped
-  `ZCODE_RUNTIME_MODEL_UNAVAILABLE` 状态。
-- 手机 `web-remote-replayable` 打开 task 后，stream event / session event / gap recovery
-  触发的后续只读 snapshot 同步也使用 `"ui-resolved-only"`。这些同步只用于校准
-  UI 消息、队列和运行态，不能在用户已经切到可用模型后再次从 task index 回填历史模型。
-- 当工具栏自动切到第一个可见模型或用户手动选模型后，后续发送继续走现有
-  task config model 恢复链路。
+- Adicionar aos parâmetros do snapshot de task uma estratégia de restauração exclusiva do mobile:
+  `resumeModelPolicy: "task-index" | "ui-resolved-only"`.
+- A estratégia padrão é `"task-index"`, preservando o comportamento atual.
+- Somente quando `clientMode === "web-remote-replayable"` e a estratégia é
+  `"ui-resolved-only"`, `zcodeTaskServiceAdapter.getTaskSnapshot` deixa de preencher o modelo histórico a partir do task index.
+- Em `useTaskRestore`, no branch replayable do mobile, se a resolução de modelo antes da restauração indicar que o modelo histórico não está disponível
+  e não houver fallback de modelo visível, o snapshot da primeira tela usa `"ui-resolved-only"`.
+- Em `useTaskRestore`, no branch replayable do mobile, se o snapshot de providers ainda não foi hidratado, também se usa primeiro
+  `"ui-resolved-only"`. Nesse momento a UI ainda não consegue julgar de forma confiável se o modelo histórico está disponível, e não se deve passar o hint do modelo antigo
+  prematuramente ao runtime; a barra de ferramentas reavalia após a hidratação da lista de modelos e muda automaticamente para o primeiro modelo visível disponível.
+- Quando o snapshot de providers não está hidratado, a task meta da UI também pode ainda não estar no store; mesmo sem resolver localmente
+  o hint do modelo histórico, é preciso proibir primeiro que o host preencha o modelo antigo a partir do task index.
+- O snapshot de providers também pode já ter sido hidratado por outro workspace, mas a task meta atual ainda não entrou na
+  UI store. Enquanto a origem da task meta antes da restauração no replayable do mobile for `missing`, o snapshot da primeira tela
+  também usa `"ui-resolved-only"`, evitando que o host preencha o modelo antigo a partir do task index antes da avaliação de fallback da UI.
+- O mesmo branch de restauração somente leitura pula o subsequente `resumeTask`, evitando que ele preencha novamente o mesmo modelo indisponível a partir do task index.
+  A UI usa a snapshot meta para concluir a exibição histórica e mantém o estado `ZCODE_RUNTIME_MODEL_UNAVAILABLE` com escopo de task.
+- Depois que o mobile `web-remote-replayable` abre uma task, as sincronizações posteriores de snapshot somente leitura, disparadas por stream event / session event / gap recovery,
+  também usam `"ui-resolved-only"`. Essas sincronizações servem apenas para calibrar mensagens da UI, fila e estado de runtime,
+  e não podem voltar a preencher o modelo histórico a partir do task index depois que o usuário já mudou para um modelo disponível.
+- Depois que a barra de ferramentas muda automaticamente para o primeiro modelo visível ou que o usuário seleciona um modelo manualmente, os envios seguintes continuam pelo caminho existente de
+  restauração de model da task config.
 
-## Boundaries
+## Limites
 
-- 不修改 `zcodeAgentService.resolveRuntimeModelConfig` 的历史 session 硬校验。
-- 不让历史 session 静默切到 registry 第一个模型。
-- 不改变桌面 `desktop-continuous` 的 snapshot、resume、queue 或 stream 语义。
-- 不在 relay 或 desktop main 下沉 task/model 业务状态。
+- Não modificar a validação rígida de session histórica em `zcodeAgentService.resolveRuntimeModelConfig`.
+- Não deixar que uma session histórica mude silenciosamente para o primeiro modelo do registry.
+- Não alterar as semânticas de snapshot, resume, queue ou stream do desktop `desktop-continuous`.
+- Não rebaixar para relay ou desktop main o estado de negócio de task/model.
 
-## Verification
+## Verificação
 
-- UI 单测覆盖手机只读恢复 snapshot 参数包含 `resumeModelPolicy: "ui-resolved-only"`。
-- UI 单测覆盖手机端 provider snapshot 未水合时即使没有本地历史模型 hint 也使用只读恢复，
-  桌面端不使用该策略。
-- UI 单测覆盖手机端 provider snapshot 已水合但 task meta 尚未进入 UI 时仍使用只读恢复，
-  桌面端不使用该策略。
-- UI 单测覆盖手机 replayable 后续 snapshot 同步会携带
-  `resumeModelPolicy: "ui-resolved-only"`，桌面端不改变 session read 路径。
-- 服务单测覆盖该策略下 `web-remote-replayable` 不从 task index 回填历史模型。
-- 回归单测覆盖默认 `web-remote-replayable` 仍会回填 task index 模型。
-- 运行 `pnpm typecheck` 和 `pnpm lint`。
+- Testes unitários de UI cobrem que os parâmetros do snapshot de restauração somente leitura do mobile incluem `resumeModelPolicy: "ui-resolved-only"`.
+- Testes unitários de UI cobrem que, no mobile, quando o snapshot de providers não está hidratado, a restauração somente leitura é usada mesmo sem hint local de modelo histórico, e que o desktop não usa essa estratégia.
+- Testes unitários de UI cobrem que, no mobile, quando o snapshot de providers já está hidratado mas a task meta ainda não entrou na UI, a restauração somente leitura continua sendo usada, e que o desktop não usa essa estratégia.
+- Testes unitários de UI cobrem que as sincronizações posteriores de snapshot no replayable do mobile carregam
+  `resumeModelPolicy: "ui-resolved-only"`, e que o desktop não altera o caminho de leitura de session.
+- Testes unitários de serviço cobrem que, sob essa estratégia, `web-remote-replayable` não preenche o modelo histórico a partir do task index.
+- Testes unitários de regressão cobrem que o `web-remote-replayable` padrão ainda preenche o modelo do task index.
+- Executar `pnpm typecheck` e `pnpm lint`.

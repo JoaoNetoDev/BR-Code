@@ -1,21 +1,21 @@
-# ZCode 产品能力关系图
+# Mapa de Relações de Capacidades de Produto do ZCode
 
-## 目标
+## Objetivo
 
-本文定义 ZCode 产品能力图的维护口径。关系图不是代码目录图，也不是组织架构图，而是用来回答：
+Este documento define o critério de manutenção do mapa de capacidades de produto do ZCode. O mapa de relações não é um mapa de diretórios de código nem um organograma; ele existe para responder:
 
-1. 产品能力主要运行在 Renderer、Host 还是 ZCode CLI，或属于产品运行时之外的工程基础设施；
-2. 每个顶层区域由哪些能力群组成；
-3. 每个能力群包含哪些可独立维护的能力节点；
-4. 不同节点通过什么语义产生依赖；
-5. 跨团队修改时，需要邀请哪些能力 owner 共同评审。
+1. Se a capacidade de produto roda principalmente no Renderer, no Host ou no ZCode CLI, ou pertence à infraestrutura de engenharia fora do runtime de produto;
+2. De quais grupos de capacidades cada área de nível superior é composta;
+3. Quais nós de capacidade, mantíveis de forma independente, cada grupo contém;
+4. Por qual semântica os diferentes nós geram dependências;
+5. Quais owners de capacidade precisam ser convidados para a revisão conjunta quando houver mudanças entre times.
 
-交互式关系图由 `apps/dev-docs` 承载。运行 `pnpm dev:docs` 后访问
-`http://localhost:5186/?view=capabilities`。
+O mapa de relações interativo é mantido por `apps/dev-docs`. Depois de rodar `pnpm dev:docs`, acesse
+`http://localhost:5186/?view=capabilities`.
 
-![ZCode 产品能力关系图预览](./product-capability-map-preview.png)
+![Prévia do mapa de relações de capacidades de produto do ZCode](./product-capability-map-preview.png)
 
-## 图模型
+## Modelo do grafo
 
 ```text
 Top-level Area
@@ -27,20 +27,20 @@ Top-level Area
 Capability Node ── semantic relationship ──> Capability Node
 ```
 
-- **顶层区域（Top-level Area）**：前三个区域按真实部署与状态边界划分为 Renderer、Host、ZCode CLI；第四个区域是产品运行时之外的工程基础设施。
-- **能力群（Group）**：顶层区域内适合分配一个主要维护团队或负责人的能力集合，例如 Agent Core、账户权益、构建发布、测试自动化。
-- **能力节点（Node）**：拥有独立产品语义、权威状态或提交副作用的可维护单元。
-- **关系（Edge）**：只记录有明确产品语义的依赖，不把所有静态代码引用都画成产品关系。
+- **Área de nível superior (Top-level Area)**: as três primeiras áreas são divididas em Renderer, Host e ZCode CLI conforme o despliegue real e os limites de estado; a quarta área é a infraestrutura de engenharia fora do runtime de produto.
+- **Grupo de capacidades (Group)**: um conjunto de capacidades dentro de uma área de nível superior adequado para atribuição a um time principal de manutenção ou a um responsável, por exemplo Agent Core, Entitlements de conta, build e release, automação de testes.
+- **Nó de capacidade (Node)**: uma unidade mantível que possui semântica de produto, estado autoritativo ou efeito de commit próprios.
+- **Relação (Edge)**: registra apenas dependências com semântica de produto clara; não desenha toda referência de código estática como relação de produto.
 
-## 命名规则
+## Regras de nomenclatura
 
-- 能力群、节点和 owner 统一使用“中文（English）”，中文是主要识别文本，现有英文名称保留在全角括号中。
-- MCP、OAuth、CLI、UI、CDP、CUA、ARMS 等产品缩写不强制翻译，但仍应补足中文语义。
-- 图中的名称描述产品能力，不直接复制目录名、类名或历史兼容层名称。
+- Grupos de capacidades, nós e owners usam uniformemente "português (English)"; o português é o texto principal de identificação, e os nomes em inglês existentes são mantidos entre parênteses.
+- Abreviações de produto como MCP, OAuth, CLI, UI, CDP, CUA e ARMS não são obrigatoriamente traduzidas, mas ainda devem ser acompanhadas da semântica em português.
+- Os nomes no mapa descrevem capacidades de produto e não copiam diretamente nomes de diretório, de classe ou de camadas de compatibilidade históricas.
 
-## 布局算法
+## Algoritmo de layout
 
-关系图使用 React Flow 渲染，并采用“能力群优先”的两阶段确定性布局。节点级跨群引用只影响群的相邻顺序，不再直接把整个能力群拉到不同 Layer：
+O mapa de relações é renderizado com React Flow e usa um layout determinístico em duas fases, com "grupos de capacidades primeiro". Referências de nível de nó entre grupos afetam apenas a ordem adjacente dos grupos, sem mais arrastar todo o grupo para Layers diferentes:
 
 ```text
 群内节点 + 群内关系 ──> 每个能力群独立 ELK Layered
@@ -60,72 +60,71 @@ Engineering Infrastructure 位于三层下方
 React Flow 跨群连线
 ```
 
-- 顶层区域和能力群都使用 React Flow parent node；能力群位于唯一顶层区域内，能力节点位于唯一主要能力群内。
-- 每个能力群独立使用 ELK Layered 计算节点位置与群内正交 bend points，群内关系仍参与排序和避让。
-- 同一顶层区域内的跨群节点关系按 source/target 能力群聚合为带权无向邻接关系；以关系度和边权作为稳定遍历顺序，让强关联群优先相邻，但不允许单条跨群长边拉大群间层级。
-- 能力群使用 ELK Rectangle Packing 紧凑装箱；Renderer、Host、ZCode CLI 保持固定从左到右的运行层顺序，工程基础设施作为独立区域居中放在三层下方。
-- 布局使用稳定随机种子、定义顺序作为 tie-breaker 和确定性输入，保证相同数据得到相同布局，方便评审和截图比较。
-- 布局采用紧凑间距 profile：压缩顶层区域外边距、能力群间距、群内节点间距和节点卡片宽度；文字仍使用原有 `text-ui-*` 层级，不通过缩小字体换取密度。
-- 顶层区域标题、能力群标题与其子元素起始位置使用同一组几何常量；子元素必须位于标题分隔线下方，并至少保留 12px 的画布间距，双语标题、owner 和规模徽标不得侵入子元素区域。
-- 跨群关系由 React Flow 按节点实际位置绘制；默认保持弱化，选择节点或群后再突出相关关系和标签，避免全量跨群线路压过群组层级。
-- React Flow 负责 viewport、选择、键盘可达性和只渲染可视元素；ELK 只负责布局，不拥有交互状态。
+- Áreas de nível superior e grupos de capacidades usam React Flow parent node; o grupo de capacidades fica dentro de uma única área de nível superior, e os nós de capacidade ficam dentro de um único grupo principal.
+- Cada grupo de capacidades usa ELK Layered de forma independente para calcular as posições dos nós e os bend points ortogonais internos; as relações internas do grupo ainda participam da ordenação e do desvio.
+- As relações entre nós de grupos distintos dentro da mesma área de nível superior são agregadas por grupo de capacidades de origem/destino em relações de adjacência não dirigidas e ponderadas; o grau de relação e o peso das arestas servem como ordem de travessia estável, para que grupos fortemente associados fiquem adjacentes primeiro, sem permitir que uma única aresta longa entre grupos aumente demais a hierarquia entre eles.
+- Os grupos de capacidades usam ELK Rectangle Packing para empacotamento compacto; Renderer, Host e ZCode CLI mantêm a ordem de camadas de execução fixa da esquerda para a direita, e a infraestrutura de engenharia fica centralizada como área independente abaixo das três camadas.
+- O layout usa semente aleatória estável, ordem de definição como tie-breaker e entrada determinística, garantindo o mesmo layout para os mesmos dados e facilitando revisão e comparação de capturas.
+- O layout adota um profile de espaçamento compacto: comprime as margens externas das áreas de nível superior, o espaçamento entre grupos, o espaçamento entre nós do grupo e a largura dos cards de nó; o texto continua usando os níveis `text-ui-*` originais, sem ganhar densidade em-exchange de fonte menor.
+- Títulos de áreas de nível superior, títulos de grupos de capacidades e a posição inicial dos seus filhos usam o mesmo conjunto de constantes geométricas; os filhos precisam ficar abaixo da linha divisória do título e manter pelo menos 12px de espaçamento no canvas, e títulos bilíngues, owners e badges de escala não podem invadir a área dos filhos.
+- As relações entre grupos são desenhadas pelo React Flow conforme as posições reais dos nós; por padrão ficam atenuadas, e ao selecionar um nó ou grupo as relações e etiquetas relacionadas são destacadas, evitando que as linhas completas entre grupos sobreponham a hierarquia dos grupos.
+- O React Flow cuida do viewport, da seleção, da acessibilidade por teclado e da renderização apenas dos elementos visíveis; o ELK cuida somente do layout e não possui estado de interação.
 
-## 实现边界
+## Limites de implementação
 
-- 能力群、节点和关系的权威数据位于
-  `apps/dev-docs/src/data/productCapabilityMap.ts`，不能再嵌入静态 HTML。
-- 交互页面位于 `apps/dev-docs/src/capability-map/`，通过动态 import 按需加载
-  React Flow 与 ELK，避免影响 stdio 和协议文档首屏。
-- `docs/product-capability-map-preview.png` 是文档预览，不是权威数据或可交互实现。
+- Os dados autoritativos de grupos de capacidades, nós e relações estão em
+  `apps/dev-docs/src/data/productCapabilityMap.ts` e não podem mais ser embutidos em HTML estático.
+- A página interativa está em `apps/dev-docs/src/capability-map/`, carregando React Flow e ELK sob demanda por dynamic import para não afetar a primeira tela dos documentos de stdio e de protocolo.
+- `docs/product-capability-map-preview.png` é uma prévia para documentação, não uma fonte de dados autoritativa nem a implementação interativa.
 
-## 视觉编码
+## Codificação visual
 
-- 顶层区域、能力群与节点统一使用中性色，归属关系只通过空间包含和标题表达。
-- 彩色只用于连线，不用于能力群或节点分类，避免同一种颜色同时表达两种语义。
-- 连线同时使用颜色、虚实线型和文字标签，不能只依赖颜色识别关系。
-- 图层顺序固定为“能力群背景 → 语义连线 → 群标题与节点 → 连线标签”；连线标签是最高语义层，必须完整覆盖在节点和线路之上，不能被节点裁切或遮挡。
-- 总览中同组连线比跨组连线更醒目；选择群后突出一阶关系但隐藏密集标签，选择节点后只显示该节点一阶关系的标签。
-- 选择能力群或节点只更新高亮与详情，不改变当前 viewport 的缩放和位置。
-- 能力图不记录具体人员分工，也不提供人员选择或人员职责高亮；能力群中的 owner 只描述建议维护角色。
-- 画布滚轮用于以指针位置为中心放大或缩小；平移画布使用指针拖拽，不使用滚轮移动。
-- 点击画布空白区域与点击“重置”等价：清空搜索和选择、恢复全部关系筛选，并适应全局总览。
+- Áreas de nível superior, grupos de capacidades e nós usam cores neutras de forma uniforme; a relação de pertencimento é expressa apenas por contenção espacial e por títulos.
+- Cores são usadas apenas nas linhas, nunca na classificação de grupos ou nós, evitando que a mesma cor expresse duas semânticas ao mesmo tempo.
+- As linhas usam simultaneamente cor, estilo tracejado/contínuo e rótulo de texto; não é possível identificar a relação apenas pela cor.
+- A ordem de camadas é fixa como "fundo do grupo → linhas semânticas → títulos de grupo e nós → rótulos das linhas"; os rótulos das linhas são a camada semântica mais alta e precisam ficar totalmente sobrepostos aos nós e às linhas, sem recorte nem oclusão pelos nós.
+- Na visão geral, linhas dentro do mesmo grupo são mais chamativas que as linhas entre grupos; ao selecionar um grupo, as relações de primeira ordem são destacadas e os rótulos densos são ocultados; ao selecionar um nó, apenas os rótulos das relações de primeira ordem daquele nó são exibidos.
+- Selecionar um grupo de capacidades ou um nó apenas atualiza o destaque e os detalhes, sem alterar o zoom e a posição do viewport atual.
+- O mapa de capacidades não registra divisão de trabalho entre pessoas nem oferece seleção de pessoas ou destaque de responsabilidades; o owner de um grupo de capacidades apenas descreve o papel de manutenção sugerido.
+- A roda do canvas serve para ampliar ou reduzir com centro na posição do ponteiro; a movimentação do canvas usa arrasto com o ponteiro, não a roda.
+- Clicar em uma área vazia do canvas equivale a clicar em "Redefinir": limpa busca e seleção, restaura todos os filtros de relação e ajusta à visão geral completa.
 
-## 代码量估算
+## Estimativa de volume de código
 
-能力群可以携带“主责生产代码量（Estimated Production LOC）”和估算置信度，用于辅助判断维护负担，但不能替代依赖影响分析：
+Os grupos de capacidades podem carregar o "volume de código de produção sob responsabilidade principal (Estimated Production LOC)" e a confiança da estimativa, para ajudar a julgar o ônus de manutenção, sem substituir a análise de impacto de dependências:
 
-- 产品运行时能力群按 tracked TypeScript/JavaScript 文件的非空物理行估算，包含注释，排除 docs、dist、node_modules、generated、fixtures 和 locale 数据。
-- 工程基础设施能力群统计其主责工程源码：除 TypeScript/JavaScript 外可包含 CI YAML、Shell、PowerShell 和构建配置；共享 E2E harness、runner、reporter 计入基础设施，具体产品功能的 E2E case 不重复归属给测试平台。
-- 孵化能力群的 LOC 只统计已经落地的产品代码；规划节点可以没有实现，不能用预估未来代码量抬高群规模。
-- 每个文件只归属一个主要能力群；跨群共享基础设施、Workflow、通用协议、开发工具和无法稳定判断 owner 的代码不强行摊派。
-- 群标题使用中性紧凑徽标显示 `≈23.6k LOC`；选择群后，详情面板显示完整估算行数和置信度。
-- LOC 只作为元数据，不参与 ELK 排序、群面积、节点面积或连线路由计算，避免大群在线性缩放下吞没小群。
-- 代码量是人工审计快照，不是构建时实时指标。能力边界、目录归属或大规模重构变化后，应重新审计并更新权威数据。
-- 测试代码可在专项审计中单独统计；由于端到端测试经常覆盖多个群，本图默认不把测试行数写入群标题。
+- Grupos de runtime de produto são estimados pelas linhas físicas não vazias de arquivos TypeScript/JavaScript rastreados, incluindo comentários e excluindo docs, dist, node_modules, generated, fixtures e dados de locale.
+- Grupos de infraestrutura de engenharia contam o código-fonte de engenharia sob sua responsabilidade principal: além de TypeScript/JavaScript, podem incluir CI YAML, Shell, PowerShell e configuração de build; harness de E2E compartilhado, runner e reporter entram como infraestrutura, e cases de E2E de funcionalidades de produto específicas não são atribuídos em duplicidade à plataforma de testes.
+- O LOC de grupos em incubação conta apenas o código de produto já entregue; nós planejados podem não ter implementação, e não se pode inflar o tamanho do grupo com estimativas de código futuro.
+- Cada arquivo pertence a um único grupo principal; infraestrutura compartilhada entre grupos, Workflows, protocolos genéricos, ferramentas de desenvolvimento e código sem owner estável não são forçados a nenhuma atribuição.
+- O título do grupo usa um badge neutro e compacto com `≈23.6k LOC`; ao selecionar o grupo, o painel de detalhes mostra a contagem completa estimada e a confiança.
+- O LOC é apenas metadado e não participa da ordenação ELK, do tamanho de área dos grupos, do tamanho de área dos nós nem do roteamento das linhas, evitando que grupos grandes engulam grupos pequenos no escalonamento linear.
+- O volume de código é um snapshot de auditoria manual, não uma métrica em tempo real de build. Depois de mudanças em fronteiras de capacidade, atribuição de diretórios ou refatorações de grande porte, é preciso reauditar e atualizar os dados autoritativos.
+- O código de teste pode ser contabilizado separadamente em auditorias específicas; como os testes end-to-end frequentemente cobrem vários grupos, este mapa por padrão não escreve a contagem de linhas de teste no título do grupo.
 
-## 能力群复杂度指标
+## Métricas de complexidade dos grupos de capacidades
 
-能力群标题同时展示 `LOC · 入 · 出` 三个维度，用于区分代码规模、被依赖程度和对外依赖程度：
+O título do grupo de capacidades exibe simultaneamente as três dimensões `LOC · 入 · 出`, para distinguir o tamanho do código, o grau de dependência recebida e o grau de dependência externa:
 
-- `LOC` 沿用主责生产代码量估算。
-- `入度（In-degree）` 是目标节点属于当前群、源节点属于其他群的有向能力边数量。
-- `出度（Out-degree）` 是源节点属于当前群、目标节点属于其他群的有向能力边数量。
-- 同一对能力群之间的多条节点级关系分别计数；群内关系不计入群级入度或出度。
-- 入度和出度始终基于完整权威关系图计算，不随关系类型开关或“仅跨群关系”筛选变化，避免指标因浏览状态漂移。
-- 三项指标保持独立展示，不合成为单一分数。LOC 表示维护规模，入度更接近被依赖和变更影响面，出度更接近集成负担；三者量纲不同，直接加权会制造缺乏依据的精确感。
-- 选择能力群后，详情面板应分别解释完整 LOC、入度和出度；标题徽标只提供紧凑概览。
+- `LOC` segue a estimativa de volume de código de produção sob responsabilidade principal.
+- `Grau de entrada (In-degree)` é a quantidade de arestas de capacidade dirigidas cujo nó de destino pertence ao grupo atual e cujo nó de origem pertence a outro grupo.
+- `Grau de saída (Out-degree)` é a quantidade de arestas de capacidade dirigidas cujo nó de origem pertence ao grupo atual e cujo nó de destino pertence a outro grupo.
+- Múltiplas relações de nível de nó entre o mesmo par de grupos de capacidades são contadas separadamente; relações internas ao grupo não entram no grau de entrada nem no grau de saída do grupo.
+- Graus de entrada e saída são sempre calculados sobre o grafo de relações autoritativo completo e não mudam conforme interruptores de tipo de relação ou o filtro "somente relações entre grupos", evitando que a métrica derive conforme o estado de navegação.
+- As três métricas são exibidas de forma independente e não são combinadas em um único score. O LOC representa a escala de manutenção; o grau de entrada se aproxima mais da superfície de dependência e impacto de mudança; o grau de saída se aproxima mais do ônus de integração. Como as três têm dimensões diferentes, somá-las diretamente criaria uma precisão sem embasamento.
+- Após selecionar um grupo de capacidades, o painel de detalhes deve explicar separadamente o LOC completo, o grau de entrada e o grau de saída; o badge do título oferece apenas uma visão compacta.
 
-## 连线类型
+## Tipos de linha
 
-| 类型        | 含义                                   | 示例                                                      |
-| ----------- | -------------------------------------- | --------------------------------------------------------- |
-| `state`     | 状态投影、权威事实或持久化关系         | ProductProjection 向 Conversation UI 投影                 |
-| `runtime`   | 触发执行、调用或运行时承载             | Automation Scheduler 触发 Agent Turn Runtime              |
-| `shared`    | 候选项、组件、配置或扩展资源共享       | Provider Registry 向 Model Selector 提供候选              |
-| `delivery`  | 跨进程、跨端交付或恢复路径             | Mobile Replayable 经 Shared Host Attachment 进入同一 Host |
-| `invariant` | 必须保持隔离、不得越权或不得共享的边界 | Task Index 不得成为会话正文权威源                         |
+| Tipo        | Significado                                                          | Exemplo                                                                    |
+| ----------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `state`     | Projeção de estado, fato autoritativo ou relação de persistência      | ProductProjection projeta na Conversation UI                                |
+| `runtime`   | Disparo de execução, chamada ou hosting de runtime                   | Automation Scheduler dispara Agent Turn Runtime                              |
+| `shared`    | Candidatos, componentes, configurações ou recursos de extensão compartilhados | Provider Registry fornece candidatos ao Model Selector        |
+| `delivery`  | Entrega entre processos, entre dispositivos ou caminho de recuperação | Mobile Replayable entra no mesmo Host via Shared Host Attachment             |
+| `invariant` | Fronteiras que devem permanecer isoladas, sem violação de permissão ou sem compartilhamento | O Task Index não pode ser a fonte autoritativa do corpo da sessão |
 
-## 三层运行边界与工程基础设施
+## Três camadas de execução e infraestrutura de engenharia
 
 ```text
 Renderer（Desktop / Web / Mobile）
@@ -143,19 +142,19 @@ ZCode CLI
   session event journal / usage SQLite
 ```
 
-| 运行层                    | 拥有的状态或副作用                                                                                         | 明确不拥有                                              |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| 渲染层（Renderer）        | 输入草稿、选择态、筛选范围、图表 range、UI projection cache                                                | Agent 运行态、会话正文、CLI queue、usage 事实           |
-| 宿主层（Host）            | 窗口级服务、Credential、远程连接、进程监督、附件路由、平台 IO、远端权益请求、Telemetry/ARMS 发送           | conversation 正文、Agent turn、手机 replayable 业务状态 |
-| 智能体运行层（ZCode CLI） | Agent/Turn、CommandInbox、ProductProjection、session event、模型/工具执行、会话恢复、usage SQLite 权威事实 | Renderer 草稿、窗口布局、Electron 平台状态              |
+| Camada de execução        | Estado ou efeitos que possui                                                                            | O que explicitamente não possui                                       |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Camada de renderização (Renderer) | Rascunhos de entrada, estado de seleção, escopo de filtro, range dos gráficos, cache de projeção da UI | Estado de execução do Agent, corpo da sessão, fila do CLI, fatos de usage |
+| Camada de host (Host)     | Serviços de nível de janela, Credential, conexões remotas, supervisão de processos, roteamento de anexos, IO de plataforma, requisições de entitlements remotas, envio de Telemetry/ARMS | Corpo da conversation, agent turn, estado de negócio replayable do celular |
+| Camada de execução do agente (ZCode CLI) | Agent/Turn, CommandInbox, ProductProjection, session event, execução de modelo/ferramentas, recuperação de sessão, fatos autoritativos de usage SQLite | Rascunhos do Renderer, layout de janela, estado de plataforma do Electron |
 
-- Desktop Renderer、未来 Web App 和 Mobile Renderer 复用产品语义，但通过不同 attachment 接入 Host。
-- SSH、WSL、Docker 和本地窗口都由 Host 建立工作区级连接；远程工作区必须贯穿 `workspaceIdentity` 与 `remoteSessionId`。
-- Host 与 relay 只路由和交付，不复制 CLI 的 conversation、queue、snapshot 或 usage 权威状态。
-- 桌面 `desktop-continuous` 与手机 `web-remote-replayable` 是 Host 交付能力；二者消费同一个 CLI ProductProjection，但恢复语义不能互相扩散。
-- 能力图将 `desktop-continuous` 展示为“桌面连续通信（Desktop Continuous）”；这里的 `continuous` 指完整 direct realtime 通信 profile，不是“持续交付”，也不包含手机 replayable 的 gap/snapshot 恢复语义。
+- O Desktop Renderer, o futuro Web App e o Mobile Renderer reutilizam a semântica de produto, mas se conectam ao Host por attachments diferentes.
+- SSH, WSL, Docker e janelas locais são todos são sets pela a conexão de nível de workspace pelo Host; um workspace remoto precisa atravessar `workspaceIdentity` e `remoteSessionId`.
+- Host e relay apenas roteiam e entregam, sem copiar a autoridade de conversation, queue, snapshot ou usage do CLI.
+- O `desktop-continuous` da área de trabalho e o `web-remote-replayable` do celular são capacidades de entrega do Host; ambos consomem o mesmo ProductProjection do CLI, mas a semântica de recuperação não pode se espalhar de um para o outro.
+- O mapa de capacidades exibe `desktop-continuous` como "comunicação contínua de desktop (Desktop Continuous)"; aqui `continuous` se refere ao profile completo de comunicação direta em tempo real, e não a "entrega contínua", nem inclui a semântica de recuperação gap/snapshot do replayable do celular.
 
-工程基础设施不属于上述三层，也不参与线上请求链：
+A infraestrutura de engenharia não pertence às três camadas acima e não participa da cadeia de requisições em produção:
 
 ```text
 Renderer  ->  Host  ->  ZCode CLI
@@ -171,44 +170,44 @@ Engineering Infrastructure
   Quality Intelligence & Engineering Governance
 ```
 
-- 工程基础设施可以构建、验证、观测和发布前三层，但不能成为 Renderer、Host 或 CLI 的线上运行时依赖。
-- Host 的“客户端更新生命周期”只负责客户端检查、下载、安装和更新完成呈现；CI 打包、签名、公证、制品上传、CDN 预热、灰度/稳定发布属于“构建与发布工程”。
-- 测试平台拥有共享 harness、runner、capture/replay、fixture contract、跨平台执行和晋级工具；具体功能 case 的产品断言仍由相应能力群共同维护。
-- 质量数据只记录测试结果、覆盖率、失败制品、时长、趋势和工程预算，不得混入 `/report`、ARMS/RUM、Conversation telemetry 或本地 App Usage。
+- A infraestrutura de engenharia pode construir, verificar, observar e publicar as três camadas, mas não pode se tornar uma dependência de runtime em produção do Renderer, do Host ou do CLI.
+- O "ciclo de vida de atualização do cliente" do Host cobre apenas verificação do cliente, download, instalação e apresentação da conclusão da atualização; empacotamento por CI, assinatura, notarização, upload de artefatos, aquecimento de CDN e publicação canary/stable pertencem a "Engenharia de Build e Release".
+- A plataforma de testes possui o harness compartilhado, o runner, capture/replay, o contrato de fixtures, a execução multiplataforma e as ferramentas de promoção; as asserções de produto dos cases de funcionalidades específicas continuam sendo mantidas conjuntamente pelo grupo de capacidades correspondente.
+- Os dados de qualidade registram apenas resultados de teste, cobertura, artefatos de falha, duração, tendências e orçamento de engenharia; não podem ser misturados com `/report`, ARMS/RUM, Conversation telemetry ou App Usage local.
 
-## 能力群
+## Grupos de capacidades
 
-| 顶层区域  | 能力群                                                              | 维护边界                                                                                                |
-| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Renderer  | 对话与任务体验（Conversation & Task Experience）                    | Composer、Projection Store、Timeline、会话动作、任务导航、附件体验                                      |
-| Renderer  | 模型与账户体验（Model & Account Experience）                        | Provider Settings、Model Selector、套餐状态/购买、套餐用量界面                                          |
-| Renderer  | 扩展体验（Extension Experience）                                    | Plugin/Skill/MCP 等扩展设置、市场与导入入口                                                             |
-| Renderer  | 浏览器与开发工作台体验（Browser & Workbench Experience）            | Browser、File、Terminal、Git/Diff 产品界面                                                              |
-| Renderer  | 办公套件与计算机操作孵化（Office Suite & Computer Use Incubation）  | PDF/Office 预览与编辑路线图、Computer Use 任务体验、人工接管与安全确认                                  |
-| Renderer  | 自动化体验（Automation Experience）                                 | 定时自动化、闲时任务与 Bot 配置/历史界面                                                                |
-| Renderer  | UI 平台（UI Platform）                                              | 设计系统、主题、国际化、响应式、Settings/Onboarding                                                     |
-| Renderer  | 数据洞察与反馈体验（Insights & Feedback Experience）                | App Usage 图表、Feedback 入口、Resource Manager（资源管理器）展示                                                     |
-| Host      | 账户与权益（Account & Entitlements）                                | OAuth/Credential、Plan Identity、Start/Coding/Team Plan、支付、远端 quota/monitor                       |
-| Host      | 扩展管理与同步（Extension Management & Sync）                       | Plugin 安装升级、资源贡献、跨本地/远程同步                                                              |
-| Host      | 浏览器与计算机操作平台（Browser & Computer Use Platform）           | BrowserView/WebContentsView、CDP backend、Computer Use Helper 生命周期、可信 broker、系统观察与输入执行 |
-| Host      | 工作区与交付（Workspace & Delivery）                                | workspace identity、Local/Remote Host、手机远控、continuous/replayable                                  |
-| Host      | 工作台服务（Workbench Services）                                    | File/Terminal/Git 服务                                                                                  |
-| Host      | 自动化与渠道运行时（Automation & Channel Runtime）                  | scheduler、automation record、off-peak、Bots、第三方渠道                                                |
-| Host      | 客户端平台（Client Platform）                                       | Electron 生命周期、客户端更新、Feedback ticket 与诊断包                                                 |
-| Host      | 数据与可观测性（Data & Observability）                              | App Usage bridge、产品埋点、Conversation telemetry、ARMS、性能可靠性、日志与进程监控                    |
-| ZCode CLI | 智能体核心（Agent Core）                                            | runtime 装配、turn 状态机、上下文、memory、compact、stream recovery、goal/target、故障收口              |
-| ZCode CLI | 对话运行时（Conversation Runtime）                                  | session lifecycle、input admission、CLI queue、event journal、ProductProjection、fork/rewind            |
-| ZCode CLI | 模型能力（Model Capabilities）                                      | provider runtime、目录能力、token 预算、多模态、推理与工具能力                                          |
-| ZCode CLI | 工具运行时与安全（Tool Runtime & Safety）                           | 内置工具、调度、权限、模式策略、工具产物                                                                |
-| ZCode CLI | 多智能体（Multi-Agent）                                             | Subagent profile、child runtime、交互协调与后台任务                                                     |
-| ZCode CLI | 扩展运行时（Extension Runtime）                                     | MCP、Skill、Hooks、Commands、Memory resources                                                           |
-| ZCode CLI | 浏览器运行时（Browser Runtime）                                     | Browser Use Plugin、Node REPL/Playwright、Headless backend                                              |
-| ZCode CLI | 用量可观测存储（Usage Observability）                               | model/turn/tool usage 事实、SQLite 30 天保留与 App Usage SQL 聚合                                       |
-| 基础设施  | 构建与发布工程（Build & Release Engineering）                       | GitLab pipeline、跨平台构建、打包签名、公证、制品、CDN、灰度/稳定发布                                   |
-| 基础设施  | 测试自动化平台（Test Automation Platform）                          | Desktop/CLI E2E harness、capture/replay、跨平台执行、故障注入、用例准入与晋级                           |
-| 基础设施  | 质量数据与工程治理（Quality Intelligence & Engineering Governance） | E2E 报告、覆盖率、质量趋势、静态门禁、工程性能与失败制品                                                |
+| Área de nível superior | Grupo de capacidades                                                        | Limite de manutenção                                                                                   |
+| --------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Renderer  | Experiência de Conversation e Task（Conversation & Task Experience）        | Composer, Projection Store, Timeline, ações de sessão, navegação de tarefas, experiência de anexos        |
+| Renderer  | Experiência de Modelo e Conta（Model & Account Experience）                 | Provider Settings, Model Selector, estado/compra de plano, interface de uso de plano                     |
+| Renderer  | Experiência de Extensões（Extension Experience）                            | Configurações de extensões como Plugin/Skill/MCP, mercado e entradas de importação                       |
+| Renderer  | Experiência de Browser e Workbench（Browser & Workbench Experience）       | Interfaces de produto de Browser, File, Terminal, Git/Diff                                               |
+| Renderer  | Incubação de Office Suite e Computer Use（Office Suite & Computer Use Incubation） | Roadmap de preview/edição de PDF/Office, experiência de tarefas de Computer Use, takeover manual e confirmação de segurança |
+| Renderer  | Experiência de Automação（Automation Experience）                           | Interface de configuração/histórico de automação agendada, tarefas ociosas e Bots                        |
+| Renderer  | Plataforma de UI（UI Platform）                                            | Design system, tema, internacionalização, responsividade, Settings/Onboarding                           |
+| Renderer  | Experiência de Insights e Feedback（Insights & Feedback Experience）        | Gráficos de App Usage, entrada de Feedback, exibição do Resource Manager                                |
+| Host      | Conta e Entitlements（Account & Entitlements）                            | OAuth/Credential, Plan Identity, Start/Coding/Team Plan, pagamento, quota/monitor remoto                 |
+| Host      | Gestão e Sincronização de Extensões（Extension Management & Sync）          | Instalação e atualização de Plugins, contribuição de recursos, sincronização local/remota                |
+| Host      | Plataforma de Browser e Computer Use（Browser & Computer Use Platform）    | BrowserView/WebContentsView, backend CDP, ciclo de vida do Computer Use Helper, broker confiável, observação do sistema e execução de entrada |
+| Host      | Workspace e Delivery（Workspace & Delivery）                              | workspace identity, Local/Remote Host, controle remoto do celular, continuous/replayable               |
+| Host      | Serviços de Workbench（Workbench Services）                                | Serviços de File/Terminal/Git                                                                           |
+| Host      | Runtime de Automação e Canais（Automation & Channel Runtime）              | scheduler, automation record, off-peak, Bots, canais de terceiros                                       |
+| Host      | Plataforma do Cliente（Client Platform）                                   | Ciclo de vida do Electron, atualização do cliente, ticket de Feedback e pacote de diagnóstico             |
+| Host      | Dados e Observabilidade（Data & Observability）                            | Bridge de App Usage, instrumentação de produto, Conversation telemetry, ARMS, performance e confiabilidade, logs e monitoramento de processos |
+| ZCode CLI | Núcleo do Agente（Agent Core）                                             | montagem de runtime, máquina de estados de turn, contexto, memory, compact, stream recovery, goal/target, fechamento de falhas |
+| ZCode CLI | Runtime de Conversation（Conversation Runtime）                             | session lifecycle, input admission, CLI queue, event journal, ProductProjection, fork/rewind             |
+| ZCode CLI | Capacidades de Modelo（Model Capabilities）                                | provider runtime, capacidades de catálogo, orçamento de tokens, multimodalidade, raciocínio e capacidades de ferramentas |
+| ZCode CLI | Runtime e Segurança de Ferramentas（Tool Runtime & Safety）                 | ferramentas internas, agendamento, permissões, políticas de modo, artefatos de ferramentas              |
+| ZCode CLI | Multiagente（Multi-Agent）                                                 | Subagent profile, child runtime, coordenação interativa e tarefas em segundo plano                       |
+| ZCode CLI | Runtime de Extensões（Extension Runtime）                                  | MCP, Skill, Hooks, Commands, Memory resources                                                            |
+| ZCode CLI | Runtime de Browser（Browser Runtime）                                      | Browser Use Plugin, Node REPL/Playwright, backend headless                                                |
+| ZCode CLI | Observabilidade de Uso（Usage Observability）                              | fatos de usage de model/turn/tool, retenção de 30 dias no SQLite e agregação SQL de App Usage            |
+| Infraestrutura | Engenharia de Build e Release（Build & Release Engineering）        | pipeline do GitLab, builds multiplataforma, empacotamento e assinatura, notarização, artefatos, CDN, publicação canary/stable |
+| Infraestrutura | Plataforma de Automação de Testes（Test Automation Platform）     | harness de E2E de Desktop/CLI, capture/replay, execução multiplataforma, injeção de falhas, admissão e promoção de cases |
+| Infraestrutura | Qualidade e Governança de Engenharia（Quality Intelligence & Engineering Governance） | Relatórios de E2E, cobertura, tendências de qualidade, portões estáticos, performance de engenharia e artefatos de falha |
 
-## 套餐、App Usage 与可观测性边界
+## Limites de plano, App Usage e observabilidade
 
 ```text
 Renderer
@@ -233,19 +232,16 @@ ZCode CLI |
   Model / Turn / Tool lifecycle facts
 ```
 
-- Personal Coding Plan、Team Plan、Start Plan 是三套不同 entitlement 身份，必须拆成独立节点。
-- Start Plan 使用 OAuth zcode JWT 与 balance/daily quota；它不使用 Coding Plan monitor API。
-- Team Plan 使用 organization/project/project-key 隔离，不能退化为个人 Coding Plan 的显示标签。
-- Plan Quota & Monitor 是远端商业套餐数据；失败时不得回退 App Usage。
-- App Usage 是本地产品使用统计。权威源是 ZCode CLI 默认
-  `~/.zcode/cli/db/db.sqlite` 中独立语义的 `model_usage`、`turn_usage`、`tool_usage` 表，
-  经 `usage/stats` 协议提供给 Host 和 Renderer；它不是计费账本。
-- `/report` 产品埋点、ARMS/RUM、Conversation telemetry、日志基础设施和 App Usage 是不同通道，
-  不能再合并成一个 `telemetry` 或 `usage-quota` 节点。
+- Personal Coding Plan, Team Plan e Start Plan são três identidades de entitlement diferentes e precisam ser separadas em nós independentes.
+- O Start Plan usa o OAuth zcode JWT com balance/daily quota; ele não usa a API de monitor do Coding Plan.
+- O Team Plan usa isolamento por organization/project/project-key e não pode degenerar em um rótulo de exibição do Coding Plan pessoal.
+- Plan Quota & Monitor são dados de planos comerciais remotos; em caso de falha não se pode recorrer ao App Usage.
+- App Usage são estatísticas locais de uso do produto. A fonte autoritativa são as tabelas `model_usage`, `turn_usage` e `tool_usage`, de semântica independente, no `~/.zcode/cli/db/db.sqlite` padrão do ZCode CLI, disponibilizadas ao Host e ao Renderer pelo protocolo `usage/stats`; não é um livro-razão de faturamento.
+- A instrumentação de produto `/report`, ARMS/RUM, Conversation telemetry, a infraestrutura de logs e o App Usage são canais distintos, e não podem mais ser fundidos em um único nó `telemetry` ou `usage-quota`.
 
-## 智能体核心与对话运行时边界
+## Limites entre Núcleo do Agente e Runtime de Conversation
 
-智能体核心不再压缩成 Turn、Context、Compact、Session 四个节点。ZCode CLI 内至少要区分：
+O Núcleo do Agente não é mais comprimido em quatro nós: Turn, Context, Compact e Session. Dentro do ZCode CLI é preciso distinguir ao menos:
 
 ```text
 Agent Core
@@ -268,15 +264,15 @@ Conversation Runtime
   Session Store
 ```
 
-- Agent Core 负责一轮工作如何执行；Conversation Runtime 负责多轮产品状态如何接纳、持久化、投影与恢复。
-- Model Capabilities 提供模型目录、limits、modalities 与 provider options；模型步骤的流式顺序、背压和 durable event 收口属于 Agent Core。
-- Tool Runtime 拥有 registry/scheduler/executor/permission；Agent Core 只消费工具生命周期结果继续 turn。
-- Extension Runtime 拥有 MCP/Skills/Hooks/Memory resource 的发现和加载；Agent Core 拥有它们如何进入上下文与 turn。
-- Multi-Agent 拥有 child runtime 和 broker；每个 child 内部仍复用 Agent Core，但 raw child 事件不得直接污染父会话投影。
+- O Agent Core é responsável por como uma rodada de trabalho é executada; o Conversation Runtime é responsável por como o estado de produto de múltiplas rodadas é admitido, persistido, projetado e recuperado.
+- Model Capabilities fornece o catálogo de modelos, limits, modalities e provider options; a ordem de streaming, o backpressure e o fechamento de durable events da etapa de modelo pertencem ao Agent Core.
+- Tool Runtime possui registry/scheduler/executor/permission; o Agent Core apenas consome os resultados do ciclo de vida das ferramentas para continuar o turn.
+- Extension Runtime possui a descoberta e o carregamento de MCP/Skills/Hooks/Memory resources; o Agent Core possui como eles entram no contexto e no turn.
+- Multi-Agent possui o child runtime e o broker; cada child ainda reutiliza o Agent Core internamente, mas eventos brutos de child não podem contaminar diretamente a projeção da sessão pai.
 
-## 模型能力边界
+## Limites das capacidades de modelo
 
-模型能力是独立核心能力，不归属于智能体核心，也不与账户权益合并。它同时向运行时和多个产品入口提供模型事实：
+As capacidades de modelo são uma capacidade central independente, não pertencem ao núcleo do agente e não são fundidas com os entitlements de conta. Elas fornecem fatos de modelo simultaneamente ao runtime e a várias entradas de produto:
 
 ```text
 模型供应商注册表（Provider Registry）
@@ -301,15 +297,15 @@ Conversation Runtime
         +────────────> 上下文压缩与记忆（Compact & Memory）
 ```
 
-- 模型目录拥有 `contextWindow`、`maxOutputTokens`、输入输出模态、reasoning、tool call 和 structured output 等能力事实。
-- `contextWindow - maxOutputTokens` 共同决定输入预算和 compact 阈值；模型输出上限也进入 provider adapter 请求。
-- 目录 schema 可以描述 text、image、video、audio、PDF 模态；当前 Agent 请求链已对 image、video 与 PDF 做能力 gating，audio 仍不是已交付的输入链路。能力图记录“模型目录声明”和“模型/provider wire 的有效能力”两层边界，不把目录声明误写成已经完整落地的音频运行时支持。
-- 模型选择器可以复用候选构建和 UI 组件，但各入口的草稿与提交状态必须隔离：会话选择写当前 runtime / projection，自动化写 automation record，Subagent 写 profile / override。
-- OAuth、Credential、Coding Plan、Usage 和 Quota 影响 provider 可用性与额度，但由“账户与权益（Account & Entitlements）”独立维护，通过关系边连接模型能力，不与模型目录或模型运行时共用权威状态。
+- O catálogo de modelos possui fatos de capacidade como `contextWindow`, `maxOutputTokens`, modalidades de entrada e saída, reasoning, tool call e structured output.
+- `contextWindow - maxOutputTokens` determina em conjunto o orçamento de entrada e o limiar de compact; o limite de saída do modelo também entra na requisição do provider adapter.
+- O schema do catálogo pode descrever as modalidades text, image, video, audio e PDF; a cadeia de requisições do Agent já faz capability gating de image, video e PDF, e audio ainda não é uma cadeia de entrada entregue. O mapa de capacidades registra as duas camadas de fronteira "declaração do catálogo de modelos" e "capacidade efetiva no wire model/provider", sem escrever a declaração do catálogo como se fosse suporte a runtime de áudio já plenamente entregue.
+- O seletor de modelos pode reutilizar a construção de candidatos e os componentes de UI, mas o rascunho e o estado de submissão de cada entrada precisam ficar isolados: a seleção da sessão escreve no runtime/projection atual, a automação escreve no automation record e o Subagent escreve no profile/override.
+- OAuth, Credential, Coding Plan, Usage e Quota afetam a disponibilidade e a cota do provider, mas são mantidos independentemente por "Conta e Entitlements (Account & Entitlements)", conectados às capacidades de modelo por arestas de relação e sem compartilhar estado autoritativo com o catálogo de modelos ou o runtime de modelo.
 
-## Office 与 Computer Use 孵化边界
+## Limites de incubação de Office e Computer Use
 
-Office 与 Computer Use 是跨层产品域，但不新增第四个产品运行层。Renderer 拥有预览、编辑、操作轨迹和接管体验；Host 拥有文件/转换服务与系统级 CUA 权限主体；ZCode CLI 通过 Document Skills 和 Computer Use MCP 执行 Agent 意图。
+Office e Computer Use são domínios de produto que cruzam camadas, mas não adicionam uma quarta camada de execução de produto. O Renderer possui preview, edição, trilha de operações e experiência de takeover; o Host possui os serviços de arquivo/conversão e o principal de permissões CUA em nível de sistema; o ZCode CLI executa a intenção do Agente por meio de Document Skills e Computer Use MCP.
 
 ```text
 Renderer
@@ -329,26 +325,26 @@ ZCode CLI
   Computer Use MCP Integration（current beta）
 ```
 
-- 当前 Office 产品基础是 PDF、DOCX/DOC、XLSX 的只读 Preview Pane 和官方 DOCX/PDF/PPTX/XLSX Document Skills；这不等于已经具备 Office 原生编辑器、批注/修订或 PPTX 原生预览。
-- 未来 Office 原生 UI 的解析、转换、保存和版本冲突处理先保留在 Host Workbench Services 边界，Renderer 不直接引用 Node、LibreOffice 或本地路径实现。
-- 当前 Computer Use 是 macOS/Windows desktop-local、显式 opt-in/kill switch 的内部 beta。签名 Helper、peer/token 校验、权限和输入执行失败时必须 fail closed。
-- 手机 Web 只能经 shared-host attachment 复用桌面已存在的 Local Host；SSH/WSL/Docker 或 mobile remote Host 不得另起本地 Computer Use Helper。
-- 能力图用节点 scope 区分“当前（Current）”“孵化（Incubating）”“规划（Planned）”；群级 LOC 和复杂度只反映当前代码与已确认语义边。
+- A base de produto atual de Office é o Preview Pane somente-leitura de PDF, DOCX/DOC e XLSX e as Document Skills oficiais de DOCX/PDF/PPTX/XLSX; isso não equivale a já ter um editor nativo de Office, comentários/revisões ou preview nativo de PPTX.
+- A análise, conversão, gravação e o tratamento de conflito de versão da futura UI nativa de Office permanecem primeiro dentro do limite dos Workbench Services do Host; o Renderer não referencia diretamente implementações em Node, LibreOffice ou caminhos locais.
+- O Computer Use atual é uma beta interna desktop-local para macOS/Windows, com opt-in explícito e kill switch; em caso de falha na validação de assinatura do Helper, verificação de peer/token, permissões ou execução de entrada, é preciso falhar fechado.
+- O Web do celular só pode reutilizar o Local Host já existente na área de trabalho via attachment de shared host; SSH/WSL/Docker ou mobile remote Host não podem iniciar outro Computer Use Helper local.
+- O mapa de capacidades usa o scope do nó para distinguir "Current (atual)", "Incubating (em incubação)" e "Planned (planejado)"; o LOC e a complexidade de nível de grupo refletem apenas o código atual e as arestas semânticas já confirmadas.
 
-## 2026-08 当前能力事实补充
+## Complemento de fatos de capacidadescurrent de 2026-08
 
-本次更新把近期已落地的细粒度能力纳入图谱；它们仍遵循 Renderer → Host/transport → CLI runtime 的权威状态边界。
+Esta atualização incorpora ao mapa as capacidades de granularidade fina entregues recentemente; elas continuam seguindo a fronteira de estado autoritativo Renderer → Host/transport → runtime do CLI.
 
-| 能力                      | 当前事实                                                                                                                                         | 图谱边界                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Office 文件预览           | Preview Pane 已支持 PDF、DOCX/DOC、XLSX（只读、工作区文件服务取字节）；原生编辑、保存、批注和修订仍是规划                                        | 预览连 `file-service`；未来 Office Document Service 只承载原生编辑/转换路线                        |
-| 视频输入与已发送媒体      | Composer 可附加 image/video，模型能力与 provider wire 共同决定是否可发送；已发送媒体以有序 gallery/视频预览展示，音频输入仍未交付                | 媒体预览只消费安全的 local/remote preview，不把附件草稿或媒体状态写入 relay                        |
-| 本轮 Hook 摘要            | 仅真实 client-visible Hook 执行显示 Anchor/Popover 摘要，内容为来源、状态、耗时等安全事实                                                        | 从 ProductProjection 投影到 desktop-continuous 与 web-remote-replayable，不暴露命令/路径等敏感详情 |
-| MCP 设置与官方 Server MCP | 设置页显示本地化 initialize/tools/list 诊断并按 `pluginId` 归属；官方 Server MCP 单独处理 auth/quota/unavailable，不能把广告能力当作 entitlement | 诊断属于 Renderer 设置投影；凭据、配额和请求状态仍由 Host/账户权益维护                             |
-| 浏览器 Tab 生命周期       | Embedded Browser 有 32-tab 硬上限与进程内生命周期；`open` 默认复用 agent-owned 同站点 Tab，找不到候选才新建，`tabs.new` 语义不变                 | 复用/上限是 Browser runtime + Host 宿主事实，不新增 task-end 清理或跨进程持久化                    |
-| `/plan` 快捷入口          | 空 `/plan` 只切换 Plan Mode；带任务文本时以 compare-and-set 方式切换并提交；附件场景拒绝 shortcut                                                | 这是 Composer/Commands 的 UI intent，不新增协议字段、持久化事件或第二份输入队列                    |
+| Capacidade                        | Fato atual                                                                                                                                    | Fronteira no mapa                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Preview de arquivos Office        | O Preview Pane já suporta PDF, DOCX/DOC e XLSX (somente leitura, bytes obtidos do serviço de arquivos do workspace); edição nativa, gravação, comentários e revisões ainda são planejadas | O preview se conecta ao `file-service`; o futuro Office Document Service apenas a rota de edição nativa/conversão |
+| Entrada de vídeo e mídia enviada   | O Composer pode anexar image/video, e a capacidade do modelo junto com o wire do provider decidem se é possível enviar; a mídia enviada é exibida em galeria ordenada/preview de vídeo, e a entrada de áudio ainda não foi entregue | O preview de mídia consome apenas preview local/remoto seguro, sem gravar rascunho de anexo nem estado de mídia no relay |
+| Resumo de Hooks desta rodada      | Apenas execuções de Hook reais e visíveis ao cliente exibem resumo em Anchor/Popover, com conteúdo de origem, status, duração e outros fatos seguros | Projetado de ProductProjection para desktop-continuous e web-remote-replayable, sem expor detalhes sensíveis como comandos/caminhos |
+| Configurações de MCP e Server MCP oficial | A página de Settings exibe diagnósticos localizados de initialize/tools/list e atribui por `pluginId`; o Server MCP oficial trata auth/quota/unavailable separadamente e não pode tratar capacidade anunciante como entitlement | Os diagnósticos pertencem à projeção de Settings do Renderer; credenciais, cota e estado de requisição continuam mantidos pelo Host/Conta e Entitlements |
+| Ciclo de vida de tabs do Browser   | O Embedded Browser tem limite rígido de 32 tabs e ciclo de vida intra-processo; `open` reutiliza por padrão a tab do mesmo site pertencente ao agent, e só cria uma nova quando não há candidata; a semântica de `tabs.new` não muda | Reuso e limite são fatos do runtime de Browser + host, sem nova limpeza ao fim da task nem persistência entre processos |
+| Entrada rápida `/plan`            | `/plan` vazio só alterna o Plan Mode; com texto de task, alterna via compare-and-set e submete; o cenário com anexos rejeita o shortcut | É uma intenção de UI de Composer/Commands, sem novos campos de protocolo, eventos persistidos ou uma segunda fila de entrada |
 
-## 权威状态边界
+## Fronteiras de estado autoritativo
 
 ```text
 UI intent
@@ -367,19 +363,19 @@ Agent runtime + ProductProjection
    `---- web-remote-replayable ---> Mobile UI
 ```
 
-- CLI runtime / ProductProjection 是 conversation 正文和运行态的权威源。
-- Task SQLite index 只拥有任务列表元数据，不拥有 session 正文。
-- Desktop Main 和外部 relay 只做调度、配对和数据透传，不拥有 task/session/queue/snapshot 业务状态。
-- `workspaceIdentity?.trim() || workspacePath` 用于身份隔离；`workspacePath` 用于文件和命令执行。
-- 共享 UI、字段名或选项来源不代表共享草稿状态和提交副作用。
+- O runtime do CLI / ProductProjection é a fonte autoritativa do corpo da conversation e do estado de execução.
+- O índice SQLite de Task possui apenas metadados da lista de tarefas, não o corpo da session.
+- O Main do Desktop e o relay externo apenas fazem agendamento, pareamento e repasse de dados, sem possuir estado de negócio de task/session/queue/snapshot.
+- `workspaceIdentity?.trim() || workspacePath` é usado para isolamento de identidade; `workspacePath` é usado para execução de arquivos e comandos.
+- UI, nomes de campo ou origem de opções compartilhados não representam estado de rascunho compartilhado nem efeitos de commit compartilhados.
 
-## 维护方式
+## Manutenção
 
-新增或修改能力节点时：
+Ao adicionar ou modificar um nó de capacidade:
 
-1. 先确认节点的用户语义、权威状态和提交落点；
-2. 先判断能力属于 Renderer / Host / ZCode CLI 运行时，还是只构建、验证、度量、发布产品的工程基础设施，再放入唯一主要能力群；
-3. 只添加有明确语义的跨节点关系；
-4. 如果只是测试依赖或静态可达关系，不进入产品图；
-5. 涉及 desktop/mobile、local/remote 时，明确 `clientMode`、`deliveryKind` 和 workspace identity 边界；
-6. 同步更新 `apps/dev-docs/src/data/productCapabilityMap.ts` 中的群、节点和关系数据。
+1. Confirme primeiro a semântica para o usuário, o estado autoritativo e o ponto de commit do nó;
+2. Julgue primeiro se a capacidade pertence ao runtime Renderer / Host / ZCode CLI ou apenas à infraestrutura de engenharia que constrói, verifica, mede e publica o produto, e só então a coloque no único grupo principal;
+3. Adicione apenas relações entre nós com semântica explícita;
+4. Se for apenas uma dependência de teste ou uma relação de alcançabilidade estática, não entre no mapa de produto;
+5. Ao envolver desktop/mobile e local/remote, deixe explícitas as fronteiras de `clientMode`, `deliveryKind` e workspace identity;
+6. Atualize em sincronia os dados de grupos, nós e relações em `apps/dev-docs/src/data/productCapabilityMap.ts`.

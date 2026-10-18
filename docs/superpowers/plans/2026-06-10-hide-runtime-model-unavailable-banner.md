@@ -1,24 +1,24 @@
-# Hide Runtime Model Unavailable Banner Implementation Plan
+# Plano de Implementação — Ocultar o Banner de Modelo de Runtime Indisponível
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Hide the chat error banner for `ZCODE_RUNTIME_MODEL_UNAVAILABLE` while preserving internal guard state and diagnostics.
+**Objetivo:** Ocultar o banner de erro de chat para `ZCODE_RUNTIME_MODEL_UNAVAILABLE`, preservando o estado do guard interno e o diagnóstico.
 
-**Architecture:** Keep service and restore behavior unchanged. Add a presentation-layer guard in `ChatErrorBanner` so this specific error code renders no banner, while other error codes continue through the existing localized error banner path.
+**Arquitetura:** Manter inalterados o comportamento do serviço e do restore. Adicionar um guard na camada de apresentação em `ChatErrorBanner` para que esse error code específico não renderize banner, enquanto os demais continuam pelo caminho existente do banner de erro localizado.
 
-**Tech Stack:** React, TypeScript, Vitest, server-side React rendering tests.
+**Stack técnico:** React, TypeScript, Vitest, testes de renderização React no servidor.
 
 ---
 
-### Task 1: Chat Error Banner Visibility
+### Tarefa 1: Visibilidade do Banner de Erro de Chat
 
-**Files:**
-- Modify: `packages/ui/test/chatErrorBanner.test.ts`
-- Modify: `packages/ui/src/ChatErrorBanner.tsx`
+**Arquivos:**
+- Modificar: `packages/ui/test/chatErrorBanner.test.ts`
+- Modificar: `packages/ui/src/ChatErrorBanner.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Passo 1: Escrever o teste que deve falhar**
 
-Add a test that renders `ChatErrorBanner` with:
+Adicionar um teste que renderiza `ChatErrorBanner` com:
 
 ```ts
 {
@@ -27,46 +27,46 @@ Add a test that renders `ChatErrorBanner` with:
 }
 ```
 
-Assert that the rendered HTML does not contain the historical-model message.
+Afirmar que o HTML renderizado não contém a mensagem de modelo histórico.
 
-- [ ] **Step 2: Run the targeted test and verify it fails**
+- [ ] **Passo 2: Executar o teste direcionado e verificar que ele falha**
 
-Run:
-
-```bash
-pnpm test -- packages/ui/test/chatErrorBanner.test.ts
-```
-
-Expected before implementation: the new assertion fails because `ChatErrorBanner` still renders the localized unavailable-model message.
-
-- [ ] **Step 3: Implement the minimal presentation-layer guard**
-
-In `packages/ui/src/ChatErrorBanner.tsx`, return `null` when `error.code === "ZCODE_RUNTIME_MODEL_UNAVAILABLE"`. Leave localization, feedback, copy, and detail behavior unchanged for all other errors.
-
-- [ ] **Step 4: Run targeted tests and verify they pass**
-
-Run:
+Executar:
 
 ```bash
 pnpm test -- packages/ui/test/chatErrorBanner.test.ts
 ```
 
-Expected after implementation: the new unavailable-model visibility test passes and existing chat error banner tests still pass.
+Esperado antes da implementação: a nova asserção falha porque `ChatErrorBanner` ainda renderiza a mensagem localizada de modelo indisponível.
 
-- [ ] **Step 5: Run required project checks**
+- [ ] **Passo 3: Implementar o guard mínimo na camada de apresentação**
 
-Run:
+Em `packages/ui/src/ChatErrorBanner.tsx`, retornar `null` quando `error.code === "ZCODE_RUNTIME_MODEL_UNAVAILABLE"`. Deixar inalterados o comportamento de localização, feedback, copy e detalhes para todos os outros erros.
+
+- [ ] **Passo 4: Executar os testes direcionados e verificar que passam**
+
+Executar:
+
+```bash
+pnpm test -- packages/ui/test/chatErrorBanner.test.ts
+```
+
+Esperado após a implementação: o novo teste de visibilidade de modelo indisponível passa e os testes existentes do banner de erro de chat continuam passando.
+
+- [ ] **Passo 5: Executar as verificações obrigatórias do projeto**
+
+Executar:
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-Expected: both commands pass.
+Esperado: ambos os comandos passam.
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commit**
 
-Stage the spec, plan, tests, and implementation, then commit with Conventional Commits:
+Adicionar ao stage o spec, o plano, os testes e a implementação e então commitar com Conventional Commits:
 
 ```bash
 git add docs/superpowers/specs/2026-06-10-hide-runtime-model-unavailable-banner-design.md docs/superpowers/plans/2026-06-10-hide-runtime-model-unavailable-banner.md packages/ui/test/chatErrorBanner.test.ts packages/ui/src/ChatErrorBanner.tsx

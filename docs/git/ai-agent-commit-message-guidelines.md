@@ -1,28 +1,28 @@
-# AI Agent Commit Message 规范
+# Convenções de Commit Message para AI Agent
 
-更新日期：2026-09-15
+Data de atualização: 2026-09-15
 
-## 适用范围
+## Escopo de aplicação
 
-本规范适用于本项目中由 AI Agent 生成或协助生成的所有 Git 提交信息（commit message）与 PR 标题。
+Esta convenção se aplica a todas as mensagens de commit e títulos de PR deste projeto que são gerados ou_auxiliados por um AI Agent.
 
-目标是与 `Conventional Commits` 保持一致，并参考 Electron 文档中的语义化提交约定，降低历史追溯和发布分发成本。
+O objetivo é manter a consistência com `Conventional Commits` e tomar como referência o Conventional Commit da documentação do Electron, reduzindo o custo de rastreabilidade histórica e de distribuição de releases.
 
-## 基本格式
+## Formato básico
 
-提交标题（第一行）必须使用语义前缀：
+O título do commit (primeira linha) precisa usar um prefixo semântico:
 
 ```text
 <type>(<scope>): <subject>
 ```
 
-说明：
+Explicação:
 
-- `<type>`：提交类型，必填
-- `<scope>`：影响范围，建议填写（如 `ui`、`services`、`agent`、`git`）
-- `<subject>`：简短描述本次变更的结果，使用小写开头
+- `<type>`: tipo do commit, obrigatório
+- `<scope>`: escopo de impacto, recomendado (como `ui`, `services`, `agent`, `git`)
+- `<subject>`: descrição curta do resultado desta mudança, começando em minúscula
 
-示例：
+Exemplos:
 
 ```text
 fix(ui): avoid stale workspace path in git pane
@@ -30,65 +30,65 @@ feat(services): add provider config file resolver
 docs(git): add ai agent commit message guidelines
 ```
 
-## 类型约定（与 Electron 语义前缀对齐）
+## Convenção de tipos (alinhada aos prefixos semânticos do Electron)
 
-- `fix`：缺陷修复
-- `feat`：新功能
-- `docs`：文档变更
-- `test`：测试补充或修正
-- `build`：构建系统相关变更
-- `ci`：CI 配置或脚本变更
-- `perf`：性能优化（无功能语义变化）
-- `refactor`：重构（不新增功能、不修复缺陷）
-- `style`：代码风格/格式化（不影响代码语义）
-- `chore`：杂项维护（依赖、脚手架、非功能性清理）
+- `fix`: correção de defeito
+- `feat`: nova funcionalidade
+- `docs`: alteração de documentação
+- `test`: acréscimo ou correção de testes
+- `build`: alterações relacionadas ao sistema de build
+- `ci`: alterações de configuração ou scripts de CI
+- `perf`: otimização de performance (sem mudança semântica de funcionalidade)
+- `refactor`: refatoração (sem nova funcionalidade e sem correção de defeito)
+- `style`: estilo/formatação de código (sem afetar a semântica do código)
+- `chore`: manutenção diverse (dependências, scaffolding, limpeza não funcional)
 
-## 标题与正文规则
+## Regras de título e corpo
 
-参考 Electron 规范，提交信息应满足：
+Seguindo a convenção do Electron, a mensagem de commit deve atender a:
 
-1. 第一行尽量控制在 50 字符内，最长不超过 72 字符
-2. 第一行后保留一个空行
-3. 正文按约 72 列换行
-4. 提交信息描述 **做了什么 + 为什么**，不要只写“改了哪些文件”
+1. A primeira linha deve ter no máximo cerca de 50 caracteres e nunca mais de 72
+2. Deve haver uma linha em branco após a primeira linha
+3. O corpo deve quebrar em cerca de 72 colunas
+4. A mensagem de commit descreve **o que foi feito + por quê**, e não apenas “quais arquivos foram alterados”
 
-推荐正文结构：
+Estrutura de corpo recomendada:
 
 ```text
 <type>(<scope>): <subject>
 
 Why:
-- 背景/问题
-- 触发条件或用户影响
+- contexto/problema
+- condição de disparo ou impacto no usuário
 
 What:
-- 关键方案 1
-- 关键方案 2
+- solução-chave 1
+- solução-chave 2
 
 Risk:
-- 兼容性或回归风险
-- 已做的验证（typecheck/lint/test）
+- risco de compatibilidade ou regressão
+- validações já feitas (typecheck/lint/test)
 ```
 
-## AI Agent 专项要求
+## Regras específicas para AI Agent
 
-为保证提交历史可维护，AI Agent 需额外遵守以下规则：
+Para garantir que o histórico de commits continue manutenível, o AI Agent precisa obedecer ainda às regras abaixo:
 
-1. 不写过程噪音：不要在 commit message 里写“按提示修改”“根据对话修复”“AI 自动生成”。
-2. 不写工具流水账：不要罗列“运行了什么命令”，除非它构成变更价值（如迁移脚本）。
-3. 一个提交只表达一个意图：避免把“重构 + 新功能 + 样式调整”混在一个提交里。
-4. 修 bug 必须写清根因与修复策略；非显然根因与代码内中文注释保持一致，不为显然修改添加重复注释。
-5. PR 标题与最终 squash commit 标题都必须使用语义前缀
+1. Não escrever ruído de processo: não escrever “alterado conforme a instrução”, “corrigido com base na conversa” ou “gerado automaticamente por IA” na commit message.
+2. Não escrever um log de ferramentas: não listar “quais comandos foram executados”, a menos que isso constitua valor da mudança (como um script de migração).
+3. Um commit expressa apenas uma intenção: evitar misturar “refatoração + nova funcionalidade + ajuste de estilo” em um mesmo commit.
+4. Correções de bug devem deixar claros a causa raiz e a estratégia de correção; causas raiz não óbvias devem ficar consistentes com os comentários em chinês dentro do código, sem adicionar comentários duplicados para mudanças óbvias.
+5. Tanto o título do PR quanto o título do squash commit final devem usar prefixo semântico
 
-## Breaking Change 规则
+## Regra de Breaking Change
 
-若引入不兼容变更，在正文或 footer 使用：
+Se for introduzida uma mudança incompatível, use no corpo ou no footer:
 
 ```text
 BREAKING CHANGE: <impact>
 ```
 
-示例：
+Exemplo:
 
 ```text
 feat(agent): remove legacy provider handshake
@@ -96,9 +96,9 @@ feat(agent): remove legacy provider handshake
 BREAKING CHANGE: legacy agent providers before v2 can no longer connect.
 ```
 
-## 不推荐写法
+## Escritas não recomendadas
 
-以下写法会降低历史可读性，禁止使用：
+As escritas abaixo reduzem a legibilidade do histórico e são proibidas:
 
 - `update code`
 - `fix bug`
@@ -106,18 +106,18 @@ BREAKING CHANGE: legacy agent providers before v2 can no longer connect.
 - `wip`
 - `try fix`
 
-## 提交前检查清单
+## Checklist antes do commit
 
-在创建 commit 前，AI Agent 必须确认：
+Antes de criar o commit, o AI Agent precisa confirmar:
 
-- 提交标题符合 `Conventional Commits`
-- 标题与正文能解释“为什么要改”
-- 变更范围与 `scope` 一致
-- 已通过[根 AGENTS.md](../../AGENTS.md)中适用于本次变更的必要验证；纯文档按文档检查，代码按代码检查，CLI/E2E 按各自范围验证
-- 必要验证阻塞或失败时保留工作区改动，不自动提交；已有失败与本次引入的问题分开报告
+- O título do commit está de acordo com `Conventional Commits`
+- O título e o corpo explicam “por que mudar”
+- O escopo da mudança é consistente com o `scope`
+- As validações necessárias aplicáveis a esta mudança, definidas no [AGENTS.md da raiz](../../AGENTS.md), já passaram; documentação pura segue a checagem de documentação, código segue a checagem de código, e CLI/E2E seguem a validação do seu próprio escopo
+- Quando uma validação necessária é bloqueante ou falha, manter as alterações no workspace e não commitar automaticamente; falhas preexistentes e problemas introduzidos nesta rodada devem ser reportados separadamente
 
-## 参考
+## Referências
 
 - [Conventional Commits](https://www.conventionalcommits.org/)
 - [Electron Commit Message Guidelines](../electron/docs/development/pull-requests.md#commit-message-guidelines)
-- 项目规则：[AGENTS.md](../../AGENTS.md)
+- Regras do projeto: [AGENTS.md](../../AGENTS.md)

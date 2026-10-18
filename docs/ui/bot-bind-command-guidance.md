@@ -1,26 +1,26 @@
-# Bot 绑定命令引导
+# Orientação do Comando de Binding do Bot
 
-## 背景
+## Contexto
 
-用户在 Bot 设置里生成绑定码后，界面只展示 `/bind <code>` 和复制图标。当前提示没有明确说明“这条命令需要发送给机器人”，用户容易误以为复制完成就是绑定完成。
+Depois que o usuário gera o código de binding nas configurações do Bot, a interface mostra apenas `/bind <code>` e o ícone de cópia. O aviso atual não deixa claro que "este comando precisa ser enviado ao bot", e o usuário facilmente imagina que, depois de copiar, o binding já está concluído.
 
-## 目标
+## Objetivo
 
-- 绑定命令面板必须在命令前展示明确引导：复制下面命令，并发送到机器人私聊。
-- 复制按钮文案使用“复制绑定命令”，减少只看到图标时的歧义。
-- 复制成功 toast 继续给下一步：打开机器人私聊，粘贴并发送命令。
-- 绑定码过期、刷新、倒计时逻辑保持不变。
+- O painel do comando de binding deve exibir, antes do comando, uma orientação explícita: copie o comando abaixo e envie-o para o chat privado do bot.
+- O texto do botão de cópia usa "copiar comando de binding", reduzindo a ambiguidade de quando só se vê um ícone.
+- O toast de cópia bem-sucedida continua indicando o próximo passo: abrir o chat privado do bot, colar e enviar o comando.
+- A lógica de expiração do código de binding, de atualização e de contagem regressiva permanece inalterada.
 
-## UI 规则
+## Regras de UI
 
-- 使用现有 `DetailPanel` 层级，不新增新的浮层或嵌套卡片。
-- 命令本体继续使用 `font-mono` 和 `bg-surface`，保持可复制内容的技术属性。
-- 引导文案使用 `text-ui-base leading-5 text-foreground-subtle`，适配中英文换行和手机宽度。
-- 操作步骤只做辅助提示，不引入新的业务状态。
+- Usar o nível `DetailPanel` já existente, sem criar nova camada flutuante nem cartão aninhado.
+- O corpo do comando continua usando `font-mono` e `bg-surface`, preservando o aspecto técnico do conteúdo copiável.
+- O texto de orientação usa `text-ui-base leading-5 text-foreground-subtle`, adaptado à quebra de linha em chinês e inglês e à largura do celular.
+- Os passos de operação são apenas uma dica auxiliar e não introduzem novos estados de negócio.
 
-## 文案
+## Textos
 
-- 标题：绑定命令
-- 引导：复制下面的绑定命令，并发送给机器人私聊。
-- 复制按钮：复制绑定命令
-- 复制成功：绑定命令已复制，请打开机器人私聊，粘贴并发送。
+- Título: `绑定命令`
+- Orientação: `复制下面的绑定命令，并发送给机器人私聊。`
+- Botão de cópia: `复制绑定命令`
+- Cópia bem-sucedida: `绑定命令已复制，请打开机器人私聊，粘贴并发送。`

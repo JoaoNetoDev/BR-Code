@@ -1,11 +1,12 @@
-# 多模态 tool result P0 回归用例
+# Casos de regressão P0 de tool result multimodal
 
-## 目标
+## Objetivo
 
-验证 ZCode 将 MCP/内置工具结果转换为 Anthropic `tool_result.content[]` 时，
-多块文本、图片和状态文本不会在 BigModel Anthropic 兼容接口中静默丢失。
+Verificar que, quando o ZCode converte o resultado de ferramentas MCP/integradas em
+`tool_result.content[]` da Anthropic, os blocos de texto, imagens e textos de status não
+sejam descartados silenciosamente na interface compatível da Anthropic da BigModel.
 
-本组用例同时覆盖两条边界：
+Este conjunto de casos cobre as duas fronteiras ao mesmo tempo:
 
 ```text
 工具/MCP CallToolResult
@@ -19,7 +20,7 @@ BigModel compatibility projection
 模型可见内容
 ```
 
-P0 runner 只读取环境变量，不在代码或 fixture 中保存 API key：
+O runner P0 lê apenas variáveis de ambiente e não guarda API key no código ou nos fixtures:
 
 ```bash
 ANTHROPIC_API_KEY=... \
@@ -28,27 +29,31 @@ ZCODE_BASE_URL=https://open.bigmodel.cn/api/anthropic \
 node scripts/multimodal-tool-result-p0.mjs
 ```
 
-## 用例
+## Casos
 
-| ID                         | 输入块顺序                             | 目标                                     | 失败含义                       |
-| -------------------------- | -------------------------------------- | ---------------------------------------- | ------------------------------ |
-| `text-three-blocks`        | `text0, text1, text2`                  | 三个 nonce 全部可见且顺序不变            | 兼容层静默丢弃后续文本         |
-| `mcp-text-image-text`      | `text, image, text`                    | 两个文本和图片内 marker 全部可见         | 普通 MCP 混合结果丢块          |
-| `android-screenshot-shape` | `text, image`                          | metadata 与截图内 marker 同时可见        | Android 截图图片丢失           |
-| `ios-screenshot-shape`     | `text, image`                          | metadata 与截图内 marker 同时可见        | iOS 截图图片丢失               |
-| `browser-multiple-images`  | `imageA, imageB, text`                 | 两张图片和文本全部可见                   | Browser Use 后续图片或文本丢失 |
-| `cua-observation`          | `image, frame_ref, ax_tree, outcome`   | raster、frame、AX tree、outcome 全部可见 | CUA 状态屏障/动作约束丢失      |
-| `multiple-tool-results`    | 两个独立 `tool_result`，每个含两段文本 | 每个 `tool_use_id` 的结果均完整可见      | 多工具结果之间发生投影截断     |
+| ID                         | Ordem dos blocos de entrada            | Alvo                                            | Significado da falha                  |
+| -------------------------- | -------------------------------------- | ------------------------------------------------ | ------------------------------------- |
+| `text-three-blocks`        | `text0, text1, text2`                  | Os três nonces visíveis e na mesma ordem          | A camada de compatibilidade descarta o texto seguinte silenciosamente |
+| `mcp-text-image-text`      | `text, image, text`                    | Os dois textos e o marker dentro da imagem visíveis | Resultados mistos MCP comuns perdem blocos |
+| `android-screenshot-shape` | `text, image`                          | Metadata e marker dentro do screenshot visíveis  | Imagem do screenshot Android perdida  |
+| `ios-screenshot-shape`     | `text, image`                          | Metadata e marker dentro do screenshot visíveis  | Imagem do screenshot iOS perdida      |
+| `browser-multiple-images`  | `imageA, imageB, text`                 | As duas imagens e o texto visíveis               | Imagens ou texto seguinte do Browser Use perdidos |
+| `cua-observation`          | `image, frame_ref, ax_tree, outcome`   | raster, frame, AX tree e outcome visíveis        | Barreira de estado / restrição de ação do CUA perdida |
+| `multiple-tool-results`    | Dois `tool_result` independentes, cada um com dois trechos de texto | O resultado de cada `tool_use_id` totalmente visível | Truncamento de projeção entre resultados de múltiplas ferramentas |
 
-所有 marker 都由每次运行生成的 nonce 唯一化；提示词不包含 marker 值，避免模型从指令中猜答案。
+Todos os markers são unificados por um nonce gerado a cada execução; o prompt não contém os
+valores dos markers, evitando que o modelo adivinhe a resposta a partir das instruções.
 
-## 判定
+## Veredito
 
-- `PASS`：HTTP 200，模型输出包含该 case 的全部 marker，且顺序正确。
-- `FAIL`：HTTP 200 但缺少任意 marker，或者顺序错误。
-- `BLOCKED`：模型服务返回 403、429、529 等服务状态，不能把它判为链路通过或失败。
+- `PASS`: HTTP 200, a saída do modelo contém todos os markers do case e a ordem está correta.
+- `FAIL`: HTTP 200 mas algum marker está faltando, ou a ordem está errada.
+- `BLOCKED`: o serviço de modelo devolve status de serviço como 403, 429, 529; não pode ser
+  julgado como aprovação nem como falha da cadeia.
 
-`scripts/multimodal-tool-result-p0.mjs` 只验证兼容接口语义；ZCode 真链路需要另行确认 ZCode 发出的原始
-`content[]` 与工具产出一致。
+`scripts/multimodal-tool-result-p0.mjs` verifica apenas a semântica da interface compatível; a
+cadeia real do ZCode exige confirmar separadamente que o `content[]` enviado pelo ZCode é
+consistente com a saída da ferramenta.
 
-捕获结果只作为链路证据，不把 API key 或图片 base64 写入测试 fixture。
+Os resultados capturados servem apenas como evidência da cadeia; API key ou imagens base64 não
+são gravadas nos fixtures de teste.

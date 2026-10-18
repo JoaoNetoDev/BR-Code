@@ -1,5 +1,5 @@
-# ZCode CLI 资源占用 ARMS 上报
+# Envio de dados de consumo de recursos do ZCode CLI para ARMS
 
-本页已由[全进程 CPU / 内存监控埋点](./process-resource-telemetry.md)取代。
-CLI 的 `cli_chat` / `cli_aux` 角色、60 秒自采、运行机维度、协议兼容与本地 / 远端链路统一以新 spec 为准；
-旧事件停发版本见[性能埋点事件字典](./performance-telemetry-catalog.md)。
+Esta página foi substituída pelos [pontos de medição de CPU / memória de todo o processo](./process-resource-telemetry.md).
+Os papéis `cli_chat` / `cli_aux` da CLI, a coleta automática a cada 60 segundos, a dimensão da máquina em execução, a compatibilidade de protocolo e o encadeamento local / remoto seguem uniformemente a nova spec;
+a versão em que os eventos antigos deixaram de ser enviados está no [dicionário de eventos de telemetria de performance](./performance-telemetry-catalog.md).

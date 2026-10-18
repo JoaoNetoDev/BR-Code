@@ -1,60 +1,61 @@
-# Web Replayable Task Model Readonly Restore Implementation Plan
+# Plano de Implementação de Readonly Restore do Modelo de Task Replayable Web
 
-> 状态（2026-07-15）：已实施的 legacy replayable 兼容记录。`resumeModelPolicy` 仍由 task compatibility
-> adapter 保留，但当前 conversation 的恢复权威是 V4 projection/snapshot；下文 `useTaskRestore`、
-> `useTaskStreamEvents` 等旧 UI 接入路径已经删除，不能作为新功能入口。
+> Status (2026-07-15): registro de compatibilidade do legacy replayable já implementado. `resumeModelPolicy`
+> ainda é mantido pelo task compatibility adapter, mas a autoridade de restore da conversa atual é a
+> projection/snapshot do V4; os antigos caminhos de integração da UI como `useTaskRestore` e
+> `useTaskStreamEvents` abaixo foram removidos e não podem servir de entrada para funcionalidades novas.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes de trabalho:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Let mobile `web-remote-replayable` open historical tasks whose exact model is unavailable without breaking desktop `desktop-continuous`.
+**Objetivo:** Permitir que o mobile `web-remote-replayable` abra tasks históricas cujo modelo exato está indisponível sem quebrar o `desktop-continuous` do desktop.
 
-**Architecture:** Add an explicit snapshot resume model policy that only the mobile replayable restore path uses. The UI requests a snapshot without task-index model backfill when the historical model is known unavailable, while the provider snapshot has not hydrated yet, or when the current task meta has not reached UI state yet, then skips the follow-up `resumeTask` for that read-only open.
+**Arquitetura:** Adicionar uma política explícita de resume por snapshot que apenas o caminho de restore replayable do mobile usa. A UI solicita um snapshot sem backfill de modelo do índice de tasks quando o modelo histórico é conhecido como indisponível, enquanto o snapshot do provider ainda não foi hidratado, ou quando a meta da task atual ainda não chegou ao estado da UI; então, para essa abertura somente leitura, ela pula o `resumeTask` de acompanhamento.
 
-**Tech Stack:** TypeScript, React hooks, Vitest, ZCode task service adapter.
+**Stack técnico:** TypeScript, hooks React, Vitest, adaptador do serviço de tasks do ZCode.
 
 ---
 
-### Task 1: Add Red Tests
+### Tarefa 1: Adicionar testes vermelhos
 
-**Files:**
-- Modify: `packages/ui/test/useTaskRestoreRuntimeSnapshot.test.ts`
-- Modify: `packages/ui/test/useTaskStreamEventsSnapshotReader.test.ts`
-- Modify: `packages/ui/test/taskStreamEventSnapshotSync.test.ts`
-- Modify: `packages/services/test/zcodeLegacyTaskCompatTaskIndex.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/test/useTaskRestoreRuntimeSnapshot.test.ts`
+- Modificar: `packages/ui/test/useTaskStreamEventsSnapshotReader.test.ts`
+- Modificar: `packages/ui/test/taskStreamEventSnapshotSync.test.ts`
+- Modificar: `packages/services/test/zcodeLegacyTaskCompatTaskIndex.test.ts`
 
-- [x] Add a UI test asserting `buildReplayableTaskRestoreSnapshotParams` can emit `resumeModelPolicy: "ui-resolved-only"`.
-- [x] Add a UI test asserting mobile replayable restore uses read-only mode while provider snapshot is not hydrated even without a local historical model hint, and desktop restore does not.
-- [x] Add a UI test asserting mobile replayable restore uses read-only mode when task meta has not reached UI state yet, and desktop restore does not.
-- [x] Add a UI test asserting the web replayable stream snapshot reader requests `resumeModelPolicy: "ui-resolved-only"`.
-- [x] Add a UI test asserting generic web replayable snapshot sync requests `resumeModelPolicy: "ui-resolved-only"`.
-- [x] Add a service adapter test asserting replayable snapshot with `resumeModelPolicy: "ui-resolved-only"` calls `agent.resumeSession` without a model even when task index meta has a model.
-- [x] Add a service adapter test asserting default replayable snapshot still passes the task index model to `agent.resumeSession`.
-- [x] Run the focused tests and verify they fail before implementation.
+- [x] Adicionar um teste de UI afirmando que `buildReplayableTaskRestoreSnapshotParams` pode emitir `resumeModelPolicy: "ui-resolved-only"`.
+- [x] Adicionar um teste de UI afirmando que o restore replayable do mobile usa modo somente leitura enquanto o snapshot do provider não está hidratado, mesmo sem uma dica local de modelo histórico, e que o restore do desktop não usa.
+- [x] Adicionar um teste de UI afirmando que o restore replayable do mobile usa modo somente leitura quando a meta da task ainda não chegou ao estado da UI, e que o restore do desktop não usa.
+- [x] Adicionar um teste de UI afirmando que o leitor de snapshot de stream replayable web solicita `resumeModelPolicy: "ui-resolved-only"`.
+- [x] Adicionar um teste de UI afirmando que o sync de snapshot replayable web genérico solicita `resumeModelPolicy: "ui-resolved-only"`.
+- [x] Adicionar um teste do adaptador de serviço afirmando que um snapshot replayable com `resumeModelPolicy: "ui-resolved-only"` chama `agent.resumeSession` sem modelo mesmo quando a meta do índice de tasks tem um modelo.
+- [x] Adicionar um teste do adaptador de serviço afirmando que o snapshot replayable padrão ainda passa o modelo do índice de tasks para `agent.resumeSession`.
+- [x] Executar os testes focados e verificar que falham antes da implementação.
 
-### Task 2: Implement Mobile-Only Policy
+### Tarefa 2: Implementar a política exclusiva do mobile
 
-**Files:**
-- Modify: `packages/services/src/session/zcodeTaskService.ts`
-- Modify: `packages/ui/src/hooks/useZCodeTaskService.ts`
-- Modify: `packages/ui/src/hooks/useTaskRestore.ts`
-- Modify: `packages/ui/src/hooks/useTaskStreamEvents.ts`
-- Modify: `packages/ui/src/hooks/taskStreamEventSnapshotSync.ts`
-- Modify: `packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts`
+**Arquivos:**
+- Modificar: `packages/services/src/session/zcodeTaskService.ts`
+- Modificar: `packages/ui/src/hooks/useZCodeTaskService.ts`
+- Modificar: `packages/ui/src/hooks/useTaskRestore.ts`
+- Modificar: `packages/ui/src/hooks/useTaskStreamEvents.ts`
+- Modificar: `packages/ui/src/hooks/taskStreamEventSnapshotSync.ts`
+- Modificar: `packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts`
 
-- [x] Add `resumeModelPolicy?: "task-index" | "ui-resolved-only"` to snapshot params.
-- [x] Include the policy in the UI snapshot dedupe/cache key.
-- [x] In `zcodeTaskServiceAdapter.getTaskSnapshot`, skip task-index resume hints only when `clientMode` is `web-remote-replayable` and policy is `ui-resolved-only`.
-- [x] In `useTaskRestore`, set the policy only when the mobile replayable path detects an unavailable historical model with no resolved fallback model, when the provider snapshot has not hydrated yet, or when task meta has not reached UI state yet.
-- [x] In that same branch, skip `resumeTask` and use `snapshot.meta` as read-only restored meta.
-- [x] In post-open web replayable snapshot sync, pass `resumeModelPolicy: "ui-resolved-only"` so event/gap/terminal snapshot alignment cannot reintroduce the unavailable task-index model after model switching.
+- [x] Adicionar `resumeModelPolicy?: "task-index" | "ui-resolved-only"` aos params do snapshot.
+- [x] Incluir a política na chave de dedupe/cache do snapshot da UI.
+- [x] Em `zcodeTaskServiceAdapter.getTaskSnapshot`, pular as dicas de resume do índice de tasks somente quando `clientMode` for `web-remote-replayable` e a política for `ui-resolved-only`.
+- [x] Em `useTaskRestore`, definir a política somente quando o caminho replayable do mobile detectar um modelo histórico indisponível sem modelo de fallback resolvido, quando o snapshot do provider ainda não foi hidratado, ou quando a meta da task ainda não chegou ao estado da UI.
+- [x] No mesmo ramo, pular `resumeTask` e usar `snapshot.meta` como meta restaurada somente leitura.
+- [x] No sync de snapshot replayable web pós-abertura, passar `resumeModelPolicy: "ui-resolved-only"` para que o alinhamento de event/gap/terminal do snapshot não possa reintroduzir o modelo indisponível do índice de tasks após a troca de modelo.
 
-### Task 3: Verify
+### Tarefa 3: Verificar
 
-**Files:**
-- Test: `packages/ui/test/useTaskRestoreRuntimeSnapshot.test.ts`
-- Test: `packages/services/test/zcodeLegacyTaskCompatTaskIndex.test.ts`
+**Arquivos:**
+- Teste: `packages/ui/test/useTaskRestoreRuntimeSnapshot.test.ts`
+- Teste: `packages/services/test/zcodeLegacyTaskCompatTaskIndex.test.ts`
 
-- [x] Run focused tests until green.
-- [x] Run `pnpm typecheck`.
-- [x] Run `pnpm lint`.
-- [x] Commit with a Conventional Commits message.
+- [x] Executar os testes focados até ficarem verdes.
+- [x] Executar `pnpm typecheck`.
+- [x] Executar `pnpm lint`.
+- [x] Fazer commit com uma mensagem de Conventional Commits.

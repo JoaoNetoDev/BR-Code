@@ -1,191 +1,178 @@
-# Todo 72：旧 Built-in Provider 配置与模型选择身份迁移
+# Todo 72: migração de identidade das configurações de Provider Built-in antigas e da seleção de modelo
 
-> 状态：已完成实现与阶段验收（2026-09-04）。
+> Status: implementação e aceitação de fase concluídas (2026-09-04).
 >
-> 2026-09-08 后续裁决：本文按当前账号区分个人/Team 的 Selection 迁移已由 [Todo96](todo-96-selection-offline-migration-and-resolution-consolidation.md) 替代，旧 Coding Plan 离线固定落到同域 Individual，实际账号对应由有效选择解析负责。以下保留当时实施轨迹；真实连接设置迁移、OAuth/Team 组织补齐不受影响。
+> Decisão posterior de 2026-09-08: a migração de Selection descrita aqui, que distinguia pessoal/Team conforme a conta atual, foi substituída por [Todo96](todo-96-selection-offline-migration-and-resolution-consolidation.md); o Coding Plan offline antigo passa a resolver para Individual do mesmo domínio, e o vínculo da conta real passa a ser responsabilidade da resolução da seleção válida. O trajeto de implementação da época é preservado abaixo; a migração das configurações reais de conexão e a complementação de OAuth/Team não são afetadas.
 >
-> 更新：2026-09-03。来源：同事旧版 `config.json` 迁移后，内置套餐错误出现在自定义供应商列表。
+> Atualização: 2026-09-03. Origem: após a migração do `config.json` antigo de um colega, o pacote internobuilt-in apareceu incorretamente na lista de suppliers personalizados.
 >
-> 回滚边界以最新 Todo 69 为准：不持续双写旧字段。本文补齐升级迁移，不恢复已取消的双写方案。
+> O limite de rollback segue o Todo 69 mais recente: não manter escrita dupla contínua dos campos antigos. Este documento completa a migração de upgrade e não restaura o方案 de escrita dupla cancelado.
 
-## 1. 已确认的问题
+## 1. Problemas confirmados
 
-旧配置中的 `builtin:*` 条目也可能保存为 `source: "custom"`。当前
-`legacyPersonalProviderConfigImporter.ts` 主要按 `source` 筛选，于是把这些内置配置完整迁成
-`standard-personal`，连旧套餐 Endpoint、账号凭据和模型成员也一并冻结下来。
+Entradas `builtin:*` na configuração antiga também podem ter sido salvas como `source: "custom"`. Atualmente
+`legacyPersonalProviderConfigImporter.ts` filtra principalmente por `source` e, assim, migra essas configurações
+internas por completo para `standard-personal`, congelando também o Endpoint do pacote antigo, as credenciais da
+conta e os membros de modelo.
 
-现有测试只覆盖 `source: "builtin"`，没有覆盖这份实际旧数据的形状。
+Os testes existentes cobrem apenas `source: "builtin"` e não cobrem o formato desses dados reais antigos.
 
-此外，部分旧 Model Selection 的转换只是搬运 Provider ID。旧版个人与 Team 共用 Coding Plan ID，
-新版已经拆成两个 Provider；只复制字符串不能保证迁移后的选择仍指向正确身份。
+Além disso, a conversão de parte das Model Selections antigas apenas transporta o Provider ID. A versão antiga
+compartilhava o Coding Plan ID entre pessoal e Team, e a nova versão já foi dividida em dois Providers; apenas
+copiar a string não garante que a seleção migrada ainda aponte para a identidade correta.
 
-## 2. Provider 配置迁移裁决
+## 2. Decisão sobre a migração da configuração de Provider
 
 ```text
-旧 config.json
+config.json antigo
       |
-      +-- builtin:bigmodel --> bigmodel-api：只迁 API Key
-      +-- builtin:zai ------> zai-api：只迁 API Key
-      +-- 其他 builtin:* ---> 不导入旧 Provider 配置
-      +-- 其他已确认的账号/系统配置 --> 不导入旧 Provider 配置
-      `-- 真正自定义 Provider --> 保留既定自定义迁移规则
+      +-- builtin:bigmodel --> bigmodel-api: migrar apenas a API Key
+      +-- builtin:zai ------> zai-api: migrar apenas a API Key
+      +-- outros builtin:* ---> não importar configuração de Provider antiga
+      +-- outras configurações confirmadas de conta/sistema --> não importar configuração de Provider antiga
+      `-- Providers realmente personalizados --> manter as regras de migração personalizada já estabelecidas
 
-当前 Built-in / Template + 当前 Account 数据
-      `--> 提供内置名称、Logo、API 配置、模型与套餐事实
+Built-in / Template atuais + dados de Account atuais
+      `--> fornecem o nome interno, Logo, configuração de API, modelos e fatos de pacotes
 ```
 
-- 先识别旧系统保留的 Provider 身份，再处理 `source`；不能让 `source: "custom"` 覆盖内置身份。
-- Built-in API 唯一保留的旧配置是非空 API Key。旧名称、URL、Schema、Headers、管理地址、启停状态、
-  模型成员、排序、Context 和其他 Model Rules 全部不迁。
-- API Key 落到当前 `bigmodel-api` / `zai-api` 对应的 Personal 配置。复用当前 Template 建立方式；
-  必需的当前身份或 Template 关联不是旧字段复制，不得为此复制整份 Template 静态配置。
-- 没有 API Key 时，不制造自定义副本，也不写空 Key 覆盖已有有效值。
-- 套餐 Token、JWT、动态 Headers 和旧账号状态不迁入 Personal，由当前账号凭据链重新提供。
-- 真正自定义 Provider 继续迁移调用配置、模型成员/顺序及合法 Context Window；其余模型能力按既定规则丢弃。
-- 不凭显示名称或 URL 判定内置身份。UUID 自定义 Provider 即使叫“智谱”或“ZCode”，也不能被误删。
-- 旧 `config.json` 保持原样，不生成备份，不恢复 `model-providers.json` 回退，不新增未发布中间版本兼容。
+- Identificar primeiro a identidade de Provider reservada pelo sistema antigo e só então tratar o `source`; `source: "custom"` não pode sobrescrever a identidade interna.
+- A única configuração antiga preservada para a API interna é a API Key não vazia. Nome antigo, URL, Schema, Headers, endereço de gerenciamento, estado de habilitação, membros de modelo, ordenação, Context e outras Model Rules não são migrados.
+- A API Key vai para a configuração Personal correspondente ao `bigmodel-api` / `zai-api` atual. Reutiliza-se o modo de estabelecimento de Template atual; uma identidade atual ou vínculo de Template exigido não é cópia de campo antigo, e não se deve copiar toda a configuração estática do Template por causa disso.
+- Sem API Key, não se cria cópia personalizada nem se grava Key vazia sobrescrevendo um valor válido existente.
+- Token de pacote, JWT, Headers dinâmicos e estado antigo da conta não são migrados para Personal; são fornecidos novamente pela cadeia atual de credenciais da conta.
+- Providers realmente personalizados continuam migrando configuração de chamada, membros/ordem de modelos e Context Window legítimo; as demais capacidades de modelo são descartadas conforme as regras estabelecidas.
+- A identidade interna não é determinada pelo nome de exibição nem pela URL. Um Provider personalizado com UUID não pode ser apagado por engano mesmo que se chame "智谱" ou "ZCode".
+- O `config.json` antigo permanece como está; não se gera backup, não se restaura o fallback de `model-providers.json` e não se adiciona compatibilidade com versões intermediárias não publicadas.
 
-本次处理旧文件首次导入。已经生成的 `provider_config.json` 不得被重新导入覆盖，也不得按名称扫描删除
-“疑似内置”的条目。**已经错误迁移的用户配置只做人工修复，不专门编写自动修复代码。**
-本 Todo 不自动扫描、删除或重置已有新配置；不能宣称修正首次导入会自动修好这些用户的数据。
+Este tratamento é para a primeira importação do arquivo antigo. Um `provider_config.json` já gerado não pode ser sobrescrito por nova importação, nem podem entradas "suspeitamente internas" ser apagadas por varredura de nome. **Configurações de usuários que já foram migradas incorretamente recebem apenas correção manual; não se escreve código de correção automática específico.**
+Este Todo não varre, apaga nem reseta automaticamente novas configurações já existentes; não se pode afirmar que corrigir a primeira importação corrigirá automaticamente os dados desses usuários.
 
-## 3. 已持久化模型选择怎么迁
+## 3. Como migrar seleções de modelo já persistidas
 
-### 3.1 可以直接对应的身份
+### 3.1 Identidades que podem ser mapeadas diretamente
 
-- `builtin:bigmodel` → `bigmodel-api`。
-- `builtin:zai` → `zai-api`。
-- `builtin:bigmodel-start-plan` → `account:bigmodel-start-plan`。
-- `builtin:zai-start-plan` → `account:zai-start-plan`。
-- 真正自定义 Provider 保持原 ID，与 Provider 配置迁移结果一致。
-- 已退役且没有当前对应身份的 `builtin:zapi` 保持未绑定，不创建自定义 Provider 来凑身份。
+- `builtin:bigmodel` → `bigmodel-api`.
+- `builtin:zai` → `zai-api`.
+- `builtin:bigmodel-start-plan` → `account:bigmodel-start-plan`.
+- `builtin:zai-start-plan` → `account:zai-start-plan`.
+- Providers realmente personalizados mantêm o ID original, em一致ência com o resultado da migração da configuração de Provider.
+- `builtin:zapi`, já aposentado e sem identidade atual correspondente, permanece sem vínculo; não se cria um Provider personalizado para forçar uma identidade.
 
-### 3.2 旧 Coding Plan 按迁移时的当前账号连接落到具体 Provider
+### 3.2 O Coding Plan antigo cai no Provider concreto conforme a conexão de conta atual no momento da migração
 
-旧 Coding Plan ID 表达的是同一 Family 当前使用的 Coding Plan，个人/Team 切换时旧选择仍可使用。
-因此这里采用用户最新裁决，**允许使用迁移时当前账号连接**，不要求还原当年的个人/Team 身份。
+O Coding Plan ID antigo expressa o Coding Plan atualmente em uso na mesma Family, e a seleção antiga continua utilizável ao alternar entre pessoal/Team.
+Por isso adotamos aqui a decisão mais recente do usuário, **permitindo usar a conexão de conta atual no momento da migração**, sem exigir a recuperação da identidade pessoal/Team da época.
 
 ```text
-旧 builtin:<family>-coding-plan
+builtin:<family>-coding-plan antigo
                  +
-同一环境、同一 Family 当前选中的账号连接
+conexão de conta atualmente selecionada no mesmo ambiente e na mesma Family
                  |
-                 +-- 个人 --> account:<family>-individual-coding-plan
+                 +-- pessoal --> account:<family>-individual-coding-plan
                  +-- Team --> account:<family>-team-coding-plan
-                 `-- 无法确定 --> 留空/未绑定，主体数据仍可打开
+                 `-- indeterminável --> vazio/sem vínculo; os dados principais ainda podem ser abertos
 ```
 
-- `<family>` 仅为 `bigmodel` 或 `zai`；不能跨 Family 选择账号。
-- 使用现有账号连接的权威状态，不另写一套“有 Team 就选 Team”的优先级，也不从模型列表首项猜测。
-- Team 的组织/套餐身份继续属于 Account 连接，不把账号凭据或 Team 字段塞进 ModelSelection。
-- 这是一项旧动态身份的升级规则，不是当前运行时 Account-first 回退。迁移并保存为新身份后，正常恢复只认新字段，
-  不在每次账号切换时重新解释旧字段。
-- 账号未登录或连接尚不明确时不阻塞历史打开，不增加无限等待登录的屏障；选择控件留空、允许重新选择，不弹留空提示。
-- 不从 Configured Default、其他 Family、同名模型或任意可执行 Provider 猜出旧身份。
+- `<family>` é apenas `bigmodel` ou `zai`; não é possível escolher a conta atravessando Families.
+- Usa-se o estado autoritativo da conexão de conta existente, sem escrever um conjunto separado de prioridade "se houver Team, escolha Team" e sem adivinhar pelo primeiro item da lista de modelos.
+- A identidade de organização/pacote do Team continua pertencendo à conexão de Account; credenciais de conta ou campos de Team não são colocados dentro de ModelSelection.
+- Esta é uma regra de upgrade para uma identidade dinâmica antiga, e não um fallback Account-first do runtime atual. Depois de migrada e salva como nova identidade, a restauração normal reconhece apenas os campos novos e não reinterpretar os campos antigos a cada troca de conta.
+- Quando a conta não está autenticada ou a conexão ainda não está clara, não se bloqueia a abertura do histórico, não se adiciona uma barreira de espera infinita pela autenticação; o controle de seleção fica vazio, permite reselecionar e não exibe aviso de valor vazio.
+- A identidade antiga não é adivinhada a partir do Default configurado, de outra Family, de um modelo com o mesmo nome ou de qualquer Provider executável.
 
-动态身份成功转换后，在所属记录现有保存入口固定新 Selection。Session 在本次成功恢复期间保存当前选择，
-不等待下次发送；文件导入在首次写出新文件时固定。Reasoning 留空不妨碍固定已确认的 Provider/Model。
-不改写历史请求身份，不批量重写历史；写入须保护期间更新的用户选择。失败保留正常存储错误处理，
-不声称迁移完成，不阻断历史打开，也不另建迁移调度器。
+Após a conversão bem-sucedida da identidade dinâmica, a nova Selection é fixada no ponto de salvamento já existente do registro correspondente. A Session salva a seleção atual durante este restauro bem-sucedido, sem esperar o próximo envio; a importação de arquivo fixa na primeira escrita do novo arquivo. Reasoning vazio não impede que Provider/Model já confirmados sejam fixados.
+Não se reescreve a identidade de requisições históricas nem se reescreve o histórico em massa; a escrita deve proteger as seleções do usuário atualizadas no interim. Falhas mantêm o tratamento normal de erro de armazenamento, não alegam migração concluída, não bloqueiam a abertura do histórico e não criam outro agendador de migração.
 
-### 3.3 当前字段、模型与 Reasoning
+### 3.3 Campos, modelos e Reasoning atuais
 
-- 已有当前 ModelSelection 时以当前字段为准，不因不完整而用旧字段覆盖。不能只按字段名判断新旧：
-  旧版也可能已写 `modelSelection`，其中明确的旧内置保留 ID 仍需在升级边界转换。转换只使用该选择自身的
-  身份及本节允许的账号上下文，不从旁边旧字段补值；普通未知 ID 或 Registry 查找失败不构成旧格式证据。
-- 保留能确认的模型 ID；目标 Provider 不提供该模型时保持未绑定，不复制旧内置模型成员来强行满足选择。
-- 旧字段能确定表达的 Reasoning 在单向 Decoder 中转换。新字段缺失或失效时按 Todo 70 留空，
-  不偷偷选择 `values[0]`、`values.at(-1)` 或其他档位。
-- 历史消息中记录的实际调用信息与下一次执行选择分开处理；不把“现在选中 Team”伪写成“历史请求实际使用了 Team”。
-- 无法恢复的模型/Reasoning 留空，不自动替换，不弹 Toast、弹窗或额外失效横幅；不得因为绑定失败而拒绝
-  打开整个 Session 或任务列表。真实执行失败仍保留正常错误反馈。
+- Quando já existe uma ModelSelection atual, os campos atuais prevalecem e não são sobrescritos por campos antigos por serem incompletos. Não é possível julgar antigo/novo apenas pelo nome do campo: a versão antiga também pode já ter escrito `modelSelection`, e uma ID interna antiga explícita ali presente ainda precisa ser convertida no limite de upgrade. A conversão usa apenas a identidade da própria seleção e o contexto de conta permitido nesta seção, sem completar valores a partir de campos antigos vizinhos; uma ID desconhecida comum ou falha de busca no Registry não constituem evidência de formato antigo.
+- Preservar os IDs de modelo que possam ser confirmados; quando o Provider de destino não oferece o modelo, manter sem vínculo e não copiar membros de modelos internos antigos para forçar o atendimento da seleção.
+- O Reasoning que o campo antigo consiga determinar com segurança é convertido em um Decoder unidirecional. Quando o campo novo está ausente ou inválido, deixar vazio conforme o Todo 70, sem escolher sorrateiramente `values[0]`, `values.at(-1)` ou outro nível.
+- As informações de chamada realmente registradas nas mensagens históricas são tratadas separadamente da seleção da próxima execução; não se reescreve "Team está selecionado agora" como "a requisição histórica realmente usou Team".
+- Modelo/Reasoning irrecuperáveis ficam vazios, sem substituição automática e sem Toast, modal ou banner extra de invalidez; não se pode recusar abrir a Session inteira ou a lista de tarefas por causa de falha de vínculo. Falhas de execução reais mantêm o retorno de erro normal.
 
-## 4. 实施范围与复用边界
+## 4. Escopo de implementação e fronteiras de reuso
 
-先梳理各处实际旧格式，再复用小范围的身份转换函数；它只供迁移入口使用，不成为运行时别名表或第二套 Registry。
-需要账号连接的入口显式接收已解析的迁移上下文，不让底层存储直接读取全局 UI 状态。
+Primeiro mapear os formatos antigos reais em cada ponto e depois reutilizar funções de conversão de identidade de escopo pequeno; elas servem apenas à entrada de migração e não viram tabela de aliases de runtime nem um segundo Registry.
+Entradas que precisam da conexão de conta recebem explicitamente o contexto de migração já resolvido, sem deixar o armazenamento底层 ler diretamente o estado global de UI.
 
-实施接口：共享迁移函数只转换旧 Provider ID，显式接收当前环境账号服务解析出的
-`ZCodeAccountAccess`（可以为空）；不读取磁盘、不等待登录、不查询或扫描 Registry。
-普通当前 ID 原样交给各领域验证，未知 `builtin:*` 返回未绑定。模型成员与 Reasoning 的有效性仍由
-所属领域使用目标 Registry 判断。账号上下文沿用现有 `resolveCurrentAccountAccess` 的身份与连接规则，
-不能把仅保存的 Family 偏好直接当作已登录账号事实。
+Interface de implementação: a função de migração compartilhada converte apenas o Provider ID antigo e recebe explicitamente o `ZCodeAccountAccess` resolvido pelo serviço de contas do ambiente atual (que pode ser nulo); não lê disco, não espera autenticação e não consulta nem varre o Registry.
+IDs atuais comuns são entregues como estão à validação de cada domínio, e `builtin:*` desconhecido retorna sem vínculo. A validade dos membros de modelo e do Reasoning continua sendo julgada pelo domínio de pertencimento usando o Registry de destino. O contexto de conta segue as regras de identidade e conexão do `resolveCurrentAccountAccess` existente; não se pode tratar uma preferência de Family apenas salva como um fato de conta autenticada.
 
-逐项核对以下持久化入口，记录是否已有转换、缺口与对应测试，不能只修 Provider 配置导入：
+Verificar item a item os pontos de persistência abaixo, registrando se já há conversão, as lacunas e os testes correspondentes; não é permitido corrigir apenas a importação da configuração de Provider:
 
-- Provider Config：修正内置身份分类和 Built-in API Key 例外。
-- Account Settings：核对旧连接选择的转换，确保 Coding Plan 迁移能够取得同一 Family 的正确当前连接。
-- Session：由 Todo 70 负责唯一 Decoder、当前字段优先和未绑定恢复；本文提供身份转换规则，不再新增平行 Decoder。
-- 自动化定义和 Run：核对旧模型选择格式；旧 `provider` 可能表示 Agent 后端，不得直接当成模型 Provider ID。
-- 闲时任务：保留闲时专属 Provider/凭据语义，不把执行选择机械迁成普通 Coding Plan；无法确定时保留任务，
-  选择留空，不弹留空提示；不得将不完整选择交给模型执行。
-- 内置/自定义 Subagent：覆盖状态文件与 Markdown 中的显式旧选择，继承语义保持不变。
-- Bot Config/State：接入 Todo 69 的一次性 v3 导入，不再直接覆盖旧文件。
-- Wiki、Configured Default、Recent 及确有旧持久化格式的 Draft：核对实际 Reader，不能因共用类型就假定已自动迁移。
-- 远端环境：使用该环境的配置和账号上下文；不得拿另一个环境的连接替历史选择绑定身份。
+- Provider Config: corrigir a classificação de identidades internas e a exceção de API Key das APIs internas.
+- Account Settings: conferir a conversão da seleção de conexão antiga, garantindo que a migração do Coding Plan obtenha a conexão atual correta da mesma Family.
+- Session: de responsabilidade do Todo 70 o Decoder único, a prioridade dos campos atuais e o restauro sem vínculo; este documento fornece as regras de conversão de identidade e não adiciona um Decoder paralelo.
+- Definições de automação e Run: conferir o formato antigo de seleção de modelo; o `provider` antigo pode representar o backend de Agent e não pode ser tratado diretamente como ID de Provider de modelo.
+- Tarefas ociosas: preservar a semântica exclusiva de Provider/credenciais de operação ociosa e não migrar mecanicamente a seleção de execução para um Coding Plan comum; quando for indeterminável, manter a tarefa, deixar a seleção vazia e não exibir aviso de valor vazio; não é permitido entregar uma seleção incompleta à execução do modelo.
+- Subagents internos/personalizados: cobrir seleções antigas explícitas no arquivo de estado e no Markdown; a semântica de herança permanece inalterada.
+- Bot Config/State: integrar a importação única de v3 do Todo 69, sem sobrescrever mais os arquivos antigos diretamente.
+- Wiki, Default configurado, Recent e Drafts que realmente tenham formato antigo persistido: conferir os Reader reais; não é possível assumir migração automática só porque o tipo é compartilhado.
+- Ambiente remoto: usar a configuração e o contexto de conta desse ambiente; não se pode usar a conexão de outro ambiente para vincular a identidade de uma seleção histórica.
 
-每个入口都要区分“旧结构迁移”和“当前字段损坏”。找不到可靠旧身份时留空，不增加模型名唯一匹配等旁路。
-新建或调整的迁移注释使用中文，说明旧格式来源、一次性读取边界，以及旧数据保留用于回滚而非当前事实源。
+Cada entrada precisa distinguir "migração de estrutura antiga" de "campo atual corrompido". Quando não há identidade antiga confiável, deixar vazio e não adicionar atalhos como correspondência única por nome de modelo.
+Comentários de migração novos ou ajustados são escritos em chinês, explicando a origem do formato antigo, o limite da leitura única e que os dados antigos são preservados para rollback e não como fonte de verdade atual.
 
-### 与 Todo 69 / 70 / 71 的关系
+### Relação com Todo 69 / 70 / 71
 
-- Todo 69：降级回滚边界，Bot 文件隔离；其他领域不持续双写。
-- Todo 70：Session 升级 Decoder 与未绑定恢复，采用本文身份规则。
-- Todo 71：当前 Composer Draft/Submission；不承担旧 Provider 身份推断。
-- Todo 72：Provider 配置分类、旧身份转换及各持久化入口的接入检查。
+- Todo 69: limite de rollback de downgrade, isolamento dos arquivos de Bot; os demais domínios não mantêm escrita dupla contínua.
+- Todo 70: Decoder de upgrade de Session e restauro sem vínculo, adotando as regras de identidade deste documento.
+- Todo 71: Draft/Submission atuais do Composer; não assume a inferência de identidades de Provider antigas.
+- Todo 72: classificação da configuração de Provider, conversão de identidades antigas e verificação de integração em cada ponto de persistência.
 
-实施时先确定共享转换输入和测试，再衔接各 Todo 的存储入口；相关任务若已实现则直接复用，不重复造迁移层。
+Na implementação, determinar primeiro as entradas e os testes da conversão compartilhada e depois conectar os pontos de armazenamento de cada Todo; se a tarefa relacionada já estiver implementada, reutilizá-la diretamente e não criar uma camada de migração duplicada.
 
-联合执行顺序：
+Ordem de execução conjunta:
 
 ```text
-68 收尾：执行模型一致
+68 encerramento: consistência de modelos na execução
         |
-72 基础：Provider 分类、API Key、旧身份转换及账号上下文
+72 base: classificação de Provider, API Key, conversão de identidades antigas e contexto de conta
         |
-69：Bot v3 首次导入直接接入正确转换
+69: primeira importação de Bot v3 conectada diretamente à conversão correta
         |
-70：Session 未绑定恢复、动态身份写回
+70: restauro sem vínculo de Session, escrita de volta da identidade dinâmica
         |
-71：持久 Draft、Submission、统一留空且无提示
+71: Draft persistente, Submission, unificação de valor vazio sem aviso
         |
-72 后段：其他领域接入核对、联合升级/重启/回滚验证与实施报告
+72 segunda metade: verificação de integração nos demais domínios, validação conjunta de upgrade/restart/rollback e relatório de implementação
 ```
 
-Bot/Session 的首次导入必须在最终身份转换接入后验收，不能先写新文件，再依赖已禁止的旧文件回读来修身份。
+A primeira importação de Bot/Session precisa ser aceita depois que a conversão final de identidade estiver integrada; não se pode escrever o arquivo novo primeiro e depois depender da releitura do arquivo antigo, já proibida, para corrigir a identidade.
 
-## 5. 测试与验收
+## 5. Testes e aceitação
 
-先写测试，再改实现。以同事附件的结构制作脱敏 fixture，所有 Key 使用假值，不提交原始凭据和私人账号信息。
+Escrever os testes primeiro e depois alterar a implementação. Criar fixtures anonimizados com base na estrutura do anexo de um colega, usando valores falsos para todas as Keys e sem versionar credenciais originais nem informações de contas privadas.
 
-- 内置 ID 配合 `source: "custom"` 仍不产生自定义套餐；真正 UUID 自定义 Provider 不受影响。
-- Built-in API 只留下 Key，当前 Template 正常提供其余配置；空 Key 不覆盖有效配置。
-- 首次导入后不改写旧文件；再次加载不重复导入、不覆盖当前 Personal 编辑。
-- BigModel/Z.ai 各覆盖个人、Team、无明确账号连接；验证模型身份及未绑定结果，不只看页面是否出现供应商。
-- 新旧字段冲突时新字段优先；模型不存在、Reasoning 缺失/失效时 Session 历史与任务列表仍能打开。
-- 旧版 `modelSelection` 中的明确旧内置身份也被转换；不能把“有这个字段”误判为迁移已完成。
-- 选择留空不弹提示，不被 Composer 初始化或重启恢复补回默认值。
-- 已有新 Provider 文件保持不变，不启动自动纠错迁移；已误迁用户走人工处理。
-- 各持久化入口有定向测试，尤其自动化旧后端字段、闲时专属身份、Bot v3 和 Subagent 显式选择。
-- 交互 E2E 覆盖旧配置升级后的供应商列表、API 使用及旧会话打开/重选后继续；同步更新与上述裁决冲突的旧断言。
-- 回滚只验证 Todo 69 承诺的读取范围，不把“不持续双写”重新扩成精确恢复全部新选择。
+- Uma ID interna com `source: "custom"` ainda não gera pacote personalizado; um Provider personalizado real com UUID não é afetado.
+- A API interna deixa apenas a Key e o Template atual fornece o restante da configuração normalmente; Key vazia não sobrescreve uma configuração válida.
+- Após a primeira importação o arquivo antigo não é reescrito; um novo carregamento não importa de novo nem sobrescreve edições Personais atuais.
+- Cobrir pessoal, Team e ausência de conexão de conta explícita para BigModel/Z.ai; validar a identidade dos modelos e os resultados sem vínculo, olhando apenas se o fornecedor aparece na página não é suficiente.
+- Em conflito entre campos novo e antigo, o novo prevalece; quando o modelo não existe ou o Reasoning está ausente/inválido, o histórico de Session e a lista de tarefas ainda abrem.
+- Identidades internas antigas explícitas no `modelSelection` antigo também são convertidas; não é possível，判断 indevidamente que a migração está concluída só porque o campo existe.
+- Seleção vazia não exibe aviso e não é completada com valor padrão pela inicialização do Composer ou pelo restauro após restart.
+- Arquivos novos de Provider existentes permanecem inalterados e não iniciam migração de correção automática; usuários já migrados incorretamente passam por tratamento manual.
+- Cada ponto de persistência tem teste direcionado, em especial o backend antigo de automação, a identidade exclusiva de operação ociosa, o Bot v3 e a seleção explícita de Subagent.
+- E2E de interação cobre a lista de fornecedores após o upgrade da configuração antiga, o uso da API e a abertura de sessões antigas/re-seleção para continuar; atualizar sincronamente as asserções antigas que conflitam com as decisões acima.
+- O rollback valida apenas o escopo de leitura prometido pelo Todo 69 e não reexpande "sem escrita dupla contínua" em restauração precisa de todas as novas seleções.
 
-执行后生成实施报告：列出各入口的处理结果、真实验证命令/结果、未验证项及需要裁决的问题。
-确定的缺陷直接修复；无法自然确定的身份映射先讨论，不用兜底猜测凑通过。已有错误迁移只做人工修复，
-不作为本 Todo 的自动修复待决项。
+Após a execução, gerar um relatório de implementação: listar o resultado de cada entrada, os comandos/resultados de validação reais, os itens não verificados e as questões que precisam de decisão.
+Defeitos determinados são corrigidos diretamente; mapeamentos de identidade que não possam ser determinados com naturalidade são discutidos primeiro, sem usar suposições de fallback para forçar a aprovação. Migrações incorretas já existentes recebem apenas correção manual e não entram como pendência de correção automática deste Todo.
 
-## 6. 执行清单
+## 6. Checklist de execução
 
-### 前段：先于 69 / 70 的迁移基础
+### Primeira metade: base de migração anterior a 69 / 70
 
-- [x] 脱敏真实旧配置，补分类/API Key 测试。
-- [x] 修复 Desktop 与 Standalone Provider 首次导入；CLI 允许旧配置中的空 Key。
-- [x] 完成旧身份转换及个人/Team 迁移上下文测试；各领域保存接入按后段和 69/70 执行。
+- [x] anonimizar a configuração antiga real e adicionar testes de classificação/API Key.
+- [x] corrigir a primeira importação de Provider no Desktop e no Standalone; a CLI permite Key vazia na configuração antiga.
+- [x] concluir a conversão de identidades antigas e os testes de contexto de migração pessoal/Team; a integração do salvamento de cada domínio segue a segunda metade e os itens 69/70.
 
-### 后段：69 / 70 / 71 后的各领域接入与联合验收
+### Segunda metade: integração nos domínios após 69 / 70 / 71 e aceitação conjunta
 
-- [x] 逐项接入/核验上述持久化入口，与 Todo 69/70/71 去重。
-- [x] 验证动态身份在现有写入边界固定；关闭再切账号连接不重新解释已迁选择。
-- [x] 运行相关单测、交互 E2E、typecheck 和 lint。
-- [x] Review 旧字段运行时旁路、静默替换、跨环境绑定及旧文件写入是否残留。
-- [x] 生成实施报告，提交验证后的改动。
+- [x] integrar/verificar item a item os pontos de persistência acima, sem duplicar o que já existe em Todo 69/70/71.
+- [x] validar que a identidade dinâmica é fixada no limite de escrita já existente; fechar e trocar a conexão de conta não reinterpreta a seleção já migrada.
+- [x] executar os testes unitários relacionados, o E2E de interação, typecheck e lint.
+- [x] revisar se restaram atalhos de runtime para campos antigos, substituições silenciosas, vínculos entre ambientes e escritas no arquivo antigo.
+- [x] gerar o relatório de implementação e versionar as alterações validadas.

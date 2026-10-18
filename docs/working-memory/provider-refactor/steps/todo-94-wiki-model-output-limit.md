@@ -1,36 +1,36 @@
-# Todo 94：Wiki 移除手动最大输出设置，统一使用模型 Limit
+# Todo 94: Wiki remove a configuração manual de saída máxima e passa a usar uniformemente o Limit do modelo
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização de atribuição de verificação (2026-09-09): as pendências de teste, falhas e promoções manuais restantes deste documento foram transferidas para [Todo102](todo-102-verification-debt-closeout.md), encerrando o cronograma de verificação independente previsto aqui; as evidências históricas são preservadas, e a transferência não significa que os testes passaram.
 
-> 状态：实现、复审、本地校验与 Pro 正式 Electron E2E 完成；2026-09-08。手机/Windows 实机复验仍留账。执行证据见 [94–97 执行记录](../research/todo94-97-execution-and-review.md)。
-> 用户已确认：彻底统一使用模型 Limit；删除手动 max output、Catalog/Page 独立预算、正文减半和提高预算的特殊重试。保留截断检测与普通失败重试。
-> 2026-09-09 存储裁决补充：用户要求保留已发布旧字段供实用回滚；正常保存保留旧 Wiki / Draft 的 maxOutputTokens 原值，但新版不再使用或生成该偏好。见 [Todo104 §6.18](./todo-104-pre-release-schema-review.md)（m2 原 Todo99）。此项待修，未修改代码；下文原实施记录不表示该补充已完成。
+> Status: implementação, revisão, verificação local e E2E oficial do Electron no Pro concluídos; 2026-09-08. A reverificação em máquinas reais de celular/Windows continua pendente de liquidação. Evidências de execução em [Registro de execução e revisão 94–97](../research/todo94-97-execution-and-review.md).
+> Confirmado pelo usuário: uso unificado do Limit do modelo; remoção do max output manual, do orçamento independente de Catalog/Page, da redução à metade do corpo de texto e da retentativa especial com orçamento ampliado após truncamento. Mantidas a detecção de truncamento e a retentativa de falha comum.
+> Complemento de decisão de armazenamento de 2026-09-09: o usuário exigiu manter os campos antigos publicados para rollback prático; o salvamento normal preserva o valor original de maxOutputTokens do Wiki / Draft antigo, mas a nova versão não usa nem gera essa preferência. Ver [Todo104 §6.18](./todo-104-pre-release-schema-review.md) (m2, antigo Todo99). Este item está pendente de correção e nenhum código foi alterado; o registro de implementação original abaixo não indica que este complemento foi concluído.
 
-## 1. 当前事实与问题
+## 1. Fatos atuais e problema
 
-- `RepoWikiPane.tsx` 在未生成卡片和已有 Wiki 工具栏提供输出预算选择；选项为 16,384 / 32,768 / 65,536。
-- `repoWikiStore.ts` 保存 `maxOutputTokens` 和 touched 状态；共享 Generate / RegenerateFailedPages 参数以及 `generationOptions` 也携带该值。
-- `repoWikiService.ts` 将所选预算用于 Catalog，Page 使用其一半；自动刷新、失败页补齐会沿用旧生成设置。
-- `repoWikiLimits.ts` 另有 Catalog 16,384 / Page 8,192 的默认预算及截断后提高预算的救援重试。
-- `repoWikiProviderRegistryModelConfig.ts` 已从目标 Host 的模型配置获取 `optionSpecs.maxOutputTokens.max`。这是 `type: limit` 的上限，不是另一个名叫 `limit` 的数值字段。
-- 因此只删控件不能完成需求：旧保存值和后台默认预算仍会限制请求。
+- `RepoWikiPane.tsx` oferece a escolha de orçamento de saída tanto no cartão ainda não gerado quanto na barra de ferramentas do Wiki existente; as opções são 16,384 / 32,768 / 65,536.
+- `repoWikiStore.ts` armazena `maxOutputTokens` e o estado touched; os parâmetros compartilhados de Generate / RegenerateFailedPages e `generationOptions` também carregam esse valor.
+- `repoWikiService.ts` usa o orçamento escolhido para o Catalog, e o Page usa metade dele; a atualização automática e a complementação de páginas com falha seguem as configurações antigas de geração.
+- `repoWikiLimits.ts` tem outros orçamentos padrão de Catalog 16,384 / Page 8,192 e uma retentativa de resgate que aumenta o orçamento após o truncamento.
+- `repoWikiProviderRegistryModelConfig.ts` já obtém `optionSpecs.maxOutputTokens.max` da configuração de modelo do Host de destino. Esse é o teto de `type: limit`, e não outro campo numérico chamado `limit`.
+- Portanto, apenas remover os controles não atende à exigência: os valores salvos anteriormente e os orçamentos padrão em segundo plano ainda limitariam a requisição.
 
-## 2. 最终裁决
+## 2. Decisão final
 
-| 项目                                 | 裁决 / 计划                                                                              |
+| Item | Decisão / plano |
 | ------------------------------------ | ---------------------------------------------------------------------------------------- |
-| 手动输出预算入口                     | 移除；未生成、重新生成入口一致，桌面和 Web 共用行为                                      |
-| Wiki 独立输出预算状态                | 不再维护、提交或保存；移除对应 touched、类型、常量、文案和无用 helper                    |
-| 实际请求上限                         | 使用目标模型当前生效配置的 Limit；沿用统一 Model 校验与 Option Map，不手写供应商请求字段 |
-| Catalog / Page 固定预算及减半        | 删除；目录和正文均直接使用模型 Limit，不保留 Wiki 私有输出预算                           |
-| 截断后提高预算的特殊重试             | 删除；不再提高预算或额外赠送一次预算救援重试，已使用完整 Limit 时无更高预算可提高        |
-| 输出截断检测                         | 保留；达到上限后不把不完整输出当作成功内容保存                                           |
-| 普通失败重试、超时                   | 保留原语义，不借本项重做重试系统                                                         |
-| 工具轮次、源码字符预算、目录页数限制 | 保留，它们不是模型最大输出设置                                                           |
+| Entrada manual de orçamento de saída | Remover; comportamento idêntico nas entradas não gerada e de regeneração, compartilhado entre desktop e Web |
+| Estado de orçamento de saída independente do Wiki | Deixará de ser mantido, enviado ou salvo; remover o touched correspondente, tipos, constantes, textos e helpers inúteis |
+| Limite real da requisição | Usar o Limit da configuração atualmente vigente do modelo de destino; reaproveitar a validação unificada de Model e o Option Map, sem escrever campos de requisição do fornecedor manualmente |
+| Orçamento fixo e metade para Catalog / Page | Remover; catálogo e corpo de texto usam diretamente o Limit do modelo, sem manter orçamento de saída privado do Wiki |
+| Retentativa especial com aumento de orçamento após truncamento | Remover; não aumentar mais o orçamento nem conceder uma retentativa extra de resgate por orçamento; quando o Limit completo já foi usado, não há orçamento maior para aumentar |
+| Detecção de truncamento da saída | Manter; ao atingir o limite, não salvar saída incompleta como conteúdo bem-sucedido |
+| Retentativa de falha comum, timeout | Manter a semântica original, sem refazer o sistema de retentativas por causa deste item |
+| Rodadas de ferramentas, orçamento de caracteres do código-fonte, limite de páginas do catálogo | Manter; não são configurações de saída máxima do modelo |
 
-上限表示最多允许输出多少，不要求模型填满；较大上限可能让单次响应更长，不能据此承诺耗时与成本完全不变。
+O limite representa o máximo permitido de saída, não exige que o modelo o preencha; um limite maior pode deixar uma resposta individual mais longa, portanto não se pode prometer que tempo e custo permanecerão totalmente iguais.
 
-## 3. 唯一事实源与旧数据边界
+## 3. Fonte única de verdade e limite dos dados antigos
 
 ```text
 Wiki 已解析的 ModelSelection + 目标 Host 模型配置
@@ -47,33 +47,33 @@ Wiki 已解析的 ModelSelection + 目标 Host 模型配置
 旧 Wiki / Draft 的手动 maxOutputTokens -- 不再参与新请求
 ```
 
-- 不向 Personal Provider Config 写入 Wiki 偏好，不修改用户模型配置、不扩大模型自身上限。
-- 旧 Wiki / Draft 仍可读；历史手动预算忽略，不因为旧字段存在就整份加载失败。正常保存不再写该字段，不批量改写历史文件，不新增数据版本迁移。
-- 首次生成、重新生成、失败页补齐、任务结束自动刷新都覆盖；检查旧 Selection 是否可能携带该选项，避免遗留值从其他路径重新成为覆盖。
-- 生成过程中不增加动态换模型或强制远端同步；复用现有模型冻结、目标 Host 和 workspaceIdentity 边界。
-- 实现时先确认统一请求入口是否已能在缺省选项时使用 Limit，优先复用；不得为了删除 Wiki 设置新增一套模型默认值解析。
+- Não gravar preferências do Wiki no Personal Provider Config, nem modificar a configuração de modelos do usuário, nem elevar o limite próprio do modelo.
+- Wiki / Draft antigos continuam legíveis; orçamentos manuais históricos são ignorados, e a existência do campo antigo não faz o carregamento inteiro falhar. O salvamento normal deixa de gravar esse campo, não reescreve arquivos históricos em massa e não adiciona migração de versão de dados.
+- Cobrem-se a primeira geração, a regeneração, a complementação de páginas com falha e a atualização automática ao final da tarefa; verificar se uma Selection antiga pode carregar essa opção, evitando que valores remanescentes voltem a ser uma sobrescrita por outro caminho.
+- Durante a geração não se adiciona troca dinâmica de modelo nem sincronização remota forçada; reaproveitar o congelamento de modelo existente e as fronteiras de Host de destino e workspaceIdentity.
+- Na implementação, confirmar primeiro se a entrada unificada de requisição já consegue usar o Limit quando faltam opções, e priorizar o reaproveitamento; é proibido adicionar um novo mecanismo de resolução de valores padrão de modelo apenas para remover a configuração do Wiki.
 
-## 4. 影响面与执行顺序
+## 4. Superfície de impacto e ordem de execução
 
-| 层级            | 检查与改动                                                                                         |
+| Camada | Verificações e mudanças |
 | --------------- | -------------------------------------------------------------------------------------------------- |
-| UI / 草稿       | RepoWikiPane、repoWikiStore；删除控件、状态、回填和提交参数；清理双语文案和专属 test ID 的引用     |
-| 共享契约 / 存储 | shared/repo-wiki.ts、repoWikiStorage；移除新请求与新记录中的手动预算，旧记录读取安全忽略           |
-| 服务 / 请求     | repoWikiService、ModelClient、Generator、Catalog/Page Tool Agent、Limits；收口覆盖参数和各生成路径 |
-| 保留边界        | 模型选择及 Reasoning、生成语言/图表/超时/普通重试、工作区隔离、远控 attachment 与消息流语义不变    |
+| UI / rascunho | RepoWikiPane, repoWikiStore; remover controles, estado, preenchimento e parâmetros de envio; limpar textos bilíngues e referências a IDs de teste exclusivos |
+| Contrato compartilhado / armazenamento | shared/repo-wiki.ts, repoWikiStorage; remover o orçamento manual das novas requisições e novos registros, ignorando com segurança registros antigos |
+| Serviço / requisição | repoWikiService, ModelClient, Generator, Catalog/Page Tool Agent, Limits; consolidar os parâmetros de sobrescrita e todos os caminhos de geração |
+| Fronteiras preservadas | Seleção de modelo e Reasoning, idioma de geração/gráficos/timeout/repetição comum, isolamento do workspace, semântica de attachment de controle remoto e de fluxo de mensagens permanecem inalteradas |
 
-1. 按第 2 节已确认裁决更新 `docs/repo-wiki.md` 的预算契约，避免新旧规范矛盾。
-2. 先补单测与交互 E2E，再删实现；涉及已修改测试文件时保留其他工作者的改动。
-3. 清理引用、更新功能图中对应事实（如发生变化），复审所有生成入口，无 Wiki 私有默认上限残留。
-4. 执行类型检查、Lint、相关单测及 MacBook Pro E2E，记录通过与未验证项后提交。
+1. Atualizar o contrato de orçamento em `docs/repo-wiki.md` conforme a decisão confirmada na seção 2, evitando contradição entre a especificação antiga e a nova.
+2. Adicionar primeiro testes unitários e E2E de interação e só então remover a implementação; ao tocar em arquivos de teste já modificados, preservar as alterações de outros trabalhadores.
+3. Limpar referências, atualizar os fatos correspondentes no diagrama de funcionalidades (se mudarem), revisar todas as entradas de geração e garantir que não reste nenhum teto padrão privado do Wiki.
+4. Executar verificação de tipos, Lint, testes unitários relacionados e E2E no MacBook Pro, registrar o que passou e o que não foi verificado, e então fazer o commit.
 
-## 5. 验收清单
+## 5. Checklist de aceitação
 
-- [x] 未生成卡片和已有 Wiki 工具栏都不再出现最大输出选择，其他设置与生成动作不变。
-- [x] Catalog、Page、工具请求、静态回退及压缩 final 的实际输出上限均符合最终裁决。
-- [x] 用不同模型上限验证请求，无 16K 默认、Page 减半、旧保存预算漏入；API 请求字段仍由各自 Map 决定。
-- [x] 删除提高预算的救援重试及专属常量、状态与参数；截断不触发额外的预算升级调用。
-- [x] 旧记录带 maxOutputTokens 仍可查看、重新生成、补齐失败页、自动刷新；新记录不再持久化该偏好。
-- [x] 模型输出截断仍判定不完整；普通失败重试、停止、超时和页数/工具资源限制不退化。
-- [ ] 桌面和手机 Web 布局、两种主题与双语文案无残留入口；远程请求使用目标 Host 的配置。
-- [x] 记录实施提交、验证命令、测试结果、复审结论和任何待裁决项；未执行不得标为完成。
+- [x] O cartão ainda não gerado e a barra de ferramentas do Wiki existente não exibem mais a seleção de saída máxima; as outras configurações e ações de geração permanecem inalteradas.
+- [x] Os limites reais de saída de Catalog, Page, requisições de ferramenta, fallback estático e compressão do final seguem a decisão final.
+- [x] Validados os limites de requisição com diferentes limites de modelo, sem padrão de 16K, sem metade em Page e sem vazamento de orçamento salvo antigo; os campos da requisição à API continuam sendo determinados pelos respectivos Maps.
+- [x] Removida a retentativa de resgate com aumento de orçamento e suas constantes, estados e parâmetros exclusivos; o truncamento não dispara chamadas adicionais de upgrade de orçamento.
+- [x] Registros antigos com maxOutputTokens ainda podem ser visualizados, regenerados, complementados com páginas com falha e atualizados automaticamente; novos registros não persistem mais essa preferência.
+- [x] O truncamento da saída do modelo ainda é julgado como incompleto; a retentativa de falha comum, parada, timeout e os limites de páginas/recursos de ferramentas não regridem.
+- [ ] Layouts de desktop e Web mobile, os dois temas e os textos bilíngues não têm entradas residuais; as requisições remotas usam a configuração do Host de destino.
+- [x] Registrar o commit de implementação, os comandos de verificação, os resultados dos testes, as conclusões da revisão e quaisquer itens aguardando decisão; o que não foi executado não pode ser marcado como concluído.

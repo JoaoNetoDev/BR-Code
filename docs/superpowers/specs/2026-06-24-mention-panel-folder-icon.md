@@ -1,23 +1,23 @@
 # Mention Panel Folder Entries
 
-## 背景
+## Contexto
 
-`@` 文件候选现在已经能返回文件夹，但候选预览层以前只按文件渲染，目录会继续显示成普通文件图标，和输入框里的 mention token 语义不一致。
+Os candidatos de arquivos do `@` já retornam pastas, mas a camada de pré-visualização dos candidatos antes renderizava apenas arquivos; diretórios continuavam aparecendo com o ícone de arquivo comum, inconsistente com a semântica do mention token na caixa de entrada.
 
-## 目标
+## Objetivos
 
-- `@` 文件候选在数据包含 `kind: "directory"` 时，候选预览和 mention token 都显示文件夹图标。
-- 普通文件继续沿用现有文件图标解析。
-- 不改变文件搜索、过滤、插入和序列化格式。
+- Quando os candidatos de arquivos do `@` contiverem `kind: "directory"` nos dados, tanto a pré-visualização do candidato quanto o mention token exibirão o ícone de pasta.
+- Arquivos comuns continuam usando a resolução de ícone de arquivo existente.
+- Não altera a busca de arquivos, os filtros, a inserção nem o formato de serialização.
 
-## 边界
+## Limites
 
-- 仅调整 UI 展示层，不修改协议或文件扫描逻辑。
-- 目录的图标语义通过结构化 `kind` 传递，不靠路径后缀猜测。
-- 不影响桌面端和 Web 端的 mention 交互。
+- Apenas a camada de exibição da UI é ajustada; o protocolo e a lógica de varredura de arquivos não são modificados.
+- A semântica de ícone de diretório é transmitida pelo `kind` estruturado, sem adivinhar pelo sufixo do caminho.
+- Não afeta a interação de menção no desktop nem na Web.
 
-## 验收
+## Aceitação
 
-- `@` 面板里的目录候选显示文件夹图标。
-- 输入框里的目录 mention token 仍显示文件夹图标。
-- 文件候选图标行为保持不变。
+- Candidatos de diretório no painel do `@` exibem o ícone de pasta.
+- O mention token de diretório na caixa de entrada continua exibindo o ícone de pasta.
+- O comportamento do ícone dos candidatos de arquivo permanece inalterado.

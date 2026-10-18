@@ -1,5 +1,5 @@
-# Chat Error Banner Telemetry（V4 待迁移）
+# Telemetria do banner de erro do chat (migração V4 pendente)
 
-`chatErrorBannerTelemetry.ts` 目前只有 helper/测试，没有 V4 生产调用点；error banner 曝光、CTA 点击和 dismiss 不能视为已上报。
+Atualmente, `chatErrorBannerTelemetry.ts` tem apenas helper/testes, sem nenhum ponto de chamada em produção na V4; a exposição do banner de erro, o clique no CTA e o dismiss não podem ser considerados já reportados.
 
-重接时应以 V4 error fingerprint 和 pane lifecycle 去重，禁止随 render 次数重复上报，并在 desktop/mobile 两种 delivery profile 下验证。完成生产接线前，监控看板必须把该数据标成缺失。
+Na reconexão, deve-se usar o fingerprint de erro da V4 e o ciclo de vida do pane para deduplicar, proibindo envios repetidos conforme o número de renders, e validar sob os dois perfis de entrega, desktop e mobile. Antes de concluir a ligação em produção, o painel de monitoramento precisa marcar esses dados como ausentes.

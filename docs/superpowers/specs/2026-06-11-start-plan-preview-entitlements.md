@@ -1,21 +1,23 @@
 # Start Plan Preview Entitlements
 
-## Problem
+## Problema
 
-`client/configs.configs.startPlanPreview.entitlements` returns one entitlement per model. The Trial plan card previously collapsed those entries into a single quota summary and a slash-joined model string, so a multi-model trial plan could hide part of the entitlement detail.
+`client/configs.configs.startPlanPreview.entitlements` retorna um entitlement por modelo. Anteriormente, o cartão do
+plano Trial colapsava essas entradas em um único resumo de cota e em uma string de modelos unidos por barra, de modo que
+um plano trial com vários modelos podia esconder parte do detalhe dos entitlements.
 
-## Expected Behavior
+## Comportamento esperado
 
-- The Start Plan entry remains visible for disconnected users, but the Trial plan card is shown only when `client/configs.configs.startPlanPreview` exists and contains displayable entitlements.
-- The Trial plan card uses the remote `startPlanPreview.name` as its title.
-- The purchased Start Plan status card title stays `Start Plan` when the active entitlement name is a Start entitlement such as `Start` or `ZCode V3 Start Plan`.
-- If a paid Coding Plan entitlement is temporarily rendered through the Start Plan provider branch, the status card title uses the entitlement/product name instead of the hardcoded `Start Plan`, so paid Coding Plan users see their actual plan name.
-- Every displayable `model_usage` entitlement with a positive `grantUnits` and non-empty `showName` contributes its model name to the supported model list.
-- The hero quota is the sum of all displayed entitlement `grantUnits` with the same unit and period, and is shown once as the Trial plan total. The English hero uses long compact wording such as `5 Million tokens per day`; the Chinese hero stays localized compact such as `500万 tokens/日`.
-- The detail sentence keeps compact token units and groups models by equal `grantUnits`: in English, if all models have the same quota, show `Daily quota · GLM-5.2 / GLM-5-Turbo 10M each`; if one model differs, show `Daily quota · GLM-5.2 30M · GLM-5-Turbo 10M`; Chinese uses `万` / `亿`.
-- If remote `startPlanPreview` is missing, the Trial plan card is not rendered and no local hardcoded quota copy is used.
+- A entrada Start Plan continua visível para usuários desconectados, mas o cartão do plano Trial só é exibido quando `client/configs.configs.startPlanPreview` existe e contém entitlements exibíveis.
+- O cartão do plano Trial usa o `startPlanPreview.name` remoto como título.
+- O título do cartão de status do Start Plan comprado permanece `Start Plan` quando o nome do entitlement ativo é um entitlement Start, como `Start` ou `ZCode V3 Start Plan`.
+- Se um entitlement Coding Plan pago for temporariamente renderizado pelo branch do provider Start Plan, o título do cartão de status usa o nome do entitlement/produto em vez do `Start Plan` fixo, para que usuários de Coding Plan pago vejam o nome real do seu plano.
+- Todo entitlement `model_usage` exibível com `grantUnits` positivo e `showName` não vazio contribui com o nome do seu modelo para a lista de modelos suportados.
+- A cota do hero é a soma de todos os `grantUnits` dos entitlements exibidos com a mesma unidade e período, e é exibida uma única vez como o total do plano Trial. O hero em inglês usa uma formulação compacta longa como `5 Million tokens per day`; o hero em chinês permanece localizado e compacto, como `500万 tokens/日`.
+- A frase de detalhe mantém unidades de token compactas e agrupa modelos por `grantUnits` iguais: em inglês, se todos os modelos tiverem a mesma cota, mostrar `Daily quota · GLM-5.2 / GLM-5-Turbo 10M each`; se um modelo diferir, mostrar `Daily quota · GLM-5.2 30M · GLM-5-Turbo 10M`; o chinês usa `万` / `亿`.
+- Se o `startPlanPreview` remoto estiver ausente, o cartão do plano Trial não é renderizado e nenhum texto local de cota fixo é usado.
 
-## Compatibility
+## Compatibilidade
 
-- This is UI-only and does not change provider, stream, runtime, or remote-control behavior.
-- Layout must wrap naturally on desktop and mobile web, and continue using semantic theme tokens from `DESIGN.md`.
+- Isso é apenas UI e não altera o comportamento de provider, stream, runtime ou controle remoto.
+- O layout deve quebrar naturalmente no desktop e na web mobile, e continuar usando tokens semânticos de tema de `DESIGN.md`.

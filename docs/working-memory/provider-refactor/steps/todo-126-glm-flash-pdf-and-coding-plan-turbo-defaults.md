@@ -1,56 +1,56 @@
-# Todo 126：GLM 视觉标展示、Flash PDF 与 Coding Plan API Turbo 默认配置
+# Todo 126: Selo visual GLM, PDF do Flash e padrões Turbo do Coding Plan API
 
-> 状态：2026-09-11 按整批 Goal 授权实施，局部验证/review 通过；整批最终验收待执行，未发布线上配置。
+> Status: em 2026-09-11 implementado sob autorização de Goal em lote, com verificação/review parciais aprovados; a aceitação final do lote ainda está pendente e nenhuma configuração online foi publicada.
 >
-> 日期：2026-09-11
+> Data: 2026-09-11
 
-## 2026-09-12 补充：普通 API 的 Turbo 默认禁用
+## Complemento de 2026-09-12: Turbo desabilitado por padrão na API comum
 
-用户要求 Z.AI API / BigModel API 的 Turbo 默认禁用。当前 `GLM-5-Turbo` 已为 false，补齐 `zai-standard-api`、`bigmodel-standard-api` 的 `GLM-5V-Turbo` 精确模板规则为 false，并递增 Built-in revision。仅改变默认启停，不删除模型、不改变能力或个人覆盖；不改 Coding Plan、Account 或第三方。复用现有规则解析，无 UI、协议和迁移改动，不自动发布在线配置。
+O usuário exigiu que o Turbo do Z.AI API / BigModel API fique desabilitado por padrão. Atualmente `GLM-5-Turbo` já é false; foram completadas com false as regras de template exatas de `GLM-5V-Turbo` para `zai-standard-api` e `bigmodel-standard-api`, e o revision do Built-in foi incrementado. Apenas o padrão de ativação muda: nenhum modelo é removido, nenhuma capacidade nem override pessoal é alterado; Coding Plan, Account e terceiros permanecem intactos. Reutiliza-se o parsing de regras existente, sem alterações de UI, protocolo ou migração, e sem publicação automática de configuração online.
 
-验证：用真实 Built-in Source 检查两模板的两个 Turbo 均关闭、5.3/Flash 仍开启、个人显式开启仍优先，以及无模板第三方默认不变。
+Verificação: com o Built-in Source real, checar que os dois Turbos dos dois templates estão desligados, que 5.3/Flash continuam ligados, que a ativação explícita pessoal ainda tem precedência e que o padrão de terceiros sem template permanece inalterado.
 
-实施结果：revision 22→23，仅修改两处 `GLM-5V-Turbo.enabled`。新增用例先复现两处默认 true，修复后配置/完整性/Release 共 34 项通过；typecheck 通过、lint 0 errors / 42 既有 warnings、架构 0 violations。未改 UI/执行代码，无额外交互 E2E；未推送或发布在线配置。
+Resultado da implementação: revision 22→23, apenas dois `GLM-5V-Turbo.enabled` modificados. Os novos casos de teste reproduziram primeiro as duas padrão true; após a correção, 34 verificações de configuração/integridade/Release passaram; typecheck passou, lint com 0 errors / 42 warnings já existentes, arquitetura com 0 violations. UI/código de execução inalterados, sem E2E de interação adicional; nada foi enviado nem publicado online.
 
-## 1. 背景与最终裁决
+## 1. Contexto e decisão final
 
-用户检查模型设置时提出 Flash PDF、GLM 视觉标与套餐 Turbo 默认值问题。已通过当前内置配置的真实 Node Source／规则解析复现，而非仅阅读 JSON：
+Ao inspecionar as configurações de modelo, o usuário levantou questões sobre PDF do Flash, selo visual do GLM e valores padrão de Turbo por pacote. Isso foi reproduzido por meio do Node Source/regras de parsing reais da configuração embutida atual, e não apenas lendo o JSON:
 
-- GLM-5.3-Flash 图片、视频已在通用模型规则中开启，但 PDF 只在 Anthropic Messages 的模型＋API 规则中开启，Chat Completions 与 Responses 下为 false。
-- `zai-api`、`bigmodel-api` 两个 Coding Plan API 模板没有 GLM-5-Turbo 默认关闭规则。已有实例保留或手动添加该模型时，继承通用 `enabled: true`。
-- GLM-4.7 通用规则关闭视觉，官方套餐站点的全模型视觉规则再将其开启。**用户确认这个行为没问题，不改。**
-- GLM-5.3 通用规则关闭视觉，官方套餐端点开启。用户最新确认：Coding Plan GLM-5.3 的图片输入能力来自服务端桥接，不代表模型原生视觉；这里 GLM-5.3 与 Flash 的区别是目前只有 Flash 有原生视觉。因此**允许前端硬编码展示例外，在模型设置页和模型选择菜单隐藏 Coding Plan GLM-5.3 的视觉标，底层能力配置保持不变**。此裁决替代此前“不硬编码视觉标”的约束。
+- Imagem e vídeo do GLM-5.3-Flash já estão habilitados nas regras gerais de modelo, mas PDF só está habilitado nas regras de modelo＋API do Anthropic Messages; em Chat Completions e Responses é false.
+- Os dois templates de Coding Plan API, `zai-api` e `bigmodel-api`, não têm regra de desligamento padrão do GLM-5-Turbo. Quando uma instância existente mantém ou adiciona manualmente esse modelo, ela herda o `enabled: true` geral.
+- A regra geral do GLM-4.7 desliga a visão, e a regra de visão de todos os modelos no site oficial do pacote a liga novamente. **O usuário confirmou que esse comportamento está correto e não será alterado.**
+- A regra geral do GLM-5.3 desliga a visão, e o endpoint oficial do pacote a liga. Confirmação mais recente do usuário: a capacidade de entrada de imagem do Coding Plan GLM-5.3 vem da ponte no servidor e não representa visão nativa do modelo; aqui a diferença entre GLM-5.3 e Flash é que hoje só o Flash tem visão nativa. Portanto, **é permitido exibir uma exceção hardcoded no frontend, ocultando o selo visual do Coding Plan GLM-5.3 na página de configurações de modelo e no menu de seleção de modelo, mantendo a configuração de capacidades subjacente inalterada**. Essa decisão substitui a restrição anterior de "não hardcodar selo visual".
 
-本 Todo 包含下面三项已确认修改，不能顺手改变其他模型能力、默认值或 UI。
+Este Todo contém as três modificações confirmadas abaixo e não pode alterar de passagem outras capacidades, padrões ou UI de modelos.
 
-## 2. GLM-5.3-Flash：所有接入默认开启 PDF
+## 2. GLM-5.3-Flash: PDF habilitado por padrão em todos os acessos
 
-修改 `config/provider/zcode-builtin.json`：
+Modificar `config/provider/zcode-builtin.json`:
 
-1. 在现有 GLM-5.3-Flash 通用 `modelRules` 成员的 `config.properties.inputFormat` 中增加 `supportsPdf: true`，与已有图片、视频能力并列。
-2. 删除现有 `modelApiRules` 中仅负责为 GLM-5.3-Flash 的 `anthropic-messages` 开启 PDF 的专用规则，不保留重复声明。
-3. 沿用现有 Flash 模型匹配表达式及大小写／前后缀规则，不重新设计模型别名匹配。
+1. Adicionar `supportsPdf: true` em `config.properties.inputFormat` do membro `modelRules` geral existente do GLM-5.3-Flash, junto das capacidades de imagem e vídeo já existentes.
+2. Remover a regra especial existente em `modelApiRules` que existia apenas para habilitar PDF do GLM-5.3-Flash em `anthropic-messages`, sem manter declaração duplicada.
+3. Reutilizar as expressões de correspondência de modelo do Flash existentes e as regras de caixa/prefixo/sufixo, sem redesenhar a correspondência de aliases de modelo.
 
-修改后的含义：
+Significado após a modificação:
 
 ```text
-GLM-5.3-Flash 通用模型规则
+Regra geral de modelo GLM-5.3-Flash
   supportsImage: true
   supportsVideo: true
   supportsPdf: true
           |
-  官方及第三方接入、三种现有 API 格式共用
+  Official e acessos de terceiros, três formatos de API existentes compartilhados
 ```
 
-- 用户明确要求包含第三方；不新增端点白名单，不局限某个模板。
-- 覆盖 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 三种现有 API 格式。
-- 不扩大到普通 GLM-5.3、GLM-4.7 或其他型号；不修改图片、视频及其他能力。
-- 个人显式配置仍按现有覆盖规则优先，不能清除用户手动关闭 PDF 的设置或强制重置手动配置。
-- 本次调整推荐能力声明，不授权改造 PDF 附件编码、读取限制或 Adapter。
+- O usuário exigiu explicitamente incluir terceiros; nenhuma lista de endpoints é adicionada nem limitada a algum template.
+- Cobre os três formatos de API existentes: Anthropic Messages, OpenAI Chat Completions e OpenAI Responses.
+- Não amplia para o GLM-5.3 comum, GLM-4.7 ou outros modelos; não modifica imagem, vídeo nem outras capacidades.
+- A configuração pessoal explícita continua prevalecendo pelas regras de override existentes; não se pode limpar a configuração de desligamento manual de PDF do usuário nem forçar reset de configuração manual.
+- Este ajuste recomenda declarações de capacidade e não autoriza refatorar a codificação de anexos PDF, limites de leitura ou o Adapter.
 
-## 3. Coding Plan API：GLM-5-Turbo 默认关闭
+## 3. Coding Plan API: GLM-5-Turbo desabilitado por padrão
 
-在同一文件的 `templateModelRules` 中，为两个模板各增加一条精确规则：
+No mesmo arquivo, em `templateModelRules`, adicionar uma regra exata para cada um dos dois templates:
 
 ```typescript
 {
@@ -65,62 +65,62 @@ GLM-5.3-Flash 通用模型规则
 }
 ```
 
-- 对应 Z.AI Coding Plan API、BigModel Coding Plan API 两个手动 Key 模板。
-- 只改变默认值，不从模型名单删除或向名单新增模型，不修改模型 ID，不禁止用户手动开启。
-- 个人显式启用或禁用仍按现有优先级生效；不迁移、不删除个人覆盖。
-- 不改变账号登录的个人、团队、Start、闲时 Provider；不改变普通 API 模板或第三方接入的默认值。
-- 不把模板默认关闭扩大为通用 Turbo 关闭规则，也不改 Account 精确规则。
+- Corresponde aos dois templates de Key manual do Z.AI Coding Plan API e do BigModel Coding Plan API.
+- Altera apenas o valor padrão; não remove nem adiciona modelos à lista, não altera IDs de modelo e não impede que o usuário ligue manualmente.
+- Ativação ou desativação pessoal explícita continua valendo pela precedência existente; sem migração e sem remoção de overrides pessoais.
+- Não altera os Providers pessoal, de equipe, Start ou de horário ocioso da conta via login; não altera os padrões dos templates de API comum nem de acessos de terceiros.
+- Não amplia o desligamento padrão por template para uma regra geral de Turbo desligado e não altera as regras exatas de Account.
 
-## 4. Coding Plan GLM-5.3：隐藏视觉标
+## 4. Coding Plan GLM-5.3: ocultar o selo visual
 
-> 2026-09-12 补充裁决：[Todo137](todo-137-start-plan-glm53-vision-badge.md) 将体验套餐 Start Plan 纳入相同展示范围，下文保留原实施范围。
+> Complemento de decisão de 2026-09-12: [Todo137](todo-137-start-plan-glm53-vision-badge.md) inclui o Start Plan do pacote de experiência no mesmo escopo de exibição; abaixo o escopo de implementação original é preservado.
 
-- 产品背景：服务端桥接允许 GLM-5.3 处理图片，但模型不是原生视觉；本次仅纠正徽标传达的含义，不撤销已有图片使用能力。
-- 展示范围：模型设置页的模型列表，以及模型选择菜单中对应模型的视觉标。检查共用选择器的入口，不能只修设置页或只修主聊天框；桌面与手机 Web 展示保持一致。
-- Provider 范围：Z.ai／BigModel 的个人、团队 Coding Plan 账号连接，以及手动 Coding Plan API Key 供应商。
-- 只匹配上述范围内的 GLM-5.3；GLM-5.3-Flash 保留视觉标，其他供应商和模型不受影响。
-- 按产品要求做前端展示特例，两个页面复用同一展示判断，不改通用能力事实；不要把 `supportsImage` 改为 false，也不要为了隐藏标识过滤整个模型。
-- 图片上传、输入格式配置、附件支持、服务端桥接及实际模型请求全部保持原样。不新增能力 Schema、协议字段或数据迁移，不借此重构原生能力与桥接能力体系。
+- Contexto de produto: a ponte no servidor permite que o GLM-5.3 processe imagens, mas o modelo não tem visão nativa; desta vez apenas se corrige o significado comunicado pelo selo, sem revogar a capacidade de uso de imagens já existente.
+- Escopo de exibição: a lista de modelos na página de configurações de modelo e o selo visual do modelo correspondente no menu de seleção de modelo. Verificar os pontos de entrada do seletor compartilhado; não é permitido corrigir apenas a página de configurações ou apenas a caixa de chat principal; desktop e Web em celular mantêm exibição consistente.
+- Escopo de Provider: conexões de contas de Coding Plan pessoal e de equipe do Z.ai/BigModel, além de fornecedores de Coding Plan API Key manual.
+- Combina apenas o GLM-5.3 dentro do escopo acima; o GLM-5.3-Flash mantém o selo visual e outros fornecedores/modelos não são afetados.
+- Por requisito de produto, fazer uma exceção de exibição no frontend; as duas páginas reutilizam a mesma decisão de exibição, sem alterar o fato de capacidade genérico; não definir `supportsImage` como false nem filtrar o modelo inteiro para ocultar a marca.
+- Upload de imagem, configuração de formato de entrada, suporte a anexos, ponte no servidor e requisições reais ao modelo permanecem como estão. Nenhum Schema de capacidade, campo de protocolo ou migração de dados é adicionado, e essa mudança não é usada para refatorar o sistema de capacidades nativas versus capacidades de ponte.
 
-## 5. 发布与实施边界
+## 5. Publicação e limites de implementação
 
 ```text
-内置模型 / API / 站点 / 模板规则
+Regras embutidas de modelo / API / site / template
                  |
-           现有个人覆盖规则
+           Regras existentes de override pessoal
                  |
-          同一 Resolver 解析
+          Parse pelo mesmo Resolver
                  |
-         现有 UI 和执行链读取
+         UI existente e cadeia de execução leem
 ```
 
-- 完成第 2、3 节的内置配置修改后递增 builtin `revision`，沿用现有发布与刷新机制；实施时核对最新 revision，不写死本次排查时的版本号。第 4 节纯前端展示修改本身不需要递增 builtin revision。
-- 不改 `schemaVersion`、Schema、协议、文件布局、数据表或迁移流程。
-- 不修改 GLM-4.7 视觉及官方套餐的全模型视觉站点规则；GLM-5.3 仅允许第 4 节定义的视觉标展示特例，不改其实际能力。
-- 不实施 [Todo125](./todo-125-model-settings-help-copy.md) 的问号和文案，不改模型设置布局。
-- 不自动发布线上配置或推送代码；本次授权仅记录待办。
+- Após concluir as modificações de configuração embutida das seções 2 e 3, incrementar o `revision` do builtin, reutilizando o mecanismo existente de publicação e atualização; na implementação, conferir o revision mais recente e não fixar o número de versão usado nesta investigação. A modificação de exibição da seção 4, puramente de frontend, não requer incremento do builtin revision.
+- Não alterar `schemaVersion`, Schema, protocolo, layout de arquivos, tabelas de banco ou fluxo de migração.
+- Não modificar a visão do GLM-4.7 nem as regras de site de visão de todos os modelos do pacote oficial; para o GLM-5.3 apenas é permitida a exceção de exibição do selo visual definida na seção 4, sem alterar sua capacidade real.
+- Não implementar o ícone de interrogação nem os textos de [Todo125](./todo-125-model-settings-help-copy.md), e não alterar o layout das configurações de modelo.
+- Não publicar automaticamente configuração online nem enviar código; esta autorização apenas registra o pendente.
 
-## 6. 实施与验收
+## 6. Implementação e aceitação
 
-授权实施后，遵循仓库测试先行与架构门禁要求。优先复用 `packages/provider-node/test/` 下已有 builtin 完整性、别名、模板及个人覆盖测试。
+Após a autorização de implementação, seguir os requisitos do repositório de teste primeiro e portões de arquitetura. Priorizar a reutilização dos testes existentes em `packages/provider-node/test/` para integridade do builtin, aliases, templates e overrides pessoais.
 
-- [ ] 先建立失败用例：Flash 非 Anthropic 格式的 PDF 默认应为 true；两个套餐 API 模板的 Turbo 默认应为 false。
-- [ ] 实际加载 builtin 并解析：官方／第三方、三种 API 格式、现有大小写与前后缀 Flash 别名均得到 PDF=true；普通 GLM-5.3、GLM-4.7 不被扩大。
-- [ ] 验证个人显式 PDF=false 仍优先；手动配置模式不被推荐更新重置。
-- [ ] 两个 Coding Plan API 模板 Turbo 默认 false，个人显式开启后仍可启用；其他模型、普通 API、第三方及 Account 个人／团队／Start／闲时默认行为不变。
-- [ ] GLM-4.7 原有站点视觉结果、GLM-5.3 原有实际能力配置保持不变。
-- [ ] 先补展示用例：个人／团队账号及手动 Coding Plan API Key 的 GLM-5.3，在设置页和模型选择菜单均不显示视觉标；同入口的 Flash 仍显示，其他 Provider／模型不被误伤。
-- [ ] 验证图片输入和能力编辑仍按原配置工作，未因隐藏标识改变实际能力；补两个展示入口的浏览器验证，兼顾桌面／手机布局、主题及国际化，不把单个组件通过写成全端验收通过。
-- [ ] 更新受到最终配置影响的旧测试期望及 revision 断言，完成相关回归、`pnpm typecheck`、`pnpm lint`、架构检查；按仓库要求维护相关 E2E。按三项的风险批量验证，不为每个小改重复整套回归。
-- [ ] 如实记录执行结果及未验证范围。规则解析通过不等于真实模型端点已接受 PDF，也不等于已在所有 UI 和平台完成验证。
+- [ ] Estabelecer primeiro casos de teste que falham: o PDF padrão do Flash em formato diferente do Anthropic deve ser true; o Turbo padrão dos dois templates de API de pacote deve ser false.
+- [ ] Carregar o builtin de fato e fazer o parsing: oficial/terceiros, três formatos de API e aliases Flash existentes de caixa e prefixo/sufixo obtêm PDF=true; o GLM-5.3 comum e o GLM-4.7 não são ampliados.
+- [ ] Verificar que PDF=false pessoal explícito ainda prevalece; o modo de configuração manual não é resetado por atualizações recomendadas.
+- [ ] Turbo padrão false nos dois templates de Coding Plan API e ainda possível ativar após ativação explícita pessoal; demais modelos, API comum, terceiros e padrões pessoais/de equipe/Start/ocioso de Account inalterados.
+- [ ] O resultado de visão de site existente do GLM-4.7 e a configuração de capacidade real existente do GLM-5.3 permanecem inalterados.
+- [ ] Cobrir primeiro os casos de exibição: GLM-5.3 de contas pessoais/de equipe e de Coding Plan API Key manual não exibe selo visual na página de configurações nem no menu de seleção de modelo; o Flash no mesmo ponto de entrada continua exibindo, e outros Providers/modelos não são afetados indevidamente.
+- [ ] Verificar que a entrada de imagem e a edição de capacidades continuam funcionando conforme a configuração original, sem que a ocultação da marca altere capacidades reais; complementar com verificação de navegador nos dois pontos de entrada de exibição, cobrindo layouts desktop/celular, tema e internacionalização, sem registrar a aprovação de um único componente como aceitação de todas as plataformas.
+- [ ] Atualizar as expectativas de testes antigos afetadas pela configuração final e as asserções de revision, completar as regressões relevantes, `pnpm typecheck`, `pnpm lint` e a verificação de arquitetura; manter os E2E relevantes conforme exigido pelo repositório. Validar em lote por risco dos três itens, sem repetir a regressão completa para cada pequena alteração.
+- [ ] Registrar com honestidade os resultados da execução e o escopo não verificado. Passar no parsing de regras não significa que um endpoint real de modelo já aceitou PDF, nem que a verificação foi concluída em todas as UIs e plataformas.
 
-## 7. 本次落盘结果
+## 7. Resultado registrado nesta execução
 
-三项已实施：builtin revision 20→21，Flash 通用 PDF 声明替代 Messages 重复声明；两个手动套餐模板新增精确 Turbo 默认 false；UI 共享 shouldShowModelVisionBadge，设置卡片和所有 buildRegistryModelSelectGroups 消费入口均接入。
+Os três itens foram implementados: builtin revision 20→21, com a declaração geral de PDF do Flash substituindo a declaração duplicada em Messages; os dois templates manuais de pacote receberam o padrão exato de Turbo false; a UI compartilhada `shouldShowModelVisionBadge`, com o cartão de configurações e todos os pontos de consumo de `buildRegistryModelSelectGroups` conectados.
 
-### 实施证据与复审
+### Evidências de implementação e revisão
 
-- 测试先红：非 Messages Flash PDF、套餐模板 Turbo 和三类套餐视觉标共 5 个失败；修复后 6 文件 96 项单测通过。真实 Node Built-in Source/有序规则覆盖三格式、官方/第三方、前后缀/大小写；正常个人覆盖与 manual-provider-model 都保持 PDF=false。普通 API Turbo 本来已默认 false，已纠正测试初稿的错误假设，没有把它改成 true。
-- 两个浏览器用例通过：390 中文浅色/1200 英文深色，每条均检查个人/团队账号/手动套餐 Key，设置页和真实 ModelConfigSelect 菜单同时隐藏 GLM-5.3 视觉、保留 Flash。底层 supportsImage 仍为 true；上传/编码/请求代码没有修改。截图 `/tmp/zcode-provider-settings-batch/vision-*.png`。
-- 根 typecheck、lint（0 errors / 41 warnings）、架构（0 violations）通过。与旧规则对照 review：GLM-4.7/GLM-5.3 能力及 Account 精确规则、名单均未改；模型选择项的 supportsVisionInput 仅供徽标消费，不参与附件执行校验。
-- 浏览器验证为隔离共享组件，不代表真实手机 Host/Electron 整链路；未请求真实 PDF 服务，未发布线上配置。中文字体限制沿用本批记录，整体终审仍需执行。
+- Teste primeiro vermelho: PDF do Flash fora de Messages, Turbo dos templates de pacote e selos visuais dos três tipos de pacote somaram 5 falhas; após a correção, 6 arquivos com 96 testes unitários passaram. O Built-in Source real do Node/a ordenação das regras cobrem os três formatos, oficial/terceiros, prefixo/sufixo e caixa; overrides pessoais normais e `manual-provider-model` continuam com PDF=false. O Turbo da API comum já era false por padrão, e a premissa incorreta do primeiro rascunho de teste foi corrigida sem alterá-la para true.
+- Dois casos de navegador passaram: 390 em chinês claro / 1200 em inglês escuro, cada um verificando conta pessoal/de equipe/Key de pacote manual, ocultando simultaneamente a visão do GLM-5.3 e preservando o Flash na página de configurações e no menu real `ModelConfigSelect`. O `supportsImage` subjacente continua true; o código de upload/codificação/requisição não foi modificado. Capturas em `/tmp/zcode-provider-settings-batch/vision-*.png`.
+- typecheck raiz, lint (0 errors / 41 warnings) e arquitetura (0 violations) passaram. Comparação/review com as regras antigas: capacidades de GLM-4.7/GLM-5.3, regras exatas de Account e listas não foram alterados; o `supportsVisionInput` das opções de seleção de modelo serve apenas ao selo e não participa da validação de execução de anexos.
+- A verificação de navegador cobre o componente compartilhado isolado e não representa a cadeia completa de um Host/Electron real em celular; nenhum serviço real de PDF foi solicitado e nenhuma configuração online foi publicada. A limitação de fontes chinesas segue o registro deste lote, e a revisão final continua pendente.

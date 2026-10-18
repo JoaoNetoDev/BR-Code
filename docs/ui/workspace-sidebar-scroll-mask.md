@@ -1,22 +1,22 @@
-# Workspace Sidebar Scroll Mask
+# Máscara de Rolagem da Sidebar do Workspace
 
-## 目标
+## Objetivo
 
-当 workspace sidebar 的 workspace 列表出现纵向滚动条时，对列表滚动容器本身应用顶部和底部渐隐 `mask-image`，提示上下仍有内容可继续滚动。
+Quando a lista de workspaces da sidebar do workspace apresenta barra de rolagem vertical, aplicar um `mask-image` de esmaecimento no topo e na base do próprio container de rolagem da lista, indicando que ainda há conteúdo acima e abaixo para continuar rolando.
 
-## 当前行为
+## Comportamento atual
 
-- 只有当 workspace 列表内容高度超过可视区域时，mask 才显示。
-- 当列表顶部还有内容可向上回看时，顶部 mask 显示；滚回顶部后自动消失。
-- 当列表底部还有内容可继续向下滚动时，底部 mask 显示；滚动到底部后自动消失。
-- mask 仅作用在 workspace 列表滚动区本身，不影响底部账号/设置 footer。
+- A máscara só aparece quando a altura do conteúdo da lista de workspaces ultrapassa a área visível.
+- Quando ainda há conteúdo no topo da lista para rolar para cima, a máscara superior é exibida; ela desaparece automaticamente ao voltar ao topo.
+- Quando ainda há conteúdo na base da lista para continuar rolando para baixo, a máscara inferior é exibida; ela desaparece automaticamente ao rolar até a base.
+- A máscara age apenas sobre a área de rolagem da lista de workspaces, sem afetar o footer de conta/configurações na base.
 
-## 实现位置
+## Local da implementação
 
-- 列表滚动容器与 mask：`packages/ui/src/WorkspaceSidebar.tsx`
+- Container de rolagem da lista e máscara: `packages/ui/src/WorkspaceSidebar.tsx`
 
-## 实现说明
+## Notas de implementação
 
-- 使用滚动容器的 `scrollTop / clientHeight / scrollHeight` 判断当前是否还能继续向上或向下滚动。
-- 只有当内容仍可继续向上或向下滚动时，才为滚动容器保留对应方向的 `mask-image`；滚到边界后移除对应方向的 mask。
-- 同时监听滚动容器和内容容器的尺寸变化，确保展开 workspace、任务数量变化、窗口尺寸变化后，mask 状态能同步更新。
+- Usa `scrollTop / clientHeight / scrollHeight` do container de rolagem para determinar se ainda é possível rolar para cima ou para baixo.
+- O `mask-image` correspondente à direção só é mantido no container de rolagem enquanto ainda houver conteúdo rolável naquela direção; ao alcançar a borda, a máscara daquela direção é removida.
+- Observa simultaneamente as mudanças de tamanho do container de rolagem e do container de conteúdo, garantindo que o estado da máscara seja sincronizado após expandir um workspace, alterar a quantidade de tasks ou redimensionar a janela.

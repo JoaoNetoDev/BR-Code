@@ -1,46 +1,46 @@
-# Todo 85：staging 合并撤销后的功能恢复与逐项审计
+# Todo 85: restauração de funcionalidades após o revert da merge de staging e auditoria item a item
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。 显式 Subagent 的旧暂缓条款已由 Todo99 实现取代；Off-Peak Ticket 例外和不增加发送前同步的边界不变。
+> Atualização de atribuição de verificação (2026-09-09): as pendências residuais de subteste/falha/promoção manual deste documento foram transferidas uniformemente para [Todo102](todo-102-verification-debt-closeout.md), encerrando o cronograma de verificação independente previsto aqui; as evidências históricas são preservadas e a transferência não significa que os testes passaram. A antiga cláusula de suspensão para Subagents explícitos foi substituída pela implementação do Todo99; a exceção do Off-Peak Ticket e a fronteira de não adicionar sincronização pré-envio permanecem inalteradas.
 
-> 状态：恢复与逐项审计已完成，2026-09-07；交付证据与明确排除项见恢复审计表。
-> 起点：`a43049c265`，分支 `provider-refactor-e2e-recovery`，含此前恢复工作与其他任务的未提交改动。
-> 最新进度：65 文件及关联人工处理均有归属和最终去向。领取/账号、导航、MCP、CUA、Hook、附件、Goal 恢复均已提交；D02/Todo87 已接入公共层、Composer、Automation、Bot、Wiki及闲时只读保护。D01 明确不恢复；显式 Subagent 自动对应、闲时跨账号/Ticket 迁移明确排除。最新 Air 四组复测 12/12，其他验证及尚未覆盖的真实环境组合均如实记录，不等于全产品全量回归。
+> Status: restauração e auditoria item a item concluídas em 2026-09-07; as evidências de entrega e as exclusões explícitas estão na tabela de auditoria de restauração.
+> Ponto de partida: `a43049c265`, branch `provider-refactor-e2e-recovery`, contendo o trabalho de restauração anterior e as alterações não commitadas de outras tasks.
+> Progresso mais recente: os 65 arquivos e o tratamento manual associado têm atribuição e destino final. Recuperação de redemption/conta, navegação, MCP, CUA, Hook, anexos e Goal foram commitados; D02/Todo87 já foram integrados à camada comum, ao Composer, à Automation, ao Bot, ao Wiki e à proteção somente leitura ociosa. D01 explicitamente não é restaurado; o mapeamento automático de Subagents explícitos e a migração entre contas/Ticket em período ocioso são explicitamente excluídos. O último reteste do Air em quatro grupos deu 12/12; as demais verificações e as combinações de ambiente real ainda não cobertas foram registradas com fidelidade, o que não equivale a uma regressão total do produto.
 
-## 目标与范围
+## Objetivo e escopo
 
-追踪那次 staging 合并中的撤销和人工处理，恢复未经裁决丢掉的正确行为。默认保留 staging；只有与当前 Provider 架构或已明确改变的产品语义冲突时，才适配或提出裁决。不能把技术适配一律交给用户决定。
+Rastrear os reverts e o tratamento manual daquela merge de staging e restaurar os comportamentos corretos que foram perdidos sem decisão. O staging é preservado por padrão; só se adapta ou se submete a decisão quando há conflito com a arquitetura atual de Provider ou com a semântica de produto explicitamente alterada. Não se pode devolver indistintamente ao usuário a decisão sobre adaptação técnica.
 
-- 当时 staging：`16d999f6a48b180b691a4d909479c063580d2ad0`。
-- 合并 `aaa68edbca`：第一父提交 `88fdfc34e0` 是当时当前分支，第二父提交是上述 staging。不能颠倒父提交，不能用第一父提交代表 staging。
-- 合并撤销 `7016d1e09a`，涉及 50 个文件。
-- 插件混合提交 `b9118cc192`、撤销 `cb16b3c8fd`、后补 UI `2ee9b8d0c6`。
-- 人工处理 `0ed79bae57`（SessionPane）及关联补丁；沿历史扩展查找其他同类冲突处理，新增范围必须记录来源。
-- 不合入固定基线之后新增的 staging，不执行 Todo 80，不借此重写整个 Provider/Session 架构。
+- Staging da época: `16d999f6a48b180b691a4d909479c063580d2ad0`.
+- Merge `aaa68edbca`: o primeiro pai `88fdfc34e0` era o branch corrente da época e o segundo pai é o staging acima. Não se pode inverter os pais nem representar o staging pelo primeiro pai.
+- Revert da merge `7016d1e09a`, envolvendo 50 arquivos.
+- Commit misto de plugin `b9118cc192`, revert `cb16b3c8fd` e UI complementada depois `2ee9b8d0c6`.
+- Tratamento manual `0ed79bae57` (SessionPane) e o patch associado; buscar ao longo do histórico outros tratamentos de conflito da mesma espécie, e qualquer escopo novo registrado deve indicar sua origem.
+- Não incorporar o staging adicionado após a linha de base fixa, não executar o Todo 80 e não reescrever toda a arquitetura de Provider/Session com isso.
 
-提交在 ancestry 中不是功能保留的证明；出现 revert 也不是当前缺失的证明。每项必须追到当前代码及后续补丁。
+Um commit presente no ancestry não é prova de que a funcionalidade foi preservada; a existência de um revert também não é prova de falta atual. Cada item precisa ser rastreado até o código atual e os patches posteriores.
 
-## 执行与记录
+## Execução e registro
 
 ```text
-撤销/人工处理补丁 -> 按原功能归组 -> 查原意和调用链
-  -> 追踪后续恢复 -> 对照当前实现
-  -> 完整保留 / 等价实现 / 待恢复 / 待裁决
-  -> 写 spec、恢复测试、适配代码 -> 验证 -> 反向复查 -> 更新记录
+patches de revert/tratamento manual -> agrupar por funcionalidade original -> buscar intenção original e cadeia de chamadas
+  -> rastrear restauros posteriores -> comparar com a implementação atual
+  -> preservação completa / implementação equivalente / pendente de restauração / pendente de decisão
+  -> escrever spec, testes de restauração, adaptar código -> verificar -> rever ao contrário -> atualizar o registro
 ```
 
-详细过程统一写入 [恢复与裁决表](../plan/staging-conflict-restoration-audit.md)，不再建多份相互矛盾的结论。每组写清原提交、撤销位置、原行为、当前结果、裁决理由、代码位置、测试结果和下一步。补充逐文件索引，确保撤销补丁内每个文件都有所属功能及去向。
+O processo detalhado é escrito uniformemente na [tabela de restauração e decisões](../plan/staging-conflict-restoration-audit.md), sem criar várias conclusões contraditórias. Cada grupo registra o commit original, o local do revert, o comportamento original, o resultado atual, o motivo da decisão, o local no código, o resultado dos testes e o próximo passo. Complementar com um índice arquivo a arquivo, garantindo que cada arquivo dentro do patch de revert tenha uma funcionalidade e um destino.
 
-1. 建立完整清单。先审计两个 revert 和人工处理，不把两个分支全量差异冒充事故范围。
-2. 优先完成直接保留项。按功能还原完整上下游；混合文件只移植相关行为。已在其他任务修改的文件先核对差异，不覆盖并行工作。
-3. 架构适配。保持 ModelSelection、目标 Host Registry、Account State/Overlay、稀疏配置和既定迁移边界；不恢复旧 Provider Store、旧 Runtime Config 或 Account-first 自动选模。
-4. 需裁决项。记录具体用户行为、与当前约定的冲突、可选方案和建议；暂停该项，继续其他独立事项。2026-09-07 最新裁决：D01 不恢复发送前远端同步；D02 已由 [Todo 87](./todo-87-selection-view-unified-resolution.md) 实现，不恢复旧切模 helper。没有未决产品阻塞项。
-5. 验证与复查。先用能证明原问题的定向测试，再做 typecheck/lint；交互在 MacBook Air 独立 E2E 工作树验证，保留构建版本和结果。保留 Desktop continuous / Web replayable、workspaceIdentity 隔离。不把“代码存在”“类型通过”写成真实 E2E 通过。
-6. 分功能提交。仅提交已核实属于本任务的改动，保留他人工作；验证不通过不能标完成。每个提交附真实 Agent 会话 trailer。
+1. Montar a lista completa. Auditar primeiro os dois reverts e o tratamento manual, sem usar a diferença total entre os dois branches para fingir a dimensão do incidente.
+2. Concluir primeiro os itens de preservação direta. Restaurar o fluxo completo de montante e jusante por funcionalidade; em arquivos mistos, migrar apenas os comportamentos relacionados. Verificar as diferenças antes em arquivos já modificados por outras tasks, sem sobrescrever o trabalho paralelo.
+3. Adaptação de arquitetura. Manter ModelSelection, o Host Registry alvo, Account State/Overlay, a configuração esparsa e as fronteiras de migração já estabelecidas; não restaurar o antigo Provider Store, o antigo Runtime Config nem a seleção automática de modelo em estilo Account-first.
+4. Itens que exigem decisão. Registrar o comportamento concreto do usuário, o conflito com as convenções atuais, as opções possíveis e a recomendação; pausar o item e seguir com os demais itens independentes. Decisão mais recente de 2026-09-07: D01 não restaura a sincronização remota pré-envio; D02 já foi implementado por [Todo 87](./todo-87-selection-view-unified-resolution.md), sem restaurar o antigo helper de troca de modelo. Não há item de produto bloqueante em aberto.
+5. Verificação e revisão. Começar pelos testes direcionados que provem o problema original e depois fazer typecheck/lint; validar a interação em uma árvore de E2E independente no MacBook Air, preservando a versão do build e os resultados. Preservar Desktop continuous / Web replayable e o isolamento por workspaceIdentity. Não registrar "o código existe" ou "os tipos passaram" como um E2E real aprovado.
+6. Commit por funcionalidade. Commitar apenas as alterações verificadas como pertencentes a esta task, preservando o trabalho de terceiros; não marcar como concluído se a verificação falhar. Cada commit acompanha o trailer da sessão real do Agent.
 
-## 完成条件
+## Condições de conclusão
 
-- 每个已定位撤销/人工处理文件都有去向，所有功能均有证据支持的结论，不留泛泛“需要核对”。
-- 能确定且可实施的缺口均已处理，恢复前后测试及整体复查有记录。
-- 未决项已分析到用户可以作出具体选择的程度，不把技术调查留给用户。
-- 环境阻塞与真实测试失败分别记录，不伪称完成；最终报告明确尚未恢复、待裁决和待验证内容。
-- 本任务不以“staging 全部提交在历史里”或“仅跑了单测”作为恢复成功标准。
+- Cada arquivo de revert/tratamento manual localizado tem um destino, todas as funcionalidades têm conclusões com evidências e não resta um vago "é preciso verificar".
+- Todas as lacunas determináveis e implementáveis foram tratadas, com registro dos testes antes e depois da restauração e da revisão geral.
+- Os itens em aberto foram analisados até o nível em que o usuário possa fazer uma escolha concreta, sem deixar a investigação técnica para o usuário.
+- Bloqueios de ambiente e falhas reais de teste são registrados separadamente, sem alegar conclusão; o relatório final deixa explícito o que ainda não foi restaurado, o que está pendente de decisão e o que está pendente de verificação.
+- Esta task não usa como critério de sucesso da restauração "todos os commits do estão no histórico" nem "apenas rodei os testes unitários".

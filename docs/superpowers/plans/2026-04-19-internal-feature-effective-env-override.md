@@ -95,7 +95,7 @@ describe("internalOnlyFeatureRuntimeEnv", () => {
 });
 ```
 
-- [ ] **Step 2: Run the shared test to verify it fails**
+- [ ] **Step 2: Executar o teste de shared para verificar que ele falha**
 
 Run: `pnpm vitest run packages/shared/test/internalOnlyFeatureRuntimeEnv.test.ts`
 

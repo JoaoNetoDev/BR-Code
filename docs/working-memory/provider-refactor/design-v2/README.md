@@ -1,52 +1,67 @@
 # Provider Refactor Design V2
 
-> 状态：现行设计入口
-> 基线：以本目录建立时的 Provider Refactor 分支实现和已裁决决策为准
-> 范围：Provider / Model 配置、解析、Registry、Model 创建、账号 Overlay、设置投影与执行边界
+> Status: entrada do design vigente
+> Baseline: implementação do branch Provider Refactor no momento da criação deste diretório e as
+> decisões já adiadas
+> Escopo: Provider / configuração de Model, resolução, Registry, criação de Model, overlay de
+> conta, projeção de configurações e limite de execução
 
-## 为什么建立 V2
+## Por que criar a V2
 
-Provider Refactor 经历了多轮设计、实现、实机反馈和边界修正。旧 `design/`、`steps/`、`research/`、
-`plan/` 与实施日志保留了完整过程，但其中同时存在：
+O Provider Refactor passou por várias rodadas de design, implementação, feedback em máquina real e
+correções de fronteira. Os antigos `design/`, `steps/`, `research/`, `plan/` e logs de
+implementação preservam o processo completo, mas neles coexistem:
 
-- 已经落地的现行设计；
-- 被后续 Todo 明确取代的阶段性设计；
-- 只用于发现问题、从未成为设计的研究候选；
-- 已完成实现的历史记录；
-- 暂缓、草案或仍在执行的工作；
-- 与当前代码事实不一致的旧术语和旧 Schema。
+- o design vigente já implementado;
+- designs de fase substituídos explicitamente por Todos posteriores;
+- candidatos de pesquisa usados apenas para descobrir problemas e nunca tornados design;
+- registros históricos de implementações concluídas;
+- trabalhos adiados, em rascunho ou ainda em execução;
+- terminologia e Schema antigos que não correspondem aos fatos atuais do código.
 
-本目录不再延续那种按迁移阶段累积上下文的写法，而是重新整理为两条线：
+Este diretório deixa de acumular contexto por fase de migração e passa a ser reorganizado em duas
+linhas:
 
-1. [`design.md`](./design.md)：只写当前应被遵守的核心设计、原则和边界；
-2. [`evidence-and-contradictions.md`](./evidence-and-contradictions.md)：记录证据来源、历史矛盾、裁定结果、
-   staging 差异和未完成事项，供考证与审计。
+1. [`design.md`](./design.md): escreve apenas o design, princípios e fronteiras centrais que devem
+   ser respeitados atualmente;
+2. [`evidence-and-contradictions.md`](./evidence-and-contradictions.md): registra a origem das
+   evidências, contradições históricas, decisões, diferenças de staging e pendências, para
+   consulta e auditoria.
 
-## 权威顺序
+## Ordem de autoridade
 
-发生冲突时按以下顺序判断：
+Em caso de conflito, avalie na seguinte ordem:
 
-1. 最新的明确用户裁决和已经接受的后续设计；
-2. 当前领域 Schema、Resolver、Registry、ModelFactory 及其测试所证明的实现事实；
-3. 本目录的现行设计；
-4. 旧 `design/` 中尚未被后续决策或代码取代的内容；
-5. 已完成 Todo / Bugfix 的最终结论；
-6. Research、Draft、Delayed Todo、实施日志和历史计划。
+1. A decisão explícita mais recente do usuário e os designs subsequentes já aceitos;
+2. Os fatos de implementação comprovados pelo Schema, Resolver, Registry, ModelFactory e seus
+   testes no domínio atual;
+3. O design vigente deste diretório;
+4. O conteúdo do antigo `design/` que ainda não foi substituído por decisões posteriores ou pelo
+   código;
+5. As conclusões finais de Todo / Bugfix concluídos;
+6. Research, Draft, Delayed Todo, logs de implementação e planos históricos.
 
-第二项只能证明“现在实现了什么”，不能推翻第一项。当实现与已裁决设计不一致时，应记录为实现漂移并修正实现，
-不能把偶然代码行为升级为设计。
+O item 2 só prova "o que está implementado agora" e não pode derrubar o item 1. Quando a
+implementação diverge de um design já decidido, isso deve ser registrado como drift de
+implementação e a implementação corrigida; não se pode promover um comportamento de código
+acidental a design.
 
-## 阅读方式
+## Como ler
 
-- 要理解 Provider Refactor 最终要解决什么、系统为何这样分层：读 [`design.md`](./design.md)。
-- 要判断某个旧字段、旧名词或旧 Todo 是否仍有效：查
-  [`evidence-and-contradictions.md`](./evidence-and-contradictions.md)。
-- 要复盘具体迁移过程、测试证据或历史事故：再回到上一级的 `steps/`、`research/` 和 `plan/`。
+- Para entender o que o Provider Refactor deve resolver e por que o sistema é dividido assim: leia
+  [`design.md`](./design.md).
+- Para verificar se um campo, termo ou Todo antigo ainda é válido: consulte
+  [`evidence-and-contradictions.md`](./evidence-and-contradictions.md).
+- Para revisar um processo de migração específico, evidências de teste ou incidentes históricos:
+  volte ao `steps/`, `research/` e `plan/` do nível acima.
 
-## 维护规则
+## Regras de manutenção
 
-- 新的 Provider 核心设计决策先更新 `design.md`，再实现代码。
-- 旧材料与现行设计发生新冲突时，不篡改历史材料；在考证文档新增裁定记录。
-- 只有完成裁决并进入现行目标的内容才能写入 `design.md`。
-- Draft、Delayed、Research 或正在执行但尚未验证的实现，必须留在考证文档的未完成区。
-- 本目录不引入新的领域对象；“V2”只是文档整理版本，不是运行时版本、Config Schema 版本或迁移协议。
+- Novas decisões centrais de design do Provider atualizam primeiro `design.md` e só depois o código.
+- Quando material antigo conflitar novamente com o design vigente, não reescreva o material
+  histórico; acrescente um registro de decisão no documento de consulta.
+- Apenas conteúdo com decisão concluída e dentro do objetivo vigente pode entrar em `design.md`.
+- Draft, Delayed, Research ou implementações em execução ainda não verificadas devem permanecer na
+  seção de pendências do documento de consulta.
+- Este diretório não introduz novos objetos de domínio; "V2" é apenas uma versão de organização
+  documental, não uma versão de runtime, de Config Schema ou do protocolo de migração.

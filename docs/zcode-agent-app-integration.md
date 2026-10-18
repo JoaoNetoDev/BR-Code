@@ -1,11 +1,12 @@
-# ZCode Agent 与 App 当前集成
+# Integração atual entre ZCode Agent e App
 
-更新日期：2026-09-04
+Data de atualização: 2026-09-04
 
-ZCode App 只启动 ZCode Agent（`apps/zcode-cli` 的 `zcode app-server --stdio`）。退役的多 Agent
-process manager、第三方 runtime installer、proxy traffic 和 UI agent switch 不属于当前产品路径。
+O ZCode App inicia apenas o ZCode Agent (`zcode app-server --stdio` de `apps/zcode-cli`). O gerenciador de
+processos multi-Agent descontinuado, o instalador de runtime de terceiros, o tráfego de proxy e o alternador de
+Agent na UI não pertencem ao caminho atual do produto.
 
-## 进程与服务边界
+## Limites de processo e serviço
 
 ```text
 Renderer / Web UI
@@ -18,108 +19,80 @@ Renderer / Web UI
   -> workspaceKey-scoped zcode app-server --stdio
 ```
 
-- UI 不管理子进程、不解析 stdio 帧，也不直接调用 service concrete implementation。
-- 每个 BrowserWindow 有一个 Local Host；同一窗口的多个本地 workspace 通过 workspaceKey service scope
-  共用该进程，不为每个 workspace 另起 Local Host。
-- 远程 workspace 另外创建或复用窗口/目标作用域的 Remote Host。Remote Host 与窗口 Local Host 是不同进程，
-  负责连接对应 SSH/WSL/Docker/Server 环境；broadcast 仍由桌面本地服务提供。
-- Agent process 按 `workspaceKey = workspaceIdentity?.trim() || workspacePath` 隔离并对并发启动单飞。
-- 手机 `/remote` attach 桌面窗口已有的 local/remote host 和 CLI，不创建手机侧 Agent runtime。
-- main/relay 只负责窗口、配对、鉴权、心跳和 frame/app payload 转发，不保存 conversation 状态。
+- A UI não gerencia subprocessos, não faz parse de frames de stdio e não chama diretamente a implementação concreta do serviço.
+- Cada BrowserWindow tem um Local Host; múltiplos workspaces locais da mesma janela compartilham esse processo por meio do escopo de serviço por workspaceKey, sem iniciar um Local Host por workspace.
+- Workspaces remotos criam ou reutilizam, além disso, um Remote Host no escopo da janela/alvo. O Remote Host é um processo distinto do Local Host da janela e é responsável por conectar ao ambiente SSH/WSL/Docker/Server correspondente; o broadcast continua sendo fornecido pelo serviço local do desktop.
+- O processo do Agent é isolado por `workspaceKey = workspaceIdentity?.trim() || workspacePath` e as inicializações concorrentes são single-flight.
+- O attach `/remote` do celular reaproveita o local/remote host e a CLI já existentes na janela do desktop e não cria runtime de Agent no lado do celular.
+- main/relay responde apenas por janela, pareamento, autenticação, heartbeat e encaminhamento de frame/app payload, sem guardar estado de conversa.
 
-## 状态所有权
+## Propriedade do estado
 
-| 状态                                                                                            | 权威                                                                                                            |
+| Estado                                                                                           | Autoridade                                                                                                       |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | transcript、turn/row、phase、actions、queue、interaction、goal、background work、session config | CLI V4 projection/runtime                                                                                       |
 | Provider Config、Registry 与凭据                                                                | 当前 Environment；Host/Worker 从该 Environment 的 Config/Credential Source 构建，不跨 Environment 下发 Registry |
 | pin/archive/group/unread、列表搜索兼容 metadata                                                 | host tasks-index                                                                                                |
 | draft、scroll、focus、panel、optimistic pending overlay                                         | renderer/web 本地                                                                                               |
 
-`zcodeSessionStore` 仍承载 workspace shell、任务列表缓存、未读/乐观组织态和部分兼容 service 投影，但不再
-拥有 V4 conversation transcript 或已绑定 session config。UI conversation 读路径是
-`ConversationProjectionStore` / `SessionDataLayer`，列表活性读路径是 sessions-index。
+O `zcodeSessionStore` ainda承载 o shell do workspace, o cache da lista de tarefas, o estado organizacional de não lidas/otimista e parte das projeções de serviço compatíveis, mas já não possui o transcript de conversa V4 nem a config de sessão vinculada. O caminho de leitura de conversa da UI é
+`ConversationProjectionStore` / `SessionDataLayer`, e o caminho de leitura de atividade da lista é o sessions-index.
 
-## 协议
+## Protocolo
 
-stdio 使用 LF 分隔的 NDJSON，schema 位于 `packages/shared/src/zcode-protocol-v4/`。Host 的
-`zcodeProtocolClient` 和 `zcodeStdioTransport` 负责请求、通知和运行时代际；高频原始 frame/chunk 日志必须
-用 service logger 的 `debug`。
+O stdio usa NDJSON delimitado por LF, com schema em `packages/shared/src/zcode-protocol-v4/`. O
+`zcodeProtocolClient` e o `zcodeStdioTransport` do Host respondem por requisições, notificações e geração de runtime; logs de alta frequência de frames/chunks brutos devem usar o `debug` do service logger.
 
-主路径：
+Caminho principal:
 
-- 读：`conversation/<sessionId>`、`sessions-index/<workspaceId>`、
-  `workspace-config/<workspaceId>` topic；
-- 写：V4 command envelope + command ACK/query；
-- 恢复：desktop continuous 与 mobile replayable 使用独立 subscription ownership 和 delivery kind，
-  最终收敛到同一 snapshot；
-- 旧 `session/*` schema 只允许维护剩余兼容 facade，不能承接新 conversation 功能。
+- leitura: topics `conversation/<sessionId>`, `sessions-index/<workspaceId>`,
+  `workspace-config/<workspaceId>`;
+- escrita: envelope de command V4 + command ACK/query;
+- recuperação: desktop continuous e mobile replayable usam ownership de subscription e delivery kind distintos,
+  convergindo por fim para o mesmo snapshot;
+- o schema antigo `session/*` só permite manter as facades de compatibilidade restantes e não pode hospedar novas funcionalidades de conversa.
 
-详见 [ZCode Protocol](./zcode-protocol.md)。
+Veja [ZCode Protocol](./zcode-protocol.md).
 
-## Provider 就绪与启动
+## Prontidão de Provider e inicialização
 
-Provider readiness 只门禁会改变 session/workspace 或执行模型的写路径。Service 检查当前 Environment
-Registry 至少存在一个可运行 Provider/Model 和所需访问材料；检查只验证本 Environment 的结构，不做网络探测。未满足时写路径返回稳定的
-`provider_not_ready`，不创建 draft session，草稿 UI 显示已有的模型配置缺失入口。
+A prontidão de Provider apenas bloqueia os caminhos de escrita que alteram sessão/workspace ou a execução do modelo. O serviço verifica se o Registry do Environment atual possui ao menos um Provider/Model executável e o material de acesso necessário; a verificação apenas valida a estrutura deste Environment e não faz sondagem de rede. Quando não satisfeita, o caminho de escrita retorna um `provider_not_ready` estável, não cria draft session e a UI de rascunho exibe a entrada já existente de configuração de modelo ausente.
 
-只读控制面不依赖模型：`sessions-index`、已有 `conversation/<sessionId>` 与其 resync/unsubscribe 可以按需启动并
-复用 workspace CLI，使无模型或凭据迁移失败时仍能展示任务列表和读取历史。只读启动后，后续
-`createSession` / command 仍必须重新经过 readiness 门禁；active client 不能成为绕过条件。该修复不新增协议字段，
-也不改变 desktop continuous、mobile replayable、connection ownership 或 workspace identity 边界。
+O plano de controle somente leitura não depende de modelos: `sessions-index`, `conversation/<sessionId>` já existente e seu resync/unsubscribe podem iniciar sob demanda e reutilizar a CLI do workspace, de modo que a lista de tarefas e o histórico continuem exibíveis mesmo sem modelo ou quando a migração de credenciais falha. Após a inicialização somente leitura, as próximas `createSession` / commands ainda devem passar novamente pelo gate de prontidão; um client ativo não pode se tornar uma condição de bypass. Essa correção não adiciona campos de protocolo nem altera os limites de desktop continuous, mobile replayable, connection ownership ou workspace identity.
 
-`provider_not_ready` 是新用户尚未完成配置的正常等待态，不是 sessions-index 订阅故障。Registry 变为 ready 时，
-Agent Service 复用已由只读订阅启动的 Worker，或在尚未启动时按 workspaceKey 单次启动；Worker 从当前
-Environment 的 Config Source 重建 Registry；topic
-订阅不需要等待模型配置，也不能要求用户重启 App。
+`provider_not_ready` é um estado normal de espera para usuário novo que ainda não concluiu a configuração, não uma falha de subscription do sessions-index. Quando o Registry fica ready, o
+Agent Service reutiliza o Worker já iniciado pela subscription somente leitura, ou o inicia uma única vez por workspaceKey caso ainda não tenha sido iniciado; o Worker reconstrói o Registry a partir da Config Source do Environment atual; a subscription de topic não precisa esperar pela configuração de modelo nem exigir que o usuário reinicie o App.
 
-所有 topic 重试原因必须使用有界枚举，禁止把上一轮日志 reason 再拼入下一轮。非 readiness 的持续故障允许保留
-自动恢复，但相同错误的 production `warn` 至多每分钟一次；成功建立订阅后清空该 topic 的退避和限频状态，使后续
-新故障仍能立即留下首条诊断日志。
+Todos os motivos de retry de topic devem usar uma enumeração limitada, é proibido concatenar o `reason` do log da rodada anterior na próxima. Falhas persistentes que não sejam de prontidão podem manter a recuperação automática, mas `warn` de produção para o mesmo erro no máximo uma vez por minuto; após estabelecer a subscription com sucesso, limpar o backoff e o estado de rate limit daquele topic, para que novas falhas后续 ainda registrem imediatamente o primeiro log de diagnóstico.
 
-Registry 后续变为 ready 时，Service 按 workspaceKey 单次启用已登记 workspace 的模型执行能力。
-配置随后失效时更新当前 Environment Registry，但不主动杀死已经运行的进程。远程 workspace 的只读订阅仍沿既有 desktop
-shared-host attachment 启动目标 CLI；手机 `/remote` 不得因此另起 Agent/runtime。
+Quando o Registry fica ready posteriormente, o Service habilita a capacidade de execução de modelos do workspace registrado em uma única ocorrência por workspaceKey.
+Quando a config depois fica inválida, o Registry do Environment atual é atualizado, mas processos já em execução não são-mortados ativamente. A subscription somente leitura de workspace remoto continua iniciando a CLI alvo pelo attachment de shared host do desktop já existente; o `/remote` do celular não pode iniciar um Agent/runtime adicional por causa disso.
 
-草稿模型不是“全部由 Agent 默认决定”：V4 draft 会读取 workspace catalog 和该 workspace 下的全局上次选择，
-并通过预热 `createSession.config` / CAS 建立 CLI session 初值。已有 session 一律以 snapshot config 为准。
+O modelo de rascunho não é "tudo decidido por padrão pelo Agent": o draft V4 lê o catalog do workspace e a última seleção global sob aquele workspace, e estabelece os valores iniciais da sessão na CLI via prewarm de `createSession.config` / CAS. Sessões existentes seguem sempre a config do snapshot.
 
-## 启动 workspace 不可用
+## Workspace de inicialização indisponível
 
-桌面启动只用上次 active 的本地 workspace 决定 UI 是否进入只读恢复。路径缺失、不是目录或不可访问时：
+A inicialização do desktop usa apenas o último workspace local ativo para decidir se a UI entra em recuperação somente leitura. Quando o caminho está ausente, não é um diretório ou é inacessível:
 
-- 仍恢复原 workspace tab、tasks-index 和历史 session；
-- renderer 生命周期内标记为 `unavailable-local-directory`，不写回 setting，也不运行中轮询；
-- 允许只读浏览、搜索、复制、切换/关闭 workspace 和设置；
-- 禁止会修改 session/workspace 的发送、重试、fork、compact、列表 mutation、附件、文件树、Git、终端等入口；
-- 本地桌面恢复链路始终确保 app-managed conversation backing workspace 存在，并把它作为 local Host
-  的 Agent spawn fallback；任意已恢复的本地 workspace（包括非 active 的历史 workspace）只在自身 cwd
-  不可用时降级到该目录，协议 workspacePath/identity 仍保留原值。
+- ainda restaura a tab original do workspace, o tasks-index e as sessões de histórico;
+- marca como `unavailable-local-directory` pelo tempo de vida do renderer, sem escrever de volta a setting e sem polling em runtime;
+- permite navegação somente leitura, busca, cópia, troca/fechamento de workspace e settings;
+- proíbe entradas que modifiquem sessão/workspace, como envio, retry, fork, compact, mutações de lista, anexos, árvore de arquivos, Git, terminal etc.;
+- o链路 local de recuperação do desktop sempre garante que exista o workspace de backing da conversa gerenciada pelo app e o usa como fallback de spawn do Agent do local Host; qualquer workspace local restaurado (inclusive workspaces históricos não ativos) só degrada para esse diretório quando o próprio cwd está indisponível, e o workspacePath/identity do protocolo mantém o valor original.
 
-远程 workspace 和非 active 本地 workspace 不参与启动 UI 可用性判定。非 active 历史 workspace 在
-tasks-index 建立后台订阅时由 Agent spawn preflight 动态检查真实 cwd；缺失目录不得导致 Helper `ENOENT`
-或持续重启。active 路径在运行中恢复后仍保持只读，下一次启动重新判定。
+Workspaces remotos e workspaces locais não ativos não participam da decisão de disponibilidade da UI na inicialização. Workspaces históricos não ativos são verificados dinamicamente em seu cwd real pelo preflight de spawn do Agent ao estabelecer a subscription de background do tasks-index; diretórios ausentes não podem provocar `ENOENT` no Helper nem reinícios contínuos. O caminho ativo permanece somente leitura após a recuperação em runtime, e a próxima inicialização reavalia.
 
-## 远程资源与打包
+## Recursos remotos e empacotamento
 
-当前默认远端部署/桌面打包只保留 ZCode Agent 及必要工具/runtime（例如 Node、node-pty、ripgrep 和各平台
-search runtime）。历史 `resourcePackages.selectedPackageIds` 只兼容读取，不能裁剪当前必需资源。构建脚本、
-签名和 Windows 资源锁检查都不得把本机残留的退役第三方 runtime 重新带入产物。
+A implantação remota/pacote desktop padrão atual mantém apenas o ZCode Agent e as ferramentas/runtimes necessários (por exemplo Node, node-pty, ripgrep e o search runtime de cada plataforma). O histórico `resourcePackages.selectedPackageIds` é apenas de leitura compatível e não pode reduzir os recursos exigidos atualmente. Scripts de build, assinatura e verificações de lock de recursos do Windows não podem trazer de volta ao artefato runtimes de terceiros descontinuados que ficaram residuais na máquina.
 
-- `@zcode/desktop` 的 `prepare:glm` 仅保留为手动下载旧原生 Agent 的兼容兜底；默认本机打包通过
-  `prepare:agent-bundle` 准备 `zcode.cjs`。`prepare:native-search` 按目标平台下载 `bfs`、`ugrep`、`ripgrep`
-  预编译归档，旧 `prepare:rg` 不再作为独立维护入口暴露。
-- `pnpm dev:desktop` 的本地 runtime 自检只补齐当前平台的 native-search 工具集和必需平台 helper：
-  macOS/Linux 的工具集为 `bfs`、`ugrep`、`ripgrep`，Windows x64/arm64 为 `ugrep`、`ripgrep`；自检不再
-  检查或下载 `glm/zcode-agent`。开发态 Agent 由 `dev-desktop-env.mjs` 在 `pre-dev` 后调用
-  `build-desktop-agent-cli.mjs` 构建，运行时优先使用 workspace 内的 `dist/zcode.cjs`。
-- 桌面安装包携带 `resources/glm/zcode.cjs`、`resources/tools/ugrep` 与 `resources/tools/ripgrep`；
-  macOS/Linux 另携带 `resources/tools/bfs`。
+- `prepare:glm` de `@zcode/desktop` permanece apenas como fallback manual de compatibilidade para baixar o Agent nativo antigo; o empacotamento local padrão prepara `zcode.cjs` via `prepare:agent-bundle`. `prepare:native-search` baixa os arquivos pré-compilados de `bfs`, `ugrep`, `ripgrep` conforme a plataforma alvo, e o antigo `prepare:rg` não é mais exposto como entrada mantida separadamente.
+- A autoverificação de runtime local de `pnpm dev:desktop` completa apenas o conjunto de ferramentas native-search da plataforma atual e os platform helpers obrigatórios: em macOS/Linux o conjunto é `bfs`, `ugrep`, `ripgrep`; em Windows x64/arm64 é `ugrep`, `ripgrep`; a autoverificação não verifica mais nem baixa `glm/zcode-agent`. O Agent em modo dev é construído por `dev-desktop-env.mjs` chamando `build-desktop-agent-cli.mjs` após o `pre-dev`, e em runtime se prioriza o `dist/zcode.cjs` dentro do workspace.
+- O instalador do desktop carrega `resources/glm/zcode.cjs`, `resources/tools/ugrep` e `resources/tools/ripgrep`; macOS/Linux também carregam `resources/tools/bfs`.
 
-Agent runtime 版本事实源是 `packages/shared/src/zcode-agent-runtime.ts`。本地开发、desktop build、remote
-manifest 和下载逻辑应共同读取它，不再从旧 provider runtime 清单推断。
+A fonte de verdade para a versão do runtime do Agent é `packages/shared/src/zcode-agent-runtime.ts`. O desenvolvimento local, o build do desktop, o manifest remoto e a lógica de download devem lê-la em conjunto, sem mais inferir a partir da antiga lista de runtimes de provider.
 
-## 当前入口
+## Entradas atuais
 
 - `packages/services/src/zcode-agent/zcodeAgentService.ts`
 - `packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`

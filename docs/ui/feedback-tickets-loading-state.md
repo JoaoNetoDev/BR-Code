@@ -1,17 +1,17 @@
-# 我的反馈列表加载态
+# Estado de carregamento da lista "Meus feedbacks"
 
-## 背景
+## Contexto
 
-点击反馈窗口里的“我的反馈”会切到工单列表页，并立即调用反馈服务加载当前用户的工单。列表首刷期间如果内容区为空，原界面会保持空白，用户无法判断是正在请求还是没有记录。
+Ao clicar em "Meus feedbacks" na janela de feedback, a aplicação muda para a página de lista de tickets e chama imediatamente o serviço de feedback para carregar os tickets do usuário atual. Durante a primeira carga da lista, se a área de conteúdo estiver vazia, a interface original permanecia em branco, e o usuário não conseguia distinguir se a requisição estava em andamento ou se não havia registros.
 
-## 行为
+## Comportamento
 
-- 进入“我的反馈”后，只要列表首次请求还未返回且当前没有已缓存工单，内容区中央显示加载状态。
-- 加载状态使用已有 `common.loading` 国际化文案和旋转图标，居中显示在列表内容区，不影响窗口标题、返回按钮、关闭按钮和底部操作按钮。
-- 如果列表已有内容后用户刷新，继续沿用现有列表底部加载提示，避免遮挡已有工单。
-- 请求完成后按现有逻辑显示空态、列表或错误提示。
+- Depois de entrar em "Meus feedbacks", enquanto a primeira requisição da lista ainda não tiver retornado e não houver tickets em cache, um estado de carregamento é exibido no centro da área de conteúdo.
+- O estado de carregamento usa o texto de internacionalização `common.loading` já existente e um ícone giratório, exibidos centralizados na área de conteúdo da lista, sem afetar o título da janela, o botão de voltar, o botão de fechar nem os botões de ação do rodapé.
+- Se a lista já tiver conteúdo e o usuário atualizar, continua-se usando a indicação de carregamento existente no rodapé da lista, evitando sobrepor os tickets já carregados.
+- Após a conclusão da requisição, o estado vazio, a lista ou a mensagem de erro são exibidos conforme a lógica existente.
 
-## 非目标
+## Não objetivos
 
-- 不修改反馈提交、截图/日志上传、后台上传提示和工单详情行为。
-- 不新增反馈接口或缓存策略。
+- Não modifica o envio de feedback, o upload de capturas de tela/logs, a indicação de upload em segundo plano nem o comportamento de detalhe do ticket.
+- Nenhuma nova interface de feedback ou estratégia de cache é adicionada.

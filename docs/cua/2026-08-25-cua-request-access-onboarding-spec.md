@@ -1,14 +1,12 @@
-# CUA `request_access` 实时权限引导 Spec
+# Spec de onboarding de permissão em tempo real para `request_access` do CUA
 
-- 日期：2026-08-25
-- 状态：实现中
-- 关联：producer `zcode-cua` !576、consumer `z-code` !2315
+- Data: 2026-08-25
+- Status: em implementação
+- Relacionados: producer `zcode-cua` !576, consumer `z-code` !2315
 
-## 产品合同
+## Contrato do produto
 
-`request_access` 是只读权限快照，不直接触发 native prompt。Producer 在 macOS 成功结果的
-namespaced `_meta` 中提供版本化状态；Consumer 只在 official-CUA authority、精确工具名、严格
-schema 和本地 `desktop-continuous` live event 同时成立时生成一次权限观察。
+`request_access` é um snapshot de permissões somente leitura e não dispara diretamente um native prompt. O Producer fornece o estado versionado no `_meta` namespaced do resultado de sucesso no macOS; o Consumer gera uma única observação de permissão somente quando a authority official-CUA, o nome exato da ferramenta, o schema estrito e o live event local `desktop-continuous` valerem simultaneamente.
 
 ```text
 live official request_access
@@ -24,35 +22,30 @@ live official request_access
 history / recovery / mobile / remote / ordinary error -> no side effect
 ```
 
-## 状态与副作用
+## Estado e efeitos colaterais
 
-- Accessibility 的 `denied`、`stale` 和 Screen Recording 的 `denied` 是确定缺权；`unknown`
-  不触发该权限的引导。
-- 所有当前桌面窗口管理的本地 live task 都可以触发，不要求任务可见或 workspace 当前激活。
-- 同一 `workspaceKey + sessionId + turnId + missingPermissions` 只确认一次；确认或 onboarding
-  进行中合并并发观察。未来新 turn 的新 `request_access` 可以再次提醒。
-- 确认前和确认后都调用 `getStatus(..., {includeFunctionalProbes:false})`，只以新鲜状态决定权限列表。
-- 两项都缺失时顺序固定为 Accessibility、Screen Recording。
-- 用户取消不打开系统设置；授权返回后仅按现有 owner 合同重启对应 Helper 并刷新状态。
-- 不调用 conversation command，不自动 continuation，不重放 `request_access` 或此前动作。
+- `denied` e `stale` de Accessibility, e `denied` de Screen Recording, são ausência de permissão determinada; `unknown` não dispara o onboarding daquela permissão.
+- Qualquer live task local gerenciada pelas janelas de desktop atuais pode disparar; não é exigido que a tarefa esteja visível nem que o workspace esteja ativo.
+- A mesma `workspaceKey + sessionId + turnId + missingPermissions` só é confirmada uma vez; observações concorrentes são agrupadas enquanto a confirmação ou o onboarding está em andamento. Um novo `request_access` em um novo turn pode lembrar novamente.
+- Antes e depois da confirmação se chama `getStatus(..., {includeFunctionalProbes:false})`, e só o estado fresco decide a lista de permissões.
+- Quando ambas faltam, a ordem fixa é Accessibility e depois Screen Recording.
+- Se o usuário cancelar, as configurações do sistema não são abertas; após a autorização voltar, o Helper correspondente é reiniciado e o estado é atualizado apenas conforme o contrato de owner existente.
+- Nenhum conversation command é chamado, não há continuation automática e nem `request_access` ou ações anteriores são repetidas.
 
-## 交付与身份边界
+## Fronteiras de entrega e identidade
 
-- Wire observation 只由 live `ToolCallResult` 生成，不进入 snapshot、transcript 或 recovery。
-- `desktop-continuous` 的可信 renderer 可以订阅；`web-remote-replayable` 返回空事件。
-- `workspaceKey = workspaceIdentity?.trim() || workspacePath` 用于隔离；执行和 Helper 查询继续使用
-  `workspacePath`。携带 `remoteSessionId` 或远程 identity 的 workspace 直接剪枝。
-- 第三方同名 MCP、malformed metadata、普通 `permission_denied`、历史
-  `CUA_PERMISSION_REQUIRED` 文本和 Tool Card JSON parser 均不能触发。
+- A observação de wire é gerada apenas pelo `ToolCallResult` live e não entra em snapshot, transcript nem recovery.
+- O renderer confiável de `desktop-continuous` pode assinar; `web-remote-replayable` retorna evento vazio.
+- `workspaceKey = workspaceIdentity?.trim() || workspacePath` é usado para isolamento; a execução e as consultas ao Helper continuam usando `workspacePath`. Workspace com `remoteSessionId` ou identity remota é podado direto.
+- MCP de terceiros com o mesmo nome, metadata malformado, `permission_denied` comum, textos históricos de `CUA_PERMISSION_REQUIRED` e o parser de JSON do Tool Card não podem disparar.
 
 ## UI
 
-复用全局 ConfirmDialog 和既有 onboarding，不新增 modal 体系。文案说明正在运行的电脑操作任务
-需要 macOS 权限，操作为“前往授权 / 暂不授权”。后台窗口只排队显示确认框，不主动抢焦点。
+Reaproveita o ConfirmDialog global e o onboarding existente, sem criar um sistema novo de modais. O texto explica que a tarefa de operação de computador em execução precisa de permissões do macOS, e as ações são "Ir autorizar" / "Agora não". A janela em segundo plano apenas enfileira a exibição da confirmação e não rouba o foco.
 
-## 验证
+## Verificação
 
-- Producer：metadata schema、文本不变、只读/跨平台 fail closed。
-- Core/Protocol：authority、工具名、strict schema、live-only 和 clientMode 边界。
-- UI：新鲜状态双检查、并发合并、同 turn 去重、取消/确认、Helper 恢复与零任务重放。
-- E2E：后台任务、cold restore、mobile replayable 和普通错误代表 case。
+- Producer: schema do metadata, texto inalterado, fail closed de somente leitura / entre plataformas.
+- Core/Protocol: authority, nome da ferramenta, strict schema, live-only e fronteira de clientMode.
+- UI: dupla checagem de estado fresco, agrupamento de concorrência, deduplicação no mesmo turn, cancelar/confirmar, recuperação do Helper e zero repetição de tarefas.
+- E2E: tarefa em segundo plano, cold restore, mobile replayable e case representativo de erro comum.

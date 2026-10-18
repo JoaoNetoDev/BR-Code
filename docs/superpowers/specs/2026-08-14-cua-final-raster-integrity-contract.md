@@ -1,35 +1,35 @@
-# CUA 最终图像与像素坐标完整性契约
+# CUA — contrato final de integridade de imagem e coordenadas de pixel
 
-状态：实现契约
+Status: contrato de implementação
 
-冻结基线：`3ee0eadbe3dfda41a65bf2ac1a0d4ab761311060`
-（`origin/feat/cua-merge`）
+Baseline congelado: `3ee0eadbe3dfda41a65bf2ac1a0d4ab761311060`
+(`origin/feat/cua-merge`)
 
-上游设计：飞书 `O3s2dIIooo1uuExdipOcVJ9Vnvg`，revision 75（V3）。
+Design upstream: Feishu `O3s2dIIooo1uuExdipOcVJ9Vnvg`, revision 75 (V3).
 
-producer 实现：`zcode-cua@4a3c507dd16f3ed840e87bc92e709ce339e6a4f3`（producer SDK feature 原子 pin；包含 image-first、transport 内部 frame 绑定与 raster-only 恢复指引）。
+Implementação do producer: `zcode-cua@4a3c507dd16f3ed840e87bc92e709ce339e6a4f3` (pin atômico do feature do producer SDK; inclui image-first, binding interno de frame no transport e guidance de recuperação raster-only).
 
-revision 同时包含 0.5.7 producer surface 简化、最终栅格/Zoom 权威、WindowServer
-截图点击、window-event Ghost Cursor 反馈、Helper 更名及 `PERMISSION_REQUIRED` 授权指引，
-以及 0.5.8 CUA 目标应用展示元数据，不得回退到任一分叉 SHA。
+A revision inclui simultaneamente a simplificação da surface do producer 0.5.7, a autoridade final de raster/Zoom, clique com screenshot do
+WindowServer, feedback de Ghost Cursor via window-event, a renomeação do Helper e o guidance de autorização `PERMISSION_REQUIRED`,
+além dos metadados de exibição da aplicação alvo do CUA 0.5.8; não deve regredir para nenhum dos SHAs de divergência.
 
-## 目标
+## Objetivo
 
-官方 CUA 把图像交给模型后，模型只回传：
+Depois que o CUA oficial entrega a imagem ao modelo, o modelo devolve apenas:
 
 ```json
 { "type": "coordinate", "x": 496, "y": 331 }
 ```
 
-`x/y` 是模型实际收到的那张图的整数像素。模型不选择 Retina、DPI、
-逻辑点、物理像素、crop、缩放、窗口原点或显示器坐标系；这些差异全部由
-`@zcode/zcode-cua` 和 Helper 内部处理。
+`x/y` são pixels inteiros da imagem que o modelo realmente recebeu. O modelo não escolhe Retina, DPI,
+ponto lógico, pixel físico, crop, zoom, origem da janela ou sistema de coordenadas do monitor; todas essas diferenças são tratadas internamente por
+`@zcode/zcode-cua` e pelo Helper.
 
-该约束只定义“模型从图像选点”这条路径。模型直接使用可访问性树中的
-`state_id/index` 时仍可传 element target；element target 不携带图像坐标，也不得作为
-图像选点的替代编码。两条路径在公开 schema 中保持显式区分。
+Essa restrição define apenas o caminho "o modelo escolhe um ponto a partir da imagem". Quando o modelo usa diretamente o
+`state_id/index` da árvore de acessibilidade, ele ainda pode passar um element target; element target não carrega coordenadas de imagem e também não pode ser
+usado como codificação alternativa para a escolha de ponto na imagem. Os dois caminhos permanecem explicitamente distintos no schema público.
 
-## 跨进程时序
+## Sequência entre processos
 
 ```text
 Helper capture
@@ -48,71 +48,67 @@ zcode-cua transport 同步绑定当前 frame → registry → 像素中心投影
     → Helper 二次 provenance 校验 → 原生输入
 ```
 
-任何一层无法证明该链路时，坐标动作必须拒绝；不得退回 `screen`、
-`normalized`、`state_image`、`screenshot` 或“最新图像”推断。
+Se qualquer camada não conseguir provar essa cadeia, a ação por coordenadas deve ser rejeitada; não se pode regredir para `screen`,
+`normalized`, `state_image`, `screenshot` ou para a inferência da "imagem mais recente".
 
-## 最后一公里约束
+## Restrições da última milha
 
-通用 MCP bridge 当前会对超过 inline budget 的图片执行省略、artifact 化或
-特定来源压缩。这对普通 MCP 合理，但对已签发 `frame_id` 的官方 CUA raster
-会破坏坐标契约：模型看到的图可能不再是 descriptor 指向的图。
+O MCP bridge genérico hoje executa omissão, artifactização ou compressão específica de origem em imagens que excedem o inline budget. Isso é razoável
+para um MCP comum, mas quebra o contrato de coordenadas do raster oficial do CUA que já emitiu `frame_id`: a imagem que o modelo vê pode não ser mais a imagem apontada pelo descriptor.
 
-因此官方 CUA 需要独立的完整性门禁：
+Portanto o CUA oficial precisa de um gate de integridade próprio:
 
-1. raster 必须是 tool result 首块，`image_ref` 文本块紧随其后；bridge 不得把任何
-   diagnostic/hook 文本放到 raster 前面，也不得重排或拆散该原子对。
-2. raster 在 zcode-cua 已经按 190 KiB 预算编码，ZCode 不得再次 resize、crop、
-   rotate、重编码或替换为 artifact 文本。
-3. 若 raster 仍超过 provider 明确上限，结果整体 fail-closed，不能只保留
-   `image_ref` 后继续允许该 frame 动作。
-4. 每个结果只允许一张最终 raster；模型可见 block 的 image bytes 必须原样保持，
-   MIME、宽高必须与 `image_ref` 一致。producer 内部用于 frame 签发的字节摘要不扩展
-   公开 `image_ref`，bridge 通过原字节不变与 raster header 独立校验承担最后一公里证明。
-   校验边界如实声明：字节/形状校验在 MCP bridge（入站）与 executor attestation
-   （出站、fail-closed）完成；下游 provider 投影不重复校验 attestation，而是通过
-   通用"相邻配对文本"结构规则（延后媒体投影、媒体预算、压缩占位）保证
-   `image_ref` 与 raster 相邻到达模型、或被一起移除。
-5. 上述特殊路径只允许在不可伪造的 official CUA authority gate 成立时启用；
-   同名第三方 MCP 不能获得该豁免。
-   Host 内部只用 `modelContentProtection=official_cua_frame_v1` 表示这项授权；不得再维护
-   第二个需要同步设置的 preserve boolean。缺失该 protection 的结构化媒体一律走通用预算。
-6. `PostToolUse` hook 只能在受保护媒体对之后追加有界文本；不得替换、重排、
-   删除或在 image 与 `image_ref` 之间插入内容。
-7. 任一引用、MIME、base64、文件头、尺寸、预算或重复 `frame_id` 校验失败时，
-   bridge 必须原子移除本次结果中的全部 CUA image/image_ref，并把结果标记为错误；
-   不得把残缺媒体继续发送给模型。
-8. `structuredContent` 里不得出现真 JSON `image_ref` 权威——权威只属于紧贴 raster
-   的那个 content 块，它绑定的是模型真正收到的那张图。producer 侧派生
-   `structuredContent`（例如给 `nodeRepl.write(state.text)` 用的 AX 文本）时必须把
-   权威块排除在外，否则同一份权威出现在两处，第 7 条会把每一次带截图的观察全部拒掉。
-9. 拒绝面分两路，且不可合并：模型只拿到一句不含 `frame_id`、不含落盘路径的通用
-   「重新截图」提示（被拒的帧不能反过来成为可用权威）；具体判据放在结果 `_meta`
-   的 `zcode.cua/frame-integrity-rejections-v1` 上。宿主 `formatMcpToolResult` 只读
-   一个特定 `_meta` 键、从不整体序列化 `_meta`，所以判据可诊断而不进模型上下文。
-   判据不得只存在于函数局部变量：2026-09-11 真机上第 8 条被违反，判据被拒绝后即
-   丢弃，于是「每一次带截图的观察都被自己的门禁否决」这种整条通道故障静默了一整天。
+1. O raster precisa ser o primeiro bloco do tool result, com o bloco de texto `image_ref` logo em seguida; o bridge não pode colocar nenhum
+   texto de diagnostic/hook antes do raster, nem reordenar ou separar esse par atômico.
+2. O raster já foi codificado no zcode-cua com o orçamento de 190 KiB; a ZCode não pode redimensionar, cortar,
+   rotacionar, recodificar nem substituir por texto de artifact.
+3. Se o raster ainda exceder o limite explícito do provider, o resultado inteiro falha em fail-closed; não se pode apenas manter
+   o `image_ref` e continuar permitindo ações para aquele frame.
+4. Cada resultado permite apenas uma raster final; os image bytes dos blocos visíveis ao modelo devem permanecer exatamente como são,
+   e MIME, largura e altura devem ser consistentes com o `image_ref`. O resumo de bytes usado internamente pelo producer para emissão de frame não estende o
+   `image_ref` público; o bridge assume a prova de última milha por meio da invariância dos bytes originais e de uma verificação independente do raster header.
+   O limite de verificação é declarado com honestidade: a verificação de bytes/formato acontece no MCP bridge (entrada) e no executor attestation
+   (saída, fail-closed); a projeção do provider a jusante não revalida o attestation e, em vez disso, garante via
+   regras estruturais genéricas de "texto com pareamento adjacente" (projeção de mídia adiada, orçamento de mídia, placeholder de compressão) que
+   o `image_ref` e o raster chegam juntos ao modelo ou são removidos juntos.
+5. Esse caminho especial só pode ser habilitado quando o official CUA authority gate não falsificável estiver satisfeito;
+   um MCP de terceiros com o mesmo nome não obtém essa isenção.
+   Internamente o Host usa apenas `modelContentProtection=official_cua_frame_v1` para representar essa autorização; não se deve manter
+   um segundo boolean de preservação que precise ser configurado em sincronia. Toda mídia estruturada sem essa protection segue o orçamento genérico.
+6. O hook `PostToolUse` só pode anexar texto limitado depois do par de mídia protegido; não pode substituir, reordenar,
+   remover nem inserir conteúdo entre a imagem e o `image_ref`.
+7. Quando qualquer verificação de referência, MIME, base64, cabeçalho de arquivo, dimensões, orçamento ou `frame_id` duplicado falhar,
+   o bridge precisa remover atomicamente todas as imagens/image_ref de CUA do resultado e marcá-lo como erro;
+   não se pode continuar enviando mídia incompleta ao modelo.
+8. `structuredContent` não pode conter a autoridade de um `image_ref` JSON real — a autoridade pertence apenas ao content block colado ao raster,
+   que é o que referencia a imagem que o modelo realmente recebeu. Quando o lado do producer derivar
+   `structuredContent` (por exemplo, o texto AX usado por `nodeRepl.write(state.text)`), ele deve excluir o bloco de autoridade, caso contrário a mesma autoridade
+   aparece em dois lugares e a regra 7 rejeitaria toda observação com screenshot.
+9. A superfície de rejeição é dividida em dois caminhos e eles não podem ser fundidos: o modelo recebe apenas uma mensagem genérica de "tirar um novo
+   screenshot" sem `frame_id` e sem caminho em disco (um frame rejeitado não pode virar uma autoridade utilizável); os critérios concretos ficam no `_meta` do
+   resultado, em `zcode.cua/frame-integrity-rejections-v1`. O host `formatMcpToolResult` lê apenas uma chave de `_meta` específica e nunca serializa o `_meta` inteiro, então os critérios são diagnosticáveis sem entrar no contexto do modelo.
+   Os critérios não podem existir apenas em variáveis locais da função: em 2026-09-11, em máquina real, a regra 8 foi violada e os critérios eram descartados logo após a rejeição, de modo que a falha de canal inteira "toda observação com screenshot é rejeitada pelo seu próprio gate" ficou silenciosa por um dia inteiro.
 
-## Helper provenance 契约
+## Contrato de provenance do Helper
 
-Helper 必须显式声明 `frame_pixel_projection_v1`，capture 返回用于构造
-FrameDescriptor 的权威字段：捕获 raster 尺寸/crop、pointer rect/unit、应用
-owner、window_id/bounds、display identity 和 topology fingerprint。
+O Helper precisa declarar explicitamente `frame_pixel_projection_v1`, e o capture precisa retornar os campos autoritativos usados para construir o
+FrameDescriptor: dimensões/crop do raster capturado, rect/unit do pointer, aplicativo
+owner, window_id/bounds, identidade do display e fingerprint de topologia.
 
-动作 RPC 携带投影后的 point 与捕获时 provenance。Helper 在原生输入前重新
-读取当前 owner/window/display/topology；不一致返回 `stale_frame` 且
-`actuated=false`。旧 Helper、字段缺失、Wayland 或无法证明 1:1 root grid 的
-X11 环境只拒绝 frame coordinate；element/AX 路径保持可用。
+O RPC de ação carrega o point projetado junto com a provenance do momento da captura. Antes do input nativo, o Helper relê
+o owner/window/display/topology atuais; em caso de inconsistência retorna `stale_frame` e
+`actuated=false`. Helper antigo, campos ausentes, Wayland ou ambientes X11 onde não é possível provar um root grid 1:1
+rejeitam apenas a coordenada de frame; o caminho element/AX permanece disponível.
 
-## 验收
+## Aceitação
 
-- 官方 CUA 小图和接近/超过通用 200 KiB 阈值的图都保持 raster 不变；
-- 相邻 `image_ref` 与 image block 经 MCP bridge 后仍相邻；
-- 非官方 MCP 仍遵循通用 inline/artifact 预算；
-- `returnedBytes` 是模型可见文本与真实 raster payload 的唯一 aggregate；不得暴露或依赖
-  第二份 `mediaBytes` 状态。追加 hook 只把实际新增的 UTF-8 bytes 加到既有 aggregate；
-- capture capability/provenance 缺失时坐标动作零 actuation；
-- macOS Retina、Windows DPI-aware physical pixels、Linux X11 可证明范围有
-  marker-grid 证据；Wayland 与歧义 X11 fail-closed；
-- `pnpm typecheck`、`pnpm lint` 和相关 package tests 全绿。
-- producer pin 必须通过 frame-contract 导出与实现存在性门禁，并在候选 provenance 中记录
-  最低基线的合入关系；版本号一致但缺少像素契约时必须判为 packaging failure。
+- As imagens pequenas do CUA oficial e as imagens próximas/acima do limiar genérico de 200 KiB mantêm o raster intacto;
+- O `image_ref` adjacente e o bloco de imagem continuam adjacentes após passar pelo MCP bridge;
+- MCP não oficial continua seguindo o orçamento genérico de inline/artifact;
+- `returnedBytes` é o único agregado entre o texto visível ao modelo e o payload real do raster; não se pode expor nem depender de
+  um segundo estado `mediaBytes`. O hook adicional soma ao agregado existente apenas os bytes UTF-8 realmente acrescentados;
+- Quando faltam capability/provenance de capture, a ação por coordenadas tem zero actuation;
+- macOS Retina, pixels físicos DPI-aware do Windows e o faixa comprovável do X11 no Linux têm
+  evidência de marker-grid; Wayland e X11 ambíguo falham em fail-closed;
+- `pnpm typecheck`, `pnpm lint` e os testes dos packages relacionados passam.
+- O pin do producer precisa passar pelos gates de exportação do frame-contract e de existência da implementação, e a relação de merge com o baseline mínimo precisa estar registrada na provenance candidata; um número de versão consistente mas sem o contrato de pixels precisa ser julgado como packaging failure.

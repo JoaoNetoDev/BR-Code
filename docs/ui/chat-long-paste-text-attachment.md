@@ -1,52 +1,52 @@
 # Chat Long Paste Text Attachment
 
-## 背景
+## Contexto
 
-聊天输入框使用 Lexical 承载正文。用户把超长文本直接粘进输入框时，会让编辑器序列化、草稿同步和移动端输入体验都变重。现有附件链路已经能发送 `text/plain` 文件附件，因此长文本粘贴应进入附件语义，而不是继续扩张正文。
+A caixa de entrada do chat usa Lexical para o corpo da mensagem. Quando o usuário cola um texto muito longo direto na caixa de entrada, a serialização do editor, a sincronização de rascunho e a experiência de digitação no celular ficam pesadas. A cadeia de anexos existente já consegue enviar anexos de arquivo `text/plain`; portanto, a colagem de texto longo deve entrar na semântica de anexo em vez de continuar expandindo o corpo da mensagem.
 
-## 产品规则
+## Regras de produto
 
-- 仅处理剪贴板里的纯文本内容。
-- 当纯文本大于等于 5120 个 UTF-16 code units 时，粘贴操作不再把内容插入输入框正文，而是写入宿主临时目录并创建一个本地文件附件。
-- 触发判断不依赖行数：单行超长 JSON、日志或 base64 同样会转成附件；小段多行文本只要低于阈值，仍保持浏览器和 Lexical 默认粘贴行为。
-- 行数仍按 `\n` / `\r\n` / `\r` 兼容计算，但只作为附件 chip 的展示元信息，不参与是否转附件的判断。
-- 如果同一次粘贴包含文件，文件附件逻辑优先，避免把截图、拖出的文本文件或其他附件形态误判为正文粘贴。
-- 如果宿主临时文件创建失败，粘贴操作保持被拦截并展示附件错误，不回退把长文本塞入正文。
-- 转附件不自动改写输入框已有正文；空正文也允许只带附件提交。
-- 附件数量继续复用聊天附件上限：最多 8 个。
+- Apenas o conteúdo de texto puro da área de transferência é tratado.
+- Quando o texto puro tem 5120 code units UTF-16 ou mais, a colagem deixa de inserir o conteúdo no corpo da caixa de entrada e passa a gravar no diretório temporário do host, criando um anexo de arquivo local.
+- A decisão de disparo não depende do número de linhas: um JSON, log ou base64 de linha única e muito longo também vira anexo; um trecho pequeno de várias linhas, abaixo do limite, mantém o comportamento padrão de colagem do navegador e do Lexical.
+- O número de linhas continua sendo calculado de forma compatível com `\n` / `\r\n` / `\r`, mas serve apenas como metainformação de exibição do chip do anexo e não participa da decisão de converter em anexo.
+- Se a mesma colagem contiver arquivos, a lógica de anexo de arquivo tem prioridade, evitando que capturas de tela, arquivos de texto arrastados ou outras formas de anexo sejam confundidas com colagem de corpo de mensagem.
+- Se a criação do arquivo temporário no host falhar, a colagem permanece bloqueada e exibe o erro de anexo, sem voltar a inserir o texto longo no corpo.
+- A conversão em anexo não reescreve o corpo já existente na caixa de entrada; um corpo vazio também permite enviar apenas com anexos.
+- A quantidade de anexos continua reaproveitando o limite de anexos do chat: no máximo 8.
 
-## 附件数据
+## Dados do anexo
 
-长文本粘贴附件在 UI 侧记录为 `sourceKind: "clipboard-text"`，并保留：
+Na UI, o anexo de colagem de texto longo é registrado como `sourceKind: "clipboard-text"` e mantém:
 
-- `lineCount`：原始剪贴板文本行数。
-- `charCount`：原始剪贴板文本字符数。
-- `sizeBytes`：宿主写入临时文件后的 UTF-8 字节数。
-- `filename`：机器可追踪的 `.txt` 文件名，例如 `pasted-text-20260627-153012.txt`。
-- `localPath`：宿主临时文件路径。
+- `lineCount`: número de linhas do texto original da área de transferência.
+- `charCount`: quantidade de caracteres do texto original da área de transferência.
+- `sizeBytes`: quantidade de bytes UTF-8 após o host gravar o arquivo temporário.
+- `filename`: nome de arquivo `.txt` rastreável pela máquina, por exemplo `pasted-text-20260627-153012.txt`.
+- `localPath`: caminho do arquivo temporário do host.
 
-长文本内容落盘到 `{ZCODE_DATA_BASE_DIR || HOME}/.zcode/tmp/paste-attachments/YYYY-MM-DD/`。文件名使用时间戳文件名加随机后缀，避免暴露正文内容或发生冲突。发送协议复用现有 `kind: "file"`、`mimeType: "text/plain"`、`localPath` 路径，并携带 `sourceKind: "clipboard-text"` 标记，不再携带 `textContent`，避免长文本直接进入 prompt payload 或模型上下文。
+O conteúdo de texto longo é gravado em `{ZCODE_DATA_BASE_DIR || HOME}/.zcode/tmp/paste-attachments/YYYY-MM-DD/`. O nome do arquivo usa um nome com timestamp mais um sufixo aleatório, evitando expor o conteúdo do corpo ou gerar conflitos. O protocolo de envio reaproveita o `kind: "file"`, `mimeType: "text/plain"` e o caminho `localPath` existentes, carregando a marca `sourceKind: "clipboard-text"` e sem carregar mais `textContent`, evitando que o texto longo entre diretamente no payload do prompt ou no contexto do modelo.
 
-Agent 接收该标记后必须把它当作用户上传的临时本地文件附件处理：模型请求里只出现文件路径附件引用，不自动读取文件正文，也不生成 `prompt_attachment` system reminder。只有模型后续显式调用文件读取工具时，临时文件内容才进入上下文。普通用户上传的小型文本文件保持既有行为，可以继续被投影为 Read-like 附件上下文。
+Depois de receber essa marca, o Agent deve tratá-la como um anexo de arquivo local temporário enviado pelo usuário: na requisição ao modelo aparece apenas a referência de anexo por caminho de arquivo, o conteúdo do arquivo não é lido automaticamente e nenhum system reminder `prompt_attachment` é gerado. Só quando o modelo chamar explicitamente uma ferramenta de leitura de arquivo é que o conteúdo do arquivo temporário entra no contexto. Arquivos de texto pequenos enviados normalmente pelo usuário mantêm o comportamento existente e podem continuar sendo projetados como contexto de anexo tipo Read.
 
-普通 Web 没有宿主文件系统时不支持该能力；手机 Web 远控必须通过 shared-host/platform proxy 写到已连接的桌面宿主临时目录，不在手机浏览器本地伪造路径。
+O Web comum não tem sistema de arquivos de host e portanto não suporta essa capacidade; o controle remoto Web pelo celular precisa gravar através do shared-host/platform proxy no diretório temporário do host desktop conectado, sem simular um caminho local no navegador do celular.
 
-## UI 展示
+## Exibição na UI
 
-Composer 附件区保持一行 chip：
+A área de anexos do Composer mantém um chip em uma linha:
 
 ```text
-[clipboard-pen-line] 粘贴文本 · 128 行 [x]
+[clipboard-pen-line] Texto colado · 128 linhas [x]
 ```
 
-- 图标使用 lucide `ClipboardPenLine`。
-- 标题使用国际化文案，不直接展示机器文件名。
-- 行数作为同一行元信息展示；空间不足时标题/元信息整体截断，删除按钮固定在右侧。
-- chip 主体和删除按钮浮层都使用 `background` 作为底色，避免右侧遮罩和附件主体出现不同 surface 层级。
-- 删除按钮参考 side pane tab：在 chip 右侧使用 hover/focus 显示的浮层关闭区，并用渐变遮罩覆盖文本末尾，避免行数文本和按钮互相挤压。
-- 视觉风格复用现有 inline attachment chip，不新增卡片式容器。
+- O ícone usa o lucide `ClipboardPenLine`.
+- O título usa texto internacionalizado e não exibe diretamente o nome de arquivo da máquina.
+- O número de linhas é exibido como metainformação na mesma linha; quando falta espaço, título e metainformação são truncados por inteiro, e o botão de exclusão fica fixo à direita.
+- O corpo do chip e o overlay do botão de exclusão usam `background` como cor de fundo, evitando que a máscara à direita e o corpo do anexo apareçam em níveis de surface diferentes.
+- O botão de exclusão faz referência ao side pane tab: usa no lado direito do chip uma área de fechamento em overlay exibida em hover/focus, com máscara em gradiente cobrindo o fim do texto, evitando que o texto de linhas e o botão se apertem.
+- O estilo visual reaproveita o chip de anexo inline existente, sem novo container em formato de cartão.
 
-## 多端边界
+## Fronteiras entre plataformas
 
-- 桌面端、Web 端、手机远控都走同一 UI paste 逻辑和同一 prompt attachment 协议，不新增 runtime、不改变 shared-host attachment 架构。
-- 该功能只影响提交前的 composer 输入组织，不改变 desktop continuous 与 web remote replayable 的 task stream 语义。
+- Desktop, Web e controle remoto pelo celular passam pela mesma lógica de colagem da UI e pelo mesmo protocolo de anexo de prompt, sem novo runtime e sem alterar a arquitetura de anexos do shared-host.
+- Essa funcionalidade afeta apenas a organização da entrada do composer antes do envio, não altera a semântica de task stream do continuous do desktop nem do replayable do web remote.

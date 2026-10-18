@@ -1,55 +1,55 @@
-# ZCode 官方 Server MCP：stdio Plugin 经 `_meta` 取身份头（第二阶段，历史 Decision Log）
+# ZCode Official Server MCP: plugin stdio obtém cabeçalhos de identidade via `_meta` (segunda fase, Decision Log histórico)
 
-> 当前实现事实统一见 `zcode-official-server-mcp-auth-spec.md`。本文只保留 stdio 方案的历史背景。
+> Os fatos atuais da implementação estão unificados em `zcode-official-server-mcp-auth-spec.md`. Este documento mantém apenas o contexto histórico da solução stdio.
 
-- 状态：已实现；当前事实已合并到统一规格
-- 前置：`zcode-official-server-mcp-client-phase-1-spec.md`（下称"phase-1"）。本文只描述增量，
-  未提及的一切（信任判定口径、身份头集合、凭证解析、in-flight 去重、日志约束）全部沿用 phase-1
-- 驱动需求：`video-agent-kit` 插件的 `transcribe` / `tts_generate` 要改调 `zcode-server` 的
-  `speech_transcribe` / `speech_synthesize`（group `video_edit`），去掉用户手配的火山引擎 key
+- Status: implementado; os fatos atuais foram fundidos na especificação unificada
+- Pré-requisito: `zcode-official-server-mcp-client-phase-1-spec.md` (a seguir "phase-1"). Este documento descreve apenas o incremento; tudo o que não for
+  mencionado (critério de julgamento de confiança, conjunto de cabeçalhos de identidade, resolução de credenciais, deduplicação in-flight, restrições de log) é integralmente herdado da phase-1
+- Necessidade que motivou: as ferramentas `transcribe` / `tts_generate` do plugin `video-agent-kit` precisam passar a chamar
+  `speech_transcribe` / `speech_synthesize` do `zcode-server` (group `video_edit`), removendo a key do Volcengine configurada manualmente pelo usuário
 
-## 1. 目标
+## 1. Objetivo
 
-让 **stdio** 形态的 Plugin MCP server 也能以当前用户身份调用官方 Server MCP 端点，凭证不落盘、
-不进 env、不会因 JWT 轮换而失效。
+Permitir que um Plugin MCP server na forma **stdio** também invoque os endpoints oficiais do Server MCP com a identidade do usuário atual, sem credenciais em disco,
+sem credenciais no env e sem invalidar por rotação de JWT.
 
-phase-1 只解决了 `type:"http"`：宿主在 fetch wrapper 里逐请求注入身份头（`official-auth.ts`），
-凭证从不进入插件可控的进程。stdio 走不到那条路——它的请求由插件自己的进程发出。
+A phase-1 resolveu apenas `type:"http"`: o host injeta os cabeçalhos de identidade request a request em um fetch wrapper (`official-auth.ts`),
+e a credencial nunca entra em um processo controlável pelo plugin. O stdio não passa por esse caminho — suas requisições são enviadas pelo próprio processo do plugin.
 
-## 2. 为什么不能让 agent 直接用 http 官方 MCP 顶替
+## 2. Por que não deixar o agent usar o MCP oficial http em seu lugar
 
-一个自然的想法是：不改 stdio，直接在插件里再声明一个 `type:"http"` 的官方 MCP，把
-`speech_transcribe` / `speech_synthesize` 作为工具暴露给 agent，让模型自己编排。
+Uma ideia natural é: sem mexer no stdio, declarar dentro do plugin mais um MCP `type:"http"` oficial, expor
+`speech_transcribe` / `speech_synthesize` como ferramentas para o agent e deixar o modelo orquestrar.
 
-这条路对本需求不成立，原因与鉴权无关：这两个工具的音频是 `audio_base64` 进、`audio_base64` 出
-（`internal/domain/servermcp/gateway.go`）。一旦它们成为 agent 可见的 tool，参数与结果就必须过
-模型上下文——ASR 侧是几十 MiB 的 base64，TTS 侧是几百 KiB。因此**调用必须发生在能直接读写本地
-文件的进程里**，也就是插件自己的 stdio server。
+Esse caminho não serve para esta necessidade, por um motivo independente da autenticação: o áudio dessas duas ferramentas entra como `audio_base64` e sai como `audio_base64`
+(`internal/domain/servermcp/gateway.go`). Assim que elas viram ferramentas visíveis ao agent, parâmetros e resultados precisam passar pelo
+contexto do modelo — do lado do ASR, dezenas de MiB de base64; do lado do TTS, centenas de KiB. Portanto **a chamada precisa ocorrer em um processo que leia e escreva arquivos locais
+diretamente**, ou seja, no próprio server stdio do plugin.
 
-同理也排除了"插件工具只收发文件路径、让 agent 转发字节"的变体：字节仍要过上下文。
+Pelo mesmo motivo fica excluída a variante em que "a ferramenta do plugin só envia e recebe caminhos de arquivo e deixa o agent repassar os bytes": os bytes ainda passam pelo contexto.
 
-## 3. 范围
+## 3. Escopo
 
-### 3.1 范围内
+### 3.1 Dentro do escopo
 
-- `McpStdioServerConfig` 支持 `auth: { type: "zcode_official", provider: "jwt_token" }`；
-- 对声明了该 auth 的 stdio server，**每次 `tools/call`** 在 `params._meta` 上附带当前身份头；
-- stdio 场景的 targetOrigin 解析口径与失败语义；
-- 相应的 Plugin loader 解析、adapter 注入、测试。
+- `McpStdioServerConfig` passa a suportar `auth: { type: "zcode_official", provider: "jwt_token" }`;
+- para o server stdio que declarou essa auth, **a cada `tools/call`** os cabeçalhos de identidade atuais são anexados em `params._meta`;
+- o critério de resolução de targetOrigin e a semântica de falha no cenário stdio;
+- os correspondentes ajustes no loader de Plugin, na injeção do adapter e nos testes.
 
-### 3.2 范围外
+### 3.2 Fora do escopo
 
-- `sse` 形态（无对应通道，继续拒绝）；
-- 把身份头注入 stdio 进程的 **env**：env 在进程生命周期内是死值，而 Plugin MCP server 活整个
-  会话，JWT 一轮换就必然 401 且无法自救。这正是本方案要避开的问题，故显式否决；
-- 让宿主代发插件的整个 HTTP 请求（凭证完全不出宿主）。它是 phase-1 §5.1 残留风险 3 指出的更彻底
-  方向，但需要宿主转发数百 MiB 的分片流量，成本与收益不匹配，留待后续；
-- server→client 反向自定义请求（如 `zcode/officialMcpAuthHeaders`）。新鲜度更强（单次 tool call
-  内可重取），但 Python SDK 的 `send_request` 是 typed union，发非标准 method 要绕到裸 JSON-RPC 层
-  自行对 id，且其它 MCP 宿主一律 Method not found。第二阶段不做，见 §7 的已知缺口；
-- 后端改动。`zcode-server` 侧零改动。
+- a forma `sse` (não há canal correspondente; a rejeição continua);
+- injetar os cabeçalhos de identidade no **env** do processo stdio: o env é um valor morto durante o ciclo de vida do processo, enquanto um Plugin MCP server vive a sessão inteira,
+  e a rotação do JWT fatalmente provoca 401 sem chance de autocorreção. Esse é exatamente o problema que esta solução quer evitar, portanto é explicitamente rejeitado;
+- fazer o host emitir a requisição HTTP inteira do plugin (as credenciais nem saem do host). É a direção mais completa apontada pelo risco residual 3 da phase-1 §5.1,
+  mas exige que o host repasse centenas de MiB de tráfego fragmentado, com custo e benefício desproporcionais, ficando para depois;
+- requisições customizadas no sentido server→client (como `zcode/officialMcpAuthHeaders`). Teria mais frescor (pode ser rebuscado dentro de uma única tool call),
+  mas o `send_request` do SDK em Python é uma union tipada, e enviar um method não padrão exige descer até a camada de JSON-RPC cru e
+  tratar o id por conta própria, além de que outros hosts MCP retornam uniformemente Method not found. Não é feito na segunda fase; ver a lacuna conhecida em §7;
+- mudanças no backend. Zero mudanças no lado do `zcode-server`.
 
-## 4. 配置合同
+## 4. Contrato de configuração
 
 ```json
 {
@@ -65,51 +65,51 @@ phase-1 只解决了 `type:"http"`：宿主在 fetch wrapper 里逐请求注入�
 }
 ```
 
-- `auth` 的严格解析完全复用 phase-1 §4.2 的 `parseZCodeOfficialAuth`：精确值、区分大小写、
-  不接受别名，形状不合法即 `plugin_mcp_server_disabled`；
-- **stdio 上没有 `url`**，因此也没有"插件声明的 origin"。这不是缺陷而是收紧：见 §5；
-- `oauth` 与 `zcode_official` 并存仍是配置错误（stdio 本来就不支持 oauth，属无效声明，一并拒绝）；
-- `official` provenance 仍由宿主生成（`pluginId` / `mcpKey` / `source`），`.mcp.json` 里写了也被覆盖；
-- 静态保留头黑名单（phase-1 §5.2）对 stdio 不适用——它没有 `headers` 字段。stdio 的 `env` **不**纳入
-  黑名单：插件通过 env 自带第三方凭证是既有合法用法（如降级回退路径），与身份头注入通道无关。
+- A parsing estrita da `auth` reutiliza integralmente o `parseZCodeOfficialAuth` da phase-1 §4.2: valores exatos, diferenciação de maiúsculas/minúsculas,
+  sem aceitar apelidos; forma inválida resulta em `plugin_mcp_server_disabled`;
+- **não existe `url` em stdio**, e portanto também não existe um "origin declarado pelo plugin". Isso não é um defeito, é um endurecimento: ver §5;
+- `oauth` junto com `zcode_official` continua sendo erro de configuração (stdio nunca suportou oauth; é uma declaração inválida e é rejeitada junto);
+- o provenance `official` continua sendo gerado pelo host (`pluginId` / `mcpKey` / `source`), e mesmo escrito no `.mcp.json` é sobrescrito;
+- a blacklist estática de cabeçalhos reservados (phase-1 §5.2) não se aplica ao stdio — ele não tem campo `headers`. O `env` do stdio **não** entra
+  na blacklist: o plugin trazer credenciais de terceiros por env é um uso legítimo já existente (por exemplo, um caminho de fallback), sem relação com o canal de injeção de cabeçalhos de identidade.
 
-## 5. 信任模型：origin 不再由配置提供
+## 5. Modelo de confiança: o origin não vem mais da configuração
 
-phase-1 的判定是"`URL.origin` === 运行时 ZCode API origin"。stdio 没有 URL，改为：
+O julgamento da phase-1 era "`URL.origin` === origin da API ZCode em runtime". O stdio não tem URL, então passou a ser:
 
 ```text
-targetOrigin := resolveRuntimeZCodeEndpointOrigin(env)     # 客户端自行解析，不读任何插件配置
+targetOrigin := resolveRuntimeZCodeEndpointOrigin(env)     # o cliente resolve por si só, sem ler nenhuma configuração de plugin
 ```
 
-口径与 `zcode-protocol-entrypoint.ts` 现有的 4 处调用一致（`ZCODE_BASE_URL` 由宿主
-`resolveSpawnEnv` 下发权威值，见 commit `9c9d1683`）。
+O critério é consistente com as 4 chamadas existentes em `zcode-protocol-entrypoint.ts` (o `ZCODE_BASE_URL` recebe do host o valor autoritativo via
+`resolveSpawnEnv`, ver commit `9c9d1683`).
 
-**为什么这比 http 路径更严**：http 路径下插件能写 url，判定的作用是"把它挡回官方 origin"；
-stdio 路径下插件根本没有表达 origin 的渠道，身份头只可能被解析为"当前 ZCode API origin 的凭证"。
-`isOfficialMcpOriginTrusted` 的调用照旧保留（同一份 `@zcode/shared` 实现），此时它退化为一条
-恒真断言——**仍要调用**，因为它同时校验 https 与不带 username/password，且 dev loopback 开关
-（`ZCODE_OFFICIAL_MCP_DEV_TRUSTED_ORIGINS`）必须继续生效。
+**Por que isso é mais estrito que o caminho http**: no caminho http o plugin pode escrever a url, e o julgamento serve para "devolvê-lo ao origin oficial";
+no caminho stdio o plugin não tem nem como expressar um origin, então os cabeçalhos de identidade só podem ser resolvidos como "credencial do origin atual da API ZCode".
+A chamada de `isOfficialMcpOriginTrusted` é mantida como antes (a mesma implementação de `@zcode/shared`), onde ela degenera em uma
+afirmação sempre verdadeira — **ela ainda deve ser chamada**, porque ao mesmo tempo valida https e a ausência de username/password, e o switch de loopback de dev
+(`ZCODE_OFFICIAL_MCP_DEV_TRUSTED_ORIGINS`) precisa continuar em vigor.
 
-host 侧二次校验（`zcodeAgentService` 在读取凭据**之前**用同一份 registry 校验三元组）不变：
-agent 上报的 `targetOrigin` 就是它自己解析出的那个值，未命中即 `official_mcp_origin_untrusted`，
-`resolveHeaders` 零调用。
+A segunda validação no host (`zcodeAgentService` validando a tripla com o mesmo registry **antes** de ler as credenciais) permanece inalterada:
+o `targetOrigin` reportado pelo agent é exatamente o valor que ele próprio resolveu, e um não-acerto resulta em `official_mcp_origin_untrusted`,
+com zero chamadas a `resolveHeaders`.
 
-**新增的残留风险**：phase-1 的三条残留风险全部继续成立，另加一条——**身份头会进入插件的进程内存**。
-http 路径下凭证只在 agent 进程的 fetch wrapper 里出现，插件拿不到；stdio 路径下插件读到的是明文
-`Authorization`，它可以拿去打别的地址。这与 phase-1 §5.1 残留风险 2/3 属同一类（能在插件里跑代码
-的人本来就能读 `~/.zcode` 下的同一份凭证），因此定位仍是**防御纵深**而非防已被攻破的插件。
-要彻底解决只能走 §3.2 的"宿主代发"方向。
+**Novo risco residual**: os três riscos residuais da phase-1 continuam válidos, e mais um — **os cabeçalhos de identidade entram na memória do processo do plugin**.
+No caminho http a credencial aparece apenas dentro do fetch wrapper do processo do agent, e o plugin não consegue obtê-la; no caminho stdio o plugin lê um `Authorization`
+em texto claro e pode usá-lo para chamar outro endereço. Isso é da mesma natureza dos riscos residuais 2/3 da phase-1 §5.1 (quem consegue executar código dentro
+do plugin já consegue ler a mesma credencial em `~/.zcode`), portanto a posição continua sendo **defesa em profundidade**, e não proteção contra um plugin já comprometido.
+A solução completa seria apenas a direção de "host emite a requisição" descrita em §3.2.
 
-## 6. 下发通道：复用既有的 `_meta` 注入点
+## 6. Canal de entrega: reaproveitar o ponto de injeção `_meta` existente
 
-`adapters/src/mcp/index.ts` 的 `callTool` 已经在每次 `tools/call` 上写
-`_meta = mcpRequestMeta(trace, runtimeScope)`（trace_id / session_id / runtime_scope）。身份头搭这
-同一趟车下发，不新增任何通道、端口、token 或监听面，remote attach 场景也照样走。
+O `callTool` em `adapters/src/mcp/index.ts` já escreve, a cada `tools/call`,
+`_meta = mcpRequestMeta(trace, runtimeScope)` (trace_id / session_id / runtime_scope). Os cabeçalhos de identidade viajam na mesma
+passagem, sem adicionar canal, porta, token ou superfície de escuta; o cenário de attach remoto também funciona normalmente.
 
-### 6.1 载荷形状
+### 6.1 Formato da carga
 
-只放命名空间键，不放扁平键（与 `com.zcode/request-context` 的扁平+命名空间双写不同——身份头
-不需要兼容任何既有消费者，少一处出现就少一处泄漏面）：
+Apenas chaves com namespace, sem chaves achatadas (diferente da escrita dupla achatada+namespace de `com.zcode/request-context` — os cabeçalhos de identidade
+não precisam compatibilidade com nenhum consumidor existente, e um ponto a menos de aparição é um ponto a menos de exposição):
 
 ```json
 {
@@ -128,92 +128,92 @@ http 路径下凭证只在 agent 进程的 fetch wrapper 里出现，插件拿�
 }
 ```
 
-失败：
+Falha:
 
 ```json
 { "_meta": { "com.zcode/official-mcp-auth": { "ok": false, "reason": "official_auth_plan_required" } } }
 ```
 
-- `headers` 的键集合、Team 成对原子性、`Bigmodel-Target-Type` 的取值，全部由
-  `buildOfficialMcpAuthHeaders` 单点产出，与 http 路径同源（phase-1 §6.1）；
-- `reason` 为 `OfficialMcpAuthFailureReason` 枚举，不发自由文本（禁止按文本分流）；
-- 该键**只**出现在声明了 `zcode_official` 的 stdio server 的请求上。普通 stdio server 的 `_meta`
-  里不得出现——否则等于把身份头广播给任意第三方插件。
+- O conjunto de chaves de `headers`, a atomicidade em par do Team e os valores válidos de `Bigmodel-Target-Type` são todos produzidos em um único ponto por
+  `buildOfficialMcpAuthHeaders`, com a mesma origem do caminho http (phase-1 §6.1);
+- `reason` é o enum `OfficialMcpAuthFailureReason`; não se envia texto livre (é proibido fazer roteamento por texto);
+- essa chave aparece **somente** nas requisições de servers stdio que declararam `zcode_official`. Ela não pode aparecer no `_meta` de um server stdio comum
+  — senão seria equivale a difundir os cabeçalhos de identidade para qualquer plugin de terceiros.
 
-### 6.2 新鲜度
+### 6.2 Frescor
 
-`resolveHeaders` 在**每次** `tools/call` 派发前调用，因此每次工具调用拿到的都是刚解析的凭证；
-phase-1 §6.2.1 的 in-flight 去重与"禁止时间维度缓存"照旧生效。
+`resolveHeaders` é chamado **a cada** dispatch de `tools/call`, portanto cada chamada de ferramenta obtém credenciais recém-resolvidas;
+a deduplicação in-flight e a "proibição de cache na dimensão de tempo" da phase-1 §6.2.1 continuam em vigor.
 
-**已知窗口**：单次 tool call 内部长跑时（如 2 小时视频转写会在一次调用里连续发数十个 HTTP 请求），
-中途 JWT 轮换后插件无法重取。约定：插件收到 401 时**不重试**，直接把
-`official_auth_rejected` 报回给 agent，由 agent 重试整个工具调用来获得新头。因此插件侧必须把 401
-标记为不可重试，避免用旧头空转。
+**Janela conhecida**: em uma execução longa dentro de uma única tool call (por exemplo, a transcrição de um vídeo de 2 horas envia dezenas de requisições HTTP
+seguidas dentro de uma mesma chamada), se o JWT for rotacionado no meio o plugin não consegue rebuscá-lo. Convenção: ao receber 401 o plugin **não faz retry** e
+reporta `official_auth_rejected` de volta ao agent, para que o agent refaça a chamada inteira da ferramenta e obtenha cabeçalhos novos. Portanto o lado do
+plugin precisa marcar 401 como não-recuperável, evitando girar no vácuo com cabeçalhos velhos.
 
-### 6.3 失败语义：与 http 路径**有意不同**
+### 6.3 Semântica de falha: **intencionalmente diferente** do caminho http
 
-phase-1 §6.3.3 对 http 是全 fail closed。stdio 路径改为**把 `{ok:false, reason}` 照样下发**，
-理由是二者的风险面不同：
+A phase-1 §6.3.3 é totalmente fail closed para http. O caminho stdio passa a **enviar `{ok:false, reason}` do mesmo jeito**, porque as
+superfícies de risco dos dois são diferentes:
 
-- http 路径放行 = 一个匿名请求真的打到官方端点，必须 fail closed；
-- stdio 路径没拿到头的插件**根本不会去打官方端点**（它会走自己的回退路径或直接报错），不存在
-  匿名请求；反过来，把 reason 交给插件才能让它把"未登录"与"无 Coding Plan 套餐"如实呈现给用户，
-  而不是静默降级成一句莫名其妙的失败。
+- no caminho http, liberar passagem = uma requisição anônima batendo de fato no endpoint oficial, então é preciso fail closed;
+- no caminho stdio, um plugin que não recebeu os cabeçalhos **nem chega a chamar o endpoint oficial** (ele segue seu próprio caminho de fallback ou simplesmente
+  reporta erro), e portanto não existe requisição anônima; por outro lado, entregar o `reason` ao plugin é o que permite apresentar com fidelidade ao usuário a diferença
+  entre "não logado" e "sem plano Coding Plan", em vez de degradar silenciosamente para uma falha inexplicável.
 
-因此：
+Portanto:
 
-| 情况 | 下发 | agent 侧 |
+| Situação | O que é enviado | Lado do agent |
 | --- | --- | --- |
-| host auth port 不可用（standalone CLI） | `{ok:false, reason:"official_auth_unavailable"}` | 连接保持正常，仅该键为失败 |
-| 未登录 / 无选中 connection | `{ok:false, reason:"official_auth_unavailable"}` | 同上 |
-| Start Plan 或无 Coding Plan key | `{ok:false, reason:"official_auth_plan_required"}` | 同上 |
-| host 二次校验未命中 | `{ok:false, reason:"official_mcp_origin_untrusted"}` | 同上，凭据零读取 |
+| host auth port indisponível (CLI standalone) | `{ok:false, reason:"official_auth_unavailable"}` | A conexão continua normal, apenas a chave está em falha |
+| Não logado / sem connection selecionada | `{ok:false, reason:"official_auth_unavailable"}` | Idem |
+| Start Plan ou sem key de Coding Plan | `{ok:false, reason:"official_auth_plan_required"}` | Idem |
+| A segunda validação do host não acertou | `{ok:false, reason:"official_mcp_origin_untrusted"}` | Idem, com zero leitura de credenciais |
 
-注意"连接保持正常"这一条与 http 路径的"连接置 failed"也不同：stdio server 上通常还挂着大量与
-官方 MCP 无关的工具（`video-edit` 有 30+ 个），因为拿不到身份头就把整个 server 置 failed 会误伤
-它们。身份头的可用性是**每次工具调用**的属性，不是连接的属性。
+Observe que "a conexão continua normal" também difere do "deixar a conexão como failed" do caminho http: normalmente há muitas ferramentas sem relação com o
+MCP oficial penduradas no mesmo server stdio (o `video-edit` tem mais de 30), e colocar o server inteiro como failed por não conseguir os cabeçalhos de
+identidade as atingiria indevidamente. A disponibilidade dos cabeçalhos de identidade é uma propriedade **de cada chamada de ferramenta**, não da conexão.
 
-### 6.4 OAuth 隔离
+### 6.4 Isolamento do OAuth
 
-phase-1 §6.3.1 的短路（`resolveAuthorizationCodeOAuthConfig` 遇 `zcode_official` 返回 undefined）
-对 stdio 天然成立（stdio 不走 OAuth 分支），但仍要保证 `isOfficialAuthConfig(config)` 的既有
-短路点不因新增 stdio 分支而被绕过。
+O curto-circuito da phase-1 §6.3.1 (`resolveAuthorizationCodeOAuthConfig` retornando undefined ao encontrar `zcode_official`)
+vale naturalmente para o stdio (stdio não passa pelo ramo de OAuth), mas ainda é preciso garantir que os pontos de curto-circuito existentes de `isOfficialAuthConfig(config)`
+não sejam contornados pelo novo ramo stdio.
 
-### 6.5 日志
+### 6.5 Logs
 
-沿用 phase-1 §5.2 与 `official-auth.ts:summarizeIdentityHeaders`：只记 header **名**、
-`Bigmodel-Target-Type`、成对性、失败分类；**绝不**记 header 值、JWT、Coding Plan key，也不得
-把 `_meta` 全文写进任何日志（现有 `describeJsonRpc` 只取结构性字段，不取 `params.arguments`，
-新增字段不得破坏这条约束）。
+Seguem a phase-1 §5.2 e `official-auth.ts:summarizeIdentityHeaders`: registra-se apenas o **nome** do header,
+`Bigmodel-Target-Type`, o agrupamento em par e a classificação da falha; **nunca** o valor do header, o JWT ou a key do Coding Plan, e também não se
+pode gravar o `_meta` inteiro em nenhum log (o `describeJsonRpc` existente extrai apenas campos estruturais, não `params.arguments`;
+campos novos não podem quebrar essa restrição).
 
-## 7. 实现落位
+## 7. Posicionamento da implementação
 
-| 职责 | 文件 |
+| Responsabilidade | Arquivo |
 | --- | --- |
-| stdio 配置类型 | `apps/zcode-cli/packages/contracts/src/interfaces/mcp.port.ts`（`McpStdioServerConfig` 加 `auth?` / `official?`） |
-| Plugin loader 解析 | `apps/zcode-cli/packages/adapters/src/plugins/mcp.ts`（`officialAuth && type !== "http"` 改为只拒 `sse`；stdio 分支带上 auth + provenance） |
-| 身份头解析与注入 | `apps/zcode-cli/packages/adapters/src/mcp/index.ts`（`callTool` 的 `_meta` 注入点；`mcpRequestMeta` 扩参） |
-| 凭证解析 / 身份头构造 | 复用 `packages/services/src/official-mcp/officialMcpCredentials.ts`，零改动 |
-| 信任判定 | 复用 `packages/shared/src/official-mcp-auth.ts`，零改动 |
-| host 二次校验 | 复用 `packages/services/src/zcode-agent/zcodeAgentService.ts`，零改动 |
+| Tipo de configuração stdio | `apps/zcode-cli/packages/contracts/src/interfaces/mcp.port.ts` (adicionar `auth?` / `official?` a `McpStdioServerConfig`) |
+| Parsing no loader de Plugin | `apps/zcode-cli/packages/adapters/src/plugins/mcp.ts` (`officialAuth && type !== "http"` passa a rejeitar apenas `sse`; o ramo stdio carrega auth + provenance) |
+| Resolução e injeção dos cabeçalhos de identidade | `apps/zcode-cli/packages/adapters/src/mcp/index.ts` (ponto de injeção `_meta` em `callTool`; extensão de parâmetros de `mcpRequestMeta`) |
+| Resolução de credenciais / construção dos cabeçalhos de identidade | Reutiliza `packages/services/src/official-mcp/officialMcpCredentials.ts`, sem alterações |
+| Julgamento de confiança | Reutiliza `packages/shared/src/official-mcp-auth.ts`, sem alterações |
+| Segunda validação no host | Reutiliza `packages/services/src/zcode-agent/zcodeAgentService.ts`, sem alterações |
 
-不需要改 `SANITIZED_RUNTIME_ENV_KEYS`：身份头不进 env，没有新的子进程泄漏面。
+Não é preciso mexer em `SANITIZED_RUNTIME_ENV_KEYS`: os cabeçalhos de identidade não vão para o env, e não há nova superfície de vazamento em subprocessos.
 
-## 8. 验收标准
+## 8. Critérios de aceitação
 
-- 声明 `auth` 的 stdio Plugin MCP 能正常装载，`official` provenance 由宿主生成且不可由 `.mcp.json` 伪造；
-- `sse` + `zcode_official` 仍被 `plugin_mcp_server_disabled` 拒绝；
-- 对该 server 的每次 `tools/call`，`_meta["com.zcode/official-mcp-auth"].headers` 含 phase-1 §6.1
-  规定的头集合；Team 场景 org/project 成对出现；
-- `resolveHeaders` 失败时下发 `{ok:false, reason:<枚举>}`，且**不含** `headers` 键；连接不置 failed；
-- 普通 stdio server 的 `_meta` 里不出现该键；
-- 日志中不出现任何 header 值；
-- `pnpm lint`、`pnpm typecheck`、`pnpm test` 通过；`packages/ui` 零改动。
+- um Plugin MCP stdio que declara `auth` carrega normalmente, e o provenance `official` é gerado pelo host e não pode ser forjado pelo `.mcp.json`;
+- `sse` + `zcode_official` continua sendo rejeitado com `plugin_mcp_server_disabled`;
+- para cada `tools/call` desse server, `_meta["com.zcode/official-mcp-auth"].headers` contém o conjunto de cabeçalhos especificado na phase-1 §6.1;
+  no cenário de Team, org/project aparecem em par;
+- quando `resolveHeaders` falha, é enviado `{ok:false, reason:<enum>}`, sem a chave `headers`; a conexão não é marcada como failed;
+- a chave não aparece no `_meta` de um server stdio comum;
+- nenhum valor de header aparece nos logs;
+- `pnpm lint`, `pnpm typecheck` e `pnpm test` passam; zero mudanças em `packages/ui`.
 
-## 9. 已知缺口
+## 9. Lacunas conhecidas
 
-1. §6.2 的单次长跑窗口。彻底解决需要 §3.2 的反向自定义请求或宿主代发，本阶段用"401 不重试 +
-   agent 层重试"覆盖；
-2. 身份头进入插件进程（§5 新增残留风险）。定位为防御纵深，缓解依赖服务端的权益与配额校验；
-3. `_meta` 会随该 server 的**所有**工具调用下发，而非只随真正需要它的那几个工具。收紧需要在
-   配置里声明工具白名单，当前判断收益不足（同一进程内，粒度收紧不改变泄漏面）。
+1. A janela de execução longa de uma única chamada descrita em §6.2. Uma solução completa exigiria a requisição customizada inversa da §3.2 ou o host.emitindo a requisição; nesta fase é coberta por "401 sem retry +
+   retry no nível do agent";
+2. Os cabeçalhos de identidade entram no processo do plugin (novo risco residual em §5). Posicionado como defesa em profundidade, com a mitigação dependente das verificações de benefício e cota no lado do servidor;
+3. `_meta` é enviado em **todas** as chamadas de ferramenta daquele server, e não apenas nas poucas ferramentas que realmente precisam dele. Apertar isso exigiria
+   declarar uma lista branca de ferramentas na configuração; a avaliação atual é que o benefício é insuficiente (no mesmo processo, estreitar a granularidade não muda a superfície de exposição).

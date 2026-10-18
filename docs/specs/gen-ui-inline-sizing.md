@@ -1,57 +1,45 @@
-# Gen UI 内联内容测高与滚动条
+# Medição de altura e barra de rolagem do conteúdo inline do Gen UI
 
-## 行为
+## Comportamento
 
-Gen UI 根文档统一隐藏原生滚动条，不为滚动条预留宽度。只作用于 `html` 和
-`body`，不修改作者组件内的滚动区域，也不通过 `overflow: hidden` 禁止整页滚动。
-普通内联内容按实际内容高度撑开，滚动由外层会话承接；达到现有 10000px 上限或
-进入放大视口时，保持原有内容访问能力，不新增提示或展示模式。
+O documento raiz do Gen UI oculta de forma uniforme a barra de rolagem nativa, sem reservar largura para ela. Isso atua apenas sobre `html` e `body`, não modifica as áreas de rolagem dentro dos componentes do autor nem proíbe a rolagem da página inteira com `overflow: hidden`.
+Conteúdo inline comum se expande conforme a altura real do conteúdo, e a rolagem fica a cargo da sessão externa; ao atingir o limite existente de 10000px ou ao entrar em viewport ampliado, a capacidade de acesso ao conteúdo é mantida, sem novas dicas nem modos de exibição.
 
-## 测量与所有权
+## Medição e propriedade
 
 ```text
-内容尺寸 / 根子节点 / 视口宽度变化
-  → guest 合并到下一动画帧，读取内容几何（不写根节点高度）
-  → 既有 ui/notifications/size-changed
-  → Gen UI page owner 更新内联高度
-  → 浏览器布局；仅由视口高度驱动的等量变化不再次上报
+mudança de tamanho do conteúdo / filhos da raiz / largura da viewport
+  → guest faz merge no próximo frame de animação e lê a geometria do conteúdo (sem escrever a altura da raiz)
+  → ui/notifications/size-changed já existente
+  → o page owner do Gen UI atualiza a altura inline
+  → layout do navegador; mudanças iguais apenas pela altura da viewport não são reportadas de novo
 ```
 
-- guest 是内容测量的唯一来源；替换 SDK 自动测高，不并行保留两套 observer。
-- 排除根级 script、style、tooltip。一个内容根节点时结合其边界和 scrollHeight；
-  多个根节点时使用最下方的内容边界；纯文本使用 Range。body 上下 padding 只计一次。
-- ResizeObserver 观察 body 与内容根节点；MutationObserver 更新根节点观察集合；
-  resize 处理视口变化。移除的节点取消观察，页面卸载时断开观察并取消待执行帧。
-- 相同宽度下，内容增量完全等于视口高度增量时不反馈上报，避免 vh / 百分比高度
-  随宿主调整不断增高。放大时宿主继续保持正文占位，收起后重新测量。
-- 根滚动条隐藏样式由沙箱文档装配统一注入，作者片段无需修改；MCP App 和独立
-  HTML 导出不受此样式影响。
+- O guest é a única fonte da medição de conteúdo; a medição automática do SDK é substituída, sem manter dois observers em paralelo.
+- Excluem-se script, style e tooltip de nível raiz. Com um único nó raiz de conteúdo, combinam-se os limites dele e o scrollHeight; com múltiplos nós raiz, usa-se o limite de conteúdo mais abaixo; texto puro usa Range. O padding superior/inferior do body é contado apenas uma vez.
+- O ResizeObserver observa o body e os nós raiz de conteúdo; o MutationObserver atualiza o conjunto de nós raiz observados; o resize trata as mudanças de viewport. Nós removidos cancelam a observação e, no unload da página, as observações são desconectadas e os frames pendentes cancelados.
+- Com a mesma largura, quando o incremento do conteúdo é exatamente igual ao incremento da altura da viewport, não há feedback nem novo reporte, evitando que alturas em vh / porcentagem cresçam continuamente conforme o host é ajustado. No ampliado o host continua mantendo o espaço reservado do corpo, e ao recolher a medição é refeita.
+- O estilo de ocultação da barra de rolagem da raiz é injetado uniformemente pela montagem do documento em sandbox, sem exigir alterações nos trechos do autor; MCP App e a exportação HTML independente não são afetados por esse estilo.
 
-## 问题证据与边界
+## Evidência do problema e limites
 
-标签从矮内容切到图表时，guest 先溢出、宿主随后撑高；实际 scrollHeight 与
-clientHeight 已相等、滚动距离为 0，根滚动条仍可能保留 15px 宽度。临时隐藏后
-恢复 overflow 可清除该状态，但再次切换标签会复现。旧 SDK 测量会临时把 html
-高度设为 max-content；新测量只读内容几何，避免测量自身引入布局变化。
+Quando se alterna de uma tag baixa para um gráfico, o guest primeiro transborda e o host em seguida aumenta a altura; mesmo com scrollHeight e clientHeight já iguais e distância de rolagem 0, a barra de rolagem da raiz ainda pode manter 15px de largura. Ocultar temporariamente e depois restaurar o overflow limpa esse estado, mas o problema reaparece na próxima troca de tag. A medição do SDK antigo define temporariamente a altura de html como max-content; a nova medição lê apenas a geometria do conteúdo, evitando que a própria medição introduza mudanças de layout.
 
-实现仅涉及 desktop plugin-sandbox 展示层，保留现有尺寸协议、宿主高度上限及
-放大逻辑。当前 Gen UI 注册要求桌面 sandbox；不新增 Web/手机渲染通路。窄屏
-重排使用同一测量逻辑。无主题颜色、文案、平台分支或 session 消息流改动，桌面
-continuous 与手机 replayable、远端 workspace 路由保持原有边界。
+A implementação envolve apenas a camada de apresentação do plugin-sandbox do desktop, preservando o protocolo de tamanho existente, o limite de altura do host e a lógica de ampliado. O registro atual do Gen UI exige o sandbox do desktop; não há nova via de renderização Web/celular. O reflow em tela estreita usa a mesma lógica de medição. Não há mudanças de cores de tema, textos, branches de plataforma ou fluxo de mensagens de sessão; o continuous do desktop e o replayable do celular, bem como as rotas de workspace remoto, mantêm as fronteiras originais.
 
-## 回归矩阵
+## Matriz de regressão
 
-现有 `node packages/desktop/scripts/gen-ui-e2e.mjs` 中追加真实 Electron 用例：
+No `node packages/desktop/scripts/gen-ui-e2e.mjs` existente são acrescentados casos reais com Electron:
 
-| 场景                                       | 断言                                         |
-| ------------------------------------------ | -------------------------------------------- |
-| 矮标签 ↔ 分数像素高度的 SVG 图表，多次切换 | 容器及时增高/收缩，内容完整，根滚动条不占宽  |
-| 桌面宽度与 390px 窄屏、深浅主题            | 重排后测高正确，无横向溢出                   |
-| 嵌套内容增删、根级 tooltip                 | 内容变化更新高度，tooltip 不撑高正文         |
-| 鼠标位于图表内部发送真实 wheel             | 外层会话滚动，guest scrollY 保持 0           |
-| 放大 / 收起                                | 同一 guest 保留，正文占位和收起后测高正确    |
-| 根节点测量过程                             | 不修改 html.style.height；没有持续尺寸反馈   |
-| vh 依赖高度                                | 宿主尺寸更新不产生无限增长                   |
-| 高度超过 10000px                           | 既有上限与内容可滚动访问仍成立，移除后可收缩 |
+| Cenário                                                    | Asserção                                                       |
+| ---------------------------------------------------------- | -------------------------------------------------------------- |
+| Tag baixa ↔ gráfico SVG de altura fracionária, várias trocas | O contêiner aumenta/encolhe a tempo, conteúdo completo, barra de rolagem da raiz sem largura |
+| Largura de desktop e tela estreita de 390px, temas claro/escuro | Medição correta após o reflow, sem overflow horizontal          |
+| Adição/remoção de conteúdo aninhado, tooltip de nível raiz | Mudança de conteúdo atualiza a altura, tooltip não aumenta o corpo |
+| Wheel real enviado com o mouse dentro do gráfico           | A sessão externa rola, guest scrollY permanece 0                |
+| Ampliado / recolhido                                        | Mesmo guest preservado, espaço do corpo e medição após recolher corretos |
+| Processo de medição da raiz                                 | Não modifica html.style.height; sem feedback contínuo de tamanho |
+| Altura dependente de vh                                     | Atualização de tamanho do host não gera crescimento infinito    |
+| Altura acima de 10000px                                    | O limite existente e o acesso ao conteúdo por rolagem continuam válidos, encolhe após remoção |
 
-协议装配单测验证根滚动条样式位于作者内容之后，且不会注入 MCP 文档。
+Os testes unitários de montagem do protocolo verificam que o estilo da barra de rolagem da raiz fica depois do conteúdo do autor e que ele não é injetado no documento MCP.

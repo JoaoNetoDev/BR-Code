@@ -1,16 +1,16 @@
-# 设置页空置状态
+# Estado vazio da página de configurações
 
-设置页中的空置状态统一使用透明背景和虚线边框，避免空内容与真实资源卡片产生相同的层级。
+Os estados vazios da página de configurações usam de forma unificada fundo transparente e borda tracejada, evitando que o conteúdo vazio fique no mesmo nível hierárquico de cartões de recursos reais.
 
-## 视觉规范
+## Especificação visual
 
-- 空置状态容器统一使用 `border-dashed border-border`，不设置 `bg-card`、`bg-surface` 或 `bg-background`。
-- 资源列表空置状态保持紧凑布局，使用 `rounded-xl px-4 py-3` 和次级正文。
-- 需要引导创建的空置状态可以保留标题、说明和操作按钮，并使用较大的垂直留白。
-- 数据图表空置状态可以保留居中布局，但遵循相同的虚线边框与透明背景规则。
-- 空置状态不增加装饰图标；图标只用于真实资源条目或有明确语义的操作。
-- 加载、错误、能力限制和未选择工作区属于独立状态，不套用空置状态视觉规范。
+- O contêiner do estado vazio usa uniformemente `border-dashed border-border`, sem definir `bg-card`, `bg-surface` ou `bg-background`.
+- O estado vazio das listas de recursos mantém o layout compacto, usando `rounded-xl px-4 py-3` e texto corporal secundário.
+- Estados vazios que precisam orientar a criação podem manter título, descrição e botão de ação, usando um espaçamento vertical maior.
+- Estados vazios de gráficos de dados podem manter o layout centralizado, mas seguem as mesmas regras de borda tracejada e fundo transparente.
+- Estados vazios não recebem ícones decorativos; ícones são usados apenas em itens de recursos reais ou em ações com semântica clara.
+- Carregamento, erro, limitação de capacidade e workspace não selecionado são estados independentes e não seguem a especificação visual de estado vazio.
 
-## 适用范围
+## Escopo de aplicação
 
-当前覆盖设置页中的插件、技能、子智能体、自动化、MCP、命令、Hooks 和用量统计空置状态。
+ Atualmente cobre os estados vazios de plugins, skills, subagentes, automações, MCP, comandos, Hooks e estatísticas de uso na página de configurações.

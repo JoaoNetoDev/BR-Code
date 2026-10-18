@@ -1,52 +1,81 @@
-# Todo 125：模型设置页问号说明与定稿文案
+# Todo 125: ajuda com interrogação e texto final na página de configurações de modelos
 
-> 2026-09-11 执行中：按第 3 节逐字写入中英语言包，9 处问号复用现有 Popover。智能配置位置按 Todo131，不给 ID 加问号。说明不参与表单事件，不改模型配置或执行能力。
+> 2026-09-11, em execução: gravar literalmente os pacotes de idioma zh e en conforme a seção 3, com
+> 9 interrogações reaproveitando o Popover existente. A posição da configuração inteligente segue o
+> Todo131 e nenhum ponto de interrogação é adicionado ao ID. As explicações não participam de eventos de
+> formulário e não alteram a configuração do modelo nem a capacidade de execução.
 
-> 后续布局裁决（2026-09-11）：[Todo131](todo-131-model-settings-smart-config-placement-and-restore.md) 将智能配置及问号移到模型 ID 容器右侧，取代本文“仍位于底部”的位置约束；说明文案与问号交互不改，未给模型 ID 增加问号。Todo131 待执行，不代表 UI 已移动。
+> Decisão posterior de layout (2026-09-11): o [Todo131](todo-131-model-settings-smart-config-placement-and-restore.md)
+> move a configuração inteligente e a interrogação para o lado direito do contêiner do ID do modelo,
+> substituindo a restrição de posição "ainda no rodapé" deste documento; o texto das explicações e a
+> interação da interrogação não mudam e nenhum ponto de interrogação foi adicionado ao ID do modelo. O
+> Todo131 está pendente de execução e isso não significa que a UI já foi movida.
 
-> 状态：产品实现、局部验证与 review 完成；Goal 整批最终验收待执行。2026-09-11 已授权实施。
+> Status: implementação de produto, verificação parcial e review concluídos; aceitação final do lote
+> completo do Goal pendente. Implementação autorizada em 2026-09-11.
 >
-> 日期：2026-09-11
+> Data: 2026-09-11
 
-## 1. 背景与实施约束
+## 1. Contexto e restrições de implementação
 
-用户希望在模型设置页解释智能配置及各项配置含义。现有“智能配置”文字使用原生 `title`，提示不明显且出现时间由浏览器控制。本 Todo 增加明确的问号说明入口。
+O usuário quer explicar na página de configurações de modelos o que é a configuração inteligente e o
+significado de cada ajuste. O texto atual de "智能配置" usa o `title` nativo, a dica não é evidente e o
+tempo de exibição é controlado pelo navegador. Este Todo adiciona uma entrada explícita de
+explicação por interrogação.
 
-**必须按本次逐项讨论后的最终裁决实现，不能自行发挥、顺手改动或重新设计。第 3 节是中文定稿，须逐字使用；不自行润色、增删提醒、添加例子或补充技术细节。** 英文按相同含义翻译，不扩大承诺或限制。若发现文案与实际行为冲突，先给出具体证据并与用户讨论，不擅改文案或业务行为来消除冲突。
+**A implementação precisa seguir as decisões finais item a item desta discussão, sem improvisar, mudar
+por conta própria ou redesenhar. A seção 3 é o texto final em chinês e deve ser usado literalmente; não
+suavizar, não adicionar nem remover lembretes, não acrescentar exemplos nem detalhes técnicos.** O inglês
+é uma tradução de mesmo significado, sem ampliar promessas ou restrições. Se algum texto conflitar com
+o comportamento real, primeiro apresente a evidência concreta e discuta com o usuário, em vez de alterar
+o texto ou o comportamento de negócio para eliminar o conflito.
 
-- 只增加问号及说明浮层，保留现有布局、字段标题、选项及分组；智能配置仍位于原来的底部。
-- 不改变配置值、默认值、智能/手动模式、覆盖与继承、保存/取消、模型能力或模型选择行为。
-- 不改 Schema、协议、持久化文件、数据表、内置推荐配置、刷新或推送机制；文案描述现有功能，不授权重做功能。
-- 不增加确认弹窗、切换后的额外提醒、教程、示例、链接入口或其他未确认产品元素。
-- 本 Todo 的明确裁决优先于对话中的早期示意和提议。遇到超出范围的需求先讨论，不顺手修复其他问题。
+- adicionar apenas a interrogação e o popover de explicação, preservando o layout atual, os títulos de
+  campo, as opções e os agrupamentos; a configuração inteligente continua no rodapé original;
+- não alterar valores de configuração, defaults, modo inteligente/manual, sobrescrita e herança,
+  salvar/cancelar, capacidades do modelo ou comportamento de seleção de modelo;
+- não alterar Schema, protocolo, arquivos de persistência, tabelas, configurações embutidas
+  recomendadas, mecanismos de refresh ou push; o texto descreve a funcionalidade existente e não
+  autoriza refazer a funcionalidade;
+- não adicionar popup de confirmação, lembretes extras após alternar, tutoriais, exemplos, entradas de
+  link ou outros elementos de produto não confirmados;
+- as decisões explícitas deste Todo prevalecem sobre esboços e propostas iniciais da conversa.
+  Demandas fora de escopo são discutidas primeiro, sem corrigir outros problemas por conta própria.
 
-## 2. 已确认的位置与交互
+## 2. Posição e interação confirmadas
 
-- 除模型 ID 外，在第 3 节列出的每个字段或分组标题后添加一个问号图标。正文中的 `ⓘ` 仅用于标示帮助入口位置，实际使用问号图标。
-- 标题下有多个选项时，共用标题后的一个问号，在同一份说明中逐项解释；不在选项旁重复增加问号。
-- 模型 ID 不加问号，不加说明。
-- 桌面鼠标悬停问号立即显示，不使用原生 `title` 的等待提示；手机点击问号显示。
-- 问号支持键盘聚焦查看；点击问号只打开说明，不切换相邻开关或选项，不提交表单。
-- 提示使用现有设计规范与组件风格，兼顾桌面、手机 Web、中英文和深浅主题；不移动原有控件或重做表单布局。
-- 原智能配置 `title` 由新说明入口替代，避免同时出现两份不同文案。
+- exceto pelo ID do modelo, adicionar um ícone de interrogação depois de cada campo ou título de grupo
+  listado na seção 3. O `ⓘ` no texto serve apenas para marcar a posição da entrada de ajuda; na
+  implementação usa-se o ícone de interrogação;
+- quando há várias opções sob um título, usa-se uma única interrogação depois do título, explicando os
+  itens um a um na mesma explicação; não se repetem interrogações ao lado das opções;
+- o ID do modelo não recebe interrogação nem explicação;
+- no desktop, passar o mouse sobre a interrogação mostra imediatamente, sem usar a espera do `title`
+  nativo; no celular, tocar na interrogação mostra;
+- a interrogação suporta foco por teclado para exibição; clicar nela apenas abre a explicação, sem
+  alternar interruptores ou opções vizinhos e sem enviar o formulário;
+- a dica usa as normas de design e o estilo de componente existentes, contemplando desktop, Web no
+  celular, zh/en e temas claro e escuro; não move controles existentes nem refaz o layout do formulário;
+- o `title` original da configuração inteligente é substituído pela nova entrada de explicação, evitando
+  duas versões diferentes de texto ao mesmo tempo.
 
 ```text
-现有字段或分组标题 + 问号
+Campo ou título de grupo existente + interrogação
                      |
-          悬停 / 键盘聚焦 / 手机点击
+          hover / foco por teclado / toque no celular
                      |
-              显示该标题的说明
+              mostra a explicação desse título
                      |
-         只影响提示显隐，不修改配置草稿
+         afeta apenas a visibilidade da dica, não altera o rascunho de configuração
 
-表单底部：原智能配置开关 + 原文字 + 问号
+Rodapé do formulário: interruptor original de configuração inteligente + texto original + interrogação
 ```
 
-## 3. 最终中文文案（逐字实现）
+## 3. Texto final em chinês (implementação literal)
 
 ### 模型 ID
 
-不加问号。
+Sem interrogação.
 
 ### 上下文窗口 ⓘ
 
@@ -97,43 +126,79 @@
 > 根据模型 ID、Base URL 和 API 格式，为您智能匹配推荐配置。ZCode 会持续更新推荐配置，并自动同步给您。
 > 如果手动修改某项配置，该项将转为手动管理，不再跟随推荐更新；其他配置仍由智能配置管理。
 
-## 4. 已撤回或澄清的提议（禁止重新引入）
+## 4. Propostas retiradas ou esclarecidas (proibido reintroduzir)
 
-- 不移动智能配置开关；早期画在顶部的示意已被纠正。
-- 模型 ID 是“所有标题加问号”的明确例外。
-- 输入类型不写文件大小、页数或其他附件限制，也不加“以上为 ZCode 的限制……”等补充。
-- 推理档位继续从低到高。用户明确确认此前“从高到低”是口误，不反转显示、存储或最高档选择逻辑。
-- 推理档位不写“名称和数量可以自定义”；推理参数映射不附示例、转换图或额外接口要求提醒。
-- 不把“请勿超过……”或类似提醒机械添加到所有说明。仅保留第 3 节已经确认的具体句子。
-- 统一按定稿使用“模型”，不换回“模型服务”等表述；智能配置使用与设置页一致的 Base URL、API 格式用语。
-- 不加入“始终最准确”等绝对保证，也不追加关闭/重新开启智能配置的行为说明；本次不修改这些行为。
-- 不新增音频、工具调用等当前页面没有的选项。
+- não mover o interruptor de configuração inteligente; o esboço inicial no topo foi corrigido;
+- o ID do modelo é a exceção explícita à regra de adicionar interrogação a todos os títulos;
+- em Tipo de entrada não se escreve tamanho de arquivo, número de páginas nem outros limites de anexo, e
+  também não se acrescenta um "acima estão os limites do ZCode..." ou algo equivalente;
+- os níveis de raciocínio continuam de baixo para alto. O usuário confirmou explicitamente que o "do alto
+  para baixo" anterior foi um lapso de fala, e a exibição, o armazenamento e a lógica de seleção do nível
+  máximo não são revertidos;
+- em Níveis de raciocínio não se escreve que "o nome e a quantidade podem ser customizados"; em
+  Mapeamento de parâmetros de raciocínio não se anexa exemplo, diagrama de conversão nem lembrete extra
+  sobre requisitos de interface;
+- não adicionar mecanicamente lembretes como "não exceda..." a todas as explicações. Mantêm-se
+  apenas as frases concretas já confirmadas na seção 3;
+- usar uniformemente "模型" conforme o texto final, sem voltar a "模型服务" ou variantes; a
+  configuração inteligente usa os mesmos termos Base URL e API 格式 da página de configurações;
+- não incluir garantias absolutas como "sempre o mais preciso" nem explicar o comportamento de
+  desligar/religar a configuração inteligente; esses comportamentos não são modificados nesta rodada;
+- não adicionar opções que a página atual não tem, como áudio ou chamada de ferramenta.
 
-## 5. 实施入口与验收
+## 5. Entrada de implementação e aceitação
 
-参考现有文件，实施时以最新基线为准：
+Arquivos de referência; na implementação vale a baseline mais recente:
 
-- `packages/ui/src/settings/model-provider-section/ProviderModelMetadataDialog.tsx`：表单标题与底部布局。
-- `packages/ui/src/settings/model-provider-section/ProviderModelMetadataDialogActions.tsx`：智能配置文字及现有 `title`。
-- `packages/ui/src/settings/model-provider-section/ProviderModelSettingsGroups.tsx`：推理设置与高级设置。
-- `packages/ui/src/ControlHintTooltip.tsx` 及现有 Tooltip/Popover 组件：复用现有样式与组件，不全局改变其他提示的行为。
-- `packages/ui/src/i18n/locales/zh-CN.ts`、`en-US.ts`：定稿与等义英文翻译。
+- `packages/ui/src/settings/model-provider-section/ProviderModelMetadataDialog.tsx`: títulos do formulário e
+  layout do rodapé.
+- `packages/ui/src/settings/model-provider-section/ProviderModelMetadataDialogActions.tsx`: texto da
+  configuração inteligente e o `title` existente.
+- `packages/ui/src/settings/model-provider-section/ProviderModelSettingsGroups.tsx`: configurações de
+  raciocínio e configurações avançadas.
+- `packages/ui/src/ControlHintTooltip.tsx` e os componentes Tooltip/Popover existentes: reaproveitar o
+  estilo e os componentes atuais, sem mudar globalmente o comportamento de outras dicas.
+- `packages/ui/src/i18n/locales/zh-CN.ts` e `en-US.ts`: texto final e tradução em inglês de mesmo
+  significado.
 
-授权实施后，先读取 `DESIGN.md`，遵守仓库 spec、测试先行及架构门禁规则；本 Todo 作为本项 Working Memory 内的实施规格。
+Depois da autorização de implementação, ler primeiro o `DESIGN.md` e respeitar as regras de spec, teste
+primeiro e gate de arquitetura do repositório; este Todo é a especificação de implementação deste item
+dentro do Working Memory atual.
 
-- [ ] 中文逐字核对第 3 节；英文无遗漏、无新增含义。
-- [ ] 模型 ID 无帮助入口，其余 9 处标题各一个；分组选项不重复放问号，智能配置位置不变。
-- [ ] E2E 验证桌面悬停立即显示、键盘查看、手机点击显示；浮层关闭和切换查看正常，无原生重复提示。
-- [ ] 实际点击帮助入口不会触发开关、修改草稿或保存；原表单编辑、保存、取消行为保持不变。
-- [ ] 深浅主题、中英文、桌面与手机尺寸均可完整阅读，长文案不被弹窗滚动容器裁切或溢出视口。
-- [ ] 完成受影响检查、`pnpm typecheck`、`pnpm lint` 和对应 E2E；验证结果如实记录，未执行的不能标为通过。
+- [ ] Conferência literal da seção 3 em chinês; inglês sem omissões e sem significado novo.
+- [ ] ID do modelo sem entrada de ajuda e uma interrogação em cada um dos outros 9 títulos; opções de
+  grupo sem interrogação repetida e posição da configuração inteligente inalterada.
+- [ ] E2E verificando exibição imediata no hover do desktop, visualização por teclado e exibição no
+  toque do celular; fechamento e troca de exibição do popover funcionando, sem dica nativa duplicada.
+- [ ] Clicar de fato na entrada de ajuda não aciona interruptor, não modifica o rascunho nem salva; o
+  comportamento original de edição, salvamento e cancelamento do formulário permanece.
+- [ ] Temas claro e escuro, zh/en e tamanhos de desktop e celular com leitura completa, e textos longos
+  sem corte no container de rolagem do popup nem overflow da viewport.
+- [ ] Concluir as verificações afetadas, `pnpm typecheck`, `pnpm lint` e o E2E correspondente; registrar
+  os resultados com fidelidade, sem marcar como aprovado o que não foi executado.
 
-## 6. 本次落盘结果
+## 6. Resultado registrado nesta rodada
 
-已实现9处问号，模型 ID 除外；智能位置服从 Todo131。复用现有 Popover/Button 与语言包，仅渲染定稿加粗、行内代码和列表，不接受 HTML 或用户输入。中文9项逐字单测与英文语义复审完成；删除旧原生 title 文案。
+Foram implementadas 9 interrogações, exceto no ID do modelo; a posição inteligente obedece ao Todo131.
+Reaproveitou-se o Popover/Button existente e os pacotes de idioma, renderizando apenas o negrito do texto
+final, o código inline e as listas, sem aceitar HTML nem entrada do usuário. Os 9 testes unitários
+literais em chinês e a revisão semântica do inglês foram concluídos; o texto antigo de `title` nativo
+foi removido.
 
-真实 Hook/组件浏览器验证桌面 hover、键盘 focus、手机 tap、Escape 关闭及切换说明；逐个检查浮层完整在视口内、没有修改草稿或写入。390 中文浅色/1200英文深色通过，截图复审英文排版与窄屏几何；Linux 中文字库缺失，**不能宣称中文字形视觉验收通过**。说明无新增模型能力、配置或执行逻辑；shared-host/消息流不变。根 typecheck、lint（0 errors/41 warnings）及架构（0 violations）通过，相关单测60项通过。浏览器交互不是真实手机 Host 联调；最终整批/实机限制由执行账本管理。
+Verificação real de browser com Hook/componente para hover no desktop, foco por teclado, toque no
+celular, fechamento por Escape e troca de explicação; cada popover foi conferido como inteiramente
+dentro da viewport, sem modificação do rascunho nem gravação. 390 zh claro e 1200 en escuro passaram, com
+revisão por captura da diagramação em inglês e da geometria em tela estreita; por falta de fontes
+chinesas no Linux, **não se pode declarar a aceitação visual dos glifos chinesiros como aprovada**. As
+explicações não adicionam capacidade de modelo, configuração nem lógica de execução;
+shared-host/stream de mensagens seguem inalterados. typecheck da raiz, lint (0 erros/41 warnings) e
+arquitetura (0 violações) passaram, assim como os 60 testes unitários relacionados. A interação no
+browser não é uma integração real com um Host em celular; as limitações finais do lote e de hardware
+são geridas pelo razão de execução.
 
-# 最终关联回归补充
+# Complemento final de regressão associado
 
-帮助按钮不得嵌在输入字段的 label 内；标题通过 htmlFor/id 关联输入，帮助按钮是同排独立控件，不能抢走输入的标签或焦点。多个档位的组标题不是单一输入 label。此修正不改帮助文案、状态或保存行为。
+O botão de ajuda não pode ficar aninhado no label de um campo de entrada; o título se关联a à entrada por
+htmlFor/id, e o botão de ajuda é um controle independente na mesma linha, sem roubar o label ou o foco
+da entrada. O título de grupo com vários níveis não é o label de uma única entrada. Esta correção não
+altera o texto da ajuda, o estado nem o comportamento de salvamento.

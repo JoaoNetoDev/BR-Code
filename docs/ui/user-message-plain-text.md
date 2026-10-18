@@ -1,12 +1,7 @@
-# User Message Row（当前事实）
+# User Message Row (fatos atuais)
 
-V4 user row 以纯文本/附件呈现，并提供 copy 与真实的 inline edit。编辑提交
-`editUserQuery { target: { rowId, entityId }, newText, attachments, workspaceMode }`，信封同时携带
-`baseRevision/baseLogEpoch`，由 CLI 按投影权威 `actions.canEdit` 裁决。编辑器固定提供“取消 / 文件重置图标 /
-发送”：中间动作使用 `FileClock` 图标，与发送按钮同尺寸并保留 outline 颜色，hover/focus 提示
-“与文件一起重置”。
-禁用态由图标按钮外层的 hover trigger 承接指针事件并显示具体禁用原因，实际按钮仍保持 disabled。
-普通发送使用 `workspaceMode=preserve`；组合重置使用 `workspaceMode=rewind`，冲突时显示文件列表并允许
-降级为 preserve。取消编辑只恢复本地编辑态。
+A user row da V4 é apresentada em texto simples/com anexos e oferece copy e edição inline real. A submissão da edição envia `editUserQuery { target: { rowId, entityId }, newText, attachments, workspaceMode }`, e o envelope também carrega `baseRevision/baseLogEpoch`, decididos pelo CLI conforme a autoridade de projeção `actions.canEdit`. O editor oferece sempre "Cancelar / ícone de reset do arquivo / Enviar": a ação do meio usa o ícone `FileClock`, com o mesmo tamanho do botão de envio e preservando a cor de outline, e as dicas de hover/focus indicam "Redefinir junto com o arquivo".
+O estado desabilitado é tratado pelo hover trigger na camada externa do botão de ícone, que recebe os eventos de ponteiro e mostra o motivo concreto da desabilitação, enquanto o botão em si permanece disabled.
+O envio comum usa `workspaceMode=preserve`; o reset combinado usa `workspaceMode=rewind`, e em caso de conflito a lista de arquivos é exibida, permitindo o rebaixamento para preserve. Cancelar a edição apenas restaura o estado local de edição.
 
-Retry 不在 user row 上，它属于 assistant turn action，并发送 `retryTurn`。
+O Retry não fica na user row; ele pertence à ação de turno do assistant e envia `retryTurn`.

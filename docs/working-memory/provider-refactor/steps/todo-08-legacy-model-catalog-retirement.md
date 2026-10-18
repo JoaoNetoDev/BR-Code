@@ -1,33 +1,33 @@
-# 08 Legacy Model Catalog 与衍生兼容逻辑退役
+# 08 Aposentadoria do Legacy Model Catalog e da lógica de compatibilidade derivada
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-24
+> Data: 2026-08-24
 >
-> 来源审查：[`../research/model-abstraction-unification-cleanup-audit.md`](../research/model-abstraction-unification-cleanup-audit.md)
+> Revisão de origem: [`../research/model-abstraction-unification-cleanup-audit.md`](../research/model-abstraction-unification-cleanup-audit.md)
 >
-> 总路线图：[`todo-00-model-abstraction-unification-roadmap.md`](./todo-00-model-abstraction-unification-roadmap.md)
+> Roadmap geral: [`todo-00-model-abstraction-unification-roadmap.md`](./todo-00-model-abstraction-unification-roadmap.md)
 
-## 1. 任务目标
+## 1. Objetivo da tarefa
 
-彻底删除旧 Model Catalog 作为模型事实、reasoning 配置和请求兼容策略的第二套系统。所有仍有意义的模型
-事实进入 ZCode Built-in / Personal Model Config Rules；历史输入只在明确 importer 边界转换；Provider API
-请求兼容由 Effective Model Config 显式驱动，不能继续按具体 modelId 推断。
+Eliminar completamente o antigo Model Catalog como segundo sistema de fatos de modelo, de configuração de reasoning e de estratégia de compatibilidade de requisições. Todo fato de modelo
+ainda significativo entra nas ZCode Built-in / Personal Model Config Rules; entradas históricas só são convertidas em fronteiras de importer explícitas; a compatibilidade de requisições da API do
+Provider é dirigida explicitamente pelo Effective Model Config, sem continuar sendo inferida a partir de um modelId específico.
 
-本 Todo 同时收口旧 Catalog 退役过程中已经确认的三个衍生问题：
+Este Todo também fecha os três problemas derivados já confirmados durante a aposentadoria do Catalog antigo:
 
-1. 删除无实际 importer 消费者的 Legacy `modelCatalog.overrides`；
-2. 删除独立 `ZCodeModelReasoningState`，Reasoning UI 复用 Registry 模型选择候选项；
-3. 用 `requiresMfjsToolSchema` Model Config 字段替代 Kimi K3 modelId Tool Schema 特判。
+1. Remover o Legacy `modelCatalog.overrides`, que não tem consumidores reais de importer;
+2. Remover o `ZCodeModelReasoningState` independente, com o Reasoning UI reutilizando os itens candidatos de seleção de modelo do Registry;
+3. Substituir o tratamento especial de Tool Schema por modelId do Kimi K3 pelo campo de Model Config `requiresMfjsToolSchema`.
 
 ```text
-当前残余
+Resíduo atual
 
 Legacy modelCatalog.overrides --------> Catalog parser / capability merge
 Catalog reasoning --------------------> providerOptionsByLevel -> Protocol/UI
 modelId == kimi-k3 --------------------> Tool Schema $ref workaround
 
-目标
+Objetivo
 
 Built-in / Personal Model Config Rules
                  |
@@ -39,14 +39,14 @@ Built-in / Personal Model Config Rules
        `- requiresMfjsToolSchema
                  |
                  +--> Registry Selection View -> UI -> ModelSelection.options
-                 `--> Adapter 请求装配 -> Provider API
+                 `--> Montagem da requisição no Adapter -> API do Provider
 ```
 
-## 2. 核心裁决
+## 2. Decisões centrais
 
-### 2.1 旧 Model Catalog 可以整体退役
+### 2.1 O antigo Model Catalog pode se aposentar por completo
 
-Provider/Model 的正常运行事实只来自：
+Os fatos normais de execução de Provider/Model vêm apenas de:
 
 ```text
 ZCode Built-in Provider Config
@@ -59,38 +59,38 @@ ZCode Built-in Model Config Rules
         -> Effective Model Config Rules
 ```
 
-旧 `ModelCatalogConfig`、`ModelCapability`、`ModelCapabilityProvider`、`ModelCatalogService`、
-`ModelCatalogSource`、bundled models.dev snapshot/source、Catalog capability/default/reasoning policy 不再是运行
-时事实源，也不为兼容保留同形替代 DTO。
+O antigo `ModelCatalogConfig`, `ModelCapability`, `ModelCapabilityProvider`, `ModelCatalogService`,
+`ModelCatalogSource`, o snapshot/source de models.dev embarcado e as policies de capability/default/reasoning do Catalog deixam de ser fonte de fatos em
+tempo de execução, e nenhum DTO substituto de mesma forma é mantido por compatibilidade.
 
-能够确定属于模型或接入组合的事实写入 Built-in Model Config Rules；Personal Rule 继续后置覆盖。属于 Adapter
-请求编码的行为由明确 Model Config 字段或正式 API 实现驱动。不能从 Catalog、Provider kind、Endpoint 或
-具体 modelId 重新推断模型能力和请求参数。
+Fatos que se possa determinar como pertencentes ao modelo ou a uma combinação de integração entram nas Built-in Model Config Rules; Personal Rules continuam sobrescrevendo por baixo. Comportamentos de codificação de requisição que pertencem ao Adapter
+são dirigidos por campos explícitos de Model Config ou por implementações de API formais. Não é permitido reinferir capacidades de modelo e parâmetros de requisição a partir do Catalog, do kind de Provider, do Endpoint ou
+de um modelId específico.
 
-### 2.2 删除 Legacy `modelCatalog.overrides`
+### 2.2 Remover o Legacy `modelCatalog.overrides`
 
-旧 `modelCatalog.overrides` 能表达的有效内容均可由 Personal Model Config Rules 替代：
+Tudo o que o antigo `modelCatalog.overrides` conseguia expressar de válido pode ser substituído pelas Personal Model Config Rules:
 
-| Legacy 内容                 | 当前归属                     |
+| Conteúdo legado                 | Destino atual                     |
 | --------------------------- | ---------------------------- |
 | context window              | `properties.contextWindow`   |
 | input format                | `properties.input_format`    |
 | Tool / Structured Output    | `properties`                 |
-| reasoning 档位和默认值      | `optionSpecs.reasoningLevel` |
-| reasoning Provider 请求参数 | `reasoningMapping`           |
-| Provider/Model/API 组合差异 | Model Config Rule matcher    |
+| níveis de reasoning e default      | `optionSpecs.reasoningLevel` |
+| parâmetros de reasoning na requisição ao Provider | `reasoningMapping`           |
+| diferenças de combinação Provider/Model/API | matcher de Model Config Rule    |
 
-正式 Legacy importer 没有消费 parser 返回的 `runtimePatch.modelCatalog`，因此不为该字段补写新的迁移：
+O importer Legacy oficial não consome o `runtimePatch.modelCatalog` devolvido pelo parser e, por isso, não ganha nenhuma migração nova para esse campo:
 
-- 删除 Schema、parser、merge/helper、Catalog 投影和专用测试；
-- 新 Config 不接受该字段；
-- 不建立 Personal Model Config importer；
-- 旧 `provider.*.models.*` 中 importer 已明确支持的常规字段继续按既有行为迁移；
-- `name`、`family` 等展示元数据不构成保留 Catalog 的理由。
+- Remover Schema, parser, merge/helper, projeção do Catalog e testes dedicados;
+- A nova Config não aceita esse campo;
+- Não é criado um importer de Personal Model Config;
+- Os campos comuns já suportados explicitamente pelo importer em `provider.*.models.*` continuam migrando com o comportamento existente;
+- Metadados de exibição como `name` e `family` não constituem motivo para manter o Catalog.
 
-### 2.3 Reasoning UI 复用模型选择候选项
+### 2.3 O Reasoning UI reutiliza os candidatos de seleção de modelo
 
-`ZCodeModelReasoningState` 不是运行状态，而是旧协议为选择器重新包装的一份模型选项规格。目标链固定为：
+`ZCodeModelReasoningState` não é um estado de execução, mas uma reembalagem, feita pelo protocolo antigo, de uma especificação de opções de modelo para o seletor. A cadeia alvo é fixa:
 
 ```text
 Effective Model Config.optionSpecs.reasoningLevel
@@ -107,20 +107,20 @@ Effective Model Config.optionSpecs.reasoningLevel
               ModelSelection.options.reasoningLevel
 ```
 
-裁决如下：
+As decisões são:
 
-- 模型选择候选项直接提供 `optionSpecs.reasoningLevel.values/default`；
-- Option Spec 是否存在已经表达是否提供 reasoning 选择，不再保留 `enabled`；
-- 删除独立 `ZCodeModelReasoningState` 类型、schema、builder 和映射 helper；
-- 不新增 reasoning 专用 fetch、Store、Context 或同步协议；
-- `ModelSelection` 只保存用户明确选择的 `options.reasoningLevel`，不复制档位全集和默认值；
-- `providerOptionsByLevel` 不进入 Protocol/UI；Provider 参数只保留在 Effective Model Config 的
-  `reasoningMapping`，由 ModelFactory/Adapter 正向消费；
-- UI 标签与本地化是 Selection View 的展示投影，不重新建立模型事实。
+- Os candidatos de seleção de modelo fornecem diretamente `optionSpecs.reasoningLevel.values/default`;
+- A existência do Option Spec já expressa se há seleção de reasoning; o `enabled` não é mais mantido;
+- Remover o tipo `ZCodeModelReasoningState`, seu schema, builder e helper de mapeamento;
+- Não criar fetch, Store, Context ou protocolo de sincronização dedicado a reasoning;
+- `ModelSelection` guarda apenas o `options.reasoningLevel` que o usuário escolheu explicitamente, sem copiar o conjunto completo de níveis e defaults;
+- `providerOptionsByLevel` não entra em Protocol/UI; os parâmetros de Provider ficam apenas no `reasoningMapping` do Effective Model Config, consumidos
+  diretamente pelo ModelFactory/Adapter;
+- Rótulos de UI e localização são a projeção de exibição da Selection View e não recriam fatos de modelo.
 
-### 2.4 `requiresMfjsToolSchema` 替代 modelId 特判
+### 2.4 `requiresMfjsToolSchema` substitui o tratamento especial por modelId
 
-在 Model Config 根部增加可 Overlay 的布尔字段：
+É adicionado à raiz do Model Config um campo booleano com suporte a Overlay:
 
 ```ts
 interface ModelConfigInput {
@@ -131,142 +131,141 @@ interface ModelConfigInput {
 }
 ```
 
-稀疏 Rule 可以缺省或覆盖该字段；Built-in 通用 Rule 提供完整默认值 `false`，需要当前兼容行为的精确
-Provider/Model/API 组合规则覆盖为 `true`。Registry 完整 Model Config 中该字段必须是 boolean。
+Rules esparsas podem omitir ou sobrescrever esse campo; a Rule Built-in genérica fornece o default completo `false`, e as Rules de combinação exatas de Provider/Model/API que precisam do comportamento de compatibilidade atual sobrescrevem para `true`. No Model Config completo do Registry esse campo precisa ser boolean.
 
-它不进入 `Model.properties`，也不需要进入 Protocol/UI。Todo 02 已确定 Adapter 创建 Model 时直接接收完整
-Registry Model Config，因此执行闭包可以直接读取该字段。
+Ele não entra em `Model.properties` e não precisa entrar em Protocol/UI. O Todo 02 já definiu que o Adapter recebe diretamente o Model Config completo do
+Registry ao criar o Model, de modo que o closure de execução consegue ler esse campo diretamente.
 
 ```text
 requiresMfjsToolSchema = false
-`- 原样使用 Tool Contract.inputSchema
+`- usa o Tool Contract.inputSchema como está
 
 requiresMfjsToolSchema = true
-`- 发送前复制并投影 Tool Schema
-   |- 可解析的非 #/$defs 本地 $ref -> 提升到根 $defs
-   |- 投影成功 -> 发送投影副本
-   `- 无法解析/改写 -> InvalidModelRequest，网络请求不得发出
+`- copia e projeta o Tool Schema antes de enviar
+   |- $ref local resolvível fora de #/$defs -> elevado para o $defs raiz
+   |- projeção bem-sucedida -> envia a cópia projetada
+   `- não resolvível / não reescrevível -> InvalidModelRequest, a requisição de rede não pode ser enviada
 ```
 
-本字段在当前阶段只启用已经存在的本地 `$ref` 根 `$defs` 投影，不代表 ZCode 实现或验证完整 MFJS 方言。
-本轮不处理 `oneOf`、`anyOf`、`pattern` 等其他 MFJS 规则，也不建立通用 Tool Schema dialect 系统。
+Nesta etapa o campo apenas habilita a projeção de `$ref` local para `$defs` raiz que já existe; isso não representa uma implementação nem uma validação do dialeto MFJS completo pelo ZCode.
+Nesta rodada não se trata de outras regras MFJS como `oneOf`, `anyOf` e `pattern`, nem se constrói um sistema genérico de dialeto de Tool Schema.
 
-原始 `ModelToolContract.inputSchema` 始终保持不变，并继续作为工具参数校验与执行的权威。投影只存在于
-Adapter Provider 请求装配边界。删除 `isKimiK3ModelId()` 和所有按具体 K3 modelId 触发该转换的逻辑。
+O `ModelToolContract.inputSchema` original permanece sempre intocado e continua sendo a autoridade para validação e execução dos parâmetros da ferramenta. A projeção existe somente na
+fronteira de montagem da requisição ao Provider no Adapter. Remover `isKimiK3ModelId()` e toda a lógica que acionava essa conversão por modelId específico do K3.
 
-## 3. 删除与修改范围
+## 3. Escopo de remoção e alteração
 
-### 3.1 Catalog 与 Legacy Config
+### 3.1 Catalog e Config Legacy
 
-- 删除剩余 `ModelCatalogConfig`、Catalog Service/Source/Capability Provider；
-- 删除 bundled models.dev snapshot、loader、只验证 Catalog 查询/合并的测试和打包配置；
-- 删除失去调用方的 `default-policy`、`reasoning-policy`、Catalog capability helper；
-- 删除 `modelCatalog.overrides` Config Schema、parser、merge 和 runtime patch；
-- `runtime-thought-level` 若仅剩 Catalog 反向匹配则删除；现有 Telemetry 只能读取明确的 Model options/映射，
-  不为保留观测重新建立 Catalog。
+- Remover o `ModelCatalogConfig` restante e o Catalog Service/Source/Capability Provider;
+- Remover o snapshot de models.dev embarcado, o loader, os testes que só validam consulta/merge do Catalog e a configuração de empacotamento;
+- Remover `default-policy`, `reasoning-policy` e o helper de capability do Catalog que ficaram sem chamadores;
+- Remover o Config Schema, o parser, o merge e o runtime patch de `modelCatalog.overrides`;
+- `runtime-thought-level` é removido se restar apenas o casamento reverso do Catalog; a Telemetry existente só pode ler Model options/mapeamentos explícitos e
+  não é reconstruído um Catalog para preservar a observabilidade.
 
-### 3.2 Protocol 与 UI
+### 3.2 Protocol e UI
 
-- 模型候选协议直接表达 reasoning Option Spec；
-- 删除 `ZCodeModelReasoningState`、`buildProtocolReasoningState()` 和旧 Provider reasoning 投影；
-- 删除 `providerOptionsByLevel` 跨进程字段；
-- Composer、Subagent、Off-Peak、Repo Wiki 统一从当前候选项读取 values/default；
-- 不改变各产品入口自己的草稿、保存和提交状态归属。
+- O protocolo de candidatos de modelo passa a expressar diretamente o reasoning Option Spec;
+- Remover `ZCodeModelReasoningState`, `buildProtocolReasoningState()` e a projeção antiga de reasoning do Provider;
+- Remover o campo entre processos `providerOptionsByLevel`;
+- Composer, Subagent, Off-Peak e Repo Wiki passam a ler uniformemente values/default dos candidatos atuais;
+- Não mudar a atribuição de estado de rascunho, salvamento e submissão de cada entrada de produto.
 
-### 3.3 Adapter Tool Schema 投影
+### 3.3 Projeção de Tool Schema no Adapter
 
-- `toAiSdkTools()` 从创建时完整 Model Config 取得 `requiresMfjsToolSchema`；
-- 保留并准确命名现有本地引用提升实现；
-- 无法解析的目标引用不再原样漏到 Provider，而是在请求前抛出类型化 `InvalidModelRequest`；
-- generate/stream 共用同一投影与失败路径；
-- 错误包含 Tool 名称和失败的 `$ref`，不得包含 Secret 或无关请求内容；
-- 删除 `default-policy.ts` 中 Kimi K3 Schema 判断及其 modelId variant 列表。
+- `toAiSdkTools()` obtém `requiresMfjsToolSchema` do Model Config completo disponível na criação;
+- Preservar e nomear com precisão a implementação existente de elevação de referências locais;
+- Uma referência-alvo não resolvível não vaza mais como está para o Provider e, em vez disso, lança um `InvalidModelRequest` tipado antes da requisição;
+- generate e stream compartilham a mesma projeção e o mesmo caminho de falha;
+- O erro contém o nome da Tool e o `$ref` que falhou, e não pode conter Secret nem conteúdo de requisição sem relação;
+- Remover de `default-policy.ts` o julgamento de Schema do Kimi K3 e sua lista de variantes de modelId.
 
-## 4. 明确不在本 Todo 中处理
+## 4. Explicitamente fora do escopo deste Todo
 
-- 完整 MFJS validator/projector 或通用 Tool Schema dialect 架构；
-- Off-Peak `ModelProviderModelConfig` 整体退役；
-- 公共 `ModelRef`、Result/Event identity 和历史 provenance；
-- Telemetry、Status、Context、Observation 的整体设计；
-- Account Request Auth、runtime header refresh；
-- 严格逐叶对照旧 Catalog 与 ZCode Built-in Config 的迁移审计；
-- 模型选择、Queue、恢复或 desktop/mobile realtime 语义。
+- validator/projector MFJS completo ou arquitetura genérica de dialeto de Tool Schema;
+- Aposentadoria completa do `ModelProviderModelConfig` do Off-Peak;
+- `ModelRef` público, identidade de Result/Event e provenance histórico;
+- Design geral de Telemetry, Status, Context e Observation;
+- Account Request Auth e atualização de header de runtime;
+- Auditoria de migração com correspondência folha a folha do Catalog antigo para a Config Built-in do ZCode;
+- Semântica de seleção de modelo, Queue, recuperação ou realtime desktop/mobile.
 
-## 5. 测试先行
+## 5. Testes primeiro
 
-### 5.1 Config 与 Registry
+### 5.1 Config e Registry
 
-1. `requiresMfjsToolSchema` 支持 Rule 缺省、`true`、`false`、`null` 和 Personal 后置覆盖；
-2. Built-in 通用 Rule 提供 `false`，完整性校验拒绝最终缺失/null；
-3. ZCode Built-in Config 的目标 Provider/Model/API 组合解析为 `true`，非目标组合保持 `false`；
-4. Config JSON round-trip 保留该字段；
-5. Registry/ModelFactory 不按 modelId 补齐或覆盖该字段。
+1. `requiresMfjsToolSchema` suporta omissão na Rule, `true`, `false`, `null` e sobrescrita posterior de Personal;
+2. A Rule Built-in genérica fornece `false`, e a verificação de completude rejeita ausência/nulo no resultado final;
+3. A combinação alvo de Provider/Model/API da Config Built-in do ZCode resolve para `true`, e as combinações não-alvo permanecem `false`;
+4. O round-trip do JSON da Config preserva esse campo;
+5. Registry/ModelFactory não preenchem nem sobrescrevem esse campo por modelId.
 
-### 5.2 Legacy Catalog
+### 5.2 Catalog Legacy
 
-1. 新 Schema 不接受 `modelCatalog.overrides`；
-2. Legacy importer 不读取、迁移或保留该字段；
-3. 旧 `provider.*.models.*` 已支持的迁移回归保持不变；
-4. 正常启动、模型选择和请求执行不构造 Catalog；
-5. 删除 models.dev/Catalog 后 Official/Personal 模型事实保持可解析。
+1. O novo Schema não aceita `modelCatalog.overrides`;
+2. O importer Legacy não lê, não migra e não preserva esse campo;
+3. A regressão da migração dos campos já suportados em `provider.*.models.*` continua inalterada;
+4. Inicialização normal, seleção de modelo e execução de requisições não constroem Catalog;
+5. Após remover models.dev/Catalog, os fatos de modelo Official/Personal continuam resolvíveis.
 
 ### 5.3 Reasoning Selection View
 
-1. 有 Option Spec 的候选项发布 values/default；无 Option Spec 时不发布 reasoning 选择；
-2. Composer、Subagent、Off-Peak、Repo Wiki 读取相同候选事实；
-3. 提交只写 `ModelSelection.options.reasoningLevel`；
-4. Protocol/UI 中无 `enabled` 和 `providerOptionsByLevel`；
-5. Adapter 仍按 `reasoningMapping[level]` 产生 Provider 请求参数。
+1. Candidatos com Option Spec publicam values/default; sem Option Spec não há seleção de reasoning publicada;
+2. Composer, Subagent, Off-Peak e Repo Wiki leem o mesmo fato candidato;
+3. A submissão escreve apenas `ModelSelection.options.reasoningLevel`;
+4. Não há `enabled` nem `providerOptionsByLevel` em Protocol/UI;
+5. O Adapter ainda produz os parâmetros de requisição ao Provider conforme `reasoningMapping[level]`.
 
-### 5.4 Tool Schema 投影
+### 5.4 Projeção de Tool Schema
 
-1. 字段为 `false` 时 Schema 保持原样；
-2. 字段为 `true` 时可解析的 `#/properties/...` 引用提升到根 `$defs`；
-3. 同一引用复用同一 `$defs` 项，已有 `$defs` 不被覆盖；
-4. 原始 Tool Contract 深度相等且未被修改；
-5. 无法解析的本地引用在网络前抛出 `InvalidModelRequest`；
-6. 错误包含 Tool 名和引用路径；
-7. generate/stream 行为一致；
-8. 相同 modelId 在字段为 false 时不转换，不再存在模型名隐式行为。
+1. Com o campo `false`, o Schema permanece como está;
+2. Com o campo `true`, referências `#/properties/...` resolvíveis são elevadas ao `$defs` raiz;
+3. A mesma referência reutiliza o mesmo item de `$defs`, e os `$defs` existentes não são sobrescritos;
+4. O Tool Contract original é profundamente igual e permanece não modificado;
+5. Referências locais não resolvíveis lançam `InvalidModelRequest` antes da rede;
+6. O erro contém o nome da Tool e o caminho da referência;
+7. O comportamento de generate e stream é consistente;
+8. O mesmo modelId não é convertido quando o campo é `false`, e não existe mais comportamento implícito por nome de modelo.
 
-## 6. 实施顺序
+## 6. Ordem de implementação
 
-### Step A：Config 契约与测试
+### Step A: contrato de Config e testes
 
-- 先增加 Model Config Overlay、完整性、ZCode Built-in Rule 和 JSON round-trip 失败测试；
-- 增加 `requiresMfjsToolSchema` Schema/Config/Registry 字段；
-- 在 Built-in 通用 Rule 和目标精确 Rule 中声明值。
+- Adicionar primeiro os testes de falha de Overlay de Model Config, completude, Rule Built-in do ZCode e round-trip JSON;
+- Adicionar o campo `requiresMfjsToolSchema` ao Schema/Config/Registry;
+- Declarar o valor na Rule Built-in genérica e nas Rules exatas alvo.
 
-### Step B：Tool Schema 显式驱动
+### Step B: Tool Schema dirigido explicitamente
 
-- 先增加投影成功、失败、原对象不变和 modelId 不再生效的 Adapter 测试；
-- Adapter 改读完整 Model Config 字段；
-- 删除 Kimi modelId 特判和旧测试假设。
+- Adicionar primeiro os testes de Adapter de projeção bem-sucedida, com falha, com o objeto original intacto e com modelId sem efeito;
+- Fazer o Adapter ler o campo do Model Config completo;
+- Remover o tratamento especial por modelId do Kimi e as suposições antigas dos testes.
 
-### Step C：Catalog 与 Reasoning 协议退役
+### Step C: aposentadoria do Catalog e do protocolo de Reasoning
 
-- 删除 Legacy `modelCatalog.overrides` 输入面；
-- 删除剩余 Catalog 数据、Service/Source、policy 和调用方；
-- Selection View 直接发布 reasoning Option Spec；
-- 迁移 UI 消费者并删除独立 Reasoning State。
+- Remover a superfície de entrada Legacy `modelCatalog.overrides`;
+- Remover os dados restantes do Catalog, Service/Source, policies e chamadores;
+- Fazer a Selection View publicar diretamente o reasoning Option Spec;
+- Migrar os consumidores de UI e remover o Reasoning State independente.
 
-### Step D：验证与提交
+### Step D: verificação e commit
 
-- 运行 Provider Config、Registry、Bootstrap、Adapter、Protocol 和 UI 受影响单测；
-- 运行 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`；
-- 对 Tool wire 与模型选择协议运行代表性回归；
-- 独立 Conventional Commit。
+- Executar os testes unitários afetados de Provider Config, Registry, Bootstrap, Adapter, Protocol e UI;
+- Executar `pnpm typecheck`, `pnpm lint` e `pnpm fmt:check`;
+- Executar regressões representativas no wire de Tool e no protocolo de seleção de modelo;
+- Conventional Commit independente.
 
-## 7. 机械归零与完成定义
+## 7. Zeragem mecânica e definição de conclusão
 
-- 正常生产代码无 `ModelCatalogConfig`、`ModelCatalogService`、`ModelCapabilityProvider`；
-- 无 bundled models.dev snapshot/source 和对应生产打包项；
-- Config Schema/Runtime patch 无 `modelCatalog.overrides`；
-- Protocol/UI 无 `ZCodeModelReasoningState`、`enabled`、`providerOptionsByLevel`；
-- Adapter 无 `isKimiK3ModelId()` 或其他 Tool Schema modelId hardcode；
-- `requiresMfjsToolSchema` 只来自 Effective Model Config；
-- 投影失败在网络请求前 fail-closed，不能静默删除 Tool 或原样发送已知无法转换的引用；
-- 不新增 Catalog alias、Runtime capability map、Reasoning State 或 Tool Schema compatibility Registry。
+- O código de produção normal não tem `ModelCatalogConfig`, `ModelCatalogService` nem `ModelCapabilityProvider`;
+- Não há snapshot/source de models.dev embarcado nem o item de empacotamento de produção correspondente;
+- O Config Schema/Runtime patch não tem `modelCatalog.overrides`;
+- Protocol/UI não têm `ZCodeModelReasoningState`, `enabled` nem `providerOptionsByLevel`;
+- O Adapter não tem `isKimiK3ModelId()` nem outro hardcode de modelId para Tool Schema;
+- `requiresMfjsToolSchema` vem somente do Effective Model Config;
+- A falha de projeção é fail-closed antes da requisição de rede e não pode apagar silenciosamente a Tool nem enviar como está uma referência sabidamente não conversível;
+- Não é criado nenhum alias de Catalog, mapa de capability de runtime, Reasoning State ou Registry de compatibilidade de Tool Schema.
 
-完成后，Provider/Model 静态事实只存在于当前 Config/Registry/Model 链；Reasoning UI 只消费模型选择候选
-事实；已知 K3 Tool Schema 兼容由显式 Model Config 驱动，不再依赖旧 Catalog 或具体模型名称。
+Depois de concluído, os fatos estáticos de Provider/Model existem apenas na cadeia atual Config/Registry/Model; o Reasoning UI consome apenas os fatos candidatos de seleção de
+modelo; e a compatibilidade conhecida de Tool Schema do K3 é dirigida pelo Model Config explícito, sem depender mais do Catalog antigo ou de nomes de modelo específicos.

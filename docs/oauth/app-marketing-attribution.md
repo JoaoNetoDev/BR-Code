@@ -1,22 +1,20 @@
-# App 营销归因与埋点
+# Atribuição de Marketing e Telemetria do App
 
-## 目标
+## Objetivo
 
-ZCode Desktop 从统一 OAuth 回调接收官网营销归因，并在所有发往
-`/api/v1/event/report` 的 App 业务埋点中固定携带顶层字符串字段
-`marketing_params`。
+O ZCode Desktop recebe a atribuição de marketing do site oficial a partir do callback OAuth unificado e carrega, de forma fixa, o campo string de nível superior `marketing_params` em todos os eventos de negócio do App enviados para `/api/v1/event/report`.
 
-## 回调协议
+## Protocolo de Callback
 
-统一回调 `zcode://oauth/callback` 支持：
+O callback unificado `zcode://oauth/callback` aceita:
 
 - `channel_id`
 - `utm_source`
 - `utm_campaign`
 
-三个营销参数允许部分存在，空白值不保存。App 不接收或维护营销归因过期时间。
+Os três parâmetros de marketing podem existir parcialmente, e valores em branco não são salvos. O App não recebe nem mantém prazo de validade para a atribuição de marketing.
 
-## 生命周期
+## Ciclo de Vida
 
 ```text
 startOAuth
@@ -36,18 +34,17 @@ startOAuth
        └─ 读取失败 -> 单次受控告警 + marketing_params={}，继续上报
 ```
 
-- 新的有效推广回调整体覆盖旧值。
-- 纯归因回调是最终授权前的中转阶段，同一个 OAuth state 最多接受一次；它不会消费最终授权码回调。
-- 重复纯归因回调不得重复写入归因，也不得延长 pending state 的 5 分钟生命周期。
-- 重新发起 OAuth 会取消旧 state；归因后的最终授权只允许在同一未超时 state 上继续。
-- 已保存的归因不会因时间自动失效，直到新的归因覆盖或本地凭据被清理。
-- 兼容本分支早期短暂使用过的 `{ params, expiresAt }` 存储结构，读取时忽略
-  `expiresAt`，仅保留三个营销字段。
+- Um novo callback de promoção válido sobrescreve por completo os valores antigos.
+- O callback apenas de atribuição é uma etapa de transição antes da autorização final, aceito no máximo uma vez por OAuth state; ele não consome o callback do código de autorização final.
+- Um callback apenas de atribuição repetido não pode gravar a atribuição de novo, nem estender o ciclo de vida de 5 minutos do pending state.
+- Reiniciar o OAuth cancela o state antigo; a autorização final após a atribuição só pode continuar no mesmo state que ainda não expirou.
+- A atribuição salva não expira automaticamente com o tempo, até que uma nova atribuição a sobrescreva ou que as credenciais locais sejam limpas.
+- É compatível com a estrutura de armazenamento `{ params, expiresAt }` usada brevemente no início deste branch; na leitura, `expiresAt` é ignorado e apenas os três campos de marketing são mantidos.
 
-## 埋点契约
+## Contrato de Telemetria
 
-所有经 `TelemetryCore` 上报到 `/api/v1/event/report` 的事件，包括
-`app_launch`、`app_daily_active` 和 renderer 业务事件，均携带：
+Todos os eventos reportados por `TelemetryCore` para `/api/v1/event/report`, incluindo
+`app_launch`, `app_daily_active` e os eventos de negócio do renderer, carregam:
 
 ```json
 {
@@ -55,7 +52,7 @@ startOAuth
 }
 ```
 
-无归因时仍保留字段：
+Sem atribuição, o campo ainda é mantido:
 
 ```json
 {
@@ -63,26 +60,22 @@ startOAuth
 }
 ```
 
-ARMS 崩溃、性能、资源和网络观测不属于 `/api/v1/event/report` 业务埋点，
-不携带营销归因。
+Crash, performance, recursos e observabilidade de rede do ARMS não pertencem aos eventos de negócio de `/api/v1/event/report` e não carregam atribuição de marketing.
 
-归因凭据读取是 telemetry 的附加上下文，不是上报前置条件。读取异常时仍发送原事件，
-`marketing_params` 使用空对象；同一个 `TelemetryCore` 生命周期只通过 service logger 记录一次固定脱敏告警，
-不附带原始 Error、stack、本机路径或凭据后端详情，避免高频事件刷屏和扩大隐私暴露面。
+A leitura das credenciais de atribuição é contexto adicional da telemetria, não um pré-requisito do envio. Mesmo com exceção na leitura, o evento original continua sendo enviado, com `marketing_params` como objeto vazio; dentro de um mesmo ciclo de vida de `TelemetryCore`, um aviso fixo e anonimizado é registrado apenas uma vez pelo service logger, sem anexar Error original, stack, caminho local ou detalhes do backend de credenciais, evitando spam de eventos de alta frequência e ampliando a exposição de privacidade.
 
-## 审核修复覆盖
+## Cobertura de Correções em Revisão
 
-| Case ID       | Setup                      | Action                      | Assertions                                               |
-| ------------- | -------------------------- | --------------------------- | -------------------------------------------------------- |
-| OAuth-ATTR-01 | pending state 尚未接收归因 | 投递纯归因回调              | 保存一次并进入 `phase="awaiting-code-after-attribution"` |
-| OAuth-ATTR-02 | 同一 state 已接收归因      | 重复投递纯归因回调          | 拒绝且不覆盖首次归因                                     |
-| OAuth-ATTR-03 | 同一 state 已接收归因      | 投递最终授权码              | 清理 pending 并完成登录                                  |
-| OAuth-ATTR-04 | 旧 state 已接收归因        | 再次 `startOAuth`           | 旧 state 失效，新 state 可继续                           |
-| OAuth-ATTR-05 | 同一 state 已接收归因      | 等待超过 5 分钟后投递授权码 | 以 state 过期拒绝                                        |
-| OAuth-ATTR-06 | 归因凭据读取失败           | telemetry 上报              | 使用 `{}` 继续发送，并仅告警一次                         |
+| Case ID     | Setup                          | Action                             | Assertions                                                |
+| ----------- | ------------------------------ | ---------------------------------- | --------------------------------------------------------- |
+| OAuth-ATTR-01 | pending state ainda sem atribuição | entregar callback apenas de atribuição | salva uma vez e entra em `phase="awaiting-code-after-attribution"` |
+| OAuth-ATTR-02 | o mesmo state já recebeu atribuição | repetir o callback apenas de atribuição | rejeita e não sobrescreve a primeira atribuição |
+| OAuth-ATTR-03 | o mesmo state já recebeu atribuição | entregar o código de autorização final | limpa o pending e conclui o login |
+| OAuth-ATTR-04 | o state antigo já recebeu atribuição | chamar `startOAuth` novamente | o state antigo expira e o novo state pode continuar |
+| OAuth-ATTR-05 | o mesmo state já recebeu atribuição | aguardar mais de 5 minutos e entregar o código | rejeitado por expiração do state |
+| OAuth-ATTR-06 | falha na leitura das credenciais de atribuição | envio de telemetria | continua enviando com `{}` e emite aviso apenas uma vez |
 
-## 存储边界
+## Limites de Armazenamento
 
-归因以 `oauth:login_attribution` 为 key，通过 CredentialService 加密保存到 App
-全局凭据存储。它不按 provider、窗口或 workspace 隔离，本地与远程 workspace
-窗口共享同一份 App 归因。
+A atribuição é armazenada com a key `oauth:login_attribution`, salva de forma criptografada pelo CredentialService no armazenamento de credenciais global do App.
+Ela não é isolada por provider, janela ou workspace: janelas de workspace local e remoto compartilham a mesma atribuição de App.

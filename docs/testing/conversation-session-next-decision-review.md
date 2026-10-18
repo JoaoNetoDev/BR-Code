@@ -1,63 +1,64 @@
 # Conversation Session Next Decision Review
 
-目标：把当前仍待产品决策的会话区 case 按固定顺序展开，产品确认后再回写 catalog、coverage matrix 和 E2E。
+Objetivo: expandir em ordem fixa os casos da área de sessão que ainda aguardam decisão de produto e, após a confirmação do
+produto, reescrever o catalog, a coverage matrix e os E2E.
 
-生成命令：
+Comando de geração:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --review-next-md
 ```
 
-## 当前状态
+## Situação atual
 
-| 指标 | 当前值 |
+| Métrica | Valor atual |
 | --- | ---: |
-| Product case 总数 | 221 |
-| 已覆盖 | 125 |
-| 待产品决策 / 自动化 | 36 |
-| 协议题总数 | 36 |
-| 协议题 unanswered | 36 |
-| Ready case | 0 |
-| Blocked case | 36 |
-| 下一批 review | N01, N02, N03 |
-| 当前输出范围 | 下一批 review：N01, N02, N03 |
-| 当前输出 case | 3 |
+| Total de product cases | 221 |
+| Já cobertos | 125 |
+| Aguardando decisão de produto / automação | 36 |
+| Total de questões de protocolo | 36 |
+| Questões de protocolo unanswered | 36 |
+| Cases Ready | 0 |
+| Cases Blocked | 36 |
+| Próximo lote de review | N01, N02, N03 |
+| Escopo de saída atual | próximo lote de review: N01, N02, N03 |
+| Cases na saída atual | 3 |
 
-## 使用方式
+## Como usar
 
-1. 按本文件顺序 review case。
-2. 对每个 `Question` 写下明确产品结论。
-3. 回到对应 decision worksheet，把 `产品结论` 从 `待确认` 改成明确结论，并把 `Status` 改成 `answered`。
-4. 按 `回写目标` 更新源 catalog / fault catalog / coverage matrix。
-5. 产品语义明确后，再写对应 E2E，最后运行 `pnpm audit:conversation-session-coverage`。
+1. Revisar os cases na ordem deste arquivo.
+2. Para cada `Question`, escrever uma conclusão de produto explícita.
+3. Voltar à decision worksheet correspondente, trocar `产品结论` de `待确认` para uma conclusão explícita e mudar `Status` para `answered`.
+4. Atualizar o catalog de origem / fault catalog / coverage matrix conforme `回写目标`.
+5. Depois que a semântica de produto estiver clara, escrever os E2E correspondentes e, por fim, executar `pnpm audit:conversation-session-coverage`.
 
 ## Review Queue
 
-### P0-2 模型/API 请求故障
+### P0-2 Falhas de requisição de modelo/API
 
 #### N01
 
 - worksheet: `networkSse`
 - unanswered questions: 1
 
-| Question | 需要确认 | 候选答案摘要 / 验证关键词 | 回写目标 |
+| Question | O que confirmar | Resumo das respostas candidatas / palavras-chave de verificação | Alvo da reescrita |
 | --- | --- | --- | --- |
-| N01.1 | 401/403 后最终状态、设置引导、user message 与 queue 是否保留 | auth error、settings entry、queue snapshot | fault N01、fault coverage N01 |
+| N01.1 | Estado final após 401/403, guia de configuração, se a user message e a queue são preservadas | auth error、settings entry、queue snapshot | fault N01、fault coverage N01 |
 
 #### N02
 
 - worksheet: `networkSse`
 - unanswered questions: 1
 
-| Question | 需要确认 | 候选答案摘要 / 验证关键词 | 回写目标 |
+| Question | O que confirmar | Resumo das respostas candidatas / palavras-chave de verificação | Alvo da reescrita |
 | --- | --- | --- | --- |
-| N02.1 | provider/API Key 缺失是发送前阻止还是发送后失败，draft 是否保留 | no network request、composer draft、settings entry | fault N02、fault coverage N02 |
+| N02.1 | Se a ausência de provider/API Key é bloqueada antes do envio ou falha depois do envio, e se o draft é preservado | no network request、composer draft、settings entry | fault N02、fault coverage N02 |
 
 #### N03
 
 - worksheet: `networkSse`
 - unanswered questions: 1
 
-| Question | 需要确认 | 候选答案摘要 / 验证关键词 | 回写目标 |
+| Question | O que confirmar | Resumo das respostas candidatas / palavras-chave de verificação | Alvo da reescrita |
 | --- | --- | --- | --- |
-| N03.1 | 429 retry 策略、retry 期间入队、最终失败后的状态与 queue | retry count、toolbar retry、queue | fault N03、fault coverage N03 |
+| N03.1 | Estratégia de retry do 429, enfileiramento durante o retry, estado e queue após a falha final | retry count、toolbar retry、queue | fault N03、fault coverage N03 |

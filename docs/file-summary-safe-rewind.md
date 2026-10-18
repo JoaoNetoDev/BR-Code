@@ -1,43 +1,55 @@
-# Summary 文件撤销安全预检
+# Pré-verificação segura de undo de arquivos no summary
 
-## 背景
+## Contexto
 
-消息 summary 中的文件变更按钮用于撤销本轮文件修改。旧链路直接调用 workspace rewind，
-只依赖 checkpoint 的 `beforeContent` 写回，无法确认用户点击时文件是否已经被其他进程改过。
-当同一个文件在同一轮里被多个 tool 连续修改时，也必须按照 checkpoint 的创建顺序倒序逐次回放，
-不能只使用最终聚合 diff 做一次写回。
+O botão de alterações de arquivos no summary de uma mensagem serve para desfazer as modificações de arquivo
+desta rodada. O fluxo antigo chamava diretamente o workspace rewind e dependia apenas da escrita de volta do
+`beforeContent` do checkpoint, sem conseguir confirmar se o arquivo já havia sido alterado por outro processo
+no momento do clique. Quando o mesmo arquivo é modificado consecutivamente por várias tools na mesma rodada,
+também é preciso reproduzir os checkpoints em ordem inversa, na ordem de criação, e não apenas usar o diff
+agregado final para uma única escrita de volta.
 
-## 目标
+## Objetivos
 
-- 点击 summary 的文件撤销按钮时先弹出确认弹窗。
-- 弹窗按文件展示哪些文件可以安全撤销、哪些文件不能安全撤销。
-- bash/shell 类工具产生的文件修改不参与 summary 文件撤销，也不出现在可撤销列表中。
-- 一个文件被多个非 bash tool 修改时，执行撤销必须按 checkpoint 倒序逐次回放。
-- 应用撤销前必须重新预检；只要存在 unsafe 文件，本次不写任何文件。
-- 桌面端和手机远控都复用当前 session host，不创建独立 runtime。
+- Ao clicar no botão de undo de arquivos do summary, exibir primeiro um diálogo de confirmação.
+- O diálogo mostra, por arquivo, quais arquivos podem ser desfeitos com segurança e quais não podem.
+- Modificações de arquivo geradas por ferramentas bash/shell não participam do undo de arquivos do summary nem
+  aparecem na lista de arquivos desfezíveis.
+- Quando um arquivo é modificado por várias tools não-bash, o undo deve ser reproduzido checkpoint por
+  checkpoint, em ordem inversa.
+- Antes de aplicar o undo, é preciso refazer a pré-verificação; se existir qualquer arquivo unsafe, nada é
+  escrito nesta rodada.
+- Desktop e o controle remoto do celular reutilizam o session host atual, sem criar runtime independente.
 
-## 非目标
+## Não objetivos
 
-- 不实现“重新应用”。当前 checkpoint artifact 只可靠保存变更前内容，不能安全恢复变更后内容。
-- 不做部分撤销。P0 采用 all-or-nothing：存在 unsafe 文件时禁用确认按钮。
-- 不根据 UI 的 `fileChanges.snapshots` 或 tool result 推断写回内容；真正的预检和写回由 agent runtime 完成。
+- Não implementar “reaplicar”. O artifact de checkpoint atual guarda de forma confiável apenas o conteúdo
+  anterior à mudança, e não o conteúdo posterior.
+- Não fazer undo parcial. O P0 adota all-or-nothing: havendo arquivos unsafe, o botão de confirmação é
+  desabilitado.
+- Não inferir o conteúdo da escrita de volta a partir de `fileChanges.snapshots` da UI ou do tool result; a
+  pré-verificação e a escrita de volta reais são feitas pelo agent runtime.
 
-## 与 editUserQuery 组合重置的边界
+## Boundaries da combinação do reset com editUserQuery
 
-- summary 的 `applyFileRewind` 保持 workspace-only；它可以展示 ignored shell 文件并撤销其余安全文件。
-- 行内编辑的 `editUserQuery(workspaceMode=rewind)` 要求完整回滚目标轮：unsafe、ignored shell、
-  unsupported 或没有安全 checkpoint 都返回结构化 blocked，不写文件、不裁 conversation、不发模型请求。
-- 组合模式必须在同一 Agent command 内重新预检、写文件、提交 branch cut；UI 禁止串联两条 CAS 命令。
-- 多文件写入使用补偿 journal；branch/admission 在提交点前失败时恢复命令前文件内容和旧 branch metadata。
+- O `applyFileRewind` do summary permanece workspace-only; ele pode exibir arquivos shell ignorados e desfazer
+  os demais arquivos seguros.
+- O `editUserQuery(workspaceMode=rewind)` da edição inline exige o rollback completo da rodada alvo: unsafe,
+  shell ignorado, unsupported ou sem checkpoint seguro retornam um blocked estruturado, sem escrever arquivos,
+  sem recortar a conversa e sem enviar requisição ao modelo.
+- O modo combinado precisa refazer a pré-verificação, escrever os arquivos e efetivar o branch cut dentro do
+  mesmo Agent command; a UI não pode encadear dois comandos CAS.
+- A escrita de múltiplos arquivos usa um journal de compensação; quando branch/admission falha antes do ponto de
+  commit, o conteúdo dos arquivos anterior ao comando e o antigo branch metadata são restaurados.
 
-## 协议
+## Protocolo
 
-新增两个 ZCode Protocol session 方法：
+Dois novos métodos de sessão do ZCode Protocol:
 
 - `session/previewFileRewind`
 - `session/applyFileRewind`
 
-参数复用 session 历史 target：
+Os parâmetros reutilizam o target de histórico da sessão:
 
 ```ts
 {
@@ -47,7 +59,7 @@
 }
 ```
 
-preview 返回文件级结果：
+O preview retorna resultados por arquivo:
 
 ```ts
 {
@@ -80,31 +92,43 @@ preview 返回文件级结果：
 }
 ```
 
-`applyFileRewind` 返回重新预检后的 preview、是否 applied，以及应用后的 snapshot。
+`applyFileRewind` retorna o preview refeito após a nova pré-verificação, se foi applied e o snapshot após a
+aplicação.
 
-## Runtime 算法
+## Algoritmo do Runtime
 
-1. 根据 target 定位 checkpoint owner。checkpoint 以本轮 user message 为 owner；
-   UI 传入 assistant message 时，协议层先归一化到 parent user message，再兜底匹配同 parent 下的 raw assistant step。
-   `turn` target 同样解析到对应轮次的 user message。
-2. 读取该 owner 对应的 workspace/both checkpoint。若该轮有多个 checkpoint，按创建顺序保留。
-3. 读取所有 checkpoint artifact；读取失败的 checkpoint 涉及文件标记为 unsafe。
-4. 忽略 bash/shell/terminal 类 artifact。
-5. 对非 bash artifact 构建操作序列，按 checkpoint 创建顺序倒序检查。
-6. 每个文件当前内容必须等于该 checkpoint 的 after 内容，才允许把它写回 before 内容。
-   after 内容优先由 artifact 显式字段提供；旧 artifact 可由 `beforeContent + structuredPatch` 重建。
-7. 预检阶段只模拟写回，不改磁盘。apply 阶段重新执行同一预检；`canApply=false` 时不写文件。
-8. apply 写回同样按 checkpoint 倒序逐步执行，保证多 tool 修改同一文件时恢复到本轮开始前状态。
+1. Localizar o owner do checkpoint com base no target. O checkpoint tem como owner a user message da rodada; quando
+   a UI passa a assistant message, a camada de protocolo normaliza primeiro para a user message pai e, como
+   fallback, casa com o raw assistant step sob o mesmo pai. O target `turn` também é resolvido para a user
+   message da rodada correspondente.
+2. Ler os checkpoints workspace/both desse owner. Se a rodada tiver vários checkpoints, todos são mantidos na
+   ordem de criação.
+3. Ler todos os artifacts de checkpoint; checkpoints cuja leitura falhou marcam os arquivos envolvidos como
+   unsafe.
+4. Ignorar artifacts de bash/shell/terminal.
+5. Para os artifacts não-bash, construir a sequência de operações e verificá-la na ordem inversa da criação dos
+   checkpoints.
+6. O conteúdo atual de cada arquivo precisa ser igual ao conteúdo after daquele checkpoint para que a escrita de
+   volta do conteúdo before seja permitida. O conteúdo after vem preferencialmente de campos explícitos do
+   artifact; artifacts antigos podem ser reconstruídos a partir de `beforeContent + structuredPatch`.
+7. A fase de pré-verificação apenas simula a escrita de volta, sem alterar o disco. A fase de apply reexecuta a
+   mesma pré-verificação; com `canApply=false`, nenhum arquivo é escrito.
+8. A escrita de volta do apply também é executada passo a passo na ordem inversa dos checkpoints, garantindo que,
+   quando várias tools modificam o mesmo arquivo, ele volte ao estado anterior ao início da rodada.
 
-## UI 行为
+## Comportamento da UI
 
-- summary header 的按钮只负责打开弹窗。
-- 弹窗显示可撤销文件；只有存在 unsafe 文件时才显示不可安全撤销区块。文件行展示文件路径、动作、涉及 tool 数/操作数。
-- 有 unsafe 文件时确认按钮禁用，并提示需要先手动处理这些文件。
-- apply 成功后刷新 session snapshot，summary 的 `fileState` 更新为 `reverted`。
+- O botão no header do summary serve apenas para abrir o diálogo.
+- O diálogo exibe os arquivos que podem ser desfeitos; o bloco de arquivos que não podem ser desfeitos com
+  segurança só aparece quando existem arquivos unsafe. Cada linha de arquivo mostra o caminho, a ação e o
+  número de tools/operações envolvidas.
+- Havendo arquivos unsafe, o botão de confirmação é desabilitado e informa que esses arquivos precisam ser
+  tratados manualmente antes.
+- Após um apply bem-sucedido, o snapshot da sessão é atualizado e o `fileState` do summary passa para `reverted`.
 
-## 远控边界
+## Boundaries do Controle Remoto
 
-该能力是 session command，不改变 task realtime 传输语义。桌面端仍保持
-`desktop-continuous` 主链路；手机远控通过 shared-host attachment 调用同一 session host，
-再按 replayable snapshot 恢复 UI，不把 replayable 运行态恢复逻辑扩散到桌面端。
+Essa capacidade é um session command e não altera a semântica de transporte realtime de task. O desktop continua
+com o fluxo principal `desktop-continuous`; o controle remoto do celular chama o mesmo session host por shared-host
+attachment e restaura a UI pelo snapshot replayable, sem espalhar a lógica de restauração de estado replayable
+para o desktop.

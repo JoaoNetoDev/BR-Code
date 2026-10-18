@@ -1,118 +1,118 @@
-# ZCode `/init` AGENTS.md Command
+# Comando ZCode `/init` AGENTS.md
 
-## Feature Summary
+## Resumo da funcionalidade
 
-| Field | Value |
+| Campo | Valor |
 | --- | --- |
-| Change | Add a built-in `/init` prompt command that creates or updates the current workspace `AGENTS.md`. |
-| User-visible surfaces | Desktop app slash suggestions, app `--stdio` prompt send path, CLI/TUI slash command help and dispatch. |
-| Existing docs | `docs/architecture/zcode-code-architecture-overview.md`, `docs/architecture/message-flow.md`, `apps/zcode-cli/docs/design/agents-user-instructions-merge.md`, `docs/settings-directory-sources.md`. |
-| Existing code owners | Agent bootstrap input facade, ZCode Protocol slash command list, CLI command center, UI slash suggestions. |
-| Out of scope | New ZCode Protocol method, mobile-only replay semantics, global `~/.zcode/AGENTS.md` initialization, conversation E2E expansion. |
+| Mudança | Adicionar um comando de prompt embutido `/init` que cria ou atualiza o `AGENTS.md` do workspace atual. |
+| Superfícies visíveis ao usuário | Sugestões de slash do app desktop, caminho de envio de prompt `--stdio` do app, ajuda e despacho de comandos slash da CLI/TUI. |
+| Docs existentes | `docs/architecture/zcode-code-architecture-overview.md`, `docs/architecture/message-flow.md`, `apps/zcode-cli/docs/design/agents-user-instructions-merge.md`, `docs/settings-directory-sources.md`. |
+| Responsáveis pelo código existente | Fachada de entrada do bootstrap do agente, lista de comandos slash do ZCode Protocol, central de comandos da CLI, sugestões de slash da UI. |
+| Fora de escopo | Novo método do ZCode Protocol, semântica de replay exclusiva de mobile, inicialização do `~/.zcode/AGENTS.md` global, expansão do E2E de conversa. |
 
-## Clarification Log
+## Registro de esclarecimentos
 
-| Round | Question | User answer | Boundary fixed | Follow-up needed |
+| Rodada | Pergunta | Resposta do usuário | Limite fixado | Necessário acompanhamento |
 | --- | --- | --- | --- | --- |
-| 1 | Should ZCode mirror Claude-style `/init`, but target ZCode instructions? | "加一下" after the proposed plan. | Implement `/init` as a built-in prompt command that creates `AGENTS.md`. | no |
-| 1 | Is `AGNENTS.md` intended literally? | Not corrected after the plan; project source of truth is `AGENTS.md`. | Treat `AGNENTS.md` as a typo and create/update `AGENTS.md`. | no |
-| 1 | Should v1 include user-global instructions? | No explicit request. | v1 targets the current workspace root only. | yes, future `/init --user` can be specified later. |
+| 1 | O ZCode deveria espelhar o `/init` no estilo Claude, mas mirando as instruções do ZCode? | "加一下" após o plano proposto. | Implementar `/init` como comando de prompt embutido que cria `AGENTS.md`. | não |
+| 1 | `AGNENTS.md` é intencional ao pé da letra? | Não corrigido após o plano; a fonte de verdade do projeto é `AGENTS.md`. | Tratar `AGNENTS.md` como typo e criar/atualizar `AGENTS.md`. | não |
+| 1 | A v1 deve incluir instruções globais do usuário? | Nenhum pedido explícito. | A v1 mira apenas a raiz do workspace atual. | sim, o futuro `/init --user` pode ser especificado depois. |
 
-## Boundary Decisions
+## Decisões de limite
 
-| Boundary | Decision | Includes | Excludes / prunes | Source |
+| Limite | Decisão | Inclui | Exclui / poda | Fonte |
 | --- | --- | --- | --- | --- |
-| Command semantics | `/init` is a normal prompt command, not a session command. | The UI sends `/init` through normal prompt send/queue flow; agent rewrites it into an initialization prompt. | No `session/init` protocol method and no special UI session-control path. | `docs/architecture/message-flow.md`, code inspection |
-| Target file | Current workspace root `AGENTS.md`. | Missing file creation; existing file read and patch. | `CLAUDE.md`, `AGNENTS.md`, user-global `~/.zcode/AGENTS.md`. | User request and `agents-user-instructions-merge.md` |
-| Existing hidden instructions | Check workspace `.zcode/AGENTS.md` and `.agents/AGENTS.md` before creating a new root file. | If either hidden-path instruction file exists, tell the user instructions already exist and no new file is needed. | Creating a duplicate root `AGENTS.md` in that case. | User follow-up |
-| App support | Support app `--stdio` by reusing `session/send`. | `session/send -> record.app.sendInput -> input facade prompt resolver -> runtime turn`. | Relay/main ownership of business state. | `docs/architecture/zcode-code-architecture-overview.md` |
-| Command ownership | Built-in `/init` reserves the `init` name. | App slash list and CLI help include `/init`; custom `/init` is hidden by reserved-name filtering. | Letting custom `/init` override builtin behavior. | Existing reserved command model |
-| Running session behavior | `/init` behaves like ordinary prompt input. | Completed sessions send immediately; running/compacting behavior follows existing queue/steer guards. | Special compact/goal control handling. | `docs/conversation-protocol-declaration.md` |
-| Visible query text | Provider input and UI-visible query are split. | The model receives the expanded `/init` prompt; TurnStarted, transcript, title seed, and UI snapshots keep the original `/init ...` user query. | Showing the long built-in prompt in the user bubble. | Runtime bug report `sess_12c80069-7d45-4288-959f-fb64c608cb97` |
+| Semântica do comando | `/init` é um comando de prompt normal, não um comando de sessão. | A UI envia `/init` pelo fluxo normal de envio/fila de prompt; o agente o reescreve em um prompt de inicialização. | Nenhum método de protocolo `session/init` e nenhum caminho especial de controle de sessão na UI. | `docs/architecture/message-flow.md`, inspeção de código |
+| Arquivo alvo | `AGENTS.md` na raiz do workspace atual. | Criação do arquivo ausente; leitura e patch do arquivo existente. | `CLAUDE.md`, `AGNENTS.md`, `~/.zcode/AGENTS.md` global do usuário. | Pedido do usuário e `agents-user-instructions-merge.md` |
+| Instruções ocultas existentes | Verificar `.zcode/AGENTS.md` e `.agents/AGENTS.md` do workspace antes de criar um novo arquivo raiz. | Se qualquer arquivo de instrução em caminho oculto existir, informar ao usuário que as instruções já existem e que não é necessário arquivo novo. | Criar um `AGENTS.md` raiz duplicado nesse caso. | Seguimento do usuário |
+| Suporte do app | Suportar o `--stdio` do app reutilizando `session/send`. | `session/send -> record.app.sendInput -> resolvedor de prompt da fachada de entrada -> turno do runtime`. | Propriedade de relay/main sobre o estado de negócio. | `docs/architecture/zcode-code-architecture-overview.md` |
+| Posse do comando | O `/init` embutido reserva o nome `init`. | A lista de slash do app e a ajuda da CLI incluem `/init`; um `/init` customizado é ocultado pelo filtro de nomes reservados. | Permitir que um `/init` customizado sobrescreva o comportamento embutido. | Modelo existente de comandos reservados |
+| Comportamento em sessão em execução | `/init` se comporta como entrada de prompt comum. | Sessões concluídas enviam imediatamente; comportamento de execução/compactação segue as guardas existentes de fila/steer. | Tratamento especial de compactação/controle de meta. | `docs/conversation-protocol-declaration.md` |
+| Texto de consulta visível | Entrada do provider e consulta visível na UI são separadas. | O modelo recebe o prompt `/init` expandido; TurnStarted, transcrição, semente de título e snapshots da UI mantêm a consulta original `/init ...`. | Mostrar o prompt embutido longo no balão do usuário. | Relatório de bug do runtime `sess_12c80069-7d45-4288-959f-fb64c608cb97` |
 
-## Domain Scope
+## Escopo de domínio
 
-| Domain | Include? | Why it can change behavior | Primary sources |
+| Domínio | Incluir? | Por que pode mudar comportamento | Fontes primárias |
 | --- | --- | --- | --- |
-| Architecture/process boundary | yes | The requested app support depends on stdio and ownership boundaries. | `docs/architecture/zcode-code-architecture-overview.md`, `docs/architecture/message-flow.md` |
-| Conversation/session behavior | yes | `/init` enters through normal prompt send and queue behavior. | `docs/conversation-protocol-declaration.md`, `docs/conversation-product-state-space.md` |
-| Permission/tool/MCP/subagents | yes | The generated turn may use `Read`, `Glob`, `Grep`, `Bash`, `Write`, and `Edit`, all through existing permission flow. | `docs/permission-project-approval.md`, protocol tool event code |
-| UI shell/theme/locale/responsive | limited | UI change is only slash suggestion visibility, no new component or layout. | `DESIGN.md`, `packages/ui/src/slashCommandHelpers.ts` |
-| Mobile remote/replayable realtime | pruned | No new replayable command path; normal prompt delivery continues to use existing client mode boundaries. | `docs/web-remote-control/task-realtime-sync.md` |
+| Limite de arquitetura/processo | sim | O suporte ao app solicitado depende dos limites de stdio e de posse. | `docs/architecture/zcode-code-architecture-overview.md`, `docs/architecture/message-flow.md` |
+| Comportamento de conversa/sessão | sim | `/init` entra pelo envio de prompt normal e pelo comportamento de fila. | `docs/conversation-protocol-declaration.md`, `docs/conversation-product-state-space.md` |
+| Permissão/ferramenta/MCP/subagentes | sim | O turno gerado pode usar `Read`, `Glob`, `Grep`, `Bash`, `Write` e `Edit`, todos pelo fluxo de permissões existente. | `docs/permission-project-approval.md`, código de eventos de ferramenta do protocolo |
+| Casca/tema/localidade/responsivo da UI | limitado | A mudança de UI é apenas a visibilidade da sugestão de slash, sem novo componente ou layout. | `DESIGN.md`, `packages/ui/src/slashCommandHelpers.ts` |
+| Remoto/replayable realtime de mobile | podado | Nenhum novo caminho de comando replayable; a entrega normal de prompt continua a usar os limites existentes de modo de cliente. | `docs/web-remote-control/task-realtime-sync.md` |
 
-## Concept Map
+## Mapa de conceitos
 
-| Concept | Why it matters | Source |
+| Conceito | Por que importa | Fonte |
 | --- | --- | --- |
-| `AGENTS.md` instruction merge | Confirms ZCode already reads user default and workspace `AGENTS.md`; `/init` creates the workspace source file. | `apps/zcode-cli/docs/design/agents-user-instructions-merge.md` |
-| Input facade command resolver | Existing place where submitted prompt text can be rewritten before runtime execution. | `apps/zcode-cli/packages/bootstrap/src/app/input-facade.ts` |
-| Protocol slash command list | App snapshots use this list to show built-in and custom commands. | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/slash-commands.ts` |
-| UI visible slash filter | The app hides unsupported builtins locally even if older protocol snapshots contain them. | `packages/ui/src/slashCommandHelpers.ts` |
-| CLI command center | TUI parses known slash commands locally; known commands need explicit dispatch to avoid resume fallback. | `apps/zcode-cli/packages/cli/src/command-center/create.ts` |
+| Merge de instruções do `AGENTS.md` | Confirma que o ZCode já lê o padrão do usuário e o `AGENTS.md` do workspace; `/init` cria o arquivo-fonte do workspace. | `apps/zcode-cli/docs/design/agents-user-instructions-merge.md` |
+| Resolvedor de comandos da fachada de entrada | Lugar existente onde o texto de prompt submetido pode ser reescrito antes da execução no runtime. | `apps/zcode-cli/packages/bootstrap/src/app/input-facade.ts` |
+| Lista de comandos slash do protocolo | Snapshots do app usam esta lista para mostrar comandos embutidos e customizados. | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/slash-commands.ts` |
+| Filtro de slash visível da UI | O app oculta embutidos não suportados localmente mesmo que snapshots antigos do protocolo os contenham. | `packages/ui/src/slashCommandHelpers.ts` |
+| Central de comandos da CLI | A TUI faz parse local de comandos slash conhecidos; comandos conhecidos precisam de despacho explícito para evitar o fallback de resume. | `apps/zcode-cli/packages/cli/src/command-center/create.ts` |
 
-## State Owners
+## Donos de estado
 
-| State / fact | Authority | Mirrors / caches | Evidence |
+| Estado / fato | Autoridade | Espelhos / caches | Evidência |
 | --- | --- | --- | --- |
-| Slash command availability | Agent protocol snapshot | UI task meta slash command cache | `listProtocolSlashCommands` unit test |
-| Prompt text rewrite | Agent bootstrap input facade | none | Resolver unit test and app submit path |
-| `AGENTS.md` file contents | Workspace filesystem | Future context source reads | Runtime/tool events and file existence |
-| Running/queued behavior | Existing session service and UI queue | Task store projection | Existing conversation matrix; no new E2E in v1 |
+| Disponibilidade de comando slash | Snapshot de protocolo do agente | Cache de comandos slash da meta da task na UI | Teste unitário de `listProtocolSlashCommands` |
+| Reescrita do texto de prompt | Fachada de entrada do bootstrap do agente | nenhum | Teste unitário do resolvedor e caminho de submissão do app |
+| Conteúdo do arquivo `AGENTS.md` | Sistema de arquivos do workspace | Leituras futuras de fontes de contexto | Eventos de runtime/ferramentas e existência do arquivo |
+| Comportamento em execução/fila | Serviço de sessão existente e fila da UI | Projeção do task store | Matriz de conversas existente; sem novo E2E na v1 |
 
-## Dimensions
+## Dimensões
 
-| Dimension | Values / equivalence classes | Include? | Reason |
+| Dimensão | Valores / classes de equivalência | Incluir? | Razão |
 | --- | --- | --- | --- |
-| Client surface | desktop app stdio, TUI, headless `--prompt` | yes | All should route `/init` to the same resolver. |
-| Workspace file state | missing `AGENTS.md`, existing `AGENTS.md`, hidden `.zcode/AGENTS.md` or `.agents/AGENTS.md` present | yes | Prompt must distinguish write, edit, and no-op-with-message. |
-| Command source conflict | builtin `init`, custom `init` | yes | Builtin reserves the name. |
-| Session phase | completed, running/compacting | limited | Reuse existing normal prompt behavior; no new product rule. |
-| User-global target | `~/.zcode/AGENTS.md` | pruned | Not in v1. |
+| Superfície de cliente | stdio do app desktop, TUI, `--prompt` headless | sim | Todos devem rotear `/init` ao mesmo resolvedor. |
+| Estado do arquivo do workspace | `AGENTS.md` ausente, `AGENTS.md` existente, `.zcode/AGENTS.md` ou `.agents/AGENTS.md` oculto presente | sim | O prompt deve distinguir escrita, edição e no-op-com-mensagem. |
+| Conflito de origem do comando | `init` embutido, `init` customizado | sim | O embutido reserva o nome. |
+| Fase da sessão | concluída, em execução/compactando | limitado | Reutiliza o comportamento normal de prompt existente; sem nova regra de produto. |
+| Alvo global do usuário | `~/.zcode/AGENTS.md` | podado | Fora da v1. |
 
-## Candidate Combinations
+## Combinações candidatas
 
-| Candidate ID | State | Event | Target/surface | Expected guard/effect | Initial status | Notes |
+| ID do candidato | Estado | Evento | Alvo/superfície | Guarda/efeito esperado | Status inicial | Notas |
 | --- | --- | --- | --- | --- | --- | --- |
-| INIT-01 | Workspace has no `AGENTS.md` | User sends `/init` | Desktop app stdio | Normal prompt starts; model inspects repo and writes workspace `AGENTS.md`. | accepted | Covered by prompt resolver and slash visibility tests; manual runtime smoke can verify file write. |
-| INIT-02 | Workspace has existing `AGENTS.md` | User sends `/init` | Any surface | Model reads existing file and edits it, avoiding overwrite. | accepted | Prompt-level behavior. |
-| INIT-03 | Custom command `/init` exists | Slash list/submit | Agent command discovery | Builtin command wins; custom `/init` hidden/reserved. | accepted | Keeps builtins predictable. |
-| INIT-04 | Running session | User sends `/init` | App composer | Existing normal prompt queue/steer behavior applies. | accepted | No special session command branch. |
-| INIT-05 | User requests global instructions | User sends `/init --user` | Any surface | v1 treats args as additional instruction but prompt keeps workspace target. | pruned | Future feature can add explicit `--user`. |
-| INIT-06 | App/stdIO sends `/init` | Runtime prompt resolver expands command | App composer and transcript | Provider receives expanded prompt; UI-visible user message remains `/init`. | accepted | Regression from `sess_12c80069-7d45-4288-959f-fb64c608cb97`. |
-| INIT-07 | Workspace has `.zcode/AGENTS.md` or `.agents/AGENTS.md` | User sends `/init` | Any surface | Agent tells the user instructions already exist and does not create a duplicate root `AGENTS.md`. | accepted | User follow-up. |
+| INIT-01 | Workspace não tem `AGENTS.md` | Usuário envia `/init` | stdio do app desktop | Prompt normal inicia; o modelo inspeciona o repo e escreve o `AGENTS.md` do workspace. | aceito | Coberto por testes do resolvedor de prompt e de visibilidade de slash; smoke manual de runtime pode verificar a escrita do arquivo. |
+| INIT-02 | Workspace tem `AGENTS.md` existente | Usuário envia `/init` | Qualquer superfície | O modelo lê o arquivo existente e o edita, evitando sobrescrita. | aceito | Comportamento de nível de prompt. |
+| INIT-03 | Existe comando customizado `/init` | Lista de slash/submissão | Descoberta de comandos do agente | O comando embutido vence; o `/init` customizado é ocultado/reservado. | aceito | Mantém os embutidos previsíveis. |
+| INIT-04 | Sessão em execução | Usuário envia `/init` | Composer do app | Vale o comportamento existente de fila/steer de prompt normal. | aceito | Sem ramo especial de comando de sessão. |
+| INIT-05 | Usuário pede instruções globais | Usuário envia `/init --user` | Qualquer superfície | A v1 trata os args como instrução adicional, mas o prompt mantém o alvo de workspace. | podado | Uma funcionalidade futura pode adicionar o `--user` explícito. |
+| INIT-06 | App/stdIO envia `/init` | Resolvedor de prompt do runtime expande o comando | Composer do app e transcrição | O provider recebe o prompt expandido; a mensagem de usuário visível na UI permanece `/init`. | aceito | Regressão de `sess_12c80069-7d45-4288-959f-fb64c608cb97`. |
+| INIT-07 | Workspace tem `.zcode/AGENTS.md` ou `.agents/AGENTS.md` | Usuário envia `/init` | Qualquer superfície | O agente informa que as instruções já existem e não cria um `AGENTS.md` raiz duplicado. | aceito | Seguimento do usuário. |
 
-## Pruning Decisions
+## Decisões de poda
 
-| Decision ID | Pruned combinations | Guard/invariant | Product reason | Representative coverage |
+| ID da decisão | Combinações podadas | Guarda/invariante | Razão de produto | Cobertura representativa |
 | --- | --- | --- | --- | --- |
-| P-INIT-USER | Global user `AGENTS.md` creation | v1 target is workspace root | Avoid mixing user defaults with repo-specific onboarding. | Resolver prompt text states workspace target. |
-| P-INIT-PROTOCOL | New `session/init` method | Agent owns prompt turns; app sends normal prompt | Existing stdio permission/event flow already covers tools and file edits. | `session/send` path remains unchanged. |
-| P-INIT-SPECIAL-UI | UI session-control command branch | `/init` is not compact/goal | Avoid duplicating queue and mobile replayable command semantics. | `parseZCodeVisibleSlashCommand("/init") === null`. |
+| P-INIT-USER | Criação de `AGENTS.md` global do usuário | O alvo da v1 é a raiz do workspace | Evita misturar padrões do usuário com onboarding específico do repo. | O texto do prompt do resolvedor declara o alvo de workspace. |
+| P-INIT-PROTOCOL | Novo método `session/init` | O agente é dono dos turnos de prompt; o app envia prompt normal | O fluxo existente de permissões/eventos de stdio já cobre ferramentas e edições de arquivo. | O caminho `session/send` permanece inalterado. |
+| P-INIT-SPECIAL-UI | Ramo de comando de controle de sessão na UI | `/init` não é compact/goal | Evita duplicar a semântica de fila e de comando replayable de mobile. | `parseZCodeVisibleSlashCommand("/init") === null`. |
 
-## Accepted Cases
+## Casos aceitos
 
-| Case ID | Setup | Action | Assertions | Evidence layers | E2E status |
+| ID do caso | Setup | Ação | Asserções | Camadas de evidência | Status E2E |
 | --- | --- | --- | --- | --- | --- |
-| INIT-A | Protocol slash discovery has builtin list and no custom conflict | Read slash commands | `/init` appears as builtin; custom `/init` is filtered. | unit | planned |
-| INIT-B | Input facade receives `/init extra notes` | Resolve prompt | Runtime prompt mentions workspace `AGENTS.md`, target path, and extra notes. | unit | planned |
-| INIT-C | UI receives builtin `/init` from agent | Build slash suggestions | `/init` is visible; `/model` remains hidden. | unit | planned |
-| INIT-D | UI prompt-control parser receives `/init` | Parse visible command | Returns null so normal prompt send path handles it. | unit | planned |
-| INIT-E | TUI command center receives `/init` | Submit command | Dispatches to active app `submitPrompt("/init")`, not resume. | unit | planned |
-| INIT-F | App facade submits `/init include package scripts` | Resolve and execute turn with fake model | Provider request includes expanded `/init` prompt; transcript and TurnStarted input show `/init include package scripts`. | unit | planned |
-| INIT-G | Input facade receives `/init` | Resolve prompt | Runtime prompt asks to check `.zcode/AGENTS.md` and `.agents/AGENTS.md`, and to stop with a user message if either exists. | unit | planned |
+| INIT-A | A descoberta de slash do protocolo tem a lista embutida e sem conflito customizado | Ler comandos slash | `/init` aparece como embutido; `/init` customizado é filtrado. | unitário | planejado |
+| INIT-B | A fachada de entrada recebe `/init notas extras` | Resolver prompt | O prompt de runtime menciona o `AGENTS.md` do workspace, o caminho alvo e as notas extras. | unitário | planejado |
+| INIT-C | A UI recebe o `/init` embutido do agente | Construir sugestões de slash | `/init` está visível; `/model` continua oculto. | unitário | planejado |
+| INIT-D | O parser de controle de prompt da UI recebe `/init` | Parsear comando visível | Retorna null para que o caminho de envio de prompt normal trate. | unitário | planejado |
+| INIT-E | A central de comandos da TUI recebe `/init` | Submeter comando | Despacha para o app ativo `submitPrompt("/init")`, não para resume. | unitário | planejado |
+| INIT-F | A fachada do app submete `/init include package scripts` | Resolver e executar turno com modelo falso | A requisição ao provider inclui o prompt `/init` expandido; transcrição e entrada de TurnStarted mostram `/init include package scripts`. | unitário | planejado |
+| INIT-G | A fachada de entrada recebe `/init` | Resolver prompt | O prompt de runtime pede para verificar `.zcode/AGENTS.md` e `.agents/AGENTS.md` e parar com uma mensagem ao usuário se algum existir. | unitário | planejado |
 
-## Matrix Backfill
+## Backfill da matriz
 
-| File | Change |
+| Arquivo | Mudança |
 | --- | --- |
-| case catalog | No conversation E2E is added in v1; normal prompt queue behavior is covered by existing catalog. |
-| coverage matrix | No matrix row is needed unless a future GUI E2E is added for runtime file creation. |
-| decision worksheet/backlog | Future `/init --user` remains undefined and should get a separate spec before implementation. |
+| catálogo de casos | Nenhum E2E de conversa é adicionado na v1; o comportamento normal de fila de prompt é coberto pelo catálogo existente. |
+| matriz de cobertura | Nenhuma linha de matriz é necessária a menos que um E2E de GUI futuro seja adicionado para criação de arquivo em runtime. |
+| planilha de decisões/backlog | O futuro `/init --user` permanece indefinido e deve receber uma spec separada antes da implementação. |
 
-## E2E Handoff Notes
+## Notas de handoff para E2E
 
-- Provider fixture: a future manual-review GUI case can use a deterministic model trace that asks for `Glob`, `Read`, and `Write`.
-- File-system fixture: create a temp workspace with and without `AGENTS.md`; assert only `AGENTS.md` is changed.
-- Timing strategy: use completed session for the first GUI case; running-session queue behavior is inherited from existing prompt queue cases.
-- Docker preset: not required for v1 unit coverage.
-- Review risks: the prompt determines file quality; future acceptance should inspect generated `AGENTS.md` content rather than only file existence.
+- Fixture de provider: um caso de GUI futuro de revisão manual pode usar um trace determinístico de modelo que pede `Glob`, `Read` e `Write`.
+- Fixture de sistema de arquivos: criar um workspace temporário com e sem `AGENTS.md`; afirmar que apenas `AGENTS.md` é alterado.
+- Estratégia de timing: usar sessão concluída para o primeiro caso de GUI; o comportamento de fila em sessão em execução é herdado dos casos existentes de fila de prompt.
+- Preset Docker: não é necessário para a cobertura unitária da v1.
+- Riscos de revisão: o prompt determina a qualidade do arquivo; a aceitação futura deve inspecionar o conteúdo gerado do `AGENTS.md`, e não apenas a existência do arquivo.

@@ -1,38 +1,47 @@
-# 进程内存本地诊断日志
+# Log de Diagnóstico Local de Memória de Processo
 
-状态：**已确认，按本 spec 实现**
+Estado: **confirmado, implementado conforme este spec**
 
-## 问题
+## Problema
 
-用户反馈桌面端内存持续增长时，拿到日志压缩包无法回答三个问题：哪个进程在涨、涨的是
-JS heap 还是 native、哪张内存表在涨。现有 ARMS 资源遥测只有 RSS / working set 的 5 分钟聚合，
-本地日志里不落任何数值；renderer 完全没有内存维度。全仓静态审计
-（`docs/analysis/memory-leak-audit-2026-09-03.md`）列出的高危增长点分散在 main / renderer /
-host / agent CLI 四类进程，必须先有运行时证据才能决定修哪一条。
+Quando usuários relatam crescimento contínuo de memória no desktop, o pacote de logs coletado não
+responde a três perguntas: qual processo está crescendo, se é JS heap ou native, e qual tabela de
+memória está crescendo. A telemetria de recursos do ARMS existente só tem agregação de 5 minutos de
+RSS / working set, e nenhum valor é gravado no log local; o renderer não tem nenhuma dimensão de
+memória. A auditoria estática de todo o repositório
+(`docs/analysis/memory-leak-audit-2026-09-03.md`) lista pontos de crescimento de alto risco
+espalhados por quatro tipos de processo (main / renderer / host / agent CLI), e é preciso ter
+evidência de runtime antes de decidir qual corrigir.
 
-本功能只解决**本机定位**：每个进程按门控规则往自己已有的本地日志写一行「heap 细分 +
-领域计数器」。它不上报 ARMS、不改 ZCode Protocol schema、不新增 host→main 或 renderer→main
-消息类型、不改任何业务逻辑。
+Esta funcionalidade resolve apenas a **localização local**: cada processo escreve, conforme regras
+de gating, uma linha "heap detalhado + contadores de domínio" no seu próprio log local já existente.
+Ela não reporta ao ARMS, não altera o schema do ZCode Protocol, não adiciona tipos de mensagem
+host→main ou renderer→main e não muda nenhuma lógica de negócio.
 
-## 产品合同
+## Contrato de produto
 
-1. 四类进程各自采样自己的内存：main、renderer（每窗口）、utility_host（每窗口 Local Host）、
-   agent_node（每 workspace 的 `zcode-cli`）。采样周期固定 `60_000ms`；agent_node 复用既有的
-   `process/resourceSample` sampler 节拍，不新增定时器。
-2. 采样与写盘分离。每次采样后按以下任一条件写盘，否则丢弃：
-   - 首次采样（`reason=first`）；
-   - `heapUsedKb` 相对**上一次写盘值**变化超过 `5%`，或 `rssKb` / `externalKb` 变化超过 `10%`，或任一领域计数器
-     与上一次写盘值不同（`reason=changed`）；native / external 单独参与判定，因为真机上出现过 host RSS 从 240MB
-     冲到 1.5GB 而 heap 几乎不动的情况；
-   - 距上一次写盘已满 `300_000ms`（`reason=heartbeat`）。
-3. 最坏情况每进程每分钟一行，空闲时每 5 分钟一行。按 8 个进程估算，全天约 3.4MB，
-   占现有日志量约一成。
-4. 日志行只包含数字与低基数枚举，不包含 pid、路径、workspace / session / task id、模型名、
-   prompt 或文件内容。
-5. 采样、计数器读取、格式化、写盘任一环节失败只丢当前样本，不重试、不排队、不影响业务。
-6. 门控与格式化逻辑只有一份实现：`packages/shared/src/memoryDiagnostics.ts`，四类进程复用。
+1. Os quatro tipos de processo amostram sua própria memória: main, renderer (por janela),
+   utility_host (por Local Host de janela), agent_node (o `zcode-cli` por workspace). O período de
+   amostragem é fixo em `60_000ms`; agent_node reaproveita o batimento do sampler
+   `process/resourceSample` já existente, sem criar novos temporizadores.
+2. Amostragem e escrita em disco são separadas. Após cada amostragem, grava-se em disco se
+   qualquer uma destas condições for verdadeira; caso contrário, a amostra é descartada:
+   - primeira amostragem (`reason=first`);
+   - `heapUsedKb` muda mais de `5%` em relação ao **último valor gravado**, ou `rssKb` /
+     `externalKb` muda mais de `10%`, ou qualquer contador de domínio difere do último valor
+     gravado (`reason=changed`); native / external participam da decisão separadamente, porque em
+     máquina real já aconteceu o RSS do host saltar de 240MB para 1.5GB com o heap quase parado;
+   - `300_000ms` se passaram desde a última gravação em disco (`reason=heartbeat`).
+3. No pior caso, uma linha por processo por minuto, uma linha a cada 5 minutos quando ocioso. Para
+   8 processos, cerca de 3.4MB por dia, aproximadamente um décimo do volume de log atual.
+4. A linha de log contém apenas números e enums de baixa cardinalidade; não contém pid, caminho,
+   workspace / session / task id, nome de modelo, prompt ou conteúdo de arquivo.
+5. Falha em amostragem, leitura de contadores, formatação ou gravação descarta apenas a amostra
+   atual, sem retry, sem fila e sem afetar o negócio.
+6. Há apenas uma implementação da lógica de gating e formatação:
+   `packages/shared/src/memoryDiagnostics.ts`, reutilizada pelos quatro tipos de processo.
 
-## 数据流
+## Fluxo de dados
 
 ```text
  renderer(每窗口)                 host(每窗口)                    zcode-cli(每 workspace)
@@ -45,120 +54,135 @@ host / agent CLI 四类进程，必须先有运行时证据才能决定修哪一
                                                                 ~/.zcode/cli/log/zcode-YYYY-MM-DD.jsonl
 ```
 
-- main / host / renderer 三类进程的行都落在 Desktop 主日志（host 经既有 `[host-log]` 转发，
-  renderer 经既有 preload `window.zcode.log` 桥）。
-- agent_node 写 CLI 自己的 JSONL 日志。远端 workspace 的 CLI 日志留在远端机器上；这是刻意的，
-  资源样本不经协议新增字段。
-- 日志导出（`exportLogs.ts`）与用户反馈压缩包（`prepareCompactLogArchive`）已覆盖上述文件，
-  无需改动。
+- As linhas dos processos main / host / renderer caem todas no log principal do Desktop (host via
+  o encaminhamento `[host-log]` já existente, renderer via a ponte preload `window.zcode.log` já
+  existente).
+- agent_node escreve no JSONL log próprio da CLI. Os logs de CLI de workspaces remotos ficam na
+  máquina remota; isso é deliberado, as amostras de recursos não recebem campos novos pelo
+  protocolo.
+- A exportação de logs (`exportLogs.ts`) e o pacote compacto para o feedback do usuário
+  (`prepareCompactLogArchive`) já cobrem os arquivos acima, sem necessidade de alterações.
 
-## 行格式
+## Formato da linha
 
-Desktop 侧（main / host / renderer）一行 `key=value`：
+No lado Desktop (main / host / renderer) uma linha de `key=value`:
 
 ```text
 [memory] role=main reason=changed rssKb=412300 heapUsedKb=91234 heapTotalKb=120000 externalKb=30211 arrayBuffersKb=2048 app.willDownloadListeners=3 app.windows=2 taskBus.leases=1 taskBus.sessionRoutes=14 taskBus.streamBatches=0 ws.chromium_other=120000 ws.gpu=88000 ws.host=380000 ws.main=412300 ws.renderer_main=910000 ...
 ```
 
-- 固定字段顺序：`role`、`reason`、`rssKb`、`heapUsedKb`、`heapTotalKb`、`externalKb`、
-  `arrayBuffersKb`，缺失的字段省略（renderer 没有 rss / external）。
-- 计数器按 `<provider>.<key>` 命名，按字典序输出，值取整。
-- 所有 KB 值取整。
+- Ordem fixa dos campos: `role`, `reason`, `rssKb`, `heapUsedKb`, `heapTotalKb`, `externalKb`,
+  `arrayBuffersKb`; campos ausentes são omitidos (o renderer não tem rss / external).
+- Contadores nomeados como `<provider>.<key>`, emitidos em ordem lexicográfica, com valores
+  arredondados.
+- Todos os valores em KB são arredondados.
 
-CLI 侧写结构化日志：`event=zcode_protocol.process.memory_sample`，`module=bootstrap.zcode_protocol`，
-`context` 里放 `reason`、五个内存字段和 `counters` 对象。
+No lado da CLI escreve-se log estruturado: `event=zcode_protocol.process.memory_sample`,
+`module=bootstrap.zcode_protocol`, com `reason`, os cinco campos de memória e o objeto `counters`
+em `context`.
 
-## 领域计数器
+## Contadores de domínio
 
-| role | provider.key | 语义 |
+| role | provider.key | Semântica |
 | --- | --- | --- |
-| agent_node | `sessions` | 协议 server 常驻 session record 数 |
-| agent_node | `eventRows` | 全部 record 的内存 event store 行数之和 |
-| agent_node | `eventEvicted` / `eventTransientRetained` | 按 turn 窗口策略累计淘汰的瞬态事件数 / 当前仍驻留的瞬态事件数（`apps/zcode-cli/docs/design/v2/session-event-store-retention.md`） |
-| agent_node | `v4.publishers` / `v4.detachedLive` / `v4.detachedTerminal` / `v4.rawSeqStates` | V4 gateway 的 publisher、detached 子 session、已终态待释放的 detached 子 session、raw seq 状态表大小 |
-| utility_host | `agent.sessionEmitters` / `agent.seqStates` / `agent.pendingPermissions` / `agent.pendingUserInputs` | `zcodeAgentService` 的 per-session 镜像表 |
-| utility_host | `task.runtimeCommands` / `task.toolMemoryTasks` / `task.taskEmitters` / `task.overlays` | `zcodeTaskServiceAdapter` 的 per-task 表 |
-| utility_host | `terminal.open` / `fileWatcher.open` | pty 与 `fs.watch` 实例数 |
-| utility_host | `bots.streamSubs` / `bots.runningTasks` / `bots.typingIntervals` / `bots.liveStatusProgress` | bots 的 per-task 状态 |
-| main | `app.windows` / `app.willDownloadListeners` | 窗口数、`defaultSession` 上的 `will-download` 监听数 |
-| main | `taskBus.streamBatches` / `taskBus.leases` / `taskBus.sessionRoutes` | `TaskRealtimeBus` 三张表 |
+| agent_node | `sessions` | Número de registros de sessão residentes no protocol server |
+| agent_node | `eventRows` | Soma das linhas do event store em memória de todos os records |
+| agent_node | `eventEvicted` / `eventTransientRetained` | Quantidade acumulada de eventos transitórios descartados conforme a política de janela de turno / quantidade de eventos transitórios ainda residentes (`apps/zcode-cli/docs/design/v2/session-event-store-retention.md`) |
+| agent_node | `v4.publishers` / `v4.detachedLive` / `v4.detachedTerminal` / `v4.rawSeqStates` | Publishers do V4 gateway, sub-sessões detached, sub-sessões detached já em estado terminal aguardando liberação, tamanho da tabela de estados de raw seq |
+| utility_host | `agent.sessionEmitters` / `agent.seqStates` / `agent.pendingPermissions` / `agent.pendingUserInputs` | Tabelas espelho por sessão de `zcodeAgentService` |
+| utility_host | `task.runtimeCommands` / `task.toolMemoryTasks` / `task.taskEmitters` / `task.overlays` | Tabelas por task de `zcodeTaskServiceAdapter` |
+| utility_host | `terminal.open` / `fileWatcher.open` | Quantidade de instâncias de pty e de `fs.watch` |
+| utility_host | `bots.streamSubs` / `bots.runningTasks` / `bots.typingIntervals` / `bots.liveStatusProgress` | Estado por task dos bots |
+| main | `app.windows` / `app.willDownloadListeners` | Número de janelas, quantidade de listeners `will-download` em `defaultSession` |
+| main | `taskBus.streamBatches` / `taskBus.leases` / `taskBus.sessionRoutes` | As três tabelas do `TaskRealtimeBus` |
 | main | `guest.tabs` / `guest.closedTabIds` | `BrowserGuestManager` |
 | main | `broadcast.claims` / `broadcast.processes` | `BroadcastHub` |
-| main | `ws.<process_role>`（`ws.main` / `ws.renderer_main` / `ws.renderer_guest` / `ws.gpu` / `ws.chromium_other` / `ws.host` / `ws.scheduler`） | `app.getAppMetrics()` 按 `process_role` 求和的 working set（KB）。角色词表与 ARMS `perf_process_window` 同源（`docs/monitoring/process-resource-telemetry.md`），只输出本 tick 有存活进程的角色 |
-| renderer | `shiki.tokensCache` / `shiki.highlighters` | 代码高亮 token 缓存条数 |
-| renderer | `taskSnapshotCache.entries` / `taskSnapshotCache.persisted` | task snapshot 内存缓存与持久缓存条数 |
-| renderer | `sessionStore.workspaces` | `zcodeSessionStore` 的 workspace 桶数 |
-| renderer | `projection.stores` / `projection.rows` | 存活的 V4 projection store 数与其 `rows.window` 行数之和 |
-| renderer | `xterm.sessions` | 常驻侧栏终端实例数 |
-| renderer | `taskQueryCache.queryKeys` / `taskQueryCache.taskMetas` | task 列表查询缓存条数 |
-| renderer | `toolLayout.openState` | 工具卡片展开状态表大小 |
+| main | `ws.<process_role>` (`ws.main` / `ws.renderer_main` / `ws.renderer_guest` / `ws.gpu` / `ws.chromium_other` / `ws.host` / `ws.scheduler`) | Working set (KB) somado por `process_role` em `app.getAppMetrics()`. O vocabulário de papéis tem a mesma origem do ARMS `perf_process_window` (`docs/monitoring/process-resource-telemetry.md`); emite apenas os papéis com processos vivos neste tick |
+| renderer | `shiki.tokensCache` / `shiki.highlighters` | Quantidade de entradas no cache de tokens de realce de código |
+| renderer | `taskSnapshotCache.entries` / `taskSnapshotCache.persisted` | Entradas do cache de snapshots de task em memória e do cache persistente |
+| renderer | `sessionStore.workspaces` | Número de buckets de workspace do `zcodeSessionStore` |
+| renderer | `projection.stores` / `projection.rows` | Quantidade de projection stores V4 vivos e a soma de suas linhas de `rows.window` |
+| renderer | `xterm.sessions` | Instâncias de terminal da barra lateral residentes |
+| renderer | `taskQueryCache.queryKeys` / `taskQueryCache.taskMetas` | Entradas do cache de consultas da lista de tasks |
+| renderer | `toolLayout.openState` | Tamanho da tabela de estado de expansão dos cards de ferramenta |
 
-新增计数器时在对应模块用 `registry.register(name, provider)` 自注册，provider 必须是纯读取
-（只读 `Map.size` / `Set.size` / 数组长度），不得改状态、不得做 IO。
+Ao adicionar um contador, registre-o com auto-registro via `registry.register(name, provider)` no
+módulo correspondente; o provider deve ser de leitura pura (apenas `Map.size` / `Set.size` /
+comprimento de array), sem alterar estado e sem fazer IO.
 
-## 强制边界
+## Limites obrigatórios
 
-- 不改 `zcodeProcessResourceSampleSchema`；协议样本仍只发 `rssKb` / CPU 字段。
-- 不把内存样本接入 `session/event`、V4 conversation frame、task realtime bus、snapshot、
-  queue、continuous 或 replayable 恢复链路；手机 `/remote` 不参与。
-- renderer 通过 `packages/ui/src/logger.ts` 的 `logMemoryDiagnostics` 写入；它是
-  `docs/performance/renderer-production-logging.md` 中"正式监控链路"例外，生产构建仍走桥，
-  Web 端无桥时 no-op。UI 模块不得直接调用 `window.zcode.log`。
-- main 不用 `ps` / PowerShell 补采其他进程；只用 `process.memoryUsage()` 与
-  `app.getAppMetrics()`。
-- CLI 侧每个 workspace 进程只有既有的一个 `unref()` 定时器。
+- Não alterar `zcodeProcessResourceSampleSchema`; a amostra de protocolo continua enviando apenas
+  campos `rssKb` / CPU.
+- Não conectar as amostras de memória à cadeia `session/event`, ao conversation frame do V4, ao
+  task realtime bus, a snapshot, queue, continuous ou à recuperação replayable; o `/remote` do
+  celular não participa.
+- O renderer escreve via `logMemoryDiagnostics` de `packages/ui/src/logger.ts`; essa é a exceção
+  da "cadeia oficial de monitoramento" em `docs/performance/renderer-production-logging.md`, e a
+  build de produção continua passando pela ponte, sendo no-op na Web quando não há ponte. Módulos de
+  UI não podem chamar `window.zcode.log` diretamente.
+- O main não usa `ps` / PowerShell para complementar a amostragem de outros processos; usa apenas
+  `process.memoryUsage()` e `app.getAppMetrics()`.
+- No lado da CLI, cada processo de workspace tem apenas o temporizador `unref()` já existente.
 
-## 如何看
+## Como visualizar
 
 ```bash
-# Desktop 主日志：按角色画 heapUsed 曲线
+# Log principal do Desktop: curva de heapUsed por papel
 grep '\[memory\] role=renderer' ~/.zcode/v2/logs/2026-09-03.log \
   | sed -E 's/^\[([^]]+)\].*heapUsedKb=([0-9]+).*shiki\.tokensCache=([0-9]+).*/\1 \2 \3/'
 
-# CLI 日志
+# Log da CLI
 grep memory_sample ~/.zcode/cli/log/zcode-2026-09-03.jsonl | jq -c '[.time, .context.heapUsedKb, .context.counters.eventRows]'
 ```
 
-判读顺序：先看哪个 `role` 的 `heapUsedKb` 单调上升；再看同一行里哪个计数器同步上升；
-`rssKb` 涨而 `heapUsedKb` 不涨说明是 native / ArrayBuffer 侧，看 `externalKb` /
-`arrayBuffersKb`。
+Ordem de leitura: primeiro veja qual `role` tem `heapUsedKb` subindo monotonicamente; depois veja
+qual contador na mesma linha sobe junto; `rssKb` subindo enquanto `heapUsedKb` não sobe indica o
+lado native / ArrayBuffer, veja `externalKb` / `arrayBuffersKb`.
 
-## 实现
+## Implementação
 
-> 采样源与 [全进程 CPU / 内存监控埋点](./process-resource-telemetry.md) 共用：host 与 renderer 的 60 秒定时器一次读数同时喂本地日志与 ARMS 样本，
-> main 的 heap 读取并入资源遥测的 10 秒 tick（每 6 个 tick 一次），CLI 已是共用形态。
-> 本文的门控与行格式不变；main 的 `ws.*` 计数器随资源遥测的角色分类器一起改用新的
-> `process_role` 词表（`ws.renderer` → `ws.renderer_main` / `ws.renderer_guest`，
-> `ws.utility_host` → `ws.host`，`ws.other` → `ws.chromium_other`，新增 `ws.scheduler`），
-> 避免同一份分类逻辑在两处各留一套角色名。
+> A fonte de amostragem é compartilhada com a [Telemetria de CPU / memória de todos os processos](./process-resource-telemetry.md):
+> o temporizador de 60 segundos do host e do renderer alimenta simultaneamente o log local e a amostra
+> do ARMS com uma única leitura; a leitura de heap do main é integrada ao tick de 10 segundos da
+> telemetria de recursos (uma vez a cada 6 ticks), e a CLI já tem a forma compartilhada.
+> O gating e o formato de linha deste documento não mudam; os contadores `ws.*` do main passam,
+> junto com o classificador de papéis da telemetria de recursos, a usar o novo vocabulário de
+> `process_role` (`ws.renderer` → `ws.renderer_main` / `ws.renderer_guest`,
+> `ws.utility_host` → `ws.host`, `ws.other` → `ws.chromium_other`, com o novo `ws.scheduler`),
+> evitando manter dois conjuntos de nomes de papéis para a mesma lógica de classificação.
 
-- 共用：`packages/shared/src/memoryDiagnostics.ts`（`createMemorySampleWriteGate`、
-  `formatMemorySampleLine`、`createMemoryDiagnosticsRegistry`、`memoryUsageToSampleFields`）
-- CLI：`apps/zcode-cli/packages/bootstrap/src/process-resource-sampler.ts`、
-  `zcode-protocol-entrypoint.ts`、`zcode-protocol/server.ts`、`zcode-protocol-v4/v4-gateway.ts`、
+- Compartilhado: `packages/shared/src/memoryDiagnostics.ts` (`createMemorySampleWriteGate`,
+  `formatMemorySampleLine`, `createMemoryDiagnosticsRegistry`, `memoryUsageToSampleFields`)
+- CLI: `apps/zcode-cli/packages/bootstrap/src/process-resource-sampler.ts`,
+  `zcode-protocol-entrypoint.ts`, `zcode-protocol/server.ts`, `zcode-protocol-v4/v4-gateway.ts`,
   `apps/zcode-cli/packages/adapters/src/storage/index.ts`
-- services：`packages/services/src/memoryDiagnostics.ts` 与五个 service 的自注册
-- host：`packages/desktop/src/host/hostMemoryDiagnosticsLog.ts`（门控与行格式）；
-  host/index.ts 的入口是 `hostSelfResourceTelemetry.ts`，它包住本模块，把同一次 `memoryUsage()`
-  读数同时交给资源遥测（`onMemoryUsage` 钩子与写盘门控无关：本地行可能被门控跳过，遥测样本每 60 秒都发）
-- main：`packages/desktop/src/main/mainMemoryDiagnostics.ts`、`desktopResourceTelemetry.ts`
-- renderer：`packages/ui/src/lib/memoryDiagnostics.ts`、`packages/ui/src/logger.ts`；
-  采样器的 `reportHeapSample` 注入点在写盘门控之前，把同一次 `performance.memory` 读数经
-  `IPlatformService.reportRendererHeapSample` 交给资源遥测（本地行可能被门控跳过，遥测样本每 60 秒
-  都发；Web 端与手机远控没有桥即 no-op）
+- services: `packages/services/src/memoryDiagnostics.ts` e o auto-registro dos cinco services
+- host: `packages/desktop/src/host/hostMemoryDiagnosticsLog.ts` (gating e formato de linha); a entry
+  em host/index.ts é `hostSelfResourceTelemetry.ts`, que envolve este módulo e entrega a mesma
+  leitura de `memoryUsage()` simultaneamente à telemetria de recursos (o hook `onMemoryUsage` é
+  independente do gating de gravação: a linha local pode ser pulada pelo gating, mas a amostra de
+  telemetria é enviada a cada 60 segundos)
+- main: `packages/desktop/src/main/mainMemoryDiagnostics.ts`, `desktopResourceTelemetry.ts`
+- renderer: `packages/ui/src/lib/memoryDiagnostics.ts`, `packages/ui/src/logger.ts`; o ponto de
+  injeção do sampler `reportHeapSample` fica antes do gating de gravação e entrega a mesma leitura de
+  `performance.memory` à telemetria de recursos via
+  `IPlatformService.reportRendererHeapSample` (a linha local pode ser pulada pelo gating, mas a
+  amostra de telemetria é enviada a cada 60 segundos; na Web e no controle remoto do celular, sem
+  ponte, é no-op)
 
-## 验收 Case
+## Cases de aceitação
 
 | Case ID | Setup | Action | Assertions | Layer |
 | --- | --- | --- | --- | --- |
-| MEM-001 | 空 gate | 首次 evaluate | 返回 `first` | unit |
-| MEM-002 | 上次 heap 100000 | heap 104000、计数器不变 | 返回 `null` | unit |
-| MEM-003 | 上次 heap 100000 | heap 106000 | 返回 `changed` | unit |
-| MEM-004 | 计数器某 key 变化 | evaluate | 返回 `changed` | unit |
-| MEM-005 | 全部不变 | 满 300s | 返回 `heartbeat`，之后重新计时 | unit |
-| MEM-006 | registry 有 provider 抛错 | collect | 其余 provider 正常返回，抛错者跳过 | unit |
-| MEM-007 | CLI sampler | 注入 readMemoryUsage | onSample 第二参数为完整 memoryUsage，协议样本形状不变 | unit |
-| MEM-008 | host 60s tick | 推进 timer | logger.info 一行含 `role=utility_host heapUsedKb=`；stop 后不再输出；同一次读数同时经 parentPort 发出 `HostResourceSample` | unit |
-| MEM-009 | main 6 个 10s tick | 推进 timer | logger.info 一行含 `role=main` 与 `ws.<process_role>=`；同一次读数同时作为 `perf_process_window` 的 main heap 样本 | unit |
-| MEM-010 | renderer 生产构建 | `logMemoryDiagnostics` | 仍调用桥；无桥 no-op | unit |
-| MEM-011 | renderer 60s tick | 推进 timer | 同一次读数既经 preload 桥发出 heap 样本，又按门控写本地行；门控跳过写盘的 tick 仍发样本；桥抛错不影响本地行 | unit |
+| MEM-001 | gate vazio | primeira evaluate | Retorna `first` | unit |
+| MEM-002 | heap anterior 100000 | heap 104000, contadores inalterados | Retorna `null` | unit |
+| MEM-003 | heap anterior 100000 | heap 106000 | Retorna `changed` | unit |
+| MEM-004 | Alguma chave de contador mudou | evaluate | Retorna `changed` | unit |
+| MEM-005 | Nada mudou | 300s completos | Retorna `heartbeat`, depois reinicia a contagem | unit |
+| MEM-006 | registry tem um provider que lança erro | collect | Os demais providers retornam normalmente, o que lançou é pulado | unit |
+| MEM-007 | sampler da CLI | Injetar readMemoryUsage | O segundo parâmetro de onSample é o memoryUsage completo, o formato da amostra de protocolo não muda | unit |
+| MEM-008 | tick de 60s do host | Avançar o timer | logger.info com uma linha contendo `role=utility_host heapUsedKb=`; após stop não sai mais nada; a mesma leitura é enviada via parentPort como `HostResourceSample` | unit |
+| MEM-009 | 6 ticks de 10s do main | Avançar o timer | logger.info com uma linha contendo `role=main` e `ws.<process_role>=`; a mesma leitura é usada simultaneamente como amostra de heap do main em `perf_process_window` | unit |
+| MEM-010 | build de produção do renderer | `logMemoryDiagnostics` | Ainda chama a ponte; sem ponte é no-op | unit |
+| MEM-011 | tick de 60s do renderer | Avançar o timer | A mesma leitura envia a amostra de heap pela ponte preload e escreve a linha local conforme o gating; ticks pulados pelo gating ainda enviam a amostra; erro da ponte não afeta a linha local | unit |

@@ -1,118 +1,109 @@
-# Worklog — Plugin Marketplace Browse Redesign + On-Demand Component Details
+# Worklog — Redesign da navegação do Marketplace de Plugins + Detalhes de Componentes Sob Demanda
 
-- **Date:** 2026-06-26
+- **Data:** 2026-06-26
 - **Branch:** `feature-harness-improve`
-- **Author:** 插件市场前端开发
-- **Spec:** [`docs/plugin-marketplace-ui-ux.md`](../../plugin-marketplace-ui-ux.md) (2026-06-25 revision section)
+- **Autor:** desenvolvimento front-end do marketplace de plugins
+- **Spec:** [`docs/plugin-marketplace-ui-ux.md`](../../plugin-marketplace-ui-ux.md) (seção revisada em 2026-06-25)
 
-## Goal
+## Objetivo
 
-Redesign the plugin **Marketplace** browse tab into a left marketplace switcher, a right
-plugin card grid, and a list↔detail view toggle. The detail view must show each component's **name + description**
-(Skills / Subagents / Commands / Hooks / MCPs) — even for **uninstalled** plugins.
+Redesenhar a aba de navegação do **Marketplace** de plugins como um seletor de marketplace à esquerda, uma grade de cartões de plugin à direita e um alternador lista↔detalhe. A visão de detalhe deve mostrar o **nome + descrição** de cada componente (Skills / Subagents / Commands / Hooks / MCPs) — mesmo para plugins **não instalados**.
 
-## Key constraint & the decision that shaped everything
+## Restrição principal e a decisão que moldou tudo
 
-The original constraint was "don't change the data protocol". But investigation proved
-that the marketplace protocol (`ZCodeAvailablePluginSummary`) carries only a coarse
-`componentTypes` array — **no component names, no descriptions, no per-plugin manifest RPC**.
-Showing name + description per component is therefore impossible without a new
-CLI→UI data channel.
+A restrição original era "não mudar o protocolo de dados". Mas a investigação provou que o protocolo do marketplace (`ZCodeAvailablePluginSummary`) carrega apenas um array grosseiro `componentTypes` — **sem nomes de componentes, sem descrições, sem RPC de manifesto por plugin**. Portanto, exibir nome + descrição por componente é impossível sem um novo canal de dados CLI→UI.
 
-We checked the marketplace format:
-- The marketplace entry schema *allows* an inlined manifest, but real `marketplace.json`
-  files only carry a **pointer** (`"source": "./plugins/<name>"`).
-- So component names and descriptions are only available by reading the plugin directory
-  (installed cache or source) on demand.
+Verificamos o formato do marketplace:
+- O schema da entrada do marketplace *permite* um manifesto embutido, mas arquivos `marketplace.json` reais carregam apenas um **ponteiro** (`"source": "./plugins/<name>"`).
+- Portanto, os nomes e descrições dos componentes só estão disponíveis lendo o diretório do plugin (cache instalado ou origem) sob demanda.
 
-**User decisions:** (1) add an on-demand RPC; (2) include component names and
-descriptions by reading each component's frontmatter. This is the only protocol change.
+**Decisões do usuário:** (1) adicionar um RPC sob demanda; (2) incluir nomes e descrições dos componentes lendo o frontmatter de cada componente. Esta é a única mudança de protocolo.
 
-## What was built
+## O que foi construído
 
-### 1. New protocol method `plugins/describe` (the only protocol change)
+### 1. Novo método de protocolo `plugins/describe` (a única mudança de protocolo)
 `packages/shared/src/zcode-protocol/index.ts`
 - `zcodeProtocolMethods.pluginsDescribe = "plugins/describe"`
 - params `{ workspace, marketplace, pluginName }`
 - result `{ components: Array<{ kind: agent|command|skill|hook|mcp, items: Array<{ name, description? }> }>, diagnostics? }`
-- registered in the session-method contract table.
+- registrado na tabela de contrato de session methods.
 
-### 2. CLI handler (apps/zcode-cli)
+### 2. Handler no CLI (apps/zcode-cli)
 - `adapters/src/plugins/marketplace.ts` → `describeMarketplacePlugin({ marketplace, name, storageRoot })`:
-  - installed → `resolveInstalledPluginRoot` (local cache dir, offline);
-  - uninstalled → `resolvePluginSourceRoot` (temp clone via `mkdtemp`, cleaned up in `finally`) — mirrors `validateMarketplacePlugin`.
-- `adapters/src/plugins/plugin-components.ts` (**new, 201 lines**): pure component enumerator
-  over a resolved root + manifest. Reads `commands/`, `agents/` (`.md` frontmatter),
-  `skills/` (`SKILL.md` frontmatter), hooks (manifest events), mcp (manifest server names).
-  Extracted out of marketplace.ts to keep that file from growing further (it already
-  exceeds the repo `max-lines` baseline — pre-existing).
-- `bootstrap/src/plugins.ts` → `describeZCodePlugin` wrapper.
-- `bootstrap/src/zcode-protocol/plugins.ts` → `describePlugin` handler (maps adapter result → protocol shape).
-- `bootstrap/src/zcode-protocol/server.ts` → routed the new method.
+  - instalado → `resolveInstalledPluginRoot` (diretório de cache local, offline);
+  - não instalado → `resolvePluginSourceRoot` (clone temporário via `mkdtemp`, limpo no `finally`) — espelha `validateMarketplacePlugin`.
+- `adapters/src/plugins/plugin-components.ts` (**novo, 201 linhas**): enumerador puro de componentes
+  sobre uma raiz resolvida + manifesto. Lê `commands/`, `agents/` (frontmatter `.md`),
+  `skills/` (frontmatter `SKILL.md`), hooks (eventos do manifesto), mcp (nomes de servidores do manifesto).
+  Extraído de marketplace.ts para impedir que esse arquivo cresça mais (ele já excede
+  a linha de base `max-lines` do repo — preexistente).
+- `bootstrap/src/plugins.ts` → wrapper `describeZCodePlugin`.
+- `bootstrap/src/zcode-protocol/plugins.ts` → handler `describePlugin` (mapeia o resultado do adapter para o shape do protocolo).
+- `bootstrap/src/zcode-protocol/server.ts` → roteou o novo método.
 
-### 3. Services layer
+### 3. Camada de services
 `packages/services/src/zcode-agent/{zcodeAgent.ts,zcodeAgentService.ts}` →
-`describePlugin(params)` following the `pluginsValidate` call pattern.
+`describePlugin(params)` seguindo o padrão de chamada `pluginsValidate`.
 
 ### 4. UI (packages/ui)
-- **`PluginMarketplaceManagement.tsx`** (rewritten): marketplace source card (kept) → search →
-  left `MarketplaceSwitcher` (vertical, degrades to horizontal chips on narrow widths) +
-  right content area that toggles between `MarketplaceGrid` (view A: card grid) and
-  `MarketplaceDetailView` (view B: `← Back`). Detail opening triggers on-demand describe;
-  loading / error / empty all degrade gracefully (fall back to `componentTypes` badges + retry).
-- **`PluginComponentGroups.tsx`** (new): shared "name — description" two-line renderer, used by
-  both the marketplace detail view and the installed-plugin detail dialog for consistent output.
-- **`pluginManagedResourceGroups.ts`**: `describeResultToDisplayGroups()` maps the describe
-  result into ordered display groups (agent→command→skill→hook→mcp).
-- **`InstalledPluginManagement.tsx`**: switched its group rendering to the shared component.
-- **`store/pluginManagementStore.ts`**: `describeCache` (keyed by pluginId, loading/loaded/error)
-  + `describePlugin` action; cache hits skip refetch, `force` retries.
-- **i18n**: en-US + zh-CN keys for the switcher, Get button, loading/error/empty states.
+- **`PluginMarketplaceManagement.tsx`** (reescrito): card de origem do marketplace (mantido) → busca →
+  `MarketplaceSwitcher` à esquerda (vertical, degrada para chips horizontais em larguras estreitas) +
+  área de conteúdo à direita que alterna entre `MarketplaceGrid` (visão A: grade de cartões) e
+  `MarketplaceDetailView` (visão B: `← Voltar`). Abrir os detalhes dispara o describe sob demanda;
+  loading / erro / vazio degradam com elegância (fallback para badges de `componentTypes` + retry).
+- **`PluginComponentGroups.tsx`** (novo): renderer compartilhado "nome — descrição" em duas linhas, usado tanto
+  pela visão de detalhe do marketplace quanto pelo diálogo de detalhe de plugin instalado, para uma saída consistente.
+- **`pluginManagedResourceGroups.ts`**: `describeResultToDisplayGroups()` mapeia o resultado do describe
+  para grupos de exibição ordenados (agent→command→skill→hook→mcp).
+- **`InstalledPluginManagement.tsx`**: passou a usar o componente compartilhado para a renderização dos grupos.
+- **`store/pluginManagementStore.ts`**: `describeCache` (chaveado por pluginId, loading/loaded/error)
+  + ação `describePlugin`; acertos de cache evitam refetch, `force` retenta.
+- **i18n**: chaves en-US + zh-CN para o switcher, o botão Get e os estados de loading/erro/vazio.
 
-### Out of scope (YAGNI)
-A left category nav (Featured / Infrastructure / …) — the protocol has no
-`category` field, deferred. install/uninstall/marketplace CRUD untouched.
+### Fora de escopo (YAGNI)
+Uma navegação de categorias à esquerda (Destaques / Infraestrutura / …) — o protocolo não tem
+campo `category`, adiado. install/uninstall/CRUD de marketplace intocados.
 
-## Verification
+## Verificação
 
-- `tsc -b` clean for all touched packages (shared, services, ui, cli adapters+bootstrap).
-  Note: a pre-existing `packages/desktop/test/e2e/reporting/e2e-ui-coverage.ts` istanbul-types
-  error exists on baseline (confirmed via `git stash`) — unrelated to this change.
-- `oxlint` clean for all new/modified files. The `max-lines` errors on
-  `marketplace.ts`/`index.ts`/`plugins.ts` are pre-existing baseline violations (confirmed via
-  stash); extraction of `plugin-components.ts` reduced marketplace.ts's net growth.
-- **Unit tests:** full suite via pre-push hook — **656 files / 5262 tests passed**.
-- **CDP screenshots** (real desktop app, dev:desktop:test, port 9229) in `tmp/shots/`:
-  - `00-current.png`: card grid + marketplace switcher render correctly.
-  - `01-detail.png`: detail view toggle works; "← 返回", not-installed badge, source line,
-    and **components section showing "技能 6 项" (green badge)** — confirming `plugins/describe`
-    works end-to-end and renders name+description groups.
+- `tsc -b` limpo para todos os pacotes tocados (shared, services, ui, cli adapters+bootstrap).
+  Observação: um erro istanbul-types preexistente em `packages/desktop/test/e2e/reporting/e2e-ui-coverage.ts`
+  existe na linha de base (confirmado via `git stash`) — sem relação com esta mudança.
+- `oxlint` limpo para todos os arquivos novos/modificados. Os erros de `max-lines` em
+  `marketplace.ts`/`index.ts`/`plugins.ts` são violações preexistentes da linha de base (confirmadas via
+  stash); a extração de `plugin-components.ts` reduziu o crescimento líquido de marketplace.ts.
+- **Testes unitários:** suíte completa via hook pre-push — **656 arquivos / 5262 testes aprovados**.
+- **Capturas de tela via CDP** (app desktop real, dev:desktop:test, porta 9229) em `tmp/shots/`:
+  - `00-current.png`: a grade de cartões e o seletor de marketplace renderizam corretamente.
+  - `01-detail.png`: o alternador da visão de detalhe funciona; "← Voltar", badge de não instalado, linha de
+    origem e **seção de componentes mostrando "技能 6 项" (badge verde)** — confirmando que `plugins/describe`
+    funciona ponta a ponta e renderiza grupos com nome+descrição.
 
-### Bugfix during verification
-The user's screenshot exposed garbled card text. Root cause: `MarketplacePluginCard`'s outer
-grid used `grid-cols-[auto_minmax(0,1fr)_auto]` (3 columns) with only 2 direct children, so the
-"Get" button landed in the middle `1fr` column and overlapped the text. Fixed to 2 columns
-`[minmax(0,1fr)_auto]`. Re-verified by screenshot.
+### Correção de bug durante a verificação
+A captura de tela do usuário expôs um texto de cartão embaralhado. Causa raiz: o grid externo do
+`MarketplacePluginCard` usava `grid-cols-[auto_minmax(0,1fr)_auto]` (3 colunas) com apenas 2 filhos diretos,
+então o botão "Get" caía na coluna `1fr` do meio e sobrepunha o texto. Corrigido para 2 colunas
+`[minmax(0,1fr)_auto]`. Reverificado por captura de tela.
 
-## Commits (all on origin/feature-harness-improve)
+## Commits (todos em origin/feature-harness-improve)
 - `bdd833ddf` docs(plugins): spec marketplace browse redesign and on-demand plugins/describe
 - `443dc16b8` feat(plugins): add plugins/describe to enumerate marketplace plugin components
 - `30bb48bdf` feat(ui): redesign plugin marketplace browse with switcher, card grid and detail view
 
-## Follow-ups / risks
-- **Windows/Linux:** the CLI describe path uses only `node:path`/`node:fs`/`mkdtemp(tmpdir())`,
-  no hand-written separators — but git-clone-on-describe for uninstalled plugins was only
-  exercised on macOS. Cross-platform clone/cleanup still needs a Windows pass.
-- **Network cost:** describing an uninstalled plugin clones its source to a temp dir each time
-  (then cleans up). Result is UI-cached per pluginId per session, but a cold open of many
-  uninstalled plugins = many clones. Consider a CLI-side short-lived cache if this bites.
-- **Frontmatter parsing** in `plugin-components.ts` is a lightweight name/description extractor
-  (duplicates the skills/commands adapter idiom rather than importing it). If a third frontmatter
-  consumer appears, extract a shared util.
-- The category nav was deferred pending a protocol `category` field.
+## Pendências / riscos
+- **Windows/Linux:** o caminho describe do CLI usa apenas `node:path`/`node:fs`/`mkdtemp(tmpdir())`,
+  sem separadores escritos à mão — mas o git-clone-on-describe para plugins não instalados foi
+  exercitado apenas no macOS. Clone/limpeza multiplataforma ainda precisa de uma passada no Windows.
+- **Custo de rede:** descrever um plugin não instalado clona sua origem para um diretório temporário a cada
+  vez (e depois limpa). O resultado é cacheado pela UI por pluginId por sessão, mas uma abertura a frio de muitos
+  plugins não instalados = muitos clones. Considerar um cache de curta duração no CLI se isso incomodar.
+- **Parsing de frontmatter** em `plugin-components.ts` é um extrator leve de nome/descrição
+  (duplica o idioma dos adapters de skills/commands em vez de importá-lo). Se surgir um terceiro consumidor
+  de frontmatter, extrair um util compartilhado.
+- A navegação de categorias foi adiada aguardando um campo `category` no protocolo.
 
-## Throwaway artifacts (not committed)
-- `tmp/cdp-shot.mjs` — CDP screenshot helper (raw `ws` over page target; puppeteer hangs on Electron).
-- `tmp/shots/*.png` — verification screenshots.
-- `.claude/plans/plugin-ui-redesign-notes.md` — prior-session notes (a different task: the
-  installed-list redesign), intentionally left untracked.
+## Artefatos descartáveis (não commitados)
+- `tmp/cdp-shot.mjs` — auxiliar de captura de tela via CDP (`ws` puro sobre o page target; o puppeteer trava no Electron).
+- `tmp/shots/*.png` — capturas de tela de verificação.
+- `.claude/plans/plugin-ui-redesign-notes.md` — notas de uma sessão anterior (uma tarefa diferente: o
+  redesign da lista de instalados), deixado sem rastreio de propósito.

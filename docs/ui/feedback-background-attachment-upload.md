@@ -1,49 +1,49 @@
-# 反馈附件后台上传收起窗口
+# Fechamento da janela de feedback durante o upload em segundo plano dos anexos
 
-## 背景
+## Contexto
 
-反馈提交会先创建工单，再上传截图和诊断日志。诊断日志导出和上传可能耗时较长，如果一直停留在提交窗口，用户会被长时间阻塞在弹窗里。
+O envio de feedback cria primeiro um ticket e depois faz upload das capturas de tela e dos logs de diagnóstico. A exportação e o upload dos logs de diagnóstico podem demorar bastante e, se a janela de envio permanecer aberta o tempo todo, o usuário fica bloqueado por um período longo no dialog.
 
-## 行为
+## Comportamento
 
-- 用户点击“提交反馈”后，工单创建阶段仍保持反馈窗口打开。
-- 工单创建请求必须设置有限超时，避免反馈服务或网络链路悬挂时让提交按钮永久停在“正在连接反馈服务”。
-- 工单创建阶段的“取消”必须是真取消：UI 通过反馈服务的创建 operation id 通知 host process 中断当前创建请求，并停止后续截图和日志上传。
-- 工单创建成功后，截图和日志附件进入后台上传，反馈窗口自动关闭。
-- 顶部帮助菜单的“问题上报”以及其他新建反馈入口始终打开一份新的提交表单，不自动绑定任何已有的后台提交任务；用户不需要等待上一份反馈的附件上传完成。
-- 后台提交任务按 `jobId` 独立存在。多个任务尚未结束时，窗口右下角为每个任务分别展示一张状态卡片，而不是只展示最后一个任务。
-- 点击某张未结束任务卡片时，反馈弹窗只绑定该卡片的 `jobId`，展示对应进度，并恢复该次提交时的原始问题描述、联系方式、截图、日志开关和工单分类；关闭后任务仍在后台继续。新建反馈入口与“打开指定后台任务”是两个不同动作。
-- 后台任务保存的是提交瞬间的用户表单快照。问题描述必须使用用户输入的原文，不能从已经拼入模型、类型等诊断信息的后端 `ticketInput.description` 反向还原。
-- 如果用户未添加截图且关闭日志上传，没有后台附件阶段，继续保留原有提交完成后的跳转行为。
-- 关闭窗口不取消已创建工单后的后台上传任务，现有后台上传状态提示继续负责展示上传进度、暂停和错误；如果关闭发生在工单创建成功前，应取消创建请求。
-- 如果工单创建失败，不自动关闭窗口，继续展示原有错误状态，用户可以修改内容后重试。
-- 如果附件上传失败，不重新弹出提交窗口，沿用现有后台 job 错误和提示逻辑。
-- 如果用户主动取消工单创建，提交状态复位并展示“反馈提交已取消”，不创建附件上传任务；即使后端稍后返回创建成功，也不恢复旧提交 job。
+- Depois que o usuário clica em "Enviar feedback", a etapa de criação do ticket mantém a janela de feedback aberta.
+- A requisição de criação do ticket precisa ter um timeout finito, evitando que o botão de envio fique permanentemente em "Conectando ao serviço de feedback" quando o serviço de feedback ou a cadeia de rede ficam pendurados.
+- O "Cancelar" da etapa de criação do ticket precisa ser um cancelamento de verdade: a UI usa o creation operation id do serviço de feedback para avisar ao host process que interrompa a requisição de criação atual e interrompe também o upload posterior de capturas e logs.
+- Após a criação bem-sucedida do ticket, os anexos de captura e log passam para upload em segundo plano e a janela de feedback fecha automaticamente.
+- A entrada "Relatar problema" no menu de ajuda do topo, assim como as demais entradas de novo feedback, sempre abre um novo formulário de envio, sem vincular automaticamente nenhuma tarefa de envio em segundo plano já existente; o usuário não precisa esperar o upload dos anexos do feedback anterior terminar.
+- As tarefas de envio em segundo plano existem de forma independente por `jobId`. Enquanto várias tarefas não terminarem, o canto inferior direito da janela exibe uma cartão de status para cada tarefa, em vez de mostrar apenas a última.
+- Ao clicar no cartão de uma tarefa não concluída, o dialog de feedback se vincula apenas ao `jobId` daquele cartão, exibe o progresso correspondente e restaura a descrição original do problema, o contato, a captura de tela, o interruptor de log e a categoria do ticket no momento daquele envio; ao fechar, a tarefa continua em segundo plano. A entrada de novo feedback e "abrir uma tarefa de segundo plano específica" são ações distintas.
+- O que a tarefa de segundo plano guarda é um snapshot do formulário do usuário no instante do envio. A descrição do problema deve usar o texto original digitado pelo usuário e não pode ser reconstruída de forma reversa a partir do `ticketInput.description` do backend, que já recebeu informações de diagnóstico como modelo e tipo.
+- Se o usuário não adicionou captura de tela e desativou o upload de logs, não existe etapa de anexo em segundo plano e o comportamento de redirecionamento após a conclusão do envio é preservado.
+- Fechar a janela não cancela a tarefa de upload em segundo plano de um ticket já criado; as indicações existentes de status do upload em segundo plano continuam responsáveis por mostrar o progresso, a pausa e os erros. Se o fechamento acontecer antes da criação bem-sucedida do ticket, a requisição de criação deve ser cancelada.
+- Se a criação do ticket falhar, a janela não fecha automaticamente, o estado de erro existente continua sendo exibido e o usuário pode corrigir o conteúdo e tentar de novo.
+- Se o upload dos anexos falhar, a janela de envio não é aberta novamente e a lógica existente de erro/dica do job em segundo plano é mantida.
+- Se o usuário cancelar ativamente a criação do ticket, o estado de envio é redefinido e exibe "O envio de feedback foi cancelado", sem criar tarefa de upload de anexos; mesmo que o backend retorne sucesso de criação mais tarde, o job de envio antigo não é restaurado.
 
-## 状态与交互边界
+## Limites de estado e interação
 
 ```text
-新建反馈入口
+entrada de novo feedback
     |
     v
-[全新提交表单, submissionJobId = null]
+[formulário totalmente novo, submissionJobId = null]
     |
-    | 创建工单成功，附件继续上传
+    | criação do ticket bem-sucedida, anexos continuam sendo enviados
     v
-[后台任务 job-A + 表单快照 A] ----\
-                                  +--> 右下角卡片列表 --> 点击 A --> [进度弹窗 + 表单快照 A]
-[后台任务 job-B + 表单快照 B] ----/                    \-> 点击 B --> [进度弹窗 + 表单快照 B]
+[tarefa de segundo plano job-A + snapshot de formulário A] ----\
+                                  +--> lista de cartões no canto inferior direito --> clicar A --> [dialog de progresso + snapshot de formulário A]
+[tarefa de segundo plano job-B + snapshot de formulário B] ----/                    \-> clicar B --> [dialog de progresso + snapshot de formulário B]
 
-再次点击“问题上报” -----------------------> [全新提交表单, submissionJobId = null]
+clicar novamente em "Relatar problema" -----------------------> [formulário totalmente novo, submissionJobId = null]
 ```
 
-- `openSubmit(draft)` 只表达“新建反馈”，必须清空 `submissionJobId`。
-- `openSubmissionJob(jobId)` 只表达“查看某个后台提交”，不得退化为“取最后一个活动任务”。
-- `FeedbackSubmissionJob.formDraft` 是每个任务独立、只读的提交瞬间快照；弹窗按 `jobId` 恢复这份快照，不读取其他任务或当前新建表单的状态。
-- 后台卡片列表订阅全局 job registry；任务之间不共享表单的 `submitting`、进度或取消状态。
-- 本功能是应用级本机反馈能力，不引入 workspace 状态，也不改变桌面 `continuous` 或手机远控 `replayable` 的消息链路。
+- `openSubmit(draft)` expressa apenas "novo feedback" e precisa limpar `submissionJobId`.
+- `openSubmissionJob(jobId)` expressa apenas "verificar um envio em segundo plano" e não pode degenerar em "pegar a última tarefa ativa".
+- `FeedbackSubmissionJob.formDraft` é um snapshot somente leitura e independente de cada tarefa, capturado no instante do envio; o dialog restaura esse snapshot por `jobId` e não lê o estado de outras tarefas nem do formulário novo atual.
+- A lista de cartões em segundo plano assina o job registry global; as tarefas não compartilham `submitting`, progresso ou estado de cancelamento do formulário.
+- Esta funcionalidade é uma capacidade de feedback local em nível de aplicativo; não introduz estado de workspace nem altera a cadeia de mensagens do `continuous` do desktop ou do `replayable` do controle remoto no celular.
 
-## 非目标
+## Não objetivos
 
-- 不修改反馈后端 HTTP 协议、附件上传协议、截图选择和日志打包规则。
-- 不改变“我的反馈”列表和工单详情行为。
+- Não modifica o protocolo HTTP do backend de feedback, o protocolo de upload de anexos, a seleção de capturas de tela nem as regras de empacotamento dos logs.
+- Não altera o comportamento da lista "Meus feedbacks" nem do detalhe do ticket.

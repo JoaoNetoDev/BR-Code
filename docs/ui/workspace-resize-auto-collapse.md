@@ -1,20 +1,20 @@
-# Workspace Resize Auto Collapse
+# Recolhimento Automático ao Redimensionar o Workspace
 
-## 背景
+## Contexto
 
-Workspace 主界面包含左侧 sidebar、聊天 conversation、底部 terminal 和右侧 side pane。用户缩小桌面窗口时，conversation 是最先被挤压的核心工作区，因此自动收起策略以 `ResizablePanel(id="conversation")` 的实际宽度为判据。
+A interface principal do Workspace contém a sidebar esquerda, a conversation do chat, o terminal na parte inferior e o side pane à direita. Quando o usuário reduz a janela do desktop, a conversation é a área de trabalho central que sofre pressão primeiro, e por isso a estratégia de recolhimento automático usa como critério a largura real de `ResizablePanel(id="conversation")`.
 
-## 策略
+## Estratégia
 
-- 只响应用户触发的 `window.resize`，不监听 conversation 自身 `ResizeObserver`，避免用户手动打开面板时被策略立即关回去。
-- 每次窗口 resize 后读取 conversation panel 的实际宽度，不直接使用 `window.innerWidth`。
-- 当右侧 side pane 已打开且 conversation 宽度小于 `480px` 时，自动收起 side pane。
-- 当左侧 sidebar 已打开且 conversation 宽度小于 `360px` 时，自动收起 sidebar。
-- 自动收起只在变窄时触发；窗口放大后不自动恢复，用户通过现有按钮或快捷键手动打开。
-- side pane 自动收起只隐藏容器，不关闭 tab，避免浏览器、Git、预览等面板内容丢失。
+- Responder apenas a `window.resize` disparada pelo usuário, sem observar o `ResizeObserver` da própria conversation, evitando que a estratégia feche imediatamente um painel aberto manualmente pelo usuário.
+- Após cada resize da janela, ler a largura real do conversation panel, sem usar diretamente `window.innerWidth`.
+- Quando o side pane direito já estiver aberto e a largura da conversation for menor que `480px`, recolher automaticamente o side pane.
+- Quando a sidebar esquerda já estiver aberta e a largura da conversation for menor que `360px`, recolher automaticamente a sidebar.
+- O recolhimento automático só é acionado ao estreitar; após ampliar a janela não há restauração automática, e o usuário reabre manualmente pelo botão existente ou pelo atalho.
+- O recolhimento automático do side pane apenas oculta o contêiner, sem fechar a tab, evitando a perda do conteúdo de painéis como browser, Git e pré-visualização.
 
-## 兼容边界
+## Limites de compatibilidade
 
-- 桌面端和 Web 桌面端复用同一 conversation panel 监听。
-- 手机远控当前使用独立 overlay / mobile shell，不依赖该桌面分栏策略。
-- 该策略不改变 ZCode session / task realtime 消息流，不涉及 `desktop-continuous` 与 `web-remote-replayable` 的传输边界。
+- O desktop e o Web desktop reutilizam a mesma escuta do conversation panel.
+- O controle remoto no celular usa hoje um overlay / mobile shell independente e não depende dessa estratégia de divisões do desktop.
+- Essa estratégia não altera o fluxo de mensagens de session / task realtime do ZCode e não envolve os limites de transporte entre `desktop-continuous` e `web-remote-replayable`.

@@ -1,137 +1,166 @@
-# 输入框模型、Provider 与 Team Plan 当前链路
+# Cadeia atual do modelo da caixa de entrada, Provider e Team Plan
 
-更新日期：2026-07-15
+Data de atualização：2026-07-15
 
-> **历史链路说明，已被 Provider Refactor 取代。** 文中的 App Provider Snapshot、
-> `modelProviderService` 和向 workspace 推送 Registry 的描述不再是当前事实。当前 UI 消费目标
-> Environment 的 Model Selection View；Provider 与 Account Overlay 在该 Environment 内解析。
-> 当前设计见 `docs/working-memory/provider-refactor/design/`。
+> **Nota sobre a cadeia histórica, substituída pelo Provider Refactor.** As descrições de App
+> Provider Snapshot, `modelProviderService` e do envio do Registry para o workspace não são mais
+> fatos atuais. A UI atual consome a Model Selection View do Environment alvo; Provider e Account
+> Overlay são resolvidos dentro desse Environment. O design atual está em
+> `docs/working-memory/provider-refactor/design/`.
 
-## 结论
+## Conclusão
 
-输入框不是 provider registry 或 session config 的事实源。当前链路分为三个边界：
+A caixa de entrada não é a fonte de verdade do provider registry nem do session config. A cadeia atual
+se divide em três fronteiras:
 
 ```text
 App modelProviderService + entitlement + family settings
-  -> V4ComposerToolbar 构造可见模型目录
-  -> 用户选择
-      draft: draftConfigRef + workspace default + 预热 session CAS
+  -> V4ComposerToolbar constrói o catálogo visível de modelos
+  -> seleção do usuário
+      draft: draftConfigRef + workspace default + session CAS pré-aquecida
       session: V4 switchModelConfig CAS
-  -> CLI runtime config（会话权威）
-  -> ConversationSnapshot.config（工具条当前值）
+  -> CLI runtime config (autoridade da sessão)
+  -> ConversationSnapshot.config (valor atual da barra)
 ```
 
-- app provider snapshot 决定“哪些 provider/model 可以展示和选择”。
-- `ConversationSnapshot.config` 决定已有 session “当前实际是什么模型”。
-- draft 没有历史 session 事实，使用全局上次选择、workspace 目录和本草稿显式选择建立初值。
-- Team Plan 是 BigModel family 的一种连接身份，不是新的模型类型；runtime provider 仍是
-  `builtin:bigmodel-coding-plan`，团队组织/项目只决定凭据和请求上下文。
+- o app provider snapshot determina "quais providers/modelos podem ser exibidos e selecionados";
+- `ConversationSnapshot.config` determina qual é o modelo "atualmente real" de uma session existente;
+- o draft não tem fato de session histórico, então o valor inicial é estabelecido a partir da última
+  seleção global, do catálogo do workspace e da seleção explícita deste draft;
+- Team Plan é uma identidade de conexão da família BigModel, não um novo tipo de modelo; o runtime
+  provider continua sendo `builtin:bigmodel-coding-plan`, e a organização/projeto do time apenas
+  determina as credenciais e o contexto da requisição.
 
-## 当前代码入口
+## Entradas de código atuais
 
-| 模块                                                                                       | 职责                                                                   |
-| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `packages/ui/src/v4/composer/V4ComposerToolbar.tsx`                                        | 合并 V4 config、provider snapshot、family 设置和 entitlement，构造菜单 |
-| `packages/ui/src/ModelConfigSelect.tsx`                                                    | 纯展示、选择、锁定提示和“管理模型”入口                                 |
-| `packages/ui/src/lib/modelSelectionGroups.ts`                                              | provider/model 分组、排序和 runtime id 映射                            |
-| `packages/ui/src/chat-input-toolbar/modelSelection.ts`                                     | 存活的值归一化、family/Plan 可见性、不可用模型 fallback 纯函数         |
-| `packages/ui/src/v4/composer/useDraftConfigControl.ts`                                     | draft 水合、乐观回显、workspace default 和首发 config                  |
-| `packages/ui/src/v4/SessionPane.tsx`                                                       | V4 config command、provider registry 自动恢复和发送屏障                |
-| `packages/ui/src/hooks/useModelProviders.ts`                                               | app provider snapshot 水合和共享更新                                   |
-| `packages/ui/src/lib/modelProviderRuntimeSync.ts`                                          | 把 app registry 单向同步到已打开 workspace                             |
-| `packages/services/src/model-provider/modelProviderService.ts`                             | provider registry、family domain、Team Plan runtime 投影               |
-| `packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts` | Team Plan 产品、项目和 key 预热                                        |
+| Módulo                                                                                      | Responsabilidade                                                            |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `packages/ui/src/v4/composer/V4ComposerToolbar.tsx`                                       | combina config do V4, provider snapshot, family settings e entitlement e monta o menu |
+| `packages/ui/src/ModelConfigSelect.tsx`                                                   | exibição pura, seleção, dica de bloqueio e entrada de "gerenciar modelos"     |
+| `packages/ui/src/lib/modelSelectionGroups.ts`                                             | agrupamento e ordenação de provider/modelo e mapeamento de runtime id        |
+| `packages/ui/src/chat-input-toolbar/modelSelection.ts`                                    | funções puras de normalização de valor válido, visibilidade de family/Plan e fallback de modelo indisponível |
+| `packages/ui/src/v4/composer/useDraftConfigControl.ts`                                    | hidratação do draft, eco otimista, workspace default e config de primeiro envio |
+| `packages/ui/src/v4/SessionPane.tsx`                                                      | command de config do V4, restauração automática do provider registry e barreira de envio |
+| `packages/ui/src/hooks/useModelProviders.ts`                                              | hidratação e atualização compartilhada do app provider snapshot              |
+| `packages/ui/src/lib/modelProviderRuntimeSync.ts`                                         | sincroniza o app registry em uma direção para os workspaces já abertos       |
+| `packages/services/src/model-provider/modelProviderService.ts`                            | provider registry, domínio de family e projeção de runtime do Team Plan      |
+| `packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts` | pré-aquecimento de produtos, projetos e key do Team Plan                    |
 
-## 模型菜单的数据源
+## Fontes de dados do menu de modelos
 
-### Provider 目录
+### Catálogo de providers
 
-`useModelProviders` 先读 `getAllCached()`，再后台读 `getAll()`；设置页保存后立即更新共享 snapshot，
-关键 runtime 字段变化再同步到所有已打开 workspace。ZCode Agent 菜单只使用 app provider registry
-构造 provider/model groups，不把 CLI 返回的 native available list 反向混入完整目录。
+`useModelProviders` lê primeiro `getAllCached()` e depois `getAll()` em segundo plano; após salvar na
+página de configurações o snapshot compartilhado é atualizado imediatamente, e alterações em campos
+críticos de runtime são sincronizadas com todos os workspaces já abertos. O menu do ZCode Agent usa
+apenas o app provider registry para construir os grupos de provider/modelo e não mistura de volta no
+catálogo completo a native available list retornada pela CLI.
 
-Provider 进入菜单前至少要满足：
+Para entrar no menu, um provider precisa no mínimo:
 
-- enabled；
-- 有模型；
-- 有可用 credential 或被 Coding/Start Plan 的专用鉴权规则允许；
-- endpoint format 可被 ZCode Agent runtime 使用；
-- provider family、当前 connection selection 和 entitlement 没有把它过滤掉。
+- estar enabled;
+- ter modelos;
+- ter credencial disponível ou ser permitido pelas regras de autenticação específicas de
+  Coding/Start Plan;
+- ter endpoint format utilizável pelo runtime do ZCode Agent;
+- não ter sido filtrado pelo provider family, pela seleção de conexão atual ou pelo entitlement.
 
-目录仍在 entitlement/provider 水合时，不把暂时不可见的历史模型立即判为不可用。水合完成且模型确实不存在时，
-已有 session 才能通过 `modelAutoPosition.ts` 选择首个可见 fallback，并把选择写回 CLI。
+Enquanto o catálogo ainda está sendo hidratado por entitlement/provider, um modelo historicamente
+visível que está temporariamente invisível não deve ser classificado imediatamente como indisponível.
+Só depois de a hidratação terminar e de o modelo de fato não existir uma session existente pode
+selecionar o primeiro fallback visível via `modelAutoPosition.ts` e gravar a seleção de volta na CLI.
 
-### Session 当前值
+### Valor atual da session
 
-已有 session 的 provider/model/thought 只读 `snapshot.config`。workspace `configOptions` 提供目录和草稿
-default，不再通过 `taskConfigOptionsByTaskId`、task meta 或 last-selected 覆盖一个已绑定 session。
+Para uma session existente, provider/modelo/thought lêem apenas `snapshot.config`. O
+`configOptions` do workspace fornece o catálogo e o default do draft, e não mais sobrescreve uma
+session já vinculada via `taskConfigOptionsByTaskId`, task meta ou last-selected.
 
-草稿当前值由 `useDraftConfigControl` 合并：
+O valor atual do draft é composto por `useDraftConfigControl`:
 
-1. 当前 workspace identity 下的全局上次选择；
-2. workspace model catalog；
-3. 本草稿用户显式选择（最高优先级）；
-4. renderer draft mode 偏好和 app follow-up setting。
+1. última seleção global sob a identidade de workspace atual;
+2. catálogo de modelos do workspace;
+3. seleção explícita do usuário neste draft (maior prioridade);
+4. preferência de renderer draft mode e app follow-up setting.
 
-## Family 与连接方式
+## Family e modo de conexão
 
-`providerFamilyDomain` 是当前登录/运行 family 的第一层边界，只允许 `zai | bigmodel`。family 内再由：
+`providerFamilyDomain` é a primeira fronteira do family de login/execução atual e só permite
+`zai | bigmodel`. Dentro do family:
 
-- `modelProviderFamilyModes[family]` 选择 OAuth/Plan 或 API Key 大类；
-- `modelProviderFamilySelectedKeys[family]` 选择具体 Start、Individual、Team project 或 API Key 项。
+- `modelProviderFamilyModes[family]` escolhe a grande classe OAuth/Plan ou API Key;
+- `modelProviderFamilySelectedKeys[family]` escolhe o item específico Start, Individual, Team project
+  ou API Key.
 
-输入框只展示当前连接方式对应的模型，不在菜单内切换连接方式。连接方式在 Model Provider 设置页修改，
-输入框的 family header 只显示短 badge。自定义 provider 仍使用 provider 二级菜单；手机远控隐藏“管理模型”入口。
+A caixa de entrada mostra apenas os modelos do modo de conexão atual e não troca o modo de conexão
+dentro do menu. O modo de conexão é alterado na página de configurações de Model Provider, e o
+family header da caixa de entrada mostra apenas um badge curto. Providers personalizados continuam
+usando o submenu de providers; o controle remoto pelo celular oculta a entrada "gerenciar modelos".
 
-选择模型后：
+Após selecionar um modelo:
 
-- 已有 session：`SessionPane` 发送 `switchModelConfig`，revision/CAS 与 send barrier 保证顺序；
-- draft：先更新 `draftConfigRef` 和 workspace 目录乐观值，有预热 session 时再发同一个 V4 command；
-- CLI 返回 `provider.notInRegistry` 时，按 `workspaceIdentity` / `remoteSessionId` 同步 registry，解析
-  `runtimeModel` 后只重试一次；
-- 成功或 noop 最终都要由 snapshot config 确认，不能以 dropdown 本地值代替 runtime 事实。
-- family 连接方式因 entitlement 刷新发生自动回退时，`SessionPane` 必须把当前 snapshot 中的旧
-  runtime provider 通过 `switchModelConfig` CAS 切到新连接方式；不能只更新设置页 selected key
-  或 provider registry，否则连接方式与输入框模型会分叉。
+- session existente: `SessionPane` envia `switchModelConfig`, e revision/CAS com a send barrier
+  garantem a ordem;
+- draft: primeiro atualiza `draftConfigRef` e o valor otimista do catálogo do workspace, e quando há
+  session pré-aquecida envia o mesmo command do V4;
+- quando a CLI retorna `provider.notInRegistry`, sincroniza o registry por `workspaceIdentity` /
+  `remoteSessionId`, resolve `runtimeModel` e tenta novamente apenas uma vez;
+- sucesso ou noop devem ao final ser confirmados pelo snapshot config; não se pode substituir o fato
+  de runtime pelo valor local do dropdown.
+- quando o modo de conexão do family sofre fallback automático por atualização de entitlement,
+  `SessionPane` deve trocar via CAS `switchModelConfig` o runtime provider antigo do snapshot atual
+  para o novo modo de conexão; não basta atualizar a selected key da página de configurações ou o
+  provider registry, senão o modo de conexão e o modelo da caixa de entrada divergem.
 
-详细模型链路见 `docs/chat/model-resolution-chain-audit.md`。
+Detalhes sobre a cadeia de modelos em `docs/chat/model-resolution-chain-audit.md`.
 
-## Coding Plan 与 Start Plan
+## Coding Plan e Start Plan
 
-- Z.ai Coding Plan 在 authenticated 或 snapshot 尚未水合时可保留；BigModel Coding Plan 必须有有效
-  entitlement，Team selected key 走团队上下文专用判断。
-- paid Coding Plan 有有效 entitlement 时隐藏同 family Start Plan；只有明确 `no_plan` 才允许 Start
-  Plan fallback。查询中、网络失败、token 失效不能伪装成 `no_plan`。
-- Start Plan 模型受白名单限制，避免缓存中的下线模型继续出现。
-- context usage 只读取当前模型所属 plan identity；不能复用 sidebar 的另一个账号/family 用量。
+- Z.ai Coding Plan pode ser mantido quando authenticated ou enquanto o snapshot ainda não foi
+  hidratado; BigModel Coding Plan exige entitlement válido, e a team selected key passa por uma
+  verificação de contexto de time.
+- quando o Coding Plan pago tem entitlement válido, o Start Plan da mesma family fica oculto; apenas
+  um `no_plan` explícito permite o fallback para Start Plan. Consulta em andamento, falha de rede ou
+  token expirado não podem se passar por `no_plan`.
+- modelos do Start Plan são restritos por lista branca, evitando que modelos fora de linha continuem
+  aparecendo a partir do cache.
+- context usage lê apenas a plan identity do modelo atual; não pode reusar o consumo de outra
+  conta/family da sidebar.
 
-## Team Plan 当前语义
+## Semântica atual do Team Plan
 
-Team Plan 只在 BigModel family 开放。一个账号可以有多个 organization/project；连接 key 必须同时包含
-`organizationId + projectId`。可见名称优先使用真实 `organizationName`，缺失时不把 ID、项目名或通用
-“Team Plan”伪装成组织名。
+O Team Plan só está disponível na family BigModel. Uma conta pode ter várias organizations/projects; a
+chave de conexão precisa conter simultaneamente `organizationId + projectId`. O nome visível prioriza
+o `organizationName` real e, quando ausente, não se pode fazer o ID, o nome do projeto ou um "Team
+Plan" genérico passar por nome de organização.
 
-每个已购团队项目独立预热项目级 API key：
+Cada projeto de time comprado pré-aquece de forma independente a API key de nível de projeto:
 
 ```text
 GET /api/biz/v1/organization/{organizationId}/projects/{projectId}/api_keys
-  -> 复用 name=zcode-team-api-key 且 keyType=2
-  -> 不存在则 POST 创建
-  -> 仅当前选中的团队项目按需 copy secret
-  -> runtime 使用 apiKey.secretKey
+  -> reutiliza name=zcode-team-api-key com keyType=2
+  -> se não existir, cria via POST
+  -> apenas o projeto de time selecionado copia o secret sob demanda
+  -> o runtime usa apiKey.secretKey
 ```
 
-- 请求必须携带 `bigmodel-organization` 与 `bigmodel-project` header。
-- 不能复用个人 preset 的 `zcode-api-key`，也不能复用同名但 `keyType != 2` 的 key。
-- 预热所有团队项目时只确保 key 存在，不批量复制 secret；单项目失败不阻断其他项目。
-- `apiKeyStatus=available | unavailable` 是产品状态。unavailable 项在设置页保留并解释原因，但输入框和
-  自动连接选择不能把它当成可发送连接。
-- runtime/quota 只消费当前 `modelProviderFamilySelectedKeys.bigmodel` 指向的组织/项目，禁止把其他团队
-  key 混入当前 Agent registry。
+- a requisição deve carregar os headers `bigmodel-organization` e `bigmodel-project`;
+- não se pode reutilizar o `zcode-api-key` do preset pessoal, nem uma key de mesmo nome com
+  `keyType != 2`;
+- ao pré-aquecer todos os projetos do time, garante-se apenas que a key existe, sem copiar secrets em
+  massa; a falha em um projeto não bloqueia os demais;
+- `apiKeyStatus=available | unavailable` é um estado do produto. Itens unavailable são mantidos na
+  página de configurações com a explicação do motivo, mas a caixa de entrada e a seleção automática
+  de conexão não podem tratá-los como conexão enviável;
+- runtime/quota consomem apenas a organização/projeto apontada pelo
+  `modelProviderFamilySelectedKeys.bigmodel` atual; é proibido misturar outras keys de time no registry
+  atual do Agent.
 
-## 多端与身份边界
+## Fronteiras de múltiplos dispositivos e de identidade
 
-provider registry 权威在 app/desktop Local Host，并单向推送到承载目标 workspace scope 的 Local/Remote Host
-及其 workspaceKey CLI。远程 workspace 同步、
-V4 模型恢复和 runtime resolution 必须携带 `workspaceIdentity` 与 `remoteSessionId`；缓存 key 不能只使用
-`workspacePath`。手机 `/remote` 附着现有 host/session，不创建另一份 provider registry 或 Agent runtime。
+A autoridade do provider registry está no app/desktop Local Host e é enviada em uma única direção para
+o Local/Remote Host que hospeda o workspace alvo e para sua CLI `workspaceKey`. A sincronização de
+workspaces remotos, a restauração de modelo do V4 e a resolução de runtime devem carregar
+`workspaceIdentity` e `remoteSessionId`; a chave de cache não pode usar apenas `workspacePath`. O
+`/remote` do celular se anexa a um host/session existente e não cria outra cópia do provider registry
+nem do runtime do Agent.

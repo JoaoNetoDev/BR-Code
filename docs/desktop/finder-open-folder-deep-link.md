@@ -1,56 +1,91 @@
-# Desktop Open Folder From System Context Menu
+# Abrir pasta pelo menu de contexto do sistema no Desktop
 
-## 背景
+## Contexto
 
-系统文件管理器的文件夹右键菜单需要提供一个入口，把用户当前选中的本地文件夹交给 ZCode。该入口语义等同于主界面输入框上方空态菜单里的 `Open folder`：跳过目录选择弹窗，直接把指定目录作为 workspace 打开。
+O menu de contexto de pastas do gerenciador de arquivos do sistema precisa oferecer uma entrada que entregue
+ao ZCode a pasta local atualmente selecionada pelo usuário. A semântica dessa entrada equivale ao `Open folder`
+do menu de estado vazio acima da caixa de entrada da interface principal: pula o diálogo de seleção de
+diretório e abre o diretório indicado diretamente como workspace.
 
-## 范围
+## Escopo
 
-- 触发点在 macOS Finder 的文件夹右键菜单服务，不在 ZCode App 内新增 UI。
-- Finder 服务展示名跟随 ZCode 应用语言：`zh-CN` 显示为「在ZCode中打开」，`en-US` 显示为 `Open in ZCode`。
-- 只支持单个文件夹。多选时系统服务脚本应只传第一个目录。
-- 只支持本地绝对目录路径，不支持远程 workspace、手机 `/remote`、文件管理器空白处当前目录。
-- macOS 侧接受 `zcode://workspace/open?path=<encoded-absolute-directory>`。
-- Windows 侧接受 `--open-workspace <absolute-directory>` 或 `--open-workspace=<absolute-directory>`。
+- O ponto de disparo é o serviço de menu de contexto de pasta do Finder no macOS, sem nova UI dentro do app
+  ZCode.
+- O nome de exibição do serviço do Finder acompanha o idioma do app ZCode: `zh-CN` exibe «在ZCode中打开»
+  (“Abrir no ZCode”) e `en-US` exibe `Open in ZCode`.
+- Apenas uma pasta é suportada. Em seleções múltiplas, o script de serviço do sistema deve passar apenas o
+  primeiro diretório.
+- Apenas caminhos absolutos locais são suportados: não há suporte a workspace remoto, ao `/remote` do celular
+  nem ao diretório atual na área em branco do gerenciador de arquivos.
+- No lado macOS, aceita-se `zcode://workspace/open?path=<encoded-absolute-directory>`.
+- No lado Windows, aceita-se `--open-workspace <absolute-directory>` ou `--open-workspace=<absolute-directory>`.
 
-## macOS 数据流
+## Fluxo de dados no macOS
 
-1. ZCode Desktop 在 macOS 启动和应用语言切换时安装或更新 `~/Library/Services/Open in ZCode.workflow`；workflow 文件名保持稳定，避免升级后残留多个 Finder 服务，服务菜单展示名写入当前应用语言。
-2. Finder Quick Action / Service 接收单个文件夹路径。
-3. 服务脚本对绝对路径做 `encodeURIComponent`，调用 `/usr/bin/open "zcode://workspace/open?path=..."`。
-4. Electron main 进程解析 deep link，校验 scheme、host、path、目录存在性。
-5. main 进程把目录路径通过 `OpenWorkspacePath` IPC 发给 renderer；冷启动时先缓存，等 renderer ready 后投递。
-6. renderer 复用 `handleSelectProject(path)`，保持已有 tab 去重、跨窗口激活、recentProjects 更新逻辑。
+1. O ZCode Desktop instala ou atualiza `~/Library/Services/Open in ZCode.workflow` na inicialização do macOS e
+   ao trocar o idioma do app; o nome do arquivo workflow permanece estável, evitando múltiplos serviços
+   residuais do Finder após upgrades, e o nome de exibição do menu de serviço grava o idioma atual do app.
+2. O Finder Quick Action / Service recebe o caminho de uma única pasta.
+3. O script do serviço aplica `encodeURIComponent` ao caminho absoluto e chama
+   `/usr/bin/open "zcode://workspace/open?path=..."`.
+4. O processo main do Electron faz o parse do deep link e valida scheme, host, path e a existência do diretório.
+5. O processo main envia o caminho do diretório ao renderer via IPC `OpenWorkspacePath`; no cold start o caminho
+   é cacheado primeiro e entregue quando o renderer estiver pronto.
+6. O renderer reutiliza `handleSelectProject(path)`, preservando a deduplicação de tabs existentes, a ativação
+   entre janelas e a lógica de atualização de recentProjects.
 
-安装出的 workflow 需要同时兼容用户目录 workflow 和系统 workflow 的 bundle 结构：`Contents/document.wflow` 与 `Contents/Resources/document.wflow` 都写入同一份内容。`workflowMetaData` 使用系统内置 workflow 同款 `serviceApplicationBundleID`，并将 input type 标记为 `com.apple.Automator.fileSystemObject.folder`。
+O workflow instalado precisa ser compatível com a estrutura de bundle tanto de workflow no diretório do usuário
+quanto de workflow do sistema: `Contents/document.wflow` e `Contents/Resources/document.wflow` recebem o mesmo
+conteúdo. `workflowMetaData` usa o mesmo `serviceApplicationBundleID` dos workflows embutidos do sistema e marca
+o input type como `com.apple.Automator.fileSystemObject.folder`.
 
-## Windows 数据流
+## Fluxo de dados no Windows
 
-1. ZCode Desktop 在 Windows 启动时安装或更新当前用户的 Explorer 右键菜单注册表项。
-2. 注册表写入 `HKCU\Software\Classes\Directory\shell\ZCode.OpenInZCode`，菜单文案为 `Open in ZCode`，图标指向当前 ZCode 可执行文件。
-3. 注册表写入 `HKCU\Software\Classes\Directory\shell\ZCode.OpenInZCode\command`，命令为 `"<ZCode.exe>" --open-workspace "%1"`。
-4. 同步写入 `HKCU\Software\Classes\Drive\shell\ZCode.OpenInZCode`，支持右键打开盘符根目录。
-5. Explorer 触发后启动第二个 ZCode 进程；Electron single-instance 通过 `additionalData` 或 argv 解析出 `openWorkspacePath`。
-6. main 进程复用本地目录校验与 `OpenWorkspacePath` IPC；冷启动时先缓存，等 renderer ready 后投递。
-7. renderer 复用 `handleSelectProject(path)`，保持已有 tab 去重、跨窗口激活、recentProjects 更新逻辑。
+1. O ZCode Desktop instala ou atualiza as chaves de registro do menu de contexto do Explorer para o usuário atual
+   na inicialização do Windows.
+2. O registro grava `HKCU\Software\Classes\Directory\shell\ZCode.OpenInZCode`, com o texto de menu
+   `Open in ZCode` e o ícone apontando para o executável atual do ZCode.
+3. O registro grava `HKCU\Software\Classes\Directory\shell\ZCode.OpenInZCode\command`, com o comando
+   `"<ZCode.exe>" --open-workspace "%1"`.
+4. Em paralelo, grava `HKCU\Software\Classes\Drive\shell\ZCode.OpenInZCode`, permitindo abrir a raiz de uma
+   letra de disco pelo menu de contexto.
+5. Após o disparo do Explorer, um segundo processo do ZCode é iniciado; o single-instance do Electron extrai
+   `openWorkspacePath` por `additionalData` ou por argv.
+6. O processo main reutiliza a validação de diretório local e o IPC `OpenWorkspacePath`; no cold start o caminho
+   é cacheado primeiro e entregue quando o renderer estiver pronto.
+7. O renderer reutiliza `handleSelectProject(path)`, preservando a deduplicação de tabs existentes, a ativação
+   entre janelas e a lógica de atualização de recentProjects.
 
-Windows 不使用 `zcode://workspace/open` 作为 Explorer 菜单命令，原因是注册表命令可以直接把 `%1` 作为 argv 传入，避免路径里的空格、`&`、`#`、`%` 进入 URL 编码/解码链路。注册表写入 HKCU，不需要管理员权限；暂不实现 Windows 11 顶层现代菜单 COM 扩展，菜单项在系统默认的传统 shell 菜单中展示。
+O Windows não usa `zcode://workspace/open` como comando de menu do Explorer porque o comando de registro pode
+passar `%1` diretamente como argv, evitando que espaços, `&`, `#` e `%` do caminho passem pela cadeia de
+codificação/decodificação de URL. A gravação no HKCU não exige permissões de administrador; a extensão COM de
+menu moderno de nível superior do Windows 11 não é implementada por enquanto, e o item de menu aparece no menu
+shell tradicional padrão do sistema.
 
-## 边界
+## Boundaries
 
-- 多选：只处理第一个目录，其余忽略。
-- 选中文件：系统菜单配置应限制为 folders；App 侧收到非目录路径时拒绝。
-- macOS 路径包含空格、中文、`&`、`?`、`#`：服务脚本必须编码；App 侧通过 URL query 解码。
-- Windows 路径包含空格、中文、`&`、`?`、`#`：Explorer 通过 `"%1"` 传 argv；App 侧不做 URL 解码。
-- Windows 路径是盘符根目录：通过 `Drive\shell` 注册表项传入，例如 `C:\`。
-- Windows 路径来自 UNC 或不存在目录：App 侧校验失败后拒绝，当前功能只承诺本地绝对目录。
-- App 未启动：deep link 冷启动后在 renderer ready 时继续打开目录。
-- App 已有窗口：发送到当前聚焦窗口或第一个可用窗口，再由 UI 的 `activateOrSetWorkspace` 处理跨窗口去重。
-- `allowOpenWorkspace=false`：renderer 侧拒绝执行，避免系统服务绕过当前模式约束。
+- Seleção múltipla: apenas o primeiro diretório é processado; os demais são ignorados.
+- Arquivo selecionado: a configuração do menu do sistema deve ficar restrita a pastas; o lado do app rejeita
+  caminhos que não sejam diretórios.
+- Caminhos no macOS com espaços, chinês, `&`, `?`, `#`: o script do serviço precisa codificar, e o app decodifica
+  pela query da URL.
+- Caminhos no Windows com espaços, chinês, `&`, `?`, `#`: o Explorer passa argv por `"%1"`; o app não faz
+  decodificação de URL.
+- Caminho no Windows igual à raiz de uma letra de disco: passado pela chave de registro `Drive\shell`, por
+  exemplo `C:\`.
+- Caminho no Windows vindo de UNC ou de diretório inexistente: o app rejeita após a validação; a funcionalidade
+  atual só promete diretórios absolutos locais.
+- App não iniciado: após o cold start do deep link, a abertura do diretório continua quando o renderer estiver
+  pronto.
+- App já com janela: o envio vai para a janela em foco ou para a primeira janela disponível, e a UI trata a
+  deduplicação entre janelas via `activateOrSetWorkspace`.
+- `allowOpenWorkspace=false`: o lado do renderer recusa a execução, evitando que o serviço do sistema burle a
+  restrição do modo atual.
 
-## Finder 服务脚本参考
+## Referência do script de serviço do Finder
 
-App 会自动写入该 workflow；下面脚本是 `Run Shell Script` action 的实际逻辑，供排障时对照。
+O app grava esse workflow automaticamente; o script abaixo é a lógica real da action `Run Shell Script`,
+servindo como referência para diagnóstico.
 
 ```bash
 first=""

@@ -1,16 +1,16 @@
-# Todo 74：模型能力分层与 PDF／工具调用／JSON Schema 输出契约
+# Todo 74: Camadas de capacidade do modelo e contrato de saída de PDF / chamadas de ferramenta / JSON Schema
 
-> 状态：已完成（流式 JSON Schema 仍由 Todo 80 单独处理）
+> Status: concluído (o streaming de JSON Schema continua sendo tratado separadamente pelo Todo 80)
 >
-> 日期：2026-09-04
+> Data: 2026-09-04
 >
-> 覆盖：GLM-5.3-Flash PDF、工具调用能力展示、严格 JSON Schema 输出
+> Cobertura: PDF do GLM-5.3-Flash, exibição da capacidade de chamadas de ferramenta, saída estrita em JSON Schema
 >
-> 说明：Option `default` 退役、Reasoning Spec 完整化和请求预算显式传入已经由 Todo 58、Todo 60 及后续实现完成，本 Todo 不重新讨论这些内容。
+> Observação: a aposentadoria do Option `default`, a completude do Reasoning Spec e a passagem explícita do orçamento de requisição já foram concluídas pelo Todo 58, pelo Todo 60 e pelas implementações seguintes; este Todo não rediscute esses pontos.
 
-## 1. 目标
+## 1. Objetivo
 
-收口模型能力配置的职责边界，避免把模型自身事实、API 协议映射和供应商／Endpoint 特例混在同一层。最终以当前 Effective Model Config 作为运行时唯一能力来源；不在 Adapter 或 UI 中按模型名称临时猜测能力。
+Fechar os limites de responsabilidade da configuração de capacidades do modelo, evitando misturar na mesma camada fatos próprios do modelo, mapeamento do protocolo de API e casos especiais de fornecedor/Endpoint. O resultado final tem o Effective Model Config atual como fonte única de capacidade em runtime; nada adivinha capacidades temporariamente pelo nome do modelo no Adapter ou na UI.
 
 ```text
 Model ID
@@ -23,33 +23,33 @@ Model ID
   -> UI 能力展示与 Runtime 请求
 ```
 
-## 2. 三项产品要求
+## 2. Três requisitos de produto
 
-### 2.1 GLM-5.3-Flash 仅在 Anthropic Messages 下支持 PDF
+### 2.1 GLM-5.3-Flash suporta PDF apenas sob Anthropic Messages
 
-- Model baseline 不把 GLM-5.3-Flash 标记为全局支持 PDF。
-- 仅增加 `glm-5.3-flash + anthropic-messages` 的 Model + API Rule，令该组合支持 PDF。
-- OpenAI Chat 和 OpenAI Responses 在本轮保持不支持 PDF，不添加后续层覆盖。
-- PDF 的具体编码属于 API Schema／Adapter 层。
-- 本项采用产品内部已确认的能力要求，不再等待泛化的供应商能力讨论。
-- 覆盖设置页展示、Model Selection、附件转换及实际请求链路。
+- O baseline do Model não marca GLM-5.3-Flash como suporte global a PDF.
+- Adiciona-se apenas a regra Model + API para `glm-5.3-flash + anthropic-messages`, fazendo essa combinação suportar PDF.
+- OpenAI Chat e OpenAI Responses permanecem sem suporte a PDF nesta rodada, sem cobertura nas camadas seguintes.
+- A codificação específica do PDF pertence à camada API Schema / Adapter.
+- Este item adota o requisito de capacidade já confirmado internamente pelo produto, sem esperar uma discussão genérica de capacidades de fornecedor.
+- Cobre a exibição na página de configurações, a Model Selection, a conversão de anexos e a cadeia real de requisição.
 
-### 2.2 工具调用不再作为设置项
+### 2.2 Chamadas de ferramenta deixam de ser um item de configuração
 
-- 设置页隐藏“工具调用”编辑项。
-- 内置 Provider 与 Provider Template 的能力基线统一为 `supportsToolCall: true`。
-- 运行时继续使用该能力字段；不能因为隐藏 UI 而删除能力或让 ZCode 失去工具调用。
+- A página de configurações oculta o item de edição “工具调用” (chamadas de ferramenta).
+- O baseline de capacidades dos Providers embutidos e dos Provider Templates é unificado como `supportsToolCall: true`.
+- O runtime continua usando esse campo de capacidade; não se pode remover a capacidade nem deixar o ZCode sem chamadas de ferramenta só porque a UI foi ocultada.
 
-### 2.3 Structured Output 改为严格 JSON Schema 语义
+### 2.3 Structured Output passa a usar a semântica estrita de JSON Schema
 
-- 现有字段实际表达“调用方提供 JSON Schema，并要求响应满足该 Schema”。
-- 评估将字段改名为 `supportsJsonSchemaOutput`，清除“普通 JSON／JSON mode／提示词 JSON”歧义。
-- 能力必须按 Model、API Schema、Provider/Endpoint 证据确认，不能仅按 Model ID 全局推断。
-- 流式 JSON Schema 另由 Todo 80 讨论，本 Todo 不提前扩大流式结果契约。
+- O campo existente na verdade expressa “o chamador fornece um JSON Schema e exige que a resposta satisfaça esse Schema”.
+- Avalia-se renomear o campo para `supportsJsonSchemaOutput`, eliminando a ambiguidade entre “JSON comum / JSON mode / JSON por prompt”.
+- A capacidade precisa ser confirmada por evidência de Model, API Schema e Provider/Endpoint, e não inferida globalmente apenas pelo Model ID.
+- O streaming de JSON Schema é discutido à parte no Todo 80; este Todo não amplia antecipadamente o contrato de resultado em streaming.
 
-## 3. Model Config 分层约束
+## 3. Restrições de camadas do Model Config
 
-本 Todo 使用 Todo 76 定义的固定顺序和 Rule 类型，不重复定义另一套 Provider/Endpoint 层级：
+Este Todo usa a ordem fixa e os tipos de Rule definidos no Todo 76, sem redefinir outro conjunto de camadas Provider/Endpoint:
 
 ```text
 Model
@@ -60,43 +60,43 @@ Model
     -> Personal Provider Instance overlay
 ```
 
-本 Todo 只负责 PDF、工具调用和严格 JSON Schema 的字段取值、运行时透传及测试；每个字段应按 Todo 76 的维护范围和 Site override 规则落位。
+Este Todo é responsável apenas pelos valores dos campos de PDF, chamadas de ferramenta e JSON Schema estrito, pelo repasse em runtime e pelos testes; cada campo deve ser posicionado conforme o escopo de manutenção e as regras de override de Site do Todo 76.
 
-## 4. 当前实现事实与待核验项
+## 4. Fatos atuais da implementação e itens a verificar
 
-- 当前 `ModelConfigRule` 已支持 `modelMatch`、`apiMatch`、`providerMatch` 和 `baseURLMatch`；Builtin JSON 也已有多个规则分组。类型拆分与分组迁移由 Todo 76 负责。
-- 当前 Resolver 采用顺序 overlay；本 Todo 不改变其顺序，只消费 Todo 76 产出的统一 Effective Model Config。
-- 需要建立最小能力矩阵：GLM PDF、工具调用、严格 JSON Schema 分别在 Model、API Schema、Provider/Endpoint 哪一层声明。
-- 流式 JSON Schema 的现状和后续支持边界记录在 Todo 80，不在本 Todo 重复实现。
+- O `ModelConfigRule` atual já suporta `modelMatch`, `apiMatch`, `providerMatch` e `baseURLMatch`, e o JSON Builtin já possui múltiplos grupos de regras. A divisão de tipos e a migração dos grupos ficam a cargo do Todo 76.
+- O Resolver atual adota overlay sequencial; este Todo não altera a ordem, apenas consome o Effective Model Config unificado produzido pelo Todo 76.
+- É preciso estabelecer uma matriz mínima de capacidades: PDF do GLM, chamadas de ferramenta e JSON Schema estrito devem ser declarados em qual camada — Model, API Schema ou Provider/Endpoint.
+- A situação atual e os limites de suporte futuro do streaming de JSON Schema ficam registrados no Todo 80, sem implementação duplicada aqui.
 
-## 5. 实施顺序
+## 5. Ordem de implementação
 
-1. 更新本 Todo 关联的 Model Config 设计说明，确认三层字段职责。
-2. 更新 GLM-5.3-Flash PDF 能力及相关测试。
-3. 隐藏工具调用 UI，保留运行时能力并补回归测试。
-4. 将 Structured Output 统一为严格 JSON Schema 语义并完成字段改名；流式透传按 Todo 80 单独处理。
-5. 检查 Settings、Model Selection、Adapter、Runtime 和测试是否仍存在旧字段或重复推断。
-6. 在 MacBook Air 上完成 UI 与真实请求验证；图形 E2E 另按现有 E2E 流程执行，不把环境阻塞伪装成通过。
+1. Atualizar o documento de design do Model Config associado a este Todo, confirmando as responsabilidades dos campos nas três camadas.
+2. Atualizar a capacidade de PDF do GLM-5.3-Flash e os testes relacionados.
+3. Ocultar a UI de chamadas de ferramenta, mantendo a capacidade em runtime e acrescentando testes de regressão.
+4. Unificar Structured Output na semântica estrita de JSON Schema e concluir a renomeação do campo; o repasse em streaming fica por conta do Todo 80.
+5. Verificar se Settings, Model Selection, Adapter, Runtime e testes ainda contêm campos antigos ou inferências duplicadas.
+6. Concluir a validação de UI e de requisição real em um MacBook Air; o E2E gráfico segue o processo de E2E existente, sem disfarçar bloqueio de ambiente como aprovação.
 
-## 6. 验收标准
+## 6. Critérios de aceitação
 
-- GLM-5.3-Flash 在设置和选择链路中显示 PDF 输入能力，实际附件请求不会因配置缺失失败。
-- 设置页不再提供工具调用开关，但工具调用模型仍能正常执行。
-- 严格 JSON Schema 能力名称、配置和 Runtime 校验语义一致；流式行为以 Todo 80 的边界为准。
-- Provider、API Schema、Endpoint 三层规则的职责在代码和文档中唯一明确。
-- 不新增 Option `default`，不改变已完成的 Reasoning 和请求预算语义。
+- O GLM-5.3-Flash exibe a capacidade de entrada de PDF na cadeia de configurações e de seleção, e a requisição real de anexo não falha por falta de configuração.
+- A página de configurações não oferece mais o interruptor de chamadas de ferramenta, mas modelos com chamadas de ferramenta continuam funcionando normalmente.
+- O nome da capacidade de JSON Schema estrito, a configuração e a semântica de validação em Runtime são consistentes; o comportamento em streaming segue os limites do Todo 80.
+- As responsabilidades das regras das camadas Provider, API Schema e Endpoint ficam única e claramente definidas no código e na documentação.
+- Não se adiciona Option `default`, e não se altera a semântica já concluída de Reasoning e de orçamento de requisição.
 
-## 7. 与旧 Todo 的关系
+## 7. Relação com Todos antigos
 
-2026-09-09 遗留工作区复审：当前 Model Properties、Wiki 测试 fixture 统一使用 `supportsJsonSchemaOutput`。已发布旧数据的私有 `legacy*` DTO/reader 仍保留原始 `supportsStructuredOutput` 字段，不对历史输入格式机械改名；旧 Provider 导入仍按既定裁决仅保留模型 contextWindow，不将旧 capability 带入新配置。正式 Model Option 协议继续拒绝新旧两种平铺 capability 字段，能力只来自 properties。此处澄清私有旧格式边界，不增加未上线中间态兼容，也不重新打开本 Todo。
+Revisão do workspace residual em 2026-09-09: as Model Properties atuais e o fixture de teste do Wiki usam uniformemente `supportsJsonSchemaOutput`. Os DTOs/reader privados `legacy*` que publicam dados antigos ainda mantêm o campo original `supportsStructuredOutput`, sem renomear mecanicamente formatos de entrada históricos; a importação de Provider antigo continua, conforme a decisão já tomada, apenas preservando o contextWindow do modelo e sem levar capacidades antigas para a nova configuração. O protocolo oficial de Model Option continua rejeitando campos de capability achatados, antigos ou novos, e as capacidades vêm apenas das properties. Este ponto esclarece o limite dos formatos privados antigos, sem adicionar compatibilidade para estados intermediários não publicados e sem reabrir este Todo.
 
-- Todo 39 的“严格 JSON Schema 输出能力命名收口”由本 Todo 覆盖；Todo 39 应标记为 `superseded`，不再单独执行。
-- Todo 58、Todo 60 保持已完成状态，本 Todo 不重复实现 Option default 或 Reasoning 逻辑。
+- O item “consolidação da nomenclatura da capacidade de saída estrita em JSON Schema” do Todo 39 é coberto por este Todo; o Todo 39 deve ser marcado como `superseded` e não é mais executado em separado.
+- O Todo 58 e o Todo 60 mantêm o status de concluído; este Todo não reimplementa a lógica de Option default nem de Reasoning.
 
-## 实施记录（2026-09-04）
+## Registro de implementação (2026-09-04)
 
-- 完成 `supportsStructuredOutput` → `supportsJsonSchemaOutput` 的全仓字段切换；Schema 保持严格对象校验，旧字段不做迁移兼容。
-- 在设置页移除“工具调用”编辑项，保留运行时能力字段；Builtin 基线继续以 `supportsToolCall: true` 提供 ZCode 必需能力。
-- 将 GLM-5.3-Flash 的 PDF 能力放在 `modelApiRules` 的 `glm-5\\.3-flash + anthropic-messages` 规则中；Model baseline 和其他 API Schema 仍不声明 PDF。
-- 新增 Builtin 完整性回归，确认 Anthropic 组合支持 PDF、Chat 组合不支持，且配置文件不再含旧字段；受影响 Provider、Adapter、UI 测试通过，`pnpm typecheck` 和 `pnpm lint` 通过（0 error）。
-- Todo 80 的流式 JSON Schema 传递仍未改动，继续保持草案边界。
+- Concluída a troca de `supportsStructuredOutput` para `supportsJsonSchemaOutput` em todo o repositório; o Schema mantém a validação estrita de objeto e o campo antigo não recebe compatibilidade de migração.
+- Removido o item de edição “工具调用” da página de configurações, mantendo o campo de capacidade em runtime; o baseline Builtin continua fornecendo ao ZCode a capacidade necessária com `supportsToolCall: true`.
+- A capacidade de PDF do GLM-5.3-Flash foi colocada na regra `glm-5\.3-flash + anthropic-messages` de `modelApiRules`; o baseline do Model e os demais API Schemas continuam sem declarar PDF.
+- Adicionada regressão de integridade do Builtin, confirmando que a combinação Anthropic suporta PDF, que a combinação Chat não suporta e que o arquivo de configuração não contém mais o campo antigo; os testes de Provider, Adapter e UI afetados passaram, assim como `pnpm typecheck` e `pnpm lint` (0 error).
+- A passagem de streaming de JSON Schema do Todo 80 permanece inalterada e continua seguindo os limites do rascunho.

@@ -1,60 +1,79 @@
-# 会话侧 Cron 间隔任务（`intervalUnit` / `interval`）
+# Tarefas de intervalo Cron do lado da sessão (`intervalUnit` / `interval`)
 
-## 目标
+## Objetivo
 
-聊天会话通过 `CronCreate`、`CronUpdate` 创建或修改“每 N 分钟 / 小时 / 天 / 周 / 月 / 年”的任务时，与定时任务 UI 的「自定义重复」保持同一调度语义：
+Quando a conversa cria ou altera, via `CronCreate` e `CronUpdate`, tarefas de “a cada N minutos / horas / dias /
+semanas / meses / anos”, a semântica de agendamento precisa ser a mesma da “repetição personalizada” da UI de
+tarefas agendadas:
 
-- 单位支持 `minute`、`hourly`、`daily`、`weekly`、`monthly`、`yearly`。
-- `interval` 必须是 **1–200 的整数**；`0`、负数、小数和大于 `200` 的值必须在 contract、协议和 service 边界拒绝。
-- 真实重复语义以持久化的 `scheduleRule` 为准；`cronExpr` 只保留为合法兼容表达式，不能因 cron 字段的步长上限改变真实频率。
-- `CronList`、`CronCreate`、`CronUpdate` 的返回值必须带回 `scheduleRule`，使会话卡片可以展示真实频率，而不是把兼容 cron 错读为“每小时”。
+- As unidades suportadas são `minute`, `hourly`, `daily`, `weekly`, `monthly` e `yearly`.
+- `interval` deve ser um **inteiro de 1 a 200**; `0`, números negativos, decimais e valores acima de `200` precisam
+  ser rejeitados no contract, no protocolo e na boundary do service.
+- A semântica real de repetição é definida pelo `scheduleRule` persistido; `cronExpr` é mantido apenas como
+  expressão de compatibilidade válida, e a frequência real não pode mudar por causa dos limites de passo dos
+  campos do cron.
+- Os valores de retorno de `CronList`, `CronCreate` e `CronUpdate` precisam trazer `scheduleRule`, para que o card
+  da sessão possa exibir a frequência real em vez de ler o cron de compatibilidade como “a cada hora”.
 
-UI 自定义重复的输入范围和语义是本功能的事实来源：`docs/ui/scheduled-tasks-main-view.md`。
+Os intervalos de entrada e a semântica da repetição personalizada da UI são a fonte de verdade desta
+funcionalidade: `docs/ui/scheduled-tasks-main-view.md`.
 
-## 根因
+## Causa raiz
 
-标准五段 cron 对各字段的步长有上限：分钟为 59、小时为 24、日为 31、月为 12。因此以下表达式无效：
+O cron padrão de cinco campos tem limites de passo por campo: minutos 59, horas 24, dias 31, meses 12. Portanto as
+expressões a seguir são inválidas:
 
-- 每 61 分钟：`*/61 * * * *`
-- 每 31 小时：`49 */31 * * *`
-- 每 32 天：`0 9 */32 * *`
-- 每 13 个月：`0 9 15 */13 *`
+- A cada 61 minutos: `*/61 * * * *`
+- A cada 31 horas: `49 */31 * * *`
+- A cada 32 dias: `0 9 */32 * *`
+- A cada 13 meses: `0 9 15 */13 *`
 
-若把超过上限的间隔直接写入 cron，服务层会在 `isValidCronExpr` 校验时拒绝任务；若静默改为每分钟/每小时 cron 又会错误地改变任务频率。
+Se o intervalo acima do limite for escrito direto no cron, a camada de serviço rejeita a tarefa na validação
+`isValidCronExpr`; e mudar silenciosamente para um cron de cada minuto/cada hora altera incorretamente a
+frequência da tarefa.
 
-## 受控输入模型
+## Modelo de Entrada Controlada
 
-Cron 工具保留 `cron`，并新增成对的可选字段：
+A ferramenta Cron mantém `cron` e ganha um par de campos opcionais:
 
 ```ts
 intervalUnit: "minute" | "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 interval: 1..200;
 ```
 
-`intervalUnit + interval` 表示 UI 的“自定义重复”语义，不能让模型直接提交内部 `scheduleRule`。
+`intervalUnit + interval` expressa a semântica de “repetição personalizada” da UI, e não permite que o modelo
+submeta diretamente o `scheduleRule` interno.
 
-### 使用规则
+### Regras de uso
 
-1. 用户表达“每 N 个单位”时，工具必须提交 **两个** interval 字段，即使 `N` 恰好可由 cron 表达（例如每 20 小时）。这是为了与 UI 自定义重复一样按 `scheduleRule.anchorAt` 推进，而不是退化为墙钟 cron。
-2. `cron` 仍必填，用来指定兼容表达式中的时间、周几、月日或月份；它必须是合法五段 cron，且只作为 `scheduleRule` 的展示/兼容 carrier。
-3. carrier 不能与一次性相对延迟 `delayMinutes` / `relativeDelayMinutes` 同时使用。
-4. carrier 可与既有 `recurring` / `maxRuns` 组合；它只定义“下一次如何计算”，有限次数仍由既有生命周期规则控制。
-5. 未传 carrier 的普通 cron 保持旧语义，避免改变已有绝对日期、工作日或日历型任务。
+1. Quando o usuário expressa “a cada N unidades”, a ferramenta precisa submeter os **dois** campos de interval,
+   mesmo que `N` possa ser expresso por cron (por exemplo, a cada 20 horas). Isso é para avançar por
+   `scheduleRule.anchorAt`, igual à repetição personalizada da UI, em vez de regredir para um cron de relógio de
+   parede.
+2. `cron` continua obrigatório, para especificar a hora, o dia da semana, o dia do mês ou o mês na expressão de
+   compatibilidade; ele precisa ser um cron de cinco campos válido e serve apenas como carrier de
+   exibição/compatibilidade do `scheduleRule`.
+3. O carrier não pode ser usado junto com o atraso relativo pontual `delayMinutes` / `relativeDelayMinutes`.
+4. O carrier pode ser combinado com os `recurring` / `maxRuns` existentes; ele define apenas “como calcular a
+   próxima ocorrência”, e o número de execuções continua controlado pelas regras de lifecycle existentes.
+5. Um cron comum sem carrier mantém a semântica antiga, evitando mudar tarefas existentes de data absoluta, dia útil
+   ou tipo calendário.
 
-### 合法兼容 cron
+### Cron de compatibilidade válido
 
-服务端以 `scheduleRule` 执行真实间隔；调用方只需提供不含越界步长的合法 cron：
+O servidor executa o intervalo real pelo `scheduleRule`; o chamador só precisa fornecer um cron válido sem passos
+fora dos limites:
 
-| 真实语义 | carrier | 合法兼容 cron 示例 |
+| Semântica real | carrier | Exemplo de cron de compatibilidade válido |
 | --- | --- | --- |
-| 每 200 分钟 | `minute`, `200` | `* * * * *` |
-| 每 31 小时的第 49 分 | `hourly`, `31` | `49 * * * *` |
-| 每 40 天 09:00 | `daily`, `40` | `0 9 * * *` |
-| 每 8 周一/三/五 09:00 | `weekly`, `8` | `0 9 * * 1,3,5` |
-| 每 13 个月的 15 日 09:00 | `monthly`, `13` | `0 9 15 * *` |
-| 每 2 年 6 月 15 日 09:00 | `yearly`, `2` | `0 9 15 6 *` |
+| A cada 200 minutos | `minute`, `200` | `* * * * *` |
+| No minuto 49, a cada 31 horas | `hourly`, `31` | `49 * * * *` |
+| Às 09:00, a cada 40 dias | `daily`, `40` | `0 9 * * *` |
+| Às 09:00, nas segundas/quintas/sextas, a cada 8 semanas | `weekly`, `8` | `0 9 * * 1,3,5` |
+| Às 09:00 do dia 15, a cada 13 meses | `monthly`, `13` | `0 9 15 * *` |
+| Às 09:00 de 15 de junho, a cada 2 anos | `yearly`, `2` | `0 9 15 6 *` |
 
-## 数据流
+## Fluxo de dados
 
 ```text
 CronCreate / CronUpdate
@@ -82,16 +101,26 @@ computeScheduleRuleNextRunAt(scheduleRule)
   优先读取 scheduleRule，展示真实“每 N 单位”
 ```
 
-## 多端与旧 Host 边界
+## Boundaries Multicliente e de Host Antigo
 
-本功能只扩展既有 app ↔ agent 自动化协议；desktop continuous 与手机 remote replayable 的 session 消息链路不改变。远端 workspace 仍通过其既有 host attachment 处理请求。
+Esta funcionalidade apenas estende o protocolo de automação app ↔ agent já existente; a cadeia de mensagens de
+sessão do desktop continuous e do remote replayable do celular não muda. Workspaces remotos continuam tratando as
+requisições pelo seu host attachment já existente.
 
-旧 Host 的严格 schema 不识别新字段时，不能降级成普通 cron 创建任务，因为那会把真实的 31 小时、40 天等频率错误地写成每小时/每天。此类请求必须失败并明确提示 Host 不支持 interval carrier；未使用 carrier 的旧 CronCreate/CronUpdate 继续保持兼容。
+Quando o schema estrito de um Host antigo não reconhece os novos campos, não é possível fazer fallback para uma
+tarefa cron comum, porque isso gravaria frequências reais como 31 horas ou 40 dias de forma errada em “a cada
+hora”/“a cada dia”. Essas requisições precisam falhar com uma indicação explícita de que o Host não suporta o
+carrier de interval; os antigos `CronCreate`/`CronUpdate` sem carrier continuam compatíveis.
 
-## 验证要求
+## Requisitos de verificação
 
-1. Contract / protocol：`1`、`200` 合法；`0`、`201`、小数、缺少配对字段、与相对延迟混用均非法；有限次数任务可以携带 carrier。
-2. Create 与 Update 都要覆盖完整的 contract → port → protocol → Host → service 透传链路。
-3. 至少覆盖 `61/200` 分钟、`25/200` 小时、`32/200` 天、`13/200` 月、`2/200` 年；所有兼容 cron 必须能通过 cron 校验，且下次执行时间由真实 `scheduleRule` 计算。
-4. Create / Update / List 的出参都能回传 `scheduleRule`，会话创建成功卡片展示真实频率。
-5. 回归 UI 自定义重复的 `1–200` 约束与超出 cron 字段上限时的兼容 cron。
+1. Contract / protocolo: `1` e `200` são válidos; `0`, `201`, decimais, par de campos incompleto e mistura com atraso
+   relativo são inválidos; tarefas com número de execuções limitado podem carregar o carrier.
+2. Create e Update precisam cobrir a cadeia completa contract → port → protocol → Host → service.
+3. Cobrir pelo menos `61/200` minutos, `25/200` horas, `32/200` dias, `13/200` meses e `2/200` anos; todos os
+   crons de compatibilidade precisam passar na validação de cron, e a próxima execução precisa ser calculada pelo
+   `scheduleRule` real.
+4. As saídas de Create / Update / List precisam devolver `scheduleRule`, e o card de sucesso da criação da sessão
+   exibe a frequência real.
+5. Regressão das restrições de `1–200` da repetição personalizada da UI e do cron de compatibilidade quando os
+   limites de campo do cron são ultrapassados.

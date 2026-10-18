@@ -1,35 +1,35 @@
 # Coding Plan Usage Layout
 
-## 背景
+## Contexto
 
-Usage 设置页的 Coding Plan 面板会展示 5 小时、每周和 MCP 额度三张额度卡片。卡片主体展示的是剩余额度百分比和重置时间，不是总额度，因此标题和卡片名需要明确表达“剩余”或额度类型语义。
+O painel Coding Plan da página de Usage exibe três cartões de cota: de 5 horas, semanal e de MCP. O corpo dos cartões mostra o percentual de cota restante e o horário de reset, não a cota total; por isso o título e o nome dos cartões precisam expressar claramente "restante" ou a semântica do tipo de cota.
 
-同页还会展示 Model Usage 和 Tool Usage 的时间序列。`today / 7d / 30d` 只影响这两组用量趋势，不应在视觉上覆盖 `Quota Remaining`，否则用户会误以为切换时间范围也会筛选剩余额度。
+A mesma página também exibe as séries temporais de Model Usage e Tool Usage. `today / 7d / 30d` afeta apenas esses dois grupos de tendência de uso e não pode cobrir visualmente o `Quota Remaining`, senão o usuário pode achar que trocar a faixa de tempo também filtra a cota restante.
 
-## 规格
+## Especificação
 
-- Model Provider 套餐卡中，5 小时、每周、工具调用与 ZCode MCP 的小标题行统一使用 `min-h-6`（最小 24px，大字号时随内容增高），文字、重置入口和 info 图标垂直居中；桌面和手机 Web 共用此高度。
-- Coding Plan 用量面板在 quota 卡片组上方展示“剩余额度”主标题，并在同一标题行展示当前 Coding Plan provider。
-- 标题文案必须走国际化，不直接硬编码到组件中。
-- `Quota Remaining` 与 `Usage Trends` 使用比 Model Usage / Tool Usage 更强的标题层级。
-- quota 卡片名称表达剩余额度周期或额度类型：5 小时剩余、每周剩余、工具调用。
-- quota 卡片保持原有数据来源和计算逻辑不变，继续展示剩余百分比和重置时间。
-- Model Usage 和 Tool Usage 归入同一个 `Usage Trends` 区域。
-- `today / 7d / 30d` 和刷新按钮放在 `Usage Trends` 标题行，表示它们控制趋势数据。
-- 顶部不再单独展示供应商区域；provider 名称或多 provider 切换入口合并到 `Quota Remaining` 标题行。
-- `Quota Remaining` 优先使用 entitlement quota 快照，不依赖 `Usage Trends` 的 range snapshot。
-- 打开 `Settings -> Usage -> Coding Plan` 时，页面需要主动校正当前 provider 的 entitlement quota；同页趋势数据继续在页面挂载时请求。
-- `Usage Trends` 标题行的刷新按钮需要同时刷新趋势数据和当前 provider 的 entitlement quota，避免下方图表更新而 `Quota Remaining` 仍展示旧快照。
-- 同一 provider 切换 `today / 7d / 30d` 时保留上一份趋势快照，避免页面内容闪空。
-- 桌面端可继续多列展示；窄屏需要自动降到单列，避免三张卡片在手机 Web 端拥挤。
+- No cartão de plano do Model Provider, as linhas de subtítulo de 5 horas, semanal, tool calls e ZCode MCP usam uniformemente `min-h-6` (mínimo de 24px, crescendo com o conteúdo em fontes maiores), com texto, entrada de reset e ícone de info centralizados verticalmente; desktop e Web no celular compartilham essa altura.
+- O painel de uso do Coding Plan exibe o título principal "Cota restante" acima do grupo de cartões de quota e, na mesma linha de título, o Coding Plan provider atual.
+- O texto do título precisa passar pela internacionalização, sem hardcode direto no componente.
+- `Quota Remaining` e `Usage Trends` usam um nível de título mais forte que Model Usage / Tool Usage.
+- Os nomes dos cartões de quota expressam o período ou o tipo de cota restante: restante de 5 horas, restante semanal, tool calls.
+- Os cartões de quota mantêm as fontes de dados e a lógica de cálculo existentes, continuando a exibir o percentual restante e o horário de reset.
+- Model Usage e Tool Usage são agrupados na mesma região `Usage Trends`.
+- `today / 7d / 30d` e o botão de atualização ficam na linha de título de `Usage Trends`, indicando que controlam os dados de tendência.
+- A área do provedor não é mais exibida separadamente no topo; o nome do provider ou a entrada de troca entre múltiplos providers é incorporada à linha de título de `Quota Remaining`.
+- `Quota Remaining` prioriza o snapshot de entitlement quota, sem depender do range snapshot de `Usage Trends`.
+- Ao abrir `Settings -> Usage -> Coding Plan`, a página precisa corrigir ativamente o entitlement quota do provider atual; os dados de tendência da mesma página continuam sendo solicitados na montagem da página.
+- O botão de atualização na linha de título de `Usage Trends` precisa atualizar tanto os dados de tendência quanto o entitlement quota do provider atual, evitando que os gráficos abaixo sejam atualizados enquanto `Quota Remaining` ainda exibe um snapshot antigo.
+- Ao trocar `today / 7d / 30d` no mesmo provider, o snapshot de tendência anterior é preservado para evitar que o conteúdo da página pisque vazio.
+- O desktop pode continuar com múltiplas colunas; em telas estreitas é preciso cair automaticamente para uma única coluna, evitando que os três cartões fiquem apertados no Web do celular.
 
-## 验收
+## Aceitação
 
-- 有任意 quota 卡片可展示时，卡片组上方显示剩余额度主标题和当前 provider。
-- 没有 quota 卡片时，整个 quota 区域仍不渲染。
-- Model Usage 和 Tool Usage 上方显示 `Usage Trends` 主标题。
-- 切换 `today / 7d / 30d` 的控件位于 `Usage Trends` 标题行，而不是页面顶部 provider 行。
-- 切换 `today / 7d / 30d` 不会让 `Quota Remaining` 区域清空或闪烁。
-- 进入 Coding Plan Usage 页面后，`Quota Remaining` 会绕过共享 TTL 校正一次；点击刷新按钮后，`Quota Remaining` 和趋势图一起更新。
-- 英文和中文界面都显示对应的额度文案，套餐内月度 MCP 工具额度统一展示为“工具调用 / Tool calls”，不再使用“MCP 额度 / MCP quota”；独立的官方 Server MCP 日额度继续展示品牌名“ZCode MCP”。
-- Usage stats 和 Model Provider 套餐卡中的 `ZCode MCP` 标题后都展示 info 图标；悬停或键盘聚焦时复用 `ControlHintTooltip` 与 `sidebar.usage.plan.zcodeMcpDescription`，确保和输入框 context 的额度说明一致。
+- Quando há qualquer cartão de quota a exibir, o grupo de cartões exibe acima dele o título principal de cota restante e o provider atual.
+- Quando não há cartão de quota, a região de quota inteira ainda não é renderizada.
+- Acima de Model Usage e Tool Usage aparece o título principal `Usage Trends`.
+- O controle de troca `today / 7d / 30d` fica na linha de título de `Usage Trends`, e não na linha de provider do topo da página.
+- Trocar `today / 7d / 30d` não faz a região `Quota Remaining` esvaziar nem piscar.
+- Depois de entrar na página de Coding Plan Usage, o `Quota Remaining` faz uma correção ignorando o TTL compartilhado; após clicar no botão de atualizar, o `Quota Remaining` e os gráficos de tendência são atualizados juntos.
+- Tanto a interface em inglês quanto em chinês exibem o texto de cota correspondente; a cota mensal de ferramentas MCP dentro do plano é exibida uniformemente como "tool calls / 工具调用", sem mais usar "MCP quota / MCP 额度"; a cota diária do Server MCP oficial e independente continua exibindo o nome de marca "ZCode MCP".
+- Tanto nos usage stats quanto no cartão de plano do Model Provider, o título `ZCode MCP` é seguido de um ícone de info; ao passar o mouse ou focar pelo teclado, reaproveita `ControlHintTooltip` e `sidebar.usage.plan.zcodeMcpDescription`, garantindo consistência com a explicação de cota do contexto da caixa de entrada.

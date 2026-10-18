@@ -1,10 +1,10 @@
-# Coding Plan Quota Remaining API
+# API de Quota Restante do Coding Plan
 
-日期：2026-06-29
+Data: 2026-06-29
 
-## 用途
+## Finalidade
 
-用量看板的 `Quota remaining` 用于展示 Coding Plan 的剩余额度，包括 5 小时额度、Weekly 额度和 MCP 额度。
+O campo `Quota remaining` do painel de uso serve para exibir a cota restante do Coding Plan, incluindo a cota de 5 horas, a cota Weekly e a cota de MCP.
 
 ## API
 
@@ -12,35 +12,35 @@
 GET /api/monitor/usage/quota/limit
 ```
 
-## 鉴权
+## Autenticação
 
-使用 API Key 鉴权。
+A autenticação usa API Key.
 
 ```http
 authorization: <API Key>
 ```
 
-注意：
+Atenção:
 
-- `authorization` header 直接传完整 API Key。
-- 不额外拼接 `Bearer` 前缀。
-- 用量看板读取当前选中的 Coding Plan provider，不使用普通模型 provider 的 API Key。
+- O header `authorization` recebe a API Key completa diretamente.
+- Não se concatena o prefixo `Bearer`.
+- O painel de uso lê o provider de Coding Plan atualmente selecionado, e não a API Key do provider de modelo comum.
 
-## 额度卡片匹配规则
+## Regras de correspondência dos cartões de cota
 
-额度卡片通过 quota 接口返回的 `limits[]` 中 `type`、`unit`、`number` 字段判断。
+Os cartões de cota são determinados pelos campos `type`, `unit` e `number` do array `limits[]` devolvido pela interface de quota.
 
-| 看板卡片 | 匹配条件 |
+| Cartão do painel | Condição de correspondência |
 |---|---|
-| 5 小时额度 | `type === "TOKENS_LIMIT"` 且 `unit === 3` 且 `number === 5` |
-| Weekly 额度 | `type === "TOKENS_LIMIT"` 且 `unit === 6` |
-| MCP 额度 | `type === "TIME_LIMIT"` 且 `unit === 5` 且 `number === 1` |
+| Cota de 5 horas | `type === "TOKENS_LIMIT"` e `unit === 3` e `number === 5` |
+| Cota Weekly | `type === "TOKENS_LIMIT"` e `unit === 6` |
+| Cota de MCP | `type === "TIME_LIMIT"` e `unit === 5` e `number === 1` |
 
-## 百分比展示
+## Exibição de porcentagem
 
-接口返回的 `percentage` 按“已使用百分比”处理。
+O campo `percentage` devolvido pela interface é tratado como "porcentagem já usada".
 
-前端展示剩余百分比时使用：
+Ao exibir a porcentagem restante, o frontend usa:
 
 ```ts
 remainingPercentage = 100 - percentage;

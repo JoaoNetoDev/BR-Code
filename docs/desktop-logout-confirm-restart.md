@@ -1,20 +1,20 @@
-# Desktop Logout Confirmation And Restart
+# Confirmação de Logout e Reinicialização no Desktop
 
-## 背景
+## Contexto
 
-桌面端退出登录会改变全局鉴权上下文。现有 ZCode Agent 会话、运行中的 task、后台工具链都依赖当前 provider token 和派生 Start/Coding Plan key。为了避免退出登录后旧会话继续持有失效上下文，桌面端退出登录需要在用户确认后中断当前运行并重启 App。
+O logout no desktop altera o contexto global de autenticação. As sessões existentes do ZCode Agent, as tasks em execução e as toolchains em segundo plano dependem do provider token atual e das chaves derivadas de Start/Coding Plan. Para evitar que, após o logout, as sessões antigas continuem segurando contexto inválido, o logout no desktop precisa interromper a execução atual e reiniciar o App depois que o usuário confirmar.
 
-## 设计
+## Design
 
-- UI 侧继续使用统一 `ConfirmDialogHost`，不新增弹窗组件。
-- Root 的 `handleLogout` 在执行 `oauthService.logout()` 前先查询桌面主进程维护的运行中会话计数。
-- 如果检测到运行中 agent session，确认文案显示具体数量；如果没有检测到，文案仍说明 App 会重启。
-- “断开连接并重启”是完成退出登录流程的主操作，确认按钮使用统一 ConfirmDialog 的默认 primary 按钮；运行中会话风险只通过标题和描述说明，不降级为 warning/danger 按钮。
-- 用户取消时不触发 telemetry、logout 或重启。
-- 用户确认后按原有顺序清理 OAuth、provider family domain 和展示态，然后通过桌面命令请求 App 重启。
+- O lado da UI continua usando o `ConfirmDialogHost` unificado, sem novos componentes de diálogo.
+- O `handleLogout` do Root consulta primeiro a contagem de sessões em execução mantida pelo processo main do desktop, antes de executar `oauthService.logout()`.
+- Se forem detectadas agent sessions em execução, o texto de confirmação exibe a quantidade concreta; se nada for detectado, o texto ainda informa que o App será reiniciado.
+- "Desconectar e reiniciar" é a ação principal que conclui o fluxo de logout; o botão de confirmação usa o botão primary padrão do ConfirmDialog unificado. O risco das sessões em execução é explicado apenas pelo título e pela descrição, sem rebaixar o botão para warning/danger.
+- Se o usuário cancelar, não dispara telemetry, logout nem reinicialização.
+- Após a confirmação, o OAuth, o provider family domain e o estado de exibição são limpos na ordem original, e então o App é reiniciado por meio do comando do desktop.
 
-## 边界
+## Limites
 
-- 运行中会话计数来自 main 进程已有的 host running task 统计，只用于桌面端确认文案，不把 session/task 业务状态下沉到 main。
-- Web / mobile remote 不使用该重启命令；Web fallback 返回 0 个运行中会话并保持 no-op。
-- 重启命令先走现有 app quit preparation，确保 host process 和 agent 子进程仍按桌面退出路径清理。
+- A contagem de sessões em execução vem da contagem de host running tasks já existente no processo main e é usada apenas para o texto de confirmação do desktop, sem afundar o estado de negócio de session/task no main.
+- O remote Web/mobile não usa esse comando de reinicialização; o fallback Web retorna 0 sessões em execução e permanece no-op.
+- O comando de reinicialização passa primeiro pela preparação de app quit existente, garantindo que o host process e os subprocessos do agent ainda sejam limpos pelo caminho de saída do desktop.

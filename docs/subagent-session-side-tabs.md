@@ -1,20 +1,12 @@
 # Subagent Session Side Tabs
 
-## 目标
+## Objetivo
 
-父会话 Agent 工具块中的子智能体详情入口使用 workspace 右侧共享面板，而不是
-workbench 分屏。拿到 child session 目标后，用户点击 Agent 摘要行或按 Enter/Space
-直接创建或激活右侧 tab，不再先展开工具详情再点击二级按钮。每个 `childSessionId`
-对应一个完整只读会话 tab，从而不受 workbench 最多 4 pane 的限制，同时保持普通
-session 分屏能力不变。
+A entrada de detalhes do subagente no bloco de ferramenta de Agent da sessão pai usa o painel compartilhado à direita do workspace, em vez de um split do workbench. Depois de obter o destino da child session, o usuário clica na linha de resumo do Agent ou pressiona Enter/Space para criar ou ativar diretamente uma tab à direita, sem antes expandir os detalhes da ferramenta e clicar em um botão secundário. Cada `childSessionId` corresponde a uma tab de sessão completa em modo somente leitura, ficando assim livre do limite de 4 panes do workbench, enquanto mantém inalterada a capacidade de split de sessões comuns.
 
-适用范围：桌面端、普通 Web 和手机 `/remote` 的 child 详情入口。桌面端和普通 Web
-使用右侧 tab；手机
-`/remote` 复用现有右侧抽屉。子智能体目录及分页只在桌面端和
-普通 Web 提供。本功能不改变 owner、lease、snapshot、
-queue 或 replayable 恢复语义。
+Escopo de aplicação: desktop, Web comum e a entrada de detalhes de child do `/remote` no celular. Desktop e Web comum usam tabs à direita; o `/remote` no celular reaproveita o drawer lateral existente. O diretório de subagentes e sua paginação só existem no desktop e no Web comum. Esta funcionalidade não muda owner, lease, snapshot, queue nem a semântica de recuperação replayable.
 
-## 状态模型
+## Modelo de estado
 
 ```text
 workspaceKey = workspaceIdentity?.trim() || workspacePath
@@ -31,20 +23,13 @@ workspaceKey = workspaceIdentity?.trim() || workspacePath
   切回 parent 时恢复该组顺序和最后激活项
 ```
 
-- UI 显式区分 `rootSessionId`（tab 分组）、`parentSessionId`（直属 lineage）和
-  `childSessionId`（详情订阅目标）。一级 child 中 root 与 parent 相同； subagent tab 的
-  稳定身份为 `workspaceKey + rootSessionId + childSessionId`，重复点击只激活。
-- 标题统一使用入口提供的任务 `title`：Agent 摘要行传递其可见标题，Running 面板传递
-  `session/subagents` 投影标题。重复打开同一 child 时同步最新非空 title；仅在 title 为空时
-  回退到本地化“子智能体”，不得再拼接 `subagentType` 或编号。
-- subagent tabs 只保存在 renderer 内存，不跨刷新恢复。workspace 共享 tabs 沿用现有
-  workspace 级内存语义，不改成 session 级。
-- 关闭、关闭其他和关闭全部只作用于当前可见集合；其他 parent 的隐藏 child tabs 不受影响。
-  最近关闭记录按 parent session 隔离。
-- 所有未关闭 child tabs 保持 `SessionDataLayer` lease。相同 child 的行内预览与右侧详情复用
-  数据层引用计数，不建立重复 transport subscription。
+- A UI distingue explicitamente `rootSessionId` (agrupamento de tabs), `parentSessionId` (lineage direta) e `childSessionId` (destino de assinatura de detalhes). Em childs de primeiro nível, root e parent são iguais; a identidade estável da tab de subagent é `workspaceKey + rootSessionId + childSessionId`, e cliques repetidos apenas ativam.
+- O título usa uniformemente a task `title` fornecida pela entrada: a linha de resumo do Agent passa seu título visível e o painel Running passa o título projetado por `session/subagents`. Ao reabrir a mesma child, sincroniza-se o title não vazio mais recente; somente quando o title está vazio há fallback para o "子智能体" localizado, e não se pode mais concatenar `subagentType` ou numeração.
+- As subagent tabs ficam apenas na memória do renderer e não são restauradas entre reloads. As workspace shared tabs mantêm a semântica de memória em nível de workspace já existente e não passam a ser de nível de sessão.
+- Fechar, fechar outras e fechar todas afetam apenas o conjunto visível atual; as child tabs ocultas de outros parents não são afetadas. O registro de fechamento recente é isolado por parent session.
+- Todas as child tabs não fechadas mantêm o lease de `SessionDataLayer`. A pré-visualização inline da mesma child e os detalhes à direita reutilizam a contagem de referências da camada de dados, sem criar assinaturas de transporte duplicadas.
 
-## 摘要行交互边界
+## Limites de interação da linha de resumo
 
 ```text
 Agent / Task 摘要行激活（永远不展开）
@@ -56,20 +41,15 @@ Agent / Task 摘要行激活（永远不展开）
    └─ 静态单行摘要；不可点击，不创建临时 tab
 ```
 
-- 直开模式的整条摘要行都是一个动作入口，复用现有 focus ring，并支持鼠标、Enter 和 Space。
-- 直开模式不暴露 `aria-expanded`，不显示展开箭头，也不挂载行内详情；已有 tab 再次激活只负责
-  展开侧栏并聚焦该 tab，不把侧栏切回关闭状态。
-- child 尚未投影时不会自动打开侧栏；目标后续到达时只切换为可点击模式，只有后续显式激活
-  才打开侧栏。
-- 行内 Prompt 标题旁不再保留重复的“在右侧打开”按钮。
-- Agent 与 Claude Code 兼容别名 Task 使用同一规则；Workflow activity 不属于本功能。
+- No modo de abertura direta, a linha de resumo inteira é um único ponto de entrada de ação, reaproveitando o focus ring existente e suportando mouse, Enter e Space.
+- O modo de abertura direta não expõe `aria-expanded`, não mostra seta de expansão e não monta detalhes inline; ativar novamente uma tab existente apenas expande a barra lateral e foca essa tab, sem devolver a barra lateral ao estado fechado.
+- Enquanto o child não é projetado, a barra lateral não abre sozinha; quando o destino chega mais tarde, o modo apenas muda para clicável, e só uma ativação explícita posterior abre a barra lateral.
+- O botão duplicado "abrir à direita" não é mais mantido ao lado do título do Prompt inline.
+- Agent e o alias compatível Task do Claude Code seguem a mesma regra; Workflow activity não faz parte desta funcionalidade.
 
-## 对话只读详情与文件撤销例外
+## Detalhes de conversa somente leitura e exceção de undo de arquivos
 
-右侧详情复用完整 `SessionPane`/conversation projection，展示完整时间线、状态、工具卡、
-文件摘要和只读 diff。详情的 conversation 能力保持只读，禁止 composer、用户手动 retry、edit、fork、
-stop 和 permission/elicitation 响应；单 turn workspace-only 文件撤销是唯一显式写能力例外。
-provider 自动 retry 的只读状态不属于手动 retry 操作，允许显示在当前运行 turn 底部。
+Os detalhes à direita reaproveitam o `SessionPane`/conversation projection completo, exibindo a timeline inteira, o estado, os cards de tool, o resumo de arquivos e o diff somente leitura. A capacidade de conversa dos detalhes permanece somente leitura, com composer, retry manual do usuário, edit, fork, stop e respostas de permission/elicitation proibidos; o undo de arquivo workspace-only de um único turno é a única exceção explícita de escrita. O estado somente leitura do retry automático do provider não é a operação de retry manual e pode ser exibido no rodapé do turno em execução.
 
 ```text
 child turnHeader.actions.canRewindFiles
@@ -83,23 +63,15 @@ child turnHeader.actions.canRewindFiles
                        -> child 文件摘要显示已撤销
 ```
 
-- 撤销严格沿用普通 session 的单 turn、workspace-only、all-or-nothing 语义；不撤销整个 child
-  session，不裁剪或改写 child/parent 聊天历史，也不提供 reapply。
-- 门禁只读取目标 child 自身的 projection/action；父 task 可以仍在运行。外部或父任务对同一文件
-  的修改继续由 preview hash 安全检查判为 unsafe，不新增跨 session 父级 busy guard。
-- apply 只更新 child turn 的撤销状态和真实 workspace 文件；不改写父 Agent 行、Subagent
-  目录、父 task aggregate 或父 session timeline。
-- child cold resume 以 `SessionResumed` 建立新的 raw event epoch；gateway 只重设 raw cursor，
-  对外 transport sequence 仍保持单调，确保随后 `RewindTriggered` 不会被旧 child 高水位误判为重复。
-- `readOnly` 不能被整体关闭。UI 使用显式 workspace file rewind capability 例外，避免误开放
-  composer、edit/retry/fork/stop 或阻塞交互响应。
+- O undo segue estritamente a semântica de sessão comum: turno único, workspace-only e all-or-nothing; não desfaz a child session inteira, não recorta nem reescreve o histórico de chat child/parent, e não oferece reapply.
+- O gate lê apenas a projection/action da própria child alvo; a task pai pode ainda estar em execução. Modificações do mesmo arquivo por fora ou pela task pai continuam sendo julgadas como unsafe pela verificação de hash do preview, sem novo guarda de busy de nível pai entre sessões.
+- O apply atualiza apenas o estado de undo do turno da child e o arquivo real do workspace; não reescreve a linha do Agent pai, o diretório de Subagent, o agregado da task pai nem a timeline da sessão pai.
+- O cold resume da child cria um novo epoch de raw event por meio de `SessionResumed`; o gateway apenas redefine o raw cursor, mantendo a transport sequence externa monotônica, garantindo que o subsequente `RewindTriggered` não seja julgado como duplicado pelo antigo high-water da child.
+- `readOnly` não pode ser desligado por completo. A UI usa uma exceção explícita de capability de workspace file rewind, evitando abrir por engano o composer, edit/retry/fork/stop ou respostas a solicitações bloqueantes.
 
-父对话不再挂载轻量 child 输出预览。前台和后台 subagent
-只要存在 `childSessionId` 均可
-通过摘要行打开。child 当前 projection 存在 `control.lastError` 时，只读详情直接显示紧凑
-错误 notice；不为该 notice 新增 timeline row、协议字段或持久化合同。
+A conversa do pai não monta mais a pré-visualização leve da saída do child. Tanto subagents em primeiro plano quanto em segundo plano podem ser abertos pela linha de resumo sempre que houver `childSessionId`. Quando a projection atual da child tem `control.lastError`, os detalhes somente leitura mostram diretamente um notice de erro compacto; não se adiciona timeline row, campo de protocolo ou contrato de persistência para esse notice.
 
-child 详情还展示两类 child-owned 模型事实：
+Os detalhes da child também exibem dois tipos de fatos de modelo pertencentes à child:
 
 ```text
 运行中 provider retry -> snapshot.control.apiRetry -> 当前 turn 底部 x/total
@@ -107,20 +79,17 @@ fresh child 实际模型 -> ModelSelected(previousModelRef=null, modelRef=X)
                      -> model_change(undefined -> X) -> 无切换箭头的 "正在使用 X"
 ```
 
-- provider retry 只活在当前 CLI/runtime 内存中；有效模型进展或 turn 终态后消失，冷启不恢复。
-- 首次实际模型通过 child transcript 的 `model_change` 持久化，冷启 hydration 后仍可见。
-- 公共 projection 只识别显式 `∅→X` 模型边界，不保存或判断 Subagent 专属 origin。
-- Main 与 child 复用 `SessionPane -> ConversationTimeline`，不得为 child 增加第二套状态组件。
-- 两类事实均不进入父 Agent 摘要卡，不改变 child 只读门禁，也不新增 parent mirror。
+- O retry do provider vive apenas na memória do CLI/runtime atual; desaparece após progresso efetivo do modelo ou estado terminal do turno, e não é restaurado em cold start.
+- O primeiro modelo real é persistido por meio do `model_change` do transcript da child e continua visível após a hydration do cold start.
+- A projection pública reconhece apenas a fronteira de modelo explícita `∅→X` e não salva nem julga uma origin específica de Subagent.
+- Main e child reaproveitam `SessionPane -> ConversationTimeline` e não podem ganhar um segundo conjunto de componentes de estado para a child.
+- Nenhum dos dois tipos de fato entra no card de resumo do Agent pai, não altera o gate somente leitura da child e não adiciona parent mirror.
 
-子详情继续透传打开 callback，并显式继承 `rootSessionId`；当前 runtime 禁止 subagent 派生
-subagent，因此这里只保留递归 UI 身份和 reducer 合同，不恢复 nested runtime 能力。
+Os detalhes da child continuam repassando o callback de abertura e herdando explicitamente `rootSessionId`; o runtime atual proíbe subagent derivando subagent, então aqui só se preserva a identidade recursiva de UI e o contrato do reducer, sem restaurar a capacidade de runtime aninhado.
 
-## 实时事件边界
+## Limites de eventos em tempo real
 
-问题根因：child runtime 会把 raw child event 写入 child event store，但原事件 sink 只把
-部分工具活动转成 parent mirror event。UI 首次订阅 `conversation/<childSessionId>` 时能从
-store hydration，后续 raw event 却没有进入 child publisher，因此内容停在打开时快照。
+Causa raiz: o runtime da child grava os raw child events no event store da child, mas o sink de eventos original converte parte das atividades de ferramenta em apenas parent mirror event. Quando a UI assina `conversation/<childSessionId>` pela primeira vez, ela consegue ler pela hydration do store, mas os raw events seguintes não entram no publisher da child, então o conteúdo fica preso ao snapshot do momento da abertura.
 
 ```text
 child runtime append
@@ -132,59 +101,42 @@ publisher(child) -> SessionDataLayer -> inline preview + all open child tabs
 publisher(parent) -> parent timeline/index/legacy delivery
 ```
 
-实现必须满足：
+A implementação precisa satisfazer:
 
-- raw child event 进入 bootstrap sink 后，只 ingest `publisher(child)` 并立即返回；不得 bump
-  parent `updatedAt`、进入 parent legacy delivery 或污染父时间线。
-- 现有 selected mirror event 继续以 parent session id 走父链路。
-- 运行中 child 已有 live publisher 时，subscribe/rows hydration 不得额外 cold resume；只有
-  live publisher 和 session record 都不存在时才恢复历史 session。
-- 已完成的历史 child 在 renderer 刷新后仍能通过父会话入口重新打开并 hydration。
-- 文件摘要使用 child event log 和父 runtime 共享的 artifact reader；只读 child tab 不使用
-  parent runtime 执行 rewind。
-- child 完成并释放 live runtime 后，`runtime/workspace_checkpoint` session entry 必须在 cold resume
-  时重建 child checkpoint event；preview/apply 继续命中 child runtime，不能只恢复轻量摘要却返回
-  空的 safe/unsafe 列表。
-- 高频 delta 不写生产 `info`；仅在 `debug` 记录 publisher 注册、订阅和 cold-resume 判断。
+- Depois que um raw child event entra no bootstrap sink, apenas `publisher(child)` faz ingest e o retorno é imediato; não pode dar bump no `updatedAt` do pai, entrar na parent legacy delivery nem contaminar a timeline do pai.
+- Os selected mirror events existentes continuam seguindo a cadeia do pai com o parent session id.
+- Quando a child em execução já tem live publisher, subscribe/hydration de rows não pode fazer um cold resume extra; o histórico da sessão só é recuperado quando tanto o live publisher quanto o session record não existem.
+- Uma child histórica concluída continua reabrível e hydratável pela entrada da sessão pai depois de um refresh do renderer.
+- O resumo de arquivos usa o artifact reader compartilhado entre o child event log e o runtime pai; a tab de child somente leitura não usa o runtime pai para executar rewind.
+- Depois que a child conclui e libera o live runtime, a session entry `runtime/workspace_checkpoint` precisa reconstruir o child checkpoint event no cold resume; preview/apply continuam acertando o runtime da child, e não podem restaurar apenas o resumo leve devolvendo listas safe/unsafe vazias.
+- Deltas de alta frequência não escrevem `info` em produção; apenas em `debug` são registrados o registro do publisher, as assinaturas e a decisão de cold-resume.
 
-## 接口与兼容
+## Interfaces e compatibilidade
 
-- UI 的 `SubagentSessionSidePaneTab` 和 `OpenSubagentSideTabRequest` 携带
-  `rootSessionId`、`parentSessionId`、`childSessionId`、`subagentType` 与用户可见 `title`，workspace scope 由
-  App shell 注入。`subagentType` 只用于类型标签和搜索提示，不参与 tab 标题生成。
-- workspace 身份与缓存 key 必须使用 `workspaceIdentity?.trim() || workspacePath`；路径执行仍
-  使用 `workspacePath`，remote workspace 保留 `remoteSessionId`。
-- 详情本身不新增 Agent/error wire 字段；目录使用独立只读 `session/subagents` 查询，见
-  [subagent-session-directory.md](./subagent-session-directory.md)。不把业务状态下沉到 main/relay。
-- desktop continuous 和现有普通 Web delivery profile 保持不变；`/remote` 只启用 child 详情
-  抽屉，不启用目录。
-- 恢复旧 workbench group 时移除历史只读 subagent binding；普通 session group 不迁移。
+- `SubagentSessionSidePaneTab` e `OpenSubagentSideTabRequest` da UI carregam `rootSessionId`, `parentSessionId`, `childSessionId`, `subagentType` e o `title` visível ao usuário; o workspace scope é injetado pelo App shell. `subagentType` serve apenas para label de tipo e dica de busca, e não participa da geração do título da tab.
+- A identidade do workspace e a key de cache precisam usar `workspaceIdentity?.trim() || workspacePath`; a execução do caminho continua usando `workspacePath`, e o workspace remoto preserva `remoteSessionId`.
+- Os detalhes em si não adicionam campos de Agent/error no wire; o diretório usa uma query somente leitura separada `session/subagents`, veja [subagent-session-directory.md](./subagent-session-directory.md). Não é preciso afundar o estado de negócio em main/relay.
+- O desktop continuous e o perfil de delivery do Web comum existente permanecem inalterados; o `/remote` habilita apenas o drawer de detalhes da child, e não o diretório.
+- Ao restaurar grupos antigos do workbench, remove-se o binding histórico de subagent somente leitura; grupos de sessões comuns não são migrados.
 
-## 验收
+## Aceitação
 
-- 同一父 task 可打开至少 6 个 child tabs，workbench pane 数不增加，重复点击不重复建 tab。
-- Agent 摘要行与 Running 面板打开的 tab 均逐字使用各自权威 title；不得显示
-  `Explore 1`、`general-purpose 2` 等类型加编号标题。
-- 有 child 目标时，Agent/Task 摘要行的点击、Enter 和 Space 直接打开或激活详情，且不会展开
-  行内
-  Prompt/输出；缺少 child 目标或启动前失败时保持静态单行摘要。
-- 运行中 child 在打开后持续追加 text/reasoning/tool/status，非激活和隐藏 parent 分组也不中断。
-- 运行中 child 发生 provider retry 时，详情当前 turn 底部显示统一的 `x/total` 状态并在有效进展后消失；输入区保持不存在。
-- 改动后新建 child 的首个 turn 显示实际解析模型，完整冷启后仍恢复；旧 child 不回填，Main 首轮不新增 marker。
-- 切换父 task 只切换 child tab 可见组；workspace 共享 tab 不随 session 切换。
-- child raw event 不改变父 topic sequence/活跃时间；parent mirror 状态仍正常更新。
-- local/remote workspace identity 隔离，桌面与普通 Web 使用右侧 tab，手机 `/remote` 使用现有抽屉。
-- child 已完成且文件摘要可撤销时，桌面、普通 Web 与手机 `/remote` 都能完成 safe preview/apply；
-  撤销后 workspace 文件恢复且 child 摘要显示已撤销，父 task 与聊天历史保持不变。
+- A mesma task pai pode abrir pelo menos 6 child tabs, sem aumentar o número de panes do workbench e sem criar tabs duplicadas em cliques repetidos.
+- As tabs abertas pela linha de resumo do Agent e pelo painel Running usam literalmente o title autoritativo de cada um; não podem exibir títulos como `Explore 1` ou `general-purpose 2`.
+- Quando há destino de child, o clique, o Enter e o Space na linha de resumo de Agent/Task abrem ou ativam os detalhes diretamente, sem expandir o Prompt/saída inline; quando falta o destino de child ou há falha antes da inicialização, o resumo permanece como uma linha estática.
+- Uma child em execução continua anexando text/reasoning/tool/status após a abertura, e isso não é interrompido nem em grupos de parent não ativos e ocultos.
+- Quando ocorre provider retry numa child em execução, os detalhes mostram um estado unificado `x/total` no rodapé do turno atual e ele desaparece após o progresso efetivo; a área de entrada continua inexistente.
+- O primeiro turno de uma child criada após a alteração mostra o modelo efetivamente resolvido e continua restaurado após um cold start completo; children antigas não são preenchidas retroativamente e o Main não ganha um novo marker na primeira rodada.
+- Trocar de task pai só troca o grupo visível de child tabs; as workspace shared tabs não mudam ao trocar de sessão.
+- Raw events da child não alteram a sequência de tópico/tempo de atividade do pai; o estado do parent mirror continua atualizando normalmente.
+- A identidade de workspace local/remota é isolada, desktop e Web comum usam tabs à direita e o celular `/remote` usa o drawer existente.
+- Quando a child já concluiu e o resumo de arquivos pode ser desfeito, desktop, Web comum e `/remote` no celular conseguem completar preview/apply seguro; após o undo, o arquivo do workspace é restaurado e o resumo da child mostra que foi desfeito, com a task pai e o histórico de chat inalterados.
 
-## 冷恢复、列表隔离与用户输入准入（3.12.2）
+## Recuperação a frio, isolamento de lista e admissão de entrada do usuário (3.12.2)
 
-根因：3.12.1 回收 detached child publisher 后，打开详情进入冷恢复；bootstrap 创建
-record 时遗漏持久化 taskType，默认 interactive，sessions-index 将 child 当主任务广播。
+Causa raiz: depois que a 3.12.1 recicla o publisher detached da child, abrir os detalhes entra em cold recovery; o bootstrap omite o taskType persistido ao criar o record, o default é interactive e o sessions-index transmite a child como se fosse uma task principal.
 
-唯一身份事实源是 Agent session store 的 taskType。冷恢复须在注册 record、发布事件之前
-传入该值；runtime 与 protocol record 一致。主列表只投影 interactive、fork、workflow_parent，
-不能用 parentID 是否存在代替可见性。转录缓存仍按原有终态 grace / 父会话释放规则回收。
+A única fonte autoritativa de identidade é o taskType do Agent session store. O cold recovery precisa receber esse valor antes de registrar o record e publicar eventos; runtime e record de protocolo ficam consistentes. A lista principal projeta apenas interactive, fork e workflow_parent, e não pode usar a presença de parentID como substituta da visibilidade. O cache de transcripts continua sendo reciclado pelas regras existentes de grace de estado terminal e de liberação da sessão pai.
 
 ```text
 child 完成 → publisher 回收 → subscribe → 读取持久化 taskType → 注册 subagent_child record
@@ -195,24 +147,10 @@ child 完成 → publisher 回收 → subscribe → 读取持久化 taskType →
 手机 web-remote-replayable ─ snapshot/gap ┴─ 同一个 Host / Agent 身份与命令准入
 ```
 
-用户发起的 sendText、retry/edit、goal 续跑等输入命令在 session_input / input_history 写入前
-拒绝 subagent_child；已激活 child 返回 reasonCode `guard.subagentReadOnly`，尚无独立 record 的
-运行中 child 沿用既有 `proto.sessionNotFound` 拒绝，绝不为发送输入额外激活 runtime。Agent 工具正常派发 child
-仍由父 runtime 驱动，不经过用户协议输入准入；workspace-only 文件撤销保留既有边界。
+Comandos de entrada iniciados pelo usuário, como sendText, retry/edit e continuação de goal, rejeitam subagent_child antes da escrita em session_input / input_history; uma child já ativada retorna o reasonCode `guard.subagentReadOnly`, e uma child em execução que ainda não tem record próprio continua sendo rejeitada pelo `proto.sessionNotFound` existente, sem nunca ativar um runtime extra para enviar entrada. O despacho normal de child pela ferramenta Agent continua sendo dirigido pelo runtime pai e não passa pela admissão de entrada do protocolo do usuário; o undo de arquivo workspace-only mantém os limites existentes.
 
-历史污染修复由 Host task index syncer 在 workspace 首次权威 sessions-index 基线到达后执行：
-对本地已有而基线缺失的 task 分批调用只读 session/list(sessionIds)，从 Agent 持久化元数据
-确认 subagent_child 后，仅标记对应 task index 为不可见并清理分组/排序引用；不删除 Agent
-session、message、part。查询不创建 runtime、不读取 transcript、不改变归属。远端身份必须
-贯穿 workspaceIdentity / remoteSessionId，异步结果仅应用于仍有效的订阅代际；旧 Agent 不支持
-显式查询、缺失 session 或查询失败时保留索引，下一次 workspace 基线再尝试。不得根据基线缺失
-或 parentID 单独删除。普通 session/list 继续只返回主列表类型；显式 sessionIds 查询返回匹配
-workspace 的持久化身份（含隐藏类型），单批最多 64 个，includeArchived 沿用现有含义。
+A correção da poluição histórica é executada pelo Host task index syncer depois que a primeira baseline autoritativa de sessions-index do workspace chega: para as tasks que existem localmente mas estão ausentes da baseline, ele chama em lotes a session/list(sessionIds) somente leitura, confirma subagent_child a partir dos metadados persistidos do Agent e então apenas marca o task index correspondente como invisível, limpando as referências de agrupamento/ordenação; não apaga sessions, messages nem parts do Agent. A consulta não cria runtime, não lê transcript e não muda a atribuição. A identidade remota precisa percorrer workspaceIdentity / remoteSessionId, e os resultados assíncronos só se aplicam às gerações de assinatura ainda válidas; um Agent antigo que não suporta consulta explícita, uma session ausente ou uma falha na consulta preservam o índice, com nova tentativa na próxima baseline do workspace. Não se pode apagar apenas com base em ausência na baseline ou em parentID. O session/list comum continua retornando apenas os tipos da lista principal; a consulta explícita por sessionIds retorna as identidades persistidas que correspondem ao workspace (incluindo tipos ocultos), com no máximo 64 por lote, e includeArchived mantém o significado atual.
 
-完整 snapshot 同步也不得将 subagent_child 写成主任务；对于已打开的旧污染标签页，后端
-准入仍拒绝输入。修复不新增 accepted queue、timer、owner，不改变 continuous/replayable 边界。
+A sincronização completa por snapshot também não pode escrever subagent_child como task principal; para abas antigas já abertas e poluídas, a admissão do backend continua rejeitando entrada. A correção não adiciona accepted queue, timer nem owner, e não muda os limites continuous/replayable.
 
-验收：SAT27 覆盖 warm / grace 回收 / 父释放 / 冷启动后的详情重开及列表隔离；SAT28 覆盖用户
-输入被拒且没有输入落库，普通主任务、fork 和 Agent 派发正常；SAT29 覆盖历史索引污染收敛、
-workspace identity 隔离、远端失败保留及原始转录保留。协议层两种 clientMode 都验证；Electron
-E2E 通过真实 Agent 派发、CLI 重启、点击详情，断言只读 child 正文可见且左侧没有 child。
+Aceitação: SAT27 cobre warm, reciclagem por grace, liberação pelo pai, reabertura de detalhes após cold start e isolamento de lista; SAT28 cobre entrada do usuário rejeitada sem gravação no banco, tasks principais comuns, fork e despacho pelo Agent funcionando; SAT29 cobre convergência da poluição do índice histórico, isolamento de workspace identity, preservação em falha remota e preservação do transcript original. As duas clientMode são verificadas na camada de protocolo; o E2E do Electron passa por despacho real do Agent, reinício de CLI e clique nos detalhes, afirmando que o corpo da child somente leitura está visível e que não há child no lado esquerdo.

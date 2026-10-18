@@ -1,70 +1,105 @@
-# 设置页侧栏布局
+# Layout da Barra Lateral da Página de Configurações
 
-设置页使用桌面化左右分栏结构，并统一收敛到 [DESIGN.md](../../DESIGN.md#color-palette) 中的语义 token：
+A página de configurações usa uma estrutura de layout desktop com divisão esquerda/direita, convergindo
+uniformemente para os tokens semânticos de [DESIGN.md](../../DESIGN.md#color-palette):
 
-- 外层容器使用 `bg-background + border-border`，形成独立设置工作区。
-- 左侧导航使用 `bg-sidebar`，承载返回按钮、分组导航和当前分组说明。
-- 左侧导航需要响应窗口宽度：`lg` 及以上保持 264px 文本侧栏，即 256px 内容宽度加 8px 安全余量；低于 `lg` 时收敛为 64px 图标侧栏，隐藏可视文本并通过 tooltip 暴露返回、分组和引导入口标题，避免窄窗口挤压右侧设置内容。
-- 右侧内容区保持 `bg-background`，标题与设置内容分离，正文宽度收敛到中等阅读列。
-- 设置项卡片统一使用 `bg-card + border-border`，行内分隔线统一使用 `border-border`。
-- 交互控件优先使用 `bg-input / border-input-border / bg-hover / bg-selected`，避免页面局部再拼新的中性色值。
-- 通用 `Card` 基类也同步收敛到 `bg-card + border-card-border + text-foreground`，避免页面组件重复手写卡片轮廓语义。
+- O contêiner externo usa `bg-background + border-border`, formando uma área de trabalho de configurações
+  independente.
+- A navegação à esquerda usa `bg-sidebar` e hospeda o botão de voltar, a navegação por grupos e a descrição do
+  grupo atual.
+- A navegação à esquerda precisa responder à largura da janela: em `lg` e acima mantém uma barra lateral de
+  texto de 264px, ou seja, 256px de conteúdo mais 8px de margem de segurança; abaixo de `lg` converge para uma
+  barra lateral de ícones de 64px, ocultando o texto visível e expondo por tooltip os títulos das entradas de
+  voltar, grupos e onboarding, evitando que a janela estreita comprima o conteúdo de configurações à direita.
+- A área de conteúdo à direita mantém `bg-background`, com título separado do conteúdo de configurações e
+  largura de texto corporal limitada a uma coluna de leitura média.
+- Os cards de item de configuração usam uniformemente `bg-card + border-border`, e os divisores dentro das linhas
+  usam uniformemente `border-border`.
+- Os controles interativos priorizam `bg-input / border-input-border / bg-hover / bg-selected`, evitando que a
+  página componha localmente novos valores de cor neutra.
+- A classe base `Card` genérica também converge para `bg-card + border-card-border + text-foreground`, evitando
+  que componentes da página reescrevam manualmente a semântica de contorno de card.
 
-## 导航分组
+## Grupos de Navegação
 
-设置入口保持原有路由语义，但按用户任务拆成三个可见分组：
+As entradas de configurações mantêm a semântica de rotas existente, mas são divididas em três grupos visíveis por
+tarefa do usuário:
 
-- 基础设置：常规、界面、模型设置、浏览器。
-- Agent 能力：插件、技能、子智能体、MCP 服务器、命令、钩子。插件作为 Agent 扩展能力的统一入口放在组首，命令和钩子与其他 Agent 配置保持相邻。
-- 数据与统计：索引库、使用统计。
+- Configurações básicas: Geral, Interface, Configurações de modelo, Navegador.
+- Capacidades do Agent: Plugins, Skills, Subagentes, Servidores MCP, Comandos, Hooks. Plugins, como entrada
+  unificada das capacidades de extensão do Agent, ficam no início do grupo, e comandos e hooks permanecem
+  vizinhos das demais configurações do Agent.
+- Dados e estatísticas: Índice, Uso.
 
-分组标题属于导航结构，不是可点击入口。宽侧栏显示本地化标题；低于 `lg` 收敛为 64px 图标栏时隐藏可视标题，并用弱分隔线保留组边界。每组使用独立的无障碍 group 名称，组内入口继续保留 tooltip、`aria-current` 和原有 test id。引导入口不归入设置分组，继续放在分组列表之后。
+Os títulos de grupo pertencem à estrutura de navegação e não são entradas clicáveis. A barra lateral larga exibe
+os títulos localizados; abaixo de `lg`, ao convergir para a barra de ícones de 64px, os títulos visíveis são
+ocultados e um divisor fraco preserva as fronteiras dos grupos. Cada grupo usa um nome de acessibilidade de
+grupo independente, e as entradas dentro do grupo mantêm tooltip, `aria-current` e os test ids existentes. A
+entrada de onboarding não pertence a nenhum grupo de configurações e continua depois da lista de grupos.
 
-分组只影响 desktop / web 共用设置页的导航视觉和语义结构，不改变设置分区 id、最近访问分区、显式跳转意图、内容路由或持久化。手机 `/remote` 当前没有设置页入口，因此不新增移动端专属交互；窄窗口仅验证响应式图标栏表现。
+Os grupos afetam apenas o visual de navegação e a estrutura semântica da página de configurações compartilhada
+entre desktop e web, sem alterar o id das seções de configurações, a seção acessada recentemente, a intenção de
+navegação explícita, o roteamento de conteúdo ou a persistência. O `/remote` do celular hoje não tem entrada
+para a página de configurações, portanto não há nova interação específica para mobile; a janela estreita apenas
+valida o comportamento da barra de ícones responsiva.
 
-当前入口职责如下：
+As responsabilidades atuais de cada entrada são:
 
-- 常规：管理界面主题和语言。
-- Models：使用 Lucide `Package` 图标。
-- 插件：使用 Lucide `Blocks` 图标，与设置页中的插件默认图标保持一致。
-- MCP：使用 Lucide `Server` 图标。
-- 代码预览：管理代码块主题、行号、自动换行和字号，并保留浅色 / 深色双预览。
-- 模型供应商：管理 ZCode Agent 使用的模型供应商、凭据与可用模型。
-- 技能：管理项目级与用户级技能。
-- MCP 服务器：管理通用与 ZCode Agent 使用的 MCP 配置。
-- 命令：管理不同 Agent CLI 的 `.md` 命令文件。
-- 钩子：管理任务生命周期钩子。
-- 索引：管理 workspace 索引相关能力。
-- 浏览器：管理 Browser Use 官方插件开关、Chrome 数据一次性导入和内置浏览器数据清理。
-- 用量：查看应用与编程套餐用量。
+- Geral: gerencia o tema e o idioma da interface.
+- Models: usa o ícone Lucide `Package`.
+- Plugins: usa o ícone Lucide `Blocks`, consistente com o ícone padrão de plugin na página de configurações.
+- MCP: usa o ícone Lucide `Server`.
+- Pré-visualização de código: gerencia o tema dos blocos de código, números de linha, quebra automática de linha e
+  tamanho da fonte, mantendo a pré-visualização dupla clara/escura.
+- Provedores de modelo: gerencia os provedores de modelo, as credenciais e os modelos disponíveis usados pelo
+  ZCode Agent.
+- Skills: gerencia skills de nível de projeto e de usuário.
+- Servidores MCP: gerencia as configurações MCP usadas pelo ZCode Agent e as genéricas.
+- Comandos: gerencia os arquivos de comando `.md` dos diferentes Agent CLIs.
+- Hooks: gerencia os hooks do ciclo de vida de tarefas.
+- Índice: gerencia as capacidades relacionadas à indexação do workspace.
+- Navegador: gerencia a ativação do plugin oficial Browser Use, a importação única de dados do Chrome e a
+  limpeza dos dados do navegador integrado.
+- Uso: exibe o uso do app e dos planos de programação.
 
-历史窗口里残留的已隐藏分区跳转意图会回落到可见的默认分区，避免打开空白设置页。
+Intenções de navegação para seções ocultas remanescentes de janelas históricas caem de volta para a seção padrão
+visível, evitando abrir uma página de configurações em branco.
 
-## 阻塞交互隔离
+## Isolamento de Interações Bloqueantes
 
-设置页打开后，它是当前窗口唯一可交互的主表面。底层 workspace 为了保留会话订阅、草稿、终端和布局状态继续挂载，但必须同时标记为 `aria-hidden` 和 `inert`；仅使用透明度与 `pointer-events` 隐藏不够，因为权限卡片的自动聚焦仍可能把焦点从设置表单抢走。
+Depois que a página de configurações é aberta, ela se torna a única superfície principal interativa da janela. O
+workspace subjacente continua montado para preservar a assinatura da sessão, rascunhos, terminal e estado de
+layout, mas precisa ser marcado simultaneamente como `aria-hidden` e `inert`; usar apenas opacidade e
+`pointer-events` não basta, porque o autofoco do cartão de permissão ainda pode roubar o foco do formulário de
+configurações.
 
 ```text
 CLI pending interaction
-  -> conversation snapshot 继续更新
-  -> 被设置页覆盖的 workspace（mounted + aria-hidden + inert）
-       |-> 不聚焦 Permission / AskUserQuestion
-       |-> 不接收键盘或指针交互
-       `-> 任务徽标 / 系统通知仍可提示
+  -> o conversation snapshot continua sendo atualizado
+  -> workspace coberto pela página de configurações (mounted + aria-hidden + inert)
+       |-> não foca Permission / AskUserQuestion
+       |-> não recebe interação de teclado ou ponteiro
+       `-> os badges de task / as notificações do sistema ainda podem avisar
 
-用户显式返回工作区或点击任务通知
-  -> settings layer 关闭
-  -> workspace 移除 inert
-  -> 在原 task 的 bottom dock 展示待处理交互
+O usuário volta explicitamente ao workspace ou clica na notificação da task
+  -> a camada de configurações fecha
+  -> o workspace remove o inert
+  -> a interação pendente é exibida no bottom dock da task original
 ```
 
-| 当前表面 | 后台事件 | 期望结果 |
+| Superfície atual | Evento em background | Resultado esperado |
 | --- | --- | --- |
-| 设置页 | 普通权限请求 | 设置页、表单值和当前焦点保持不变；请求继续留在原 task |
-| 设置页 | `AskUserQuestion` | 与普通权限使用同一表面隔离规则；不强制切回会话 |
-| 设置页 | 请求完成或自动结束 | 只更新后台 task 投影；设置页不切换 |
-| workspace | 权限或问答仍 pending | 按既有 bottom dock 交互展示并允许响应 |
+| Página de configurações | Requisição de permissão comum | A página de configurações, os valores do formulário e o foco atual permanecem inalterados; a requisição continua na task original |
+| Página de configurações | `AskUserQuestion` | Usa as mesmas regras de isolamento de superfície da permissão comum; não força o retorno à conversa |
+| Página de configurações | Requisição concluída ou encerrada automaticamente | Atualiza apenas a projeção da task em background; a página de configurações não troca |
+| Workspace | Permissão ou pergunta ainda pendente | Exibe na interação pelo bottom dock existente e permite responder |
 
-该边界只约束 renderer 表面和焦点所有权，不修改 `pendingInteractions`、请求倒计时、权限响应、任务通知、desktop `desktop-continuous` 或手机 `web-remote-replayable` 的协议与恢复语义。手机 `/remote` 没有桌面设置覆盖层时继续使用现有移动端交互，不从本 case 推导新的远控行为。
+Essa boundary restringe apenas as superfícies do renderer e a propriedade do foco; ela não modifica
+`pendingInteractions`, a contagem regressiva das requisições, a resposta de permissões, as notificações de task,
+nem os protocolos e a semântica de restauração do `desktop-continuous` do desktop ou do
+`web-remote-replayable` do celular. O `/remote` do celular, sem a camada de sobreposição de configurações do
+desktop, continua usando a interação mobile existente, e nenhum comportamento novo de controle remoto é derivado
+deste caso.
 
-这次调整只修改 UI 结构与视觉层级，不改动底层设置状态、持久化方式，以及 desktop / web 共用的设置逻辑。
+Esta alteração modifica apenas a estrutura de UI e a hierarquia visual; ela não muda o estado subjacente das
+configurações, a forma de persistência nem a lógica de configurações compartilhada entre desktop e web.

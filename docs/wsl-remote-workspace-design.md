@@ -1,81 +1,88 @@
-# WSL 远程工作区支持方案
+# Proposta de suporte a workspace remoto WSL
 
-## 背景
+## Contexto
 
-当前 ZCode 支持 SSH 和 Docker 远程连接。本文档记录 WSL（Windows Subsystem for Linux）支持的实现方案。
+Atualmente o ZCode suporta conexões remotas por SSH e Docker. Este documento registra a proposta de
+implementação do suporte a WSL (Windows Subsystem for Linux).
 
-## 实现状态
+## Estado da implementação
 
-### ✅已完成
+### ✅ Concluído
 
-- [x] `WSLBackend` 类（`packages/server/src/remote/wsl-backend.ts`）
-- [x] `WSLDetect` 工具（`packages/server/src/remote/wsl-detect.ts`）
-- [x] `createRemoteBackend` 工厂支持 wsl（`packages/server/src/remote/create-backend.ts`）
-- [x] UI 层 KindStep 添加 WSL 选项
-- [x] UI 层 SettingsStep 支持 WSL 表单
-- [x] UI 层 ConnectingStep 支持 WSL
-- [x] 国际化文案（en-US / zh-CN）
-- [x] 反馈模块支持 WSL 连接失败
+- [x] classe `WSLBackend` (`packages/server/src/remote/wsl-backend.ts`)
+- [x] utilitário `WSLDetect` (`packages/server/src/remote/wsl-detect.ts`)
+- [x] factory `createRemoteBackend` com suporte a wsl (`packages/server/src/remote/create-backend.ts`)
+- [x] opção de WSL adicionada ao KindStep na camada de UI
+- [x] SettingsStep da camada de UI com suporte ao formulário de WSL
+- [x] ConnectingStep da camada de UI com suporte a WSL
+- [x] textos de internacionalização (en-US / zh-CN)
+- [x] módulo de feedback com suporte a falha de conexão WSL
 
-## SSH vs WSL 核心差异
+## Diferenças centrais entre SSH e WSL
 
-| 维度 | SSH | WSL |
-|------|-----|-----|
-| 连接方式 | TCP 网络协议，ssh2 库 | 本地子进程，wsl.exe |
-| 认证 | 密码/私钥/SSH Agent | Windows 用户身份（无需认证） |
-| 文件系统 | SFTP / exec pipe | Windows 路径映射 `\\wsl$\Distro` |
-| 部署路径 | 远程 `~/.zcode/server` | WSL 路径 `/home/user/.zcode/server` |
+| Dimensão       | SSH                                   | WSL                                |
+| -------------- | ------------------------------------- | ---------------------------------- |
+| Modo de conexão| protocolo de rede TCP, biblioteca ssh2 | subprocesso local, wsl.exe        |
+| Autenticação  | senha/chave privada/SSH Agent        | identidade do usuário Windows (sem autenticação) |
+| Sistema de arquivos | SFTP / exec pipe             | mapeamento de caminhos Windows `\\wsl$\Distro` |
+| Caminho de deploy | remoto `~/.zcode/server`     | caminho no WSL `/home/user/.zcode/server` |
 
-## 当前释放生命周期
+## Ciclo de vida de liberação atual
 
-WSL 使用 window-scoped pooled Remote Host：同一窗口、同一 normalized distro/user 的 logical workspace
-session 共享一个 Host、一个 `wsl.exe` server launcher 和一个 `zcode-server`。每个 session 仍保留独立
-`remoteSessionId`、attachment 和 `workspaceKey`。最小化、隐藏到托盘、renderer reload、手机 `/remote`
-attachment 断开都不直接销毁 Host。
+O WSL usa um Remote Host compartilhado com escopo de janela: sessions de workspace lógico com a mesma
+janela e o mesmo distro/usuário normalizado compartilham um Host, um launcher de server `wsl.exe` e um
+`zcode-server`. Cada session continua com `remoteSessionId`, attachment e `workspaceKey` próprios.
+Minimizar, ocultar para a bandeja, recarregar o renderer e desconectar o attachment `/remote` do
+celular não destroem diretamente o Host.
 
 ```text
-单 workspace 最后引用关闭
-  -> Host 按 workspace generation 释放 preparation/Agent runtime
-  -> 有 running task 时延迟到 terminal
-  -> 同 workspace 快速重开先等待 acquire ACK，再 attach RPC port
+Fechamento da última referência do workspace
+  -> o Host libera preparation/Agent runtime por workspace generation
+  -> com task em execução, aguarda o estado terminal
+  -> reabertura rápida do mesmo workspace espera o ACK de acquire e só então faz attach da porta RPC
 
-最后 Host owner 关闭
-  -> 保留 60 秒 idle TTL，期间可复用同一 Host/server
+Fechamento do último owner de Host
+  -> mantém idle TTL de 60 segundos, período em que o mesmo Host/server pode ser reutilizado
 
-真实关窗 / app quit / update install
-  -> RemoteSessionManager 快照并去重 Remote Host
-  -> Main 发送 Host Dispose，并等待 Host 退出
-  -> Host 分阶段释放 services
-  -> RemoteConnection 同步 stdin.end()，等待远端 stdio close
-  -> WSLBackend 等待自己创建的 wsl.exe 子进程退出
-  -> grace timeout 后只 kill 该 backend 记录的 child
+Fechamento real da janela / quit do app / instalação de update
+  -> RemoteSessionManager tira um snapshot e deduplica os Remote Hosts
+  -> o Main envia Host Dispose e aguarda a saída do Host
+  -> o Host libera services em fases
+  -> RemoteConnection sincroniza stdin.end() e aguarda o fechamento do stdio remoto
+  -> o WSLBackend aguarda a saída do subprocesso wsl.exe que ele mesmo criou
+  -> após o grace timeout, mata apenas o child registrado por aquele backend
 ```
 
-释放过程禁止调用 `wsl --terminate` 或 `wsl --shutdown`。WSL distro 可能仍显示 Running，这是发行版级
-运行状态，不代表 ZCode 的 Host、`wsl.exe` 或远端 `zcode-server` 仍被持有。任何 fallback 只能作用于
-当前 backend 明确 spawn 的子进程，不能按进程名扫描或终止用户在同一 distro 中的其他任务。
+O processo de liberação proíbe chamar `wsl --terminate` ou `wsl --shutdown`. A distro do WSL ainda
+pode aparecer como Running, o que é o estado de execução da distribuição e não significa que o Host do
+ZCode, o `wsl.exe` ou o `zcode-server` remoto ainda estejam retidos. Qualquer fallback só pode atingir
+o subprocesso explicitamente gerado pelo backend atual; é proibido varrer ou encerrar por nome de
+processo outras tarefas do usuário na mesma distro.
 
-Main 的 Remote Host 集合包含 WSL/SSH shared Host、Docker/Server dedicated Host 和 Bot remote runtime。
-应用退出和更新安装使用同一幂等等待屏障；屏障开始后拒绝创建新的 Remote Host，避免新进程落在快照之外。
+O conjunto de Remote Hosts do Main inclui o Host compartilhado de WSL/SSH, o Host dedicado de
+Docker/Server e o runtime remoto de Bot. A saída do app e a instalação de update usam a mesma barreira
+de espera idempotente; depois que a barreira começa, novos Remote Hosts são recusados, evitando que
+processos novos fiquem fora do snapshot.
 
-## 方案：组合模式 + 接口统一
+## Proposta: modo de composição + interface unificada
 
-### 核心思路
+### Ideia central
 
-复用 `IRemoteBackend` 接口（`packages/server/src/remote/backend.ts`），创建 `WSLBackend` 实现类，通过 `wsl.exe` 子进程替代 ssh2。
+Reaproveitar a interface `IRemoteBackend` (`packages/server/src/remote/backend.ts`), criando a classe
+de implementação `WSLBackend`, que substitui ssh2 por um subprocesso `wsl.exe`.
 
-### 目录结构
+### Estrutura de diretórios
 
 ```
 packages/server/src/remote/
-├── ssh-backend.ts          # 现有 SSH 实现
-├── wsl-backend.ts          # 新增 WSL 实现
-├── backend.ts              # IRemoteBackend 接口
-├── connect.ts              # 连接流程编排（需修改）
-└── detectEnv.ts            # 环境检测（可复用）
+├── ssh-backend.ts          # implementação SSH existente
+├── wsl-backend.ts          # nova implementação WSL
+├── backend.ts              # interface IRemoteBackend
+├── connect.ts              # orquestração do fluxo de conexão (precisa de alteração)
+└── detectEnv.ts            # detecção de ambiente (pode ser reaproveitada)
 ```
 
-### WSLBackend 实现
+### Implementação do WSLBackend
 
 ```typescript
 // packages/server/src/remote/wsl-backend.ts
@@ -89,7 +96,7 @@ import type {
 } from "@zcode/server/remote/backend.js";
 
 export interface WSLBackendOptions {
-  distribution?: string;  // WSL 分发版名称，如 "Ubuntu"
+  distribution?: string;  // nome da distribuição WSL, como "Ubuntu"
 }
 
 export class WSLBackend implements IRemoteBackend {
@@ -102,21 +109,21 @@ export class WSLBackend implements IRemoteBackend {
     this.distro = options.distribution || "Ubuntu";
   }
 
-  // 1. 检测环境：直接执行 wsl 命令
+  // 1. detectar ambiente: executa o comando wsl diretamente
   async detect(): Promise<RemoteEnvironment> {
     const platform = await this.execSimple("uname -s").catch(() => "Linux");
     const arch = await this.execSimple("uname -m").catch(() => "x86_64");
     return { platform, arch };
   }
 
-  // 2. 上传文件：Windows -> WSL 路径
+  // 2. enviar arquivo: caminho Windows -> caminho WSL
   async upload(localPath: string, remotePath: string): Promise<void> {
     const wslDest = this.toWSLPath(remotePath);
-    // 使用 wsl.exe cp 或 exec cat
+    // usar wsl.exe cp ou exec cat
     await this.execSimple(`mkdir -p "$(dirname '${wslDest}')" && cat > '${wslDest}'`);
   }
 
-  // 3. 执行命令：wsl.exe --exec
+  // 3. executar comando: wsl.exe --exec
   async exec(command: string): Promise<StdioStream> {
     const proc = spawn("wsl.exe", ["--distribution", this.distro, "--", "bash", "-c", command], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -132,22 +139,22 @@ export class WSLBackend implements IRemoteBackend {
     };
   }
 
-  // 4. 检查文件存在
+  // 4. verificar existência do arquivo
   async exists(remotePath: string): Promise<boolean> {
     const wslPath = this.toWSLPath(remotePath);
     const result = await this.execSimple(`test -f "${wslPath}" && echo OK`);
     return result.trim() === "OK";
   }
 
-  // 5. 读取文件
+  // 5. ler arquivo
   async readFile(remotePath: string): Promise<string> {
     const wslPath = this.toWSLPath(remotePath);
     return this.execSimple(`cat "${wslPath}"`);
   }
 
-  // 工具方法：Windows 路径 -> WSL 路径
+  // método utilitário: caminho Windows -> caminho WSL
   private toWSLPath(path: string): string {
-    // ~ 展开为 /home/user/
+    // ~ expande para /home/user/
     if (path.startsWith("~")) {
       return path.replace("~", this.getHomeDir());
     }
@@ -171,7 +178,7 @@ export class WSLBackend implements IRemoteBackend {
 }
 ```
 
-### 连接流程修改
+### Alterações no fluxo de conexão
 
 ```typescript
 // packages/server/src/remote/connect.ts
@@ -183,13 +190,13 @@ export type RemoteBackendType = "ssh" | "wsl";
 
 export interface RemoteConnectOptions {
   type: RemoteBackendType;
-  // SSH 选项
+  // opções de SSH
   host?: string;
   port?: number;
   username?: string;
-  // WSL 选项
+  // opções de WSL
   distribution?: string;
-  // 通用选项
+  // opções comuns
   privateKeyPath?: string;
   password?: string;
 }
@@ -211,25 +218,25 @@ export function createRemoteBackend(options: RemoteConnectOptions): IRemoteBacke
 }
 ```
 
-## 关键实现细节
+## Detalhes importantes de implementação
 
-### 1. WSL 路径转换
+### 1. Conversão de caminhos WSL
 
-WSL 有两种访问方式：
-- WSL 内部路径：`/home/user/.zcode`
-- Windows 访问 WSL：`\\wsl$\Ubuntu\home\user\.zcode`
+O WSL tem duas formas de acesso:
+- caminho interno do WSL: `/home/user/.zcode`
+- Windows acessando o WSL: `\\wsl$\Ubuntu\home\user\.zcode`
 
-但为了保持与 SSH 的一致性，建议使用 WSL 内部路径。
+Mas, para manter a consistência com o SSH, recomenda-se usar o caminho interno do WSL.
 
-### 2. 文件上传优化
+### 2. Otimização do envio de arquivos
 
-当前 SSH 使用 SFTP + exec fallback，WSL 可以：
-- 小文件：`wsl.exe --exec cat` + stdin pipe
-- 大文件：考虑 `wsl.exe cp` 或直接写 `\\wsl$\Distro` 路径
+Hoje o SSH usa SFTP com fallback para exec; o WSL pode:
+- arquivos pequenos: `wsl.exe --exec cat` + stdin pipe
+- arquivos grandes: considerar `wsl.exe cp` ou gravar direto no caminho `\\wsl$\Distro`
 
-### 3. 部署 zcode-server
+### 3. Deploy do zcode-server
 
-与 SSH 完全相同：
+Idêntico ao SSH:
 ```bash
 # SSH
 ssh user@host "ZCODE_SERVER_RUNTIME_ROOT=~/.zcode/server ~/.zcode/server/node ..."
@@ -238,7 +245,7 @@ ssh user@host "ZCODE_SERVER_RUNTIME_ROOT=~/.zcode/server ~/.zcode/server/node ..
 wsl.exe --exec bash -c "ZCODE_SERVER_RUNTIME_ROOT=~/.zcode/server ~/.zcode/server/node ..."
 ```
 
-### 4. 检测可用 WSL 分发版
+### 4. Detectar distribuições WSL disponíveis
 
 ```typescript
 export async function listWSLDistributions(): Promise<string[]> {
@@ -247,25 +254,25 @@ export async function listWSLDistributions(): Promise<string[]> {
 }
 ```
 
-## UI 层改动
+## Alterações na camada de UI
 
-连接对话框需要：
-1. 增加连接类型选择：SSH / WSL
-2. SSH 模式：显示 host、port、username、认证方式
-3. WSL 模式：显示分发版选择（默认读取可用列表）
+O diálogo de conexão precisa de:
+1. adicionar a escolha do tipo de conexão: SSH / WSL
+2. no modo SSH: mostrar host, port, username e forma de autenticação
+3. no modo WSL: mostrar a seleção de distribuição (por padrão lendo a lista disponível)
 
-## 风险与注意事项
+## Riscos e observações
 
-1. **WSL 版本**：需 WSL2（支持 `wsl.exe --exec`）
-2. **路径分隔符**：Windows 用 `\`，WSL 用 `/`
-3. **权限**：WSL 以当前 Windows 用户身份运行，无需额外认证
-4. **性能**：WSL 通信比 SSH 快（本地进程 vs TCP）
-5. **平台限制**：仅在 Windows 桌面端可用
+1. **Versão do WSL**: é necessário WSL2 (suporta `wsl.exe --exec`)
+2. **Separador de caminho**: o Windows usa `\`, o WSL usa `/`
+3. **Permissões**: o WSL roda com a identidade do usuário Windows atual, sem autenticação extra
+4. **Desempenho**: a comunicação com o WSL é mais rápida que a do SSH (processo local em vez de TCP)
+5. **Limitação de plataforma**: disponível apenas no desktop Windows
 
-## 实现顺序
+## Ordem de implementação
 
-1. ✅ 定义 `IRemoteBackend` 接口（已存在）
-2. 📝 实现 `WSLBackend` 类
-3. 📝 修改 `connect.ts` 支持创建 WSL 后端
-4. 📝 UI 层添加 WSL 连接选项
-5. 📝 测试部署流程
+1. ✅ definir a interface `IRemoteBackend` (já existe)
+2. 📝 implementar a classe `WSLBackend`
+3. 📝 alterar `connect.ts` para suportar a criação do backend WSL
+4. 📝 adicionar a opção de conexão WSL na camada de UI
+5. 📝 testar o fluxo de deploy

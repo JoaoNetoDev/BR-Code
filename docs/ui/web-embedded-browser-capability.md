@@ -1,20 +1,27 @@
-# Web Embedded Browser Capability
+# Capacidade de Navegador Embutido na Web
 
-## 背景
+## Contexto
 
-当前右侧 side pane 的“浏览器”标签依赖 Electron `webview`，适合桌面端。Web app 和手机远控运行在普通浏览器环境中，本版本不支持内嵌浏览器标签，也不应展示会创建该标签的入口。
+Atualmente a aba "Navegador" do side pane à direita depende do `webview` do Electron, adequada ao desktop. O app Web e
+o controle remoto mobile rodam em um ambiente de navegador comum, e esta versão não suporta a aba de navegador
+embutido nem deve exibir a entrada que a criaria.
 
-项目里已有类似边界：Web 端打开 workspace 时通过 `preferDirectoryBrowser` 走自实现目录选择 UI；桌面端继续走 `platform.selectDirectory()` 的系统目录选择框。浏览器能力也应使用同类平台能力边界，而不是在单个按钮里写零散判断。
+O projeto já tem um limite semelhante: ao abrir um workspace na Web, `preferDirectoryBrowser` leva a uma UI de
+seleção de diretório implementada pelo próprio projeto; no desktop continua sendo usado o seletor de diretórios do
+sistema via `platform.selectDirectory()`. A capacidade de navegador também deve usar um limite de capacidade de
+plataforma semelhante, em vez de verificações dispersas em um único botão.
 
-## 目标
+## Objetivos
 
-- 桌面 Electron 继续显示并支持右侧“浏览器”标签。
-- Web app / 手机远控不显示“浏览器”标签入口。
-- 命令中心不注册 `toggle-preview` 和 `add-browser-tab` 这类浏览器命令。
-- 深层 browser tab 创建回调在不支持内嵌浏览器的壳层中不创建 side pane browser tab。
-- 普通外链点击仍可在 Web 浏览器新标签中打开，不等同于 ZCode 内嵌浏览器功能。
+- O Electron desktop continua exibindo e suportando a aba "Navegador" à direita.
+- O app Web / o controle remoto mobile não exibem a entrada da aba "Navegador".
+- O centro de comandos não registra comandos de navegador como `toggle-preview` e `add-browser-tab`.
+- O callback de criação de browser tab profundo não cria side pane browser tab em shells que não suportam navegador
+  embutido.
+- Cliques comuns em links externos continuam podendo abrir em nova aba do navegador Web, o que não equivale à
+  funcionalidade de navegador embutido do ZCode.
 
-## 状态链路
+## Cadeia de estado
 
 ```text
 Root platform props
@@ -33,18 +40,20 @@ Root platform props
           `-- URL opening falls back to browser window.open
 ```
 
-## 影响面
+## Superfície afetada
 
-- `packages/ui/src/root/types.ts`: Root/App props 增加内嵌浏览器能力开关。
-- `packages/ui/src/App.tsx`: 将能力传给 quick pick、panel hook 和 shell layout。
-- `packages/ui/src/hooks/useAppPanels.ts`: 不支持时阻断 browser side pane 创建。
-- `packages/ui/src/quickpick/quickPickCommands.ts`: 根据能力注册命令。
-- `packages/ui/src/app-shell/AnimatedSidePanePanel.tsx`: 根据能力渲染 open-tab 和加号菜单项。
-- `packages/web/src/main.tsx`: Web 根入口显式声明 `supportsEmbeddedBrowser={false}`。
+- `packages/ui/src/root/types.ts`: props de Root/App ganham o interruptor de capacidade de navegador embutido.
+- `packages/ui/src/App.tsx`: passa a capacidade ao quick pick, ao hook de painéis e ao layout do shell.
+- `packages/ui/src/hooks/useAppPanels.ts`: bloqueia a criação do browser side pane quando não suportado.
+- `packages/ui/src/quickpick/quickPickCommands.ts`: registra comandos conforme a capacidade.
+- `packages/ui/src/app-shell/AnimatedSidePanePanel.tsx`: renderiza os itens de menu open-tab e de adicionar aba conforme a
+  capacidade.
+- `packages/web/src/main.tsx`: a entrada raiz da Web declara explicitamente `supportsEmbeddedBrowser={false}`.
 
-## 验证
+## Verificação
 
-- 单测覆盖 quick pick 在不支持内嵌浏览器时不出现 browser 命令。
-- 单测覆盖 side pane open-tab launcher 在不支持内嵌浏览器时不返回 browser 入口。
-- 执行 `pnpm typecheck`。
-- 执行 `pnpm lint`。
+- testes unitários cobrem que o quick pick não exibe comandos de browser quando o navegador embutido não é suportado.
+- testes unitários cobrem que o launcher open-tab do side pane não retorna a entrada de browser quando o navegador
+  embutido não é suportado.
+- executar `pnpm typecheck`.
+- executar `pnpm lint`.

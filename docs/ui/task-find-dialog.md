@@ -1,26 +1,23 @@
-# Task Find Dialog
+# Diálogo de busca de tasks
 
-> **当前状态**：本文描述 V4 conversation find 与 Git file-change find 的当前边界。
+> **Estado atual**: este documento descreve os limites atuais da busca de conversas da V4 e da busca de alterações de arquivo do Git.
 
-`Cmd/Ctrl+F` opens the task find dialog. It is separate from `Cmd/Ctrl+P`, which continues to open the file quick picker.
+`Cmd/Ctrl+F` abre o diálogo de busca de tasks. Ele é separado de `Cmd/Ctrl+P`, que continua abrindo o seletor rápido de arquivos.
 
-## Scopes
+## Escopos
 
-- Conversation: searches visible text in the current task conversation. All matches are highlighted, the active match uses a stronger highlight, and opening or changing the query scrolls to the first match.
-- File changes: opens the Git/file changes side pane if needed, searches the current change source diff contents, expands the file containing the active match, and highlights visible matches in that diff. This scope does not mutate the conversation highlight state.
+- Conversa: busca o texto visível na conversa da task atual. Todas as ocorrências são destacadas, a ocorrência ativa usa um destaque mais forte, e abrir ou alterar a query rola até a primeira ocorrência.
+- Alterações de arquivo: abre o painel lateral de alterações do Git/arquivos, se necessário, busca no conteúdo do diff da fonte de alterações atual, expande o arquivo que contém a ocorrência ativa e destaca as ocorrências visíveis nesse diff. Este escopo não altera o estado de destaque da conversa.
 
-## Navigation
+## Navegação
 
-Up and down buttons, `ArrowUp`, `ArrowDown`, and `Enter` cycle through the current scope's matches with wraparound. `Shift+Enter` moves backward.
+Os botões de cima e de baixo, `ArrowUp`, `ArrowDown` e `Enter` percorrem as ocorrências do escopo atual com retorno ao início. `Shift+Enter` vai para trás.
 
-## Streaming Messages
+## Mensagens em streaming
 
-The current running/prewarming message is included in conversation search once its text is rendered.
-Streaming deltas may extend the current message's matches, but do not reorder existing matches, reset the
-active match, or scroll the timeline automatically. Explicit navigation (buttons, Arrow keys, Enter, or
-Shift+Enter) may scroll the selected match into view. When the message reaches a terminal phase, the full
-stable index is rebuilt and the active match is rebased by its row identity where possible.
+A mensagem em execução/prewarm atual entra na busca da conversa assim que seu texto é renderizado.
+Os deltas de streaming podem estender as ocorrências da mensagem atual, mas não reordenam ocorrências existentes, não reiniciam a ocorrência ativa nem rolam a timeline automaticamente. A navegação explícita (botões, setas, Enter ou Shift+Enter) pode rolar a ocorrência selecionada até a área visível. Quando a mensagem atinge uma fase terminal, o índice estável completo é reconstruído e a ocorrência ativa é realinhada por sua identidade de linha, sempre que possível.
 
-## State Boundaries
+## Limites de estado
 
-The dialog owns query and scope. `App` owns conversation and file-change query/index/count state; V4 `useConversationTimelineFind` indexes projection render units and highlights the virtualized timeline, while `GitPane` handles file-change matches from loaded diff patches and preloads missing diffs. The dialog does not couple the two renderers.
+O diálogo é dono da query e do escopo. `App` é dono do estado de query/índice/contagem de conversa e de alterações de arquivo; o V4 `useConversationTimelineFind` indexa as unidades de renderização da projeção e destaca a timeline virtualizada, enquanto `GitPane` trata as ocorrências de alterações de arquivo a partir dos diffs carregados e pré-carrega os diffs ausentes. O diálogo não acopla os dois renderizadores.

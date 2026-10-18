@@ -1,49 +1,49 @@
-# Todo88–97：近期实现与抽象复审
+# Todo88–97: Revisão final das implementações recentes e das abstrações
 
-> 2026-09-09 后续校正：本文“三项待裁决”是当时记录。95C 不兼容未上线 Personal 配置已裁决，待实施；96 显式 Subagent 已由 Todo99 完成；97 Wiki 迁移边界仍需收口。残余验证/失败只在 [Todo102](../steps/todo-102-verification-debt-closeout.md) 推进，不重复挂起旧 Todo。
+> 2026-09-09 correção posterior: os "três itens pendentes de decisão" deste artigo são o registro da época. A incompatibilidade do 95C com a Personal Config não publicada já foi decidida, aguardando implementação; o Subagent explícito do 96 foi concluído pelo Todo99; o limite de migração do Wiki do 97 ainda precisa ser fechado. Verificação residual/falhas só avançam em [Todo102](../steps/todo-102-verification-debt-closeout.md), sem suspender novamente os Todo antigos.
 
-2026-09-08 UTC。复审对象是北京时间9月7日至8日的 Provider/Selection Todo 提交及本次94–97实现；不合入后续 staging，不把无关 CUA/MCP/消息气泡等恢复提交冒充本次已逐行审查。提交历史以 `git log --first-parent` 定位，按契约链路检查当前结果，而非提交存在就判保留。
+2026-09-08 UTC. O objeto da revisão são os commits de Provider/Selection Todo de 7 a 8 de setembro (horário de Pequim) e a implementação do 94–97 desta rodada; não são mesclados commits posteriores de staging e não se faz passar por revisão linha a linha desta rodada commits de recuperação sem relação como CUA/MCP/balões de mensagem. O histórico de commits é localizado com `git log --first-parent`, verificando o resultado atual pela cadeia de contratos, em vez de considerar algo mantido só porque o commit existe.
 
-## 结论与明确发现
+## Conclusões e achados explícitos
 
-这轮已有可验证的实现，但不能把所有 Todo 一概写成完成。三个实质边界待裁决；本轮二审也找出了自己的过度兼容与序列化遗漏，已经先复现再纠正。
+Esta rodada já tem implementação verificável, mas não se pode escrever todos os Todo como concluídos. Três limites substanciais aguardam decisão; a segunda revisão desta rodada também encontrou a própria compatibilidade excessiva e as omissões de serialização, que foram primeiro reproduzidas e depois corrigidas.
 
-| 问题 | 来源 / 处理 | 证据 |
+| Problema | Origem / tratamento | Evidência |
 | --- | --- | --- |
-| 恢复会话时 Registry 校验失败会丢原意图 | Todo88/96链路；96已改为返回原意图，Runtime只绑定有效选择 | 真实SQLite、App/Protocol continuous/replayable回归 |
-| Bot 旧字符串迁移依赖候选、远端菜单失败借另一 Workspace 缓存 | 96删除候选门禁和跨目标缓存；保留新版文件权威 | Bot全组及同路径不同身份测试 |
-| Subagent 全 profile 内存换 ID、普通 JSON reader 回读旧 map | 97迁移先落盘，正式 reader 单源；仅用户 Markdown自动写 | 文件集成、Host/Agent初始化、Pro I20 |
-| Session 普通 entry codec 搬运旧 thoughtLevel | 97移到真正已发布格式的 SQLite 单向导入，不删历史展示 | codec与迁移23条 |
-| 新 Wiki modelSelection / 新 builtin JSON map 仍转换 builtin ID | 本轮96/97过度兼容，二审纠正。staging发布格式分别是generationModel与旧双map，新字段不再转换 | 两项负向红灯后修复；不改变Wiki读时写入裁决 |
-| Markdown Provider ID 以 custom: 开头时序列化歧义 | 97二审增加用例，用既有编码解决，不发明新格式 | custom: / 分隔符 / 模型名往返测试 |
-| Wiki预算移除后遗留两个未使用变量/import | 94二审清理，不修改其他存量lint问题 | lint警告数从41降至39；最终命令结果见执行记录 |
+| Falha na validação do Registry ao restaurar a sessão descarta a intenção original | Cadeia Todo88/96; o 96 passou a retornar a intenção original e o Runtime só vincula escolhas válidas | SQLite real, regressões App/Protocol continuous/replayable |
+| A migração de strings antigas do Bot dependia de candidatos, e a falha do menu remoto tomava o cache de outro Workspace | O 96 removeu o gate de candidatos e o cache entre alvos; mantém-se a autoridade do arquivo novo | Grupo inteiro do Bot e testes do mesmo caminho com identidades diferentes |
+| Troca de ID em memória em todos os perfis de Subagent, e reader JSON comum relendo o map antigo | A migração do 97 grava em disco primeiro, com reader oficial de fonte única; só o Markdown do usuário é escrito automaticamente | Integração de arquivos, inicialização Host/Agent, Pro I20 |
+| O codec de entry comum de Session transporta o antigo thoughtLevel | O 97 moveu para uma importação unidirecional de SQLite do formato realmente publicado, sem apagar o histórico exibido | 23 casos de codec e migração |
+| O novo modelSelection do Wiki / o novo map do builtin JSON ainda converte o builtin ID | Compatibilidade excessiva do 96/97 nesta rodada, corrigida na segunda revisão. No staging, os formatos publicados são respectivamente generationModel e o antigo map duplo, e o novo campo não é mais convertido | Dois testes negativos vermelhos antes da correção; não altera a decisão de escrita na leitura do Wiki |
+| Ambiguidade de serialização quando o Provider ID de Markdown começa com custom: | A segunda revisão do 97 adicionou casos, resolvendo com a codificação já existente e sem inventar formato novo | Testes de ida e volta de custom: / separador / nome do modelo |
+| Duas variáveis/imports não usados remanescentes após a remoção do orçamento do Wiki | Limpeza na segunda revisão do 94, sem alterar outros problemas de lint pré-existentes | Número de avisos de lint caiu de 41 para 39; resultado final dos comandos no registro de execução |
 
-## 按 Todo / 提交审阅
+## Revisão por Todo / commit
 
-| 组 | 主要提交 | 核对的契约与质量结论 |
+| Grupo | Principais commits | Contratos e conclusão de qualidade verificados |
 | --- | --- | --- |
-| 88 数据迁移、能力、账号 | `2cd7434ddb`及后续补丁 | 不把旧backend zcode当Provider；缺组织连接仍通过OAuth唯一匹配补齐，网络在写队列外，提交复查意图。Selection离线迁移不删除这条真实连接迁移。能力/未知型号兜底由Provider解析测试覆盖。历史83/88条款被后续裁决替代，不能照旧恢复自动切套餐或永久Markdown内存兼容 |
-| 89 设置写入 | `c3e5fb37c2` | Facade可信成员快照→ConfigService事务；添加/排序可创建稀疏Provider Overlay，编辑/启停只改精确模型字段。动态继承成员不变成个人成员，不允许重命名/删除。版本冲突保留草稿，headers/未编辑字段不丢失；窄启停保留智能模式标记 |
-| 90/92 智能配置 | `14986fd36e`、`d645a7582a` | 添加/编辑共享草稿；固定模式不按ID重查推荐，完整性由UI与写入层验证；重新开启只重置本次草稿且保留enabled。A→B→A/切Provider/关闭模式废弃旧回包；保存失败保留输入。Scoped边框及双语文案复用，没有修改全局控件样式 |
-| 91 Probe | `b6c0f7373a` | system/user两条精确白名单；正式Model流式调用，三种Adapter离线请求验证。无Start权益探测捷径，无普通对话Prompt替换，未用真实账号试探网关 |
-| 93 失效手动切换 | `b088da8799`、`7cd5f57462` | 根观察器按账号/完整连接key及代次判断确定状态转移；首读/unknown/手动未开通不自动切。建议目标固定、点击重新校验、条件写入；写成功后刷新失败不假报未保存。不存在另一套权益来源或Session批量写回 |
-| 87/96 有效选择 | `cd6c4ff87c`、`ac00daec9c`、`e401dbcbb4`、`f0047c4430`、`a3517b732f`、`dd38abe9fb` | 迁移原意图与运行有效结果分离；getView按目标Host及输入返回结果，目标切换立即隔离旧回包。Composer接受提交、任务首次派发、Wiki生成、Bot各保留自己的提交边界；运行中冻结值不重解。显式Subagent目标已明确但Host事实协议仍缺，不能称全入口收口 |
-| 94 Wiki Limit | `a56dc32c26` | 不再有独立输出预算、正文减半/增预算救援；请求原样使用目标模型Limit，普通重试/超时/截断失败保留。不是给Factory另加默认预算 |
-| 95 Map | `9b0f11e996` | 专用Map只美化：所有合法值输出及省略/null/已有body等价；仅API兜底行为增强。未知字段容忍属于用户接受的兼容假设，不是验证过所有服务商。关闭档位改名C未完成 |
-| 97 原字段与全域审计 | `0c32ba2b59`及二审补丁 | 用户目录原地迁移、无中间态兼容、旧字段仅import；项目/插件不写。JSON内部格式不随Markdown回退；完整存储表独立记录例外和实际发布依据 |
+| 88 migração de dados, capacidades, conta | `2cd7434ddb` e patches posteriores | Não tratar o backend zcode antigo como Provider; quando falta a conexão organizacional, ainda se completa pelo casamento único via OAuth, com a rede fora da fila de escrita e revisão da intenção no commit. A migração offline do Selection não apaga essa migração real de conexão. O fallback de capacidade/modelo desconhecido é coberto por testes de resolução do Provider. Os itens históricos 83/88 foram substituídos por decisões posteriores e não se pode restaurar como antes a troca automática de plano nem a compatibilidade permanente de Markdown em memória |
+| 89 escrita de Settings | `c3e5fb37c2` | Snapshot confiável de membros da Facade → transação do ConfigService; adicionar/ordenar pode criar um Provider Overlay esparso, e editar/ativar altera apenas campos exatos de modelo. Membros herdados dinamicamente não viram membros pessoais e não podem ser renomeados/excluídos. Conflito de versão preserva o rascunho e headers/campos não editados não se perdem; a ativação estreita preserva a marca de modo inteligente |
+| 90/92 configuração inteligente | `14986fd36e`, `d645a7582a` | Adicionar/editar compartilha rascunho; o modo fixo não reconsulta recomendações por ID e a integridade é validada pela UI e pela camada de escrita; reativar só reseta o rascunho desta vez e preserva `enabled`. A→B→A/troca de Provider/desligar o modo descarta respostas antigas; falha ao salvar preserva a entrada. A borda scoped e os textos bilíngues são reutilizados, sem modificar o estilo global dos controles |
+| 91 Probe | `b6c0f7373a` | Duas allowlists precisas de system/user; chamada de streaming real do Model e verificação de requisição offline dos três Adapters. Sem atalho de detecção de entitlement no Start, sem substituição do Prompt de conversa comum e sem usar contas reais para sondar o gateway |
+| 93 troca manual em caso de invalidez | `b088da8799`, `7cd5f57462` | O observador raiz determina as transições de estado por conta/chave de conexão completa e geração; primeira leitura/unknown/manual não ativado não trocam automaticamente. Alvo fixo sugerido, clique revalida e a escrita é condicional; falha de refresh após escrita bem-sucedida não reporta falsamente "não salvo". Não existe outra fonte de entitlement nem escrita em lote da Session |
+| 87/96 escolha válida | `cd6c4ff87c`, `ac00daec9c`, `e401dbcbb4`, `f0047c4430`, `a3517b732f`, `dd38abe9fb` | Separação entre a intenção original migrada e o resultado válido em runtime; getView retorna o resultado pelo Host alvo e pela entrada, e a troca de alvo isola imediatamente respostas antigas. Composer aceita o envio, a primeira expedição de uma task, a geração do Wiki e o Bot mantêm cada um seu próprio limite de envio; valores congelados em execução não são re-resolvidos. O alvo de Subagent explícito já está definido, mas ainda falta o protocolo de fatos do Host, portanto não se pode chamar de fechamento em todas as entradas |
+| 94 Wiki Limit | `a56dc32c26` | Não há mais orçamento de saída independente nem resgate por metade do corpo/mais orçamento; a requisição usa o Limit do modelo alvo como está, e falha de retry comum/timeout/truncamento é preservada. Não é adicionar outro orçamento padrão ao Factory |
+| 95 Map | `9b0f11e996` | O Map dedicado só embeleza: a saída de todos os valores legais, bem como omitido/null/body já existente, é equivalente; apenas o comportamento de fallback da API é aprimorado. A tolerância a campos desconhecidos é uma hipótese de compatibilidade aceita pelo usuário, não a verificação de todos os prestadores. Renomear o nível desligado para C não foi concluído |
+| 97 campos antigos e auditoria de todo o domínio | `0c32ba2b59` e patches da segunda revisão | Migração no local do diretório do usuário, sem compatibilidade de estado intermediário, com campos antigos apenas no import; projeto/plugin não escrevem. O formato interno do JSON não regride para o Markdown; a tabela completa de armazenamento registra exceções e a base real de publicação |
 
-## 验证口径
+## Critério de verificação
 
-- 根扩大组61文件/900条、Agent17文件/201条；设置/账号补充29文件/420条；连接迁移/选型补充6文件/62条。各组有重叠，不相加冒充独立用例总数。
-- 二审小补丁共享/服务13文件/184条通过。根typecheck/lint及Agent bootstrap typecheck通过；Pro最终组合回归结果继续写总记录。
-- Pro `desktop-e2e-20260908173912732-p98589-498cb410db57162d`：Start领取4项、设置polish7项、智能配置1项、写入恢复1项，共13通过；真实remote对应1项skip，不算通过。Todo97两轮SE/I20各4项通过。
-- Pending E2E 仅运行和记录证据，没有未经人工审阅批量晋级。所有Pro验证使用隔离目录/测试数据/本地mock，不操作同事数据，不调用真实模型账号。
-- 不声称已覆盖手机实机、真实SSH故障、Windows、全部供应商请求。Web包部署仍由用户处理；novel已恢复，不重新开题。
+- Grupo ampliado da raiz: 61 arquivos/900 casos; Agent: 17 arquivos/201 casos; Settings/conta complementares: 29 arquivos/420 casos; complementares de migração de conexão/seleção: 6 arquivos/62 casos. Os grupos têm sobreposição e não devem ser somados como se fossem um total de casos independentes.
+- O pequeno patch da segunda revisão passou em 13 arquivos/184 casos de shared/serviço. Typecheck/lint da raiz e typecheck do bootstrap do Agent passaram; o resultado da regressão final combinada do Pro continua sendo escrito no registro geral.
+- Pro `desktop-e2e-20260908173912732-p98589-498cb410db57162d`: 4 itens de Start_sorted, polish de Settings 7 itens, configuração inteligente 1 item, recuperação de escrita 1 item, 13 aprovados no total; o equivalente em remote real teve 1 skip e não conta como aprovado. As duas rodadas SE/I20 do Todo97 tiveram 4 aprovados cada.
+- E2E pendente apenas executado e registrado como evidência, sem promoção em massa sem revisão humana. Toda a verificação do Pro usa diretório isolado/dados de teste/mock local, não mexe em dados de colegas e não chama contas reais de modelo.
+- Não se afirma cobertura de celular em máquina real, falhas reais de SSH, Windows ou de todas as requisições a prestadores. A implantação do pacote Web continua com o usuário; o novel foi restaurado e não é reaberto.
 
-## 还需要二次裁决
+## Ainda precisa de segunda decisão
 
-1. **95C**：统一关闭档位名会影响仅覆盖Map的Personal配置。旧表达式判断off，新值disabled可能变成开启。A/B已完成；不能靠全局字符串替换自定义Map解决C。
-2. **96显式Subagent**：独立Agent没有Host当前账号事实；需要严格协议端口委托所属Host解析，或者明确保留原校验。不能做仅设置页跟随的半套功能。
-3. **97 Wiki**：此前裁决读取不写盘，97要求全域一次落盘迁移；需决定首次读取落盘还是明确Wiki例外。其新字段不回读旧值已单独修好，与此选择无冲突。
+1. **95C**: unificar o nome do nível desligado afeta a Personal Config que cobre apenas o Map. A expressão antiga considera `off` desligado, e o novo valor `disabled` pode virar ligado. A/B já foram feitos; C não pode ser resolvido por substituição global de strings em Map customizado.
+2. **96 Subagent explícito**: o Agent independente não tem os fatos da conta atual do Host; é preciso um porto de protocolo estrito que delegue a resolução ao Host correspondente, ou manter explicitamente a validação original. Não se pode fazer um conjunto parcial de recursos que só acompanha a página de Settings.
+3. **97 Wiki**: a decisão anterior era ler sem escrever em disco, e o 97 exige uma migração de gravação em disco em uma única vez para todo o domínio; é preciso decidir se a primeira leitura grava em disco ou se há uma exceção explícita para o Wiki. O fato de o novo campo não reler o valor antigo já foi corrigido separadamente e não conflita com essa escolha.
 
-小阻塞已与独立工作分开；这三个涉及既有语义/协议权限，不按“能继续推进”擅自裁决。目标仍未完成。
+Os bloqueios pequenos foram separados do trabalho independente; estes três envolvem semântica existente/permissão de protocolo e não são decididos arbitrariamente com o critério de "dá para seguir avançando". O objetivo ainda não está concluído.

@@ -1,29 +1,22 @@
-# Android 远程控制壳
+# Casca Android de Controle Remoto
 
-`packages/android` 当前是 ZCode 手机远控的 Android 壳。第一版不重写 ZCode Agent、relay 或
-RPC 协议，而是用原生入口承载现有 `/remote` 手机 Web 远控页面。
+`packages/android` é atualmente a casca Android do controle remoto do ZCode em celular. A primeira versão não reescreve o ZCode Agent, o relay nem o protocolo RPC; em vez disso, usa uma entrada nativa para hospedar a página web existente de controle remoto `/remote` do celular.
 
-## 入口
+## Entrada
 
-- 粘贴或分享 `https://zcode.z.ai/remote?...` 链接。
-- 扫描桌面端生成的远控二维码。
-- 通过 `zcode://remote?...` deep link 打开。
-- 首页会保存最近 5 条成功打开过的远控链接，App 重启后可以直接点开。列表只展示设备名、host
-  和时间；实际完整链接保存在 App 私有 `SharedPreferences` 中。
+- Colar ou compartilhar um link `https://zcode.z.ai/remote?...`.
+- Escanear o QR code de controle remoto gerado pelo aplicativo desktop.
+- Abrir via deep link `zcode://remote?...`.
+- A tela inicial guarda as 5 últimas URLs de controle remoto abertas com sucesso, que podem ser abertas diretamente após reiniciar o app. A lista mostra apenas nome do dispositivo, host e horário; a URL completa real fica guardada no `SharedPreferences` privado do app.
 
-生产包只允许打开 `https://zcode.z.ai/remote`。Debug 包额外允许 localhost 和局域网
-`/remote`，方便真机调试本地 Vite 页面。
+O pacote de produção permite abrir apenas `https://zcode.z.ai/remote`. O pacote de debug permite adicionalmente localhost e `/remote` na rede local, para facilitar o debug de páginas Vite locais em dispositivos reais.
 
-## 扫码
+## Leitura de código
 
-扫码使用 CameraX 预览和 ML Kit Barcode Scanning。扫描器只识别 QR Code，扫到内容后仍交给
-`RemoteControlUrlPolicy` 校验，非法链接不会进入 WebView。
+A leitura de código usa a pré-visualização do CameraX e o ML Kit Barcode Scanning. O scanner reconhece apenas QR Codes e, após ler o conteúdo, a validação continua sendo feita por `RemoteControlUrlPolicy`, de modo que links inválidos não entram no WebView.
 
-## 后台稳定性
+## Estabilidade em segundo plano
 
-远控页面打开后，App 会启动前台服务并保持屏幕常亮。前台服务的作用是降低 Android 在后台回收进程
-或收紧网络的概率；它不改变业务事实源。手机端断线或恢复仍依赖现有 Web 远控的
-`web-remote-replayable` 语义、bridge 重建和 task snapshot 对齐。
+Após a página de controle remoto ser aberta, o app inicia um serviço em primeiro plano e mantém a tela ligada. A função do serviço em primeiro plano é reduzir a probabilidade de o Android reciclar o processo em segundo plano ou restringir a rede; ele não altera a fonte de verdade dos dados de negócio. A desconexão e a recuperação no celular continuam dependendo da semântica `web-remote-replayable` do controle remoto web existente, da reconstrução da bridge e do alinhamento dos task snapshots.
 
-Android App 不创建独立 Agent runtime、local host 或 SSH/WSL/Docker session。手机端仍只能 attach
-到桌面窗口已经存在的 host。
+O app Android não cria um runtime de Agent independente, um local host ou uma sessão SSH/WSL/Docker. O celular só pode se conectar a um host que já existe na janela do desktop.

@@ -1,22 +1,22 @@
-# Sidebar Footer Plan Badge
+# Badge de plano no rodapé da sidebar
 
-## Goal
+## Objetivo
 
-The workspace sidebar footer shows the signed-in account name. When the account has an active Coding Plan entitlement, the opened account menu appends a compact account-level plan badge after the account name in its header. The sidebar footer trigger itself shows only the avatar and account name, without a plan badge.
+O rodapé da sidebar do workspace mostra o nome da conta autenticada. Quando a conta tem um entitlement ativo de Coding Plan, o menu de conta aberto acrescenta um badge de plano compacto, de nível de conta, depois do nome da conta em seu cabeçalho. O gatilho do rodapé da sidebar em si mostra apenas o avatar e o nome da conta, sem badge de plano.
 
-## Behavior
+## Comportamento
 
-- The badge is visible only for signed-in users with an active Coding Plan entitlement.
-- The badge no longer follows the current workspace connection mode. API Key, Start Plan, native provider, or Team Plan selection state must not hide an account-level personal Coding Plan badge.
-- If the account has an active personal Coding Plan, the badge shows the personal plan label.
-- If the account has no active personal Coding Plan but has a subscribed Team Plan, the badge shows `Team` / `团队`.
-- If the account has both personal and Team Plan entitlements, the personal Coding Plan wins.
-- The personal badge prefers `quota.level` as the label. If the quota level is unavailable, it falls back to the first subscription product name.
-- Long product names are normalized for footer density by dropping the `GLM Coding` prefix when present.
-- The account name remains the primary text and keeps truncation priority; the badge is compact and may shrink away before it pushes footer controls out of bounds.
-- The badge uses semantic surface, border, and foreground tokens so it works in light and dark themes.
+- O badge é visível apenas para usuários autenticados com entitlement ativo de Coding Plan.
+- O badge não segue mais o modo de conexão atual do workspace. API Key, Start Plan, provider nativo ou o estado de seleção de Team Plan não podem esconder um badge de Coding Plan pessoal de nível de conta.
+- Se a conta tiver um Coding Plan pessoal ativo, o badge mostra o rótulo do plano pessoal.
+- Se a conta não tiver Coding Plan pessoal ativo, mas tiver um Team Plan assinado, o badge mostra `Team` / `团队`.
+- Se a conta tiver entitlements pessoal e de Team Plan, o Coding Plan pessoal prevalece.
+- O badge pessoal prefere `quota.level` como rótulo. Se o nível de quota não estiver disponível, ele faz fallback para o primeiro nome de produto de assinatura.
+- Nomes de produto longos são normalizados para a densidade do rodapé removendo o prefixo `GLM Coding`, quando presente.
+- O nome da conta permanece como texto principal e mantém prioridade de truncamento; o badge é compacto e pode encolher/desaparecer antes de empurrar os controles do rodapé para fora dos limites.
+- O badge usa tokens semânticos de superfície, borda e primeiro plano, para funcionar nos temas claro e escuro.
 
-## Non-goals
+## Não objetivos
 
-- The badge does not open a new UI by itself. The avatar menu remains the entry point for upgrade actions; usage details live in the Usage page and chat input context panel.
-- The badge does not introduce new user/account fields. Personal state continues to come from Coding Plan entitlement data; Team state comes from subscribed enterprise Coding Plan products.
+- O badge não abre nenhuma nova UI por si só. O menu do avatar continua sendo o ponto de entrada para ações de upgrade; os detalhes de uso ficam na página Usage e no painel de contexto da caixa de entrada do chat.
+- O badge não introduz novos campos de usuário/conta. O estado pessoal continua vindo dos dados de entitlement do Coding Plan; o estado de Team vem dos produtos enterprise Coding Plan assinados.

@@ -1,278 +1,278 @@
-# Git 需求设计
+# Requisitos de设计 do Git
 
-## 文档定位
+## Posicionamento do documento
 
-这份文档描述当前版本 Git UI 的产品需求基线，以已经确认的现有设计为准，不讨论底层 service、RPC 或 Git CLI 实现细节。
+Este documento descreve a linha de base de requisitos de produto da UI de Git da versão atual, tomando como referência o design existente já confirmado, sem discutir detalhes de implementação de service, RPC ou Git CLI.
 
-## 当前设计基线
+## Linha de base do design atual
 
-当前版本的 Git 能力定位为“轻量改动审阅面板”，优先解决用户在 ZCode 内快速看到当前工作区改了什么的问题。
+A capacidade de Git da versão atual está posicionada como um "painel leve de revisão de alterações", com prioridade para resolver o problema de o usuário ver rapidamente, dentro do ZCode, o que mudou no workspace atual.
 
-这一版的重点是：
+O foco desta versão é:
 
-- 在顶部提供明确的 Git 入口和改动提示
-- 在顶部补充轻量 Git 操作菜单（提交 / 推送 / 创建分支）
-- 在右侧共享 pane 内查看不同来源的改动
-- 以轻量、单列、低负担的方式浏览文件和 diff
+- Oferecer no topo uma entrada clara de Git e um indicativo de alterações
+- Acrescentar no topo um menu leve de operações Git (commit / push / criar branch)
+- Verificar alterações de diferentes origens dentro do pane compartilhado à direita
+- Navegar por arquivos e diffs de forma leve, em coluna única e com baixa carga
 
-这一版不追求完整的 Git 工作台体验。
+Esta versão não busca uma experiência completa de workbench do Git.
 
-## 产品目标
+## Objetivos de produto
 
-- 让用户在不离开当前工作区的情况下感知是否存在改动
-- 让用户能快速查看当前工作区不同来源的文件改动
-- 让 Git UI 与现有 Browser / Code Viewer 共用右侧 pane，避免引入新的主布局复杂度
-- 保持双主题、国际化、本地 / 远程 / 多操作系统兼容方向
+- Permitir que o usuário perceba se existem alterações sem sair do workspace atual
+- Permitir que o usuário veja rapidamente as alterações de arquivos de diferentes origens no workspace atual
+- Fazer a UI de Git compartilhar o pane à direita com o Browser / Code Viewer existentes, evitando introduzir nova complexidade no layout principal
+- Manter os rumos de tema duplo, internacionalização e compatibilidade local / remota / multi-sistema operacional
 
-## 非目标
+## Não objetivos
 
-- 不做完整 Source Control IDE
-- 不做仓库摘要大面板，不展示 repo root、branch、ahead / behind 等信息块
-- 不做底部提交区、身份提示区、批量操作区
-- 不做 stage / unstage / discard、pull / fetch、rebase、stash、merge editor、历史图
-- 不做 GitHub / GitLab 远端协作视图
+- Não fazer um IDE completo de Source Control
+- Não fazer um grande painel de resumo do repositório, sem exibir blocos de informações como repo root, branch, ahead / behind
+- Não fazer área de commit na parte inferior, área de indicação de identidade, área de operações em lote
+- Não fazer stage / unstage / discard, pull / fetch, rebase, stash, editor de merge, grafo de histórico
+- Não fazer visualização de colaboração remota do GitHub / GitLab
 
-## 核心用户场景
+## Principais cenários de usuário
 
-### 场景 1：我想知道当前工作区有没有改动
+### Cenário 1: Quero saber se o workspace atual tem alterações
 
-用户不需要先打开 Git pane。
+O usuário não precisa abrir o pane de Git antes.
 
-预期：
+Esperado:
 
-- 顶部工具栏出现 Git 入口
-- 当探测到存在 `+/-` 改动统计时，入口直接显示 Git 图标和 `+/-` 汇总
-- 用户通过这个入口知道当前工作区存在改动
+- Aparece uma entrada de Git na barra superior
+- Ao detectar estatísticas de alterações `+/-`, a entrada exibe diretamente o ícone do Git e o resumo `+/-`
+- O usuário sabe, por essa entrada, que existem alterações no workspace atual
 
-### 场景 2：我想快速浏览某一类改动
+### Cenário 2: Quero navegar rapidamente por um tipo de alteração
 
-用户点击顶部 Git 入口后，在右侧 pane 中查看改动。
+Após clicar na entrada de Git do topo, o usuário vê as alterações no pane à direita.
 
-预期：
+Esperado:
 
-- 可以切换 `未暂存`、`已暂存`、`全部分支更改`、`上一轮更改`
-- 可以在单列文件列表中查看文件
-- 可以展开某个文件直接看到 inline diff
+- É possível alternar entre `未暂存`、`已暂存`、`全部分支更改`、`上一轮更改`
+- É possível ver os arquivos em uma lista de coluna única
+- É possível expandir um arquivo e ver diretamente o diff inline
 
-### 场景 3：我想按目录过滤改动
+### Cenário 3: Quero filtrar as alterações por diretório
 
-用户在 Git pane 中点击“显示文件树”。
+O usuário clica em "Mostrar árvore de arquivos" no pane de Git.
 
-预期：
+Esperado:
 
-- 右侧弹出目录侧边栏
-- 侧边栏只展示目录层级，不展示文件
-- 选择目录后，主区文件列表同步过滤
+- Uma barra lateral de diretórios aparece à direita
+- A barra lateral exibe apenas os níveis de diretório, não os arquivos
+- Após selecionar um diretório, a lista de arquivos da área principal é filtrada sincronamente
 
-## 功能范围
+## Escopo funcional
 
-## 1. 顶部 Git 入口
+## 1. Entrada de Git no topo
 
-### 1.1 入口位置
+### 1.1 Posição da entrada
 
-Git 入口位于 `WorkspaceHeader` 顶部工具栏，和 Terminal / Browser 入口处于同一组交互区。
+A entrada de Git fica na barra superior do `WorkspaceHeader`, no mesmo grupo de interação das entradas de Terminal / Browser.
 
-### 1.2 展示规则
+### 1.2 Regras de exibição
 
-- 当当前工作区没有可展示的改动统计时，入口显示为普通 Git 图标按钮
-- 当当前工作区存在 `+/-` 改动统计时，入口显示为“Git 图标 + `+/-`”的一体化胶囊按钮
-- 这块改动统计不依赖 Git pane 是否已经打开
+- Quando o workspace atual não tem estatísticas de alterações a exibir, a entrada aparece como um botão comum com ícone do Git
+- Quando o workspace atual tem estatísticas de alterações `+/-`, a entrada aparece como um botão cápsula integrado "ícone do Git + `+/-`"
+- Essa estatística de alterações não depende de o pane de Git já estar aberto
 
-### 1.3 交互规则
+### 1.3 Regras de interação
 
-- 点击后在右侧共享 pane 打开 Git 视图
-- 再次点击关闭
-- 打开状态要有明确选中态
+- Ao clicar, abre a visão de Git no pane compartilhado à direita
+- Clicar novamente fecha
+- O estado aberto deve ter um estado selecionado claro
 
-### 1.4 顶部 Git 操作菜单
+### 1.4 Menu de operações Git do topo
 
-- 在 Terminal 切换按钮左侧新增“提交”胶囊入口
-- 点击后弹出下拉菜单，当前版本只保留：
+- Adiciona uma entrada cápsula "Commit" à esquerda do botão de alternância do Terminal
+- Ao clicar, abre um menu suspenso; a versão atual mantém apenas:
   - `提交`
   - `推送`
-  - `创建分支`
-- `提交` 打开独立弹窗，按当前 workspace 作用域收集未提交更改，并在提交前统一暂存
-- `推送` 打开独立弹窗，执行真实 `git push`；若当前分支没有 upstream，首次推送时自动建立 upstream
-- `创建分支` 复用现有分支切换链路里的创建分支弹窗，不在这个菜单里提供“切换已有分支”
+  - `创建 branch`
+- `提交` abre um diálogo independente, coletando as alterações não commitadas no escopo do workspace atual e fazendo stage unificado antes do commit
+- `推送` abre um diálogo independente e executa um `git push` real; se o branch atual não tiver upstream, ele é criado automaticamente no primeiro push
+- `创建分支` reaproveita o diálogo de criação de branch da cadeia existente de troca de branch; neste menu não é oferecido "trocar para um branch existente"
 
-## 2. Git pane
+## 2. Pane de Git
 
-### 2.1 布局定位
+### 2.1 Posicionamento do layout
 
-Git pane 复用现有右侧共享 pane，与 Browser / Code Viewer 共用同一槽位。
+O pane de Git reaproveita o pane compartilhado à direita existente, ocupando o mesmo slot do Browser / Code Viewer.
 
-### 2.2 当前结构
+### 2.2 Estrutura atual
 
-当前版本采用轻量布局，分为三层：
+A versão atual adota um layout leve, dividido em três camadas:
 
-- 顶部标题栏
-  - Git 标题
-  - UI 占位标记
-  - 关闭按钮
-- 工具栏
-  - 左侧来源切换下拉
-  - 右侧“显示文件树 / 隐藏文件树”按钮
-- 主内容区
-  - 默认展示单列文件列表
-  - 打开文件树后，右侧展示目录侧边栏
+- Barra de título superior
+  - Título do Git
+  - Marcador de placeholder da UI
+  - Botão de fechar
+- Barra de ferramentas
+  - Dropdown de troca de origem à esquerda
+  - Botão "Mostrar árvore de arquivos / Ocultar árvore de arquivos" à direita
+- Área de conteúdo principal
+  - Exibe por padrão uma lista de arquivos em coluna única
+  - Com a árvore de arquivos aberta, exibe a barra lateral de diretórios à direita
 
-### 2.3 明确不在当前设计中的内容
+### 2.3 Conteúdo explicitamente fora do design atual
 
-当前版本不包含以下区域：
+A versão atual não inclui as seguintes áreas:
 
-- 仓库摘要头部
-- 左侧多分组状态树
-- 独立右侧 diff 大面板
-- 底部提交区
-- 提交身份提示区
-- 批量操作按钮区
+- Cabeçalho de resumo do repositório
+- Árvore de estado por grupos à esquerda
+- Grande painel de diff independente à direita
+- Área de commit na parte inferior
+- Área de indicação de identidade de commit
+- Área de botões de operações em lote
 
-## 3. 改动来源切换
+## 3. Troca de origem das alterações
 
-### 3.1 支持的来源
+### 3.1 Origens suportadas
 
-当前版本支持以下来源：
+A versão atual suporta as seguintes origens:
 
 - `未暂存`
 - `已暂存`
 - `全部分支更改`
 - `上一轮更改`
 
-### 3.2 交互要求
+### 3.2 Requisitos de interação
 
-- 来源切换通过下拉选择完成
-- 切换后，文件列表、目录过滤和 diff 内容同步切换到对应数据集
-- 当前选中的来源同时影响顶部 Git 入口使用的统计来源
+- A troca de origem é feita por seleção em dropdown
+- Após a troca, a lista de arquivos, o filtro de diretórios e o conteúdo do diff mudam sincronamente para o conjunto de dados correspondente
+- A origem selecionada também afeta a origem das estatísticas usadas pela entrada de Git no topo
 
-### 3.3 只读约束
+### 3.3 Restrição somente leitura
 
-当前版本整体按“改动浏览”设计：
+A versão atual é projetada, no geral, como "navegação de alterações":
 
-- `上一轮更改` 为只读视图
-- 其它来源当前也只承担查看职责，不承诺真实 Git 写操作
+- `上一轮更改` é uma visão somente leitura
+- As demais origens também têm hoje apenas a responsabilidade de visualização, sem promessa de operações de escrita reais do Git
 
-## 4. 文件列表与 diff
+## 4. Lista de arquivos e diff
 
-### 4.1 文件列表
+### 4.1 Lista de arquivos
 
-当前版本默认采用平铺单列列表，而不是默认树形文件区。
+A versão atual adota por padrão uma lista plana de coluna única, em vez de uma área de arquivos em árvore por padrão.
 
-列表项要求：
+Requisitos dos itens da lista:
 
-- 直接展示 workspace 相对路径全路径
-- 展示该文件的 `+/-` 统计
-- 非 `未暂存` 项可以展示状态 badge，例如 `未跟踪`、`冲突`、`已暂存`
-- 支持展开 / 收起
+- Exibir diretamente o caminho completo relativo ao workspace
+- Exibir as estatísticas `+/-` daquele arquivo
+- Itens que não sejam `未暂存` podem exibir um badge de status, por exemplo `未跟踪`、`冲突`、`已暂存`
+- Suportar expandir / recolher
 
-### 4.2 展开态
+### 4.2 Estado expandido
 
-文件展开后：
+Após o arquivo ser expandido:
 
-- 不再重复展示全路径和 `+/-` 统计
-- 直接进入 diff 内容
+- Não repete mais o caminho completo nem as estatísticas `+/-`
+- Entra diretamente no conteúdo do diff
 
 ### 4.3 diff
 
-当前版本支持：
+A versão atual suporta:
 
-- `未暂存` diff
-- `已暂存` diff
-- `全部分支更改` diff
-- `上一轮更改` diff
+- diff de `未暂存`
+- diff de `已暂存`
+- diff de `全部分支更改`
+- diff de `上一轮更改`
 
-降级要求：
+Requisitos de degradação:
 
-- 二进制文件给出不可预览提示
-- 超大 diff 给出裁剪提示
-- 无法生成 patch 时给出不可用提示
+- Arquivos binários exibem um aviso de impossibilidade de pré-visualização
+- Diffs muito grandes exibem um aviso de truncamento
+- Quando não for possível gerar patch, exibe um aviso de indisponibilidade
 
-## 5. 文件树侧边栏
+## 5. Barra lateral da árvore de arquivos
 
-### 5.1 触发方式
+### 5.1 Forma de acionamento
 
-点击工具栏中的“显示文件树”按钮后，Git pane 右侧展开目录侧边栏。
+Após clicar no botão "Mostrar árvore de arquivos" da barra de ferramentas, a barra lateral de diretórios é expandida à direita do pane de Git.
 
-### 5.2 展示规则
+### 5.2 Regras de exibição
 
-- 侧边栏只展示目录层级
-- 不在侧边栏中展示文件
-- 支持目录折叠 / 展开
-- 支持“全部目录”入口
+- A barra lateral exibe apenas os níveis de diretório
+- Não exibe arquivos na barra lateral
+- Suporta recolher / expandir diretórios
+- Suporta uma entrada "Todos os diretórios"
 
-### 5.3 过滤规则
+### 5.3 Regras de filtro
 
-- 选择某个目录后，主区只展示该目录下的文件改动
-- 切回“全部目录”后，恢复完整文件列表
+- Após selecionar um diretório, a área principal exibe apenas as alterações de arquivos daquele diretório
+- Ao voltar para "Todos os diretórios", a lista completa de arquivos é restaurada
 
-## 6. 数据来源要求
+## 6. Requisitos de origem dos dados
 
-### 6.1 当前版本允许的来源
+### 6.1 Origens permitidas na versão atual
 
-当前版本允许混合使用 mock 数据和已有会话数据：
+A versão atual permite misturar dados mock com dados de sessão já existentes:
 
-- `未暂存` / `已暂存` / `全部分支更改`：允许先用前端 mock
-- `上一轮更改`：优先复用当前 task 的 per-turn 文件快照和摘要
+- `未暂存` / `已暂存` / `全部分支更改`: permitido usar mock no frontend primeiro
+- `上一轮更改`: preferencialmente reaproveitar o snapshot de arquivos por turno da task atual e seu resumo
 
-### 6.2 当前版本不强求
+### 6.2 O que a versão atual não exige
 
-当前版本不要求已经接入：
+A versão atual não exige ainda:
 
-- 真实 `git status`
-- 真实 branch comparison
-- 真实文件树服务
-- 真实提交身份读取
+- `git status` real
+- comparação real de branches
+- serviço real de árvore de arquivos
+- leitura real da identidade de commit
 
-## 7. 写操作范围
+## 7. Escopo das operações de escrita
 
-当前版本只开放顶部菜单里的 3 个轻量写操作：
+A versão atual abre apenas 3 operações de escrita leves no menu do topo:
 
 - `commit`
 - `push`
 - `create branch`
 
-本版本仍然不要求：
+Esta versão ainda não exige:
 
-- stage 单个文件
-- stage 多选文件
+- stage de arquivo individual
+- stage de múltiplos arquivos selecionados
 - unstage
 - discard
-- GitHub / GitLab PR 创建
+- criação de PR no GitHub / GitLab
 
-也就是说，这一版的写操作边界是“顶部单点动作”，不是完整 Source Control 面板。
+Ou seja, o limite de escrita desta versão é "ação pontual no topo", e não um painel completo de Source Control.
 
-## 8. 空态与错误
+## 8. Estados vazios e de erro
 
-当前版本至少需要处理：
+A versão atual precisa tratar pelo menos:
 
-- 当前来源没有任何改动
-- 当前选中目录下没有文件
-- diff 无法预览
+- A origem atual não tem nenhuma alteração
+- Não há arquivos no diretório selecionado
+- O diff não pode ser pré-visualizado
 
-以下更完整的错误态允许在真实 service 接入阶段再补：
+Os estados de erro mais completos a seguir podem ser complementados na etapa de integração do service real:
 
-- 未安装 Git
-- 当前 workspace 不在 Git 仓库内
-- Git 仓库损坏
-- Git 命令超时或执行失败
-- 远程连接断开
+- Git não instalado
+- O workspace atual não está dentro de um repositório Git
+- Repositório Git corrompido
+- Comando Git expirou ou falhou na execução
+- Conexão remota interrompida
 
-## 9. 日志要求
+## 9. Requisitos de logging
 
-由于 Git pane 属于高交互区域，当前版本 UI 层需要保留日志。
+Como o pane de Git é uma área de alta interação, a camada de UI da versão atual precisa manter logs.
 
-至少记录：
+Registrar no mínimo:
 
-- 打开 / 关闭 Git pane
-- 切换改动来源
-- 展开 / 收起文件
-- 打开 / 关闭文件树
-- 选择目录
+- abrir / fechar o pane de Git
+- trocar a origem das alterações
+- expandir / recolher arquivos
+- abrir / fechar a árvore de arquivos
+- selecionar diretório
 
-## 10. 后续扩展方向
+## 10. Direções de expansão futura
 
-在不改变当前 UI 基线的前提下，后续可以按阶段扩展：
+Sem alterar a linha de base de UI atual,posteriormente pode-se expandir por etapas:
 
-1. 接入真实 `IGitService`
-2. 让 `未暂存` / `已暂存` / `全部分支更改` 切到真实仓库数据
-3. 再评估是否恢复提交区、身份提示区和批量操作区
-4. 最后再扩展真正的 stage / unstage / discard / commit 能力
+1. Integrar o `IGitService` real
+2. Fazer `未暂存` / `已暂存` / `全部分支更改` passarem aos dados do repositório real
+3. Em seguida, reavaliar se a área de commit, a área de indicação de identidade e a área de operações em lote devem ser restauradas
+4. Só por último expandir de fato as capacidades de stage / unstage / discard / commit

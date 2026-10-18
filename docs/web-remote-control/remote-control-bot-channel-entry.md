@@ -1,13 +1,13 @@
-# Remote Control Bot Channel Entry
+# Entrada de Canal de Bot do Remote Control
 
-远程控制弹窗现在同时承载两类入口：
+O modal de controle remoto agora abriga dois tipos de entrada:
 
-- 手机 Web：继续使用当前 Web remote control session 的连接状态、二维码和复制链接。
-- Bot Channel：提供微信、飞书、Telegram 三个入口，面向长期或常用通讯工具里的远程控制。
+- Web no celular: continua usando o estado de conexão da sessão Web remote control atual, o QR code e o link para cópia.
+- Bot Channel: oferece três entradas — WeChat, Feishu e Telegram — voltadas ao controle remoto em ferramentas de comunicação de longo prazo ou de uso frequente.
 
-Bot Channel card 的点击逻辑统一打开 `packages/ui/src/BotsDialog.tsx`：
+A lógica de clique do card de Bot Channel abre de forma unificada `packages/ui/src/BotsDialog.tsx`:
 
-- 如果已有对应渠道的机器人，选中该渠道的第一个机器人。
-- 如果没有对应渠道的机器人，直接创建该渠道的新机器人，并进入该机器人的配置流程。
+- Se já existir um robô do canal correspondente, seleciona o primeiro robô desse canal.
+- Se não existir um robô do canal correspondente, cria diretamente um novo robô para esse canal e entra no fluxo de configuração desse robô.
 
-入口选择逻辑集中在 `resolveBotProviderEntry()`，避免远程控制弹窗直接理解 BotsDialog 内部状态结构。
+A lógica de seleção da entrada está centralizada em `resolveBotProviderEntry()`, evitando que o modal de controle remoto entenda diretamente a estrutura de estado interna do BotsDialog.

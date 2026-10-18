@@ -1,40 +1,35 @@
-# Bash Command Permission Registry Design
+# Design do Registro de Permissões de Comandos Bash
 
-## 背景
+## Contexto
 
-当前项目级 Bash “始终允许”把完整 `input.command` 写成 permission rule。即使规则使用
-`:*` 后缀，匹配仍发生在原始字符串上，既不能稳定复用 `pnpm run lint --fix` 与
-`pnpm run lint --reporter=dot` 的共同 action，也可能让 `npm run:*` 误覆盖
-`npm run test && rm -rf ...`。
+Atualmente, o "sempre permitir" de Bash em nível de projeto grava o `input.command` completo como permission rule. Mesmo que a regra use o sufixo `:*`, a correspondência ocorre sobre a string original, o que não permite reutilizar de forma estável a ação comum entre `pnpm run lint --fix` e `pnpm run lint --reporter=dot`, e ainda pode fazer com que `npm run:*` cubra indevidamente `npm run test && rm -rf ...`.
 
-本设计区分两类独立 registry，不混淆它们的职责：
+Este design distingue dois registries independentes, sem confundir suas responsabilidades:
 
-- command prefix registry：由 `@withfig/autocomplete` specs 和内置 override 提供命令、
-  subcommand、option 参数形状，用于寻找稳定 action prefix；
-- Bash readonly policy：判断 invocation 是否可自动只读放行，继续由 ZCode 现有
-  data-driven Bash policy 负责。
+- command prefix registry: fornece as formas de argumentos de comandos, subcomandos e options a partir dos specs do `@withfig/autocomplete` e dos overrides embutidos, usado para encontrar prefixos de ação estáveis;
+- política Bash somente-leitura: decide se uma invocation pode ter liberação automática somente-leitura, continuando a cargo da política Bash data-driven já existente do ZCode.
 
-prefix registry 不能把命令变成只读；readonly registry 也不能决定持久化授权范围。
+O prefix registry não pode transformar um comando em somente-leitura; o registry somente-leitura também não pode decidir o escopo de autorização persistida.
 
-## 目标与非目标
+## Objetivos e não objetivos
 
-目标：
+Objetivos:
 
-- 把 Bash 项目级授权从完整命令字符串升级为 AST 感知的稳定 command prefix；
-- compound command 的每个需审批 invocation 分别判断，不能借一个已授权前缀执行追加命令；
-- suggestion 成为 durable permission fact，桌面、手机 replay、刷新恢复和 TUI 展示一致；
-- 沿用 `permission/ruleset` JSON 和 `PermissionRuleValue`，不新增 SQL migration；
-- 保留旧 exact、`:*`、wildcard 和 tool-only rule 的读取兼容，不批量扩权。
+- elevar a autorização Bash de nível de projeto, do comando completo em string, para um command prefix estável e consciente de AST;
+- julgar separadamente cada invocation de um compound command que precise de aprovação, sem poder executar comandos adicionais sob o pretexto de um prefixo já autorizado;
+- tornar a suggestion um fato durável de permissão, com exibição consistente em desktop, replay em celular, recuperação após refresh e TUI;
+- reutilizar o JSON de `permission/ruleset` e o `PermissionRuleValue`, sem nova migração SQL;
+- preservar compatibilidade de leitura das regras antigas exact, `:*`, wildcard e tool-only, sem ampliação em lote de permissões.
 
-非目标：
+Não objetivos:
 
-- 不使用 LLM 提取 prefix；
-- 不新增 session/global permission scope；
-- 不提供权限规则管理页或可编辑 pattern input；
-- 不把 Fig package 或 specs 带入 CLI 运行时；
-- 本轮不实现手机真实网络 E2E，也不改变 desktop continuous 与 mobile replayable 的边界。
+- não usar LLM para extrair prefixos;
+- não adicionar escopo de permissão de session/global;
+- não fornecer página de gestão de regras de permissão nem input de pattern editável;
+- não trazer o pacote Fig ou seus specs para o runtime do CLI;
+- nesta rodada não implementar E2E de rede real no celular nem alterar a fronteira entre desktop continuous e mobile replayable.
 
-## 总体数据流
+## Fluxo de dados geral
 
 ```text
 build/dev only
@@ -64,58 +59,44 @@ PermissionService ---> permission.requested durable event
               local_setting(permission/ruleset JSON)
 ```
 
-relay、desktop main、host bridge 和 UI 只透传或展示 suggestion，不重新解析 Bash。手机
-`/remote` 继续 attach 桌面已有 shared host；permission snapshot 仍由 host runtime 持有，
-不把业务状态下沉到 relay/main，也不把 replayable 恢复拼入 desktop continuous 主链路。
+relay, desktop main, host bridge e UI apenas repassam ou exibem a suggestion, sem reparsear o Bash. O `/remote` do celular continua se anexando ao shared host já existente do desktop; o permission snapshot permanece mantido pelo runtime do host, sem afundar o estado de negócio para o relay/main e sem entrelaçar a recuperação replayable no fluxo principal do desktop continuous.
 
-## 构建期 Registry
+## Registry de Build
 
-### 输入与输出
+### Entradas e saídas
 
-生成期精确固定 `@withfig/autocomplete@2.692.3`。generator 遍历 Fig root specs，只保留：
+A fase de geração fixa exatamente `@withfig/autocomplete@2.692.3`. O generator percorre os specs da raiz Fig e mantém apenas:
 
-- command/subcommand 名称和 aliases；
-- option 是否消费参数；
-- argument 的 `isCommand`、`isModule`、`isVariadic`、`isOptional`、`isDangerous`；
-- file/folder path template 信息。
+- nomes e aliases de comandos/subcomandos;
+- se a option consome argumento;
+- `isCommand`, `isModule`, `isVariadic`, `isOptional`, `isDangerous` do argument;
+- informações de template de path de file/folder.
 
-生成物使用紧凑 tuple/短字段编码，排序稳定、不写时间戳，头部记录 Fig 版本、输入内容
-hash、跳过统计和 ISC attribution。`registry:check` 在临时目录重新生成后逐字节比较，且检查
-未压缩生成物不超过 3 MiB。CLI bundle、desktop-agent 与 SEA 测试必须证明运行时不读取
-Fig package文件。
+O artefato gerado usa codificação compacta por tuple/campos curtos, com ordenação estável e sem timestamps; o cabeçalho registra a versão do Fig, o hash do conteúdo de entrada, estatísticas de items ignorados e a atribuição ISC. `registry:check` regenera em um diretório temporário e compara byte a byte, além de verificar que o artefato não comprimido não excede 3 MiB. O bundle do CLI, o desktop-agent e os testes de SEA devem provar que o runtime não lê arquivos do pacote Fig.
 
-内置 policy 补齐 wrapper specs、递归限制和 depth overrides，包括 `git push`、
-`docker`、`kubectl`、`aws`、`az`、`gcloud` 等不能仅靠通用 spec 深度推导的 action 边界。
+A policy embutida completa os specs de wrappers, as restrições recursivas e os overrides de profundidade, incluindo fronteiras de ação como `git push`, `docker`, `kubectl`, `aws`, `az` e `gcloud` que não podem ser derivadas só pela profundidade dos specs genéricos.
 
-### Prefix resolver
+### Resolver de prefixos
 
-resolver 复用 `unbash` AST，不对 raw string 做 shell token 猜测：
+O resolver reutiliza a AST do `unbash` e não faz adivinhação de tokens de shell sobre a string bruta:
 
-1. 只处理可安全枚举的 invocation；解析失败、redirect、command/process substitution、
-   subshell、函数、循环、条件、case、here-doc 或未知动态节点回退整串 exact。
-2. 已知全局 option 按 registry 跳过自身及参数，再寻找 subcommand；path、URL 和普通文件
-   参数不进入 prefix。
-3. wrapper 最多两层，解析递归总深度最多十层。保存的 prefix 保留 wrapper 和用户原始
-   executable token；仅 registry lookup 可使用 basename，不能把绝对路径静默统一扩权。
-4. 静态 env assignment 只有在 name/value 都可无歧义证明时保留；动态或未知 assignment
-   回退 exact。
-5. shell interpreter、删除/权限修改等高风险命令没有稳定 action 边界时回退 exact。
-6. 任一 prefix token 含空白或不能无歧义序列化时回退 exact。
+1. Só processa invocations enumeráveis com segurança; em caso de falha de parsing, redirect, command/process substitution, subshell, função, loop, condição, case, here-doc ou nó dinâmico desconhecido, há fallback para exact da string inteira.
+2. Opções globais conhecidas são puladas pelo registry, junto de seus argumentos, antes de buscar subcomandos; path, URL e argumentos de arquivo comuns não entram no prefixo.
+3. Wrappers têm no máximo duas camadas e a profundidade total de parsing recursivo é de no máximo dez níveis. O prefixo salvo mantém o wrapper e o token de executable original do usuário; apenas o lookup no registry pode usar o basename, e um caminho absoluto não pode ser silenciosamente ampliado por unificação.
+4. Atribuições estáticas de env só são mantidas quando nome e valor podem ser provados sem ambiguidade; atribuições dinâmicas ou desconhecidas caem para exact.
+5. Interpretadores de shell e comandos de alto risco, como remoção ou alteração de permissões, caem para exact quando não têm fronteira de ação estável.
+6. Qualquer token de prefixo que contenha espaço em branco ou não possa ser serializado sem ambiguidade cai para exact.
 
-稳定 prefix 继续存成 `ruleContent: "<prefix>:*"`。exact 保存 trim 后的完整 raw command。
-compound command 保存多条独立 rule，不合并最长公共前缀，最多五条；超过上限回退整串
-exact。由 readonly policy 已自动允许的 invocation 不生成冗余持久 rule。
+O prefixo estável continua sendo gravado como `ruleContent: "<prefix>:*"`. O exact salva o comando bruto completo após trim. Compound commands salvam várias rules independentes, sem mesclar o prefixo comum mais longo, com no máximo cinco; acima do limite, há fallback para exact da string inteira. Invocations já liberadas automaticamente pela policy somente-leitura não geram rule persistente redundante.
 
-## Permission Rule Policy
+## Policy de Regras de Permissão
 
-`ToolEntry` 增加可选 `resolvePermissionRulePolicy(input, runtimeContext)`，返回：
+`ToolEntry` ganha um `resolvePermissionRulePolicy(input, runtimeContext)` opcional, que retorna:
 
-- 针对整组 allow/ask/deny rules 的 evaluator；
-- 本次项目级允许建议的 `PermissionUpdate[]`。
+- um evaluator para o conjunto completo de regras allow/ask/deny;
+- `PermissionUpdate[]` de sugestão de liberação em nível de projeto para esta execução.
 
-`PermissionService` 仍然工具无关。没有自定义 evaluator 的工具沿用 exact/wildcard 逻辑；
-Bash evaluator 先检查完整 raw exact，再在 AST 安全时按 invocation 做 token-boundary
-prefix/wildcard 匹配。
+`PermissionService` continua agnostico à ferramenta. Ferramentas sem evaluator customizado seguem a lógica exact/wildcard; o evaluator de Bash verifica primeiro o exact bruto completo e depois, quando a AST é segura, faz correspondência de prefix/wildcard com fronteira de token por invocation.
 
 ```text
 ruleset priority
@@ -126,75 +107,61 @@ ruleset priority
   else: ask
 ```
 
-安全不变量：
+Invariantes de segurança:
 
-- `npm run:*` 可匹配单一 `npm run test --watch` invocation，但不能吞掉
-  `npm run test && rm -rf ...`；
-- 多条 allow rule 可以共同覆盖 compound 的多个 invocation；少一条仍需询问；
-- deny/ask 任一 invocation 命中即生效；
-- readonly invocation 视为已覆盖，但不会生成 suggestion；
-- AST unsafe 时 prefix/wildcard 不参与放行，完整 raw exact 仍可命中；
-- tool-only 历史 rule 保持原有全工具授权语义；
-- plan-mode precedence 不因 Bash evaluator 改变。
+- `npm run:*` pode casar com uma única invocation `npm run test --watch`, mas não pode engolir `npm run test && rm -rf ...`;
+- múltiplas regras allow podem cobrir em conjunto várias invocations de um compound; faltando uma, ainda é preciso perguntar;
+- qualquer invocation deny/ask atingida já vale;
+- uma invocation somente-leitura é considerada coberta, mas não gera suggestion;
+- quando a AST é insegura, prefix/wildcard não participam da liberação, e o exact bruto completo ainda pode casar;
+- rules históricas tool-only mantêm a semântica original de autorização para todas as ferramentas;
+- a precedência do plan-mode não muda por causa do evaluator de Bash.
 
-## Durable suggestion 与协议
+## Suggestion durável e protocolo
 
-`suggestedPermissionUpdates?: PermissionUpdate[]` 加入：
+`suggestedPermissionUpdates?: PermissionUpdate[]` é adicionado a:
 
-- `PermissionBrokerRequest`；
-- `PermissionRequestedPayload`；
-- `PendingPermission`。
+- `PermissionBrokerRequest`;
+- `PermissionRequestedPayload`;
+- `PendingPermission`.
 
-suggestion 在进入 broker 前计算，并与 `permission.requested` durable event 一起写入。v4
-permission option 增加可选原始 `response`；新 snapshot 原样携带 allow-project response，旧
-snapshot 没有 `response` 时仍按 option kind 映射 allow/deny，并为旧 pending Bash request
-生成 exact suggestion。`buildProtocolPermissionOptions`、desktop 和 TUI 不再自行从 input
-推导规则。
+A suggestion é calculada antes de entrar no broker e gravada junto com o durable event `permission.requested`. A option de permissão v4 ganha uma `response` bruta opcional; novos snapshots carregam a response allow-project como está, e snapshots antigos sem `response` continuam mapeando allow/deny pelo tipo de option e gerando uma suggestion exact para requests Bash pendentes antigas. `buildProtocolPermissionOptions`, desktop e TUI não deduzem mais regras por conta própria a partir do input.
 
-## 存储与历史兼容
+## Armazenamento e compatibilidade histórica
 
-不新增表、不升级 SQL migration、不修改 `local_setting.schema_version`：
+Sem tabelas novas, sem upgrade de migração SQL e sem modificar `local_setting.schema_version`:
 
-- 继续写 project scope 下 `namespace=permission`、`key=ruleset` 的 JSON；
-- `PermissionRuleValue` 保持 `toolName + ruleContent`；
-- ruleset version 保持现值；
-- 旧 exact 原样保留并优先按完整 raw 匹配；
-- 旧 `:*` 和 wildcard 对 Bash 改走 AST-safe evaluator，不再 raw startsWith compound；
-- tool-only rule 维持历史语义；
-- ruleset 只在用户新增授权时通过现有路径重写，不批量迁移、不静默扩大历史授权；
-- `0003_backfill_permission_local_setting` 的既有结果不改写。
+- continua-se gravando JSON com `namespace=permission` e `key=ruleset` no escopo de projeto;
+- `PermissionRuleValue` mantém `toolName + ruleContent`;
+- a versão do ruleset mantém o valor atual;
+- os exact antigos são preservados como estão e têm prioridade pelo match do bruto completo;
+- `:*` antigos e wildcards passam a usar o evaluator AST-safe para Bash, em vez de `startsWith` bruto em compound;
+- rules tool-only mantêm a semântica histórica;
+- o ruleset só é reescrito pelo caminho existente quando o usuário adiciona uma autorização, sem migração em lote e sem ampliar silenciosamente autorizações históricas;
+- o resultado existente de `0003_backfill_permission_local_setting` não é reescrito.
 
-## UI 与 TUI
+## UI e TUI
 
-桌面 `PermissionDialog` 在“始终允许此项目”选项下只读展示一至五条 prefix scope：
+O `PermissionDialog` do desktop exibe, em modo somente leitura sob a opção "Sempre permitir neste projeto", de uma a cinco scopes de prefixo:
 
-- prefix：用 `pnpm run lint …` 直接替换“后续相同命令不再询问”辅助文案，不再额外展示
-  “命令前缀”标签或带边框容器；多个 prefix 逐行展示，窄屏和超长连续文本均可自然换行；
-- exact：不在授权选项内重复展示“仅此命令”卡片；实际命令由上方工具预览展示，完整
-  `ruleContent` 仅保留在 option response 中用于应答与持久化，不写入 scope DOM、`title`
-  或 ARIA 文案；
-- compound：多个 prefix 逐行展示，不合并；exact invocation 不重复展示；
-- 使用 monospace、现有语义色和 popover/input tokens，兼容亮/暗主题及手机宽度；任何单条
-  scope 的展示文本必须有固定字符上限，不能让 here-doc、内联脚本或生成内容撑高权限选项。
+- prefixo: usar `pnpm run lint …` substitui diretamente o texto auxiliar "não perguntar novamente pelo mesmo comando", sem exibir um rótulo extra "prefixo de comando" nem um container com borda; múltiplos prefixos são exibidos linha a linha, e tanto tela estreita quanto texto contínuo muito longo quebram de forma natural;
+- exact: não repetir dentro da opção de autorização o cartão "apenas este comando"; o comando real é exibido pela prévia da ferramenta acima, e o `ruleContent` completo é mantido apenas na response da option, para resposta e persistência, sem entrar no DOM de scope, no `title` nem em textos de ARIA;
+- compound: múltiplos prefixos são exibidos linha a linha, sem mesclar; invocations exact não são repetidas;
+- usar monospace, as cores semânticas existentes e tokens de popover/input, compatível com temas claro/escuro e largura de celular; o texto de exibição de qualquer scope individual deve ter um limite fixo de caracteres, para que here-doc, scripts inline ou conteúdo gerado não estiquem a opção de permissão.
 
-不增加自由编辑输入，保留 optionId、数字快捷键、方向键和焦点行为。所有现有 locale 增加
-scope 文案。TUI 展示相同只读列表，并直接返回 request 携带的 suggestion。
+Não se adiciona input de edição livre; preservam-se optionId, atalhos numéricos, teclas de direção e comportamento de foco. Todos os locales existentes recebem o texto de scope. O TUI exibe a mesma lista somente-leitura e devolve diretamente a suggestion carregada pela request.
 
-## 覆盖与剪枝
+## Cobertura e podas
 
-- `BPR01`：稳定 prefix 显示、持久化和不同 transient args 复用；
-- `BPR02`：sibling action 与 compound 部分覆盖仍询问；
-- `BPR03`：dynamic/redirect/parse failure 等 exact fallback；
-- `BPR04`：legacy exact、`:*`、wildcard、tool-only 与数据库重开兼容；
-- `BPR05`：durable event、refresh/snapshot/replay 与 allow-project response 无损；
-- `BPR06`：TUI 与 desktop suggestion/response 一致。
+- `BPR01`: exibição, persistência e reuso de um prefixo estável com argumentos transient diferentes;
+- `BPR02`: ação sibling e cobertura parcial de compound ainda perguntam;
+- `BPR03`: fallback exact para dynamic/redirect/falha de parsing;
+- `BPR04`: compatibilidade com exact, `:*`, wildcard e tool-only legados e reabertura do banco;
+- `BPR05`: durable event, refresh/snapshot/replay e response allow-project sem perdas;
+- `BPR06`: consistência entre suggestion/response no TUI e no desktop.
 
-正式桌面 E2E 用一条 `pnpm run <script>` 代表 BPR01/BPR02 的用户闭环，并扩展现有
-refresh-permission case 代表 BPR05。compound、历史 DB、TUI、registry/build 使用确定性单元
-或集成测试，不注入脆弱 GUI 状态。本轮剪枝手机真实网络 E2E：以 v4 schema、projection 和
-replay snapshot 测试证明字段无损，不能据此声称 mobile shared-host 真实网络链路已覆盖。
+O E2E de desktop formal usa um `pnpm run <script>` para representar o ciclo de usuário de BPR01/BPR02, e o caso existente de refresh-permission é estendido para representar BPR05. Compound, banco histórico, TUI e registry/build usam testes unitários ou de integração determinísticos, sem injetar estado de GUI frágil. Nesta rodada o E2E de rede real no celular é podado: o schema v4, a projection e os testes de replay snapshot provam que os campos chegam sem perdas, sem que isso permita afirmar que a cadeia de rede real do mobile shared-host está coberta.
 
-## 日志与隐私
+## Logs e privacidade
 
-生产日志只允许记录 registry 版本、生成结果类别和 rule 数量。禁止记录原始 command、完整
-`ruleContent` 或 scope 文本；高频解析细节只能使用开发态 `debug`，且同样避免输出敏感参数。
+Em produção, os logs só podem registrar a versão do registry, a categoria do resultado de geração e a quantidade de rules. É proibido registrar o comando original, o `ruleContent` completo ou o texto de scope; detalhes de parsing de alta frequência só podem usar o `debug` de desenvolvimento, também evitando imprimir parâmetros sensíveis.

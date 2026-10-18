@@ -1,21 +1,18 @@
-# Bugfix 02：Provider 拖拽松手后回弹再跳转
+# Bugfix 02: Provider volta à posição antiga ao soltar o arrasto e depois salta
 
-> 状态：已完成（自动化验证通过；macOS Electron 手工复验待本轮开发包）
+> Status: concluído (validação automatizada aprovada; a reverificação manual no macOS Electron depende do pacote de desenvolvimento desta rodada)
 >
-> 日期：2026-08-27
+> Data: 2026-08-27
 >
-> 来源：macOS ZCode Provider Settings 手工体验与实现链路审计
+> Origem: experiência manual nas Provider Settings do ZCode no macOS e auditoria da cadeia de chamada da implementação
 
-## 1. 问题
+## 1. Problema
 
-Provider 设置页拖动自定义 Provider 后，拖拽过程本身能够正确跟手，但松开鼠标时列表会先回到拖拽前的位置，
-随后再跳到目标位置。
+Na página de configurações de Provider, depois de arrastar um Provider personalizado, o próprio arraste acompanha corretamente, mas ao soltar o mouse a lista primeiro volta à posição anterior ao arraste e só depois salta para a posição de destino.
 
-Model 排序经过完整调用链审计后不属于这个问题：`SortableProviderModelList` 的上层
-`InlineEditableProviderCard` 会在异步保存前同步执行 `setModels(next)`，已经拥有正确的乐观投影。本 Bugfix 不给
-Model 再叠加第二层 Pending 状态。
+Após uma auditoria completa da cadeia de chamada, a ordenação de Model não pertence a este problema: o `InlineEditableProviderCard`, camada acima de `SortableProviderModelList`, executa `setModels(next)` de forma síncrona antes do salvamento assíncrono e já possui a projeção otimista correta. Este Bugfix não adiciona uma segunda camada de estado Pending ao Model.
 
-用户观察到的顺序是：
+A ordem observada pelo usuário é:
 
 ```text
 拖到目标位置
@@ -27,15 +24,13 @@ Model 再叠加第二层 Pending 状态。
 稍后跳到目标位置
 ```
 
-最终配置通常能够保存成功，因此这不是排序算法算错，也不是 Personal Config 丢失，而是拖拽临时状态和异步
-持久化事实之间出现了一个可见的旧状态窗口。
+A configuração final costuma ser salva com sucesso, portanto não se trata de erro no algoritmo de ordenação nem de perda do Personal Config, mas de uma janela visível de estado antigo entre o estado temporário de arraste e o fato persistido de forma assíncrona.
 
-## 2. 根因
+## 2. Causa raiz
 
-`dnd-kit` 在拖拽期间通过 `transform` 临时移动 Sortable 元素。松手后，它会结束本次拖拽并清除临时
-`transform`；此时页面仍然按照父组件传入的旧 `navigationGroups` / `modelIds` 渲染。
+O `dnd-kit` move os elementos Sortable temporariamente por meio de `transform` durante o arraste. Ao soltar, ele encerra o arraste e limpa o `transform` temporário; nesse momento a página ainda é renderizada conforme a antiga `navigationGroups` / `modelIds` vindas do componente pai.
 
-当前 `onDragEnd` 只计算新顺序并调用异步保存，没有同步改变用于渲染的顺序：
+O `onDragEnd` atual apenas calcula a nova ordem e chama o salvamento assíncrono, sem alterar de forma síncrona a ordem usada para renderização:
 
 ```text
 Pointer Up
@@ -61,20 +56,19 @@ Pointer Up
         React 收到新顺序并重新排列 DOM
 ```
 
-因此界面先展示了“拖拽临时状态结束后的旧事实”，再展示“持久化完成后的新事实”。Provider 重构把排序写入
-收口到 Personal Config、Registry 和正式 Settings View 后，这段正确但异步的链路使旧问题更明显。
+Assim, a interface primeiro mostra "o antigo fato depois de encerrado o estado temporário de arraste" e depois mostra "o novo fato após a conclusão da persistência". Depois que a refatoração de Provider concentrou a escrita da ordenação no Personal Config, no Registry e na Settings View formal, essa cadeia correta porém assíncrona deixou o problema antigo mais evidente.
 
-这不是以下问题：
+Não se trata dos seguintes problemas:
 
-- 不是 `arrayMove` 的目标索引错误；
-- 不是整个 Provider 行作为拖拽区域导致；
-- 不是 CSS transition 本身错误；
-- 不是 Registry 或 Personal Config 应该改成同步 IO；
-- 不是需要新增另一份 Provider Config 或绕开正式 Settings Service。
+- não é erro de índice de destino em `arrayMove`;
+- não é usar a linha inteira do Provider como área de arraste;
+- não é a transition de CSS em si estar errada;
+- não é o Registry ou o Personal Config precisarem de IO síncrono;
+- não é preciso criar outra cópia do Provider Config nem contornar o Settings Service formal.
 
-## 3. 修复原则
+## 3. Princípio da correção
 
-持久化权威保持不变：
+A autoridade de persistência permanece inalterada:
 
 ```text
 Personal Provider Config
@@ -85,7 +79,7 @@ Provider Registry / Settings View
         `--> 最终确认的 Provider 顺序
 ```
 
-UI 增加的只是一次交互尚未确认期间的乐观投影：
+O que a UI acrescenta é apenas uma projeção otimista para o período entre a interação e sua confirmação:
 
 ```text
 正式 Settings View 顺序 -------------------------+
@@ -97,76 +91,73 @@ Drag End --> Pending Reorder（瞬时 UI 状态） -----+--> 当前渲染顺序
                     `--> 保存失败 ---------------> 回滚到正式 View
 ```
 
-`Pending Reorder` 不落盘、不跨页面、不进入 Registry，也不参与 Model Selection 或模型执行。它只解决一次
-用户操作从松手到正式 View 确认之间的视觉连续性，不形成第二份领域事实。
+`Pending Reorder` não vai para disco, não atravessa páginas, não entra no Registry e não participa da Model Selection nem da execução de modelos. Ele resolve apenas a continuidade visual de uma única ação do usuário entre o momento de soltar o mouse e a confirmação da View formal, sem formar um segundo fato de domínio.
 
-## 4. 方案
+## 4. Solução
 
-### 4.1 松手时同步提交乐观顺序
+### 4.1 Envio síncrono da ordem otimista ao soltar
 
-- `onDragEnd` 先根据当前实际渲染顺序计算完整目标顺序；
-- 在同一个事件处理中同步更新 Pending Reorder，使 React 在 `dnd-kit` 清除 transform 时已经按目标顺序渲染；
-- 随后通过现有 `ProviderSettingsService` 保存，不绕开 Facade、Config Repository 或 Registry；
-- 不通过关闭 transition、延迟 Drag End、保留假的 transform 或强制操作 DOM 掩盖旧状态窗口。
+- `onDragEnd` calcula primeiro a ordem completa de destino com base na ordem efetivamente renderizada no momento;
+- no mesmo tratamento de evento, o Pending Reorder é atualizado de forma síncrona, de modo que o React já renderiza na ordem de destino quando o `dnd-kit` limpa o transform;
+- em seguida o salvamento é feito pelo `ProviderSettingsService` já existente, sem contornar o Facade, o Config Repository ou o Registry;
+- não se desliga a transition, não se atrasa o Drag End, não se mantém um transform falso nem se força a manipulação do DOM para mascarar a janela de estado antigo.
 
-### 4.2 以正式 View 完成确认或回滚
+### 4.2 Confirmação ou rollback pela View formal
 
-- Settings View 到达并与本次目标顺序一致后，清除对应 Pending Reorder；
-- 保存失败时，仅回滚仍属于该次操作的 Pending Reorder，并使用 UI logger 记录失败原因；
-- 旧请求迟到时不能覆盖用户后来发起的新排序；
-- 页面卸载或切换 Environment 时直接丢弃 Pending Reorder，重新以目标 Environment 的正式 View 为准。
+- quando a Settings View chega e é consistente com a ordem de destino desta vez, o Pending Reorder correspondente é limpo;
+- em caso de falha no salvamento, faz-se rollback apenas do Pending Reorder que ainda pertence a esta operação, registrando o motivo da falha com o UI logger;
+- uma requisição antiga que chega atrasada não pode sobrescrever uma ordenação mais nova iniciada pelo usuário;
+- no descarregamento da página ou na troca de Environment, o Pending Reorder é descartado diretamente e a View formal do Environment de destino volta a valer.
 
-### 4.3 连续拖拽保持最终顺序一致
+### 4.3 Consistência da ordem final em arrastos consecutivos
 
-用户在第一次保存完成前再次拖动时：
+Quando o usuário arrasta novamente antes de a primeira gravação terminar:
 
-- 新顺序必须基于当前乐观顺序计算，不能回读旧 View；
-- 排序写入按交互发生顺序串行，或者合并为“保存当前最新目标顺序”；
-- 任意较早的成功、失败或 View 推送都不能清除较新的 Pending Reorder；
-- 最终没有在途操作时，UI 顺序、Personal Config 和 Settings View 必须一致。
+- a nova ordem precisa ser calculada com base na ordem otimista atual, sem reler a View antiga;
+- as escritas de ordenação são serializadas na ordem em que as interações ocorreram, ou combinadas em "gravar o alvo mais recente";
+- qualquer sucesso, falha ou push de View anterior não pode limpar um Pending Reorder mais novo;
+- quando não houver mais operações em trânsito, a ordem da UI, o Personal Config e a Settings View precisam estar coerentes.
 
-### 4.4 不改变 Model 排序
+### 4.4 A ordenação de Model não muda
 
-- Model 排序继续由 `InlineEditableProviderCard` 在提交前同步更新本地 `models`；
-- 保存失败仍由该表单 owner 回滚并展示既有保存错误；
-- 不把 Provider Pending Reorder 泛化成领域层通用排序 DTO；
-- 增加回归断言，证明 Model 现有链路没有被 Provider 修复破坏。
+- a ordenação de Model continua sendo atualizada de forma síncrona em `models` pelo `InlineEditableProviderCard` antes do envio;
+- em caso de falha de gravação, o owner do formulário continua fazendo rollback e exibindo o erro de gravação já existente;
+- o Pending Reorder de Provider não é generalizado para um DTO de ordenação genérico da camada de domínio;
+- é adicionada uma asserção de regressão provando que a cadeia existente de Model não foi quebrada pela correção de Provider.
 
-## 5. 状态所有权
+## 5. Propriedade do estado
 
-| 状态                     | Owner                     | 生命周期                             | 用途                 |
-| ------------------------ | ------------------------- | ------------------------------------ | -------------------- |
-| `providerOrder`          | Personal Config           | 持久化                               | 用户排序权威         |
-| Settings View 中的顺序   | Provider Settings Service | Registry revision                    | UI 的正式读取事实    |
-| Pending Provider Reorder | Provider Settings UI      | 单页、单 Environment、单次或连续交互 | 松手后的即时视觉投影 |
-| `dnd-kit transform`      | Sortable 组件             | 一次 pointer/keyboard drag           | 拖拽进行中的位移     |
+| Estado                     | Owner                     | Ciclo de vida                          | Finalidade                                    |
+| ------------------------ | ------------------------- | -------------------------------------- | --------------------------------------------- |
+| `providerOrder`          | Personal Config           | Persistido                             | Autoridade da ordenação feita pelo usuário    |
+| Ordem na Settings View   | Provider Settings Service | Revisão do Registry                     | Fato de leitura formal da UI                  |
+| Pending Provider Reorder | Provider Settings UI      | Página única, Environment único, uma ou mais interações | Projeção visual imediata após soltar        |
+| `dnd-kit transform`      | Componente Sortable       | Um arraste por pointer/teclado         | Deslocamento durante o arraste                |
 
-不把 Pending Reorder 写入 Zustand 全局设置状态；它不需要跨窗口同步，也不影响 Desktop continuous、Mobile
-replayable、Remote Workspace、Session Selection、队列或恢复语义。
+O Pending Reorder não é gravado no estado global de settings do Zustand; ele não precisa de sincronização entre janelas e não afeta Desktop continuous, Mobile replayable, Remote Workspace, Session Selection, fila ou semântica de recuperação.
 
-## 6. 测试
+## 6. Testes
 
-先写失败测试，再实现修复：
+Escrever primeiro o teste que falha e só então implementar a correção:
 
-| Case    | Setup                                | Action             | Assertions                                     |
-| ------- | ------------------------------------ | ------------------ | ---------------------------------------------- |
-| BF02-01 | Provider 保存 Promise 受控延迟       | 拖动并松手         | Promise 完成前已按目标顺序渲染，不回旧位置     |
-| BF02-02 | Provider 保存失败                    | 拖动并松手         | 先乐观显示；失败后回滚正式顺序并记录错误       |
-| BF02-03 | 第一次 Provider 保存未完成           | 连续拖动两次       | 第二次基于乐观顺序；迟到结果不覆盖最终目标     |
-| BF02-04 | 新 Provider Settings View 与目标一致 | 完成保存           | Pending 被清除，后续正式刷新不发生二次跳动     |
-| BF02-05 | Model 保存 Promise 受控延迟          | 拖动 Model 并松手  | 现有表单乐观顺序保持稳定，不新增第二层 Pending |
-| BF02-06 | 键盘 Sortable 操作                   | 完成 Provider 重排 | 与 pointer 拖动拥有相同的乐观更新和确认语义    |
-| BF02-07 | 切换 Environment / 页面卸载          | 存在 Pending       | 不把旧 Environment 的顺序带入新页面            |
+| Caso    | Configuração                            | Ação                   | Asserções                                                            |
+| ------- | --------------------------------------- | ---------------------- | -------------------------------------------------------------------- |
+| BF02-01 | Promise de gravação de Provider com atraso controlado | Arrastar e soltar | Já renderiza na ordem de destino antes da conclusão do Promise, sem voltar à posição antiga |
+| BF02-02 | Falha na gravação de Provider           | Arrastar e soltar      | Exibe de forma otimista primeiro; após a falha, volta à ordem formal e registra o erro |
+| BF02-03 | Gravação de Provider ainda não concluída | Arrastar duas vezes    | A segunda usa a ordem otimista; resultado atrasado não sobrescreve o alvo final |
+| BF02-04 | Nova Provider Settings View igual ao alvo | Concluir a gravação   | O Pending é limpo e o refresco formal posterior não gera um segundo salto |
+| BF02-05 | Promise de gravação de Model com atraso controlado | Arrastar um Model e soltar | A ordem otimista existente do formulário permanece estável, sem nova camada Pending |
+| BF02-06 | Operação Sortable por teclado            | Concluir a reordenação de Provider | Tem a mesma semântica de atualização otimista e confirmação do arraste por pointer |
+| BF02-07 | Troca de Environment / descarregamento da página | Existe Pending      | A ordem do Environment antigo não é levada para a nova página          |
 
-保留现有纯函数排序测试；新增交互测试必须控制保存 Promise，并断言“保存完成前”的 DOM 顺序，不能只等待最终
-View 后验证结果，否则无法防止该回归再次出现。
+Manter os testes existentes de ordenação com funções puras; os novos testes de interação precisam controlar o Promise de gravação e afirmar a ordem do DOM "antes da conclusão da gravação". Não basta esperar a View final para validar o resultado, senão não é possível impedir que essa regressão volte a ocorrer.
 
-## 7. 完成门禁
+## 7. Portões de conclusão
 
-- Provider 松手后直接停在目标位置，Model 现有行为无回归；
-- 慢文件 IO、慢 Registry refresh 下不出现旧顺序闪回；
-- 保存失败可回滚，连续拖拽满足 latest intent；
-- Personal Config 与 Settings View 仍是唯一持久化和正式读取权威；
-- 不增加同步文件 IO、DOM 手工排序、固定延时或第二套 Config；
-- Provider Settings 定向测试、UI typecheck、根 `typecheck`、`lint` 和格式检查通过；
-- macOS Electron 运行态以人为放慢保存链路或连续拖拽复验视觉连续性。
+- Após soltar, o Provider para diretamente na posição de destino, e o comportamento existente de Model não tem regressão;
+- Sob IO de arquivo lento e refresh lento do Registry, não há retorno da ordem antiga;
+- Falha de gravação permite rollback, e arrastos consecutivos atendem à latest intent;
+- O Personal Config e a Settings View continuam sendo a única autoridade de persistência e de leitura formal;
+- Não são adicionados IO de arquivo síncrono, ordenação manual do DOM, atraso fixo nem uma segunda Config;
+- Os testes direcionados de Provider Settings, o typecheck da UI, o `typecheck` da raiz, o `lint` e a verificação de formatação passam;
+- No runtime do macOS Electron, a continuidade visual é reverificada artificiando o slowdown da cadeia de gravação ou fazendo arrastos consecutivos.

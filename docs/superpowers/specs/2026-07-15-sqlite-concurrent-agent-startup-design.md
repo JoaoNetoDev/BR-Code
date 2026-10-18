@@ -1,39 +1,49 @@
-# SQLite 多 Agent 并发启动设计
+# Design de Inicialização Concorrente de Múltiplos Agents no SQLite
 
-## 背景
+## Contexto
 
-ZCode 的本地工作区和远程工作区都会启动独立 Agent 进程；同一系统用户下的 Agent
-共享 `~/.zcode/cli/db/db.sqlite`。窗口级 SSH host pooling 允许同一 SSH 主机上的多个
-workspace 在 host 就绪后并行启动 Agent，因此数据库初始化必须支持多个进程同时进入。
+Tanto os workspaces locais quanto os remotos do ZCode iniciam processos de Agent independentes; os Agents
+do mesmo usuário de sistema compartilham `~/.zcode/cli/db/db.sqlite`. O pooling de SSH host em nível de
+janela permite que múltiplos workspaces no mesmo host SSH iniciem Agents em paralelo assim que o host fica
+pronto, portanto a inicialização do banco precisa suportar a entrada simultânea de vários processos.
 
-2026-07-15 在 `mac-studio` 上观测到两个远程 workspace 同时启动时：两个 Agent 都进入
-SQLite migration，其中一个在 migration prelude 抛出 `database is locked` 并退出。App
-随后只看到 `ZCode agent transport closed`，表现为同组的另一个 workspace 未重连。
+Em 2026-07-15, em `mac-studio`, foi observado que, com dois workspaces remotos iniciando ao mesmo tempo: os
+dois Agents entraram na migration do SQLite e um deles lançou `database is locked` no migration prelude e
+saiu. O App viu apenas `ZCode agent transport closed`, o que se manifestou como o outro workspace do mesmo
+grupo não reconectando.
 
-现有 `migration-runner` 先执行 `pragma journal_mode = wal`，之后才设置
-`pragma busy_timeout = 5000`；同时 `schema_migration` 建表也位于 migration transaction
-之外。因此，第一个需要数据库锁的初始化操作没有等待或串行化保护。
+O `migration-runner` atual executa `pragma journal_mode = wal` primeiro e só depois define
+`pragma busy_timeout = 5000`; além disso, a criação da tabela `schema_migration` também fica fora da
+migration transaction. Portanto, a primeira operação de inicialização que precisa do lock do banco não tem
+espera nem proteção de serialização.
 
-## 行为合同
+## Contrato de Comportamento
 
-1. 本地和远程 Agent 必须使用同一个 session-store 启动入口和并发语义，不增加
-   workspace 类型分支。
-2. 多个 Agent 同时打开同一个 session DB 时，SQLite 是初始化顺序的唯一权威；UI、Host
-   和 SSH 重连层不负责串行化数据库 migration。
-3. 数据库连接必须从打开时就具备有限的 busy timeout，不能等到首次加锁操作之后再设置。
-4. WAL journal mode 初始化仅对外部写者竞争的 `SQLITE_BUSY` 做有限重试；`SQLITE_LOCKED` 立即报错，避免对同连接冲突空等。已经是
-   WAL 时不得重复执行 journal mode 写操作。
-5. `schema_migration` 建表、checksum 校验、未应用 migration 和 migration 记录写入必须
-   位于同一个 `BEGIN IMMEDIATE` transaction 中。第二个进程获得写锁后必须重新检查
-   migration 状态，不得重复执行已经提交的 migration。
-6. 超过锁等待期限必须关闭数据库并返回结构化 `lock_timeout`；checksum mismatch、SQL
-   错误、打开失败等非锁错误不得重试或降级。
-7. migration 结束后，已有 SessionStorePort、数据库路径、session 数据模型和读写 API
-   保持不变。本地工作区启动、读写历史、恢复 session 的功能和调用顺序不得改变。
-8. `:memory:` store 保持 SQLite 原生 `memory` journal mode；它不跨进程共享，不强制切换
-   WAL，既有本地测试和注入路径继续可用。
+1. Agents locais e remotos devem usar a mesma porta de entrada de session-store e a mesma semântica de
+   concorrência, sem adicionar branches por tipo de workspace.
+2. Quando múltiplos Agents abrem o mesmo session DB, o SQLite é a única autoridade sobre a ordem de
+   inicialização; as camadas de UI, Host e reconexão SSH não são responsáveis por serializar a migration do
+   banco.
+3. A conexão com o banco deve ter um busy timeout limitado já no momento da abertura, e não só depois da
+   primeira operação que exige lock.
+4. A inicialização do journal mode WAL faz apenas retries limitados para o `SQLITE_BUSY` disputa de escritores
+   externos; `SQLITE_LOCKED` falha imediatamente, evitando espera vazia por conflito na mesma conexão. Quando
+   já estiver em WAL, a escrita do journal mode não pode ser executada de novo.
+5. A criação da tabela `schema_migration`, a validação de checksum, as migrations não aplicadas e a gravação
+   do registro de migrations devem ficar no mesmo `BEGIN IMMEDIATE` transaction. Depois de obter o lock de
+   escrita, o segundo processo precisa verificar novamente o estado das migrations e não pode reexecutar uma
+   migration já submetida.
+6. Passado o prazo de espera do lock, o banco deve ser fechado e o erro estruturado `lock_timeout`
+   retornado; checksum mismatch, erros de SQL e falhas de abertura, ou seja, erros não relacionados a lock, não
+   podem ser retried nem rebaixados.
+7. Após o fim da migration, os SessionStorePort existentes, o caminho do banco, o modelo de dados de sessão e
+   as APIs de leitura/escrita permanecem inalterados. A inicialização do workspace local, a leitura/escrita do
+   histórico, a restauração de sessão e a ordem das chamadas não podem mudar.
+8. O store `:memory:` mantém o journal mode `memory` nativo do SQLite; como não é compartilhado entre
+   processos, não há troca forçada para WAL, e os testes locais e caminhos de injeção existentes continuam
+   utilizáveis.
 
-## 启动时序
+## Temporização da Inicialização
 
 ```text
 Agent A                                  Agent B
@@ -49,27 +59,38 @@ Agent A                                  Agent B
    +-- startup continues                    +-- startup continues
 ```
 
-## 非目标
+## Não objetivos
 
-- 不把同一 SSH host 的 workspace 改成串行重连。
-- 不为每个 workspace 拆分 session DB。
-- 不在 UI、desktop main、Host 或 relay 中持有 migration 锁。
-- 不对所有 Agent 启动失败进行无差别重试。
+- Não tornar o reconnect dos workspaces do mesmo host SSH serial.
+- Não separar o session DB por workspace.
+- Não manter o lock de migration na UI, no main do desktop, no Host ou no relay.
+- Não fazer retry indiscriminado para qualquer falha de inicialização de Agent.
 
-## 回归验证
+## Verificação de Regressão
 
-1. 两个真实 Agent process 同时打开同一个全新 DB，二者都能完成 migration，
-   最终 migration id 唯一且完整。
-2. 一个 Agent 持有 migration 锁时，另一个 Agent 等待并在前者提交后成功，而不是立即抛
-   `database is locked`；并发进程测试需要重复运行以放大竞态窗口。
-3. 锁持续超过期限时返回 `SqliteSessionMigrationError(kind=lock_timeout)`。
-4. checksum mismatch 仍立即返回 `checksum_mismatch`，不会被锁重试吞掉。
-5. 既有 session-store 单测全部通过，证明本地工作区共同使用的创建、读写、恢复路径没有
-   行为回归。
-6. `:memory:` store 能完成全部 migration，验证本地 bootstrap 的既有注入方式不变。
+1. Dois processos reais de Agent abrem simultaneamente o mesmo DB novo; ambos completam a migration e o
+   migration id final é único e completo.
+2. Com um Agent segurando o lock de migration, o outro Agent espera e tem sucesso após o primeiro submeter, em
+   vez de lançar imediatamente `database is locked`; o teste de processos concorrentes precisa ser executado
+   repetidamente para ampliar a janela de corrida.
+3. Quando o lock persiste além do prazo, retorna `SqliteSessionMigrationError(kind=lock_timeout)`.
+4. O checksum mismatch ainda retorna imediatamente `checksum_mismatch`, sem ser engolido pelo retry de lock.
+5. Todos os testes unitários existentes de session-store passam, provando que não houve regressão de
+   comportamento nos caminhos de criação, leitura/escrita e restauração compartilhados pelos workspaces locais.
+6. O store `:memory:` completa todas as migrations, validando que a forma de injeção existente do bootstrap
+   local não mudou.
 
-## 2026-09-14 大库启动补充
+## Complemento de 2026-09-14 para Bancos Grandes
 
-CLI/TUI 与 Protocol 启动改用异步入口；WAL 与 BEGIN 的外部锁等待共享 60 分钟预算，单次 native busy 25ms，异步退避 10–200ms。同步构造器保留原 5 秒兼容入口；异步迁移结束也恢复业务连接 5 秒策略。SQLite 长 SQL 本身仍同步执行，但每一阶段控制帧先 flush，Host/UI 因进程隔离可以继续展示状态。
+O startup de CLI/TUI e de Protocol passou a usar entradas assíncronas; a espera pelo lock externo de WAL e de
+BEGIN compartilha um orçamento de 60 minutos, com 25ms de busy nativo por tentativa e backoff assíncrono de
+10–200ms. O construtor síncrono mantém a entrada de compatibilidade de 5 segundos; após a migration assíncrona
+também é restaurada a política de conexão de negócio de 5 segundos. O SQL longo do SQLite em si continua
+executado de forma síncrona, mas cada quadro de controle de etapa faz flush antes, e o Host/UI, por estarem
+isolados em processos distintos, continuam exibindo o status.
 
-Migration/账本仍全部处于同一 IMMEDIATE 事务，ready 只在 COMMIT 成功后发送。历史 SQL/ID/checksum 不变，白名单等价执行器仅用于尚未记账项。完整设计、错误和验证边界见 `docs/desktop/database-migration-startup-gate-plan.md` 与 Todo 144；Host tasks-index 初始化不包含在本次 loading 中。
+Migration/ledger continuam inteiramente no mesmo transaction IMMEDIATE, e `ready` só é enviado após o COMMIT
+bem-sucedido. SQL/ID/checksum históricos não mudam, e o executor equivalente da allowlist é usado apenas
+para itens ainda não lançados em ledger. O design completo, os erros e as boundaries de verificação estão em
+`docs/desktop/database-migration-startup-gate-plan.md` e no Todo 144; a inicialização do tasks-index do Host
+não faz parte deste loading.

@@ -1,54 +1,54 @@
-# WSL 远端同步入口设计
+# Design da Entrada de Sincronização Remota via WSL
 
-## 背景
+## Contexto
 
-现有 Skill、MCP、Plugin 远端同步最初按 SSH workspace 设计，UI 入口和文案都以 SSH host 命名。但桌面 WSL workspace 已经走统一 `RemoteTarget` / `InitRemoteWorkspace` / remote service collection 链路，`skillSyncService`、`mcpSyncService`、`pluginSyncService` 均来自 WSL 远端 host。
+A sincronização remota de Skill, MCP e Plugin foi inicialmente desenhada para workspaces SSH, e tanto a entrada de UI quanto os textos usam nomenclatura de host SSH. Entretanto, o workspace WSL do desktop já passa pela cadeia unificada `RemoteTarget` / `InitRemoteWorkspace` / remote service collection, e `skillSyncService`, `mcpSyncService` e `pluginSyncService` vêm todos do host remoto WSL.
 
-## 目标
+## Objetivos
 
-- SSH 和 WSL workspace 都显示同一套远端同步入口。
-- 同步目标仍是当前远端 runtime 的用户目录：`~/.zcode/skills`、`~/.zcode/cli/config.json`、`~/.zcode/plugins`。
-- 本地 workspace 不显示远端同步入口。
-- Docker 本轮不扩展入口，避免把插件安装和 MCP 环境兼容风险扩大到容器场景。
+- Workspaces SSH e WSL exibem o mesmo conjunto de entradas de sincronização remota.
+- O destino da sincronização continua sendo o diretório de usuário do runtime remoto atual: `~/.zcode/skills`, `~/.zcode/cli/config.json`, `~/.zcode/plugins`.
+- Workspaces locais não exibem a entrada de sincronização remota.
+- O Docker não ganha entrada nesta rodada, para evitar ampliar para o cenário de contêiner os riscos de compatibilidade de instalação de plugins e de ambiente MCP.
 
-## 设计
+## Design
 
-将 UI 层的 `shouldShowSshRemoteSyncActions` 泛化为 remote sync capability 判断，允许 `remoteTarget.kind` 为 `ssh` 或 `wsl`。远端 service wiring 不新增分支，继续复用现有 remote workspace services。
+Generalizar o `shouldShowSshRemoteSyncActions` da camada de UI para uma verificação de capability de sincronização remota, permitindo que `remoteTarget.kind` seja `ssh` ou `wsl`. O wiring dos services remotos não ganha novos ramos e continua reaproveitando os remote workspace services existentes.
 
-目标标签按 target 类型展示：
+O rótulo do alvo é exibido conforme o tipo de target:
 
-- SSH：`user@host:port · /remote/workspace`
-- WSL：`WSL · distro · user · /remote/workspace`
+- SSH: `user@host:port · /remote/workspace`
+- WSL: `WSL · distro · user · /remote/workspace`
 
-文案从 “SSH host” 调整为 “remote target / 远端目标”，避免 WSL 场景看到错误描述。MCP 和 Plugin 的环境提醒继续说明同步后在远端环境运行；WSL 下如果本地 MCP 命令或插件依赖 Windows-only 能力，状态检查会暴露不可用，不在同步入口层做静默过滤。
+Os textos passam de "SSH host" para "remote target / alvo remoto", evitando que o cenário WSL exiba uma descrição errada. Os avisos de ambiente de MCP e Plugin continuam explicando que, após a sincronização, a execução ocorre no ambiente remoto; no WSL, se um comando MCP local ou uma dependência de plugin exigir capacidades exclusivas do Windows, a verificação de status expõe a indisponibilidade, sem filtragem silenciosa na camada da entrada de sincronização.
 
-## 写入权限预检
+## Pré-verificação de Permissão de Escrita
 
-同步开始前由远端 sync service 执行写入预检：
+Antes do início da sincronização, o remote sync service executa uma pré-verificação de escrita:
 
-- Skills：检查 `~/.zcode/skills`
-- MCP：检查 `~/.zcode/cli`
-- Plugins：检查 `~/.zcode/plugins` 和 `~/.zcode/cli`
+- Skills: verifica `~/.zcode/skills`
+- MCP: verifica `~/.zcode/cli`
+- Plugins: verifica `~/.zcode/plugins` e `~/.zcode/cli`
 
-预检只做 `mkdir -p` 等价目录创建、写入一个 `.zcode-sync-preflight-*` 临时文件并立即删除。它不做 `chmod` / `chown`，避免改变 WSL/SSH 用户已有权限模型。若目录被其他用户占用、目标路径是文件或当前远端用户不可写，UI 在导出本地资源前显示错误并停止同步。
+A pré-verificação apenas faz a criação de diretório equivalente a `mkdir -p`, grava um arquivo temporário `.zcode-sync-preflight-*` e o remove em seguida. Ela não faz `chmod` / `chown`, para não alterar o modelo de permissões existente dos usuários WSL/SSH. Se o diretório estiver ocupado por outro usuário, se o caminho de destino for um arquivo ou se o usuário remoto atual não tiver permissão de escrita, a UI exibe o erro e interrompe a sincronização antes de exportar os recursos locais.
 
-预检属于同步生命周期的一部分。点击开始后必须在第一个远端 RPC await 前进入 `preflighting` 活动状态，并用 ref 级 in-flight guard 防止 React state 尚未提交时的快速重复点击。`preflighting` 和 `syncing` 都禁止关闭弹窗；预检失败后恢复 `selection`，不再继续导出、导入或启动插件安装。
+A pré-verificação faz parte do ciclo de vida da sincronização. Após clicar em iniciar, é obrigatório entrar no estado ativo `preflighting` antes do primeiro await de RPC remoto, usando um in-flight guard em nível de ref para impedir cliques rápidos repetidos antes que o state do React seja submetido. Tanto `preflighting` quanto `syncing` proíbem fechar o diálogo; após uma falha na pré-verificação, a UI volta a `selection` e não prossegue com exportação, importação ou início da instalação de plugins.
 
-预检远端 RPC 必须有 UI 侧有界等待，默认 15 秒。超时后 UI 恢复 `selection`、释放 in-flight guard 并显示本地化错误；底层 RPC 若迟到返回，不再推进本次同步流程。当前服务层没有取消令牌，预检只做可重复 marker 文件写删，因此本版本先保证 UI 主流程可恢复，不额外引入远端 runtime 或新的取消通道。
+O RPC remoto da pré-verificação precisa ter espera limitada no lado da UI, com padrão de 15 segundos. Após o timeout, a UI volta a `selection`, libera o in-flight guard e exibe um erro localizado; se o RPC subjacente retornar atrasado, ele não avança mais o fluxo desta sincronização. Como a camada de service atual não possui token de cancelamento, e a pré-verificação apenas grava e apaga repetidamente um arquivo de marker, esta versão garante primeiro que o fluxo principal da UI é recuperável, sem introduzir remote runtime adicional nem um novo canal de cancelamento.
 
-## Web 远控边界
+## Limite do Controle Remoto Web
 
-同步入口只在桌面端 `desktop-continuous` surface 显示。手机 Web 远控使用 shared-host attachment，`baseServices` 表示当前 bridge host；当当前 bridge 本身是 WSL/SSH 远端 workspace host 时，`local*SyncService` 与 `remote*SyncService` 可能指向同一远端 host，无法满足“source 为桌面本地用户目录、destination 为当前远端用户目录”的同步不变量。
+A entrada de sincronização é exibida apenas na surface `desktop-continuous` do desktop. O controle remoto Web mobile usa shared-host attachment, e `baseServices` representa o bridge host atual; quando o próprio bridge atual é um host de workspace remoto WSL/SSH, `local*SyncService` e `remote*SyncService` podem apontar para o mesmo host remoto, sem conseguir satisfazer o invariante de sincronização "source é o diretório de usuário local do desktop, destination é o diretório de usuário remoto atual".
 
-因此当前版本在 `web-remote-replayable` surface 隐藏 Skills/MCP/Plugins 远端同步入口，不为手机端另起独立 Agent runtime、local host 或新的远端 session。若后续产品要求手机端支持同步，需要通过已有 host attachment 显式注入桌面本地 source service，并保持 destination 仍是当前远端 workspace service。
+Por isso, esta versão oculta nas surfaces `web-remote-replayable` as entradas de sincronização remota de Skills/MCP/Plugins, sem criar um runtime de Agente, host local ou nova sessão remota independente para o mobile. Se o produto exigir posteriormente suporte a sincronização no mobile, será necessário injetar explicitamente o source service local do desktop pelo host attachment já existente, mantendo o destination como o service do workspace remoto atual.
 
-## 验证
+## Verificação
 
-- UI helper 单测覆盖 SSH、WSL 显示同步入口，本地和 Docker 不显示。
-- UI helper 单测覆盖 Web remote surface 隐藏同步入口，避免远端到自身同步。
-- 连接成功目录页覆盖 WSL 显示同步下拉。
-- Skill 同步目标格式覆盖 WSL label。
-- Service 单测覆盖远端写入预检成功与目标路径不可写失败。
-- 同步弹窗单测覆盖 `preflighting` 关闭保护与 in-flight guard。
-- 同步预检 helper 单测覆盖超时收敛，避免远端 RPC 永久 pending 锁死弹窗。
-- 执行 `pnpm typecheck` 与 `pnpm lint`。
+- Testes unitários do helper de UI cobrem SSH e WSL exibindo a entrada de sincronização, e local e Docker não exibindo.
+- Testes unitários do helper de UI cobrem a superfície Web remote ocultando a entrada de sincronização, evitando sincronização remota para si mesmo.
+- A página de diretório após conexão bem-sucedida cobre a exibição do dropdown de sincronização no WSL.
+- O formato do destino da sincronização de Skill cobre o rótulo WSL.
+- Testes unitários do service cobrem o sucesso da pré-verificação de escrita remota e a falha quando o caminho de destino não é gravável.
+- Testes unitários do diálogo de sincronização cobrem a proteção de fechamento em `preflighting` e o in-flight guard.
+- Testes unitários do helper de pré-verificação de sincronização cobrem a convergência por timeout, evitando que um RPC remoto permanentemente pending trave o diálogo.
+- Executar `pnpm typecheck` e `pnpm lint`.

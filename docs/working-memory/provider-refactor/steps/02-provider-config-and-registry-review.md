@@ -1,53 +1,69 @@
-# M2 新增代码评审
+# Revisão do código novo da M2
 
-> 状态：上线前评审快照
+> Status: snapshot de revisão pré-lançamento
 >
-> 日期：2026-08-20
+> Data: 2026-08-20
 >
-> 初次评审基线：`origin/staging` `7c49a63ee381`，M2 分支 `8fd68b123417`
+> Baseline da revisão inicial: `origin/staging` `7c49a63ee381`, branch da M2 `8fd68b123417`
 >
-> 当前状态：初次评审识别的设置表单 DTO 与公共 Adapter Factory 双轨已经删除；当前事实以
-> M2 Cleanup 和后续 Implementation Log 为准
+> Estado atual: a dualidade entre o DTO do formulário de configurações e a Adapter Factory pública
+> identificada na revisão inicial foi removida; os fatos atuais estão no M2 Cleanup e no
+> Implementation Log seguinte
 >
-> 阶段目标：[`02-provider-config-and-registry.md`](./02-provider-config-and-registry.md)
+> Objetivo da fase: [`02-provider-config-and-registry.md`](./02-provider-config-and-registry.md)
 >
-> 退役结果：[`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md)
+> Resultado da aposentadoria: [`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md)
 
-## 结论
+## Conclusão
 
-M2 已经基本完成 Provider 事实来源切换。Official、Personal 与 Account Config 形成唯一 Registry 输入；旧 Provider Store、Catalog/Preset 分支和 Workspace Provider Snapshot 没有继续参与普通长期 Provider 的稳态解析。
+A M2 já basicamente concluiu a troca da fonte de verdade do Provider. Official, Personal e Account
+Config formam a única entrada do Registry; o antigo Provider Store, as ramificações
+Catalog/Preset e o Workspace Provider Snapshot deixaram de participar da resolução de estado de um
+Provider comum de longo prazo.
 
-初次评审时，新增生产代码中约 `1.4k–1.9k` 行属于运行期过渡边界，另有约 `0.7k–0.9k` 行负责一次性旧配置和凭据迁移。该数字用于解释初次评审发现的问题，不再代表当前分支规模；设置表单 DTO、普通执行的 Runtime Config 装配和若干旧 Services 存储已经在后续收尾中删除。
+Na revisão inicial, cerca de `1.4k–1.9k` linhas do novo código de produção pertenciam às fronteiras
+transitórias de runtime, e outras cerca de `0.7k–0.9k` linhas cuidavam da migração única de
+configurações e credenciais antigas. Esse número servia para explicar os problemas encontrados na
+revisão inicial e não representa mais o tamanho atual do branch; o DTO do formulário de configurações,
+a montagem de Runtime Config da execução comum e alguns armazenamentos antigos em Services já
+foram removidos no fechamento posterior.
 
-这里需要区分两类性质：
+Aqui é preciso distinguir dois tipos de natureza:
 
 ```text
-一次性迁移
-└─ 读取旧事实，写入新格式，随后退出运行链路
+Migração única
+└─ lê fatos antigos, grava o novo formato e depois sai da cadeia de runtime
 
-运行期过渡边界
-└─ 新旧类型或执行机制仍在同一次运行中衔接
+Fronteira transitória de runtime
+└─ tipos antigos e novos ou mecanismos antigos e novos ainda se conectam na mesma execução
 ```
 
-前者影响代码体积和维护成本，但不构成稳态双事实源。后者反映设置 UI、临时模型和 Adapter 边界仍有后续收口工作。
+O primeiro afeta o volume e o custo de manutenção do código, mas não configura dupla fonte de
+verdade em estado estável. O segundo reflete que a UI de configurações, o modelo temporário e a
+fronteira de Adapter ainda têm trabalho de fechamento posterior.
 
-## 改动规模
+## Escala da alteração
 
-以下数字来自 `git diff origin/staging...HEAD`。统计排除了 `pnpm-lock.yaml`；文件分类按生产源码、测试和 Markdown 文档计算，因重命名检测和少量非 Markdown 配置文件，分类总数与 Git 总数可能相差数行。
+Os números abaixo vêm de `git diff origin/staging...HEAD`. A estatística exclui `pnpm-lock.yaml`; a
+classificação de arquivos é feita por código-fonte de produção, testes e documentos Markdown e, por
+causa da detecção de renomeações e de poucos arquivos de configuração não-Markdown, a soma das
+categorias pode diferir em algumas linhas do total do Git.
 
-| 内容 | 新增 | 删除 |
-| --- | ---: | ---: |
-| 全部分支差异 | 42,805 | 54,206 |
-| 排除 lockfile | 42,754 | 54,205 |
-| 生产源码与运行配置 | 17,275 | 24,915 |
-| 测试 | 15,441 | 28,237 |
-| Markdown 文档 | 10,036 | 1,053 |
+| Conteúdo                         | Adicionadas | Removidas |
+| -------------------------------- | ----------: | --------: |
+| Toda a diferença do branch      |     42,805 |    54,206 |
+| Excluindo lockfile              |     42,754 |    54,205 |
+| Código de produção e config runtime | 17,275 |    24,915 |
+| Testes                           |     15,441 |    28,237 |
+| Documentos Markdown              |     10,036 |     1,053 |
 
-新增生产内容中，`@zcode/provider`、`@zcode/provider-node` 与 Official Config 共 `6,436` 行，其中纯领域与 Node Source/Repository 实现为 `4,120` 行，Official Config 为 `2,316` 行。这部分构成 M2 最集中的新设计骨架。
+No novo conteúdo de produção, `@zcode/provider`, `@zcode/provider-node` e Official Config somam `6,436`
+linhas, das quais `4,120` linhas são o domínio puro e a implementação Node Source/Repository e `2,316`
+linhas são o Official Config. Essa parte constitui o esqueleto de design novo mais concentrado da M2.
 
-## 已经切干净的事实链路
+## Cadeia de fatos já cortada limpo
 
-普通长期 Provider 当前遵循同一条链路：
+Um Provider comum de longo prazo segue hoje a mesma cadeia:
 
 ```text
 Official Config
@@ -60,69 +76,85 @@ Account Config
 Process Provider Registry
       |
       +-- Settings / Selection View
-      +-- Selection 校验
-      +-- Model 创建
-      └-- 请求执行
+      +-- Validação da Selection
+      +-- Criação de Model
+      └-- Execução da requisição
 ```
 
-生产协议 Entry、Prompt CLI 和 TUI 都会启动进程级 Registry 并传入 `createZCodeApp()`。启用 Registry 时，旧模型列表明确不参与模型候选，旧 `modelCatalog` 也只作为首次迁移输入。旧 `ModelProviderService`、OAuth Preset Repo、Catalog Sources 和 Workspace Provider Catalog 的稳态职责已经删除。
+Entry de protocolo de produção, Prompt CLI e TUI todos iniciam o Registry em nível de processo e o
+passam para `createZCodeApp()`. Com o Registry habilitado, a antiga lista de modelos explicitamente
+não participa dos candidatos de modelo e o antigo `modelCatalog` serve apenas como entrada da
+primeira migração. As responsabilidades em estado estável do antigo `ModelProviderService`, do OAuth
+Preset Repo, das Catalog Sources e do Workspace Provider Catalog foram removidas.
 
-因此，当前主要问题不是旧 Provider Store 仍在后台决定执行，而是新事实需要经过若干旧接口形状才能到达尚未迁移的消费者。
+Portanto, o problema principal hoje não é o antigo Provider Store ainda decidir a execução em
+segundo plano, e sim o fato novo precisar passar por várias formas antigas de interface antes de
+alcançar consumidores ainda não migrados.
 
-## 运行期过渡边界
+## Fronteiras transitórias de runtime
 
-### 设置页旧表单 DTO 已退出
+### O DTO do formulário antigo da página de configurações saiu
 
-初次评审发现设置页仍通过旧表单 DTO 双向转换：
+A revisão inicial encontrou que a página de configurações ainda convertia bidirecionalmente através
+do DTO de formulário antigo:
 
 ```text
 ProviderSettingsView
         |
         v
-旧 ModelProviderConfig 表单 DTO
+DTO de formulário ModelProviderConfig antigo
         |
         v
-用户编辑
+Edição do usuário
         |
         v
 ProviderConfigObject / ModelConfigObject
 ```
 
-后续收尾已经删除 `providerSettingsLegacyProjection` 和对应反向转换。Renderer 表单现在直接承载
-`ProviderConfigObject` 与 `ModelConfigObject`，保存后由 Provider Settings Facade 写 Personal Config 并等待
-Registry 刷新。编辑草稿仍属于 Renderer 私有状态，但不再使用旧 endpoint、kind、modalities 或 reasoning
-patch DTO。
+O fechamento posterior removeu `providerSettingsLegacyProjection` e a conversão inversa
+correspondente. O formulário do renderer agora carrega diretamente `ProviderConfigObject` e
+`ModelConfigObject` e, após salvar, o Provider Settings Facade grava o Personal Config e espera a
+atualização do Registry. O rascunho de edição continua sendo estado privado do renderer, mas já não
+usa os DTOs antigos de endpoint, kind, modalities ou reasoning patch.
 
-### Core 无 Registry 装配分支已经退出
+### A ramificação de montagem sem Registry no Core saiu
 
-最终收尾把 `providerRegistry` 改成 `createZCodeApp` 的必填依赖，并迁移了 Bootstrap 测试、Compact /
-Memory E2E 和 Prompt Trajectory。旧 `RuntimeModelConfig / ModelCatalog` 不再承担裸 App Factory 的
-Provider 事实；测试需要自定义模型时显式创建测试 Registry，协议 Entry 继续使用进程 Registry。
+O fechamento final tornou `providerRegistry` uma dependência obrigatória de `createZCodeApp` e
+migrou os testes de Bootstrap, o E2E Compact / Memory e o Prompt Trajectory. O antigo
+`RuntimeModelConfig / ModelCatalog` não é mais o fato de Provider do App Factory sem argumentos; os
+testes que precisam de modelos customizados criam explicitamente um Registry de teste, e a Entry de
+protocolo continua usando o Registry do processo.
 
-这项收口删除了本节最初评审出的代码级双轨。`RuntimeModelConfig` 仍用于当前 Turn 的临时 Provider
-输入和 Core 过渡字段，不再是普通长期 Provider 的 App 启动来源。
+Esse fechamento removeu a dualidade em nível de código inicialmente apontada nesta seção.
+`RuntimeModelConfig` continua em uso como entrada de Provider temporário do Turn atual e como campo
+transitório do Core, e não é mais a origem de App para Providers comuns de longo prazo.
 
-### Turn 临时模型继续借用 Runtime Overlay
+### O modelo temporário do Turn continua emprestando o Runtime Overlay
 
-这部分约 `200–300` 行，主要位于：
+Essa parte tem cerca de `200–300` linhas, principalmente em:
 
 - `apps/zcode-cli/packages/bootstrap/src/app/turn-execution-model-source.ts`
 - `apps/zcode-cli/packages/bootstrap/src/app/turn-model-overlay.ts`
 - `apps/zcode-cli/packages/bootstrap/src/app/runtime-model-factory.ts`
 
-普通 Provider 已经由新 Registry 提供。闲时任务等临时输入仍通过旧 Turn Overlay 转成 `ExecutionScopedModelSource`：
+Providers comuns já são fornecidos pelo novo Registry. Entradas temporárias, como tarefas ociosas,
+ainda passam pelo antigo Turn Overlay e são convertidas em `ExecutionScopedModelSource`:
 
 ```text
-普通长期 Provider -> Process Registry
+Provider comum de longo prazo -> Process Registry
 
-Turn 临时 Provider -> Runtime Overlay -> ExecutionScopedModelSource
+Provider temporário do Turn -> Runtime Overlay -> ExecutionScopedModelSource
 ```
 
-这条边界已经限制为 Turn scope，不会写入 Registry 或 Workspace Preferences。Workspace/Session 级 Provider Overlay 已经删除。后续 execution-scoped Provider 设计完成后，可以删除旧 Runtime Model Config 与 Catalog 的转换。
+Essa fronteira já está limitada ao escopo do Turn e não grava no Registry nem em Workspace
+Preferences. O Provider Overlay em nível de Workspace/Session foi removido. Depois que o design de
+Provider execution-scoped for concluído, as conversões do antigo Runtime Model Config e do Catalog
+poderão ser removidas.
 
-### 新 Registry 编译为现有 AI SDK 执行 Registry
+### O novo Registry é compilado no Registry de execução existente do AI SDK
 
-`provider-registry-model-runtime.ts` 新增约 `448` 行，将 Provider Registry 编译成现有 `AiSdkModelRegistryConfig`，并通过现有 `AiSdkModelAdapter` 创建 M1 `Model`。
+`provider-registry-model-runtime.ts` adiciona cerca de `448` linhas e compila o Provider Registry no
+`AiSdkModelRegistryConfig` existente, criando o `Model` da M1 pelo `AiSdkModelAdapter` existente.
 
 ```text
 Provider Registry
@@ -134,67 +166,91 @@ AI SDK Runtime Registry
 AiSdkModelAdapter
 ```
 
-这是一层运行实现投影，不是第二事实源：模型是否存在、Properties、Option Specs 和 Selection 都由新 Registry 决定。它仍然暴露出 Adapter 内部保留了另一套 Provider 表示，reasoning 参数也需要在这里转换为旧 `providerOptions` 形状。
+Essa é uma projeção de implementação de runtime, não uma segunda fonte de verdade: se o modelo
+existe, suas Properties, Option Specs e Selection são todos determinados pelo novo Registry. Ela ainda
+expõe que o Adapter mantém internamente outra representação de Provider, e os parâmetros de
+reasoning também precisam ser convertidos aqui para o antigo formato `providerOptions`.
 
-这层可以跟随 Adapter/Reasoning 专题继续演进，不阻塞 M2 的 Config 与 Registry 上线。若把“过渡代码”定义为所有未来需要替换的实现，它应计入；若只审计双事实源，它不构成失败项。
+Essa camada pode evoluir junto com os temas Adapter/Reasoning e não bloqueia o lançamento de Config e
+Registry da M2. Se "código transitório" for definido como toda implementação que precisará ser
+substituída no futuro, ela deve entrar na contagem; se a auditoria for apenas sobre dupla fonte de
+verdade, ela não constitui um item de falha.
 
-### Account 身份的窄兼容
+### Compatibilidade estreita da identidade de Account
 
-旧无账号作用域 `accessId` 和旧 Coding Plan Key 保留了少量解析与首次导入逻辑，约 `50–100` 行。新 Account Source 只产生带账号身份的 scoped accessId；请求期兼容只用于识别迁移期间已存在的旧 Model/Session。
+O antigo `accessId` sem escopo de conta e a antiga Coding Plan Key mantêm pouca lógica de resolução e
+de primeira importação, cerca de `50–100` linhas. A nova Account Source só produz accessId com
+escopo de conta; a compatibilidade em tempo de requisição serve apenas para identificar Model/Session
+antigos que já existiam durante a migração.
 
-退出条件是旧 Session 与旧 Credential Store 的兼容窗口结束。新代码不得再产生无账号作用域的 Account Access ID。
+A condição de saída é o fim da janela de compatibilidade das Sessions antigas e do Credential Store
+antigo. O código novo não pode mais gerar Account Access ID sem escopo de conta.
 
-## 一次性迁移代码
+## Código de migração única
 
-一次性迁移约 `0.7k–0.9k` 行，主要集中在：
+A migração única tem cerca de `0.7k–0.9k` linhas, concentradas principalmente em:
 
-- `legacy-cli-personal-provider-config-importer.ts`；
-- `legacyPersonalProviderConfigImporter.ts`；
-- `legacyAccountProviderApiKeyLoader.ts`；
-- Personal Config 与 Model Selection Repository 的 `importLegacy` 边界。
+- `legacy-cli-personal-provider-config-importer.ts`;
+- `legacyPersonalProviderConfigImporter.ts`;
+- `legacyAccountProviderApiKeyLoader.ts`;
+- as fronteiras `importLegacy` do Personal Config e do Model Selection Repository.
 
-它们遵循相同生命周期：
-
-```text
-新配置不存在或版本过旧
-        |
-        v
-读取旧物理格式
-        |
-        v
-生成并校验版本化新 Config
-        |
-        v
-备份、原子写入
-        |
-        v
-以后只读取新 Config
-```
-
-这组代码包含旧 Catalog、旧 Provider Model、旧 reasoning patch 和兼容缺省值，复杂度较高，但没有被 Registry 稳态路径反向调用。迁移窗口结束后应按模块整体删除，避免演变成长期格式兼容层。
-
-## 复杂但属于目标设计的代码
-
-Account Provider 的连接解析、Personal/Team Key、请求期鉴权与 Account Source 代码同样复杂，但复杂性来自账号、权益和动态凭据本身。它们已经收敛为：
+Todas seguem o mesmo ciclo de vida:
 
 ```text
-账号与权益事实 -> Account Config
-请求凭据       -> Request Auth Service
-静态 Provider  -> Registry
+Nova config inexistente ou de versão muito antiga
+        |
+        v
+Lê o formato físico antigo
+        |
+        v
+Gera e valida a nova Config versionada
+        |
+        v
+Backup, escrita atomica
+        |
+        v
+Passa a ler somente a nova Config
 ```
 
-只要这些模块不重新生成 Provider 静态事实，也不从旧 Provider Store 回填 Registry，就不应仅因代码复杂而归为兼容债务。
+Este conjunto contém o Catalog antigo, o Provider Model antigo, o reasoning patch antigo e defaults
+de compatibilidade, o que lhe dá alta complexidade, mas não é chamado inversamente pelo caminho de
+estado estável do Registry. Encerrada a janela de migração, esse conjunto deve ser removido por módulo
+inteiro, para não evoluir para uma camada de compatibilidade de formato de longo prazo.
 
-## 后续收口顺序
+## Código complexo, mas que pertence ao design alvo
 
-上线前需要保持的核心门禁是：普通生产入口必须装配新 Registry，旧 Store 只可用于一次性迁移，Turn Overlay 不得扩展到稳态 Provider。
+A resolução de conexão do Account Provider, as Personal/Team Keys, a autenticação em tempo de
+requisição e o código de Account Source são igualmente complexos, mas essa complexidade vem da
+conta, dos direitos e das credenciais dinâmicas em si. Eles já convergiram para:
 
-上线后的推荐收口顺序为：
+```text
+Fatos de conta e direitos -> Account Config
+Credenciais da requisição  -> Request Auth Service
+Provider estático          -> Registry
+```
 
-1. 在 execution-scoped Provider 阶段替换 `turnRuntimeModel` 与旧 Overlay。
-2. 在 Adapter/Reasoning 阶段继续收敛 AI SDK Runtime Registry 投影，避免业务层重新理解 `providerOptions`。
-3. 兼容窗口结束后删除旧 Personal Config、Account Key 和无作用域 accessId 迁移代码。
+Desde que esses módulos não regerem fatos estáticos de Provider nem repreencham o Registry a partir do
+antigo Provider Store, não devem ser classificados como dívida de compatibilidade apenas por
+complexidade.
 
-生产 `createZCodeApp()` 的 Registry 依赖已经成为必填机械约束，测试 Harness 也必须显式装配 Registry；
-它不再属于后续事项。M2 当前可以进入上线收尾，但不能把“事实源已经统一”误写成“所有旧类型与执行
-机制已经删除”。前者已经成立；后者仍需要上述几个明确、可测量的退役步骤。
+## Ordem de fechamento posterior
+
+O portão central que precisa ser mantido antes do lançamento é: entradas de produção comuns precisam
+montar o novo Registry, o Store antigo só pode ser usado para migração única e o Turn Overlay não
+pode se estender a Providers de estado estável.
+
+A ordem de fechamento recomendada após o lançamento é:
+
+1. substituir `turnRuntimeModel` e o antigo Overlay na fase de Provider execution-scoped;
+2. continuar convergindo a projeção do AI SDK Runtime Registry na fase Adapter/Reasoning, evitando que
+   a camada de negócio reinterprete `providerOptions`;
+3. depois de encerrada a janela de compatibilidade, remover o código de migração do Personal Config
+   antigo, das Account Keys e do accessId sem escopo.
+
+A dependência de Registry de `createZCodeApp()` em produção já virou uma restrição mecânica
+obrigatória, e o Harness de testes também precisa montar o Registry explicitamente; isso não pertence
+mais aos itens posteriores. A M2 pode entrar no fechamento de lançamento, mas não se pode escrever
+"a fonte de verdade já foi unificada" como se fosse "todos os tipos e mecanismos de execução antigos
+foram removidos". O primeiro já é verdade; o segundo ainda exige os passos de aposentadoria explícitos
+e mensuráveis acima.

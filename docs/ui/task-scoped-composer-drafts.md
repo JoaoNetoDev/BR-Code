@@ -1,21 +1,21 @@
-# Task-scoped composer drafts
+# Rascunhos do composer por escopo de task
 
-## 背景
+## Contexto
 
-聊天输入框的未发送状态必须跟随 task 隔离，而不是跟随当前组件实例。用户在 A task 输入文本、添加附件或上下文 chip 后切到 B task，再切回 A task，应看到 A 自己的草稿；B task 也同理。
+O estado não enviado da caixa de entrada do chat precisa ser isolado por task, e não pela instância atual do componente. Se o usuário digita texto, anexa arquivos ou adiciona chips de contexto na task A, muda para a task B e volta para a task A, ele deve ver o próprio rascunho da task A; o mesmo vale para a task B.
 
-## 缓存边界
+## Limites de cache
 
-- workspace 隔离使用 `workspaceKey = workspaceIdentity?.trim() || workspacePath`。
-- 草稿作用域使用 `taskId`；新建任务态使用 `null`，在 store 中映射为 `__draft__`。
-- 每个作用域缓存完整 composer draft：文本、普通附件、code comment、web element context 和本地 revision。
-- 桌面端恢复时优先重放 Lexical editor JSON 快照，保留 mention / token 节点；旧草稿或快照缺失时回退到纯文本恢复。
-- focus、拖拽高亮、提示词增强 loading 等瞬时 UI 状态不进入草稿缓存。
+- O isolamento por workspace usa `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
+- O escopo do rascunho usa `taskId`; o estado de nova task usa `null`, mapeado no store como `__draft__`.
+- Cada escopo mantém em cache o rascunho completo do composer: texto, anexos comuns, code comment, web element context e revisão local.
+- Na restauração no desktop, prioriza-se a reprodução do snapshot JSON do Lexical editor, preservando os nós de mention / token; em rascunhos antigos ou snapshot ausente, há fallback para restauração em texto puro.
+- Estados transitórios de UI, como focus, realce de arraste e o loading da melhoria de prompt, não entram no cache de rascunhos.
 
-## 持久化规则
+## Regras de persistência
 
-- 当前 renderer 内存里按 workspace/task 独立保存，切换 task、卸载、页面隐藏、queued prompt edit、首发 task promotion 都要保存/恢复。
-- 输入热路径只更新本地 composer state 和 revision，不按每个字符写全局 store/localStorage；完整草稿只在切换 task、卸载/隐藏、prefill/queued edit、首发 promotion、发送失败/成功边界保存或清理，避免大附件和长文本造成高频重渲染或持久化写入。
-- 桌面端重启恢复使用 localStorage 的小型 JSON 缓存；key 中必须包含 workspace key，避免远程 workspace 同路径串线。
-- 普通附件只持久化可恢复引用：带 `localPath` 的文件附件可以恢复；没有可恢复路径的浏览器 `File` 不复制到应用存储，重启后丢弃并提示用户重新添加。
-- task 删除或发送成功后清理对应草稿，避免旧附件引用继续出现在后续会话。
+- Na memória do renderer atual, cada workspace/task é salvo de forma independente; trocar de task, desmontar, ocultar a página, editar um prompt enfileirado e a promoção da primeira task exigem salvar/restaurar.
+- O caminho crítico de digitação apenas atualiza o estado local do composer e a revisão, sem escrever no store global/localStorage a cada caractere; o rascunho completo só é salvo ou limpo ao trocar de task, ao desmontar/ocultar, em prefill/edição enfileirada, na promoção da primeira task e nas fronteiras de sucesso/falha de envio, evitando re-renderizações frequentes ou escritas de persistência causados por anexos grandes e textos longos.
+- A restauração após reiniciar o desktop usa um pequeno cache JSON em localStorage; a key deve conter a workspace key, evitando cruzamento entre workspaces remotos com o mesmo caminho.
+- Anexos comuns persistem apenas referências recuperáveis: anexos de arquivo com `localPath` podem ser restaurados; um `File` do navegador sem caminho recuperável não é copiado para o armazenamento do aplicativo, é descartado após o reinício e o usuário é avisado para adicioná-lo novamente.
+- O rascunho correspondente é limpo quando a task é excluída ou quando o envio tem sucesso, evitando que referências de anexos antigos continuem aparecendo em sessões seguintes.

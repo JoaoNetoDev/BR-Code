@@ -1,22 +1,19 @@
-# ZCode 早期分层架构（历史）
+# Arquitetura em Camadas Inicial do ZCode (histórico)
 
-本文记录项目从共享 UI + Channel RPC + service interface 起步时的分层背景。它不再描述当前 Host 数量、
-remote topology、Root props 或 conversation 数据流；当前事实请读
-[Z Code 代码架构总览](./zcode-code-architecture-overview.md)。
+Este documento registra o contexto de camadas de quando o projeto partiu de uma UI compartilhada + Channel RPC + service interface. Ele não descreve mais a quantidade atual de Hosts, a topologia remota, as Root props ou o fluxo de dados de conversation; para os fatos atuais, leia o [Z Code 代码架构总览](./zcode-code-architecture-overview.md).
 
-## 仍然有效的设计原则
+## Princípios de design ainda válidos
 
-- Desktop、Web 和 mobile remote 复用 `packages/ui`，平台差异通过依赖注入处理。
-- UI 依赖 service/protocol interface，不直接调用 Repo、Node implementation 或 Electron main。
-- `packages/rpc` 只提供 channel、transport、proxy、事件和日志中间件，不拥有业务语义。
-- `packages/services` 定义 Host 业务接口和 Node 实现；`packages/client` 负责创建 service proxy。
-- `packages/desktop` / `packages/web` 负责平台装配，不能把平台对象泄漏回共享 UI。
-- 新增 service 仍应注册 descriptor、实现、accessor 和 client proxy，并保持 browser-safe type import。
+- Desktop, Web e mobile remote reutilizam `packages/ui`, e as diferenças de plataforma são tratadas por injeção de dependência.
+- A UI depende de interfaces de service/protocol e não chama diretamente Repo, implementações Node ou o main do Electron.
+- `packages/rpc` fornece apenas channel, transport, proxy, eventos e middleware de log, sem semântica de negócio.
+- `packages/services` define as interfaces de negócio do Host e as implementações Node; `packages/client` fica responsável por criar os service proxies.
+- `packages/desktop` / `packages/web` cuidam da composição de plataforma e não podem vazar objetos de plataforma de volta para a UI compartilhada.
+- Um novo service deve continuar registrando descriptor, implementação, accessor e client proxy, mantendo import de tipo browser-safe.
 
-## 已失效的早期假设
+## Premissas iniciais que já não valem
 
-早期文档曾把系统描述为“单 server + HTTP/WebSocket/stdio 三入口”，并让 renderer 从 task/session event
-自行拼 chat 状态。这些假设已经被以下实现替代：
+A documentação inicial descrevia o sistema como "um único server com três entradas: HTTP/WebSocket/stdio" e deixava que o renderer montasse por conta própria o estado de chat a partir de task/session events. Essas premissas foram substituídas pelas seguintes implementações:
 
 ```text
 旧：Renderer reducer -> task state -> UI
@@ -26,15 +23,15 @@ remote topology、Root props 或 conversation 数据流；当前事实请读
 新：每个窗口的 Host/service graph + workspace-scoped CLI + remote attachment
 ```
 
-同样已经失效的内容包括：
+Também perderam a validade:
 
-- `Root` 通过 `credentialStore` / `onConnectRemote` props 直接装配平台能力；
-- UI 使用 `window.zcode` 或 service concrete singleton；
-- credential 可以经 platform bridge 直接暴露给 renderer；
-- task list、conversation rows、queue、stop/fork availability 由 renderer store 统一拥有；
-- remote workspace 可以只按 `workspacePath` 识别。
+- `Root` montava capacidades de plataforma diretamente via props `credentialStore` / `onConnectRemote`;
+- a UI usava `window.zcode` ou singletons concretos de service;
+- credentials podiam ser expostas ao renderer diretamente via platform bridge;
+- task list, conversation rows, queue e disponibilidade de stop/fork eram de responsabilidade exclusiva do renderer store;
+- um workspace remoto podia ser identificado apenas por `workspacePath`.
 
-## 当前依赖方向
+## Direção atual das dependências
 
 ```text
 packages/shared  <- schema / platform contracts
@@ -46,10 +43,9 @@ desktop/web      <- platform composition
 apps/zcode-cli   <- Agent runtime + V4 authority
 ```
 
-跨域代码只能依赖对方公开 Types/contract。conversation 的新增协议先改
-`packages/shared/src/zcode-protocol-v4/`，再同步 CLI、Host transport 和多端消费者。
+Código entre domínios só pode depender dos Types/contratos públicos um do outro. Novos protocolos de conversation alteram primeiro `packages/shared/src/zcode-protocol-v4/`, e só então sincronizam o CLI, o Host transport e os consumidores de todas as pontas.
 
-## 当前入口
+## Entradas atuais
 
 - [代码架构总览](./zcode-code-architecture-overview.md)
 - [Message Flow](./message-flow.md)

@@ -1,50 +1,67 @@
-# Chat Empty Time Greeting
+# Saudação por Horário no Estado Vazio do Chat
 
-新建对话草稿态的空态标题不再展示 workspace 或项目名，而是按用户本地时间显示一条欢迎词。该文案用于降低“系统已经创建任务”的误解，也避免把入口语义绑定到具体项目。
+O título do estado vazio do rascunho de nova conversa deixa de exibir o nome do workspace ou do
+projeto e passa a mostrar uma saudação conforme a hora local do usuário. Esse texto reduz o
+mal-entendido de que "o sistema já criou uma tarefa" e evita vincular a semântica da entrada a um
+projeto específico.
 
-## 行为
+## Comportamento
 
-- 使用用户设备上的浏览器/renderer 当前本地小时数选择文案，不使用服务端、workspace 或远程主机时区。
-- 时段划分：
-  - `05:00-08:59`：早上
-  - `09:00-11:59`：上午
-  - `12:00-13:59`：中午
-  - `14:00-17:59`：下午
-  - `18:00-22:59`：晚上
-  - `23:00-04:59`：夜深
-- 文案必须走 `packages/ui` 的 i18n locale，不在组件内硬编码用户可见字符串。
-- 标题文案不插入 workspace/project 名称，避免和当前工作区、远程 workspace identity 或手机远控上下文混淆。
-- 中午文案使用“休息一下”语义，避免继续强调推进任务。
-- 下午文案使用“接下来交给助手处理”的轻松语义，不使用“摸鱼”等可能弱化工作场景专业度的网络表达。
-- 夜深文案简洁提醒用户照顾自己，不预设用户已经困倦。
+- Usa a hora local atual do navegador/renderer no dispositivo do usuário para escolher o texto,
+  sem usar o fuso do servidor, do workspace ou do host remoto.
+- Divisão dos períodos:
+  - `05:00-08:59`: manhã
+  - `09:00-11:59`: parte da manhã
+  - `12:00-13:59`: meio-dia
+  - `14:00-17:59`: tarde
+  - `18:00-22:59`: noite
+  - `23:00-04:59`: madrugada
+- O texto deve passar pelo i18n locale de `packages/ui`, sem strings visíveis ao usuário hardcoded no
+  componente.
+- O texto do título não insere o nome do workspace/projeto, evitando confusão com o workspace
+  atual, a workspace identity remota ou o contexto de controle remoto mobile.
+- O texto de meio-dia usa a semântica de "faça uma pausa", evitando continuar enfatizando o
+  avanço da tarefa.
+- O texto de tarde usa a semântica leve de "o resto fica com o assistente", sem usar expressões de
+  internet como "摸鱼", que podem reduzir a profesionalidade do contexto de trabalho.
+- O texto de madrugada lembra de forma breve o usuário de cuidar de si, sem presumir que ele já
+  esteja com sono.
 
-## 简体中文文案
+## Texto em Chinês Simplificado
 
-| 时段 | 文案                           |
-| ---- | ------------------------------ |
-| 早上 | 早上好呀，新的一天开始啦       |
-| 上午 | 上午好呀，有什么想让我帮忙的吗 |
-| 中午 | 中午好呀，要不要先休息一下     |
-| 下午 | 下午好呀，接下来交给我吧       |
-| 晚上 | 晚上好呀，今天辛苦啦           |
-| 夜深 | 夜深啦，别忘了照顾好自己哦     |
+| Período | Texto                                  |
+| ------- | -------------------------------------- |
+| Manhã   | Bom dia, começou um novo dia           |
+| Mañana  | Bom dia, em que posso ajudar?           |
+| Meio-dia| Almoço, quer dar uma pausa antes?      |
+| Tarde   | Boa tarde, o resto fica comigo         |
+| Noite   | Boa noite, foi um dia trabalhoso        |
+| Madrugada| Já é tarde, não se esqueça de se cuidar |
 
-## 英文文案
+## Texto em Inglês
 
-英文保留相同时段意图，使用自然的本地表达，不逐字翻译中文语气词。
+O inglês preserva a mesma intenção por período, usando expressão natural e local, sem traduzir
+literalmente os marcadores de Mandarin.
 
-| 时段          | 文案                                         |
-| ------------- | -------------------------------------------- |
-| Early morning | Morning, ready when you are                  |
-| Morning       | Morning, how can I help?                     |
-| Noon          | Noon break?                                  |
-| Afternoon     | Good afternoon! Leave the rest to me.        |
-| Evening       | Evening, nice work today                     |
-| Late night    | It's late—remember to take care of yourself. |
+| Período       | Texto                                          |
+| ------------- | ---------------------------------------------- |
+| Early morning | Morning, ready when you are                   |
+| Morning       | Morning, how can I help?                      |
+| Noon          | Noon break?                                   |
+| Afternoon     | Good afternoon! Leave the rest to me.         |
+| Evening       | Evening, nice work today                      |
+| Late night    | It's late—remember to take care of yourself.  |
 
-## 视觉
+## Visual
 
-- 标题使用 UI 默认无衬线字体，不使用 `font-serif`。
-- 桌面端保留原有较大标题层级，手机远控草稿态保留紧凑标题层级。
-- 文案需要兼容中英文长度差异，不依赖项目名拼接或固定宽度。
-- 空态 Logo 在浅色主题继续使用内联线框图形；深色主题使用 `packages/ui/src/assets/Z.svg`，并通过主题类互斥渲染，避免两套图形同时占位或被读屏器识别。浅色线框图形保留底部渐隐遮罩和 `opacity-70`；深色资源自带渐变与透明度，不得再次叠加公共遮罩或透明度。
+- O título usa a fonte sem serifa padrão da UI, sem `font-serif`.
+- O desktop mantém a hierarquia de título maior original; o rascunho do controle remoto mobile
+  mantém uma hierarquia de título compacta.
+- O texto precisa ser compatível com a diferença de comprimento entre chinês e inglês, sem
+  depender de concatenação com o nome do projeto nem de largura fixa.
+- O Logo do estado vazio continua usando o gráfico de linha inline no tema claro; o tema escuro usa
+  `packages/ui/src/assets/Z.svg`, renderizado de forma mutuamente exclusiva via classe de tema,
+  evitando que os dois gráficos ocupem espaço ao mesmo tempo ou sejam reconhecidos por leitores de
+  tela. O gráfico de linha claro mantém a máscara com fade inferior e `opacity-70`; o recurso
+  escuro já traz gradiente e transparência e não deve receber novamente máscara ou opacidade
+  comum.

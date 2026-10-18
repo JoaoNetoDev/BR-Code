@@ -1,42 +1,42 @@
-# MCP Apps 常见资源 MIME 白名单
+# Allowlist de MIME de recursos comuns do MCP Apps
 
-## 目标与边界
+## Objetivo e limites
 
-插件页面通过 `resources/read` 读取 PDF 等常见文件时，已有白名单会在返回页面前拒绝合法内容。本次扩展共享白名单的明确条目，保留现有匹配规则和资源边界；不使用 `application/`、`image/` 等新增大类前缀。
+Quando a página de um plugin lê arquivos comuns como PDF via `resources/read`, a allowlist existente rejeita conteúdo legítimo antes de devolver a página. Desta vez são estendidos itens explícitos da allowlist compartilhada, preservando as regras de correspondência e os limites de recurso atuais; não são usados novos prefixos de grandes categorias como `application/`, `image/`.
 
-唯一规则来源为 `packages/shared/src/mcp-apps/resourceMime.ts`，继续由 `contract.ts` 导出 `MCP_APPS_UI_READ_RESOURCE_MIME_ALLOWLIST` 等原有接口。列表独立存放以保持主契约的行数边界。Agent 的 mcp-ui 执行检查；服务桥和插件页面不另建白名单。
+A única fonte de regras é `packages/shared/src/mcp-apps/resourceMime.ts`, continuando a ser exportada por `contract.ts` com as interfaces originais como `MCP_APPS_UI_READ_RESOURCE_MIME_ALLOWLIST`. A lista é mantida em arquivo separado para preservar o limite de linhas do contrato principal. O Agent realiza a verificação de execução do mcp-ui; a ponte de serviço e a página do plugin não criam allowlists próprias.
 
 ```text
-插件页面 → 实例凭证与服务器归属检查 → MCP resources/read
-         → MIME 白名单与 8 MiB 总量检查 → 去除 _meta → 返回页面
+página do plugin → verificação de credenciais da instância e de pertencimento ao servidor → MCP resources/read
+         → verificação de allowlist de MIME e de total de 8 MiB → remoção de _meta → retorno à página
 ```
 
-## 接纳范围
+## Escopo de aceitação
 
-| 类别       | 接纳的常见格式                                     |
-| ---------- | -------------------------------------------------- |
-| 已有类型   | `text/*`、JSON、PNG、JPEG、WebP、GLB、通用二进制   |
-| 文档       | PDF、RTF、DOC/XLS/PPT、DOCX/XLSX/PPTX、ODT/ODS/ODP |
-| 结构化数据 | XML、YAML（含 `application/x-yaml`）               |
-| 图片       | SVG、GIF、AVIF、BMP、TIFF、ICO、HEIC、HEIF         |
-| 音频       | MP3、MP4 音频、Ogg、WAV、WebM 音频、AAC、FLAC      |
-| 视频       | MP4、WebM、Ogg、QuickTime、MPEG                    |
-| 归档       | ZIP、GZIP、TAR、7z、RAR                            |
-| 字体与模型 | WOFF、WOFF2、TTF、OTF、JSON glTF                   |
+| Categoria       | Formatos comuns aceitos                                 |
+| -------------- | -------------------------------------------------------- |
+| Tipos já existentes | `text/*`, JSON, PNG, JPEG, WebP, GLB, binário genérico |
+| Documentos      | PDF, RTF, DOC/XLS/PPT, DOCX/XLSX/PPTX, ODT/ODS/ODP       |
+| Dados estruturados | XML, YAML (incluindo `application/x-yaml`)            |
+| Imagens         | SVG, GIF, AVIF, BMP, TIFF, ICO, HEIC, HEIF               |
+| Áudio           | MP3, áudio MP4, Ogg, WAV, áudio WebM, AAC, FLAC           |
+| Vídeo           | MP4, WebM, Ogg, QuickTime, MPEG                          |
+| Arquivos        | ZIP, GZIP, TAR, 7z, RAR                                  |
+| Fontes e modelos | WOFF, WOFF2, TTF, OTF, glTF em JSON                     |
 
-MIME 忽略大小写、首尾空白和分号后的参数；除此之外精确匹配。保留已有 `text/` 前缀行为。WAV、GZIP、ICO 的常见 MIME 别名显式列出，不推断任意扩展名或厂商类型。
+O MIME ignora maiúsculas/minúsculas, espaços no início e no fim e parâmetros após ponto e vírgula; fora disso a correspondência é exata. O comportamento existente do prefixo `text/` é preservado. Os aliases de MIME comuns de WAV, GZIP e ICO são listados explicitamente, sem inferir extensões arbitrárias ou tipos de fabricante.
 
-## 保持不变
+## Permanece inalterado
 
-- 未列出的 MIME、空 MIME、没有 MIME 的 blob 仍拒绝；明确声明的 `application/x-msdownload` 等可执行类型不新增放行。
-- 每次结果按全部内容项的 UTF-8 文本和 base64 解码字节累计，最多 8 MiB；超限整次拒绝，不截断。
-- 保留实例凭证、服务器归属、失效实例、沙箱、CSP 和下载保存确认的现有检查。
-- 仅传输资源，不保证宿主或插件具备对应格式的解码器；资源 `_meta` 不透传给页面。
-- 不修改界面、重载按钮、握手或生命周期。不改变 desktop continuous 与 mobile replayable 的语义；Web/远程不可用时仍沿用原有能力边界。
+- MIME não listados, MIME vazio e blobs sem MIME continuam rejeitados; tipos executáveis explicitamente declarados como `application/x-msdownload` não são liberados.
+- A cada chamada o resultado é acumulado pelo texto UTF-8 e pelos bytes decodificados em base64 de todos os itens de conteúdo, até no máximo 8 MiB; ao exceder, a chamada inteira é rejeitada, sem truncamento.
+- Preservam-se as verificações existentes de credenciais da instância, pertencimento ao servidor, instância inválida, sandbox, CSP e confirmação de salvamento de download.
+- Apenas o recurso é transmitido, sem garantia de que o host ou o plugin tenha decodificador para o formato correspondente; o `_meta` do recurso não é repassado à página.
+- Não modifica interface, botão de recarregar, handshake ou ciclo de vida. Não altera a semântica de desktop continuous nem de mobile replayable; quando Web/remoto não estiver disponível, os limites de capacidade existentes continuam válidos.
 
-## 回归验证
+## Verificação de regressão
 
-- 共享契约：常见类别接纳；大小写与参数兼容；未知类型、伪造后缀和可执行类型拒绝。
-- Agent 处理器：PDF blob 与 SVG text 原样返回并去除 `_meta`；总大小、缺失 MIME 和服务器归属继续生效。
-- Electron 集成：真实插件 iframe 经 App SDK、宿主、Agent 和 MCP 进程读取 PDF/SVG，核对 MIME 与字节；未知类型失败后页面仍可继续读合法资源。
-- 使用已有 `mcp-apps-host-e2e.mjs --managed-only` 验证受控 Electron 链路，不将此结果表述为所有桌面平台或手机 Web 的完整回归。
+- Contrato compartilhado: aceitação das categorias comuns; compatibilidade de maiúsculas/minúsculas e parâmetros; rejeição de tipos desconhecidos, sufixos falsificados e tipos executáveis.
+- Handler do Agent: blob de PDF e texto SVG devolvidos como estão e com `_meta` removido; tamanho total, MIME ausente e pertencimento ao servidor continuam vigentes.
+- Integração Electron: um iframe real de plugin lê PDF/SVG via App SDK, host, Agent e processo MCP, conferindo MIME e bytes; após a falha por tipo desconhecido, a página ainda consegue ler recursos legítimos.
+- Validação da cadeia Electron controlada com o já existente `mcp-apps-host-e2e.mjs --managed-only`, sem apresentar esse resultado como regressão completa de todas as plataformas de desktop ou do Web no celular.

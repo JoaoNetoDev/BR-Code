@@ -1,54 +1,53 @@
 # LLM API Stream Capture Replay
 
-## 背景
+## Contexto
 
-流式性能问题不能只靠最终 Markdown 文本复现。真实链路里的 provider SSE chunk 数量、chunk
-间隔、agent/protocol 合并、renderer IPC、UI chunk batch、Markdown 渲染和动画都会影响 CPU。
-只保存完整 response body 再一次性回放，会改变通信节奏，无法稳定复现 renderer 层压力。
+Problemas de performance de streaming não podem ser reproduzidos apenas com o texto Markdown final. Na cadeia real, a quantidade de chunks SSE do provider, o intervalo entre chunks, a mesclagem de agent/protocol, o IPC do renderer, o batch de chunks da UI, a renderização de Markdown e as animações afetam a CPU.
+Salvar apenas o response body completo e reproduzi-lo de uma só vez muda o ritmo de comunicação e não reproduz de forma estável a pressão no renderer.
 
-## 目标
+## Objetivos
 
-- e2e capture 继续通过本地 MITM 代理访问真实 provider。
-- capture artifact 在保留请求/响应预览的同时，记录 response chunk 时间线。
-- replay server 支持按照 chunk 时间线流式写回响应，保持首 chunk 延迟和后续 chunk 间隔。
-- DeepSeek provider e2e 默认固定回放行为不变；性能采样可通过环境变量覆盖 prompt 和 replay fixture。
+- O e2e capture continua acessando o provider real por meio de um proxy MITM local.
+- O capture artifact, além de manter as prévias de requisição/resposta, registra a linha do tempo dos chunks de resposta.
+- O replay server suporta escrever a resposta de forma streaming conforme a linha do tempo dos chunks, preservando o atraso do primeiro chunk e os intervalos dos chunks seguintes.
+- O comportamento de replay fixo e padrão do e2e do provider DeepSeek permanece inalterado; a amostragem de performance pode sobrescrever o prompt e o replay fixture por variáveis de ambiente.
 
-## 非目标
+## Fora de escopo
 
-- 不录制或回放 renderer IPC、ZCode Protocol event、UI store mutation。
-- 不把真实 API key 或鉴权 header 写入 artifact。
-- 不保证跨 provider 通用语义解析；本阶段只在 e2e 网络层保真 HTTP/SSE 响应节奏。
+- Não gravar nem reproduzir IPC do renderer, ZCode Protocol events ou mutações da store da UI.
+- Não gravar API keys reais nem headers de autenticação no artifact.
+- Não garantir parsing semântico genérico entre providers; nesta etapa a fidelidade se limita ao ritmo das respostas HTTP/SSE na camada de rede do e2e.
 
-## Artifact 扩展
+## Extensão do Artifact
 
-`E2ENetworkCaptureRecord` 新增可选字段：
+`E2ENetworkCaptureRecord` ganha novos campos opcionais:
 
-- `responseChunkTimeline`：response body chunk 列表。
-- `responseChunkTimelineTruncated`：chunk 时间线达到本地大小上限时置为 `true`。
+- `responseChunkTimeline`: lista de chunks do response body.
+- `responseChunkTimelineTruncated`: definido como `true` quando a linha do tempo de chunks atinge o limite local de tamanho.
 
-每个 chunk 包含：
+Cada chunk contém:
 
-- `offsetMs`：从请求进入 capture proxy 到该 chunk 到达 proxy 的毫秒偏移。
-- `byteLength`：原始 chunk 字节数。
-- `base64`：记录到 artifact 的 chunk bytes。
+- `offsetMs`: deslocamento em milissegundos desde a entrada da requisição no capture proxy até a chegada do chunk ao proxy.
+- `byteLength`: tamanho em bytes do chunk original.
+- `base64`: bytes do chunk gravados no artifact.
 
-`responseTextPreview` 仍然用于人工查看和现有 usage 解析；性能回放优先使用
-`responseChunkTimeline`。
+`responseTextPreview` continua sendo usado para inspeção manual e para o parsing de usage existente; o replay de performance prioriza o uso de
+`responseChunkTimeline`.
 
-## 回放语义
+## Semântica de replay
 
-replay fixture 的 `response.chunks` 存在时：
+Quando o `response.chunks` do replay fixture existe:
 
-- replay server 不写 `content-length`，让 Node 以 chunked response 流式发送。
-- 第一个 chunk 等待其 `offsetMs` 后写出。
-- 后续 chunk 按相邻 `offsetMs` 差值等待后写出。
-- `response.body` 仍保留为完整响应文本，用于报告和旧断言。
+- O replay server não escreve `content-length`, deixando o Node enviar a resposta em streaming como chunked response.
+- O primeiro chunk é escrito após esperar o seu `offsetMs`.
+- Os chunks seguintes são escritos após esperar a diferença entre `offsetMs` adjacentes.
+- `response.body` continua sendo mantido como o texto completo da resposta, usado em relatórios e em asserções antigas.
 
-没有 `response.chunks` 的旧 fixture 继续一次性返回 `response.body`。
+Fixtures antigos sem `response.chunks` continuam retornando `response.body` de uma só vez.
 
-## 使用
+## Uso
 
-采集真实 GLM highspeed 响应：
+Coletar uma resposta real do GLM highspeed:
 
 ```bash
 E2E_PROVIDER_HTTP_MODE=capture \
@@ -59,20 +58,19 @@ E2E_PROVIDER_EXPECT_REPLY_TEXT=PERF_TRACE_DONE \
 pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/upstream-provider.test.ts
 ```
 
-`glmhighspeed` preset 使用 Anthropic-compatible endpoint
-`https://open.bigmodel.cn/api/anthropic` 和模型 `glm-5.1-highspeed`。capture 模式在未显式指定
-provider preset 时默认仍使用 DeepSeek v4 flash；只有显式设置
-`E2E_PROVIDER_PRESET=glmhighspeed` / `LLM_E2E_PROVIDER_PRESET=glmhighspeed`
-时才会切到 GLM highspeed。GLM highspeed preset 默认不强制选择思考深度；如需覆盖，可显式设置
-`E2E_PROVIDER_THOUGHT_LEVEL`。
+O preset `glmhighspeed` usa o endpoint compatível com Anthropic
+`https://open.bigmodel.cn/api/anthropic` e o modelo `glm-5.1-highspeed`. No modo capture, quando nenhum preset de provider é especificado explicitamente, o padrão continua sendo o DeepSeek v4 flash; a troca para o GLM highspeed só ocorre ao definir explicitamente
+`E2E_PROVIDER_PRESET=glmhighspeed` / `LLM_E2E_PROVIDER_PRESET=glmhighspeed`.
+O preset GLM highspeed não força por padrão um nível de raciocínio; para sobrescrever, defina explicitamente
+`E2E_PROVIDER_THOUGHT_LEVEL`.
 
-capture artifact 默认写入：
+O capture artifact é gravado por padrão em:
 
 ```text
 packages/desktop/.e2e-home/.zcode/e2e-network-capture/upstream-provider.json
 ```
 
-后续回放自定义 fixture 或 capture-derived fixture：
+Para depois reproduzir um fixture customizado ou derivado de um capture:
 
 ```bash
 E2E_PROVIDER_PRESET=glmhighspeed \
@@ -80,8 +78,8 @@ E2E_PROVIDER_REPLAY_FIXTURE_PATH=/absolute/path/to/replay-fixture-or-capture.jso
 pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/upstream-provider.test.ts
 ```
 
-## 风险与边界
+## Riscos e limites
 
-- response chunk timing 是网络层观测，不能代表 provider 内部 token 生成时间。
-- capture artifact 可能包含大响应正文，只保存在本地 e2e artifact 目录，不提交。
-- 如果响应超过 chunk 时间线上限，artifact 会标记 truncated；这类记录不能用于完整流式回放。
+- O timing dos chunks de resposta é uma observação da camada de rede e não representa o tempo de geração de tokens dentro do provider.
+- O capture artifact pode conter um corpo de resposta grande; ele fica apenas no diretório local de artifacts do e2e e não é commitado.
+- Se a resposta exceder o limite da linha do tempo de chunks, o artifact é marcado como truncated; esse tipo de registro não pode ser usado para um replay streaming completo.

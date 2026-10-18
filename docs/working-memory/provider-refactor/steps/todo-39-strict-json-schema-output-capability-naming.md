@@ -1,28 +1,24 @@
-# Todo 39：严格 JSON Schema 输出能力命名收口
+# Todo 39: consolidação do nome da capability de saída com JSON Schema estrito
 
-> 状态：已由 Todo 74 覆盖（superseded）
+> Status: coberto pelo Todo 74 (superseded)
 
-> 状态：草案，待讨论
+> Status: rascunho, aguardando discussão
 >
-> 日期：2026-08-28
+> Data: 2026-08-28
 >
-> 来源：Project Memory Model Selection Review
+> Origem: Project Memory Model Selection Review
 
-## 背景
+## Contexto
 
-当前 Model Properties 使用 `supportsStructuredOutput` 描述一项输出能力。这个名字容易被理解为“能够输出 JSON”、
-“支持 JSON mode”或泛化的结构化文本输出，但它在现有运行链路中的实际语义更窄：模型与目标 API Schema 能够接受
-调用方提供的 JSON Schema，并对响应施加严格的 Schema 约束。
+Atualmente, Model Properties usa `supportsStructuredOutput` para descrever uma capability de saída. Esse nome é facilmente interpretado como "consegue gerar JSON", "suporta JSON mode" ou, de forma genérica, saída de texto estruturado, mas sua semântica real na cadeia de execução atual é mais estreita: o modelo e o Schema da API de destino conseguem aceitar o JSON Schema fornecido pelo chamador e impor uma restrição estrita de Schema à resposta.
 
-该字段目前既用于 Model Config 的静态事实，也用于 Runtime 在发送 `responseJsonSchema` 前判断当前 Active Model 是否具备
-对应能力。语义宽于事实的命名会让配置作者、运行时调用方和设置界面对“普通 JSON 输出”“严格 Schema 约束输出”以及
-“工具调用”产生混淆，并可能造成 Built-in Model Config 的错误声明。
+Esse campo hoje é usado tanto como fato estático do Model Config quanto pelo Runtime, antes de enviar `responseJsonSchema`, para verificar se o Active Model atual possui a capability correspondente. Um nome cuja semântica é mais ampla que o fato genera confusão entre o autor da configuração, o chamador em tempo de execução e a interface de configurações a respeito de "saída JSON comum", "saída com restrição estrita de Schema" e "tool call", e pode levar a declarações erradas em Built-in Model Config.
 
-## 目标
+## Objetivos
 
-- 为“严格按调用方提供的 JSON Schema 约束模型响应”建立准确、唯一的能力名称；
-- 让 Config、Effective Model Config、Active Model、Runtime、Adapter、Protocol、UI 和测试使用同一语义；
-- 明确区分严格 JSON Schema 输出、普通 JSON mode、提示词要求的 JSON 文本和 Tool Call；
-- 确保能力判断继续来源于当前 Active Model 的冻结 Properties，不按 Model ID、Provider 或 API Type 在运行时推断；
-- 使 Built-in 与 Personal Model Config 的作者能够根据明确契约准确声明该能力；
-- 清除旧名称造成的歧义和兼容残留，最终只保留一个权威字段。
+- Estabelecer um nome de capability preciso e único para "restringir a resposta do modelo estritamente pelo JSON Schema fornecido pelo chamador";
+- Fazer com que Config, Effective Model Config, Active Model, Runtime, Adapter, Protocol, UI e testes usem a mesma semântica;
+- Distinguir claramente a saída com JSON Schema estrito, o JSON mode comum, o texto JSON exigido por prompt e o Tool Call;
+- Garantir que a verificação da capability continue vindo das Properties congeladas do Active Model atual, sem inferência em tempo de execução por Model ID, Provider ou API Type;
+- Permitir que autores de Built-in e Personal Model Config declarem essa capability com precisão, conforme um contrato explícito;
+- Eliminar as ambiguidades e os resquícios de compatibilidade causados pelo nome antigo, restando ao final um único campo autoritativo.

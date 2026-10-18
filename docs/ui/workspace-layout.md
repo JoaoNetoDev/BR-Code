@@ -1,30 +1,30 @@
-# Workspace Layout
+# Layout do Workspace
 
-当前工作区主界面采用三段式结构：
+A interface principal do workspace atual usa uma estrutura em três partes:
 
-- 左侧固定为 `WorkspaceSidebar`
-- 右侧上方为工作区 `Header`
-- 右侧下方为主内容区
+- à esquerda, fixo, o `WorkspaceSidebar`
+- à direita em cima, o `Header` do workspace
+- à direita embaixo, a área de conteúdo principal
 
-补充约束：
+Restrições adicionais:
 
-- 侧栏显隐入口挂在 `packages/ui/src/App.tsx` 的最外层 shell，而不是放进 `WorkspaceSidebar` 内部。
-- 这样侧栏隐藏后，左上角仍然保留“重新展开”的入口，不会把恢复操作一起藏掉。
-- 该入口使用绝对定位覆盖在 shell 左上角，高度固定 `h-11`，宽度跟随按钮内容。
-- macOS 需要额外给左侧留出红绿灯安全区，避免按钮和窗口控制区重叠。
-- 展开态只显示 `PanelLeftClose`；收起态显示 `PanelLeftOpen` 和 `MessageCirclePlus`，后者直接触发新建 task。
-- `WorkspaceSidebar` 的默认宽度和可拖拽最小宽度均为 `264px`，即 256px 内容宽度加 8px 安全余量；拖拽、键盘 Home 和 `aria-valuemin` 必须共享这一边界。
-- 全局 Pinned 区只在有置顶任务或正在加载置顶任务时显示，并在列表上方使用 `taskList.pinnedSection` 作为独立标题。
-- `WorkspaceSidebar` 在每个 workspace 行右侧操作区提供文件树入口，位置在更多菜单和新建任务之间；点击后任务列表整体向左滑动，右侧滑入 `WorkspaceFileTree`。文件树实现细节见 `docs/ui/workspace-file-tree.md`。
+- A entrada de mostrar/ocultar a sidebar fica no shell mais externo de `packages/ui/src/App.tsx`, e não dentro do `WorkspaceSidebar`.
+- Assim, quando a sidebar está oculta, o canto superior esquerdo ainda mantém a entrada de "reexpandir", sem esconder junto a operação de restauração.
+- Essa entrada usa posicionamento absoluto sobreposto ao canto superior esquerdo do shell, com altura fixa `h-11` e largura seguindo o conteúdo do botão.
+- No macOS é preciso reservar adicionalmente a área segura dos semáforo à esquerda, evitando sobreposição entre o botão e a área de controle da janela.
+- No estado expandido mostra-se apenas `PanelLeftClose`; no estado recolhido mostram-se `PanelLeftOpen` e `MessageCirclePlus`, sendo que este último dispara diretamente a criação de nova task.
+- A largura padrão e a largura mínima arrastável do `WorkspaceSidebar` são ambas `264px`, ou seja 256px de largura de conteúdo mais 8px de margem de segurança; o arraste, o Home do teclado e o `aria-valuemin` precisam compartilhar esse limite.
+- A seção global Pinned só aparece quando há tasks fixadas ou quando elas estão sendo carregadas, usando `taskList.pinnedSection` como título independente acima da lista.
+- O `WorkspaceSidebar` oferece uma entrada para a árvore de arquivos na área de ações à direita de cada linha de workspace, posicionada entre o menu de mais ações e a criação de nova task; ao clicar, a lista de tasks desliza inteira para a esquerda e a `WorkspaceFileTree` entra deslizando pelo lado direito. Os detalhes de implementação da árvore de arquivos estão em `docs/ui/workspace-file-tree.md`.
 
-主内容区再拆成上下两层：
+A área de conteúdo principal é dividida em duas camadas, uma em cima da outra:
 
-- 上层为双列布局：左边 `Conversation`，右边 `Browser`
-- 下层为横跨整行的 `Terminal`
+- a camada superior usa layout de duas colunas: `Conversation` à esquerda e `Browser` à direita
+- a camada inferior é o `Terminal`, ocupando a linha inteira
 
-布局原则：
+Princípios de layout:
 
-- `Header` 只属于右侧工作区区域，不再和左侧 `WorkspaceSidebar` 混排
-- `Browser` 打开后占据上层右侧独立列，不再和 `Terminal` 争夺底部空间
-- `Terminal` 独立位于底部整行，和上层内容区之间支持纵向拖拽
-- `PreviewPane` 仍作为最外层附加面板存在，避免和 `Browser` 的职责重叠
+- O `Header` pertence apenas à área do workspace à direita e não é mais misturado com o `WorkspaceSidebar` à esquerda
+- Depois de aberto, o `Browser` ocupa a coluna independente à direita da camada superior e não disputa mais espaço inferior com o `Terminal`
+- O `Terminal` fica isolado na linha inferior completa e suporta arraste vertical em relação à área de conteúdo superior
+- O `PreviewPane` continua existindo como painel adicional do nível mais externo, evitando sobreposição de responsabilidades com o `Browser`

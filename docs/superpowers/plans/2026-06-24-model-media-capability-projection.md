@@ -1,70 +1,70 @@
-# Model Media Capability Projection Implementation Plan
+# Plano de Implementação da Projeção de Capacidade de Mídia do Modelo
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 对于明确不支持图片或媒体输入的模型，在最终 provider-visible request 构造前把媒体内容替换成稳定的文字占位，避免后续请求因历史图片或 tool 图片反复 400。
+**Objetivo:** para modelos que explicitamente não suportam entrada de imagem ou mídia, substituir o conteúdo de mídia por um placeholder de texto estável antes da construção final da requisição visível ao provider, evitando que requisições seguintes falhem com 400 por conta de imagens históricas ou imagens de tool.
 
-**Architecture:** 不在发送图片、拖拽图片、Read/Bash/MCP tool 输出等入口分支做限制；真实 session history 保留原始媒体，provider-visible messages 在 core runtime 最后一跳投影成文字。adapter 侧继续保留第二道兜底，确保绕过 core 的调用也不会把明确 unsupported media 发给 AI SDK provider。
+**Arquitetura:** não impor restrições nos ramos de entrada como enviar imagem, arrastar imagem ou saída de tool Read/Bash/MCP; o histórico real da session preserva a mídia original, e as mensagens visíveis ao provider são projetadas em texto no último salto do core runtime. O lado do adapter mantém uma segunda barreira de segurança, garantindo que chamadas que contornem o core também não enviem mídia explicitamente não suportada ao provider do AI SDK.
 
-**Tech Stack:** TypeScript, `@zcode/core` runtime, `@zcode/adapters` AI SDK adapter, `@zcode/contracts` model catalog/protocol schemas, Vitest, pnpm.
+**Stack técnico:** TypeScript, runtime de `@zcode/core`, adapter do AI SDK de `@zcode/adapters`, schemas de catálogo de modelo/protocolo de `@zcode/contracts`, Vitest, pnpm.
 
-## Global Constraints
+## Restrições Globais
 
-- 执行时不得自动提交 commit，除非用户明确要求。
-- 修复 bug 时需要留下中文注释，说明问题原因和为什么这么修。
-- 不修改 UI 入口行为，不禁止用户发送、拖拽或通过 tool 产生媒体。
-- 不把真实 session history 永久文本化；只影响 provider-visible request、model-io 和轨迹里的请求体。
-- 能力判断必须使用三态语义：`true` 表示明确支持，`false` 表示明确不支持，`undefined` 表示未知且不剥离，避免误伤自定义 vision provider。
-- 日志走 `debug`，不得记录 data URL 或媒体 payload。
-- 修改完成后必须执行 `pnpm typecheck` 和 `pnpm lint`；若耗时或环境阻塞，最终说明未验证项。
-
----
-
-## Current Root Cause
-
-当前实现有两段能力，但没有接成闭环：
-
-- `apps/zcode-cli/packages/core/src/runtime/helpers/media-budget.ts` 只按请求体字节预算剥离历史媒体，默认保护最新 user media，不知道当前模型是否支持图片。
-- `apps/zcode-cli/packages/adapters/src/model/transform.ts` 已经支持 `supportsImages` / `supportsPdf` / `stripMedia`，但 `apps/zcode-cli/packages/adapters/src/model/runner-options.ts` 调 `toAiSdkMessages` 时没有把 resolved model capability 传入。
-- `apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts` 动态切模型只刷新 `contextWindow`、`maxOutputTokens` 和 `modelProviderOptions`，没有刷新媒体输入能力。
-- `ModelCapability.supportsImages` 是 boolean；直接读合并后的 capability 会把部分“未声明能力”的自定义模型误判为 false。
+- Não fazer commit automaticamente durante a execução, a menos que o usuário solicite explicitamente.
+- Ao corrigir bugs, deixar comentários em chinês explicando a causa do problema e por que a correção é essa.
+- Não alterar o comportamento das entradas de UI, nem proibir o usuário de enviar, arrastar ou gerar mídia por tool.
+- Não textualizar permanentemente o histórico real da session; o impacto é apenas na requisição visível ao provider, no model-io e no corpo da requisição registrado na trilha.
+- A verificação de capacidade precisa usar semântica de três estados: `true` significa suporte explícito, `false` significa não suportado explicitamente, `undefined` significa desconhecido e portanto sem remoção, evitando atingir providers de visão customizados por engano.
+- Os logs usam `debug` e não podem registrar data URL nem payload de mídia.
+- Após a modificação é obrigatório executar `pnpm typecheck` e `pnpm lint`; se for demorado ou o ambiente bloquear, relatar ao final os itens não verificados.
 
 ---
 
-## File Structure
+## Causa Raiz Atual
+
+A implementação atual tem duas etapas de capacidade, mas não as conecta em um ciclo fechado:
+
+- `apps/zcode-cli/packages/core/src/runtime/helpers/media-budget.ts` só remove mídia histórica com base no orçamento de bytes do corpo da requisição, protegendo por padrão a mídia mais recente do usuário, e não sabe se o modelo atual suporta imagens.
+- `apps/zcode-cli/packages/adapters/src/model/transform.ts` já suporta `supportsImages` / `supportsPdf` / `stripMedia`, mas `apps/zcode-cli/packages/adapters/src/model/runner-options.ts` não passa a capacidade do modelo resolvida ao chamar `toAiSdkMessages`.
+- `apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts` na troca dinâmica de modelo só atualiza `contextWindow`, `maxOutputTokens` e `modelProviderOptions`, sem atualizar a capacidade de entrada de mídia.
+- `ModelCapability.supportsImages` é booleano; ler diretamente a capability mesclada pode classificar incorretamente como false modelos customizados que apenas não declaram a capacidade.
+
+---
+
+## Estrutura de Arquivos
 
 - Create: `apps/zcode-cli/packages/core/src/runtime/helpers/media-capability.ts`
-  - 负责 provider request 的媒体能力投影、占位文本生成、debug 日志上下文。
+  - Responsável pela projeção de capacidade de mídia da requisição ao provider, geração do texto placeholder e contexto de log debug.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`
-  - 导出 media capability helper。
+  - Exporta o helper de capacidade de mídia.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/types.ts`
-  - 在 `AgentRuntimeConfig` 增加当前模型输入媒体能力。
+  - Adiciona a capacidade de mídia de entrada do modelo atual em `AgentRuntimeConfig`.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
-  - `updateConfig` 支持动态刷新媒体能力。
+  - `updateConfig` passa a suportar a atualização dinâmica da capacidade de mídia.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/model.ts`
-  - 在 `projectMessagesForMediaBudget` 之前应用 capability projection。
+  - Aplica a projeção de capacidade antes de `projectMessagesForMediaBudget`.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`
-  - compact request 保持 text-only；可复用 capability projection 但最终仍由 `maxMediaBytes: 0` 保证无媒体。
+  - A requisição de compact continua apenas com texto; pode reutilizar a projeção de capacidade, mas no fim `maxMediaBytes: 0` garante a ausência de mídia.
 - Modify: `apps/zcode-cli/packages/contracts/src/model/catalog.ts`
-  - 扩展 catalog override/capability 的 PDF 输入能力字段。
+  - Expande o campo de capacidade de entrada em PDF do override/capability do catálogo.
 - Modify: `packages/shared/src/zcode-protocol/index.ts`
-  - 如 UI 或远程协议需要展示/传递 PDF 能力，补充 optional schema 字段。
+  - Se a UI ou o protocolo remoto precisar exibir/transmitir a capacidade de PDF, acrescenta o campo opcional de schema.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/app/model-selection.ts`
-  - 增加 `resolveRuntimeModelInputCapabilities`，用三态解析当前模型媒体能力。
+  - Acrescenta `resolveRuntimeModelInputCapabilities`, resolvendo a capacidade de mídia do modelo atual com três estados.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts`
-  - 初始化 runtime 时注入当前主模型媒体能力。
+  - Injeta a capacidade de mídia do modelo principal atual ao inicializar o runtime.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts`
-  - `setModel` 时同步刷新 runtime 媒体能力。
+  - Atualiza a capacidade de mídia do runtime de forma sincronizada ao usar `setModel`.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`
-  - provider catalog 热更新影响当前模型时，同步刷新媒体能力。
+  - Atualiza a capacidade de mídia de forma sincronizada quando a atualização a quente do catálogo do provider afeta o modelo atual.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/model-config.ts`
-  - 创建 AI SDK registry config 时携带模型媒体能力索引。
+  - Carrega o índice de capacidade de mídia dos modelos ao criar a config de registry do AI SDK.
 - Modify: `apps/zcode-cli/packages/adapters/src/model/registry.ts`
-  - `AiSdkResolvedModel` 增加 `inputMediaCapabilities`。
+  - `AiSdkResolvedModel` ganha `inputMediaCapabilities`.
 - Modify: `apps/zcode-cli/packages/adapters/src/model/runner-options.ts`
-  - 把 resolved media capability 传给 `toAiSdkMessages`。
+  - Passa a capacidade de mídia resolvida para `toAiSdkMessages`.
 - Modify: `apps/zcode-cli/packages/adapters/src/model/transform.ts`
-  - 把 unsupported media 的兜底文本改为中性占位，不诱导模型每轮道歉。
+  - Muda o texto de fallback da mídia não suportada para um placeholder neutro, sem induzir o modelo a pedir desculpas a cada turno.
 - Test: `apps/zcode-cli/packages/core/tests/media-capability.test.ts`
 - Test: `apps/zcode-cli/packages/core/tests/media-budget.test.ts`
 - Test: `apps/zcode-cli/packages/adapters/tests/model-transform.test.ts`
@@ -75,9 +75,9 @@
 
 ---
 
-### Task 1: Add Core Media Capability Projection
+### Tarefa 1: Adicionar a Projeção de Capacidade de Mídia no Core
 
-**Files:**
+**Arquivos:**
 - Create: `apps/zcode-cli/packages/core/src/runtime/helpers/media-capability.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`
 - Test: `apps/zcode-cli/packages/core/tests/media-capability.test.ts`
@@ -112,9 +112,9 @@
   ```
 - Consumes: `modelMessageContentToText`, `traceContextToLogContext`, `ModelInputMessage`, `ModelMessageContentBlock`.
 
-- [ ] **Step 1: Write failing tests**
+- [ ] **Passo 1: Escrever testes falhando**
 
-  Add `apps/zcode-cli/packages/core/tests/media-capability.test.ts` with cases:
+  Adicionar `apps/zcode-cli/packages/core/tests/media-capability.test.ts` com os casos:
 
   ```ts
   import { describe, expect, it } from "vitest";
@@ -196,51 +196,51 @@
   });
   ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [ ] **Passo 2: Executar os testes e verificar que falham**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/core exec vitest run tests/media-capability.test.ts
   ```
 
-  Expected: fail because `media-capability.ts` does not exist.
+  Esperado: falha porque `media-capability.ts` não existe.
 
-- [ ] **Step 3: Implement helper**
+- [ ] **Passo 3: Implementar o helper**
 
-  Implement the exported interfaces and functions in `media-capability.ts`.
+  Implementar as interfaces e funções exportadas em `media-capability.ts`.
 
-  Required behavior:
-  - If `capabilities?.supportsImages === false`, replace every `image` block with a text block.
-  - If `capabilities?.supportsPdf === false`, replace `file` blocks whose `mediaType` is `application/pdf` and whose provider-visible payload is `dataUrl` without extracted `text`.
-  - If capability is `true` or `undefined`, keep media unchanged.
-  - Clone only when a block changes; return original `messages` array when no media is omitted.
-  - Preserve `toolCalls` and `cacheControl` by shallow clone only when message content changes.
-  - Use Chinese code comments only for non-obvious bugfix rationale.
+  Comportamento obrigatório:
+  - Se `capabilities?.supportsImages === false`, substituir todo bloco `image` por um bloco de texto.
+  - Se `capabilities?.supportsPdf === false`, substituir blocos `file` cujo `mediaType` é `application/pdf` e cujo payload visível ao provider é `dataUrl` sem `text` extraído.
+  - Se a capacidade for `true` ou `undefined`, manter a mídia sem alterações.
+  - Clonar apenas quando algum bloco mudar; devolver o array `messages` original quando nenhuma mídia for omitida.
+  - Preservar `toolCalls` e `cacheControl` com shallow clone somente quando o conteúdo da mensagem mudar.
+  - Usar comentários de código em chinês apenas para a justificativa de correções de bug não óbvias.
 
-- [ ] **Step 4: Export helper**
+- [ ] **Passo 4: Exportar o helper**
 
-  Add this line to `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`:
+  Adicionar esta linha em `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`:
 
   ```ts
   export * from "./media-capability.js";
   ```
 
-- [ ] **Step 5: Run focused tests**
+- [ ] **Passo 5: Executar os testes focados**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/core exec vitest run tests/media-capability.test.ts
   ```
 
-  Expected: all tests pass.
+  Esperado: todos os testes passam.
 
 ---
 
-### Task 2: Apply Projection in Runtime Provider Requests
+### Tarefa 2: Aplicar a Projeção nas Requisições do Provider no Runtime
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/src/runtime/types.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/model.ts`
@@ -251,9 +251,9 @@
 - Consumes: `ModelInputMediaCapabilities`, `projectMessagesForMediaCapabilities`, `logMediaCapabilityProjection`.
 - Produces: `AgentRuntimeConfig.modelInputMediaCapabilities?: ModelInputMediaCapabilities`.
 
-- [ ] **Step 1: Write failing runtime tests**
+- [ ] **Passo 1: Escrever testes de runtime falhando**
 
-  Extend `apps/zcode-cli/packages/core/tests/media-budget.test.ts` with:
+  Estender `apps/zcode-cli/packages/core/tests/media-budget.test.ts` com:
 
   ```ts
   it("textifies current user media for text-only models before applying media budget", async () => {
@@ -322,29 +322,29 @@
   });
   ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [ ] **Passo 2: Executar os testes e verificar que falham**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/core exec vitest run tests/media-budget.test.ts
   ```
 
-  Expected: TypeScript or runtime failure because `modelInputMediaCapabilities` is not defined and projection is not applied.
+  Esperado: falha de TypeScript ou de runtime porque `modelInputMediaCapabilities` não está definido e a projeção não é aplicada.
 
-- [ ] **Step 3: Add runtime config field**
+- [ ] **Passo 3: Adicionar o campo de config do runtime**
 
-  In `apps/zcode-cli/packages/core/src/runtime/types.ts`, import or re-export the capability type and add:
+  Em `apps/zcode-cli/packages/core/src/runtime/types.ts`, importar ou reexportar o tipo de capacidade e adicionar:
 
   ```ts
   modelInputMediaCapabilities?: ModelInputMediaCapabilities;
   ```
 
-  to `AgentRuntimeConfig`.
+  a `AgentRuntimeConfig`.
 
-- [ ] **Step 4: Allow dynamic config refresh**
+- [ ] **Passo 4: Permitir atualização dinâmica de config**
 
-  In `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`, include `"modelInputMediaCapabilities"` in the `Pick<AgentRuntimeConfig, ...>` union and apply:
+  Em `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`, incluir `"modelInputMediaCapabilities"` na união `Pick<AgentRuntimeConfig, ...>` e aplicar:
 
   ```ts
   if ("modelInputMediaCapabilities" in patch) {
@@ -352,9 +352,9 @@
   }
   ```
 
-- [ ] **Step 5: Apply projection before budget in `runModelTextRequest`**
+- [ ] **Passo 5: Aplicar a projeção antes do orçamento em `runModelTextRequest`**
 
-  In `apps/zcode-cli/packages/core/src/runtime/methods/model.ts`, change the request projection order to:
+  Em `apps/zcode-cli/packages/core/src/runtime/methods/model.ts`, mudar a ordem de projeção da requisição para:
 
   ```ts
   const capabilityProjection = projectMessagesForMediaCapabilities(
@@ -371,27 +371,27 @@
   });
   ```
 
-  Then derive `projectedOptions` from `mediaProjection.messages`, not from raw `options.messages`.
+  Depois, derivar `projectedOptions` a partir de `mediaProjection.messages`, e não de `options.messages` cru.
 
-- [ ] **Step 6: Keep compact request text-only**
+- [ ] **Passo 6: Manter a requisição de compact apenas com texto**
 
-  In `compact-active.ts`, leave the existing `projectMessagesForMediaBudget(..., { maxMediaBytes: 0, preserveLatestUserMedia: false })` behavior. Optionally apply capability projection before it for consistent logs; do not weaken the compact all-media stripping behavior.
+  Em `compact-active.ts`, manter o comportamento existente de `projectMessagesForMediaBudget(..., { maxMediaBytes: 0, preserveLatestUserMedia: false })`. Opcionalmente aplicar a projeção de capacidade antes dele para manter os logs consistentes; não enfraquecer a remoção de toda a mídia do compact.
 
-- [ ] **Step 7: Run focused core tests**
+- [ ] **Passo 7: Executar os testes focados do core**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/core exec vitest run tests/media-capability.test.ts tests/media-budget.test.ts
   ```
 
-  Expected: all tests pass.
+  Esperado: todos os testes passam.
 
 ---
 
-### Task 3: Resolve Runtime Capabilities from Model Catalog
+### Tarefa 3: Resolver as Capacidades de Runtime a Partir do Catálogo de Modelos
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/contracts/src/model/catalog.ts`
 - Modify: `packages/shared/src/zcode-protocol/index.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/app/model-selection.ts`
@@ -409,11 +409,11 @@
     modelCatalog: ModelCatalogConfig,
   ): ModelInputMediaCapabilities | undefined;
   ```
-- Consumes: `modelCatalog.overrides`, deterministic default policy for known model families, protocol model metadata.
+- Consumes: `modelCatalog.overrides`, política default determinística para famílias de modelos conhecidas, metadados de modelo do protocolo.
 
-- [ ] **Step 1: Write failing model-selection tests**
+- [ ] **Passo 1: Escrever testes falhando de model-selection**
 
-  Add cases to `apps/zcode-cli/packages/bootstrap/tests/model-selection.test.ts`:
+  Adicionar casos em `apps/zcode-cli/packages/bootstrap/tests/model-selection.test.ts`:
 
   ```ts
   it("resolves explicit text-only image capability as false", () => {
@@ -444,50 +444,50 @@
   });
   ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [ ] **Passo 2: Executar os testes e verificar que falham**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/bootstrap exec vitest run tests/model-selection.test.ts
   ```
 
-  Expected: fail because `resolveRuntimeModelInputCapabilities` does not exist.
+  Esperado: falha porque `resolveRuntimeModelInputCapabilities` não existe.
 
-- [ ] **Step 3: Extend contracts for PDF capability**
+- [ ] **Passo 3: Estender os contracts para a capacidade de PDF**
 
-  In `apps/zcode-cli/packages/contracts/src/model/catalog.ts`, add optional PDF support fields:
+  Em `apps/zcode-cli/packages/contracts/src/model/catalog.ts`, adicionar os campos opcionais de suporte a PDF:
 
   ```ts
   supportsPdf?: boolean;
   ```
 
-  to `ModelCapabilityOverride` and `ModelCapability`. Keep it optional to avoid changing existing catalog records.
+  a `ModelCapabilityOverride` e a `ModelCapability`. Mantê-los opcionais para não alterar registros de catálogo existentes.
 
-- [ ] **Step 4: Extend protocol schema only as optional metadata**
+- [ ] **Passo 4: Estender o schema do protocolo apenas como metadado opcional**
 
-  In `packages/shared/src/zcode-protocol/index.ts`, add optional `supportsPdf: z.boolean().optional()` next to existing `supportsImages` fields if model list consumers need to surface it. This must stay optional for backward compatibility.
+  Em `packages/shared/src/zcode-protocol/index.ts`, adicionar `supportsPdf: z.boolean().optional()` ao lado dos campos `supportsImages` existentes, caso os consumidores da lista de modelos precisem exibi-lo. Isso precisa continuar opcional por compatibilidade retroativa.
 
-- [ ] **Step 5: Implement tri-state resolver**
+- [ ] **Passo 5: Implementar o resolver de três estados**
 
-  In `model-selection.ts`, implement `resolveRuntimeModelInputCapabilities` so it:
-  - returns `undefined` when `modelRef` is undefined;
-  - reads `modelCatalog.overrides["provider/model"].supportsImages` and `.supportsPdf` first;
-  - falls back only to deterministic defaults for known models;
-  - never converts absent custom capability into `false`.
+  Em `model-selection.ts`, implementar `resolveRuntimeModelInputCapabilities` de modo que ele:
+  - devolva `undefined` quando `modelRef` for undefined;
+  - leia primeiro `modelCatalog.overrides["provider/model"].supportsImages` e `.supportsPdf`;
+  - só recorra a defaults determinísticos para modelos conhecidos;
+  - nunca converta uma capacidade customizada ausente em `false`.
 
-- [ ] **Step 6: Inject capability during runtime bootstrap**
+- [ ] **Passo 6: Injetar a capacidade durante o bootstrap do runtime**
 
-  In `runtime-config.ts`, set:
+  Em `runtime-config.ts`, definir:
 
   ```ts
   modelInputMediaCapabilities: options.runtimeConfig?.modelInputMediaCapabilities ??
     resolveRuntimeModelInputCapabilities(initialModelRef, configResult.config.modelCatalog),
   ```
 
-- [ ] **Step 7: Refresh capability when session model changes**
+- [ ] **Passo 7: Atualizar a capacidade quando o modelo da session muda**
 
-  In `session-facade.ts` `setModel`, include:
+  Em `session-facade.ts`, no `setModel`, incluir:
 
   ```ts
   modelInputMediaCapabilities: resolveRuntimeModelInputCapabilities(
@@ -496,27 +496,27 @@
   ),
   ```
 
-  in the `deps.runtime.updateConfig(...)` patch.
+  no patch de `deps.runtime.updateConfig(...)`.
 
-- [ ] **Step 8: Refresh capability when workspace catalog metadata changes**
+- [ ] **Passo 8: Atualizar a capacidade quando os metadados do catálogo do workspace mudam**
 
-  In `workspace-model-catalog.ts`, update the helper currently returning `contextWindow` and `maxOutputTokens` to also return `modelInputMediaCapabilities`. The existing `record.app.runtime.updateConfig(modelLimits)` call should then refresh all three fields together.
+  Em `workspace-model-catalog.ts`, fazer o helper que hoje devolve `contextWindow` e `maxOutputTokens` devolver também `modelInputMediaCapabilities`. A chamada existente `record.app.runtime.updateConfig(modelLimits)` passa então a atualizar os três campos juntos.
 
-- [ ] **Step 9: Run bootstrap tests**
+- [ ] **Passo 9: Executar os testes do bootstrap**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/bootstrap exec vitest run tests/model-selection.test.ts tests/runtime-config.test.ts
   ```
 
-  Expected: all tests pass.
+  Esperado: todos os testes passam.
 
 ---
 
-### Task 4: Wire Adapter-Side Capability Guard
+### Tarefa 4: Conectar a Guarda de Capacidade no Lado do Adapter
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/bootstrap/src/model-config.ts`
 - Modify: `apps/zcode-cli/packages/adapters/src/model/registry.ts`
 - Modify: `apps/zcode-cli/packages/adapters/src/model/runner-options.ts`
@@ -542,11 +542,11 @@
     inputMediaCapabilities?: AiSdkModelInputMediaCapabilities;
   }
   ```
-- Consumes: capability resolver from bootstrap/model-selection or equivalent local registry config input.
+- Consumes: resolver de capacidade de bootstrap/model-selection ou entrada equivalente de config de registry local.
 
-- [ ] **Step 1: Write failing adapter tests**
+- [ ] **Passo 1: Escrever testes falhando do adapter**
 
-  In `model-transform.test.ts`, change the unsupported image expectation to neutral text:
+  Em `model-transform.test.ts`, mudar a expectativa de imagem não suportada para texto neutro:
 
   ```ts
   expect((messages[0] as any).content).toEqual([
@@ -557,7 +557,7 @@
   ]);
   ```
 
-  In `model-transform-tool-media.test.ts`, add:
+  Em `model-transform-tool-media.test.ts`, adicionar:
 
   ```ts
   it("does not project OpenAI-compatible tool images when images are explicitly unsupported", () => {
@@ -587,98 +587,98 @@
   });
   ```
 
-- [ ] **Step 2: Run tests and verify expected failures**
+- [ ] **Passo 2: Executar os testes e verificar as falhas esperadas**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/adapters exec vitest run tests/model-transform.test.ts tests/model-transform-tool-media.test.ts
   ```
 
-  Expected: unsupported image test fails due current `ERROR: Cannot read...` text.
+  Esperado: o teste de imagem não suportada falha por causa do texto atual `ERROR: Cannot read...`.
 
-- [ ] **Step 3: Add registry capability field**
+- [ ] **Passo 3: Adicionar o campo de capacidade no registry**
 
-  In `registry.ts`, extend registry config and resolved model with `inputMediaCapabilities`. Store the record in `AiSdkModelRegistry` and include the resolved value based on `formatModelRef(ref)` or `"provider/model"` key.
+  Em `registry.ts`, estender a config do registry e o modelo resolvido com `inputMediaCapabilities`. Armazenar o registro em `AiSdkModelRegistry` e incluir o valor resolvido com base em `formatModelRef(ref)` ou na chave `"provider/model"`.
 
-- [ ] **Step 4: Pass capability into AI SDK message transform**
+- [ ] **Passo 4: Passar a capacidade para a transformação de mensagens do AI SDK**
 
-  In `runner-options.ts`, pass:
+  Em `runner-options.ts`, passar:
 
   ```ts
   supportsImages: input.resolved.inputMediaCapabilities?.supportsImages,
   supportsPdf: input.resolved.inputMediaCapabilities?.supportsPdf,
   ```
 
-  to `toAiSdkMessages` in both `createGenerateTextOptions` and `createStreamTextOptions`.
+  para `toAiSdkMessages`, tanto em `createGenerateTextOptions` quanto em `createStreamTextOptions`.
 
-- [ ] **Step 5: Neutralize adapter fallback wording**
+- [ ] **Passo 5: Neutralizar a redação do fallback do adapter**
 
-  In `transform.ts`, replace unsupported image/PDF `ERROR` strings with the same neutral omission text as core. This keeps adapter behavior aligned if core is bypassed.
+  Em `transform.ts`, substituir as strings `ERROR` de imagem/PDF não suportada pelo mesmo texto neutro de omissão usado no core. Isso mantém o comportamento do adapter alinhado caso o core seja contornado.
 
-- [ ] **Step 6: Keep tool media projection bounded**
+- [ ] **Passo 6: Manter a projeção de mídia de tool limitada**
 
-  In `tool-result-media-projection.ts`, preserve current behavior where `supportsImages === false` does not add follow-up image parts. Ensure the textual tool result remains available via `modelMessageContentToText`.
+  Em `tool-result-media-projection.ts`, preservar o comportamento atual em que `supportsImages === false` não adiciona partes de imagem adicionais. Garantir que o resultado textual da tool continue disponível via `modelMessageContentToText`.
 
-- [ ] **Step 7: Wire registry config from bootstrap**
+- [ ] **Passo 7: Conectar a config do registry a partir do bootstrap**
 
-  In `model-config.ts`, add a `modelCatalog?: ModelCatalogConfig` option to `CreateAiSdkModelRegistryConfigOptions`. Build `inputMediaCapabilities` for `main`, `lite`, and `available` targets using the same tri-state resolver. Do not put this data into providerOptions.
+  Em `model-config.ts`, adicionar a opção `modelCatalog?: ModelCatalogConfig` em `CreateAiSdkModelRegistryConfigOptions`. Construir `inputMediaCapabilities` para os alvos `main`, `lite` e `available` usando o mesmo resolver de três estados. Não colocar esses dados em providerOptions.
 
-- [ ] **Step 8: Run adapter/bootstrap focused tests**
+- [ ] **Passo 8: Executar os testes focados do adapter/bootstrap**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/adapters exec vitest run tests/model-transform.test.ts tests/model-transform-tool-media.test.ts
   pnpm --filter @zcode/bootstrap exec vitest run tests/model-config.test.ts
   ```
 
-  Expected: all tests pass.
+  Esperado: todos os testes passam.
 
 ---
 
-### Task 5: End-to-End Request Shape Verification
+### Tarefa 5: Verificação de ponta a ponta do Formato da Requisição
 
-**Files:**
+**Arquivos:**
 - Modify if needed: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
 - Modify if needed: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
 
 **Interfaces:**
-- Consumes: runtime projection from Task 2 and catalog capability from Task 3.
-- Produces: test evidence that user attachment media and tool-result media both disappear from text-only provider requests.
+- Consumes: projeção de runtime da Tarefa 2 e capacidade de catálogo da Tarefa 3.
+- Produces: evidência de teste de que a mídia de anexo do usuário e a mídia de resultado de tool somem das requisições de provider apenas com texto.
 
-- [ ] **Step 1: Add a tool-loop regression**
+- [ ] **Passo 1: Adicionar uma regressão de tool-loop**
 
-  Extend `runtime-tool-loop.test.ts` or add a focused test that:
-  - creates runtime with `modelInputMediaCapabilities: { supportsImages: false }`;
-  - makes a tool return an image block;
-  - lets the next model request happen;
-  - asserts the next model request has no `image` content block and contains the neutral omission text.
+  Estender `runtime-tool-loop.test.ts` ou adicionar um teste focado que:
+  - crie o runtime com `modelInputMediaCapabilities: { supportsImages: false }`;
+  - faça uma tool retornar um bloco de imagem;
+  - deixe a próxima requisição de modelo acontecer;
+  - verifique que a próxima requisição de modelo não tem bloco de conteúdo `image` e contém o texto neutro de omissão.
 
-- [ ] **Step 2: Add trace/log regression if existing trace helper makes it cheap**
+- [ ] **Passo 2: Adicionar regressão de trace/log, se o helper de trace existente tornar isso barato**
 
-  Extend `runtime-trace.test.ts` to assert the debug event contains counts such as `omittedImageCount: 1` and does not contain the data URL.
+  Estender `runtime-trace.test.ts` para verificar que o evento debug contém contagens como `omittedImageCount: 1` e não contém a data URL.
 
-- [ ] **Step 3: Run core regressions**
+- [ ] **Passo 3: Executar as regressões do core**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/core exec vitest run tests/runtime-tool-loop.test.ts tests/runtime-trace.test.ts
   ```
 
-  Expected: all tests pass.
+  Esperado: todos os testes passam.
 
 ---
 
-### Task 6: Full Validation
+### Tarefa 6: Validação Completa
 
-**Files:**
-- No source files expected unless previous tasks expose integration failures.
+**Arquivos:**
+- Nenhum arquivo de código esperado, a menos que tarefas anteriores exponham falhas de integração.
 
-- [ ] **Step 1: Run package-focused tests**
+- [ ] **Passo 1: Executar os testes focados de pacote**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm --filter @zcode/core exec vitest run tests/media-capability.test.ts tests/media-budget.test.ts tests/runtime-tool-loop.test.ts tests/runtime-trace.test.ts
@@ -686,28 +686,28 @@
   pnpm --filter @zcode/bootstrap exec vitest run tests/model-selection.test.ts tests/model-config.test.ts tests/runtime-config.test.ts
   ```
 
-  Expected: all listed tests pass.
+  Esperado: todos os testes listados passam.
 
-- [ ] **Step 2: Run mandatory repository checks**
+- [ ] **Passo 2: Executar as verificações obrigatórias do repositório**
 
-  Run:
+  Executar:
 
   ```bash
   pnpm typecheck
   pnpm lint
   ```
 
-  Expected: both commands exit 0.
+  Esperado: ambos os comandos saem com código 0.
 
-- [ ] **Step 3: Manual request-shape smoke test**
+- [ ] **Passo 3: Smoke test manual do formato da requisição**
 
-  Use a model config entry with explicit `supportsImages: false`, send a user image, then inspect model-io/debug trajectory. Expected provider-visible request contains the neutral text omission and no image/file media payload.
+  Usar uma entrada de config de modelo com `supportsImages: false` explícito, enviar uma imagem do usuário e então inspecionar o model-io / a trilha de debug. Espera-se que a requisição visível ao provider contenha a omissão neutra em texto e nenhum payload de mídia de imagem/arquivo.
 
-- [ ] **Step 4: Summarize residual risk**
+- [ ] **Passo 4: Resumir o risco residual**
 
-  Final implementation summary must state:
-  - media entry points remain unchanged;
-  - raw session history remains unchanged;
-  - provider-visible requests are sanitized only when capability is explicitly false;
-  - unknown custom models keep prior behavior;
-  - whether `pnpm typecheck` and `pnpm lint` passed.
+  O resumo final da implementação precisa declarar:
+  - os pontos de entrada de mídia permanecem inalterados;
+  - o histórico bruto da session permanece inalterado;
+  - as requisições visíveis ao provider são higienizadas somente quando a capacidade é explicitamente false;
+  - modelos customizados desconhecidos mantêm o comportamento anterior;
+  - se `pnpm typecheck` e `pnpm lint` passaram.

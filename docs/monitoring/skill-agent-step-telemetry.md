@@ -1,26 +1,27 @@
-# Skill `agent_step` telemetry
+# Telemetry de `agent_step` para Skills
 
-## 目标
+## Objetivo
 
-在保留现有 `agent_step` 计数、时序和工具归因口径的前提下，识别一次
-`Skill` tool call 实际加载的是哪个 skill，以及它来自哪个 plugin/source。
+Preservando a contagem, a cronologia e a atribuição de ferramentas existentes de `agent_step`, identificar qual skill
+uma chamada de ferramenta `Skill` realmente carregou e de qual plugin/source ela veio.
 
-本改动不新增 skill description step，也不把 SKILL.md 正文或 description 写入高频
-`agent_step` 事件。
+Esta alteração não adiciona um step de descrição de skill nem grava o corpo do SKILL.md ou a description no evento de
+alta frequência `agent_step`.
 
-## 字段
+## Campos
 
-仅在现有 `tool_name=Skill` 的 `agent_step.event_extra_detail` 中按需增加：
+Adicionados sob demanda apenas no `agent_step.event_extra_detail` dos `tool_name=Skill` existentes:
 
-| 字段                   | 说明                                                          | 来源                                  |
+| Campo                 | Descrição                                                     | Origem                                |
 | ---------------------- | ------------------------------------------------------------- | ------------------------------------- |
-| `skill_qualified_name` | 规范化 skill 名，例如 `document-skills:pptx`                  | `SkillContent.metadata.qualifiedName` |
-| `skill_plugin_id`      | 完整 plugin id，例如 `document-skills@zcode-plugins-official` | `LoadedPlugin.id`                     |
-| `skill_source`         | 现有 `SkillSource` 枚举值                                     | `SkillContent.metadata.source`        |
+| `skill_qualified_name` | Nome de skill normalizado, por exemplo `document-skills:pptx` | `SkillContent.metadata.qualifiedName` |
+| `skill_plugin_id`      | plugin id completo, por exemplo `document-skills@zcode-plugins-official` | `LoadedPlugin.id`                     |
+| `skill_source`         | Valor do enum `SkillSource` existente                         | `SkillContent.metadata.source`        |
 
-三个字段都可选；metadata 缺失时省略，不根据名字字符串猜测来源。
+Os três campos são opcionais; quando falta metadata, o campo é omitido e a origem não é adivinhada a partir de
+strings de nome.
 
-## 数据链路
+## Cadeia de dados
 
 ```text
 ToolCallScheduled(Skill)
@@ -35,20 +36,21 @@ tool.lifecycle fact
 existing agent_step finalization
 ```
 
-Skill metadata 作为 session event 的 telemetry-only 数据传播，不进入模型可见的
-tool result content 或错误正文。若 Skill 已完成解析、但后续 serialize/post_hook 阶段失败，
-metadata 通过 `ToolCallError` 保留到最终失败的 `agent_step`。
+O metadata de Skill se propaga como dado telemetry-only do session event, sem entrar no conteúdo de tool result visível
+ao modelo nem no corpo de erros. Se a Skill já foi resolvida mas uma etapa posterior de serialize/post_hook falhar, o
+metadata é preservado via `ToolCallError` até o `agent_step` de falha final.
 
-## 边界与不变量
+## Limites e invariantes
 
-- `tool_name !== "Skill"` 的 step 不得包含任何 `skill_*` 字段。
-- document、CUA、BUA 等流程产生的 Bash/MCP step 不继承 Skill metadata。
-- 如果 CUA/BUA 流程自身调用 `Skill`，只有该 `Skill` step 写入对应字段。
-- 不新增 step，因此 `agent_step_cnt`、`loop_index`、耗时和 token 口径保持不变。
-- 官方 bundled plugin 当前通过 plugin root 暴露，`skill_source` 仍报告为 `plugin`，
-  `skill_plugin_id` 使用真实 marketplace id；不擅自改成 `bundled`。
+- steps com `tool_name !== "Skill"` não podem conter nenhum campo `skill_*`.
+- steps de Bash/MCP gerados por fluxos como document, CUA e BUA não herdam metadata de Skill.
+- se um fluxo CUA/BUA chamar `Skill` por conta própria, apenas aquele step de `Skill` grava os campos correspondentes.
+- como nenhum step novo é adicionado, `agent_step_cnt`, `loop_index`, duração e contagem de tokens permanecem
+  inalterados.
+- o plugin official bundled atualmente é exposto pelo plugin root; `skill_source` continua sendo reportado como
+  `plugin`, e `skill_plugin_id` usa o marketplace id real; não é alterado arbitrariamente para `bundled`.
 
-## 兼容性
+## Compatibilidade
 
-旧 session event 和无法解析 metadata 的 Skill call 仍按原有 `tool_name=Skill` 逻辑
-收口；新增字段全部为可选，旧消费者无需迁移。
+Session events antigos e chamadas de Skill sem metadata resolvível continuam sendo consolidadas pela lógica existente de
+`tool_name=Skill`; todos os campos novos são opcionais e consumidores antigos não precisam migrar.

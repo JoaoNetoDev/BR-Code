@@ -1,24 +1,24 @@
-# 插件页面承载层点击穿透修复
+# Correção de clique-atravessamento na camada hospedeira de páginas de plugin
 
-## 原因与规则
+## Causa e regra
 
-握手超时后 webview 已移除，但侧栏承载容器仍保留覆盖区域和 `pointer-events: auto`，空容器会拦住宿主的重载按钮。
+Após o timeout do handshake, o webview já foi removido, mas o contêiner hospedeiro da barra lateral ainda mantém a área de sobreposição e `pointer-events: auto`; um contêiner vazio bloqueia o botão de recarregamento do host.
 
-共享页面承载层只负责定位，始终使用 `pointer-events: none`；其中的 webview 显式使用 `pointer-events: auto`。不新增生命周期状态、定时器或错误分支。
+A camada hospedeira compartilhada de páginas é responsável apenas pelo posicionamento e sempre usa `pointer-events: none`; o webview dentro dela usa explicitamente `pointer-events: auto`. Nenhum estado de ciclo de vida, timer ou ramo de erro novo é adicionado.
 
 ```text
-有 webview：鼠标 → webview → 插件内容
-无 webview：鼠标穿过空容器 → 宿主重载按钮
+Com webview: mouse → webview → conteúdo do plugin
+Sem webview: mouse atravessa o contêiner vazio → botão de recarregamento do host
 ```
 
-修改仅涉及 `pluginUiPagePlane.ts` 的容器重置样式与 webview 创建样式。MCP Apps 与 Gen UI 共用该承载层，因此内联、侧栏和 popover 预览均遵守同一规则。原有锚点迁移、实例清理、握手时限和重载流程保持不变。
+A alteração envolve apenas os estilos de reset do contêiner e os estilos de criação do webview em `pluginUiPagePlane.ts`. Como MCP Apps e Gen UI compartilham essa camada hospedeira, as prévias inline, da barra lateral e em popover seguem a mesma regra. A migração de âncoras existente, a limpeza de instâncias, o prazo do handshake e o fluxo de recarregamento permanecem inalterados.
 
-## 验证
+## Verificação
 
-- 真实 Electron 中用启动失败的测试页面触发 15 秒握手超时，等待 webview 移除后，鼠标点击宿主重载按钮；只触发一次回调并重建一个运行实例。
-- 对正常页面，宿主命中测试必须落到 webview；通过 Chromium 鼠标与键盘事件确认插件按钮和输入框可操作。
-- 内联、侧栏、popover 预览切换后仍可交互，保持同一 guest。
-- 不使用 DOM `.click()` 代替鼠标命中测试。故障页为受控夹具，不代表原始用户插件的启动问题也已修复。
-- 无布局、主题、文案或平台能力变化；Web/手机/远程的不支持回退保持现状，不修改 continuous/replayable 消息语义。运行时证据以实际执行平台为准。
+- Em um Electron real, disparar o timeout de handshake de 15 segundos com uma página de teste cuja inicialização falha, esperar a remoção do webview e então clicar com o mouse no botão de recarregamento do host; deve disparar o callback uma única vez e recriar uma instância em execução.
+- Para páginas normais, o teste de hit-testing do host deve cair no webview; confirmar com eventos de mouse e teclado do Chromium que os botões e campos do plugin são operáveis.
+- Após alternar entre as prévias inline, da barra lateral e em popover, a interação continua funcionando, mantendo o mesmo guest.
+- Não usar DOM `.click()` no lugar do teste de hit-testing com mouse. A página de falha é um fixture controlado e não representa o fato de que o problema de inicialização dos plugins originais dos usuários tenha sido resolvido.
+- Nenhuma mudança de layout, tema, textos ou capacidades de plataforma; o fallback de não suporte em Web/móvel/remoto permanece como está, e a semântica das mensagens continuous/replayable não é modificada. As evidências de runtime valem para a plataforma efetivamente executada.
 
-回归入口：`node packages/desktop/scripts/mcp-apps-host-e2e.mjs --managed-only`（超时重载及生命周期）与 `--storage-only`（真实 guest 在内联、侧栏、预览中的交互）。
+Entrada de regressão: `node packages/desktop/scripts/mcp-apps-host-e2e.mjs --managed-only` (recarregamento por timeout e ciclo de vida) e `--storage-only` (interação do guest real em inline, barra lateral e prévia).

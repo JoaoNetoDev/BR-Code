@@ -1,42 +1,60 @@
-# Settings Hook list
+# Lista de Hooks nas Configurações
 
-Hooks 保持独立的设置入口，不并入插件页。页面复用 Plugins、MCPs、Skills、Commands 的
-Scope、搜索、分组标题、列表容器和空状态信息架构。
+Hooks mantêm uma entrada própria nas configurações, sem serem incorporados à página de plugins. A
+página reaproveita a arquitetura de informação de Scope, busca, títulos de grupo, contêiner de
+lista e estado vazio de Plugins, MCPs, Skills e Commands.
 
-## Scope 与来源
+## Scope e origem
 
-- 顶部为 `<Scope> | Hooks {count}`，右侧为搜索框。
-- Scope 使用共享 `PluginScopeMenu`：User 展示 user 配置及 user 插件 Hook；Workspace 展示
-  当前 workspace 配置、兼容来源及该 workspace 安装插件提供的 Hook。
-- `workspaceIdentity?.trim() || workspacePath` 用于工作区状态隔离，`workspacePath` 只用于读写路径。
-- Workspace Hook 允许管理，但按 `docs/hooks-runtime-contract.md` 的安全契约不进入 Agent runtime。
-- 新建表单继承父层 Scope；编辑表单显示持久化 Scope 且不可迁移。Scope 位于表单卡片右上角，
-  使用 `Scope + PluginScopeMenu` 的横向结构并向右对齐，与 MCP、Command 表单一致。
+- No topo, `<Scope> | Hooks {count}`, com a caixa de busca à direita.
+- O Scope usa o `PluginScopeMenu` compartilhado: User exibe a configuração de usuário e os Hooks
+  de plugins de usuário; Workspace exibe a configuração do workspace atual, as origens compatíveis
+  e os Hooks fornecidos pelos plugins instalados nesse workspace.
+- `workspaceIdentity?.trim() || workspacePath` é usado para isolar o estado do workspace;
+  `workspacePath` é usado apenas para caminhos de leitura e escrita.
+- Hooks de Workspace podem ser gerenciados, mas não entram no runtime do Agent conforme o
+  contrato de segurança de `docs/hooks-runtime-contract.md`.
+- O formulário de criação herda o Scope do nível pai; o formulário de edição exibe o Scope
+  persistido e não permite migração. O Scope fica no canto superior direito do card do formulário,
+  usando a estrutura horizontal `Scope + PluginScopeMenu` alinhada à direita, igual aos
+  formulários de MCP e Command.
 
-## 分组
+## Agrupamentos
 
-`New` 位于 `Installed` 分组标题右侧；标题行复用 Commands 的 `flex flex-wrap items-center justify-between gap-3` 布局，不使用固定高度。搜索后仅展示包含可见行的分组，不保留
-`Installed 0` 等空标题；未搜索且 Installed 为空时保留该分组作为新建入口。
+`New` fica à direita do título do grupo `Installed`; a linha de título reaproveita o layout
+`flex flex-wrap items-center justify-between gap-3` de Commands, sem altura fixa. Após a busca,
+só são exibidos os grupos que contêm linhas visíveis, sem manter títulos vazios como `Installed 0`;
+sem busca e com Installed vazio, o grupo é mantido como entrada de criação.
 
-1. `Installed`：当前 Scope 下由 ZCode 直接管理的 Hook。
-2. 每个插件独立分组：标题使用插件规范化名称，行只读，启停仍由插件设置管理。
-3. `Legacy`：`.agents` / `.claude` 兼容来源，提供 Import 操作。
+1. `Installed`: Hooks gerenciados diretamente pelo ZCode no Scope atual.
+2. Um grupo por plugin: o título usa o nome normalizado do plugin, as linhas são somente leitura e
+   o início/parada continua sendo gerenciado nas configurações do plugin.
+3. `Legacy`: origens compatíveis `.agents` / `.claude`, com a ação Import.
 
-`Installed` 与 `Legacy` 是界面分组名称，必须通过 `settings.hooks.group.*` 国际化；插件分组标题来自插件名称，不翻译。Hook Event 是配置协议标识，也保持原值。
+`Installed` e `Legacy` são nomes de grupos de interface e devem ser internacionalizados via
+`settings.hooks.group.*`; o título dos grupos de plugin vem do nome do plugin e não é traduzido. O
+Hook Event é um identificador do protocolo de configuração e também mantém seu valor original.
 
-插件 Scope 元数据未知时，Hook 在 User 和 Workspace 中均保留，并显示“作用域未知”，避免
-伪造来源或静默丢失。
+Quando os metadados de Scope do plugin são desconhecidos, o Hook é mantido tanto em User quanto em
+Workspace e exibe "作用域未知", evitando forjar a origem ou perdê-la silenciosamente.
 
-## Hook item
+## Item de Hook
 
-- 主标题是 Hook Event（例如 `PreToolUse`），不再以 matcher 作为标题。
-- 第二行展示命令或脚本摘要，单行截断，使用 `font-mono text-ui-sm text-foreground-subtle`。
-- 直接配置和 Legacy 使用与设置菜单一致的 `Anchor` 缺省图标；插件 Hook 使用对应插件图标，
-  插件图标不可用时同样回退到 `Anchor`。
-- 直接配置右侧显示开关，点击整行进入编辑；Legacy 显示 Import；插件 Hook 只读且不显示开关。
-- Scope 和插件名称不在行内重复展示；matcher、runner 等细节留在编辑或只读详情语义中。
-- 列表使用 `rounded-xl bg-surface`，行间分割线是独立 `h-px bg-border/50` 元素。
-- 无内容、loading、搜索无结果统一使用透明背景的虚线容器。
+- O título principal é o Hook Event (por exemplo, `PreToolUse`); o matcher não é mais usado como
+  título.
+- A segunda linha exibe o resumo do comando ou script, truncado em uma linha, usando
+  `font-mono text-ui-sm text-foreground-subtle`.
+- Configurações diretas e Legacy usam o ícone padrão `Anchor`, igual ao menu de configurações;
+  Hooks de plugin usam o ícone do plugin correspondente, com fallback para `Anchor` quando o
+  ícone do plugin não está disponível.
+- Configurações diretas exibem um interruptor à direita e o clique na linha inteira abre a
+  edição; Legacy exibe Import; Hooks de plugin são somente leitura e não exibem interruptor.
+- Scope e nome do plugin não são repetidos dentro da linha; detalhes como matcher e runner ficam
+  na edição ou na semântica de detalhes somente leitura.
+- A lista usa `rounded-xl bg-surface`, e o divisor entre linhas é um elemento independente
+  `h-px bg-border/50`.
+- Conteúdo vazio, loading e busca sem resultado usam uniformemente um contêiner tracejado com
+  fundo transparente.
 
-修改 Hook 后仍关闭未使用的 deferred draft session；已经运行或历史 session 继续使用启动时
-捕获的快照。
+Após modificar um Hook, a deferred draft session não utilizada continua sendo fechada; sessions
+já em execução ou do histórico continuam usando o snapshot capturado no início.

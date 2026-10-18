@@ -1,26 +1,26 @@
-# Bash Read File State Runtime Contract
+# Contrato de runtime de read-state do Bash Read File
 
-## 背景
+## Contexto
 
-当前 active path 不依赖 `# Using your tools` 来要求模型先 Read，而是在 Bash runtime 内维护 read-state producer：保守识别的简单读类 Bash 命令会把文件内容写入 readFileState，使后续 Edit/Write 的 read-before-write guard 认为该文件已被读取。
+Atualmente o active path não depende de `# Using your tools` para exigir que o modelo faça um Read antes; em vez disso, mantém-se um produtor de read-state dentro do runtime do Bash: comandos Bash de leitura simples identificados de forma conservadora escrevem o conteúdo do arquivo em readFileState, de modo que o guard de read-before-write de Edit/Write subsequentes considere aquele arquivo já lido.
 
-## 本轮范围
+## Escopo desta rodada
 
-- 支持 Bash `cat`、`head`、`tail`、`sed -n`、`grep`/`egrep`/`fgrep` 的保守 read-state backfill；Bash stdout 或 FileSystemPort 读文件结果被截断时不回填。
-- 支持 Bash 写类命令修改已读文件后的 `staleReadFileStateHint`。
+- Suportar backfill de read-state, de forma conservadora, para os comandos Bash `cat`, `head`, `tail`, `sed -n` e `grep`/`egrep`/`fgrep`; quando o stdout do Bash ou a leitura de arquivo via FileSystemPort for truncada, não há backfill.
+- Suportar o `staleReadFileStateHint` para quando comandos Bash de escrita modificam um arquivo já lido.
 
-## 非范围
+## Fora de escopo
 
-- 不实现 seed read state。
-- 不实现 NotebookEdit。
-- 不修改 prompt 或 provider-visible tool 列表。
-- 不持久化 Bash 产生的 read-state metadata。
+- Não implementar seed read state.
+- Não implementar NotebookEdit.
+- Não modificar o prompt nem a lista de tools visível ao provider.
+- Não persistir os metadados de read-state gerados pelo Bash.
 
-## 运行时顺序
+## Ordem de execução no runtime
 
-1. Bash foreground command 运行完成。
-2. runtime 先构造正常 `BashOutput`。
-3. 若命令属于写类命令，扫描执行前已有的 readFileState，发现 mtime 在 Bash 开始后推进则追加 stale hint；hint 文案展示相对 cwd 的前 5 个路径，超出时追加 `and N more`，并使用 `file/files` 单复数。
-4. 若命令属于保守识别的读类 Bash 命令，且 Bash stdout 未截断，runtime 重新从 FileSystemPort 读取真实文件并写入 readFileState；若 FileSystemPort 读文件结果被截断，同样跳过回填，避免把模型没看到的完整文件伪装成已读。
-5. background、image output、interrupted 不产生 stale hint，也不回填 read-state。
-6. 非语义失败的 provider-error 按 shell error 处理，不产生 stale hint，也不回填 read-state；`grep`/`egrep`/`fgrep` 仅在 exit code 为 0 时回填。
+1. O foreground command do Bash termina de rodar.
+2. O runtime monta primeiro o `BashOutput` normal.
+3. Se o comando for do tipo escrita, o runtime examina o readFileState existente antes da execução; se o mtime tiver avançado após o início do Bash, acrescenta um stale hint. O texto do hint mostra os 5 primeiros caminhos relativos ao cwd, com `and N more` quando houver mais, usando singular/plural de `file`/`files`.
+4. Se o comando for um comando Bash de leitura identificado de forma conservadora e o stdout do Bash não estiver truncado, o runtime relê o arquivo real pelo FileSystemPort e escreve em readFileState; se a leitura via FileSystemPort for truncada, o backfill também é pulado, evitando falsificar como "lido" um arquivo completo que o modelo não viu.
+5. Background, image output e interrupted não geram stale hint nem fazem backfill de read-state.
+6. provider-error que não seja falha semântica é tratado como shell error, não gerando stale hint nem backfill de read-state; `grep`/`egrep`/`fgrep` só fazem backfill quando o exit code é 0.

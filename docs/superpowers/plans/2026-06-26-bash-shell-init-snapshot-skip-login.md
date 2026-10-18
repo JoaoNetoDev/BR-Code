@@ -1,52 +1,52 @@
-# Bash Shell Init Snapshot And Skip Login Plan
+# Plano de Shell Init Snapshot e Skip Login no Bash
 
-**Goal:** 实现 shell init snapshot 策略：首次 Bash toolcall 用 login shell 生成真实 `.sh` snapshot，后续 source snapshot 后跳过 `-l`。
+**Objetivo:** implementar a estratégia de shell init snapshot: a primeira toolcall do Bash usa login shell para gerar um snapshot `.sh` real; depois de fazer source do snapshot, pula o `-l`.
 
-**Scope:** 只影响 Bash tool runtime。provider-visible content、tool exposure、tool description、Explore/Main/Plan system prompt 不因本计划变化。
+**Escopo:** afeta apenas o runtime da ferramenta Bash. O content visível ao provider, a exposição de tools, a descrição de tools e os system prompts de Explore/Main/Plan não mudam por causa deste plano.
 
-## Snapshot 生命周期语义
+## Semântica do ciclo de vida do snapshot
 
-- 创建命令是 `shellPath -c -l <snapshot creation script>`。
-- 创建 env 显式包含 resolved shell：`SHELL=shellPath`、`GIT_EDITOR=true`。
-- 创建成功后只返回当前进程里这一次 snapshot path，并注册 cleanup 回调结束时 `unlink(snapshotPath)`。
-- 后续 Bash command 执行前检查 snapshot path 是否仍可访问；可访问则 source snapshot 并用 `["-c", command]`，不可访问则 fallback 到 `["-c", "-l", command]`。
-- cold resume / new process 不从磁盘恢复 snapshot path，也不扫描旧 snapshot。
-- retention cleanup 只清理 `shell-snapshots/` 顶层超过默认 30 天 cutoff 的 `.sh` 文件。
+- O comando de criação é `shellPath -c -l <script de criação do snapshot>`.
+- O env de criação inclui explicitamente o shell resolvido: `SHELL=shellPath`, `GIT_EDITOR=true`.
+- Após a criação bem-sucedida, retorna-se apenas o caminho deste snapshot no processo atual, e registra-se um callback de cleanup que faz `unlink(snapshotPath)` no final.
+- Antes de executar cada comando Bash seguinte, verifica-se se o caminho do snapshot ainda está acessível; se estiver, faz-se source do snapshot e usa-se `["-c", command]`; se não estiver, há fallback para `["-c", "-l", command]`.
+- Cold resume / novo processo não restauram o caminho do snapshot a partir do disco nem vasculham snapshots antigos.
+- A limpeza por retenção remove apenas arquivos `.sh` no nível superior de `shell-snapshots/` que excedam o cutoff padrão de 30 dias.
 
-## ZCode Target
+## Alvo ZCode
 
-- POSIX 和 Git Bash 支持 shell init snapshot；CMD 和 legacy shell 保持原行为。
-- snapshot 文件位于 ZCode storage 的 `shell-snapshots/snapshot-${shell}-${timestamp}-${random}.sh`。
-- snapshot creation script 使用 host path 写文件；Git Bash 只在后续 source snapshot 时转换 path。
-- manager 对同一 adapter/root/shell/dialect 缓存创建 promise；失败缓存为 `undefined`，后续继续 login shell fallback。
-- 当前进程创建成功的 snapshot 在 `NodeExecutionAdapter.close()` 中 cleanup。
-- adapter 构造时执行 retention cleanup，清理顶层 stale `.sh`。
-- ZCode startup script 仍是独立的内部 `.sh`，执行顺序是：source shell init snapshot -> source ZCode startup script -> user command -> cwd capture trailer。
-- 不启用 find/grep/rg alias 注入；后续 bundled search 另开任务处理。
+- POSIX e Git Bash suportam shell init snapshot; CMD e legacy shell mantêm o comportamento original.
+- O arquivo de snapshot fica em `shell-snapshots/snapshot-${shell}-${timestamp}-${random}.sh` no storage do ZCode.
+- O script de criação do snapshot grava o arquivo usando host path; o Git Bash só converte o path no source posterior do snapshot.
+- O manager faz cache da promise de criação por adapter/root/shell/dialect; em caso de falha o cache é `undefined` e as chamadas seguintes continuam com fallback para login shell.
+- O snapshot criado com sucesso no processo atual é limpo em `NodeExecutionAdapter.close()`.
+- O retention cleanup é executado na construção do adapter, removendo `.sh` obsoletos do nível superior.
+- O startup script do ZCode continua sendo um `.sh` interno separado, e a ordem de execução é: source do shell init snapshot -> source do startup script do ZCode -> comando do usuário -> trailer de captura de cwd.
+- Não se habilita a injeção de alias find/grep/rg; a busca bundled em separado tratará isso depois.
 
-## Implementation Checklist
+## Checklist de Implementação
 
 - [x] `shell-init-snapshot.ts`
-  - [x] 创建顶层随机 snapshot path。
-  - [x] `getOrCreate()` 只返回 ready snapshot 或 `undefined`。
-  - [x] creation script 覆盖 rc source、function/option/alias export、PATH export。
-  - [x] Git Bash source path 使用 `windowsPathToGitBashPath()`。
-  - [x] 当前进程 cleanup 和 30 天 retention cleanup。
+  - [x] Criar um caminho de snapshot aleatório no nível superior.
+  - [x] `getOrCreate()` retorna apenas snapshot pronto ou `undefined`.
+  - [x] O creation script cobre source de rc, export de function/option/alias e export de PATH.
+  - [x] O path de source do Git Bash usa `windowsPathToGitBashPath()`.
+  - [x] Cleanup do processo atual e retention cleanup de 30 dias.
 - [x] `index.ts`
-  - [x] 在 spawn 前异步创建/revalidate snapshot。
-  - [x] snapshot ready 时 source snapshot 并跳过 `-l`。
-  - [x] snapshot creation env 使用 resolved shell overlay。
-  - [x] cancellation/close during snapshot creation 不继续 spawn user command。
+  - [x] Criar/revalidar o snapshot de forma assíncrona antes do spawn.
+  - [x] Quando o snapshot está pronto, fazer source dele e pular `-l`.
+  - [x] O env de criação do snapshot usa o overlay do shell resolvido.
+  - [x] Cancelamento/close durante a criação do snapshot não segue para o spawn do comando do usuário.
 - [x] `bash-startup-script.ts`
-  - [x] 支持在 ZCode startup script 前插入 optional leading source。
-- [x] Tests
-  - [x] creation script 单测覆盖 bash/zsh/no-rc/Git Bash path。
-  - [x] cleanup 单测覆盖 process cleanup 和顶层 retention。
-  - [x] exec 集成测试覆盖 skip-login、missing snapshot fallback、creation failure fallback、resolved shell env、cancel/close、cwd capture。
-- [x] Docs
-  - [x] 更新 `docs/runtime-tools/bash-effective-shell-snapshot.md`。
+  - [x] Suportar a inserção de um source opcional inicial antes do startup script do ZCode.
+- [x] Testes
+  - [x] Testes unitários do creation script cobrindo bash/zsh/no-rc/path do Git Bash.
+  - [x] Testes unitários de cleanup cobrindo cleanup de processo e retention de nível superior.
+  - [x] Testes de integração de exec cobrindo skip-login, fallback por snapshot ausente, fallback por falha de criação, env de shell resolvido, cancel/close e captura de cwd.
+- [x] Documentação
+  - [x] Atualizar `docs/runtime-tools/bash-effective-shell-snapshot.md`.
 
-## Validation Commands
+## Comandos de Validação
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run \
@@ -60,15 +60,15 @@ pnpm --dir apps/zcode-cli --filter @zcode/adapters typecheck
 git diff --check
 ```
 
-Full workspace gates remain:
+Os gates de workspace completo permanecem:
 
 ```bash
 pnpm lint
 pnpm typecheck
 ```
 
-## 边界
+## Limites
 
-- 不写入额外的品牌标识 env；只实现 shell snapshot 运行时语义。
-- 不实现 `rg`/`find`/`grep` alias 注入；该能力依赖 bundled search assets，另行设计。
-- cleanup sweep 放在 adapter lifecycle 中触发，不引入全局 cleanup orchestrator。
+- Não grava env de marca adicional; implementa apenas a semântica de runtime do shell snapshot.
+- Não implementa a injeção de alias `rg`/`find`/`grep`; essa capacidade depende de assets de busca bundled e será desenhada à parte.
+- A varredura de cleanup é disparada no lifecycle do adapter, sem introduzir um orquestrador global de cleanup.

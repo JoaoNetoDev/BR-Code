@@ -1,114 +1,114 @@
-# Auxiliary Conversation Multi-Open Implementation Plan
+# Plano de Implementação de Abertura Múltipla de Conversas Auxiliares
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:** 支持同一父会话多开辅助对话，并把主时间线划词引用追加到当前激活的辅助对话；当前未激活辅助对话时新建。
+**Objetivo:** Suportar múltiplas conversas auxiliares abertas a partir do mesmo sessão pai, e anexar ao final a citação por seleção de texto da linha do tempo principal na conversa auxiliar atualmente ativa; criar uma nova quando não houver nenhuma ativa.
 
-**Architecture:** CLI 的 `createSelectionSideSession` 已允许创建多个 child，本次只调整 renderer。Side Pane tab 以 `childSessionId` 唯一标识实例；runtime 只管理“显式新建”的并发去重与 child blocked 状态；当前目标从 Side Pane 的 `activeTabId` 解析后透传给主 `SessionPane`。
+**Arquitetura:** O `createSelectionSideSession` da CLI já permite criar múltiplos filhos; desta vez apenas o renderer é ajustado. A tab do Side Pane é identificada de forma única pela `childSessionId`; o runtime gerencia somente a deduplicação de concorrência de criações "explícitas" e o estado de bloqueio do filho; o destino atual é resolvido a partir do `activeTabId` do Side Pane e repassado ao `SessionPane` principal.
 
-**Tech Stack:** React 19、TypeScript、Zustand/renderer registry、Vitest、WebdriverIO Electron E2E。
+**Stack tecnológico:** React 19, TypeScript, Zustand/registry do renderer, Vitest, E2E Electron com WebdriverIO.
 
-## Global Constraints
+## Restrições globais
 
-- 先更新 `docs/ui/conversation-selection-side-chat.md`、case catalog 与 coverage matrix，再修改代码。
-- 工作区隔离统一使用 `workspaceIdentity?.trim() || workspacePath`；文件与命令路径继续使用 `workspacePath`。
-- 桌面 Electron 与桌面 Web 共享语义；手机 `/remote` 不新增入口，不改变 replayable 恢复链路。
-- UI 文案国际化；多 tab 标题使用既有“辅助对话”文案加稳定序号。
-- 关闭单个/其他/全部 tab 时，只关闭对应 child runtime。
-- 完成前执行 focused tests、coverage audit、`pnpm typecheck` 与 `pnpm lint`。
+- Atualizar primeiro `docs/ui/conversation-selection-side-chat.md`, o catálogo de casos e a matriz de cobertura, e só então modificar o código.
+- O isolamento de workspace usa uniformemente `workspaceIdentity?.trim() || workspacePath`; caminhos de arquivo e de comando continuam usando `workspacePath`.
+- Electron desktop e Web desktop compartilham a semântica; o `/remote` do celular não ganha nova entrada nem altera a cadeia de recuperação replayable.
+- Textos de UI internacionalizados; títulos de múltiplas tabs usam o texto existente "conversa auxiliar" mais um número de sequência estável.
+- Ao fechar uma tab, outra ou todas, encerra-se somente o runtime filho correspondente.
+- Antes de concluir, executar testes focados, auditoria de cobertura, `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: Freeze product semantics in specs
+### Tarefa 1: Congelar a semântica de produto nas specs
 
-**Files:**
-- Modify: `docs/ui/conversation-selection-side-chat.md`
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-
-**Interfaces:**
-- Produces: SSC25（多开）、SSC26（当前激活路由）、SSC27（无激活目标时新建）验收定义。
-
-- [ ] **Step 1:** 把单一 parent→child 绑定改为 parent→children tab registry。
-- [ ] **Step 2:** 记录固定入口每次新建、划词优先当前激活辅助 tab、无激活时新建。
-- [ ] **Step 3:** 更新 E2E 剪枝和覆盖状态。
-
-### Task 2: Add failing registry and tab tests
-
-**Files:**
-- Modify: `packages/ui/test/selectionSideChatRuntime.test.ts`
-- Modify: `packages/ui/test/workspaceSidePane.test.ts`
+**Arquivos:**
+- Modificar: `docs/ui/conversation-selection-side-chat.md`
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
 
 **Interfaces:**
-- Consumes: `buildSelectionSideChatKey(workspaceKey, parentSessionId)` 作为 opener scope。
-- Produces: `createSelectionSideChatInstance()` 的并发创建合同、child 唯一 tab id、序号标题、active tab resolver 合同。
+- Produz: definições de aceitação de SSC25 (abertura múltipla), SSC26 (roteamento para a ativa) e SSC27 (criar quando não há destino ativo).
 
-- [ ] **Step 1:** 新增同父两次显式创建产生两个 child 的失败测试。
-- [ ] **Step 2:** 新增同一创建手势的并发调用只创建一次的失败测试。
-- [ ] **Step 3:** 新增两个 child 生成两个 tab、标题为 `辅助对话 1/2` 的失败测试。
-- [ ] **Step 4:** 新增 active tab 为辅助对话时返回目标，否则返回 null 的失败测试。
-- [ ] **Step 5:** 运行 focused Vitest，确认新断言在旧实现上失败。
+- [ ] **Passo 1:** Trocar o vínculo único pai→filho por um registro de tabs pai→filhos.
+- [ ] **Passo 2:** Registrar que a entrada fixa cria a cada vez, que a seleção de texto prioriza a tab auxiliar ativa e que, sem nenhuma ativa, cria-se uma nova.
+- [ ] **Passo 3:** Atualizar a poda de E2E e o status de cobertura.
 
-### Task 3: Implement multi-instance renderer state
+### Tarefa 2: Adicionar testes falhos de registry e de tabs
 
-**Files:**
-- Modify: `packages/ui/src/lib/selectionSideChatRuntime.ts`
-- Modify: `packages/ui/src/lib/workspaceSidePane.ts`
-- Modify: `packages/ui/src/app-shell/SidePaneTabTrigger.tsx`
-- Modify: `packages/ui/src/app-shell/sidePaneTabPresentation.ts`
+**Arquivos:**
+- Modificar: `packages/ui/test/selectionSideChatRuntime.test.ts`
+- Modificar: `packages/ui/test/workspaceSidePane.test.ts`
 
 **Interfaces:**
-- Produces: child-scoped blocked lookup；tab `title`；`getActiveSelectionSideChatTab(state, workspaceKey, parentSessionId)`。
-- Produces: selection tab id `selection-side-chat:<workspace>:<parent>:<child>`。
+- Consome: `buildSelectionSideChatKey(workspaceKey, parentSessionId)` como escopo do opener.
+- Produz: contrato de criação concorrente de `createSelectionSideChatInstance()`, tab id único por filho, títulos com número de sequência e contrato do resolvedor de tab ativa.
 
-- [ ] **Step 1:** 将 pending creation 与 child blocked 状态分离，显式 launcher 每个完成手势可创建新 child。
-- [ ] **Step 2:** tab id 纳入 `childSessionId`，不再覆盖同父已有 tab。
-- [ ] **Step 3:** 依据同父现存 tab 的已用序号分配最小可用标题序号。
-- [ ] **Step 4:** tab 展示与搜索使用实例标题。
-- [ ] **Step 5:** 跑 focused tests 直到通过。
+- [ ] **Passo 1:** Adicionar teste falho que cria dois filhos a partir de duas criações explícitas do mesmo pai.
+- [ ] **Passo 2:** Adicionar teste falho que verifica que chamadas concorrentes do mesmo gesto de criação só criam uma vez.
+- [ ] **Passo 3:** Adicionar teste falho que verifica que dois filhos geram duas tabs, com títulos `辅助对话 1/2`.
+- [ ] **Passo 4:** Adicionar teste falho que verifica que a tab ativa, quando for uma conversa auxiliar, retorna o destino; caso contrário, retorna null.
+- [ ] **Passo 5:** Executar o Vitest focado e confirmar que as novas asserções falham na implementação antiga.
 
-### Task 4: Route selection to the active auxiliary tab
+### Tarefa 3: Implementar o estado de múltiplas instâncias no renderer
 
-**Files:**
-- Modify: `packages/ui/src/v4/SessionPane.tsx`
-- Modify: `packages/ui/src/v4/V4WorkspaceChatArea.tsx`
-- Modify: `packages/ui/src/v4/WorkbenchPane.tsx`
-- Modify: `packages/ui/src/app-shell/WorkspaceShellLayout.tsx`
-- Modify: `packages/ui/src/hooks/useAppPanels.ts`
-- Modify: `packages/ui/src/app-shell/SelectionSideChatPane.tsx`
+**Arquivos:**
+- Modificar: `packages/ui/src/lib/selectionSideChatRuntime.ts`
+- Modificar: `packages/ui/src/lib/workspaceSidePane.ts`
+- Modificar: `packages/ui/src/app-shell/SidePaneTabTrigger.tsx`
+- Modificar: `packages/ui/src/app-shell/sidePaneTabPresentation.ts`
 
 **Interfaces:**
-- Consumes: active selection tab's `childSessionId`.
-- Produces: `activeSelectionSideChatSessionId?: string | null` down to the focused main `SessionPane`。
-- Produces: opener request mode `"new"` for fixed launcher and `"selection"` for selection tooltip。
+- Produz: busca de bloqueio com escopo de filho; `title` da tab; `getActiveSelectionSideChatTab(state, workspaceKey, parentSessionId)`.
+- Produz: tab id de seleção `selection-side-chat:<workspace>:<parent>:<child>`.
 
-- [ ] **Step 1:** 从 `sidePaneState.activeTabId` 解析当前父会话的 active selection tab。
-- [ ] **Step 2:** 沿 shell props 将 child id 下发到主 `SessionPane`，不写入全局业务状态。
-- [ ] **Step 3:** 划词动作校验 active child 存在后追加引用并激活；不存在或 sessionNotFound 时创建新 child。
-- [ ] **Step 4:** 固定 launcher 始终触发新建，pending 期间忽略重复手势。
-- [ ] **Step 5:** 关闭时按 `childSessionId` 清理 blocked/reference/runtime，不影响兄弟 tab。
+- [ ] **Passo 1:** Separar a criação pendente do estado de bloqueio do filho; cada gesto concluído do launcher explícito pode criar um novo filho.
+- [ ] **Passo 2:** Incluir a `childSessionId` no tab id, sem sobrescrever a tab já existente do mesmo pai.
+- [ ] **Passo 3:** Atribuir o menor número de sequência livre de título com base nos números já usados pelas tabs existentes do mesmo pai.
+- [ ] **Passo 4:** Exibição e busca de tabs usam o título da instância.
+- [ ] **Passo 5:** Rodar os testes focados até passarem.
 
-### Task 5: Expand E2E coverage
+### Tarefa 4: Rotear a seleção para a tab auxiliar ativa
 
-**Files:**
-- Modify: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-selection-side-chat.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/v4/SessionPane.tsx`
+- Modificar: `packages/ui/src/v4/V4WorkspaceChatArea.tsx`
+- Modificar: `packages/ui/src/v4/WorkbenchPane.tsx`
+- Modificar: `packages/ui/src/app-shell/WorkspaceShellLayout.tsx`
+- Modificar: `packages/ui/src/hooks/useAppPanels.ts`
+- Modificar: `packages/ui/src/app-shell/SelectionSideChatPane.tsx`
 
 **Interfaces:**
-- Produces: SSC25/26/27 desktop-continuous manual-review evidence。
+- Consome: `childSessionId` da tab de seleção ativa.
+- Produz: `activeSelectionSideChatSessionId?: string | null` chegando ao `SessionPane` principal em foco.
+- Produz: modo de requisição do opener `"new"` para o launcher fixo e `"selection"` para o tooltip de seleção.
 
-- [ ] **Step 1:** 通过固定入口连续创建两个辅助 tab，并断言 childSessionId 不同。
-- [ ] **Step 2:** 激活第一个 tab 后主时间线划词，断言引用只进入第一个 composer。
-- [ ] **Step 3:** 激活非辅助 tab 后划词，断言创建第三个辅助 child。
-- [ ] **Step 4:** 关闭其中一个 tab，断言其余 child 草稿和引用保持。
+- [ ] **Passo 1:** Resolver, a partir de `sidePaneState.activeTabId`, a tab de seleção ativa da sessão pai atual.
+- [ ] **Passo 2:** Repassar o id do filho pelo shell props até o `SessionPane` principal, sem gravar em estado global de negócio.
+- [ ] **Passo 3:** A ação de seleção de texto valida a existência do filho ativo e então anexa a citação e ativa; se não existir ou em caso de sessionNotFound, cria um novo filho.
+- [ ] **Passo 4:** O launcher fixo sempre dispara uma nova criação; durante o período pendente, gestos repetidos são ignorados.
+- [ ] **Passo 5:** Ao fechar, limpar bloqueio/referência/runtime por `childSessionId`, sem afetar as tabs irmãs.
 
-### Task 6: Verify all boundaries
+### Tarefa 5: Ampliar a cobertura E2E
 
-**Files:**
-- Verify only.
+**Arquivos:**
+- Modificar: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-selection-side-chat.test.ts`
 
-- [ ] **Step 1:** 运行 selection runtime/workspace side pane focused Vitest。
-- [ ] **Step 2:** 运行 conversation selection 与相关组件 tests。
-- [ ] **Step 3:** 运行 `pnpm audit:conversation-session-coverage`。
-- [ ] **Step 4:** 运行 `pnpm typecheck`。
-- [ ] **Step 5:** 运行 `pnpm lint`。
-- [ ] **Step 6:** 在桌面开发环境执行 SSC25/26/27 交互检查；若当前 Node/Electron 环境阻塞，明确记录未验证项。
+**Interfaces:**
+- Produz: evidências de manual-review desktop-contínuo para SSC25/26/27.
+
+- [ ] **Passo 1:** Criar duas tabs auxiliares em sequência pela entrada fixa e afirmar que as `childSessionId` são diferentes.
+- [ ] **Passo 2:** Ativar a primeira tab, fazer uma seleção de texto na linha do tempo principal e afirmar que a citação entra apenas no primeiro composer.
+- [ ] **Passo 3:** Ativar uma tab não auxiliar, fazer uma seleção de texto e afirmar que um terceiro filho auxiliar é criado.
+- [ ] **Passo 4:** Fechar uma das tabs e afirmar que os rascunhos e as citações dos demais filhos são preservados.
+
+### Tarefa 6: Verificar todos os limites
+
+**Arquivos:**
+- Apenas verificação.
+
+- [ ] **Passo 1:** Executar o Vitest focado de runtime de seleção e do side pane de workspace.
+- [ ] **Passo 2:** Executar os testes de seleção de conversa e dos componentes relacionados.
+- [ ] **Passo 3:** Executar `pnpm audit:conversation-session-coverage`.
+- [ ] **Passo 4:** Executar `pnpm typecheck`.
+- [ ] **Passo 5:** Executar `pnpm lint`.
+- [ ] **Passo 6:** Realizar as verificações interativas SSC25/26/27 no ambiente desktop de desenvolvimento; se o ambiente atual de Node/Electron impedir, registrar explicitamente os itens não verificados.

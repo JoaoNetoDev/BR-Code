@@ -1,15 +1,14 @@
-# Desktop OAuth 轮询登录
+# Login do Desktop OAuth por polling
 
-## 目标
+## Objetivo
 
-Z.AI 与 BigModel Desktop 登录不再把 `zcode://oauth/callback` 作为唯一完成路径。App 使用 ZCode
-后端已有的短期 OAuth flow，在浏览器完成授权后轮询 flow 状态；deep link 仍保留为兼容路径。
-轮询接口的 `provider` 使用 `zai` 或 `bigmodel`，两者共享 flow 生命周期，但 `ready` 凭据字段按 provider 区分。
-BigModel 创建 flow 后，App 把授权地址中的回调改为官网旧中转页
-`https://zcode.z.ai/app/oauth/login`（测试环境使用对应测试站点），中转页继续把 `authCode/state`
-透传到 `zcode://oauth/callback`；Host 中的 polling flow 同时保留。
+O login do Desktop do Z.AI e do BigModel deixa de usar `zcode://oauth/callback` como único caminho de conclusão. O App usa o fluxo OAuth de curta duração já existente no backend do ZCode e, após a autorização ser concluída no navegador, faz polling do estado do flow; o deep link permanece como caminho de compatibilidade.
+O campo `provider` da interface de polling usa `zai` ou `bigmodel`; os dois compartilham o ciclo de vida do flow, mas o campo de credenciais `ready` é distinguido por provider.
+Após o BigModel criar o flow, o App muda o callback no endereço de autorização para a antiga página de relay do site oficial
+`https://zcode.z.ai/app/oauth/login` (em ambiente de teste, o site de teste correspondente); a página de relay continua repassando `authCode/state`
+para `zcode://oauth/callback`; o polling flow no Host é mantido em paralelo.
 
-## 时序
+## Sequência
 
 ```text
 Desktop App                 ZCode Backend                 Browser / Z.AI
@@ -26,7 +25,7 @@ Desktop App                 ZCode Backend                 Browser / Z.AI
     | persist once + refresh UI   |                              |
 ```
 
-BigModel 双路径：
+Caminho duplo do BigModel:
 
 ```text
 BigModel Browser
@@ -37,11 +36,10 @@ ZCode Website /app/oauth/login -----> zcode://oauth/callback -----> Desktop deep
 Desktop Host ---------------- GET /oauth/cli/poll/:id --------------+
 ```
 
-Desktop 构造官网中转地址时携带编译期 `app_version`。Website 仅对严格大于 `3.9.1`
-的有效版本启用无自动 deep link 的 polling bridge；`3.9.1`、更低版本、缺失或非法版本
-继续使用原自动 deep link，避免旧版 App 因不具备 polling 完成能力而停留在登录中间态。
+O Desktop carrega o `app_version` de compilação ao construir o endereço de relay do site oficial. O Website só ativa o polling bridge sem deep link automático para versões válidas estritamente maiores que `3.9.1`; `3.9.1`, versões menores, versão ausente ou inválida
+continuam usando o deep link automático original, evitando que o App antigo fique preso no estado intermediário do login por não possuir a capacidade de conclusão por polling.
 
-快速连续发起登录时，后一次请求拥有 flow；先发但后返回的 init 响应视为 stale，不得覆盖新 flow：
+Ao iniciar logins rapidamente em sequência, a requisição posterior é a dona do flow; uma resposta de init enviada antes, mas retornada depois, é considerada stale e não pode sobrescrever o novo flow:
 
 ```text
 App                  init A                  init B                  Host pending
@@ -53,66 +51,54 @@ App                  init A                  init B                  Host pendin
  |                         |                   |------------------------>| flow B
 ```
 
-## 契约与边界
+## Contrato e fronteiras
 
-- App 为每次登录生成 32 字节随机 `poll_token`，只通过 `Authorization: Bearer` 发送，
-  不写入日志、设置或 URL。
-- `init` 返回的 `flow_id`、`expires_at` 和 `poll_interval_sec` 只保存在 Host 内存。
-- App 只接受 HTTPS `authorize_url`、未来的 `expires_at`，以及至少 1 秒且小于 flow 剩余寿命的
-  `poll_interval_sec`；异常服务端响应直接终止，不打开外部地址。
-- Root 常驻层查询 Host 中的 pending flow；没有 pending flow 时不得产生网络请求。
-- 只有 `zai`、`bigmodel` 使用 polling；扩展 provider 仍走原 deep link 流程，不启动 Root 空轮询。
-- BigModel 的浏览器回调使用官网 `/app/oauth/login?redirect=zcode://oauth/callback`，不得直接展示
-  `/oauth/cli/callback/bigmodel` 的成功或失败页面；修改回调地址不取消 Host polling。
-- `pending` 按服务端间隔继续查询；`ready` 原子落盘一次并结束；`failed`、过期、取消或
-  业务错误结束当前 flow。
-- 未知 poll status、字段类型错误或 provider 对应 token 缺失按协议错误失败，不抛出 JS 类型异常。
-- `OAuthService` 是登录完成的唯一 owner。deep link 与 polling 结果按到达服务的顺序串行处理，
-  校验、token 兑换/归一化和落盘都在同一完成边界内。先到路径成功后，后到路径不再校验或兑换；
-  先到路径失败时，已到达的另一条路径继续独立处理，不能复用失败的 Promise。
-- 有另一条完成路径等待时，失败必须等其结果；另一条成功则忽略先前失败。deep link 单独失败
-  不取消有效 polling；polling 的终态错误在没有可用候选或候选均失败后才结束 flow。
-- 回调的 `channel_id`、`utm_source`、`utm_campaign` 与登录结果分开处理：当前 flow 的回调仍保存
-  参数；polling 先成功后，同 state 的迟到回调在原 30 秒去重窗口内仍保存归因，但不再解析授权码
-  或请求 token。错误 state、取消或已被新 flow 替换的回调不得写入。已有 authorize URL 参数、
-  `app_version`、redirect 和 state 的传递规则保持不变。
-- 只有仍属于当前 pending flow 的结果可以落盘；取消、切换登录后，旧 HTTP 结果（包括 4xx）
-  不得清理新 flow 或覆盖已完成登录。
-- 新登录开始前取消旧的本地 pending flow；用户取消也会废弃尚未返回的 init 响应。当前后端没有
-  cancel 接口，取消只停止 App 查询，后端 flow 依靠 TTL 过期。
-- Web `/remote`、shared-host attachment、session/task realtime 与 replayable 恢复链路不变。
+- O App gera um `poll_token` aleatório de 32 bytes por login, enviado somente via `Authorization: Bearer`,
+  nunca gravado em log, configurações ou URL.
+- O `flow_id`, `expires_at` e `poll_interval_sec` retornados por `init` ficam apenas na memória do Host.
+- O App só aceita `authorize_url` HTTPS, um `expires_at` futuro e um `poll_interval_sec` de pelo menos 1 segundo
+  e menor que o tempo de vida restante do flow; respostas anormais do servidor encerram imediatamente, sem abrir endereço externo.
+- A camada Root residente consulta o pending flow no Host; sem pending flow, nenhuma requisição de rede pode ser gerada.
+- Apenas `zai` e `bigmodel` usam polling; providers de extensão continuam pelo fluxo de deep link original, sem iniciar polling vazio no Root.
+- O callback de navegador do BigModel usa `https://zcode.z.ai/app/oauth/login?redirect=zcode://oauth/callback` do site oficial e não pode exibir diretamente as páginas de sucesso ou falha de `/oauth/cli/callback/bigmodel`; alterar o endereço de callback não cancela o polling no Host.
+- `pending` continua consultando conforme o intervalo do servidor; `ready` grava em disco atomicamente uma única vez e encerra; `failed`, expiração, cancelamento ou erro de negócio encerram o flow atual.
+- Status de polling desconhecido, tipo de campo errado ou token ausente para o provider correspondente falham como erro de protocolo, sem lançar exceção de tipo JS.
+- O `OAuthService` é o único owner da conclusão do login. Resultados de deep link e de polling são processados serialmente na ordem de chegada ao service, e validação, troca/normalização de token e gravação em disco acontecem dentro da mesma fronteira de conclusão. Quando o caminho que chegou primeiro tem sucesso, o caminho que chega depois não valida nem troca token; quando o primeiro caminho falha, o outro caminho que já tiver chegado continua sendo processado de forma independente, sem reutilizar a Promise que falhou.
+- Quando há outro caminho de conclusão aguardando, uma falha precisa esperar o resultado dele; se o outro caminho tiver sucesso, a falha anterior é ignorada. Uma falha isolada do deep link não cancela um polling válido; um erro terminal do polling só encerra o flow quando não há candidato disponível ou quando todos os candidatos falharam.
+- `channel_id`, `utm_source` e `utm_campaign` do callback são tratados separadamente do resultado do login: o callback do flow atual ainda salva esses parâmetros; depois que o polling tem sucesso, um callback atrasado com o mesmo state ainda salva a atribuição dentro da janela original de deduplicação de 30 segundos, mas não resolve mais o authorization code nem solicita token. Callbacks com state errado, cancelados ou já substituídos por um novo flow não podem ser gravados. As regras de passagem de parâmetros existentes do authorize URL, `app_version`, redirect e state permanecem inalteradas.
+- Somente resultados que ainda pertencem ao pending flow atual podem ser gravados em disco; após cancelamento ou troca de login, resultados HTTP antigos (inclusive 4xx) não podem limpar o novo flow nem sobrescrever um login já concluído.
+- Antes de iniciar um novo login, o pending flow local antigo é cancelado; o cancelamento do usuário também descarta respostas de init que ainda não voltaram. O backend atual não tem interface de cancelamento, então o cancelamento apenas interrompe as consultas do App e o flow do backend expira por TTL.
+- Web `/remote`, attachment de shared-host, sessão/task em tempo real e a cadeia de recuperação replayable permanecem inalteradas.
 
-## 验收场景
+## Cenários de aceitação
 
-- Z.AI 或 BigModel deep link 未返回时，polling `ready` 仍能完成登录和既有 Coding Plan 刷新。
-- deep link 先完成时停止 polling；polling 先完成时忽略迟到 deep link。
-- 用户取消、开始新登录、flow `failed`、flow 过期后不再落盘。
-- 快速连续开始两个 flow 时，较晚发起的 flow 保持有效，迟到的旧 init/poll 不得覆盖它。
-- BigModel 使用原官网中转页兼容 deep link，同时保留 polling flow。
+- Quando o deep link de Z.AI ou BigModel não retorna, o `ready` do polling ainda consegue concluir o login e a atualização existente do Coding Plan.
+- Quando o deep link conclui primeiro, o polling é interrompido; quando o polling conclui primeiro, o deep link atrasado é ignorado.
+- Após cancelamento do usuário, início de novo login, `failed` do flow ou expiração do flow, nada mais é gravado em disco.
+- Ao iniciar dois flows rapidamente em sequência, o flow iniciado mais tarde permanece válido, e init/poll atrasados não podem sobrescrevê-lo.
+- O BigModel usa a antiga página de relay do site oficial para compatibilidade com deep link, mantendo ao mesmo tempo o polling flow.
 
-### 双路径竞态回归
+### Regressão de corrida do caminho duplo
 
 ```text
-回调 / poll 响应 → Host 完成队列 → 校验与兑换 → 保存一次
-                          ├─ 成功 → 后续候选跳过（归因仍保留）
-                          └─ 失败 → 下一个候选独立校验与兑换
+resposta de callback / poll → fila de conclusão do Host → validação e troca → salva uma única vez
+                          ├─ sucesso → candidatos seguintes são pulados (a atribuição é preservada)
+                          └─ falha → o próximo candidato valida e troca de forma independente
 ```
 
-- 两种到达顺序均覆盖：先到成功、先到失败后另一条成功、两条均失败。
-- 后到候选在先到候选完成前不能开始解析授权码或归一化 token。
-- 回调等待期间、polling 成功后到达的归因参数都要保留；旧 flow 参数不得覆盖新 flow。
-- 服务层受控 Promise 验证微观时序；桌面 E2E 通过真实 Host HTTP 和 preload 回调验证失败回退后
-  UI 成功且没有登录失败提示。手机远控没有增加新的 OAuth 入口或修改 continuous/replayable 链路。
+- Ambos os órdenes de chegada são cobertos: primeiro sucesso, primeiro falha seguido de sucesso da outra via, e ambas falhando.
+- O candidato que chega depois não pode começar a resolver o authorization code nem normalizar o token antes de o candidato que chegou primeiro ser concluído.
+- Os parâmetros de atribuição que chegam durante a espera do callback e depois do sucesso do polling devem ser preservados; parâmetros de flow antigo não podem sobrescrever o flow novo.
+- A camada de service usa Promises controladas para validar a ordem microscópica; o E2E de desktop valida, via HTTP real do Host e callback via preload, que após o fallback de falha a UI tem sucesso e não exibe indicação de falha de login. O controle remoto do celular não ganhou nova entrada de OAuth nem alterou as cadeias continuous/replayable.
 
-### 回调取消与错误归属
+### Cancelamento do callback e atribuição de erro
 
-- 已接收的回调因取消或新 flow 而失效时返回 `null`；Root 静默忽略，不更新用户、成功状态或错误提示。
-- 两条路径均失败时，各调用方收到自己路径的原始错误；等待备用路径不能覆盖首条路径的诊断信息。
-- 成功后的 30 秒去重窗口按回调进入服务的时间判断。pending 期间已接收或窗口内接收的回调，
-  不因排队超过窗口而丢失归因；窗口结束后新收到的回调仍拒绝。取消、新 flow 的隔离优先于此规则。
+- Quando um callback já recebido se torna inválido por cancelamento ou por um novo flow, o retorno é `null`; o Root ignora silenciosamente, sem atualizar usuário, estado de sucesso ou mensagem de erro.
+- Quando ambas as vias falham, cada chamador recebe o erro original da sua própria via; esperar pela via alternativa não pode sobrescrever a informação de diagnóstico da primeira via.
+- A janela de deduplicação de 30 segundos após o sucesso é julgada pelo momento em que o callback entra no service. Callbacks já recebidos durante o período pending ou recebidos dentro da janela não perdem a atribuição só por terem ficado na fila além da janela; callbacks recebidos após o fim da janela continuam sendo rejeitados. O isolamento por cancelamento e por novo flow tem prioridade sobre esta regra.
 
 ```text
-窗口内收到回调 → 入队 → 等待超过 30 秒 → 仍保存归因
-窗口结束后收到新回调                  → 拒绝
-取消 / 新 flow → 旧回调返回 null → Root 忽略
+callback recebido dentro da janela → entra na fila → espera mais de 30 segundos → ainda salva a atribuição
+novo callback recebido após o fim da janela                  → rejeitado
+cancelamento / novo flow → o callback antigo retorna null → o Root ignora
 ```

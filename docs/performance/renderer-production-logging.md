@@ -1,30 +1,49 @@
-# Renderer 生产日志策略
+# Estratégia de Logs de Produção no Renderer
 
-## 背景
+## Contexto
 
-Renderer 层运行在桌面窗口和 Web 远控页面内，日志调用会和 React 渲染、消息流处理、远控恢复链路抢主线程时间。历史上 UI 日志统一写 console，并在桌面端通过 `window.zcode.log` 转发到 main 进程落盘；当会话流、工具调用、任务快照和远控同步变多时，这些同步格式化、IPC 转发和文件写入会放大生产版本的性能成本。
+A camada renderer roda dentro da janela desktop e da página de controle remoto Web, e as chamadas de log disputam o
+tempo da main thread com a renderização React, o processamento do fluxo de mensagens e a cadeia de restauração do
+controle remoto. Historicamente os logs de UI iam todos para o console e, no desktop, eram encaminhados ao processo
+principal via `window.zcode.log` para gravação em disco; conforme o fluxo da sessão, as chamadas de ferramentas, os
+snapshots de tarefa e a sincronização do controle remoto cresciam, essa formatação síncrona, esse encaminhamento por IPC
+e essa escrita em arquivo amplificavam o custo de performance da versão de produção.
 
-## 目标
+## Objetivos
 
-- 生产构建里的 renderer 本地日志默认不输出。
-- 生产构建里的 UI 日志不再通过 `window.zcode.log` 转发到 main 进程落盘。
-- 开发构建继续保留 renderer console 和桌面日志桥，方便本地排查。
-- 正式监控链路不属于本策略的关闭范围，例如 ARMS、telemetry、crash capture、用户主动导出日志、服务层和 host/main 进程日志。
+- os logs locais do renderer em builds de produção não são emitidos por padrão.
+- os logs de UI em builds de produção não são mais encaminhados ao processo principal para gravação em disco via
+  `window.zcode.log`.
+- builds de desenvolvimento continuam com o console do renderer e a ponte de logs do desktop, para facilitar a
+  investigação local.
+- o pipeline oficial de monitoramento não está no escopo de desligamento desta política, por exemplo ARMS, telemetry,
+  captura de crash, exportação de logs feita pelo usuário e logs do service layer e dos processos host/main.
 
-## 环境边界
+## Limites de ambiente
 
-日志开关以 Vite 构建态 `import.meta.env.PROD` 为准，而不是 `ZCODE_ENV`。原因是 `ZCODE_ENV=production` 只表示连接生产产品环境；`dev:desktop:prod` 仍是本地开发运行态，仍需要 renderer 日志辅助调试。只有真实生产构建才应让 renderer 本地日志 no-op。测试或诊断场景可以通过 `globalThis.__ZCODE_RENDERER_DISABLE_LOGGING__ === true` 强制关闭 renderer 日志；该开关只能额外关闭日志，不能在生产构建中重新打开日志。
+O interruptor de logs se baseia no estado de build do Vite `import.meta.env.PROD`, e não em `ZCODE_ENV`. A razão é que
+`ZCODE_ENV=production` indica apenas conexão com o ambiente de produto; `dev:desktop:prod` continua sendo um estado de
+execução de desenvolvimento local e ainda precisa dos logs do renderer para auxiliar o debug. Somente um build de
+produção real deve tornar os logs locais do renderer no-op. Cenários de teste ou diagnóstico podem forçar o desligamento
+dos logs do renderer com `globalThis.__ZCODE_RENDERER_DISABLE_LOGGING__ === true`; esse interruptor só pode desligar
+logs adicionalmente, nunca religá-los em um build de produção.
 
-## 实现约束
+## Restrições de implementação
 
-- `packages/ui/src/logger.ts` 是 UI 层唯一日志入口；生产构建中 `debug` / `info` / `warn` / `error` / `trace` 都直接返回，不写 console、不转发桌面 bridge。
-- `packages/client` 中面向 renderer 的连接日志必须遵循同一生产构建边界，避免绕过 UI logger。
-- 唯一例外是 `logger.logMemoryDiagnostics`：它是 [进程内存本地诊断日志](../monitoring/memory-diagnostics-log.md) 的正式监控出口，最多每 60 秒一行、有变化才写，生产构建仍经桌面桥落盘；Web 端无桥时 no-op。其他模块不得借用它输出业务日志。
-- 桌面和 Web renderer 入口里的 console 调试输出只允许在非生产构建执行。
-- Web 远控 relay trace 继续保持开发态限定；高频消息日志不得进入生产 renderer。
+- `packages/ui/src/logger.ts` é o único ponto de entrada de logs da camada de UI; em builds de produção `debug` / `info`
+  / `warn` / `error` / `trace` retornam diretamente, sem escrever no console e sem encaminhar para a bridge do desktop.
+- logs de conexão voltados ao renderer em `packages/client` devem respeitar o mesmo limite de build de produção, para
+  não contornar o logger de UI.
+- a única exceção é `logger.logMemoryDiagnostics`: ele é a saída oficial de monitoramento do
+  [log local de diagnóstico de memória de processo](../monitoring/memory-diagnostics-log.md), escreve no máximo uma
+  linha a cada 60 segundos e somente quando há mudança, e em builds de produção continua sendo gravado em disco pela
+  bridge do desktop; na Web, sem bridge, é no-op. Nenhum outro módulo pode usá-lo para emitir logs de negócio.
+- saídas de debug em console nas entradas renderer desktop e Web só são permitidas em builds não produção.
+- o trace de relay do controle remoto Web continua restrito ao estado de desenvolvimento; logs de mensagens de alta
+  frequência não podem entrar no renderer de produção.
 
-## 验证
+## Verificação
 
-- 单测覆盖开发构建会输出、生产构建不输出。
-- 运行 `pnpm typecheck`。
-- 运行 `pnpm lint`。
+- testes unitários cobrem que o build de desenvolvimento emite e o build de produção não emite.
+- executar `pnpm typecheck`.
+- executar `pnpm lint`.

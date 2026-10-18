@@ -1,26 +1,25 @@
 # ZCode stdio Tap Proxy
 
-开发环境可以通过 Help 菜单打开 `Capture Agent stdio Traffic`，让 app 和 ZCode Agent 之间的 stdio NDJSON 经过旁路 proxy。
+Em ambiente de desenvolvimento, é possível abrir `Capture Agent stdio Traffic` pelo menu Help, fazendo com que o NDJSON de stdio entre o app e o ZCode Agent passe por um proxy em paralelo.
 
-## 行为
+## Comportamento
 
-- 仅本地开发运行时显示菜单项并生效，测试/正式安装包不显示。
-- 开关状态写入 `~/.zcode/v2/dev/zcode-stdio-tap.json`。
-- 抓包文件写入 `~/.zcode/v2/dev/stdio-traffic/<workspaceHash>/`。
-- `latest.txt` 指向最近一次 proxy 生成的 `.ndjson` 文件。
-- 已运行的 agent 不会被重启；开关只影响后续新启动的 agent 进程。
+- O item de menu é exibido e só tem efeito no runtime de desenvolvimento local; pacotes de teste/produção não o exibem.
+- O estado do interruptor é gravado em `~/.zcode/v2/dev/zcode-stdio-tap.json`.
+- Os arquivos de captura são gravados em `~/.zcode/v2/dev/stdio-traffic/<workspaceHash>/`.
+- `latest.txt` aponta para o arquivo `.ndjson` gerado pelo proxy mais recente.
+- Agents já em execução não são reiniciados; o interruptor afeta apenas os processos de agent iniciados depois.
 
-## 查看
+## Visualização
 
-`apps/dev-docs` 的 `stdio 抓包` 页会通过本地 Vite API 读取
-`~/.zcode/v2/dev/stdio-traffic` 下最近更新的 `.ndjson` 文件，并按 record 时间倒序显示。
-状态显示为 `real tail` 时，数据来自真实 tap 文件；`mock replay` 只用于手动演示，不代表真实 agent 通信。
+A página `stdio 抓包` de `apps/dev-docs` lê, por meio de uma API Vite local, o arquivo `.ndjson` atualizado mais recentemente em `~/.zcode/v2/dev/stdio-traffic` e o exibe em ordem decrescente pelo tempo do record.
+Quando o estado exibido é `real tail`, os dados vêm do arquivo de tap real; `mock replay` serve apenas para demonstração manual e não representa comunicação real de agent.
 
 ```sh
 cat ~/.zcode/v2/dev/stdio-traffic/<workspaceHash>/latest.txt
 ```
 
-拿到 `latest.txt` 里的文件路径后：
+Depois de obter o caminho do arquivo em `latest.txt`:
 
 ```sh
 tail -f <traffic-file>.ndjson
@@ -28,4 +27,4 @@ jq 'select(.direction == "app-to-agent") | .message' < <traffic-file>.ndjson
 jq 'select(.id == 7)' < <traffic-file>.ndjson
 ```
 
-每条 record 保留 `direction`、`raw`、`message`、`parseError`、`id`、`method`、`sessionId` 和 `inputId`。`raw` 是原始 stdio 行，`message` 是可解析 JSON 的结构化副本。
+Cada record mantém `direction`, `raw`, `message`, `parseError`, `id`, `method`, `sessionId` e `inputId`. `raw` é a linha de stdio original, e `message` é a cópia estruturada do JSON que pôde ser interpretado.

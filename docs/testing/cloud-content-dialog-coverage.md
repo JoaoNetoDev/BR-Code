@@ -1,61 +1,104 @@
-# 公共内容弹窗验收记录
+# Registro de Aceitação dos Diálogos de Conteúdo Público
 
-日期：2026-09-04。用例语义来源：`docs/cloud-content-dialog-plan.md` 第 7 节 accepted cases。
+Data: 2026-09-04. Origem da semântica dos cases: seção 7 de `docs/cloud-content-dialog-plan.md`
+(accepted cases).
 
-## 覆盖映射
+## Mapeamento de cobertura
 
-关闭按钮最新外观约定（2026-09-11）：任意 Hero 背景无法由 App 主题推断，公共内容弹窗改为圆形媒体覆盖层按钮：黑色 50% 不透明度背景、白色图标、无边框，hover 黑色 65%。样式限定于公共内容弹窗，尺寸、位置、焦点、关闭逻辑及上报不变。单测约束样式作用域，App E2E 检查亮暗主题图标/无边框、实际背景和 hover/移出恢复；以下透明 ghost 和浅色描边记录仅代表历史版本。
+Convenção mais recente do botão de fechar (2026-09-11): como um fundo Hero arbitrário não pode ser
+inferido do tema do App, o diálogo de conteúdo público passou a usar um botão de overlay de mídia
+circular: fundo preto com 50% de opacidade, ícone branco, sem borda, e no hover preto a 65%. O estilo
+fica restrito ao diálogo de conteúdo público; tamanho, posição, foco, lógica de fechamento e
+telemetria permanecem inalterados. Os testes unitários restringem o escopo do estilo, o E2E do App
+verifica ícone nos temas claro e escuro, ausência de borda, fundo real e hover/restaurar ao sair; os
+registros de ghost transparente e traço claro abaixo representam apenas versões históricas.
 
-关闭按钮回归：8项组件单测、13项 macOS App E2E 通过（`desktop-e2e-20260911081628031-p81577-df8067a6323428fc`），实际背景默认透明、hover 非透明、移出恢复透明。类型/E2E类型/架构检查通过，lint 0错误/46条既有警告；Windows/Linux/手机实机未补。
+Regressão do botão de fechar: 8 testes unitários de componente e 13 E2Es de App no macOS passaram
+(`desktop-e2e-20260911081628031-p81577-df8067a6323428fc`), com fundo real transparente por padrão,
+não transparente no hover e restaurado ao sair. typecheck/typecheck de E2E/verificação de arquitetura
+passaram, lint com 0 erros e 46 warnings preexistentes; Windows/Linux/mobile em máquina real não
+foram complementados.
 
-2026-09-11 最终定位（覆盖下方两轮临时判断）：实际窗口截图 `Page.captureScreenshot({fromSurface:false})` 可稳定复现方角，默认渲染表面截图会漏掉。隐藏 iframe 后暗块消失；父层 clip-path/mask、iframe 圆角均无效；关闭 DialogOverlay 的 backdrop-filter 后暗块消失。互动 iframe 弹窗仅保留半透明遮罩，不使用背景模糊，其他媒体/普通弹窗保持原模糊。移除无效 clip-path，保留 Hero 顶部圆角。回归验证必须包含实际窗口截图；DOM 命中与默认截图不足以验收该问题。
+Posicionamento final em 2026-09-11 (sobrescrevendo os dois julgamentos temporários abaixo): a captura
+de tela da janela real com `Page.captureScreenshot({fromSurface:false})` reproduz o bloco quadrado de
+forma estável, e a captura da superfície de renderização padrão o perde. Depois de esconder o iframe
+o bloco escuro desaparece; clip-path/mask da camada pai e border-radius do iframe são inofensivos; ao
+desligar o backdrop-filter do DialogOverlay o bloco escuro desaparece. Diálogos com iframe interativo
+mantêm apenas a máscara semitransparente, sem desfoque de fundo; outros dialogs de mídia e comuns
+mantêm o desfoque original. Remove-se o clip-path inofensivo e mantém-se o raio de canto no topo do
+Hero. A regressão precisa incluir a captura da janela real; acerto no DOM e captura padrão não são
+suficientes para aceitar esse problema.
 
-最终验证：用户 App 原生窗口 A/B 截图在关闭 backdrop-filter 后不再出现暗块；2文件13项单测通过（互动 iframe 关闭模糊，普通图片保留模糊），隔离 App E2E 12项通过，run `desktop-e2e-20260911071241976-p81265-05dd209b62561d94`。typecheck/E2E typecheck/架构检查通过，lint 0错误/46条既有警告。没有修改 iframe 权限、消息协议或 ZIP；未补 Windows/Linux/手机实机验证。
+Verificação final: as capturas A/B da janela nativa do App do usuário não apresentam mais o bloco
+escuro após desligar o backdrop-filter; 13 testes unitários em 2 arquivos passaram (iframe
+interativo sem desfoque, imagem comum com desfoque), 12 E2Es de App isolado passaram, run
+`desktop-e2e-20260911071241976-p81265-05dd209b62561d94`. typecheck/typecheck de E2E/verificação de
+arquitetura passaram, lint com 0 erros e 46 warnings preexistentes. Não foram modificadas permissões
+de iframe, protocolo de mensagens ou ZIP; não foi complementada a verificação em máquina real no
+Windows/Linux/mobile.
 
-2026-09-11 外观修订：公共内容弹窗不显示外边框，保留原圆角与阴影；Hero 槽自行按弹窗顶部圆角裁切全部媒体（含 iframe），不依赖子资源实现圆角。保留弹窗纵向滚动与关闭交互，不修改全局 Dialog、ZIP 或消息协议。单测约束外壳/裁切样式，Marketing Touch App E2E 验证真实 iframe ready 后的边框、圆角及角落命中区域。
+Revisão de aparência em 2026-09-11: o diálogo de conteúdo público não exibe borda externa, mantendo o
+raio de canto e a sombra originais; o slot Hero recorta por conta própria todo o meio (incluindo o
+iframe) conforme o raio de canto do topo do diálogo, sem depender da implementação de raio nos
+subrecursos. Mantêm-se a rolagem vertical do diálogo e a interação de fechar, e não se modificam o
+Dialog global, o ZIP ou o protocolo de mensagens. Os testes unitários restringem o estilo do shell e
+do recorte, e o E2E do Marketing Touch App valida a borda, o raio de canto e as regiões de acerto nos
+cantos após um iframe real estar ready.
 
-同日反馈补充：用户截图中顶部圆角仍有方形残留，上一轮 DOM 命中断言不足以证明合成画面无溢出。当前用户 App 已加载圆角样式，CDP 截图未稳定复现残留，不能据此宣称确定了 Chromium 根因。Hero 槽增加使用同一圆角 token 的显式 clip-path，裁切整个媒体合成子树；保留外壳阴影和滚动。验证须检查计算后的 clip-path 与实际截图，不只检查 overflow 和 hit-test。
+Complemento do feedback do mesmo dia: na captura do usuário ainda havia resíduo quadrado no raio de
+canto do topo, e a asserção de acerto no DOM da rodada anterior não provava que a composição final
+não transbordava. O App atual do usuário já carrega o estilo com raio de canto, e a captura via CDP
+não reproduz o resíduo de forma estável, o que não permite afirmar que a causa raiz no Chromium foi
+determinada. O slot Hero recebeu um clip-path explícito usando o mesmo token de raio de canto,
+recortando toda a subárvore de composição da mídia; a sombra do shell e a rolagem foram mantidas. A
+verificação precisa checar o clip-path computado e a captura real, e não apenas overflow e hit-test.
 
-补充验证：当前 App 热更新后计算值为 `inset(0px round 16px 16px 0px 0px)`，亮色顶部放大截图无方形残留；12项单测、12项隔离 App E2E 通过（`desktop-e2e-20260911070253834-p64345-205b3da8a5ba0a07`），typecheck/E2E typecheck/架构检查通过，lint 0错误/46条既有警告。仍需用户现场确认，CDP 截图不等同于证明用户原始合成残留必定消失；Windows/Linux/手机实测未补。
+Verificação complementar: após o hot update, o valor computado no App atual é
+`inset(0px round 16px 16px 0px 0px)` e a captura ampliada do topo no tema claro não mostra resíduo
+quadrado; 12 testes unitários e 12 E2Es de App isolado passaram
+(`desktop-e2e-20260911070253834-p64345-205b3da8a5ba0a07`), typecheck/typecheck de E2E/verificação de
+arquitetura passaram, lint com 0 erros e 46 warnings preexistentes. Ainda é necessária a confirmação
+do usuário no local; a captura via CDP não equivale a provar que o resíduo de composição original
+dele necessariamente desapareceu; Windows/Linux/mobile não foram medidos.
 
-| Case      | 证据                                                               | 范围                                                                                                               |
+| Case      | Evidência                                                               | Escopo                                                                                                               |
 | --------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| CCD-01/02 | App pending preview + contentBundleCache/cloudContentService tests | HTTP JSON、真实 ZIP、hash/size、解包 URL、ready、缓存命中与清缓存重下                                              |
-| CCD-03    | cache/service/preview unit + App 错误哈希路径                      | 拒绝坏资源、无 iframe、保留标题/说明/关闭，恢复合法场景可重试                                                      |
-| CCD-04    | media unit + App preview                                           | 真图片、WebM 解码、Lottie canvas、iframe Replay；双主题；视频 reduced-motion/关闭暂停，Lottie 单测销毁             |
-| CCD-05    | description unit + App preview                                     | 标签白名单、危险 URL、嵌套上限、中英、390px 视口无横溢出；不等同于真机 Web 验证                                    |
-| CCD-06    | dialog unit + App preview                                          | 字段/按钮顺序、缺能力禁用、单飞、失败重试、复制本地反馈、mock 动作记录                                             |
-| CCD-07    | Hero unit + App iframe origin 检查                                 | contentWindow/instanceId/channel、未知事件拒绝；无 same-origin，无法读取父 DOM                                     |
-| CCD-08    | cache/service integration                                          | 同服务并发 acquire、多个 lease、清缓存保护活跃包、host 取消下载；不同 host 使用独立根，不宣称多进程共享缓存        |
-| CCD-09    | 既有 start-plan-manual-claim-experience E2E + banner unit          | 成功/待生效/失败、持续轮询、复制分享、模型设置/连接导航；失败态不建 Hero                                           |
-| CCD-10    | shared 类型、组件降级、Web build、390px 视口                       | Desktop 资源归本地 host，不落 workspace；Web/手机没有 Desktop loopback 入口；真实手机和远程 workspace 运行验证未做 |
-| CCD-11    | spec 明确限制                                                      | markdown 仅兼容原文；正式 dismissal/频控属于后续投放，不作已覆盖                                                   |
+| CCD-01/02 | App pending preview + testes de contentBundleCache/cloudContentService | JSON HTTP, ZIP real, hash/size, URL de descompactação, ready, acerto de cache e re-download após limpar cache |
+| CCD-03    | unit de cache/service/preview + caminho de hash inválido no App         | recusa de recurso ruim, sem iframe, preserva título/descrição/fechar, cenário válido pode ser retried |
+| CCD-04    | unit de mídia + preview no App                                        | imagem real, decodificação WebM, canvas Lottie, Replay em iframe; dois temas; vídeo com reduced-motion/pausar ao fechar, unit de Lottie destrói |
+| CCD-05    | unit de description + preview no App                                  | allowlist de tags, URL perigosa, limite de aninhamento, ZH/EN, viewport de 390px sem transbordo horizontal; não equivale a verificação Web em máquina real |
+| CCD-06    | unit de dialog + preview no App                                        | ordem de campos/botões, desabilitado por falta de capacidade, single-flight, retry de falha, cópia com feedback local, ações mock registradas |
+| CCD-07    | unit de Hero + checagem de iframe origin no App                        | contentWindow/instanceId/channel, rejeição de evento desconhecido; sem same-origin, não consegue ler o DOM pai |
+| CCD-08    | integração cache/service                                                | acquire concorrente no mesmo serviço, múltiplos leases, proteção do pacote ativo ao limpar cache, cancelamento de download pelo host; hosts diferentes usam raízes independentes e não se declara cache compartilhado entre processos |
+| CCD-09    | E2E existente start-plan-manual-claim-experience + unit de banner       | sucesso/pendente/falha, polling contínuo, copiar/Compartilhar, navegação para configurações de modelo/conexão; estado de falha não cria Hero |
+| CCD-10    | tipos compartilhados, degradação de componente, Web build, viewport 390px | recursos do Desktop vão para o host local e não para o workspace; Web/mobile não têm entrada de loopback do Desktop; validação em máquina real e em workspace remoto não foi feita |
+| CCD-11    | restrição explícita na spec                                             | markdown compatível apenas com o texto original; dismissal/frequência oficiais pertencem a uma entrega posterior e não são considerados cobertos |
 
-## 运行证据
+## Evidências de execução
 
-- 去除描边：10 项组件单测、定向 macOS App MTC-01/07/08 通过（`desktop-e2e-20260911-110642-086`），亮暗主题边框均为 0px，半透明背景与 hover 回归通过。架构和 Lint 通过，类型检查仍有既有模型迁移错误；未新增跨平台实机验证。
+- Remoção do traço: 10 testes unitários de componente e E2Es direcionados do App macOS MTC-01/07/08 passaram (`desktop-e2e-20260911-110642-086`), com borda de 0px nos temas claro e escuro, fundo semitransparente e regressão de hover passando. Arquitetura e lint passaram; a verificação de tipos ainda tem erros de migração de modelo preexistentes; não foi adicionada verificação em máquina real multiplataforma.
 
-- 2026-09-11 媒体关闭按钮：10 项组件单测与定向 macOS App MTC-01/07/08 通过（`desktop-e2e-20260911-110305-161`），实测亮暗 class 下白色图标/浅色描边、默认黑色 50%/hover 65%/移出恢复，以及取消上报。使用 architecture-governance 限定公共 UI 样式作用域，按 e2e-case-lifecycle 保留 pending 回归。Lint 0 错误/49 条既有警告；全量与 E2E 类型检查仍被既有模型接口迁移错误阻断。误运行完整营销套件仍有其他用例失败，不作为本改动全部通过的证据；Windows/Linux/手机实机未验证。
+- Botão de fechar de mídia em 2026-09-11: 10 testes unitários de componente e E2Es direcionados do App macOS MTC-01/07/08 passaram (`desktop-e2e-20260911-110305-161`), com medição de ícone branco/traço claro nos classes claro e escuro, preto a 50% por padrão/65% no hover/restaurar ao sair, e o cancelamento da telemetria. architecture-governance foi usado para limitar o escopo de estilo da UI pública e e2e-case-lifecycle preservou a regressão pending. Lint com 0 erros e 49 warnings preexistentes; a verificação de tipos completa e de E2E continua bloqueada por erros preexistentes de migração de interface de modelo. Uma execução acidental da suíte completa de marketing teve outras falhas de case e não serve como evidência de aprovação completa desta mudança; Windows/Linux/mobile em máquina real não foram verificados.
 
-- 2026-09-11 无边框/顶部裁切：先新增单测失败，再修复；2文件12项单测通过。macOS 隔离 Marketing Touch App E2E 12项通过，run `desktop-e2e-20260911065419725-p49538-44fd937cd2b33621`，包含真实 iframe 顶角不命中、圆角与外壳一致、边框为0及原交互回归。截图检查顶部裁切正常。typecheck、E2E typecheck、架构检查通过；lint 0错误/46条既有警告。此次未补 Windows/Linux/手机实机或双主题完整视觉验收，不改变原兼容边界。
+- Sem borda/corte do topo em 2026-09-11: primeiro foi adicionado um teste unitário que falhou, e só então a correção; 12 testes unitários em 2 arquivos passaram. 12 E2Es do Marketing Touch App isolado no macOS passaram, run `desktop-e2e-20260911065419725-p49538-44fd937cd2b33621`, incluindo o canto superior do iframe real sem acerto, raio de canto igual ao do shell, borda 0 e a regressão de interação original. A inspeção das capturas mostrou o corte do topo normal. typecheck, typecheck de E2E e verificação de arquitetura passaram; lint com 0 erros e 46 warnings preexistentes. Desta vez não foi complementada a verificação em máquina real no Windows/Linux/mobile nem a aceitação visual completa nos dois temas, e a fronteira de compatibilidade original não muda.
 
-- 完整 App preview：4/4 通过，`packages/desktop/.e2e-artifacts/desktop-e2e-20260904040413280-p12214-57effa9488fe0d38/summary.md`，含窄屏/reduced-motion、关闭内容回到加载按钮、关闭面板回到入口的焦点断言。
-- Weekend 最终回归：4/4 通过，`packages/desktop/.e2e-artifacts/desktop-e2e-20260904040659110-p17722-92d58f3c5b964911/summary.md`。
-- Web build、根 typecheck、E2E typecheck 通过；lint 0 error，40 个原有 warning。
-- 最终 focused tests：10 文件 80/80 通过（含两个焦点回归）；Node HTTP mock 2/2 通过。
+- Preview completo do App: 4/4 passaram, `packages/desktop/.e2e-artifacts/desktop-e2e-20260904040413280-p12214-57effa9488fe0d38/summary.md`, incluindo tela estreita/reduced-motion, fechar o conteúdo voltando ao botão de carregamento e fechar o painel voltando à entrada, com as asserções de foco.
+- Regressão final do Weekend: 4/4 passaram, `packages/desktop/.e2e-artifacts/desktop-e2e-20260904040659110-p17722-92d58f3c5b964911/summary.md`.
+- Web build, typecheck da raiz e typecheck de E2E passaram; lint com 0 erros e 40 warnings originais.
+- Testes focados finais: 80/80 passaram em 10 arquivos (incluindo as duas regressões de foco); 2/2 do mock HTTP em Node passaram.
 
-## 运行中发现的问题
+## Problemas encontrados durante as execuções
 
-1. 新 ZIP 依赖内联进 ESM main/host，Electron 在入口报 `Dynamic require of "fs" is not supported`。已把 yauzl 外置、列为 Desktop 运行依赖并加入产物依赖检查；实际 App 成功启动并完成 ZIP 用例，补 tsup 回归测试。
-2. 两次 Weekend 回归在等待轮询期间出现额外「模型设置→返回工作区」点击，日志证明结果通过 close 关闭，而非 owner 被卸载。无该额外操作的一轮 4/4 通过；保留测试输入事件诊断，未据此修改轮询状态机。
-3. `safeParse` 对 `https://` 的 refine 曾直接抛异常，已先检查 URL.canParse；补非法 URL 测试。
-4. 窄屏测试曾在宽度过渡中采到 421px（目标视口 390px）；增加布局收敛等待后保持原有边界断言，无生产 CSS 放宽。
-5. 受控弹窗没有 Radix Trigger，关闭后默认焦点落到 body。单测复现后补打开来源记录/恢复，预览面板使用 DialogTrigger；异步加载暂时禁用按钮会使 activeElement 丢失，预览显式传入宿主侧 returnFocusRef（不是云端字段）。真实 App 的加载按钮/入口焦点断言通过。
-6. Weekend 收尾复跑有一次在领取弹窗关闭、设置导航/权益刷新完成后，Subagents 模型子菜单展开超时；只补失败现场诊断，未修改模型业务或放宽断言。相同生产代码复跑 4/4 通过。该次交互抖动未证明根因，保留为 E2E 稳定性风险，不声称已修复。
+1. A nova dependência de ZIP foi inlined no ESM main/host, e o Electron reclamou na entrada com `Dynamic require of "fs" is not supported`. O yauzl foi externalizado, listado como dependência de runtime do Desktop e incluído na verificação de dependências do artefato; o App real iniciou e concluiu os cases de ZIP, e foi adicionado um teste de regressão de tsup.
+2. Em duas regressões do Weekend apareceu um clique extra de "configurações de modelo → voltar para a workspace" durante a espera de polling; o log prova que o resultado foi fechado por close e não por descarregamento do owner. A rodada sem essa operação extra passou 4/4; o diagnóstico de eventos de entrada do teste foi mantido e a máquina de estados de polling não foi alterada com base nisso.
+3. O `safeParse` já chegou a lançar exceção diretamente no refine de `https://`; foi adicionada uma verificação prévia com URL.canParse, mais um teste de URL inválida.
+4. O teste de tela estreita chegou a amostrar 421px durante a transição de largura (viewport alvo de 390px); com a adição de uma espera de convergência de layout a fronteira original foi mantida, sem afrouxar o CSS de produção.
+5. O diálogo controlado não tem Radix Trigger, e após o fechamento o foco padrão ia para o body. Depois de reproduzir no teste unitário, foi adicionado registro/fonte da origem e restauração, e o painel de preview usa DialogTrigger; o carregamento assíncrono desabilita temporariamente o botão e faz o activeElement se perder, então o preview passa explicitamente um returnFocusRef do lado hospedeiro (não é um campo vindo da nuvem). As asserções de foco do botão de carregamento/entrada no App real passaram.
+6. Na reexecução de encerramento do Weekend, uma delas teve timeout na expansão do submenu de modelo de Subagents depois de o diálogo de resgate fechar e a navegação de configurações/atualização de benefícios completar; apenas o diagnóstico da cena de falha foi adicionado, sem modificar a lógica de negócio de modelo nem afrouxar as asserções. A reexecução com o mesmo código de produção passou 4/4. Essa instabilidade de interação não prova a causa raiz e é mantida como risco de estabilidade do E2E, sem alegar que foi corrigida.
 
-## 限制与人工验收
+## Limitações e aceitação manual
 
-- 新 preview 用例保持 `ui-shell/manual-review/pending`，未自行 promotion。
-- 当前在 macOS Electron 验证；Windows/Linux/真机手机未实测。跨平台路径约束由服务单测覆盖，不冒充平台运行结果。
-- Web/手机云端 ZIP 托管、生产 CDN 信任/签名/投放均未接入。Desktop 缓存只保证同 host 生命周期内复用。
-- mock 场景动作不调用真实业务；真实领取边界由既有 Weekend E2E 验证，不请求线上活动。
+- Os novos cases de preview permanecem em `ui-shell/manual-review/pending`, sem promoção automática.
+- A verificação atual é no Electron do macOS; Windows/Linux/mobile real não foram medidos. As restrições de caminho multiplataforma são cobertas por testes unitários do serviço e não se passam por resultado de execução em plataforma.
+- Hospedagem de ZIP na nuvem para Web/mobile, confiança/assinatura/distribuição pelo CDN de produção não estão integradas. O cache do Desktop garante apenas reuso dentro do ciclo de vida do mesmo host.
+- As ações dos cenários mock não chamam o negócio real; a fronteira real de resgate é verificada pelo E2E do Weekend existente e não faz requisições a campanhas online.

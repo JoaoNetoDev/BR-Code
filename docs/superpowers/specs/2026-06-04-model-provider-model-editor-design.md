@@ -1,40 +1,40 @@
-# Model Provider Model Editor Design
+# Design do Editor de Modelos do Model Provider
 
-## Goal
+## Objetivo
 
-模型供应商设置页的“添加模型”和“编辑模型”统一使用同一个弹窗编辑器。字段按模型身份、Token 限制、输入输出、模型能力和模型选项的任务顺序分区，避免不同配置混排；分区不展示额外标题，直接通过间距和边框建立层级。添加模型时不再先插入空白行，只有用户确认并通过校验后才写入模型列表。底层模态来源与运行时投影边界见 `docs/superpowers/specs/2026-08-21-model-provider-modality-settings-design.md`。
+As ações "Adicionar modelo" e "Editar modelo" da página de configuração de fornecedores de modelos passam a usar o mesmo editor em diálogo. Os campos são agrupados por seções na ordem de tarefa: identidade do modelo, limites de Token, entrada e saída, capacidades do modelo e opções do modelo, evitando misturar configurações diferentes; as seções não exibem títulos extras e criam hierarquia diretamente por espaçamento e bordas. Ao adicionar um modelo, não se insere mais uma linha em branco: a escrita na lista de modelos ocorre somente após o usuário confirmar e passar na validação. A origem do modal de baixo nível e a fronteira de projeção do runtime estão em `docs/superpowers/specs/2026-08-21-model-provider-modality-settings-design.md`.
 
-## Current State
+## Estado atual
 
-- `ProviderModelsSection` 当前点击添加模型会打开 `ProviderModelMetadataDialog`，校验通过后再调用 `onAddModel`。
-- `ModelRowInput` 已经维护模型 draft，并通过 `ProviderModelMetadataDialog` 编辑模型 ID、上下文窗口和最大输出 Token。
-- `ProviderModelDraftValues.maxOutputTokensValue`、正整数校验和保存到 `ModelProviderModelConfig.maxOutputTokens` 的链路已经存在；当前缺少模态输入入口，且新增默认仍是 200K context / 空 max output。
-- 模型支持的 API 格式存储在 `ModelProviderModelConfig.kinds`，`ModelProviderApiFormat` 到 `ModelProviderKind` 的映射由 `mapModelProviderApiFormatToKind` 提供。
-- 添加模型时的 API 格式由当前设置页 API 格式推导；弹窗不展示 API 格式多选。
+- `ProviderModelsSection` hoje abre `ProviderModelMetadataDialog` ao clicar em adicionar modelo e chama `onAddModel` só depois da validação.
+- `ModelRowInput` já mantém o draft do modelo e usa `ProviderModelMetadataDialog` para editar o ID do modelo, a janela de contexto e o máximo de Tokens de saída.
+- `ProviderModelDraftValues.maxOutputTokensValue`, a validação de inteiro positivo e a cadeia até `ModelProviderModelConfig.maxOutputTokens` já existem; o que falta é a entrada de modal, e o padrão de adicionar ainda é 200K de contexto e max output vazio.
+- Os formatos de API suportados pelo modelo ficam em `ModelProviderModelConfig.kinds`, e o mapeamento de `ModelProviderApiFormat` para `ModelProviderKind` é fornecido por `mapModelProviderApiFormatToKind`.
+- Ao adicionar um modelo, o formato de API é deduzido do formato de API atual da página de configurações; o diálogo não exibe multisseleção de formato de API.
 
 ## UX
 
-- 点击“添加模型”直接打开模型编辑弹窗，标题使用“添加模型”。
-- 点击现有模型行的编辑按钮打开同一个弹窗，标题使用“编辑模型配置”。
-- 弹窗分组及顺序：
-  1. 基本信息：模型 ID 与启用模型使用两个独立的纵向字段，先展示“模型 ID + 输入框”，再展示“启用模型 + 开关”。模型 ID 必填，保存时 trim；新增时是唯一的空字段。
-  2. Token 限制：上下文窗口与最大输出 Token。两者均使用无步进按钮的数字文本输入且必须为正整数；新增默认分别为 `1000000` 与 `128000`。
-  3. 输入与输出：输入类型直接平铺并允许换行；Text 默认选中且不可取消，其余可见输入类型可选择。输出类型只展示固定 Text，不提供其他选项。
-  4. 模型能力：展示“模型能力”字段 Label，下方提供 Tool Call、Structured Output、Native Web Search 与 Mid-conversation System 选项。
-  5. 模型选项：Reasoning Levels、Reasoning Mapping 与 MFJS Tool Schema，直接展示。
-- Audio/PDF 暂不在设置页展示；底层继续兼容旧配置与远端权威事实，编辑可见类型不得静默删除已有隐藏值。
-- 各分区始终展示且不提供折叠入口。
-- 分组使用间距和轻量边框建立层级，保持透明背景，不引入额外卡片底色。桌面端保持紧凑密度，窄屏下字段与选项自然换行且不改变语义。
-- 添加弹窗打开后默认聚焦模型 ID；编辑弹窗默认聚焦并全选上下文窗口，便于快速替换常用数值。
-- 弹窗不展示 API 格式选择。Reasoning Levels、Reasoning Mapping 与 MFJS Tool Schema 作为普通模型配置直接展示。
-- 添加和编辑弹窗 footer 都展示“取消”和“保存”。取消关闭弹窗并丢弃当前弹窗草稿；保存通过校验后提交模型 draft 并关闭弹窗，provider 持久化继续由现有外层保存链路负责。
-- 添加模型时，API 格式默认选择当前设置页的 API 格式。编辑现有模型时，默认使用模型已有 `kinds`。
-- 添加模型时，最大输出 Token 从 `128000` 开始可编辑。模型 ID 停止输入 300ms 后，通过现有 model provider catalog service 按完整模型 ID（trim 后忽略大小写）查询；查询期间保留所有默认值和草稿、禁用保存并展示紧凑 loading。
-- catalog 只有明确声明 `maxOutputTokens` 且用户尚未编辑该字段时才回填；未匹配、未声明、查询失败或迟到结果保持当前值，不清空 `128000` 默认值。不得把运行时 32K fallback 展示或写入表单。
-- catalog 自动回填只发生在添加模式。编辑模式展示已保存值并允许手动修改，不触发 catalog 查询。
-- 模型 ID 改变时，如果当前最大输出值来自上一模型的 catalog 自动回填且用户未编辑，则恢复 `128000` 默认值再查询；用户手动输入的值不清空。关闭弹窗或输入继续变化后，旧查询结果不得覆盖当前草稿。
-- catalog 查询不得修改表单中的上下文窗口；新增模型 draft 默认使用 1M，`[1m]` 模型继续沿用强制 1M 规则。本次不为 Context window 增加 catalog 回填或保存后重读。
-- 弹窗取消或关闭时不新增模型、不提交编辑草稿。保存时校验通过才关闭；校验失败保持弹窗打开并显示错误。
+- Clicar em "Adicionar modelo" abre diretamente o diálogo de edição de modelo, com o título "Adicionar modelo".
+- Clicar no botão de edição de uma linha de modelo existente abre o mesmo diálogo, com o título "Editar configuração do modelo".
+- Grupos e ordem do diálogo:
+  1. Informações básicas: "Modelo ID" e "Ativar modelo" são dois campos verticais independentes, exibindo primeiro "Modelo ID + campo de entrada" e depois "Ativar modelo + switch". O Modelo ID é obrigatório e sofre trim ao salvar; na adição é o único campo inicialmente vazio.
+  2. Limites de Token: janela de contexto e máximo de Tokens de saída. Ambos usam entrada de texto numérica sem botões de incremento e precisam ser inteiros positivos; os padrões na adição são `1000000` e `128000`, respectivamente.
+  3. Entrada e saída: os tipos de entrada são exibidos de forma plana e permite quebra de linha; Text vem marcado por padrão e não pode ser desmarcado, e os demais tipos de entrada visíveis são selecionáveis. O tipo de saída exibe somente Text fixo, sem outras opções.
+  4. Capacidades do modelo: exibe o Label do campo "Capacidades do modelo" e abaixo oferece as opções Tool Call, Structured Output, Native Web Search e Mid-conversation System.
+  5. Opções do modelo: Reasoning Levels, Reasoning Mapping e MFJS Tool Schema, exibidos diretamente.
+- Audio/PDF ainda não são exibidos na página de configurações; a camada inferior continua compatível com configurações antigas e fatos autoritativos remotos, e editar tipos visíveis não pode apagar silenciosamente valores ocultos existentes.
+- Todas as seções são sempre exibidas e não oferecem entrada de colapso.
+- Os grupos usam espaçamento e bordas leves para criar hierarquia, mantendo fundo transparente e sem introduzir cor de fundo adicional de card. O desktop mantém densidade compacta e em tela estreita os campos e opções quebram naturalmente sem alterar a semântica.
+- Após abrir, o diálogo de adição foca por padrão o Modelo ID; o diálogo de edição foca e seleciona por padrão a janela de contexto, facilitando a troca rápida de valores comuns.
+- O diálogo não exibe seleção de formato de API. Reasoning Levels, Reasoning Mapping e MFJS Tool Schema são exibidos diretamente como configuração normal do modelo.
+- O footer dos diálogos de adição e de edição exibe "Cancelar" e "Salvar". Cancelar fecha o diálogo e descarta o draft atual; salvar, após passar na validação, envia o draft do modelo e fecha o diálogo, e a persistência do provider continua a cargo da cadeia de salvamento externo existente.
+- Ao adicionar um modelo, o formato de API selecionado por padrão é o formato de API atual da página de configurações. Ao editar um modelo existente, usa-se o `kinds` já presente no modelo.
+- Ao adicionar um modelo, o máximo de Tokens de saída parte de `128000` e é editável. 300ms após a digitação no Modelo ID parar, o catálogo existente de model provider é consultado pelo Modelo ID completo (trim, ignorando maiúsculas e minúsculas); durante a consulta todos os padrões e o draft são preservados, o salvamento é desabilitado e um loading compacto é exibido.
+- O catálogo só preenche o valor quando declara explicitamente `maxOutputTokens` e o usuário ainda não editou o campo; ausência de correspondência, ausência de declaração, falha na consulta ou resultado tardio mantêm o valor atual e não limpam o padrão `128000`. O fallback de runtime de 32K não pode ser exibido nem gravado no formulário.
+- O preenchimento automático do catálogo acontece apenas no modo de adição. O modo de edição exibe o valor salvo e permite modificação manual, sem disparar consulta ao catálogo.
+- Quando o Modelo ID muda, se o valor atual de saída máxima veio do preenchimento automático do catálogo do modelo anterior e o usuário não o editou, restaura-se o padrão `128000` antes de consultar; valores digitados pelo usuário não são limpos. Depois que o diálogo é fechado ou que a digitação continua mudando, resultados de consulta antigos não podem sobrescrever o draft atual.
+- A consulta ao catálogo não pode modificar a janela de contexto do formulário; o draft de novo modelo usa 1M por padrão, e modelos `[1m]` continuam seguindo a regra de 1M obrigatório. Esta entrega não adiciona preenchimento por catálogo para Context window nem releitura após o salvamento.
+- Ao cancelar ou fechar o diálogo, nenhum modelo é adicionado e nenhum draft de edição é enviado. Ao salvar, só fecha se a validação passar; em caso de falha a validação o diálogo permanece aberto com o erro exibido.
 
 ```text
 打开新增弹窗 ──> ID 为空 + Context=1M + Max output=128K + Input/Output=Text
@@ -48,46 +48,46 @@
                               └─> 现有外层 provider 保存链路
 ```
 
-## Data Rules
+## Regras de dados
 
-- 保存 API 格式时转换为 `ModelProviderModelConfig.kinds`。
-- `kinds` 按固定顺序保存：`anthropic`、`openai-compatible`、`openai`。
-- `defaultKind` 优先使用当前设置页 API 格式对应的 kind；如果该 kind 没有被选择，则使用已选 `kinds` 的第一项。
-- API 格式至少选择一项；否则返回 `invalid`，字段为 `kinds`。
-- `resolveProviderModelDraftCommit` 不解析弹窗草稿中的 reasoning JSON；提交时通过 `...currentModel` 保留已有 `reasoning`。
-- `resolveProviderModelDraftCommit` 要求最大输出 Token 为正整数并保存为 `maxOutputTokens`；新增默认值为 `128000`。
-- 编辑旧模型时若 `maxOutputTokens` 缺失，草稿显示 `128000`；成功保存后写入该值。
-- 可编辑本地模型保存时 output modalities 固定写为 `["text"]`；只读权威模型不经过该提交路径。
-- 添加模型校验通过后调用父级 `saveModels` 写入完整模型；不创建中间空行。
-- 编辑模型校验通过后复用现有 `onModelCommit` 更新指定行。
+- Ao salvar, o formato de API é convertido em `ModelProviderModelConfig.kinds`.
+- `kinds` é salvo em ordem fixa: `anthropic`, `openai-compatible`, `openai`.
+- `defaultKind` prioriza o kind correspondente ao formato de API atual da página de configurações; se esse kind não foi selecionado, usa-se o primeiro item dos `kinds` selecionados.
+- É preciso selecionar ao menos um formato de API; caso contrário, retorna `invalid`, com o campo `kinds`.
+- `resolveProviderModelDraftCommit` não faz parse do JSON de reasoning no draft do diálogo; no envio, o `reasoning` existente é preservado por `...currentModel`.
+- `resolveProviderModelDraftCommit` exige que o máximo de Tokens de saída seja um inteiro positivo e o salva como `maxOutputTokens`; o padrão na adição é `128000`.
+- Ao editar um modelo antigo sem `maxOutputTokens`, o draft exibe `128000`; após salvar com sucesso, esse valor é gravado.
+- Para modelos locais editáveis, as output modalities são gravadas sempre como `["text"]`; modelos autoritativos somente leitura não passam por esse caminho de envio.
+- Depois que a validação da adição passa, o pai `saveModels` grava o modelo completo; nenhuma linha intermediária em branco é criada.
+- Depois que a validação da edição passa, reutiliza-se o `onModelCommit` existente para atualizar a linha indicada.
 
-## Components
+## Componentes
 
-- `ProviderModelDraftValues` 保留 `kindsValue` 用于提交规则，增加输入模态与是否触碰的草稿状态，不包含 `reasoningJsonValue`。
-- 扩展 `resolveProviderModelDraftCommit`，校验并提交 `kinds`、`defaultKind`、input modalities、固定 Text output 和显式来源。
-- `ProviderModelMetadataDialog` 保持添加和编辑两种标题，按模型身份、Token 限制、输入输出、模型能力和模型选项组织现有字段；各分区不提供折叠入口。
-- `ProviderModelsSection` 管理添加弹窗的 open 状态、新增 draft 和 catalog 查询时序，点击添加按钮时创建默认 draft。
-- `ModelRowInput` 继续负责现有行的编辑弹窗，并传入当前 API 格式 kind，用于保存 `defaultKind`。
+- `ProviderModelDraftValues` mantém `kindsValue` para as regras de envio e ganha estados de draft de modal de entrada e de "tocado", sem conter `reasoningJsonValue`.
+- `resolveProviderModelDraftCommit` é estendido para validar e enviar `kinds`, `defaultKind`, input modalities, output Text fixo e a origem explícita.
+- `ProviderModelMetadataDialog` mantém os dois títulos (adição e edição) e organiza os campos existentes por identidade do modelo, limites de Token, entrada e saída, capacidades e opções do modelo; nenhuma seção oferece entrada de colapso.
+- `ProviderModelsSection` gerencia o estado open do diálogo de adição, o draft novo e o sequenciamento da consulta ao catálogo, criando o draft padrão ao clicar no botão de adicionar.
+- `ModelRowInput` continua responsável pelo diálogo de edição das linhas existentes e passa o kind do formato de API atual, usado para salvar o `defaultKind`.
 
-## Validation And Errors
+## Validação e erros
 
-- 模型 ID 为空：添加时显示模型 ID 错误，不提交；编辑时不再通过空 ID 删除模型，删除仍由垃圾桶按钮负责。
-- API 格式为空：显示 API 格式错误，不提交。
-- 上下文窗口无效：沿用当前上下文窗口错误。
-- 最大输出 Token 不是正整数：显示最大输出 Token 错误，不提交。
-- 输入模态缺少 Text：不提交；正常 UI 中 Text 不可取消，commit resolver 保留防御性校验。
-- 不再有弹窗侧推理强度 JSON 校验错误。
+- Modelo ID vazio: na adição exibe o erro de Modelo ID e não envia; na edição não se apaga mais modelo por ID vazio, e a remoção continua sendo responsabilidade do botão da lixeira.
+- Formato de API vazio: exibe o erro de formato de API e não envia.
+- Janela de contexto inválida: mantém o erro de janela de contexto atual.
+- Máximo de Tokens de saída que não é inteiro positivo: exibe o erro de máximo de Tokens de saída e não envia.
+- Modalidade de entrada sem Text: não envia; na UI normal Text não pode ser desmarcado, e o commit resolver mantém a validação defensiva.
+- Não existe mais erro de validação de JSON de intensidade de raciocínio no diálogo.
 
-## Testing
+## Testes
 
-- 单测覆盖添加和编辑弹窗全部平铺字段，以及新增模型的 1M、128K、Text input/output 默认值。
-- 交互单测覆盖模型 ID 为空、300ms debounce、catalog 命中、未命中/未声明、查询失败和迟到结果隔离。
-- 交互单测覆盖查询 pending、用户覆盖自动回填值、模型 ID 再变化时保留用户值，以及未命中/失败时保持 `128000`。
-- 单测覆盖编辑模式不查询 catalog，并可修改已有最大输出 Token。
-- 单测覆盖弹窗不再渲染高级折叠，并覆盖输入 Text 不可取消、输出只展示固定 Text。
-- 单测覆盖新增模型默认选择当前设置页 API 格式。
-- 单测覆盖 draft commit 会保存模型 ID、`kinds`、`defaultKind`、上下文窗口、最大输出 Token、输入模态和固定 Text 输出，并保留已有 `reasoning`。
-- 单测覆盖 API 格式为空时不提交。
-- 保留现有模型行 tag、测试按钮 disabled、metadata draft 校验相关测试。
-- 桌面 E2E 复用 I08 的真实设置页新增 provider 链路，覆盖字段平铺、1M/128K/Text 默认值、查询 pending/loading、catalog 真实回填、用户覆盖、输入模态选择、固定 Text 输出、编辑模式回显与修改、配置持久化，以及最终 provider 请求的 `max_tokens`。
-- catalog 未命中、未声明、查询失败和迟到结果隔离保留在可控 service mock 的交互单测中；E2E 不为这些异常分支新增 catalog 注入、缓存或重试能力。
+- Testes unitários cobrem todos os campos planos dos diálogos de adição e edição, além dos padrões 1M, 128K e Text de entrada/saída do novo modelo.
+- Testes unitários de interação cobrem Modelo ID vazio, debounce de 300ms, acerto no catálogo, ausência de correspondência/declaração, falha na consulta e isolamento de resultado tardio.
+- Testes unitários de interação cobrem consulta em pending, sobrescrita do valor preenchido automaticamente pelo usuário, preservação do valor do usuário quando o Modelo ID muda novamente e manutenção de `128000` em caso de não correspondência/falha.
+- Testes unitários cobrem o modo de edição não consultando o catálogo e permitindo modificar o máximo de Tokens de saída já existente.
+- Testes unitários cobrem o diálogo não renderizando mais o colapso avançado e cobrem Text de entrada não desmarcável e saída exibindo apenas Text fixo.
+- Testes unitários cobrem o novo modelo com o formato de API atual da página de configurações selecionado por padrão.
+- Testes unitários cobrem o commit do draft salvando Modelo ID, `kinds`, `defaultKind`, janela de contexto, máximo de Tokens de saída, input modalities e output Text fixo, e preservando o `reasoning` existente.
+- Testes unitários cobrem o não envio quando o formato de API está vazio.
+- Mantêm-se os testes existentes sobre tag da linha de modelo, botão de teste disabled e validação do draft de metadata.
+- O E2E desktop reaproveita a cadeia real de criação de provider na página de configurações do I08, cobrindo os campos planos, os padrões 1M/128K/Text, consulta pending/loading, preenchimento real pelo catálogo, sobrescrita pelo usuário, seleção de input modalities, saída Text fixa, exibição e edição no modo de edição, persistência da configuração e o `max_tokens` da requisição final ao provider.
+- Não correspondência, ausência de declaração, falha na consulta e isolamento de resultado tardio do catálogo permanecem nos testes unitários de interação com mock de service controlável; o E2E não adiciona injeção, cache ou retry de catálogo para esses ramos excepcionais.

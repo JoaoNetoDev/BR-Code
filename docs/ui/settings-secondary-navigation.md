@@ -1,10 +1,10 @@
-# 设置二级页返回导航
+# Navegação de Volta das Subpáginas de Configurações
 
-## 契约
+## Contrato
 
-- 设置页的二级页面统一使用 `SettingsBackButton`，尺寸固定为 `size="lg"`（32px 高），左侧使用 16px `ArrowLeft`。
-- 组件固定使用 `variant="ghost"`；业务页面不得覆盖 `size`、`variant` 或另行添加返回按钮专属颜色、间距和 hover 样式。
-- 覆盖 Memory、插件、命令、钩子、子智能体与 MCP 二级页。
-- 文案由各业务模块的国际化资源提供，中文统一为“返回”，英文统一为“Back”；组件不拼接项目、记忆、命令等业务名称。
-- 顶层“返回工作区”、列表分页与表单内部步骤导航不属于二级页返回导航。
-- 自动化、闲时任务、模型购买流程“上一步”和模型升级方案“返回”不在本次范围内，保留各自实现。
+- As subpáginas das Configurações usam uniformemente o `SettingsBackButton`, com tamanho fixo `size="lg"` (32px de altura) e um `ArrowLeft` de 16px à esquerda.
+- O componente usa fixamente `variant="ghost"`; as páginas de negócio não podem sobrescrever `size` ou `variant`, nem adicionar cores, espaçamentos ou estilos de hover exclusivos do botão de volta.
+- Cobre as subpáginas de Memory, plugins, comandos, hooks, subagentes e MCP.
+- Os textos são fornecidos pelos recursos de internacionalização de cada módulo de negócio: em chinês, unificados como "返回"; em inglês, como "Back". O componente não concatena nomes de negócio como projeto, memória ou comando.
+- O "voltar ao workspace" do nível superior, a paginação de listas e a navegação de passos internos dos formulários não pertencem à navegação de volta das subpáginas.
+- O "passo anterior" dos fluxos de automação, tarefas ociosas e compra de modelos, e o "voltar" do plano de upgrade de modelo não estão no escopo desta vez e mantêm suas implementações próprias.

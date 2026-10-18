@@ -1,42 +1,50 @@
-# Bugfix 06：Provider 只读字段锁定提示
+# Bugfix 06: Indicador visual de campo somente leitura no Provider
 
-> 状态：已完成
+> Status: concluído
 
-## 问题
+## Problema
 
-Built-in Provider 的 Base URL 与 API 格式会按 Official Config 展示，但设置页使用了和普通输入框
-几乎相同的视觉结构。字段虽然不能聚焦或编辑，用户仍无法在浏览时直接判断它是只读事实，容易把
-“无法点击”理解成控件失效。
+O Base URL e o formato de API de um Provider embutido são exibidos conforme a Official Config, mas a página de
+configurações usava uma estrutura visual quase idêntica à de um campo de entrada comum.
+Embora os campos não possam receber foco nem ser editados, o usuário ainda não consegue perceber durante a navegação
+que se trata de um fato somente leitura, e acaba entendendo "não é clicável" como um controle quebrado.
 
-## 目标行为
+## Comportamento desejado
 
-- Base URL 与 API 格式继续展示真实 Effective Provider Config；
-- 只读字段保持普通输入框的背景、边框、字号和高度，不增加禁用透明度或额外卡片；
-- 每个只读字段在右侧固定展示锁图标，明确表达当前字段不可编辑；
-- 锁图标提供本地化的无障碍名称，不能只依赖视觉图形传达状态；
-- 长 Base URL 可以继续换行，文本占据剩余空间，锁图标不被挤压；
-- 可编辑 Provider、API Key、模型配置、保存和 Overlay 语义完全不变。
+- Base URL e formato de API continuam exibindo a Effective Provider Config real;
+- campos somente leitura mantêm o fundo, a borda, o tamanho da fonte e a altura de um campo de entrada comum, sem
+  transparência de desabilitado nem cartão adicional;
+- cada campo somente leitura exibe de forma fixa um ícone de cadeado à direita, deixando explícito que o campo atual
+  não é editável;
+- o ícone de cadeado oferece um nome acessível localizado, sem depender apenas do gráfico visual para comunicar o estado;
+- um Base URL longo pode continuar quebrando linha, o texto ocupa o espaço restante e o ícone de cadeado não é
+  comprimido;
+- Provider, API Key, configuração de modelo, salvamento e semântica de Overlay permanecem inalterados.
 
-## 根因与修复边界
+## Causa raiz e limite da correção
 
-根因是 `ProviderConnectionSection` 的只读分支只复刻了输入框表面，没有提供只读状态的视觉提示。
-修复只在该展示分支增加统一的只读字段组件和锁图标，不修改 Provider Config、Registry 或权限判断。
+A causa raiz é que o ramo somente leitura de `ProviderConnectionSection` apenas replicava a superfície do campo de
+entrada, sem fornecer nenhuma indicação visual do estado somente leitura.
+A correção adiciona, somente nesse ramo de exibição, um componente unificado de campo somente leitura e o ícone de
+cadeado, sem alterar Provider Config, Registry ou as decisões de permissão.
 
-## 验收
+## Aceitação
 
-- 普通 Built-in Provider 的 Base URL 和 API 格式各展示一个锁图标；
-- 锁图标在中英文环境均有可访问名称；
-- 可编辑 Provider 仍使用原有 Input/Select，不出现锁图标；
-- Desktop、Web、窄宽布局和所有主题保持可用；
-- UI 定向测试、typecheck、lint、格式检查与 `git diff --check` 通过。
+- o Base URL e o formato de API de um Provider embutido comum exibem um ícone de cadeado cada;
+- o ícone de cadeado tem nome acessível nos ambientes em português/inglês e em chinês;
+- Providers editáveis continuam usando Input/Select originais, sem ícone de cadeado;
+- Desktop, Web, layouts estreitos e todos os temas continuam utilizáveis;
+- testes direcionados de UI, typecheck, lint, verificação de formatação e `git diff --check` passam.
 
-## 实施结果
+## Resultado da implementação
 
-- `ProviderConnectionSection` 的只读分支统一使用单层只读字段外观，Base URL 与可见的 API 格式
-  右侧固定展示 `LockKeyholeIcon`；
-- 文本使用 `min-w-0 + flex-1 + break-all` 占据剩余宽度，锁图标保持 `shrink-0`，长 URL
-  不会覆盖或挤掉状态提示；
-- 中英文分别提供“{field}（只读）”和“{field} (read only)”无障碍名称；
-- 可编辑分支仍使用原有 `Input` 与 `ProviderApiFormatSelect`，没有改变保存、Overlay 或 Registry；
-- Provider/Model UI 定向测试 36 个通过，根 `pnpm typecheck` 通过，根 `pnpm lint` 通过
-  （0 error，34 个既有 warning），修改文件格式检查和 `git diff --check` 通过。
+- o ramo somente leitura de `ProviderConnectionSection` passa a usar de forma unificada a aparência de campo somente
+  leitura de camada única, com `LockKeyholeIcon` fixo à direita do Base URL e do formato de API visível;
+- o texto usa `min-w-0 + flex-1 + break-all` para ocupar a largura restante, o ícone de cadeado mantém `shrink-0` e
+  URLs longas não sobrescrevem nem deslocam a indicação de estado;
+- em chinês e em inglês são fornecidos os nomes acessíveis "{field}（只读）" e "{field} (read only)";
+- o ramo editável continua usando `Input` e `ProviderApiFormatSelect` originais, sem alteração em salvamento, Overlay ou
+  Registry;
+- 36 testes direcionados de UI de Provider/Model passaram, `pnpm typecheck` na raiz passou, `pnpm lint` na raiz passou
+  (0 erros, 34 warnings preexistentes), a verificação de formatação dos arquivos alterados e `git diff --check`
+  passaram.

@@ -1,12 +1,12 @@
-# Force Update Client Config
+# Configuração de Cliente para Force Update
 
-## 背景
+## Contexto
 
-ZCode Desktop 需要支持远端按版本拉闸。当远端配置明确下发强制升级要求时，低于最低版本的 Desktop 客户端必须在创建主窗口前阻断使用，并引导用户更新；远端没有下发该配置时，不做本地版本比较，也不改变现有启动流程。
+O ZCode Desktop precisa suportar o bloqueio por versão vindo do remoto. Quando a configuração remota envia explicitamente uma exigência de upgrade obrigatório, o cliente Desktop abaixo da versão mínima precisa bloquear o uso antes de criar a janela principal e orientar o usuário a atualizar; quando o remoto não envia essa configuração, não há comparação local de versão nem mudança no fluxo de inicialização atual.
 
-## 配置字段
+## Campo de Configuração
 
-远端 `GET {activeZCodeEndpointOrigin}/api/v1/client/configs` 的 `data.configs` 可增加：
+O `data.configs` do `GET {activeZCodeEndpointOrigin}/api/v1/client/configs` remoto pode acrescentar:
 
 ```json
 {
@@ -16,27 +16,27 @@ ZCode Desktop 需要支持远端按版本拉闸。当远端配置明确下发强
 }
 ```
 
-Desktop main 启动前守卫读取当前 `ZCODE_ENV` / endpoint override 解析出的 active ZCode endpoint：`pnpm dev:desktop` 默认等同 `dev:desktop:prod`，因此请求正式服务端；测试环境必须显式运行 `pnpm dev:desktop:test`。静态 `https://cdn.zcode-ai.com/zcode/config/default.json` 的同名字段形态仅作为解析兼容，不再作为 Desktop 启动前守卫的固定读取地址。业务服务里的 client config 解析继续复用同一字段语义。
+O guard de inicialização do Desktop main lê o endpoint ZCode ativo resolvido a partir do `ZCODE_ENV` / endpoint override atual: `pnpm dev:desktop` é por padrão equivalente a `dev:desktop:prod`, portanto consulta o servidor de produção; em ambiente de teste é obrigatório rodar explicitamente `pnpm dev:desktop:test`. A forma de campo homônima do arquivo estático `https://cdn.zcode-ai.com/zcode/config/default.json` existe apenas como compatibilidade de parsing e deixa de ser o endereço fixo lido pelo guard de pré-inicialização do Desktop. O parsing de client config nos serviços de negócio continua reaproveitando a mesma semântica de campo.
 
-## 判定规则
+## Regras de Decisão
 
-- 只有 `forceUpdate.minimalVersion` 是非空字符串时才进入比较。
-- 未下发 `forceUpdate`，或 `minimalVersion` 缺失、为空、不是合法 semver 时，不触发强制升级。
-- 本地版本使用编译期 `ZCODE_VERSION`。
-- 使用 semver 语义比较本地版本与 `minimalVersion`；本地版本小于最低版本时判定为需要强制升级。
-- 预发布版本遵循 semver 规则：例如 `4.0.0-beta.1` 小于 `4.0.0`。
-- 读取远端和本地配置都失败时不拉闸，预留完全离线状态下跳过更新校验进入界面的接口；后续如需显式离线策略，应在 Desktop main 守卫中接入，不下沉到 UI Root。
+- A comparação só ocorre quando `forceUpdate.minimalVersion` é uma string não vazia.
+- Sem `forceUpdate`, ou com `minimalVersion` ausente, vazio ou fora de um semver válido, não há upgrade obrigatório.
+- A versão local usa o `ZCODE_VERSION` de tempo de compilação.
+- A versão local é comparada com `minimalVersion` pela semântica de semver; quando a versão local é menor que a mínima, é considerado necessário o upgrade obrigatório.
+- Versões de pré-lançamento seguem as regras de semver: por exemplo, `4.0.0-beta.1` é menor que `4.0.0`.
+- Quando tanto a leitura remota quanto a local falham, não há bloqueio; fica reservado o espaço para, em estado totalmente offline, pular a validação de atualização e entrar na interface. Se mais adiante for necessária uma política offline explícita, ela deve ser integrada ao guard do Desktop main, e não descida para o UI Root.
 
-## 产品行为
+## Comportamento do Produto
 
-- Desktop 需要强制升级时，main 进程在创建主窗口前展示独立小窗口/系统对话框，不打开主界面，不进入工作区或设置页。
-- 提示内容只说明当前版本与最低可用版本，避免重复描述。
-- Desktop 提供两个升级引导：
-  - 自动升级：触发现有自动更新检查/下载流程；如果更新已下载，则直接进入重启安装。
-  - 手动升级：打开官网下载页，按应用语言分流到中文或英文页面。
-- 用户关闭或处理强制升级提示后，旧客户端不继续进入主界面。
-- Web / 手机远控不参与本次强制更新改动；手机端仍保持“项目打开之后才能用”的既有语义，不新增强制更新兜底页或手动升级入口。
+- Quando o Desktop precisa de upgrade obrigatório, o main process mostra uma pequena janela independente / diálogo de sistema antes de criar a janela principal, não abre a interface principal e não entra em workspace nem na página de configurações.
+- O conteúdo da mensagem apenas informa a versão atual e a versão mínima disponível, evitando descrições repetidas.
+- O Desktop oferece duas formas de orientação para upgrade:
+  - Upgrade automático: dispara o fluxo existente de verificação/download de atualização automática; se a atualização já tiver sido baixada, vai direto para reinstalar.
+  - Upgrade manual: abre a página de download do site oficial, com ramificação para a página em chinês ou em inglês conforme o idioma do app.
+- Depois que o usuário fecha ou trata o aviso de upgrade obrigatório, o cliente antigo não segue para a interface principal.
+- O controle remoto Web / celular não participa desta mudança de atualização obrigatória; o celular mantém a semântica existente de "só pode ser usado depois que o projeto é aberto" e não ganha página de contingência de update forçado nem entrada de upgrade manual.
 
-## 多端边界
+## Fronteiras entre Plataformas
 
-该能力只在 Desktop main 创建主窗口前读取当前 active ZCode endpoint 的 `client/configs` 并阻断启动，不修改 session、task stream、snapshot、queue、owner command 或 replayable/continuous 消息链路。手机 Web 远控仍通过 shared-host attachment 进入既有 Root，本次 Desktop 强制更新逻辑不会把 replayable 恢复语义扩散到桌面 continuous 主链路，也不会改变手机端远控边界。
+Essa capacidade é lida somente antes da criação da janela principal no Desktop main, a partir do `client/configs` do endpoint ZCode ativo no momento, e bloqueia a inicialização; não modifica session, task stream, snapshot, queue, owner command nem as cadeias de mensagens replayable/continuous. O controle remoto Web no celular continua entrando pelo shared-host attachment no Root existente; esta lógica de force update do Desktop não espalha a semântica de restauração replayable para a cadeia principal continuous do desktop e não altera a fronteira do controle remoto do celular.

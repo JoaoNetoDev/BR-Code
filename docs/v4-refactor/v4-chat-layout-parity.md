@@ -1,21 +1,21 @@
-# V4 Chat Layout Parity
+# Paridade de Layout do Chat v4
 
-## 背景
+## Contexto
 
-v4 会话区已经恢复旧版 composer 外观，但消息列表与 composer 的父级布局仍和 z-code-2 不一致。z-code-2 的对话区把消息内容和底部输入区放在同一个滚动容器里：滚动条可以滚到包含输入框的最底部，消息主列与 composer 都使用同一套最大宽度。
+A área de sessão do v4 já recuperou a aparência do composer antigo, mas o layout pai da lista de mensagens e do composer ainda diverge do z-code-2. No z-code-2, a área de conversa coloca o conteúdo das mensagens e a área de entrada inferior no mesmo container de rolagem: a barra de rolagem pode ir até o fundo, incluindo a caixa de entrada, e a coluna principal das mensagens e o composer usam o mesmo conjunto de largura máxima.
 
-当前 v4 的 `ConversationTimeline` 自己持有滚动容器，`ConversationComposer` 是 `SessionPane` 的兄弟节点。结果是滚动条只覆盖 timeline，composer 不属于同一个滚动上下文；同时 row 渲染没有统一的主内容最大宽度，宽屏下文本和工具输出会比旧版发散。
+Atualmente, o `ConversationTimeline` do v4 possui seu próprio container de rolagem, e o `ConversationComposer` é um nó irmão do `SessionPane`. Com isso, a barra de rolagem cobre apenas a timeline, e o composer não pertence ao mesmo contexto de rolagem; além disso, a renderização das rows não tem uma largura máxima unificada de conteúdo principal, de modo que em telas largas o texto e a saída das ferramentas divergem mais do que na versão antiga.
 
-## 目标
+## Objetivos
 
-- 会话态下，v4 消息区和 composer 使用同一个 vertical scroll viewport。
-- composer 保持在该 viewport 内 `sticky bottom-0`，滚动到最底部时输入框底部也属于可达范围。
-- composer 的底部留白由 dock 内层的透明 `padding-bottom` 承担；消息层在接近 sticky composer 时逐渐 mask 到透明，避免滚动内容直接穿过留白。会话态 `chat-composer-input-surface` 保持透明，不绘制 `background`；草稿态带 context header 的卡片仍使用 `bg-surface`。
-- 消息内容、空消息提示、回到底部按钮和 composer 复用 `conversationLayout` 的统一主列布局；已绑定会话在 `conversation < 864px` 时使用 `w-full`，`864px <= conversation < 1136px` 时使用 `calc(100% - 96px)`、`max-w-4xl`，达到 `1136px` 后使用 `calc(100% - 384px)`、`max-w-6xl`；草稿使用 `max-w-2xl`。消息轮次通过 `@max-md/conversation:px-4` 响应 conversation 容器，composer dock 则始终使用 `px-4 pb-4`。
-- 保留 v4 虚拟滚动、row 测高缓存、底部跟随和 `loadOlder` 语义。
-- 不改变草稿态居中布局，也不改变远控 replayable / desktop continuous 的数据链路。
+- No estado de sessão, a área de mensagens e o composer do v4 usam o mesmo viewport de rolagem vertical.
+- O composer permanece `sticky bottom-0` dentro desse viewport, de modo que, ao rolar até o fundo, a parte inferior da caixa de entrada também fica ao alcance.
+- O espaço inferior do composer é responsabilidade do `padding-bottom` transparente da camada interna do dock; a camada de mensagens faz mask gradualmente até transparentes ao se aproximar do composer sticky, evitando que o conteúdo rolado atravesse diretamente esse espaço. No estado de sessão, `chat-composer-input-surface` permanece transparente e não desenha `background`; o cartão com context header no estado de rascunho continua usando `bg-surface`.
+- O conteúdo das mensagens, o aviso de lista vazia, o botão de voltar ao fim e o composer reutilizam o layout unificado de coluna principal do `conversationLayout`: sessões vinculadas usam `w-full` quando `conversation < 864px`, `calc(100% - 96px)` com `max-w-4xl` quando `864px <= conversation < 1136px`, e `calc(100% - 384px)` com `max-w-6xl` a partir de `1136px`; o rascunho usa `max-w-2xl`. As rodadas de mensagem respondem ao container de conversa via `@max-md/conversation:px-4`, enquanto o dock do composer sempre usa `px-4 pb-4`.
+- Preservar a rolagem virtual do v4, o cache de medição de altura das rows, o acompanhamento do fim e a semântica de `loadOlder`.
+- Não alterar o layout centralizado do estado de rascunho nem a cadeia de dados de replayable por controle remoto / desktop continuous.
 
-## 布局链路
+## Cadeia de Layout
 
 ```text
 SessionPane
@@ -32,19 +32,19 @@ SessionPane
   runtime/dialog controllers
 ```
 
-## 实现约束
+## Restrições de Implementação
 
-- `ConversationTimeline` 继续拥有虚拟列表与滚动锚定逻辑，但新增 `bottomDock` 插槽，把 composer 渲染进 timeline scroll viewport 的尾部。
-- bottom dock 的底部留白属于 dock 容器自身布局，使用响应式透明 padding，不渲染仅用于间距的背景子节点。padding 必须计入 dock 实际高度，保证 Markdown 表格浮动滚动条继续按完整输入区高度避让。
-- 消息 mask 只包裹 virtual history 与 running live tail，不作用于 composer、回到底部按钮或 pane focus ring。mask 的渐隐位置按 scroll viewport 与 dock 实际高度同步，不能按虚拟内容总高度定位；桌面与移动端统一使用 40px 渐隐距离。滚动条到达底部时关闭 mask，只有离开底部、消息可能从 sticky composer 下方经过时才显示渐隐。
-- `SessionPane` 会话态不再在 timeline 之外渲染 composer；草稿态仍由居中容器渲染 composer。
-- `ConversationTimeline` 的滚动 ref 仍是唯一 scroll element，`useVirtualizer.getScrollElement` 不变，避免多 pane 的滚动状态串扰。
-- row 的外层绝对定位仍保持 `w-full`，其内部新增居中内容列，避免改变 virtualizer 的测高方式。
-- `ConversationComposer` 会话态去掉自身横向 padding，宽度由外层 dock 控制；草稿态和 context header 卡片语义不变。
+- `ConversationTimeline` continua sendo dono da lista virtual e da lógica de ancoragem de rolagem, mas ganha um slot `bottomDock`, que renderiza o composer no fim do scroll viewport da timeline.
+- O espaço inferior do bottom dock pertence ao layout do próprio contêiner do dock, usando padding transparente responsivo, sem renderizar nós filhos de fundo existindo apenas para espaçamento. O padding precisa entrar na altura real do dock, garantindo que a barra de rolagem flutuante das tabelas Markdown continue desviando conforme a altura completa da área de entrada.
+- O mask das mensagens envolve apenas o virtual history e o running live tail, e não atua sobre o composer, o botão de voltar ao fim ou o focus ring do pane. A posição do gradiente do mask é sincronizada com o scroll viewport e a altura real do dock, e não é posicionada pela altura total do conteúdo virtual; desktop e mobile usam uniformemente uma distância de gradiente de 40px. O mask é desligado quando a barra de rolagem chega ao fundo, e o gradiente só aparece ao sair do fundo, quando as mensagens podem passar por baixo do composer sticky.
+- `SessionPane`, no estado de sessão, não renderiza mais o composer fora da timeline; o estado de rascunho continua renderizando o composer pelo contêiner centralizado.
+- O ref de rolagem do `ConversationTimeline` continua sendo o único elemento de scroll, e `useVirtualizer.getScrollElement` permanece inalterado, evitando interferência de estado de rolagem entre múltiplos panes.
+- O posicionamento absoluto externo das rows continua com `w-full`, e ganha internamente uma coluna de conteúdo centralizada, evitando mudar a forma de medição do virtualizer.
+- `ConversationComposer`, no estado de sessão, remove o próprio padding horizontal, com a largura controlada pelo dock externo; o estado de rascunho e a semântica do cartão de context header permanecem inalterados.
 
-## 验收
+## Aceitação
 
-- SSR 结构测试能看到会话态 composer 被渲染在 timeline scroll viewport 内，并带有共享 dock 标识。
-- SSR 结构测试能看到 timeline row 内容列和 bottom dock 都使用同一组 `conversationLayout` 布局类。
-- `pnpm vitest run packages/ui/test/v4SessionPaneLayoutParity.test.ts` 通过。
-- `pnpm typecheck` 和 `pnpm lint` 通过，若环境中存在无关失败，提交说明必须列出。
+- Os testes de estrutura SSR conseguem ver o composer do estado de sessão renderizado dentro do scroll viewport da timeline, com a identificação de dock compartilhado.
+- Os testes de estrutura SSR conseguem ver que a coluna de conteúdo das rows da timeline e o bottom dock usam o mesmo conjunto de classes de layout `conversationLayout`.
+- `pnpm vitest run packages/ui/test/v4SessionPaneLayoutParity.test.ts` passa.
+- `pnpm typecheck` e `pnpm lint` passam; se existirem falhas não relacionadas no ambiente, a descrição do commit deve listá-las.

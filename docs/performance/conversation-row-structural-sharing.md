@@ -1,17 +1,17 @@
-# Conversation Row 结构共享
+# Compartilhamento Estrutural de Conversation Row
 
-## 背景
+## Contexto
 
-2026-09-29 用隔离 HOME 和 mock provider 压测 renderer 时发现，前台 GC 后 JS heap 约 200MB，其中大字符串占 138MB。这些大字符串只有 36 个不同的值，却有 730 份副本。例如同一个 200KB 的工具 `inputText` 存了 112 份，它解析出来的 `input.content` 又存了同样多份。
+Em 2026-09-29, ao fazer um stress test do renderer com HOME isolado e mock provider, descobriu-se que após o GC do foreground o JS heap ficava em torno de 200MB, dos quais 138MB eram strings grandes. Essas strings grandes tinham apenas 36 valores distintos, mas 730 cópias. Por exemplo, o mesmo `inputText` de ferramenta de 200KB estava armazenado 112 vezes, e o `input.content` derivado de seu parsing também era armazenado o mesmo número de vezes.
 
-有两个因素叠加导致了这个问题：
+Dois fatores se somaram para causar o problema:
 
-1. **历史快照被闭包链留住。** `SessionPane` 切 task 时复用同一个实例，挂载点没有 `key={sessionId}`。它的 `useCallback` 闭包共享每次渲染的 V8 Context，于是交替串成一条链，留住了历史各次渲染的 `state`，也就是 projection snapshot。实测留住 220 个渲染作用域、134 份 state。
-2. **整份替换时行对象零共享。** `ConversationProjectionStore` 收到 `snapshot` 帧时按“规则 1”整体替换，行对象全部来自新反序列化的结果。`row.upserted` 也换成新对象。所以每份历史 snapshot 都各自持有一套大字符串，内容相同也不共用。
+1. **Os snapshots históricos são retidos pela cadeia de closures.** `SessionPane` reutiliza a mesma instância ao alternar de task, e o ponto de montagem não tem `key={sessionId}`. Seu closure de `useCallback` compartilha o V8 Context de cada render, de modo que eles se encadeiam alternadamente e retêm o `state` — ou seja, o projection snapshot — de renders históricos. Medido: 220 escopos de render e 134 `state` retidos.
+2. **Na substituição integral, os objetos de linha não compartilham nada.** Quando `ConversationProjectionStore` recebe um frame `snapshot`, ele substitui tudo pela "regra 1", e todos os objetos de linha vêm da nova desserialização. `row.upserted` também vira um objeto novo. Portanto cada snapshot histórico mantém seu próprio conjunto de strings grandes, e conteúdos idênticos não são compartilhados.
 
-第 1 点决定了能留住多少份 snapshot，第 2 点决定了每份 snapshot 有多大。本方案修第 2 点：让内容相同的数据只保留一份，历史 snapshot 被留住时只多占数组和行壳的开销。
+O ponto 1 determina quantos snapshots podem ser retidos; o ponto 2 determina o tamanho de cada snapshot. Esta solução trata o ponto 2: manter apenas uma cópia dos dados de conteúdo idêntico, de modo que um snapshot histórico retido só custe o overhead dos arrays e das cascas de linha.
 
-## 设计
+## Design
 
 ```
 host frame ──► ConversationProjectionStore.handleFrame
@@ -30,37 +30,37 @@ host frame ──► ConversationProjectionStore.handleFrame
                         部分相等 → 新壳 + 复用未变的子值（包括旧字符串引用）
 ```
 
-- **池放在 `SessionDataLayer`，不放在 store 里。** keep-warm（默认 30s）过期后 store 会被 close，冷打开会新建 store。但此时旧 snapshot 可能仍被闭包链留着，池必须跨 store 才能让冷打开的新行复用那些仍存活的旧行。
-- **只用 `WeakRef`。** 池本身不延长任何行的寿命。行被 GC 后，由 `FinalizationRegistry` 删除对应条目；删除前要确认条目仍是同一个 `WeakRef`，防止误删后来登记的新行。
-- **key 为 `topic + rowId`。** 不同 session 之间不共享。rewind 之后 rowId 可能被复用、内容也可能不同，但共享只发生在值深相等的地方，所以语义是安全的。
-- **`shareStructure(prev, next)`：**
-  - 只递归 plain object 和数组；其余类型直接返回 `next`。
-  - 原始值用 `Object.is` 比较。内容相同但引用不同的字符串会返回 prev 的字符串，这样 next 的副本就能被 GC。
-  - 绝不修改 `next`：`next` 可能来自 apply.ts 的结构复用，被其他地方引用着。
-- **snapshot 帧**：每一行都做共享。如果共享后的每一行都和当前 window 的对应行 `===`、而且长度相同，就连 window 数组也复用。
-- **`row.delta` 不做比较。** 流式追加产生的新字符串本来就是新的，逐帧深比较只会白白消耗 CPU；这里只把新行登记进池，等最终的 `row.upserted` 到来时再与它共享。
-- **语义不变。** 共享只复用引用，值仍然深相等。共享逻辑放在 UI store 层，不改 `@zcode/shared` 的 `applyConversationDelta`，因为 apply.ts 约定客户端 apply 不增加语义分支。
+- **O pool fica em `SessionDataLayer`, não dentro do store.** Depois que o keep-warm (30s por padrão) expira, o store é fechado e uma abertura fria cria um novo store. Mas nesse momento o snapshot antigo ainda pode estar retido pela cadeia de closures, então o pool precisa atravessar os stores para que as linhas novas da abertura fria reaproveitem as linhas antigas ainda vivas.
+- **Apenas `WeakRef`.** O próprio pool não estende a vida de nenhuma linha. Depois que a linha é coletada pelo GC, o `FinalizationRegistry` remove a entrada correspondente; antes de remover, é preciso confirmar que a entrada ainda é o mesmo `WeakRef`, para não apagar por engano uma linha nova registrada depois.
+- **A chave é `topic + rowId`.** Não há compartilhamento entre sessions diferentes. Depois de um rewind o rowId pode ser reutilizado e o conteúdo também pode ser diferente, mas o compartilhamento só acontece onde os valores são deep-equal, então a semântica é segura.
+- **`shareStructure(prev, next)`:**
+  - Recorre apenas em plain objects e arrays; para os demais tipos, retorna `next` diretamente.
+  - Valores primitivos são comparados com `Object.is`. Strings com conteúdo igual mas referência diferente retornam a string de prev, permitindo que a cópia em next seja coletada pelo GC.
+  - Nunca modifica `next`: `next` pode vir do reuso estrutural de apply.ts e estar referenciado por outros lugares.
+- **Frames `snapshot`**: todas as linhas são compartilhadas. Se, após o compartilhamento, todas as linhas forem `===` com as linhas correspondentes do window atual e o comprimento for o mesmo, o próprio array do window é reaproveitado.
+- **`row.delta` não é comparado.** As novas strings geradas por append em streaming já são novas; uma comparação profunda por frame só gastaria CPU. Aqui apenas registramos a nova linha no pool, aguardando o `row.upserted` final para compartilhar com ela.
+- **Semântica inalterada.** O compartilhamento só reaproveita referências; os valores continuam deep-equal. A lógica de compartilhamento fica na camada de UI store e não altera o `applyConversationDelta` de `@zcode/shared`, porque o contrato de apply.ts é que o apply do cliente não acrescenta ramos semânticos.
 
-## 影响面
+## Superfície de impacto
 
-- 桌面 `desktop-continuous` 与手机 `web-remote-replayable` 走的是同一个 `ConversationProjectionStore`，交付语义不变，只有对象身份更稳定。
-- 引用相等的行会让 memo 过的行组件跳过渲染。这符合预期，因为数据确实没有变化。
-- 闭包链本身（第 1 点）不在本次范围内；如需进一步治理，可以另外评估 `key={sessionId}` 或拆分 SessionPane。
+- O `desktop-continuous` do desktop e o `web-remote-replayable` do celular usam o mesmo `ConversationProjectionStore`; a semântica de entrega não muda, apenas a identidade dos objetos fica mais estável.
+- Linhas com igualdade por referência fazem os componentes de linha memoizados pularem o render. Isso é o esperado, pois os dados realmente não mudaram.
+- A cadeia de closures em si (ponto 1) está fora do escopo desta vez; se for necessário um tratamento adicional, pode-se avaliar separadamente `key={sessionId}` ou dividir o SessionPane.
 
-## 验证
+## Verificação
 
-- 单测：`packages/ui/test/conversationRowSharing.test.ts`（shareStructure 与池），以及 `packages/ui/test/v4SessionDataLayer.test.ts` 中的 store/层级用例（重复 snapshot、upsert、keep-warm 过期后冷打开、跨 topic 隔离）。
-- 运行时：用隔离 HOME 压测，只切换 task 18 次，再用 heap snapshot 统计大字符串副本，对比基线（144 份 state、790 份副本 / 150MB、heap 213MB）。
+- Testes unitários: `packages/ui/test/conversationRowSharing.test.ts` (shareStructure e o pool), e os casos de store/camada em `packages/ui/test/v4SessionDataLayer.test.ts` (snapshot repetido, upsert, abertura fria após expiração do keep-warm, isolamento entre topics).
+- Em runtime: stress test com HOME isolado, alternando de task 18 vezes, e depois contar as cópias de strings grandes via heap snapshot, comparando com a linha de base (144 cópias de state, 790 cópias / 150MB, heap 213MB).
 
-## 验证结果（2026-09-30）
+## Resultados da verificação (2026-09-30)
 
-A/B 条件：同一份种子数据（隔离 HOME，mock provider），冷启动 → 发送 2 轮大文件工具调用 → 9 个 task 各切换 2 轮 → GC → heap snapshot。
+Condições A/B: o mesmo conjunto de dados semente (HOME isolado, mock provider), cold start → enviar 2 rodadas de chamadas de ferramenta com arquivo grande → alternar 2 vezes em cada uma das 9 tasks → GC → heap snapshot.
 
-| 指标                              | 修复前          | 修复后             |
-| --------------------------------- | --------------- | ------------------ |
-| GC 后 JS heap                     | 93.3MB          | 68.1MB             |
-| ≥20KB 大字符串副本（37 个不同值） | 216 份 / 39.3MB | 89 份 / 14.9MB     |
-| 单个 inputText 最多副本数         | 32              | 10                 |
-| 闭包链留住的 state 份数           | 37              | 37（本方案不处理） |
+| Métrica                                   | Antes da correção | Depois da correção    |
+| ----------------------------------------- | ----------------- | --------------------- |
+| JS heap após o GC                         | 93.3MB            | 68.1MB                |
+| Cópias de strings grandes >=20KB (37 valores distintos) | 216 cópias / 39.3MB | 89 cópias / 14.9MB |
+| Máximo de cópias de um mesmo inputText     | 32                | 10                    |
+| Cópias de state retidas pela cadeia de closures | 37                | 37 (não tratado por esta solução) |
 
-剩余副本主要来自 UI 派生层，如渲染用的 sliced string、`assistantWorkRows` 等，不属于 projection 行，不在本方案范围内。闭包链留住的份数越多，本方案的收益越大：长会话里 state 可达上百份，内存会按份数成倍节省。
+As cópias restantes vêm sobretudo da camada derivada da UI, como sliced strings usados na renderização e `assistantWorkRows`; não pertencem às linhas de projection e estão fora do escopo desta solução. Quanto mais cópias a cadeia de closures retiver, maior o ganho desta solução: em sessões longas o state pode alcançar centenas de cópias, e a memória é economizada na mesma proporção.

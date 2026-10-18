@@ -1,41 +1,54 @@
-# Windows 电脑控制设置 Implementation Plan
+# Plano de implementação das configurações de controle de computador no Windows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 Windows 桌面设置页显示「电脑控制」分区，并只提供与 macOS 共用的官方 `zcode-cua` 插件总开关。
+**Objetivo:** fazer com que a página de configurações do desktop Windows exiba a seção "Controle de computador" e
+ofereça apenas o interruptor geral do plugin oficial `zcode-cua`, compartilhado com o macOS.
 
-**Architecture:** 设置页配置改为按明确的 `isMacDesktop` / `isWindowsDesktop` props 生成，避免 Web 端依赖 user agent 误露出桌面能力。`ComputerUseSection` 保留共享插件开关流程，同时把本地 Windows 的“开关能力”与仅限 macOS 的权限、Helper 和附加设置能力分开。
+**Arquitetura:** a configuração da página de Settings passa a ser gerada a partir de props explícitos `isMacDesktop` /
+`isWindowsDesktop`, evitando que o lado Web exponha capacidades de desktop por dependência de user agent.
+`ComputerUseSection` mantém o fluxo compartilhado de interruptor do plugin, mas separa a capacidade de "ligar" local
+no Windows das capacidades de permissão, Helper e configurações adicionais que são exclusivas do macOS.
 
-**Tech Stack:** React 19、TypeScript、Zustand、Vitest、Testing Library、Tailwind CSS
+**Stack técnico:** React 19, TypeScript, Zustand, Vitest, Testing Library, Tailwind CSS
 
-## Global Constraints
+## Restrições globais
 
-- Windows 与 macOS 必须复用 `ZCODE_CUA_OFFICIAL_PLUGIN_ID`、插件 store 和 `setEnabled` 流程。
-- Windows 只显示总开关，不显示画中画、后台模式、Helper 状态或授权相关内容。
-- macOS 现有完整设置和权限能力判断保持不变。
-- Linux、普通 Web、手机远控和远程 workspace 不开放该本地设置能力。
-- UI 继续复用 `SettingsGroupCard`、`SettingsRow`、`Switch` 和既有国际化文案。
-- 不新增协议、设置字段、runtime、local host 或远程控制状态。
-- 所有实现代码前先写测试并确认测试按预期失败。
-- 完成前必须执行 `pnpm typecheck` 与 `pnpm lint`。
-
----
-
-## File Structure
-
-- Modify: `packages/ui/src/settings/settingsPageConfig.ts` — 按桌面平台生成可见分区，并解析平台可见的导航落点。
-- Modify: `packages/ui/src/settingsPageHelpers.tsx` — 向设置页重导出平台配置函数。
-- Modify: `packages/ui/src/SettingsPage.tsx` — 使用平台配置、保护初始落点和导航意图，并把 Windows 标记传给电脑控制分区。
-- Modify: `packages/ui/test/settingsPageConfig.test.ts` — 覆盖 macOS、Windows、非桌面端的分区和不可见落点回退。
-- Modify: `packages/ui/test/settingsPageIntegratedTerminalShell.test.ts` — 让既有 SettingsPage 测试 mock 提供新的配置函数接口。
-- Modify: `packages/ui/src/settings/ComputerUseSection.tsx` — Windows 复用总开关，macOS 独占附加设置与权限副作用。
-- Create: `packages/ui/test/computerUseWindowsSettings.test.ts` — 渲染级验证 Windows 只有总开关且调用共享插件启停流程。
+- Windows e macOS precisam reutilizar `ZCODE_CUA_OFFICIAL_PLUGIN_ID`, o store de plugins e o fluxo `setEnabled`.
+- Windows mostra apenas o interruptor geral; não mostra picture-in-picture, modo em segundo plano, estado do Helper
+  nem conteúdo de autorização.
+- As configurações completas existentes do macOS e a lógica de capacidade de permissões permanecem inalteradas.
+- Linux, Web comum, controle remoto por celular e workspace remoto não liberam essa capacidade de configuração local.
+- A UI continua reaproveitando `SettingsGroupCard`, `SettingsRow`, `Switch` e os textos de internacionalização já
+  existentes.
+- Nenhum protocolo, campo de configuração, runtime, local host ou estado de controle remoto novo é adicionado.
+- Antes de qualquer código de implementação, escrever os testes e confirmar que eles falham como esperado.
+- Antes de concluir, é obrigatório executar `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: 平台感知的设置分区配置
+## Estrutura de arquivos
 
-**Files:**
+- Modify: `packages/ui/src/settings/settingsPageConfig.ts` — gerar as seções visíveis por plataforma de desktop e
+  resolver o destino de navegação visível por plataforma.
+- Modify: `packages/ui/src/settingsPageHelpers.tsx` — reexportar para a página de Settings as funções de configuração
+  de plataforma.
+- Modify: `packages/ui/src/SettingsPage.tsx` — usar a configuração de plataforma, proteger o destino inicial e a
+  intenção de navegação, e passar o flag de Windows para a seção de controle de computador.
+- Modify: `packages/ui/test/settingsPageConfig.test.ts` — cobrir as seções de macOS, Windows e não-desktop e o
+  fallback de destino invisível.
+- Modify: `packages/ui/test/settingsPageIntegratedTerminalShell.test.ts` — fazer o mock existente do SettingsPage
+  fornecer a nova interface de funções de configuração.
+- Modify: `packages/ui/src/settings/ComputerUseSection.tsx` — o Windows reutiliza o interruptor geral e o macOS fica
+  exclusivo com as configurações adicionais e os efeitos colaterais de permissão.
+- Create: `packages/ui/test/computerUseWindowsSettings.test.ts` — validação em nível de render de que o Windows tem
+  apenas o interruptor geral e chama o fluxo compartilhado de liga/desliga do plugin.
+
+---
+
+### Task 1: configuração de seções de Settings ciente de plataforma
+
+**Arquivos:**
 
 - Modify: `packages/ui/test/settingsPageConfig.test.ts`
 - Modify: `packages/ui/src/settings/settingsPageConfig.ts`
@@ -46,9 +59,10 @@
 - Produces: `resolveSettingsSectionForPlatform(section, visibleSections, fallbackSection?)`
 - Returns: `{ settingsSections, settingsSectionGroups }`
 
-- [ ] **Step 1: 写平台配置和落点回退的失败测试**
+- [ ] **Step 1: escrever os testes que falham para configuração de plataforma e fallback de destino**
 
-在 `packages/ui/test/settingsPageConfig.test.ts` 中改为通过工厂读取配置，并加入以下断言：
+Em `packages/ui/test/settingsPageConfig.test.ts`, passar a ler a configuração pela fábrica e adicionar as
+asserções:
 
 ```ts
 it.each([
@@ -73,10 +87,10 @@ it("不可见的电脑控制落点回退到 general", async () => {
 });
 ```
 
-同步把既有顺序测试改为调用 `createSettingsPageConfig({})`，其非桌面端预期顺序保持不含
-`computerUse`。
+Mudar também o teste de ordem existente para chamar `createSettingsPageConfig({})`, mantendo a ordem esperada do lado
+não-desktop sem `computerUse`.
 
-- [ ] **Step 2: 运行测试并确认红灯**
+- [ ] **Step 2: rodar o teste e confirmar o vermelho**
 
 Run:
 
@@ -84,11 +98,12 @@ Run:
 pnpm exec vitest run packages/ui/test/settingsPageConfig.test.ts
 ```
 
-Expected: FAIL，提示 `createSettingsPageConfig` 或 `resolveSettingsSectionForPlatform` 尚未导出。
+Expected: FAIL, avisando que `createSettingsPageConfig` ou `resolveSettingsSectionForPlatform` ainda não foram
+exportados.
 
-- [ ] **Step 3: 实现最小的平台配置工厂**
+- [ ] **Step 3: implementar a fábrica mínima de configuração de plataforma**
 
-在 `packages/ui/src/settings/settingsPageConfig.ts` 中删除 `IS_MACOS_DESKTOP` 依赖，并实现：
+Em `packages/ui/src/settings/settingsPageConfig.ts`, remover a dependência de `IS_MACOS_DESKTOP` e implementar:
 
 ```ts
 export interface SettingsPageConfigOptions {
@@ -126,7 +141,7 @@ export function resolveSettingsSectionForPlatform(
 }
 ```
 
-- [ ] **Step 4: 运行配置测试并确认绿灯**
+- [ ] **Step 4: rodar o teste de configuração e confirmar o verde**
 
 Run:
 
@@ -134,13 +149,14 @@ Run:
 pnpm exec vitest run packages/ui/test/settingsPageConfig.test.ts
 ```
 
-Expected: PASS，所有设置顺序、平台入口和落点回退断言通过。
+Expected: PASS, com todas as asserções de ordem das configurações, entrada de plataforma e fallback de destino
+passando.
 
 ---
 
-### Task 2: SettingsPage 使用平台配置并安全路由
+### Task 2: SettingsPage usa a configuração de plataforma e roteia com segurança
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/ui/src/settingsPageHelpers.tsx`
 - Modify: `packages/ui/src/SettingsPage.tsx`
@@ -149,14 +165,14 @@ Expected: PASS，所有设置顺序、平台入口和落点回退断言通过。
 
 **Interfaces:**
 
-- Consumes: Task 1 的 `createSettingsPageConfig` 和 `resolveSettingsSectionForPlatform`
-- Produces: SettingsPage 当前平台唯一的 `settingsSections` / `settingsSectionGroups`
+- Consumes: `createSettingsPageConfig` e `resolveSettingsSectionForPlatform` da Task 1
+- Produces: um único `settingsSections` / `settingsSectionGroups` da plataforma atual no SettingsPage
 - Produces: `ComputerUseSection.isWindowsDesktop`
 
-- [ ] **Step 1: 扩展既有 SettingsPage 测试 mock，先暴露新接口缺口**
+- [ ] **Step 1: estender o mock existente do SettingsPage, expondo primeiro a lacuna da nova interface**
 
-把 `packages/ui/test/settingsPageIntegratedTerminalShell.test.ts` 的
-`settingsPageHelpers.js` mock 改为返回固定配置的工厂：
+Mudar o mock `settingsPageHelpers.js` em
+`packages/ui/test/settingsPageIntegratedTerminalShell.test.ts` para devolver uma fábrica de configuração fixa:
 
 ```ts
 const settingsSections = [
@@ -186,12 +202,12 @@ vi.mock("../src/settingsPageHelpers.js", () => ({
 }));
 ```
 
-在真实 `settingsPageHelpers.tsx` 尚未重导出新接口时运行测试，确认 SettingsPage 切换接口前测试
-环境仍能明确暴露导出不匹配。
+Rodar o teste enquanto o `settingsPageHelpers.tsx` real ainda não reexporta a nova interface, confirmando que o
+ambiente de teste expõe claramente a incompatibilidade de exportação antes da troca de interface no SettingsPage.
 
-- [ ] **Step 2: 在 helper 层重导出平台配置函数**
+- [ ] **Step 2: reexportar as funções de configuração de plataforma na camada de helper**
 
-在 `packages/ui/src/settingsPageHelpers.tsx` 中改为：
+Em `packages/ui/src/settingsPageHelpers.tsx`, mudar para:
 
 ```ts
 import {
@@ -204,9 +220,9 @@ export type { SettingsSectionId };
 export { createSettingsPageConfig, resolveSettingsSectionForPlatform };
 ```
 
-- [ ] **Step 3: SettingsPage 生成当前平台配置并保护初始落点**
+- [ ] **Step 3: SettingsPage gera a configuração da plataforma atual e protege o destino inicial**
 
-在 `packages/ui/src/SettingsPage.tsx` 的组件开头生成配置：
+No início do componente em `packages/ui/src/SettingsPage.tsx`, gerar a configuração:
 
 ```ts
 const { settingsSectionGroups, settingsSections } = useMemo(
@@ -219,7 +235,7 @@ const { settingsSectionGroups, settingsSections } = useMemo(
 );
 ```
 
-初始化 `activeSection` 时通过平台可见性解析：
+Ao inicializar `activeSection`, resolver pela visibilidade de plataforma:
 
 ```ts
 const [activeSection, setActiveSection] = useState<SettingsSectionId>(() => {
@@ -233,7 +249,7 @@ const [activeSection, setActiveSection] = useState<SettingsSectionId>(() => {
 });
 ```
 
-更新导航回调，确保运行时 intent 也不能跳到不可见页面：
+Atualizar o callback de navegação para garantir que a intenção em runtime também não salte para uma página invisível:
 
 ```ts
 const setActiveSettingsSection = useCallback(
@@ -251,7 +267,8 @@ const setActiveSettingsSection = useCallback(
 );
 ```
 
-把侧栏和 active meta 分别改为使用 `settingsSectionGroups`、`settingsSections`，并向组件传递：
+Mudar a barra lateral e o active meta para usar respectivamente `settingsSectionGroups` e `settingsSections`, e
+passar aos componentes:
 
 ```tsx
 <ComputerUseSection
@@ -264,7 +281,7 @@ const setActiveSettingsSection = useCallback(
 />
 ```
 
-- [ ] **Step 4: 运行 SettingsPage 相关测试**
+- [ ] **Step 4: rodar os testes relacionados ao SettingsPage**
 
 Run:
 
@@ -272,13 +289,14 @@ Run:
 pnpm exec vitest run packages/ui/test/settingsPageConfig.test.ts packages/ui/test/settingsPageIntegratedTerminalShell.test.ts
 ```
 
-Expected: PASS；平台配置顺序、不可见落点回退和既有 Windows 终端设置测试均通过。
+Expected: PASS; passam a ordem da configuração de plataforma, o fallback de destino invisível e o teste existente de
+configuração de terminal do Windows.
 
 ---
 
-### Task 3: Windows 只渲染共享总开关
+### Task 3: Windows renderiza apenas o interruptor geral compartilhado
 
-**Files:**
+**Arquivos:**
 
 - Create: `packages/ui/test/computerUseWindowsSettings.test.ts`
 - Modify: `packages/ui/src/settings/ComputerUseSection.tsx`
@@ -289,10 +307,10 @@ Expected: PASS；平台配置顺序、不可见落点回退和既有 Windows 终
 - Consumes: `ZCODE_CUA_OFFICIAL_PLUGIN_ID`
 - Preserves: `usePluginManagementStore.setEnabled(pluginId, next, pluginManagementService)`
 
-- [ ] **Step 1: 写 Windows 渲染和开关行为的失败测试**
+- [ ] **Step 1: escrever os testes que falham de renderização e de comportamento do interruptor no Windows**
 
-新建 `packages/ui/test/computerUseWindowsSettings.test.ts`，mock 平台、服务、权限 hook、设置
-hook、国际化和插件 store。核心用例为：
+Criar `packages/ui/test/computerUseWindowsSettings.test.ts`, fazendo mock de plataforma, serviços, hook de permissões,
+hook de configurações, internacionalização e store de plugins. Os casos centrais são:
 
 ```tsx
 it("Windows 只展示共享总开关", () => {
@@ -333,9 +351,10 @@ it("Windows 总开关复用官方 zcode-cua 启停流程", async () => {
 });
 ```
 
-另加 macOS 回归用例，确认插件已启用时仍渲染 PiP、后台模式和两项权限行。
+Adicionar também um caso de regressão de macOS, confirmando que, com o plugin habilitado, o PiP, o modo em segundo
+plano e as duas linhas de permissão continuam sendo renderizados.
 
-- [ ] **Step 2: 运行新测试并确认红灯**
+- [ ] **Step 2: rodar o novo teste e confirmar o vermelho**
 
 Run:
 
@@ -343,17 +362,18 @@ Run:
 pnpm exec vitest run packages/ui/test/computerUseWindowsSettings.test.ts
 ```
 
-Expected: FAIL；当前组件没有 `isWindowsDesktop` 能力并会被 macOS-only 门禁整体隐藏。
+Expected: FAIL; o componente atual não tem a capacidade `isWindowsDesktop` e fica totalmente oculto pelo gate
+exclusivo de macOS.
 
-- [ ] **Step 3: 拆分本地平台能力并渲染最小 Windows UI**
+- [ ] **Step 3: separar as capacidades de plataforma local e renderizar a UI mínima do Windows**
 
-在 `ComputerUseSectionProps` 增加：
+Adicionar em `ComputerUseSectionProps`:
 
 ```ts
 isWindowsDesktop?: boolean;
 ```
 
-在组件中拆分平台边界：
+Separar a fronteira de plataforma no componente:
 
 ```ts
 const isLocalWorkspace =
@@ -367,8 +387,8 @@ const supportsComputerUseSettings = supportsLocalMacWorkspace || supportsLocalWi
 const path = supportsLocalMacWorkspace ? (localWorkspacePath ?? workspacePath) : null;
 ```
 
-插件初始化 effect 改用 `supportsComputerUseSettings`，组件返回门禁也使用同一变量。给总开关增加
-已有文案作为可访问名称：
+O effect de inicialização do plugin passa a usar `supportsComputerUseSettings`, e o gate de retorno do componente usa
+a mesma variável. Dar ao interruptor geral o texto já existente como nome acessível:
 
 ```tsx
 <Switch
@@ -379,7 +399,7 @@ const path = supportsLocalMacWorkspace ? (localWorkspacePath ?? workspacePath) :
 />
 ```
 
-macOS 附加内容只在以下条件渲染：
+O conteúdo adicional do macOS é renderizado apenas sob as seguintes condições:
 
 ```tsx
 {
@@ -389,10 +409,10 @@ macOS 附加内容只在以下条件渲染：
 }
 ```
 
-插件切换成功后只在 `supportsLocalMacWorkspace` 时刷新权限与 Helper 展示状态；Windows 仅依赖
-共享插件 store 确认新状态。
+Após a troca de plugin bem-sucedida, atualizar o estado de exibição de permissões e do Helper apenas quando
+`supportsLocalMacWorkspace`; o Windows depende somente do store de plugins compartilhado para confirmar o novo estado.
 
-- [ ] **Step 4: 运行新测试并确认绿灯**
+- [ ] **Step 4: rodar o novo teste e confirmar o verde**
 
 Run:
 
@@ -400,23 +420,24 @@ Run:
 pnpm exec vitest run packages/ui/test/computerUseWindowsSettings.test.ts
 ```
 
-Expected: PASS；Windows 仅有总开关、共享启停调用正确、macOS 附加设置仍存在。
+Expected: PASS; o Windows tem apenas o interruptor geral, a chamada compartilhada de liga/desliga está correta e as
+configurações adicionais do macOS continuam presentes.
 
 ---
 
-### Task 4: 回归验证、审查与提交
+### Task 4: regressão, revisão e commit
 
-**Files:**
+**Arquivos:**
 
 - Verify: `docs/superpowers/specs/2026-08-06-windows-computer-use-settings-design.md`
-- Verify: Task 1–3 的全部代码与测试文件
+- Verify: todos os arquivos de código e de teste das Tasks 1–3
 
 **Interfaces:**
 
-- Consumes: 所有前置任务结果
-- Produces: 一个通过仓库门禁的 Conventional Commit
+- Consumes: o resultado de todas as tarefas anteriores
+- Produces: um Conventional Commit que passa nos gates do repositório
 
-- [ ] **Step 1: 运行聚焦回归测试**
+- [ ] **Step 1: rodar os testes de regressão focados**
 
 Run:
 
@@ -424,9 +445,9 @@ Run:
 pnpm exec vitest run packages/ui/test/settingsPageConfig.test.ts packages/ui/test/settingsPageIntegratedTerminalShell.test.ts packages/ui/test/computerUseWindowsSettings.test.ts packages/ui/test/computerUseNoAutoPermissionModal.test.ts
 ```
 
-Expected: PASS，四个测试文件零失败。
+Expected: PASS, com zero falhas nos quatro arquivos de teste.
 
-- [ ] **Step 2: 运行受影响测试**
+- [ ] **Step 2: rodar os testes afetados**
 
 Run:
 
@@ -434,9 +455,10 @@ Run:
 pnpm test:unit:affected
 ```
 
-Expected: PASS；如果发现与本改动无关的分支既有失败，记录测试名和证据，不得忽略本改动相关失败。
+Expected: PASS; se forem encontradas falhas preexistentes do branch e sem relação com esta mudança, registrar o nome
+do teste e a evidência, e nunca ignorar falhas relacionadas a esta mudança.
 
-- [ ] **Step 3: 执行强制类型和静态检查**
+- [ ] **Step 3: executar as verificações obrigatórias de tipo e estáticas**
 
 Run:
 
@@ -445,9 +467,9 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: 两个命令都以 exit code 0 完成。
+Expected: os dois comandos terminam com exit code 0.
 
-- [ ] **Step 4: 检查 diff、平台边界和文档一致性**
+- [ ] **Step 4: conferir o diff, a fronteira de plataforma e a consistência da documentação**
 
 Run:
 
@@ -457,19 +479,22 @@ git diff --stat
 git status --short
 ```
 
-逐项确认：Windows 只有共享总开关；macOS 附加设置保留；非桌面端不显示入口；远程 workspace
-仍被拒绝；没有修改协议、runtime 或远控状态。
+Confirmar item a item: o Windows tem apenas o interruptor geral compartilhado; as configurações adicionais do macOS
+foram preservadas; o lado não-desktop não exibe a entrada; o workspace remoto continua sendo recusado; e nenhum
+protocolo, runtime ou estado de controle remoto foi modificado.
 
-- [ ] **Step 5: 请求代码审查并修复 Critical/Important 问题**
+- [ ] **Step 5: solicitar revisão de código e corrigir problemas Critical/Important**
 
-审查范围从设计 spec 提交后的基线到当前工作树，重点检查平台配置是否会让 Web 端误露出入口、
-Windows 是否触发 macOS 权限副作用，以及插件启停是否仍使用官方 plugin id。
+O escopo da revisão vai do baseline depois do commit do spec de design até a árvore de trabalho atual, com foco em
+verificar se a configuração de plataforma poderia expor a entrada indevidamente na Web, se o Windows dispara efeitos
+colaterais de permissão do macOS e se o liga/desliga do plugin continua usando o plugin id oficial.
 
-- [ ] **Step 6: 提交实现**
+- [ ] **Step 6: commitar a implementação**
 
 ```powershell
 git add -- packages/ui/src/settings/settingsPageConfig.ts packages/ui/src/settingsPageHelpers.tsx packages/ui/src/SettingsPage.tsx packages/ui/src/settings/ComputerUseSection.tsx packages/ui/test/settingsPageConfig.test.ts packages/ui/test/settingsPageIntegratedTerminalShell.test.ts packages/ui/test/computerUseWindowsSettings.test.ts docs/superpowers/plans/2026-08-06-windows-computer-use-settings.md
 git commit -m "feat(cua): add Windows computer control setting"
 ```
 
-Expected: Conventional Commit 创建成功，且不包含 `.pnpm-store/`、`.tmp/` 或其他无关文件。
+Expected: o Conventional Commit é criado com sucesso e não inclui `.pnpm-store/`, `.tmp/` nem outros arquivos sem
+relação.

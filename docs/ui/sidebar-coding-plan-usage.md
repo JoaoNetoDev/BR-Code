@@ -1,52 +1,52 @@
 # Sidebar Coding Plan Usage
 
-## 背景
+## Contexto
 
-Workspace sidebar footer 的剩余额度入口靠近当前 workspace，应表达“当前模型连接方式会消耗的那一份 Coding Plan 额度”，而不是账号级总览。
+A entrada de cota restante no rodapé da sidebar do workspace é próxima do workspace atual, e por isso deve expressar "aquela parcela do Coding Plan que o modo de conexão de modelo atual consome", e não uma visão geral da conta.
 
-## 规则
+## Regras
 
-- sidebar 剩余额度只显示一份来源，不在 footer 菜单里切换多个个人 / 团队来源。
-- 当前 workspace 连接方式是个人 Coding Plan 时，查询并展示个人 Coding Plan 剩余额度；无权益时不显示入口。
-- 当前 workspace 连接方式是 BigModel Team Plan 时，查询并展示该团队项目剩余额度；无权益或缺少团队项目上下文时不显示入口。
-- 当前 workspace 连接方式是 API Key、Start Plan、普通自定义 provider 或 native provider 时，不显示 Coding Plan 剩余额度。
-- 账号里其他来源有权益不能触发 sidebar 入口回退展示；例如当前连接个人 Coding Plan 但个人无权益、Team 有权益时，sidebar 不显示，避免误导用户以为当前发送消耗 Team 额度。
+- A cota restante da sidebar mostra apenas uma origem, sem alternar várias origens pessoais/equipe no menu do rodapé.
+- Quando o modo de conexão do workspace atual é um Coding Plan pessoal, consulta e exibe a cota restante do Coding Plan pessoal; sem direito, a entrada não é exibida.
+- Quando o modo de conexão do workspace atual é um BigModel Team Plan, consulta e exibe a cota restante daquele projeto de equipe; sem direito ou sem contexto de projeto de equipe, a entrada não é exibida.
+- Quando o modo de conexão do workspace atual é API Key, Start Plan, um provider personalizado comum ou um provider nativo, a cota restante do Coding Plan não é exibida.
+- Ter direito em outras origens da conta não pode acionar a exibição de fallback da entrada da sidebar; por exemplo, quando a conexão atual é um Coding Plan pessoal mas a pessoa não tem direito e a equipe tem, a sidebar não mostra nada, evitando induzir o usuário a pensar que o envio atual consome cota da equipe.
 
 ## Header
 
-- 面板 header 左侧显示 Coding Plan 标题。
-- 面板 header 中归属标签紧跟在 Coding Plan 标题后：
-  - 个人 Coding Plan：`Individual` / `个人`
-  - Team Plan：`Team` / `团队`
-- 标签只表达额度归属，不提供切换能力。
-- Team Plan 来源名称统一展示为 `BigModel - <组织名称>`；缺少 `organizationName` 时不生成 Team Plan usage source，避免继续显示通用的 `BigModel - Coding Plan` 或空白来源。
+- O header do painel exibe o título Coding Plan à esquerda.
+- No header do painel, o rótulo de atribuição vem logo após o título Coding Plan:
+  - Coding Plan pessoal: `Individual` / `个人`
+  - Team Plan: `Team` / `团队`
+- O rótulo expressa apenas a atribuição da cota e não oferece capacidade de troca.
+- O nome da origem Team Plan é exibido uniformemente como `BigModel - <nome da organização>`; sem `organizationName`, nenhuma origem de usage do Team Plan é gerada, evitando continuar exibindo o `BigModel - Coding Plan` genérico ou uma origem em branco.
 
-## 输入框 Usage 浮层
+## Popover de Usage no campo de entrada
 
-- 浮层保持紧凑的一至三列额度布局。
-- 浮层优先展示额度名称、剩余百分比和进度条。重置时间通过 JavaScript 测量当前列宽：完整“百分比 · 时间”能容纳时显示，超出时只隐藏时间。
-- 字体或浮层尺寸变化后通过 `ResizeObserver` 重新测量，避免大字号下日期换行挤压额度列；完整时间信息始终保留在设置页「使用统计」。
+- O popover mantém um layout compacto de uma a três colunas de cota.
+- O popover prioriza o nome da cota, a porcentagem restante e a barra de progresso. O tempo de reset é medido via JavaScript a partir da largura atual da coluna: exibe o formato completo "porcentagem · tempo" quando couber e oculta apenas o tempo quando exceder.
+- Após mudanças de fonte ou de tamanho do popover, a medição é refeita via `ResizeObserver`, evitando que a quebra de linha da data em fontes grandes comprima a coluna de cota; a informação completa de tempo permanece sempre na página de configurações, em "Estatísticas de uso".
 
-## Sidebar profile badge
+## Badge de perfil na sidebar
 
-- sidebar 头像旁边的小徽标是账号级 Coding Plan 徽标，不再跟随当前 workspace 连接方式。
-- 账号有个人 Coding Plan 时显示个人套餐 level，例如 `Pro` / `Max`。
-- 账号没有个人 Coding Plan 但有 Team Plan 时，统一显示 `Team` / `团队`。
-- 账号同时有个人 Coding Plan 和 Team Plan 时，优先显示个人套餐 level。
-- sidebar 头像菜单中的 `使用统计` 入口位于升级入口上方，打开设置页「使用统计」并优先落到编程套餐来源。
+- O pequeno badge ao lado do avatar na sidebar é o badge de Coding Plan no nível da conta e não acompanha mais o modo de conexão do workspace atual.
+- Quando a conta tem Coding Plan pessoal, exibe o level do pacote pessoal, por exemplo `Pro` / `Max`.
+- Quando a conta não tem Coding Plan pessoal mas tem Team Plan, exibe uniformemente `Team` / `团队`.
+- Quando a conta tem Coding Plan pessoal e Team Plan ao mesmo tempo, prioriza o level do pacote pessoal.
+- A entrada "Estatísticas de uso" no menu do avatar da sidebar fica acima da entrada de upgrade, abre a página de configurações em "Estatísticas de uso" e prioriza cair na origem do pacote de programação.
 
-## Settings usage Coding Plan
+## Coding Plan em Uso nas Configurações
 
-- 设置页「使用统计」是账号级统计视图，不再跟随当前 workspace 连接方式。
-- 顶部 tab 展开账号下所有可用统计来源：`应用用量`、个人 `个人套餐`、以及每个 Team Plan 组织名称。
-- 账号有个人 Coding Plan 时展示个人 `个人套餐` tab；账号有多个个人 Coding Plan 来源时可按 provider 名称区分。
-- 账号有 Team Plan 时，每个团队项目独立展示为一个 tab，tab 文案只显示 `organizationName`，不做 project、id 或 product 兜底。
-- 点击个人 Coding Plan tab 时，只展示该个人来源的额度和用量统计。
-- 点击 Team Plan 项目 tab 时，只展示该团队项目的额度和用量统计，请求必须带 `organizationId` / `projectId`。
-- 当前连接方式是 API Key、Start Plan、普通自定义 provider 或 native provider 时，不影响使用统计页展示账号已有 Coding Plan 来源。
+- "Estatísticas de uso" nas configurações é uma visão de estatísticas no nível da conta e não acompanha mais o modo de conexão do workspace atual.
+- A tab superior expande todas as origens de estatística disponíveis na conta: `应用用量`, o `个人套餐` pessoal e cada nome de organização de Team Plan.
+- Quando a conta tem Coding Plan pessoal, exibe a tab `个人套餐` pessoal; quando há várias origens de Coding Plan pessoal, elas podem ser distinguidas pelo nome do provider.
+- Quando a conta tem Team Plan, cada projeto de equipe é exibido de forma independente como uma tab, e o texto da tab mostra apenas `organizationName`, sem fallback para project, id ou product.
+- Ao clicar na tab do Coding Plan pessoal, exibe apenas a cota e as estatísticas de uso daquela origem pessoal.
+- Ao clicar na tab de um projeto Team Plan, exibe apenas a cota e as estatísticas de uso daquele projeto de equipe, e a requisição deve levar `organizationId` / `projectId`.
+- Quando o modo de conexão atual é API Key, Start Plan, um provider personalizado comum ou um provider nativo, isso não afeta a exibição, na página de estatísticas de uso, das origens de Coding Plan que a conta já possui.
 
-## 实现约束
+## Restrições de implementação
 
-- 当前连接方式以 workspace 的 `selectedSupplierKey` 为准。
-- BigModel Team Plan 仍复用 `builtin:bigmodel-coding-plan` provider；具体团队项目来自 `modelProviderFamilySelectedKeys.bigmodel` 中的 `team-plan:*` selected key。
-- Team Plan quota 查询必须带 `organizationId` / `projectId`，让服务层复制并使用团队项目 API Key。
+- O modo de conexão atual segue o `selectedSupplierKey` do workspace.
+- O BigModel Team Plan continua reutilizando o provider `builtin:bigmodel-coding-plan`; o projeto de equipe específico vem da selected key `team-plan:*` em `modelProviderFamilySelectedKeys.bigmodel`.
+- A consulta de cota do Team Plan deve levar `organizationId` / `projectId`, para que a camada de serviço copie e use a API Key do projeto de equipe.

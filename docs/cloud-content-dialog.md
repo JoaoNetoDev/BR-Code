@@ -1,74 +1,74 @@
-# 公共内容弹窗与 Hero 资源
+# Diálogo de conteúdo público e recursos Hero
 
-更新日期：2026-09-10。范围：客户端公共组件与 Hero 资源；正式投放接入与 Banner 语义见 [marketing-touch-client.md](marketing-touch-client.md)，不包含运营后台。
+Data de atualização: 2026-09-10. Escopo: componente público do cliente e recursos Hero; a integração de exibição em produção e a semântica de Banner estão em [marketing-touch-client.md](marketing-touch-client.md), sem incluir o console de operações.
 
-## 当前实现
+## Implementação atual
 
-Banner presentation 支持宿主视觉消息 `{channel:"zcode-cloud-hero-v1",type:"hover",instanceId,hovered:boolean}`，仅 ready 后发送，减少动态效果时为 false。不是业务 action；iframe 继续不可聚焦、不接收原生指针、忽略包内 action。弹窗 Hero 不接收该桥接，仍使用原生交互。详见 Marketing Touch 的 Banner hover 桥接规范。
+A apresentação de Banner suporta a mensagem visual do host `{channel:"zcode-cloud-hero-v1",type:"hover",instanceId,hovered:boolean}`, enviada somente após o ready, e false quando há redução de efeitos dinâmicos. Não é uma action de negócio; o iframe continua não focável, não recebe ponteiros nativos e ignora actions contidas no pacote. O Hero do diálogo não recebe essa ponte e continua usando interação nativa. Veja a especificação da ponte de hover de Banner do Marketing Touch.
 
-关闭按钮采用与 Hero/App 主题无关的媒体覆盖层配色：黑色 50% 不透明度背景、白色 X，无边框；hover 背景加深到黑色 65%。保持圆形、原尺寸和焦点/关闭/上报路径，不新增服务端字段，不修改 Banner 或全局 Dialog。
+O botão de fechar usa uma paleta de sobreposição de mídia independente do tema Hero/App: fundo preto com 50% de opacidade, X branco, sem borda; no hover o fundo escurece para preto a 65%. Mantém o formato circular, o tamanho original e os caminhos de foco/fechamento/relato, sem novos campos no servidor e sem modificar Banner ou o Dialog global.
 
-- `CloudContentDialog` 是公共展示壳，消费 title、description、hero、buttons、actions。由 Marketing Touch 的独立 Popup 与成功结果弹窗共用。
-- App 不再提供临时 Mock 入口或下发 RPC；测试服务器独立提供合法 payload 与 ZIP fixture。
-- Desktop local host 下载、校验、安全解压与缓存，通过随机 lease 的 loopback URL 提供资源，iframe 保持 `sandbox="allow-scripts"`。
-- image/video/lottie/interactive_bundle 均已实现。Lottie 使用固定 5.13.0 light canvas，按需加载。
-- App 左下角已改接 Marketing Touch，成功弹窗取投放的 `success_popup`，Hero ZIP 来自服务端授予的 URL/hash。旧 Weekend Banner/结果弹窗 adapter 已删除，Hero 构造 fixture 仅留在 test/helpers，不进入 App。
-- `mocks/weekendPlanResultDialog.zh-CN.json` 是**内容模板**，不含 bundle 元数据；mock server 注入真实 ZIP 字段后才成为合法 HTTP response。
+- `CloudContentDialog` é o shell de exibição público, consumindo title, description, hero, buttons, actions. É compartilhado pelo Popup independente do Marketing Touch e pelo diálogo de resultado de sucesso.
+- O App não oferece mais entrada temporária de Mock nem RPC de downlink; o servidor de testes fornece de forma independente payloads válidos e fixtures de ZIP.
+- O host local do Desktop faz download, verificação, extração segura e cache, servindo os recursos por uma URL de loopback com lease aleatório, mantendo o iframe com `sandbox="allow-scripts"`.
+- image/video/lottie/interactive_bundle já foram implementados. O Lottie usa um canvas light fixo da versão 5.13.0, carregado sob demanda.
+- O canto inferior esquerdo do App agora é integrado ao Marketing Touch; o diálogo de sucesso usa o `success_popup` da exibição e o ZIP do Hero vem da URL/hash concedido pelo servidor. O adapter antigo de Weekend Banner/diálogo de resultado foi removido e a fixture de construção do Hero permanece apenas em test/helpers, sem entrar no App.
+- `mocks/weekendPlanResultDialog.zh-CN.json` é um **modelo de conteúdo**, sem metadados de bundle; só se torna uma resposta HTTP válida depois que o mock server injeta os campos reais do ZIP.
 
-## 使用与验证
+## Uso e verificação
 
-App 使用 Marketing Touch GET 下发，不再有「内容 Mock」按钮，也不读取 `CLOUD_CONTENT_MOCK_ORIGIN`。CloudContentService 只负责已授权资源的 readPublishedMedia / prepare / release，不再暴露 status / load / clear 调试 RPC。
+O App usa o downlink GET do Marketing Touch, não existe mais o botão de «Mock de conteúdo» e `CLOUD_CONTENT_MOCK_ORIGIN` não é lido. O CloudContentService cuida apenas de readPublishedMedia / prepare / release de recursos já autorizados e não expõe mais RPCs de debug status / load / clear.
 
-Hero ZIP 及 HTML 源资源现由独立制作工作区维护，App 仓库的旧资源目录已归档移除；位置与验证命令见 [资源制作迁移](weekend-banner-resource-bundle.md#2026-09-12-制作工作区迁移)。自动化测试服务器 `packages/desktop/scripts/cloud-content-mock.mjs` 及其 fixture 保留，仅由测试调用或单独运行，不接入 App 启动链路。
+Os recursos ZIP do Hero e o HTML de origem são mantidos agora por um workspace de produção independente; o diretório antigo de recursos no repositório do App foi arquivado e removido; a localização e os comandos de verificação estão em [Migração da produção de recursos](weekend-banner-resource-bundle.md#2026-09-12-制作工作区迁移). O servidor de testes automatizado `packages/desktop/scripts/cloud-content-mock.mjs` e suas fixtures são mantidos, acionados apenas por testes ou execução isolada, sem entrar na cadeia de inicialização do App.
 
-接口 fixture 测试：`node --test packages/desktop/scripts/cloud-content-mock.test.mjs`。App 验证使用 `marketing-touch-delivery.test.ts`，同时断言旧入口不存在和授权 ZIP/上报流程正常。旧预览面板专属 UI 单测及 E2E 已退役，历史代码可从 Git 恢复。
+Testes de fixture de interface: `node --test packages/desktop/scripts/cloud-content-mock.test.mjs`. A verificação no App usa `marketing-touch-delivery.test.ts`, que também afirma que a entrada antiga não existe e que o fluxo de ZIP autorizado/relato funciona. Os testes de UI e E2E exclusivos do painel de pré-visualização antigo foram aposentados; o código histórico pode ser restaurado pelo Git.
 
-## v1 字段契约
+## Contrato de campos v1
 
-权威定义是 `packages/shared/src/cloudContent.ts` 的 Zod schema；UI 类型从其推导，不维护第二套 wire 类型。
+A definição autoritativa é o Zod schema em `packages/shared/src/cloudContent.ts`; os tipos de UI são derivados dele, sem manter um segundo conjunto de tipos de wire.
 
-| 字段                      | 消费者与约束                                                               |
-| ------------------------- | -------------------------------------------------------------------------- |
-| schemaVersion             | 必须为 1                                                                   |
-| id / revision             | 非空内容 ID（最多 128 字符）/正整数版本；隔离 Dialog 实例异步状态          |
-| kind / locale             | campaign、feature、notice / zh-CN、en-US；不以 kind 注入活动业务           |
-| dialog.title              | 纯文本，1–500 字符                                                         |
-| dialog.description        | format、text；文本最多 20,000 字符                                         |
-| dialog.hero               | 四类联合类型，见下表                                                       |
-| dialog.buttons            | 最多 4 个，ID 唯一；label 最多 200 字符；variant 为 primary/secondary/link |
-| button.actionId / actions | 引用必须存在；actions 最多 16 项；仅注册的宿主 handler 可执行              |
+| Campo                      | Consumidor e restrição                                                        |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| schemaVersion              | Deve ser 1                                                                   |
+| id / revision              | ID de conteúdo não vazio (até 128 caracteres) / versão inteira positiva; isola o estado assíncrono da instância do Dialog |
+| kind / locale              | campaign, feature, notice / zh-CN, en-US; não injeta lógica de campanha pelo kind |
+| dialog.title               | Texto puro, 1–500 caracteres                                                  |
+| dialog.description         | format, text; texto com no máximo 20.000 caracteres                            |
+| dialog.hero                | União de quatro tipos, veja a tabela abaixo                                   |
+| dialog.buttons             | No máximo 4, IDs únicos; label com no máximo 200 caracteres; variant é primary/secondary/link |
+| button.actionId / actions  | As referências devem existir; actions com no máximo 16 itens; apenas handlers do host registrados podem executar |
 
-| Hero 类型          | 字段                                                                                         |
-| ------------------ | -------------------------------------------------------------------------------------------- |
-| image              | src、darkSrc?、alt、fit?                                                                     |
-| video              | src、darkSrc?、poster、autoplay?、loop?、muted:true、fit?                                    |
-| lottie             | src、darkSrc?、autoplay?、loop?、speed?（0.1–4）、fallback?                                  |
-| interactive_bundle | runtime:zcode-hero-sandbox-v1、bundle、viewport:{aspectRatio:"4:3"}、data、events、fallback? |
+| Tipo do Hero        | Campos                                                                                        |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| image               | src、darkSrc?、alt、fit?                                                                        |
+| video               | src、darkSrc?、poster、autoplay?、loop?、muted:true、fit?                                       |
+| lottie              | src、darkSrc?、autoplay?、loop?、speed?（0.1–4）、fallback?                                     |
+| interactive_bundle  | runtime:zcode-hero-sandbox-v1、bundle、viewport:{aspectRatio:"4:3"}、data、events、fallback?     |
 
-bundle 必须包含 `format:"zip"`、`url`、`entry`、`sha256`（64 位小写十六进制）；`sizeBytes` 可选，提供时必须为正整数且匹配实际大小。服务端 Marketing Touch 无大小字段，下载及展开的实际字节上限仍强制执行。HTTP mock 使用实算元数据，不能以占位哈希通过校验。
+O bundle deve conter `format:"zip"`, `url`, `entry`, `sha256` (64 caracteres hexadecimais minúsculos); `sizeBytes` é opcional e, quando fornecido, deve ser um inteiro positivo e corresponder ao tamanho real. O Marketing Touch do servidor não tem campo de tamanho, mas o limite real de bytes para download e extração continua sendo aplicado. O mock HTTP usa metadados calculados de verdade, e não pode passar na verificação com hash de placeholder.
 
-`resolvedUrl` **不是云端字段**，shared schema 会剥离它；仅宿主 prepare 成功或 App 自带可信资源 adapter 设置。没有 resolvedUrl 的互动 Hero 只显示 fallback/占位，绝不直接加载 bundle.url。
+`resolvedUrl` **não é um campo da nuvem**; o schema compartilhado o remove; ele só é definido quando o prepare do host tem sucesso ou por um adapter de recurso confiável embutido no App. Um Hero interativo sem resolvedUrl mostra apenas fallback/placeholder e nunca carrega diretamente bundle.url.
 
-data 为不含凭据的 JSON 对象，序列化最多 64,000 字符；events 为最多 16 项的展示事件映射。URL 只允许无用户名/密码的绝对 HTTP(S)；开发源允许 loopback HTTP，生产资源必须匹配宿主已验证投放授予的 URL/hash。
+data é um objeto JSON sem credenciais, serializado com no máximo 64.000 caracteres; events é um mapa de eventos de exibição com no máximo 16 itens. URLs só podem ser HTTP(S) absolutos sem usuário/senha; origens de desenvolvimento podem usar HTTP de loopback, mas recursos de produção precisam corresponder à URL/hash verificados e concedidos pelo host.
 
 ### Description
 
-- `plain_text`：按纯文本显示。
-- `html`：简单 HTML；支持 p/br/b/strong/i/em/u/s/ul/ol/li/code/a/span/time，以及 h1–h6/blockquote/pre/hr/del/table/thead/tbody/tr/th/td。
-- `markdown`：支持段落、标题、强调、列表、引用、代码、链接、表格，经共享安全渲染器排版；内嵌 HTML 按文字显示。
-- Marketing 适配后的 `formattedTitle` / `formattedLabel`（仅 UI 字段）保留 format/text，支持与 description 相同的三种格式。标题/按钮将块级节点转为 span，链接不生成交互；旧 title/label 字符串调用仍兼容。
-- class 保留并与默认 Tailwind 类合并，仅已编译类生效；style 按 cloudDescriptionStyle 属性/值规则过滤。拒绝 id、事件属性、图片、script、iframe、表单、SVG。不支持元素及其子树丢弃。
-- inert template 解析后重建 React 白名单节点；不把远端 DOM 直接插入可见页面。深度最多 32，超限纯文本回退。
-- 链接仅保留 HTTP(S) href/title，经宿主 open_external handler 打开；缺能力时退化为文字。
-- 默认排版使用客户端主题；允许的 class/style 可覆盖。Weekend 动态权益与时间先转义再组合 HTML。
+- `plain_text`: exibido como texto puro.
+- `html`: HTML simples; suporta p/br/b/strong/i/em/u/s/ul/ol/li/code/a/span/time, além de h1–h6/blockquote/pre/hr/del/table/thead/tbody/tr/th/td.
+- `markdown`: suporta parágrafos, títulos, ênfases, listas, citações, código, links e tabelas, formatados por um renderizador seguro compartilhado; HTML embutido é exibido como texto.
+- `formattedTitle` / `formattedLabel` adaptados ao Marketing (apenas campos de UI) mantêm format/text e suportam os mesmos três formatos da description. Títulos/botões convertem nós de bloco em span e links não geram interação; as chamadas antigas com title/label string continuam compatíveis.
+- class é preservada e mesclada com as classes Tailwind padrão, valendo apenas classes já compiladas; style é filtrado pelas regras de atributo/valor de cloudDescriptionStyle. Rejeita id, atributos de evento, imagens, script, iframe, formulários e SVG. Elementos não suportados e suas subárvores são descartados.
+- O template inert, após o parse, é reconstruído com a allowlist de nós do React; o DOM remoto não é inserido diretamente na página visível. Profundidade máxima de 32, excedendo isso há fallback para texto puro.
+- Links mantêm apenas href/title HTTP(S) e são abertos pelo handler open_external do host; sem essa capacidade, degradam para texto.
+- A formatação padrão usa o tema do cliente; class/style permitidos podem sobrescrever. Os benefícios dinâmicos e o tempo de Weekend são escapados antes de compor o HTML.
 
 ### Actions
 
-close 关闭当前实例；dismiss_content 交给注入 handler 成功后关闭，正式账号/revision 频控未实现。navigate 只接受 model_settings/plugin_store/settings；copy_text、open_external、claim_plan 均需宿主注入能力，公共组件不直接访问平台或业务服务。
+close fecha a instância atual; dismiss_content é entregue ao handler injetado e, em caso de sucesso, fecha — a limitação de frequência para conta oficial/revision ainda não foi implementada. navigate aceita apenas model_settings/plugin_store/settings; copy_text, open_external e claim_plan exigem capacidades injetadas pelo host, e o componente público não acessa diretamente a plataforma nem serviços de negócio.
 
-按钮按 payload 顺序显示；缺 handler 禁用；同实例 single-flight；失败反馈、可重试，关闭始终可用。复制成功显示宿主本地化 label，不修改 payload。关闭/重开后旧 Promise 不得影响新实例。受控弹窗关闭恢复仍在页面中的打开来源焦点。
+Os botões são exibidos na ordem do payload; ficam desabilitados sem handler; há single-flight por instância; há feedback de falha e possibility de retry, e o fechamento está sempre disponível. Após copiar com sucesso, mostra o label localizado pelo host sem modificar o payload. Ao fechar e reabrir, Promises antigas não podem afetar a nova instância. Um diálogo controlado restaura o foco na origem que estava na página quando foi fechado.
 
-## 架构与时序
+## Arquitetura e sequência
 
 ```text
 App -> Marketing Touch GET -> DTO/schema -> 授权 URL/hash
@@ -83,11 +83,11 @@ App -> Marketing Touch GET -> DTO/schema -> 授权 URL/hash
 宿主退出 -> 取消下载 -> 关闭资源 HTTP -> 释放 lease -> 删除自有缓存目录
 ```
 
-Main 不承担资源下载/解压业务。服务通过 ServiceCollection/RPC 注入，UI 通过 hooks 访问。资源与 workspace/task 无关，不落项目目录、不传远程 workspace、不另建 Agent。
+O Main não assume o negócio de download/extração de recursos. O serviço é injetado via ServiceCollection/RPC e a UI acessa por hooks. Os recursos não têm relação com workspace/task, não vão para o diretório do projeto, não passam um workspace remoto e não criam um Agent.
 
-### 缓存与资源 URL
+### Cache e URL de recursos
 
-Desktop 的实际目录：
+Diretórios reais do Desktop:
 
 ```text
 <ZCode data base>/.zcode/v2/cache/content-bundles/<host-instance-uuid>/
@@ -96,30 +96,30 @@ Desktop 的实际目录：
   <sha256>/.bundle.json
 ```
 
-正常用户 data base 为用户目录；E2E 使用 runner 的隔离目录。每个 host 独占根，同 host 重开复用；不同 host 不共享内存 lease。**缓存不承诺跨 App 重启复用**。正常退出删除自有目录，崩溃残留不被其他活跃 host 随意清理。
+O data base normal do usuário é o diretório do usuário; o E2E usa o diretório isolado do runner. Cada host tem a raiz exclusiva e o reabertura no mesmo host reutiliza; hosts diferentes não compartilham leases em memória. **O cache não promete reuso entre reinícios do App.** Uma saída normal remove o próprio diretório, e resíduos de crash não são limpos arbitrariamente por outros hosts ativos.
 
-- ZIP 最多 8 MiB、展开最多 32 MiB、单文件最多 8 MiB、128 个条目、缓存预算 128 MiB。
-- 下载最多 30 秒，至多 3 次重定向，逐跳来源校验；实际字节数必须与声明一致。
-- 拒绝绝对路径、路径穿越、反斜杠、Windows 保留名称、符号链接、重复路径/大小写冲突、包内自带缓存 manifest。
-- 独立 staging，完整校验后原子提升；命中缓存重新检查 manifest 和文件摘要。
-- acquire/read/release/clear 服务内串行协调；清理跳过活跃 lease；释放后按预算/LRU 清理。
-- HTTP 只监听 127.0.0.1 随机端口，路径以不可预测 lease 开头，只读 manifest 内文件。release 后原 URL 返回 404。
-- CSP 禁止 connect/frame/object/form，脚本只能在无 same-origin 的 sandbox 内运行；响应带正确 MIME、nosniff/no-referrer/no-store。
-- yauzl 作为 Desktop 外部运行依赖保留，避免 ESM 内联其 CommonJS require("fs") 导致启动失败；打包校验包含该模块。
+- ZIP de no máximo 8 MiB, extração de no máximo 32 MiB, arquivo único de no máximo 8 MiB, 128 entradas, orçamento de cache de 128 MiB.
+- Download de no máximo 30 segundos, até 3 redirecionamentos, verificação de origem a cada salto; a contagem real de bytes precisa corresponder à declarada.
+- Rejeita caminhos absolutos, path traversal, barras invertidas, nomes reservados do Windows, symlinks, caminhos duplicados/conflitos de caixa, manifest de cache embutido no pacote.
+- Staging separado e promoção atômica após a verificação completa; em caso de acerto no cache, o manifest e os resumos dos arquivos são verificados novamente.
+- acquire/read/release/clear são coordenados em série dentro do serviço; a limpeza pula leases ativos; após a liberação, a limpeza segue o orçamento/LRU.
+- O HTTP escuta apenas uma porta aleatória em 127.0.0.1, os caminhos começam com um lease imprevisível e apenas arquivos listados no manifest são servidos. Após o release, a URL original retorna 404.
+- A CSP proíbe connect/frame/object/form e scripts só podem rodar em um sandbox sem same-origin; a resposta traz MIME correto, nosniff/no-referrer/no-store.
+- yauzl é mantido como dependência externa de execução do Desktop, evitando o require("fs") CommonJS inline no ESM, que causaria falha na inicialização; a verificação do pacote inclui esse módulo.
 
-### Hero 生命周期与隔离
+### Ciclo de vida e isolamento do Hero
 
-4:3 固定 Hero 区，480px 弹窗上限、窄屏自适应和纵向滚动。视频 muted/playsInline，隐藏/reduced-motion/关闭暂停；Lottie 关闭销毁，JSON 最多 2 MiB、50,000 节点、40 层，禁止外部图片、字体、表达式。
+Área do Hero fixa em 4:3, limite de 480px para o diálogo, adaptação a telas estreitas e rolagem vertical. Vídeo com muted/playsInline, pausado quando oculto/com reduced-motion/fechado; Lottie é destruído ao fechar, com JSON de no máximo 2 MiB, 50.000 nós, 40 níveis, proibindo imagens, fontes e expressões externas.
 
-交互资源保留星空、票券、入场、空闲压感、指针倾斜、点击翻转、Replay。load 后发送 init（instanceId/theme/locale/reducedMotion/data）；5 秒无 ready 则 fallback。消息只接受当前 contentWindow + instanceId + channel；未知展示事件丢弃。iframe 展示事件不连接业务动作 dispatcher。
+Os recursos interativos preservam céu estrelado, ingresso, entrada, pressão ociosa, inclinação do ponteiro, clique para virar e Replay. Após o load é enviado o init (instanceId/theme/locale/reducedMotion/data); sem ready em 5 segundos há fallback. As mensagens só aceitam o contentWindow atual + instanceId + channel; eventos de exibição desconhecidos são descartados. Eventos de exibição do iframe não se conectam ao dispatcher de actions de negócio.
 
-权益图标使用用户提供的 Lucide Gift SVG（三条 path 与一个 rect），不再使用字符 ◇。SVG 内联到资源模板，按权益行克隆；12×12px，stroke=currentColor，复用 ticket-accent 主题色，aria-hidden=true；文案继续使用 textContent，不把远端字符串作为 SVG/HTML 执行。
+O ícone de benefício usa o SVG Lucide Gift fornecido pelo usuário (três paths e um rect), sem mais usar o caractere ◇. O SVG é inline no template de recurso e clonado por linha de benefício; 12×12px, stroke=currentColor, reutilizando a cor de tema ticket-accent, aria-hidden=true; o texto continua usando textContent e não executa strings remotas como SVG/HTML.
 
-历史 Gift 版产物：归档中的 `marketing-touch-weekend-v3/weekend-plan-hero-v3.zip`，7041字节，SHA-256 `6cfaae6807b181c3c38eb1be1f3f8a348a2eb67e940495f864b35e3ccf8067c0`。同目录的下发示例及旧 v1/v2 一并保留在资源制作工作区归档，仍需上传后替换服务端 URL/hash 或 asset_id；不是当前构建输出。
+Artefato histórico da versão Gift: no arquivo, `marketing-touch-weekend-v3/weekend-plan-hero-v3.zip`, 7041 bytes, SHA-256 `6cfaae6807b181c3c38eb1be1f3f8a348a2eb67e940495f864b35e3ccf8067c0`. Os exemplos de downlink e os antigos v1/v2 no mesmo diretório também ficam no arquivo do workspace de produção de recursos, ainda precisam ser substituídos por URL/hash ou asset_id após o upload; não é a saída do build atual.
 
-Gift 验证：新增 SVG 路径断言修改前失败，修改后10条相关单测、5条 macOS App E2E通过。可见性断言等待入场完成，避免把翻转中暂时隐藏的正面误判成图标缺失；保留双主题翻转、重播和上报回归。类型/E2E类型/架构通过，Lint 0错误/46条已有警告，其他平台实机未验收。
+Verificação do Gift: as novas asserções de caminho do SVG falhavam antes da modificação; após ela, 10 testes unitários relacionados e 5 E2E do App no macOS passaram. As asserções de visibilidade aguardam a conclusão da entrada, evitando confundir a frente temporariamente oculta durante a virada com ícone ausente; foram mantidas as regressões de virada nos dois temas, replay e relato. Tipos/tipos de E2E/arquitetura passaram, Lint com 0 erros/46 avisos já existentes e nenhuma validação em máquinas reais de outras plataformas.
 
-Weekend Hero 动效修复：包内 JS 是动画状态唯一 owner。入场结束或被点击打断时清理 is-entering，原生 Y 轴背板仅在入场期间隐藏，不得永久 visibility:hidden；正面、原生背面和入场背板复用同色背景与票券缺口遮罩。重播先取消上一轮动画和压感，再开始新入场；快速重复重播不叠加动画。隐藏/减少动态效果时不调度空闲 RAF，恢复可见再继续；destroy 取消动画，资源消息仅接受 parent。
+Correção das animações do Hero de Weekend: o JS do pacote é o único owner do estado de animação. Quando a entrada termina ou é interrompida por um clique, is-entering é limpo; o painel nativo do eixo Y só fica oculto durante a entrada e nunca deve ficar permanentemente com visibility:hidden; frente, verso nativo e painel de entrada reutilizam o mesmo fundo e a máscara de recorte do ingresso. O replay cancela primeiro a animação e a pressão da rodada anterior e só então inicia nova entrada; replays rápidos repetidos não acumulam animações. Quando oculto/com efeitos reduzidos, o RAF ocioso não é agendado e é retomado ao voltar a ficar visível; destroy cancela as animações e as mensagens de recurso só aceitam o parent.
 
 ```text
 init/replay -> 取消旧动画 -> entering -> animationend -> idle
@@ -127,20 +127,20 @@ entering/idle -> 点击 -> 清理入场状态 -> rotateY（同色背板） -> id
 visibility=false/reducedMotion -> 停止RAF；destroy -> 停止全部动画
 ```
 
-本轮不重设计星空或改营销接口。继续兼容既有 init/data/theme 协议，App 的套餐展示数据映射暂保留；不声称与原 React Hero 像素级一致。输出新目录 ZIP 和匹配元数据，保留旧包；服务端上传新包后必须同步新 URL/hash。验证包含入场后左右180度中间帧、双主题背板、重播，以及 App 成功弹窗/上报链路。
+Este ciclo não redesenha o céu estrelado nem altera a interface de marketing. Continua compatível com o protocolo existente init/data/theme e o mapeamento de dados de exibição de pacotes do App é mantido temporariamente; não se afirma equivalência pixel a pixel com o Hero React original. A saída é um novo ZIP de diretório com metadados correspondentes, mantendo o pacote antigo; depois que o novo pacote for enviado, a nova URL/hash deve ser sincronizada. A verificação inclui o quadro intermediário de 180° para esquerda/direita após a entrada, o painel de verso nos dois temas, o replay e a cadeia de diálogo de sucesso/relato do App.
 
-验证（2026-09-10）：旧资源4条生命周期单测失败，App 测试复现入场状态未结束；修复后9条相关单测、2条 HTTP fixture 测试、5条 macOS App E2E通过。浅/深主题、左/右180度中间帧均为可见同色背板，正反面 mask 一致。类型、E2E类型、架构通过，Lint 0错误/46条已有警告。未做 Windows/Linux/手机实机和人工像素级验收，E2E保留 pending。
+Verificação (2026-09-10): 4 testes unitários de ciclo de vida dos recursos antigos falharam e os testes do App reproduziram o estado de entrada não finalizado; após a correção, 9 testes unitários relacionados, 2 testes de fixture HTTP e 5 E2E do App no macOS passaram. Nos temas claro/escuro, os quadros intermediários de 180° para esquerda/direita mostram um painel de verso visível da mesma cor, com máscara consistente entre frente e verso. Tipos, tipos de E2E e arquitetura passaram, Lint com 0 erros/46 avisos já existentes. Não houve validação em máquinas reais Windows/Linux/celular nem aceitação manual pixel a pixel; o E2E permanece como pending.
 
-历史产物：归档中的 `marketing-touch-weekend-v2/weekend-plan-hero-v2.zip`，6707字节，SHA-256 `db3acb08ba1aae3f74e8735774217a5c8c295ecb34b9268b53f9a48b25ca2712`。同目录可读 index.html、元数据及下发示例、旧 `marketing-touch-weekend` 包均保留在资源制作工作区归档；ZIP 内源码与当时源码一致，不再表示最新源码。示例 CDN URL、plan_id、asset_id 仍需上传后填写，不表示已部署。
+Artefato histórico: no arquivo, `marketing-touch-weekend-v2/weekend-plan-hero-v2.zip`, 6707 bytes, SHA-256 `db3acb08ba1aae3f74e8735774217a5c8c295ecb34b9268b53f9a48b25ca2712`. O index.html legível, os metadados e os exemplos de downlink no mesmo diretório, bem como o pacote antigo `marketing-touch-weekend`, permanecem no arquivo do workspace de produção de recursos; o código-fonte dentro do ZIP é igual ao código da época e não representa mais o fonte mais recente. A URL de CDN de exemplo, plan_id e asset_id ainda precisam ser preenchidos após o upload e não indicam implantação.
 
-投放 JSON 获取/校验失败沿用 Marketing Touch 的失败策略；资源准备失败仍展示已校验标题/描述/按钮。运行中错误降级 Hero，不阻塞关闭。
+Falhas na obtenção/verificação do JSON de exibição seguem a política de falha do Marketing Touch; quando a preparação do recurso falha, o título/descrição/botões já verificados continuam sendo exibidos. Erros em tempo de execução degradam o Hero e não bloqueiam o fechamento.
 
-## 多端与上线边界
+## Limites multiplataforma e de lançamento
 
-公共 UI 与 App 自带 HTML 可由 Desktop/Web/手机复用；手机窄屏使用相同组件。App 的临时开发预览入口已移除。Web/mobile **不得使用 Desktop loopback URL**；未解析的远端 bundle 使用 fallback/占位，不执行 ZIP。
+A UI pública e o HTML embutido no App podem ser reutilizados por Desktop/Web/celular; o celular em tela estreita usa o mesmo componente. A entrada temporária de pré-visualidação de desenvolvimento do App foi removida. Web/mobile **não podem usar a URL de loopback do Desktop**; bundles remotos não resolvidos usam fallback/placeholder e não executam o ZIP.
 
-Web/手机真实 ZIP 资源托管未接入，Desktop 投放客户端已接 Marketing Touch，但真实后端仍待联调，不能把 Desktop E2E 通过描述成全端云端上线。未改变 desktop continuous / web remote replayable、owner/lease、workspaceIdentity 或 Agent 协议；这里的资源 lease 不是 task owner lease。
+O hospedamento de recursos ZIP reais no Web/celular ainda não foi integrado; o cliente de exibição do Desktop já está conectado ao Marketing Touch, mas o backend real ainda precisa de integração e não se pode descrever o E2E do Desktop como um lançamento na nuvem para todas as plataformas. Não foram alterados desktop continuous / web remote replayable, owner/lease, workspaceIdentity nem o protocolo do Agent; o lease de recurso aqui não é o task owner lease.
 
-生产阶段另验收：可信 HTTPS/CDN 发布认证、签名、账号隔离、投放频控、灰度/回滚与 Web 资源托管。SHA-256 仅证明字节一致，不证明发布者可信。
+Aceitação adicional na fase de produção: publicação confiável HTTPS/CDN com certificação, assinatura, isolamento por conta, limitação de frequência de exibição, canário/rollback e hospedagem de recursos no Web. SHA-256 prova apenas a consistência de bytes, não a confiabilidade do publicador.
 
-完整阶段计划与验收记录见 [cloud-content-dialog-plan.md](./cloud-content-dialog-plan.md)。
+O plano completo por fases e os registros de aceitação estão em [cloud-content-dialog-plan.md](./cloud-content-dialog-plan.md).

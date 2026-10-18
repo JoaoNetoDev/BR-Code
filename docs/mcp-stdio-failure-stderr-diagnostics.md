@@ -1,32 +1,29 @@
-# MCP STDIO 失败 stderr 诊断
+# Diagnóstico de stderr em falhas de MCP STDIO
 
-## 背景
+## Contexto
 
-用户反馈 `ZCT-2071437415552278528` 中，两个 MySQL MCP server 都以
-`MCP error -32000: Connection closed` 失败。该错误只说明 MCP stdio 子进程关闭了
-管道，无法判断是 `npx`、server 参数校验、环境变量、网络还是 server 自身崩溃。
+Usuários relatam que, em `ZCT-2071437415552278528`, dois MySQL MCP server falharam com `MCP error -32000: Connection closed`. Esse erro apenas indica que o subprocesso MCP stdio fechou o pipe; não é possível determinar se a causa foi o `npx`, a validação de parâmetros do server, variáveis de ambiente, rede ou um crash do próprio server.
 
-现有 adapter 已经监听 stdio stderr，但 stderr 只写 debug 日志。生产日志导出默认不包含
-debug，导致工单里没有 MCP 子进程退出前的原始错误。
+O adapter existente já escuta o stderr do stdio, mas o stderr é gravado apenas em log de debug. A exportação padrão de logs de produção não inclui debug, de modo que o ticket não contém o erro original antes da saída do subprocesso MCP.
 
-## 目标
+## Objetivos
 
-- 保留 stdio MCP 子进程最近的 stderr 尾部内容。
-- 当 `mcp.server.failed` 发生时，把最近 stderr 作为 warn 上下文字段输出。
-- stderr 必须限长，避免高频 stderr 把生产日志刷爆。
-- stderr 必须脱敏，避免把 token、password、authorization 等凭据写入日志。
-- 成功连接时不额外输出 warn 级 stderr，保持正常运行日志安静。
+- Preservar o conteúdo de cauda recente do stderr dos subprocessos MCP stdio.
+- Quando `mcp.server.failed` ocorrer, imprimir o stderr recente como campo de contexto em nível warn.
+- O stderr deve ter tamanho limitado, para que um stderr de alta frequência não inunde os logs de produção.
+- O stderr deve passar por mascaramento, para não gravar credenciais como token, password e authorization nos logs.
+- Em caso de conexão bem-sucedida, não imprimir stderr adicional em nível warn, mantendo os logs de operação limpos.
 
-## 行为约定
+## Convenções de comportamento
 
-- 每个 stdio MCP server 连接尝试单独维护一个内存 stderr buffer。
-- buffer 只保留尾部固定长度，用于定位启动失败前的最后错误。
-- debug 级 `mcp.stdio.stderr` 继续输出单次 chunk，但同样使用脱敏后的文本。
-- warn 级 `mcp.server.failed` 仅在 buffer 非空时附带 `stderr` 字段。
-- 不记录 stdio env values；env 仍只通过子进程启动参数传递。
+- Cada tentativa de conexão de um MCP server stdio mantém seu próprio buffer de stderr em memória.
+- O buffer guarda apenas um comprimento fixo de cauda, usado para localizar o último erro antes da falha de inicialização.
+- O `mcp.stdio.stderr` em nível debug continua emitindo um único chunk, mas também usando o texto já mascarado.
+- O `mcp.server.failed` em nível warn só inclui o campo `stderr` quando o buffer não está vazio.
+- Não registrar valores de env do stdio; o env continua sendo passado somente pelos argumentos de inicialização do subprocesso.
 
-## 验证
+## Verificação
 
-- 单测覆盖 stdio MCP connect 失败时，warn 日志包含最近 stderr。
-- 单测覆盖 stderr 中的敏感字段会被 `[Redacted]` 替换。
-- `pnpm typecheck` 与 `pnpm lint` 作为边界检查。
+- Teste unitário cobrindo que, quando a conexão stdio do MCP falha, o log warn inclui o stderr recente.
+- Teste unitário cobrindo que campos sensíveis no stderr são substituídos por `[Redacted]`.
+- `pnpm typecheck` e `pnpm lint` como verificação de limites.

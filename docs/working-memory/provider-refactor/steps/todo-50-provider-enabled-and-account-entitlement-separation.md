@@ -1,14 +1,14 @@
-# Todo 50：Provider Enabled 与 Account Access Entitlement 拆分
+# Todo 50: Separação entre Provider Enabled e Account Access Entitlement
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-31
+> Data: 2026-08-31
 >
-> 前置关系：Todo 49 先删除虚构的 Account API Provider，并恢复 Family 按量 API 的真实身份。
+> Pré-requisito: o Todo 49 remove primeiro o fictício Account API Provider e restaura a identidade real da Family 按量 API.
 
-## 1. 问题
+## 1. Problema
 
-当前 Provider 顶层 `enabled` 同时表达了两件不同的事：
+O `enabled` de nível superior do Provider hoje expressa duas coisas diferentes ao mesmo tempo:
 
 ```text
 普通 Built-in
@@ -18,11 +18,11 @@ Account Provider
 └─ Account enabled=true/false 表示当前账号是否拥有套餐资格
 ```
 
-Resolver 又把两者统一解释成执行门禁。这使“用户是否启用配置”和“账号是否享有这种 Access”无法独立表达。
+O Resolver por sua vez interpreta os dois como um portão único de execução. Isso faz com que “o usuário habilitou a configuração” e “a conta tem direito a esse Access” não possam ser expressados de forma independente.
 
-## 2. 最终契约
+## 2. Contrato final
 
-Provider 顶层保留 `enabled`，但只表达“这份 Provider 配置是否已经启用并加入用户当前配置”。账号资格收缩到对应 Access：
+O `enabled` de nível superior do Provider é mantido, mas passa a expressar apenas “esta configuração de Provider já está habilitada e foi adicionada à configuração atual do usuário”. A qualificação da conta é reduzida ao Access correspondente:
 
 ```ts
 type ZhipuAccountAccessConfig = {
@@ -33,13 +33,13 @@ type ZhipuAccountAccessConfig = {
 };
 ```
 
-- `entitled` 只存在于 `zhipu-account`；
-- Built-in 独占 `type/family/mode`；Account Overlay 只允许覆盖 `access.entitled`；
-- Personal Overlay 禁止修改固定 Account Provider 的任何 Access 字段；
-- Account Service 的丰富权益证据进入 Effective Provider Config 后只投影 `entitled`；unknown 按现有 LKG/fail-closed 处理；
-- 不增加 Provider 顶层 `available`、`configured`、`activated` 或第二套状态 DTO。
+- `entitled` existe apenas em `zhipu-account`;
+- Built-in é dono de `type/family/mode`; o Account Overlay só pode sobrescrever `access.entitled`;
+- o Personal Overlay não pode modificar nenhum campo de Access de um Account Provider fixo;
+- as evidências ricas de entitlement do Account Service, ao entrarem no Effective Provider Config, são projetadas apenas em `entitled`; unknown segue o tratamento atual de LKG/fail-closed;
+- não adicionar `available`, `configured`, `activated` de nível superior no Provider nem um segundo conjunto de DTOs de estado.
 
-## 3. Settings 与 Registry
+## 3. Settings e Registry
 
 ```text
 Built-in Provider Config
@@ -71,47 +71,40 @@ const providerExecutable = provider.enabled && accessEntitled && providerComplet
 const modelExecutable = providerExecutable && model.enabled && modelComplete;
 ```
 
-- 普通 Built-in：Built-in `enabled=false`；“添加供应商”写 Personal `enabled=true`；删除 Overlay 后回落为 false；
-- Personal-only：创建时 `enabled=true`，删除时整个定义消失；
-- Family 按量 API：Built-in `enabled=true`，固定显示，不提供启停按钮；Key 缺失只导致不完整；
-- Account Provider：Built-in `enabled=true`，固定显示；Account Overlay 只更新 `access.entitled` 及账号模型事实；
-- Off-Peak：Built-in `enabled=true`、`visibility=hidden`，Account Overlay 更新 `access.entitled`。
+- Built-in comum: Built-in `enabled=false`; “Adicionar provedor” grava Personal `enabled=true`; remover o Overlay faz voltar para false;
+- Somente Personal: na criação `enabled=true`; na remoção a definição inteira desaparece;
+- Family 按量 API: Built-in `enabled=true`, exibição fixa, sem botão de ligar/desligar; Key ausente apenas gera incompletude;
+- Account Provider: Built-in `enabled=true`, exibição fixa; o Account Overlay apenas atualiza `access.entitled` e os fatos de modelo da conta;
+- Off-Peak: Built-in `enabled=true`, `visibility=hidden`, e o Account Overlay atualiza `access.entitled`.
 
-## 4. 实施范围
+## 4. Escopo de implementação
 
-1. Provider Access Config、JSON Schema、Overlay 和序列化增加 `zhipu-account.entitled`；
-2. Account Source Schema 只允许账号 Provider 写 `access.entitled`，拒绝 `type/family/mode`；
-3. Account Resolver 从写 Provider 顶层 `enabled` 改为写 `access.entitled`；
-4. Account Built-in/Off-Peak Provider 顶层固定 `enabled=true`；普通 Built-in 的 false/Personal true 行为不变；
-5. Registry Resolver 分别检查 Provider `enabled` 与 Account `access.entitled`；
-6. Settings View 直接按 `enabled` 将普通 Built-in 放入主列表或添加菜单，entitlement 不改变 Settings placement；
-7. 删除把 Provider `enabled` 当成套餐权益的判断、命名和注释；
-8. Model Config `enabled` 不变。
+1. Provider Access Config, JSON Schema, Overlay e serialização passam a ter `zhipu-account.entitled`;
+2. O Account Source Schema só permite que providers de conta escrevam `access.entitled` e rejeita `type/family/mode`;
+3. O Account Resolver passa a gravar `access.entitled` em vez do `enabled` de nível superior do Provider;
+4. Account Built-in/Off-Peak Provider com `enabled=true` fixo no nível superior; o comportamento false do Built-in comum e true do Personal permanece;
+5. O Registry Resolver verifica separadamente o `enabled` do Provider e o `access.entitled` da conta;
+6. A Settings View coloca o Built-in comum diretamente na lista principal ou no menu de adicionar conforme `enabled`; o entitlement não altera o posicionamento nas Settings;
+7. Remover julgamentos, nomes e comentários que tratam o `enabled` do Provider como entitlement de plano;
+8. O `enabled` do Model Config permanece inalterado.
 
-## 5. 测试与完成标准
+## 5. Testes e critérios de conclusão
 
-- 普通 Built-in 添加/删除只改变 Personal `enabled`；
-- Account Provider `enabled=true, entitled=false` 时固定可见但不进入 Registry；
-- Account Provider `enabled=true, entitled=true` 且完整时进入 Registry；
-- API Key Provider Schema 不接受也不需要 `entitled`；
-- Account Overlay 不能改写 Access 身份，只能改 `entitled`；Personal 不能写 Account Access；
-- entitlement unknown 的 LKG/fail-closed 行为保持现状；
-- Settings、Registry、ModelFactory、Off-Peak、Start、Individual、Team 定向测试通过；
-- `rg` 证明 Account Resolver 不再写 Provider 顶层 `enabled`；
-- `pnpm typecheck`、`pnpm lint`、相关 E2E 与 `git diff --check` 通过。
+- Adicionar/remover um Built-in comum altera apenas o Personal `enabled`;
+- Com Account Provider `enabled=true, entitled=false`, ele fica permanentemente visível mas não entra no Registry;
+- Com Account Provider `enabled=true, entitled=true` e completo, ele entra no Registry;
+- O Schema de API Key Provider não aceita nem precisa de `entitled`;
+- O Account Overlay não pode reescrever a identidade do Access, apenas `entitled`; o Personal não pode escrever Account Access;
+- O comportamento de LKG/fail-closed para entitlement unknown permanece como está;
+- Passam os testes direcionados de Settings, Registry, ModelFactory, Off-Peak, Start, Individual e Team;
+- `rg` prova que o Account Resolver não grava mais o `enabled` de nível superior do Provider;
+- Passam `pnpm typecheck`, `pnpm lint`, os E2E relacionados e `git diff --check`.
 
-## 6. 实施结果与验证
+## 6. Resultado da implementação e verificação
 
-- `zhipu-account.access.entitled` 已进入 Config、严格 Schema、Protocol 和 Effective Provider；Account Overlay
-  只能写 `builtinModelIds` 与 `access.entitled`，不能再覆盖 Provider 顶层 `enabled` 或 Access 身份。
-- Account/Off-Peak Built-in Provider 固定 `enabled=true`；Resolver 分别检查配置参与状态、账号 entitlement、
-  Provider 完整性与 Model 完整性，不再用一个布尔值承载两种语义。
-- Settings placement 只读取 Provider `enabled`；entitlement 只影响 Registry 可执行性。设置页不再提供通用
-  Provider 启停按钮，只展示只读状态；普通 Built-in 的加入/移除仍由正式 Personal Overlay 流程完成。
-- Account Resolver、Source fail-close、Registry、Settings View、Off-Peak 与 Start/Individual/Team 定向测试通过；
-  `pnpm typecheck` 通过，`pnpm lint` 为 0 error（仓库其余既存 warning 不属于本 Todo）。
-- 本轮变更文件定向格式检查与 `git diff --check` 通过；全仓 `fmt:check` 仍被 Electron 文档内既存非法 HTML
-  和二进制 `gb2312.js` 阻断，未通过修改无关文件掩盖该基线问题。
-- 全量 `pnpm test:unit` 结果为 12,749 passed、25 skipped、2 failed；两项失败分别是既存的 CUA 非 macOS
-  stable identity 预期漂移，以及 V4 模型触发器 Provider 名称展示预期漂移，均可独立复现且不在本轮 Provider
-  Access/连接测试改动路径内。本轮 410 条 Provider 相关定向测试与 60 条 CLI 定向测试全部通过。
+- `zhipu-account.access.entitled` já entrou no Config, no Schema estrito, no Protocol e no Effective Provider; o Account Overlay só pode gravar `builtinModelIds` e `access.entitled` e não pode mais sobrescrever o `enabled` de nível superior do Provider nem a identidade do Access.
+- Os Account/Off-Peak Built-in Provider têm `enabled=true` fixo; o Resolver verifica separadamente o estado de participação na configuração, o entitlement da conta, a completude do Provider e a completude do Model, sem carregar duas semânticas em um único booleano.
+- O posicionamento nas Settings lê apenas o `enabled` do Provider; o entitlement afeta apenas a executabilidade no Registry. A página de configurações não oferece mais um botão genérico de ligar/desligar provider, apenas exibe status somente-leitura; adicionar/remover um Built-in comum continua sendo feito pelo fluxo formal de Personal Overlay.
+- Passaram os testes direcionados de Account Resolver, Source fail-close, Registry, Settings View, Off-Peak e Start/Individual/Team; `pnpm typecheck` passou e `pnpm lint` ficou com 0 error (os warnings preexistentes no restante do repositório não pertencem a este Todo).
+- A verificação de formatação direcionada dos arquivos alterados e o `git diff --check` passaram; o `fmt:check` de todo o repositório continua bloqueado por HTML inválido preexistente em documentação do Electron e pelo binário `gb2312.js`, e não foi mascarado alterando arquivos sem relação.
+- A execução completa de `pnpm test:unit` deu 12.749 passed, 25 skipped e 2 failed; as duas falhas são, respectivamente, uma deriva de expectativa preexistente da stable identity do CUA fora do macOS e uma deriva de expectativa da exibição do nome do Provider no disparador de modelo V4, ambas reproduzíveis isoladamente e fora do caminho das mudanças desta rodada em Access/conexão de Provider. Os 410 testes direcionados de Provider e os 60 testes direcionados de CLI desta rodada passaram todos.

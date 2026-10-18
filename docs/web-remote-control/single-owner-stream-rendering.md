@@ -1,30 +1,43 @@
 # Single Owner Stream Rendering
 
-> 状态：当前只描述 replayable 订阅下的非 owner 内容过滤。
+> Status: atualmente descreve apenas a filtragem de conteúdo não-owner em assinaturas replayable.
 >
-> 桌面端 `continuous` 订阅仍消费 direct dynamic stream event，不走这里的空 batch
-> 旁观端策略。手机 Web 远控 `replayable` 订阅才需要用这个策略降低断线恢复和 snapshot
-> 对齐交错的风险。
+> A assinatura `continuous` do desktop ainda consome eventos do direct dynamic stream e não passa pela estratégia de
+> batch vazio para observadores descrita aqui. Só a assinatura `replayable` do controle remoto Web no celular precisa
+> dessa estratégia para reduzir o risco de entrelaçamento entre recuperação de desconexão e alinhamento por snapshot.
 
-## 背景
+## Contexto
 
-共享 host process 后，桌面端和手机端仍然是两个独立 renderer。手机浏览器可能长时间后台、断线或被系统丢弃，如果所有 renderer 都直接消费同一轮流式 chunk，断线恢复时容易和 snapshot 对齐交错，出现重复尾块或运行态分叉。
+Depois do compartilhamento do host process, o desktop e o celular continuam sendo dois renderers independentes. O navegador
+do celular pode ficar longos períodos em segundo plano, se desconectar ou ser descartado pelo sistema. Se todos os
+renderers consumirem diretamente os mesmos chunks de streaming de um turno, a recuperação após desconexão tende a se
+entrelçar com o alinhamento por snapshot, gerando caudas de chunk duplicadas ou divergência de estado de execução.
 
-## 方案
+## Solução
 
-每轮 prompt 由发送端 renderer 生成并传递 `clientId`。Host process 仍是唯一 ZCode runtime 和持久化事实源，`task_stream_mirror_batch` 会携带 `ownerClientId`。
+Cada turno de prompt é gerado pelo renderer de envio, que transmite o `clientId`. O host process continua sendo o único
+runtime ZCode e a fonte de verdade de persistência; `task_stream_mirror_batch` carrega o `ownerClientId`.
 
-Replayable 订阅按订阅端 `clientId` 过滤普通内容类 batch：
+Assinaturas replayable filtram batches de conteúdo comum pelo `clientId` do assinante:
 
-- `ownerClientId` 匹配的发送端收到完整流式 `ops`，负责实时渲染正文、tool、权限等细粒度状态。
-- 其他 replayable renderer 可以过滤普通正文、thought、tool chunk，避免重复渲染。
-- `permission_request`、`elicitation_request`、对应 response、`task_complete` / `task_error` 和 snapshot invalidation 不能被普通 owner-only 内容过滤吞掉；它们必须对同 task 在线客户端可见，或触发 snapshot 对齐。
-- 最终消息、文件变更和任务元数据仍通过 `getTaskSnapshot()` 对齐。
+- O emissor cujo `ownerClientId` corresponde recebe os `ops` completos de streaming e é responsável pela renderização em
+  tempo real do corpo, de tool, permissões e demais estados granulares.
+- Outros renderers replayable podem filtrar corpo comum, thought e chunks de tool para evitar renderização duplicada.
+- `permission_request`, `elicitation_request`, as responses correspondentes, `task_complete` / `task_error` e a invalidação
+  de snapshot não podem ser engolidos pela filtragem comum de conteúdo owner-only; eles precisam ser visíveis aos clientes
+  online da mesma task ou disparar o alinhamento por snapshot.
+- Mensagem final, alterações de arquivos e metadados da task continuam alinhados por `getTaskSnapshot()`.
 
-## 稳定性边界
+## Limites de estabilidade
 
-这能保证旁观端不再因为手机断线、重连或切任务重复消费中间 chunk。发送端如果是手机，手机 render 仍可能丢失实时画面，但 host process 会继续消费 provider stream 并落盘最终 snapshot。手机恢复后应以 snapshot 作为权威来源。
+Isso garante que o observador não consuma chunks intermediários em duplicidade por causa de desconexão, reconexão ou troca de
+task no celular. Se o emissor for o celular, a renderização no celular ainda pode perder a visão em tempo real, mas o host
+process continua consumindo o stream do provider e persistindo o snapshot final. Depois de se recuperar, o celular deve
+usar o snapshot como fonte autoritativa.
 
-## UI 行为
+## Comportamento da UI
 
-Replayable 旁观端运行中可以不渲染流式正文，只显示“另一台设备正在发送消息...”的 loading 提示。任务结束后，snapshot 对齐会替换为最终消息块。桌面 continuous 端仍以 direct stream 保持实时正文渲染。
+Um observador replayable pode, durante a execução, não renderizar o corpo em streaming e mostrar apenas a indicação de
+loading "Outra dispositivo está enviando uma mensagem...". Ao fim da task, o alinhamento por snapshot substitui o
+conteúdo pelo bloco de mensagem final. O lado continuous do desktop continua mantendo a renderização do corpo em tempo
+real via direct stream.

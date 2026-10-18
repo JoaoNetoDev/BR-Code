@@ -1,24 +1,16 @@
-# Gen UI 固定输出目录
+# Diretório de Saída Fixo do Gen UI
 
-## 目录契约
+## Contrato de Diretório
 
-生成文件使用执行端 Host 提供的固定输出根目录，默认位于应用数据目录的
-`visualizations/` 下；Agent 不回退到当前工作目录。workspace identity（缺省时使用
-workspace path）与 session ID 共同决定根目录下的会话子目录。
+Os arquivos gerados usam o diretório raiz de saída fixo fornecido pelo Host da ponta de execução, por padrão localizado em `visualizations/` dentro do diretório de dados do app; o Agent não faz fallback para o diretório de trabalho atual. A identidade do workspace (usando o workspace path quando ausente) e o session ID determinam juntos o subdiretório da sessão sob a raiz.
 
-“固定目录”是输出位置约定，不是工作区包含关系限制。用户打开 Home、文件系统根目录，
-或其他包含应用数据目录的工作区时，Host 提供的输出根目录仍然有效。代码不应因为
-输出根目录等于或位于工作区之内而拒绝初始化或读取。Skill 中的生成指导不作修改。
+"Diretório fixo" é uma convenção de local de saída, não uma restrição de contenção do workspace. Quando o usuário abre Home, a raiz do sistema de arquivos ou outro workspace que contenha o diretório de dados do app, o diretório raiz de saída fornecido pelo Host continua válido. O código não deve recusar a inicialização ou a leitura por o fato de o diretório de saída ser igual a estar dentro do workspace. O guia de geração dentro da Skill não é modificado.
 
-会话子目录仅组织生成文件，不是读取授权边界。读取固定 Host 输出根目录中的文件时，
-不要求路径属于当前 workspace/session；fork 继承父会话的 HTML 路径后可直接加载，
-不需要复制文件或改写历史消息。widget state 继续按当前 workspace/session 保存。
+O subdiretório da sessão apenas organiza os arquivos gerados e não é uma fronteira de autorização de leitura. Ao ler arquivos do diretório de saída fixo do Host não é exigido que o caminho pertença ao workspace/sessão atual; após o fork herdar o caminho HTML da sessão pai ele pode carregar diretamente, sem precisar copiar arquivos nem reescrever mensagens do histórico. O widget state continua sendo salvo por workspace/sessão atual.
 
-继续拒绝 Host 输出根目录之外的路径、根目录下的子目录或文件符号链接、非普通文件、
-非法 HTML 片段及超过大小限制的文件。Host 输出根目录本身可经符号链接解析，解析后
-仍须执行相同的根目录检查。
+Continua sendo recusado qualquer caminho fora do diretório de saída raiz do Host, subdiretórios ou links simbólicos de arquivo sob a raiz, arquivos não regulares, fragmentos de HTML inválidos e arquivos acima do limite de tamanho. O próprio diretório raiz de saída do Host pode ser resolvido via link simbólico e, após a resolução, as mesmas verificações de raiz continuam valendo.
 
-## 调用链与影响面
+## Cadeia de Chamadas e Superfície de Impacto
 
 ```text
 Host 提供固定根目录 → 按 workspace/session 派生输出目录 → Agent 初始化 / 生成
@@ -26,21 +18,15 @@ Host 提供固定根目录 → 按 workspace/session 派生输出目录 → Agen
 界面读取请求（可引用父会话路径）→ 执行端 Host 校验根目录与文件 → 原有桌面沙箱
 ```
 
-原校验把“不在当前目录生成”误解为“必须位于工作区之外”，导致 Home 工作区的
-Gen UI 初始化抛错，并连带阻断依赖同一上下文初始化的技能目录和消息执行。
+A validação original entendia "não gerar no diretório atual" como "tem de estar fora do workspace", o que fazia a inicialização do Gen UI no workspace Home lançar erro e bloqueava em cascata o diretório de skills e a execução de mensagens que dependem da inicialização no mesmo contexto.
 
-另一处误解是把生成目录分组当作读取隔离，导致 fork 的消息保留父会话路径后无法展示。
+Outro equívoco foi tratar o agrupamento do diretório de geração como isolamento de leitura, o que impedia que as mensagens do fork, mantendo o caminho da sessão pai, fossem exibidas.
 
-本次移除工作区包含关系限制及跨 session/workspace 文件读取限制，不修改 skill、
-固定根目录选择、fork 复制规则或远程服务路由。桌面 continuous 与手机 replayable 链路保持原有
-边界；HTML 仍由执行端 Host 读取，widget state 仍属于桌面宿主。
+Esta mudança remove a restrição de contenção do workspace e a restrição de leitura de arquivos entre sessões/workspaces; não modifica skill, escolha da raiz fixa, regras de cópia do fork nem roteamento do serviço remoto. A cadeia continuous do desktop e a cadeia replayable do celular mantêm as fronteiras originais; o HTML continua sendo lido pelo Host da ponta de execução e o widget state continua pertencendo ao host do desktop.
 
-## 回归验证
+## Verificação de Regressão
 
-- 路径单测覆盖输出根目录位于工作区内、等于工作区、工作区为文件系统根目录，以及
-  本地 / SSH workspace identity；相对路径仍拒绝。
-- 文件读取测试覆盖工作区包含输出目录、跨 session/workspace 读取、根目录别名
-  解析，以及既有根目录越界、符号链接、文件类型和体积限制。
-- 现有 Electron Gen UI E2E 将工作区设为输出根目录的祖先，验证真实文件读取、
-  渲染和页面交互；切换会话时引用同一个父会话文件，验证 fork 历史的加载语义。
-  这是远程身份的本地夹具，不代表真实 SSH 传输或完整 fork 命令验证。
+- Testes unitários de caminho cobrindo o diretório raiz de saída dentro do workspace, igual ao workspace, workspace na raiz do sistema de arquivos e identidade de workspace local / SSH; caminhos relativos continuam recusados.
+- Testes de leitura de arquivos cobrindo workspace que contém o diretório de saída, leitura entre sessões/workspaces, resolução de alias da raiz e as já existentes restrições de saída da raiz, link simbólico, tipo de arquivo e tamanho.
+- O E2E Gen UI existente do Electron define o workspace como ancestral do diretório raiz de saída, verificando leitura real de arquivo, renderização e interação com a página; ao trocar de sessão e referenciar o mesmo arquivo da sessão pai, verifica a semântica de carregamento do histórico do fork.
+  Isso é um fixture local de identidade remota e não representa transmissão SSH real nem verificação completa do comando de fork.

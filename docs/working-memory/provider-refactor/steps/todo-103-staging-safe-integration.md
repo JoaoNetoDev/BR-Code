@@ -1,179 +1,179 @@
-# Todo 103：固定 staging 合入、双向行为审计与交付
+# Todo 103: integração segura do staging fixo, auditoria de comportamento bidirecional e entrega
 
-> 状态：执行中；2026-09-09。整合分支 `staging-integration-20260909`，目标分支 `provider-refactor-e2e-recovery`。未经最终验收不合回，不自动推送。
-> 本文保存用户批准的完整 Goal；不得用阶段进展替代完成条件。
+> Status: em execução; 2026-09-09. Branch de integração `staging-integration-20260909`, branch de destino `provider-refactor-e2e-recovery`. Não mesclar de volta sem a aceitação final, e não fazer push automático.
+> Este documento guarda o Goal completo aprovado pelo usuário; o progresso por fase não pode substituir as condições de conclusão.
 
-### 2026-09-10 推送授权与人工验收交接
+### 2026-09-10 Autorização de push e entrega da aceitação manual
 
-用户明确授权将当前候选同步推送至 `provider-refactor-m2` 和 `provider-refactor-e2e-recovery`，Windows 实际安装器与隔离真实 SSH 验收由用户执行。本次授权允许在这两项人工验收完成前更新远端分支，优先于下文历史“不合回、不推送”的交付限制；不表示这两项已通过，也不表示 Todo103 的全部完成条件已满足。
+O usuário autorizou explicitamente sincronizar e enviar o candidato atual para `provider-refactor-m2` e `provider-refactor-e2e-recovery`, sendo a instalação real no Windows e a aceitação com SSH isolado executadas pelo usuário. Esta autorização permite atualizar os branches remotos antes que essas duas aceitações manuais sejam concluídas, tem prioridade sobre a restrição de entrega histórica de “não mesclar de volta, não enviar” abaixo e não significa que essas duas aceitações já passaram, nem que todas as condições de conclusão do Todo103 foram satisfeitas.
 
-推送前重新获取远端：staging 仍为 `790884b1ce`，已经是候选 `0ff7445a1a` 的祖先，正常 merge 返回 `Already up to date`，没有新增冲突或代码增量。两个推送目标均是候选的祖先，采用正常快进推送，不覆盖远端独有提交。Todo104 记录的其他打包验证限制仍保留，不因本次推送被标为通过。
+Antes do push, o remoto foi buscado novamente: o staging continua em `790884b1ce` e já é ancestral do candidato `0ff7445a1a`, então um merge normal retorna `Already up to date`, sem novos conflitos ou incrementos de código. Os dois destinos de push também são ancestrais do candidato, e foi usado um push fast-forward normal, sem sobrescrever commits exclusivos do remoto. As outras limitações de verificação de empacotamento registradas no Todo104 permanecem e não são marcadas como aprovadas por causa deste push.
 
-实际推送结果：`982835a57b` 的双分支 atomic push 被 pre-push 拒绝，两个远端均未更新。lint 为 43 warning / 0 error，架构检查 0 violations；affected 检查因源码删除转为全量单测，结果 1637 文件通过 / 10 文件失败 / 2 文件跳过，14372 测试通过 / 22 失败 / 26 跳过。失败涉及 Provider 名称展示、Bot、Wiki 账号交付与旧配置 fixture 等，尚未完成逐项归因，不将其一概称为旧问题或产品回归。这些单测失败不属于交给用户的 Windows / SSH 实机验收；本次没有绕过钩子或扩修产品代码。
+Resultado real do push: o atomic push de dois branches de `982835a57b` foi rejeitado pelo pre-push e nenhum dos dois remotos foi atualizado. O lint ficou em 43 warning / 0 error, a verificação de arquitetura em 0 violations; a verificação de affected, por causa da remoção de código-fonte, virou uma suíte completa de testes unitários, com resultado de 1637 arquivos aprovados / 10 arquivos falhando / 2 arquivos pulados e 14372 testes aprovados / 22 falhando / 26 pulados. As falhas envolvem exibição de nome de Provider, Bot, entrega de conta de Wiki e fixtures de configuração antiga, entre outras, e ainda não houve atribuição item a item; não é válido chamá-las indistintamente de problema antigo ou de regressão de produto. Essas falhas de teste unitário não pertencem à aceitação real em Windows / SSH entregue ao usuário; desta vez não houve contorno de hooks nem alteração de código de produto para ampliar o escopo.
 
-后续用户授权修复门禁：`8cfb2f82ce` 修正旧测试合同，并通过真实 Facade 红测发现、修复 Registry 冻结时丢失名称和模板元数据。Pro I13 通过；正常 pre-push 全量 14395通过 / 26跳过 / 0失败，lint与架构检查通过。两个远端分支已经原子快进至该修复提交，未绕过钩子。详细归因与证据见 Todo104 ledger 的“推送门禁补查批次”；Windows / 隔离 SSH 继续交由用户验收，不假标 Todo103 全部完成。
+Autorização posterior do usuário para corrigir o gate de push: `8cfb2f82ce` corrige o contrato de teste antigo e, por meio de um teste vermelho com Facade real, revela e corrige a perda de nome e metadados de template quando o Registry é congelado. O Pro I13 passou; o pre-push normal completo ficou com 14395 aprovados / 26 pulados / 0 falhando, e lint e verificação de arquitetura passaram. Os dois branches remotos já avançaram de forma atômica até esse commit de correção, sem contornar hooks. A atribuição detalhada e as evidências estão no ledger do Todo104, na seção “lote de verificação complementar do gate de push”; Windows / SSH isolado continuam sendo aceitos pelo usuário, sem declarar o Todo103 totalmente concluído.
 
-### 2026-09-10 排队消息：独立复审与测试
+### 2026-09-10 Mensagem na fila: revisão independente e testes
 
-用户要求再次全面检查两边预期行为和 Provider 重构核心。实际前提为独立分支已有真实 merge 候选，并非已经合回 recovery；本次在该候选上执行合理的复审/测试部分，不假定两项关键平台验收已完成。继续保留少数未决项，不自动裁决、推送或改变合回门槛。新增证据见 ledger §47；复用前述全来源清单，按配置核心、Host、Worker、新功能入口及实际桌面请求交叉检查。
+O usuário pediu uma nova verificação completa do comportamento esperado dos dois lados e do núcleo da refatoração de Provider. Na verdade, a premissa era um branch independente que já tinha um merge candidato real, e não algo já mesclado de volta no recovery; desta vez a parte razoável de revisão/teste foi executada sobre esse candidato, sem assumir que as duas aceitações críticas de plataforma já foram concluídas. Os itens pendentes em aberto continuam preservados, sem adjudicação automática, push ou alteração do gate de merge de volta. Novas evidências em ledger §47; reutiliza-se a lista de fontes citada acima e faz-se uma verificação cruzada pelo núcleo de configuração, Host, Worker, novas entradas de funcionalidade e requisições reais do desktop.
 
-## Goal：安全合入 staging，保留正确行为并维护重构契约
+## Goal: mesclar de forma segura o staging fixo, preservando o comportamento correto e mantendo o contrato da refatoração
 
-将固定版本的 staging 合入 recovery。完整识别并处理显式冲突、自动合并产生的隐式冲突，以及新增代码对旧接口的依赖。
+Mesclar o staging de versão fixa no recovery. Identificar e tratar por completo tanto os conflitos explícitos quanto os conflitos implícitos gerados pelo merge automático, quanto as dependências do código novo em interfaces antigas.
 
-确保两个结果同时成立：
+Garantir que os dois resultados sejam verdadeiros ao mesmo tempo:
 
-1. staging 的正确行为没有被无依据地丢弃。
-2. 我们已经明确裁决的架构、产品语义和持久化边界没有被破坏。
+1. O comportamento correto do staging não foi descartado sem fundamento.
+2. A arquitetura, a semântica de produto e os limites de persistência que já adjudicamos não foram quebrados.
 
-初始基线：
+Baseline inicial:
 
-- recovery：f0174b57f5
-- staging：790884b1ce
+- recovery: f0174b57f5
+- staging: 790884b1ce
 
-执行前确认基线；不在过程中擅自追入后续 staging 提交。
+Confirme o baseline antes de executar; não rastrear commits posteriores de staging no meio do processo.
 
-## 边界与裁决优先级
+## Limites e prioridade das adjudicações
 
-发生架构或产品语义冲突，且我们已有明确裁决时，以我们的裁决为准，不重复询问。
+Quando houver conflito de arquitetura ou de semântica de produto e nós já tivermos uma adjudicação explícita, a nossa adjudicação prevalece e não é preciso perguntar de novo.
 
-具体遵循：
+Concretamente:
 
-- 不冲突的 staging 行为，原则上保留。
-- 行为可以保留、但实现依赖旧架构：按当前抽象重新接入。
-- staging 的行为本身违反我们的明确裁决：不恢复冲突部分，记录理由；同一提交里的其他正确行为仍分别处理。
-- 当前已有等价实现：验证覆盖关系，不重复叠加代码。
-- 文档冲突按最新明确裁决判断，不能把历史计划或过时注释当成当前要求。
-- Todo101 等延期草案不实施；不借合并扩展独立 CLI 账号架构或重做整个同步系统。
-- 不覆盖其他工作者的改动，不改真实用户数据，不自动发布或推送。
+- Comportamento de staging sem conflito é preservado em princípio.
+- Se o comportamento pode ser preservado mas a implementação depende da arquitetura antiga, reconectá-lo pela abstração atual.
+- Se o comportamento do staging em si viola uma adjudicação explícita nossa, não restaurar a parte conflitante e registrar o motivo; os demais comportamentos corretos do mesmo commit continuam sendo tratados separadamente.
+- Se já existe uma implementação equivalente no estado atual, verificar a relação de cobertura e não sobrepor código.
+- Conflitos de documentação são julgados pela adjudicação explícita mais recente; um plano histórico ou um comentário desatualizado não pode ser tratado como requisito atual.
+- Rascunhos adiados como o Todo101 não são implementados; o merge não é usado para estender a arquitetura de conta do CLI independente nem para refazer todo o sistema de sincronização.
+- Não sobrescrever as alterações de outros trabalhadores, não alterar dados reais de usuários e não publicar nem enviar automaticamente.
 
-### 2026-09-09 补充裁决：修复范围与执行粒度
+### 2026-09-09 Adjudicação suplementar: escopo de correção e granularidade de execução
 
-本节属于上方完整 Goal 的执行契约，也适用于后续实施、复审和完成判断；不是另建一个缩减目标。
+Esta seção é parte do contrato de execução do Goal completo acima e também se aplica à implementação, revisão e julgamento de conclusão posteriores; não cria um objetivo reduzido paralelo.
 
-1. **安全合并，不做两边既有 Bug 的全面修复。** 合并引入的回归、新代码对旧接口的漏接，以及阻碍本次获准保留行为的问题必须处理。无关既有问题只记录原因、证据和影响，不自动扩修。
-2. **逐功能裁决，允许批量实施和共享验收。** 每个来源仍可追踪到处理结果，但不要求每个小项独立完成整套验收。低风险、无架构交集的改动可批量处理；共享构建、类型检查、lint 和回归测试尽量合并执行，以同一份证据覆盖对应事项。
-3. **验证投入按风险分配。** 高风险交集重点验证，组内小项可以一起验收。独立测试或环境问题只挂起受影响事项，不阻塞其他可推进工作。只有代码、依赖、环境或待证明结论变化时才补有新增证明价值的检查，不机械重复已通过的同一检查。
-4. **测试失败先归因再决定处理。** 区分合并回归、既有产品问题、过时测试和环境前置问题；记录归因证据及是否阻碍本次保留行为。不能仅因测试失败就自动扩成修复任务，也不能把尚未查清的失败写成既有问题或通过。
-5. **交付标准不变。** 原有架构裁决、逐功能可追踪记录、双向复审和最终关键验收全部保留。以上仅调整执行粒度和修复范围；本次关键验收不得转交 Todo102 规避。
+1. **Merge seguro, sem correção abrangente dos bugs já existentes dos dois lados.** Regressões introduzidas pelo merge, pontos do código novo que não foram reconectados a interfaces antigas e problemas que atrapalham a preservação de comportamento aprovada nesta rodada precisam ser tratados. Problemas existentes sem relação apenas registram motivo, evidência e impacto, sem correção automática ampliada.
+2. **Adjudicação por funcionalidade, permitindo implementação em lote e aceitação compartilhada.** Cada fonte ainda precisa ser rastreável até um resultado, mas não é exigido que cada item pequeno complete sozinho toda a suíte de aceitação. Mudanças de baixo risco e sem interseção arquitetural podem ser tratadas em lote; builds, checagem de tipos, lint e testes de regressão compartilhados devem ser executados de forma agrupada sempre que possível, cobrindo os itens correspondentes com a mesma evidência.
+3. **Esforço de verificação alocado por risco.** Interseções de alto risco recebem verificação focada, e itens pequenos dentro do grupo podem ser aceitos em conjunto. Problemas de teste independentes ou de ambiente apenas suspendem os itens afetados, sem bloquear os demais trabalhos que podem avançar. Só é preciso adicionar verificações com novo valor de prova quando o código, as dependências, o ambiente ou a conclusão a provar mudarem; não repetir mecanicamente a mesma verificação já aprovada.
+4. **Falha de teste: atribuir primeiro, depois decidir o tratamento.** Distinguir regressão de merge, problema de produto existente, teste obsoleto e questão de pré-requisito de ambiente; registrar a evidência da atribuição e se ela atrapalha o comportamento preservado nesta rodada. Não se pode transformar automaticamente uma falha de teste em tarefa de correção só porque ela falhou, nem escrever uma falha ainda não investigada como problema existente ou como aprovação.
+5. **O padrão de entrega não muda.** As adjudicações de arquitetura originais, o registro rastreável por funcionalidade, a revisão bidirecional e as aceitações críticas finais são todos mantidos. Acima só se ajustam a granularidade de execução e o escopo de correção; as aceitações críticas desta rodada não podem ser transferidas ao Todo102 para escapar da verificação.
 
-### 2026-09-09 再次裁决：尽早形成真实 merge 候选
+### 2026-09-09 Nova adjudicação: formar cedo um candidato de merge real
 
-本节调整执行顺序，优先于历史“全部来源逐项移植完才执行 merge”的要求；审查范围和最终交付标准不变。
+Esta seção ajusta a ordem de execução e tem prioridade sobre o requisito histórico de “executar o merge só depois de portar item a item todas as fontes”; o escopo de revisão e o padrão final de entrega não mudam.
 
-1. 保留现有提交、裁决、实现和验证证据，不推倒重来。当前已修改的 G17 / G06 批次先安全收口，明确哪些已经验证、哪些验收仍待完成。
-2. 无架构交集、无隐式依赖风险的独立改动通过正常合并批量保留，不逐个重新制作提交，也不把旧功能逐个按新功能重新开发、验收。
-3. 尽早在独立整合分支执行固定 staging 的真实 merge，形成完整候选；所有来源逐项移植或验收完成不再是执行 merge 的前置条件。存在冲突的 merge 工作区只是待解决候选，不冒充已完成的合并提交。
-4. 显式冲突、自动合并交集、新代码对旧接口的依赖仍逐功能检查。已有明确架构/产品裁决以我们为准；保留行为按当前接口重接，不用整文件 ours/theirs 或 `merge -s ours` 跳过裁决。
-5. 高风险交集重点验证，低风险项批量验证，共享构建与回归；最后针对完整候选双向复审、跨组回归。局部通过不能代替整体验收。
-6. 只修合并回归、接口漏接和阻碍本次保留行为的问题；无关既有问题只记录，不扩修。
-7. 来源清单分别记录已裁决、已实现、已验证；正常合并保留也是实现去向，不以重新制作了多少来源提交衡量进度。历史单一 status / evidence 保留追溯，但不能代替三个维度的结论。
+1. Preservar os commits, adjudicações, implementações e evidências de verificação existentes, sem refazer tudo. Os lotes G17 / G06 já modificados são fechados com segurança primeiro, explicitando o que já foi verificado e o que ainda depende de aceitação.
+2. Mudanças independentes sem interseção de arquitetura e sem risco de dependência implícita são preservadas em lote pelo merge normal, sem refazer commit um a um e sem reimplementar e reinspecionar cada funcionalidade antiga como se fosse nova.
+3. Executar cedo, em um branch de integração independente, um merge real do staging fixo, formando um candidato completo; portar ou aceitar todas as fontes item a item deixa de ser pré-requisito para executar o merge. Uma área de trabalho de merge com conflitos é apenas um candidato pendente de resolução e não se passa por commit de merge concluído.
+4. Conflitos explícitos, interseções do merge automático e dependências do código novo em interfaces antigas continuam sendo verificados funcionalidade por funcionalidade. Adjudicações explícitas de arquitetura/produto já existentes têm precedência sobre as do staging; comportamentos preservados são reconectados pela interface atual, sem pular adjudicações com ours/theirs de arquivo inteiro ou `merge -s ours`.
+5. Interseções de alto risco recebem verificação focada, itens de baixo risco são verificados em lote, com build e regressão compartilhados; por fim, uma revisão bidirecional e uma regressão entre grupos sobre o candidato completo. Aprovação parcial não substitui a aceitação do todo.
+6. Corrigir apenas regressões de merge, pontos não reconectados e problemas que atrapalham a preservação de comportamento nesta rodada; problemas existentes sem relação apenas são registrados, sem correção ampliada.
+7. A lista de fontes registra separadamente o que foi adjudicado, o que foi implementado e o que foi verificado; a preservação por merge normal também é um destino de implementação, e o progresso não é medido por quantos commits de fonte foram refeitos. O status/evidence histórico único é mantido para rastreabilidade, mas não substitui as conclusões dessas três dimensões.
 
-合并候选未经最终验收不得合回 recovery，不自动推送。已知风险是已有局部移植与 staging 再合并可能产生重复应用、或自动通过却改变共享接口；以固定基线、候选差异清单和逐功能交集核对处理，不以重新移植全部来源来规避。
+O candidato de merge não pode ser mesclado de volta no recovery antes da aceitação final, nem fazer push automático. Os riscos conhecidos são a aplicação duplicada de portamentos parciais já existentes com um novo merge do staging, ou uma passagem automática que mesmo assim altera interfaces compartilhadas; trata-se isso com baseline fixo, lista de diferenças do candidato e verificação de interseção por funcionalidade, e não evitando o problema re-portando todas as fontes.
 
-## 执行方式
+## Forma de execução
 
-固定两端基线，建立独立整合分支
+Fixar os baselines das duas pontas, criar um branch de integração independente
 |
 v
-建立提交、文件、功能三者对应的完整清单
+Criar uma lista completa que corresponda a commit, arquivo e funcionalidade
 |
 v
-收口当前已修改批次，保留已有成果和证据
+Fechar os lotes já modificados, preservando resultados e evidências existentes
 |
 v
-正常 merge 固定 staging，尽早形成完整候选
+Fazer o merge normal do staging fixo, formando cedo o candidato completo
 |
 v
-批量保留低风险独立改动；逐功能检查并处理交集
-├─ 直接保留
-├─ 按当前抽象重接
-├─ 已有等价实现
-├─ 按明确裁决排除
-└─ 待用户裁决
+Preservar em lote as mudanças independentes de baixo risco; verificar e tratar as interseções por funcionalidade
+├─ preservar diretamente
+├─ reconectar pela abstração atual
+├─ já existe implementação equivalente
+├─ excluir por adjudicação explícita
+└─ aguardando adjudicação do usuário
 |
 v
-按风险分组验证、逐功能复审、记录，解决冲突并提交真实 merge
+Verificar por grupos de risco, revisar por funcionalidade, registrar, resolver conflitos e commitar o merge real
 |
 v
-针对完整候选的整体双向复审与跨功能回归
+Fazer a revisão bidirecional do candidato completo e a regressão entre funcionalidades
 |
 v
-满足验收条件后合回 recovery
+Mesclar de volta no recovery depois de atender às condições de aceitação
 
-### 调查与记录
+### Investigação e registro
 
-清单必须覆盖：
+A lista deve cobrir:
 
-- 所有显式冲突，包括修改／删除和重命名。
-- 所有双方改动的自动合并区域。
-- 单边新增代码对已删除接口、旧字段、旧状态来源的依赖。
-- 跨文件的协议、持久化、配置、依赖、构建和测试契约。
+- Todos os conflitos explícitos, incluindo modificação/exclusão e renomeação.
+- Todas as regiões mescladas automaticamente onde ambos os lados mudaram.
+- Dependências de código added de um único lado em interfaces já removidas, campos antigos e fontes de estado antigas.
+- Contratos de protocolo, persistência, configuração, dependências, build e teste entre arquivos.
 
-按功能而非单纯按文件裁决。每项记录：
+Adjudique por funcionalidade, e não apenas por arquivo. Registre para cada item:
 
-来源提交、改动意图、当前实现、冲突点、裁决依据、处理结果、测试证据、复审结论、未决事项。
+commit de origem, intenção da mudança, implementação atual, ponto de conflito, base da adjudicação, resultado do tratamento, evidência de teste, conclusão da revisão e pendências.
 
-允许合并重复事项，但每个来源必须能追踪到去向。调查中发现的新问题及时补入同一账本。
+É permitido consolidar itens duplicados, mas cada fonte precisa ter um destino rastreável. Novos problemas encontrados na investigação devem ser adicionados ao mesmo ledger em tempo hábil.
 
-### 实施与复审
+### Implementação e revisão
 
-- 先明确或更新 spec，再补有区分力的测试，然后实现。
-- 上项适用于需要重接或修复的行为；正常合并保留的独立既有功能复用原 spec/测试，按风险批量核验，不强制重新开发或逐项重跑整套验收。
-- 不批量使用整文件 ours/theirs，不大范围 revert 后凭记忆恢复。
-- 每组或低风险批次完成后，核对覆盖功能的全部要求和相关上下游入口；允许组内小项共同验收、跨组共享构建和回归证据。不要求每个小项重复完整验收，也不因独立阻塞停止其他组。
-- 最后再独立做两轮检查：
-  - 从 staging 往结果看：正确行为是否遗漏？
-  - 从我们的重构往结果看：是否重新引入旧架构、旁路或语义回退？
-- 验证包括相关单测、类型检查、lint、必要构建，以及可运行的 Pro 桌面／远程测试。通过标准是行为断言成立，不只是编译通过。
+- Primeiro definir ou atualizar a spec, depois adicionar testes com poder discriminante, e só então implementar.
+- O item acima se aplica aos comportamentos que precisam ser reconectados ou corrigidos; funcionalidades existentes preservadas por merge normal reutilizam a spec e os testes originais e são verificadas em lote por risco, sem obrigação de reimplementar ou reexecutar toda a aceitação item a item.
+- Não usar ours/theirs de arquivo inteiro em lote, nem fazer revert amplo e restaurar depois de memória.
+- Depois de cada grupo ou lote de baixo risco, conferir todas as requisitos da funcionalidade coberta e as entradas relacionadas a jusante e a montante; é permitido aceitar itens pequenos do grupo em conjunto e compartilhar evidências de build e regressão entre grupos. Não é exigido repetir a aceitação completa para cada item pequeno, e um bloqueio independente não precisa parar os outros grupos.
+- Só ao final fazer duas rodadas independentes de verificação:
+  - Do staging para o resultado: algum comportamento correto ficou de fora?
+  - Da nossa refatoração para o resultado: a arquitetura antiga, algum bypass ou alguma regressão semântica foi reintroduzido?
+- A verificação inclui testes unitários relacionados, checagem de tipos, lint, build necessário e testes de desktop/remoto Pro executáveis. O padrão de aprovação é a asserção de comportamento, e não apenas a compilação bem-sucedida.
 
-## 什么时候停下来
+## Quando parar
 
-只有以下情况需要停下相关事项，向用户说明：
+Só é necessário parar os itens relacionados e explicar ao usuário nas seguintes situações:
 
-1. 真正需要新产品裁决：现有明确原则无法决定，或两个当前有效裁决互相冲突。
-2. 需要显著扩展范围：局部迁接无法解决，必须重做架构、引入新迁移或实施延期方案。
-3. 需要新增权限或不可逆操作：涉及真实用户数据、外部发布、破坏性操作等。
-4. 工作区发生无法安全隔离的并行修改。
-5. 关键验收无法完成，且剩余独立工作已经处理完。
+1. É realmente necessária uma nova adjudicação de produto: os princípios explícitos atuais não resolvem, ou duas adjudicações vigentes se contradizem.
+2. É preciso ampliar significativamente o escopo: a reconexão local não resolve e é obrigatório refazer a arquitetura, introduzir uma nova migração ou implementar um plano adiado.
+3. É preciso adicionar permissões ou operações irreversíveis: envolve dados reais de usuário, publicação externa, operações destrutivas etc.
+4. Ocorreu modificação paralela na área de trabalho que não pode ser isolada com segurança.
+5. A aceitação crítica não pode ser concluída e todo o trabalho independente restante já foi tratado.
 
-小的测试前置、工具、环境问题不让整个任务停摆；记录后继续其他独立事项。待裁决部分保持隔离，不能擅自选择一边，也不能将带有未决风险的整合结果合回 recovery。
+Pré-requisitos de teste, ferramentas e problemas de ambiente pequenos não travam a tarefa inteira; registre e continue os demais itens independentes. As partes aguardando adjudicação permanecem isoladas: não se pode escolher um lado por conta própria, nem mesclar de volta no recovery um resultado de integração com risco pendente.
 
-## 完成条件
+## Condições de conclusão
 
-全部满足才标记 Goal 完成：
+Só marque o Goal como concluído quando tudo for satisfeito:
 
-- 来源清单全部有去向，无未解释的丢弃或恢复。
-- 所有交集完成裁决；无影响交付的未决项。
-- 所有获准保留的行为已实现或证明已有等价实现。
-- 当前明确架构和产品裁决均得到遵守。
-- 每组（可按低风险批次组织）的功能复审、整体双向复审和关键验证完成；共享证据明确标注覆盖范围。
-- 发现的关键回归已解决；验证限制如实记录，未把未测写成通过。
-- 代码与记录已提交，整合结果已安全合回 recovery；不自动推送。
+- Todas as fontes da lista têm destino, sem descartes nem restaurações inexplicados.
+- Todas as interseções foram adjudicadas; não há pendências que afetem a entrega.
+- Todos os comportamentos aprovados para preservação foram implementados ou foi provado que já existe implementação equivalente.
+- As adjudicações atuais explícitas de arquitetura e de produto são respeitadas.
+- A revisão de funcionalidade por grupo (que pode ser organizada em lotes de baixo risco), a revisão bidirecional do todo e as verificações críticas foram concluídas; as evidências compartilhadas têm o escopo de cobertura explicitado.
+- As regressões críticas encontradas foram resolvidas; as limitações de verificação foram registradas com honestidade, sem escrever como aprovado algo que não foi testado.
+- O código e os registros foram commitados e o resultado da integração foi mesclado de volta no recovery com segurança; sem push automático.
 
-Todo102 的既有欠测继续单独管理。这次合并必须完成的关键验证，不能通过转交 102 来绕过验收。
+A cobertura de testes faltante existente do Todo102 continua sendo gerenciada separadamente. As verificações críticas que esta rodada de merge precisa completar não podem ser contornadas transferindo a responsabilidade ao 102.
 
-## 执行与证据入口
+## Pontos de entrada de execução e evidências
 
-- [逐组决策及执行账本](../research/todo103-staging-integration-ledger.md)
-- [固定来源清单](../research/todo103-staging-source-inventory.json)：193 个非 merge 提交、60 个 merge 提交、941 个 staging 净变更路径；包含历史净抵消及显式冲突后共 950 个调查路径。
-- 清单按固定 SHA 重算：235 个双改路径，其中 107 个显式冲突、128 个自动合并双改路径。初次口头扫描中的较小交集数不作为验收依据。
-- `pending` 表示尚未完成裁决或证据核验。分组只是调查路由，不表示整组已接受；文件可能跨组，必须各自检查功能片段。
+- [Decisões por grupo e ledger de execução](../research/todo103-staging-integration-ledger.md)
+- [Lista de fontes fixas](../research/todo103-staging-source-inventory.json): 193 commits não-merge, 60 commits de merge, 941 caminhos de mudança líquida do staging; incluindo os cancelamentos líquidos históricos e os conflitos explícitos, total de 950 caminhos investigados.
+- A lista é recalculada com SHA fixo: 235 caminhos alterados pelos dois lados, sendo 107 conflitos explícitos e 128 caminhos de merge automático alterados pelos dois lados. A contagem menor de interseções da primeira varredura oral não serve como base de aceitação.
+- `pending` significa que a adjudicação ou a verificação de evidências ainda não foi concluída. O agrupamento é apenas roteamento de investigação e não indica que o grupo inteiro foi aceito; um arquivo pode atravessar grupos e os trechos funcionais devem ser verificados separadamente.
 
-## 尽早形成候选并保留真实合并历史
+## Formar cedo um candidato e preservar o histórico real de merge
 
-独立整合分支从 recovery 固定基线开始；已经完成的分组提交全部保留。当前脏批次收口后，对固定 staging 执行正常 `git merge --no-commit --no-ff`，不等待其余来源逐项移植或验收完。批量保留独立改动，在完整候选上检查所有显式冲突、自动合并交集、旧接口依赖和重复应用风险，再按功能补必要迁接与测试。不在存在未解决冲突的 index 中勉强提交局部代码；待冲突解决后形成真实 merge 提交，继续完整候选验收。
+O branch de integração independente parte do baseline fixo do recovery; todos os commits de grupo já concluídos são preservados. Depois de fechar o lote sujo atual, executa-se um `git merge --no-commit --no-ff` normal sobre o staging fixo, sem esperar a portagem ou a aceitação item a item das demais fontes. As mudanças independentes são preservadas em lote, e sobre o candidato completo verificam-se todos os conflitos explícitos, interseções do merge automático, dependências de interfaces antigas e riscos de aplicação duplicada; depois disso, complementam-se as reconexões e os testes necessários por funcionalidade. Não se commita à força código parcial em um index com conflitos não resolvidos; quando os conflitos forem resolvidos, forma-se um commit de merge real e segue-se a aceitação completa do candidato.
 
-不使用 `merge -s ours` 伪造合并完成，不提交冲突标记，不以整文件 ours/theirs 代替裁决。只读 `merge-tree` 候选不是可交付代码，更不能当成已通过的实现。最终必须证明固定 staging 是整合结果的祖先，且所有来源已有去向。
+Não se usa `merge -s ours` para falsificar a conclusão do merge, não se commita marcadores de conflito e não se substitui adjudicação por ours/theirs de arquivo inteiro. Um candidato somente leitura de `merge-tree` não é código entregável e muito menos pode ser tratado como implementação aprovada. Por fim é preciso provar que o staging fixo é ancestral do resultado da integração e que todas as fontes têm destino.
 
-## 验收状态
+## Status de aceitação
 
-- [x] 固定两端 SHA；独立分支与干净工作区；基线新鲜度检查。
-- [x] 建立包含非 merge / merge / 文件 / 冲突的可复查来源清单。
-- [x] 收口当前批次并启动固定 staging 的真实 merge：checkpoint `c4f8619d96`，`MERGE_HEAD=790884b1ce`；已有成果保留，不等待来源逐项移植/验收。
-- [x] 解决候选冲突并形成完整可运行的真实 merge 提交：`e1c611be98`，双亲为 checkpoint `c4f8619d96` 与固定 staging `790884b1ce`（不等于最终验收）。进度见 ledger 第 24～43 节及 real-merge-candidate 清单；正常 merge 已批量保留独立改动，交集按当前接口重接。193 条非 merge 来源按组记录裁决/实现/验证三个维度；文件级终审和关键平台验收仍在进行，不以冲突归零或局部通过代替完成。
-- [x] 所有功能组完成当前代码核验与裁决，全部来源有去向（ledger §43–44；来源文件全部区分裁决/实现/验证，验证不因此自动完成）。
-- [ ] 获准保留的行为实现、测试、逐组复审及提交。
-- [x] 固定 staging 真实合并、协议 / 依赖 / 构建整体检查（ledger §36–45；Windows 实际安装不是构建通过，仍在下一门槛）。
-- [x] staging → 结果、重构 → 结果两轮独立代码复审（ledger §43–45；不替代尚缺的关键实机验收）。
-- [ ] 关键验证完成；未决事项不影响交付；合回 recovery。
+- [x] Fixar os SHA das duas pontas; branch independente e área de trabalho limpa; verificação de frescor do baseline.
+- [x] Criar uma lista de fontes revisável contendo não-merge / merge / arquivo / conflito.
+- [x] Fechar o lote atual e iniciar o merge real do staging fixo: checkpoint `c4f8619d96`, `MERGE_HEAD=790884b1ce`; resultados existentes preservados, sem esperar a portagem/aceitação item a item das fontes.
+- [x] Resolver os conflitos do candidato e formar um commit de merge real completo e executável: `e1c611be98`, com os pais sendo o checkpoint `c4f8619d96` e o staging fixo `790884b1ce` (o que não equivale à aceitação final). O progresso está nas seções 24 a 43 do ledger e na lista real-merge-candidate; o merge normal já preservou em lote as mudanças independentes e as interseções foram reconectadas pela interface atual. As 193 fontes não-merge registram adjudicação/implementação/verificação por grupo; a revisão final em nível de arquivo e as aceitações críticas de plataforma continuam em andamento, sem substituir a conclusão pela contagem de conflitos igual a zero ou por aprovação parcial.
+- [x] Todos os grupos de funcionalidade concluíram a verificação de código atual e a adjudicação, e todas as fontes têm destino (ledger §43–44; os arquivos de origem distinguem adjudicação/implementação/verificação, sem que a verificação seja concluída automaticamente por isso).
+- [ ] Implementação, testes, revisão por grupo e commit dos comportamentos aprovados para preservação.
+- [x] Merge real do staging fixo e verificação geral de protocolo / dependências / build (ledger §36–45; a instalação real no Windows não é build aprovado e continua no próximo gate).
+- [x] Duas rodadas independentes de revisão de código, de staging → resultado e de refatoração → resultado (ledger §43–45; sem substituir as aceitações reais críticas ainda ausentes).
+- [ ] Conclusão das verificações críticas; pendências sem impacto na entrega; merge de volta no recovery.

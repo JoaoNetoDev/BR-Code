@@ -1,75 +1,73 @@
-# Desktop Coding Plan Upgrade Availability E2E
+# E2E de Disponibilidade do Upgrade do Coding Plan no Desktop
 
-日期：2026-07-03
+Data: 2026-07-03
 
-## 覆盖目标
+## Objetivo de cobertura
 
-模拟 BigModel 账号已登录但没有个人 Coding Plan 权益时，用户从 sidebar 头像菜单的升级入口进入
-`Upgrade Coding Plan` 购买页。个人套餐数据来自本地 E2E fixture server，
-不访问真实 BigModel / ZCode 后端。
+Simular, quando uma conta BigModel está autenticada mas não tem direito a um Coding Plan pessoal, o usuário entrando pela entrada de upgrade no menu de avatar da sidebar na página de compra do `Upgrade Coding Plan`. Os dados dos planos pessoais vêm de um fixture server E2E local, sem acessar o backend real do BigModel / ZCode.
 
-## Case: BigModel 个人套餐全部售罄
+## Case: planos pessoais BigModel totalmente esgotados
 
-| 字段 | 内容 |
+| Campo | Conteúdo |
 | --- | --- |
 | Spec | `packages/desktop/test/e2e/coding-plan-upgrade-personal-sold-out.test.ts` |
-| 数据源 | `BigModel Coding Plan E2E mock server` |
-| 状态 | verified |
+| Fonte de dados | `BigModel Coding Plan E2E mock server` |
+| Estado | verified |
 
 ### Setup
 
-1. E2E 隔离 HOME 写入 BigModel OAuth 凭据，表示账号已登录。
-2. 写入 BigModel Coding Plan provider，保持未开通套餐状态。
-3. 将 `ZCODE_TEST_BASE_URL` 和 `BIGMODEL_TEST_API_BASE_URL` 指向本地 mock server。
-4. `client/configs` 返回 BigModel 个人 Lite / Pro / Max 静态套餐。
-5. `pay/batch-preview` 返回同一批个人套餐，且每个 SKU `soldOut=true`。
+1. O E2E isola o HOME e escreve as credenciais OAuth do BigModel, representando uma conta autenticada.
+2. Escreve o provider BigModel Coding Plan, mantendo o estado de plano não contratado.
+3. Aponta `ZCODE_TEST_BASE_URL` e `BIGMODEL_TEST_API_BASE_URL` para o mock server local.
+4. `client/configs` retorna os planos estáticos pessoais Lite / Pro / Max do BigModel.
+5. `pay/batch-preview` retorna o mesmo conjunto de planos pessoais, com cada SKU `soldOut=true`.
 
 ### Action
 
-1. 打开默认 workspace。
-2. 点击 sidebar footer 的账号头像菜单。
-3. 点击 `Upgrade Coding Plan` 入口打开购买页。
+1. Abre o workspace padrão.
+2. Clica no menu de avatar da conta no footer da sidebar.
+3. Clica na entrada `Upgrade Coding Plan` para abrir a página de compra.
 
 ### Assert
 
-- 页面显示个人套餐分组。
-- Lite / Pro / Max 个人套餐按钮均显示“已售罄”。
-- 这些按钮处于 disabled 状态，不能进入周期选择页。
+- A página exibe o agrupamento de planos pessoais.
+- Os botões dos planos pessoais Lite / Pro / Max exibem "esgotado".
+- Esses botões estão em estado disabled e não deixam entrar na página de seleção de período.
 
-## Case: BigModel 个人套餐接口系统繁忙
+## Case: interface dos planos pessoais BigModel com o sistema ocupado
 
-| 字段 | 内容 |
+| Campo | Conteúdo |
 | --- | --- |
 | Spec | `packages/desktop/test/e2e/coding-plan-upgrade-personal-system-busy.test.ts` |
-| 数据源 | `BigModel Coding Plan E2E mock server` |
-| 状态 | verified |
+| Fonte de dados | `BigModel Coding Plan E2E mock server` |
+| Estado | verified |
 
 ### Setup
 
-1. E2E 隔离 HOME 写入 BigModel OAuth 凭据，表示账号已登录。
-2. 写入 BigModel Coding Plan provider，保持未开通套餐状态。
-3. `client/configs` 返回静态个人套餐，确保购买页有可展示卡片。
-4. `pay/batch-preview` 返回业务失败并被 service 归一为 `coding_plan_system_busy`。
+1. O E2E isola o HOME e escreve as credenciais OAuth do BigModel, representando uma conta autenticada.
+2. Escreve o provider BigModel Coding Plan, mantendo o estado de plano não contratado.
+3. `client/configs` retorna os planos pessoais estáticos, garantindo que a página de compra tenha cards para exibir.
+4. `pay/batch-preview` retorna falha de negócio, normalizada pelo service para `coding_plan_system_busy`.
 
 ### Action
 
-1. 打开默认 workspace。
-2. 点击 sidebar footer 的账号头像菜单。
-3. 点击 `Upgrade Coding Plan` 入口打开购买页。
+1. Abre o workspace padrão.
+2. Clica no menu de avatar da conta no footer da sidebar.
+3. Clica na entrada `Upgrade Coding Plan` para abrir a página de compra.
 
 ### Assert
 
-- 页面仍显示静态个人套餐卡，而不是空白或无限 loading。
-- Lite / Pro / Max 个人套餐按钮使用按钮专属文案：中文“订阅繁忙”，英文“System busy”。
-- 这些按钮处于 disabled 状态，不能进入周期选择页。
+- A página continua exibindo os cards estáticos de planos pessoais, em vez de tela vazia ou loading infinito.
+- Os botões dos planos pessoais Lite / Pro / Max usam o texto específico do botão: em português "Sistema ocupado", em inglês "System busy".
+- Esses botões estão em estado disabled e não deixam entrar na página de seleção de período.
 
-## 非覆盖项
+## Fora de cobertura
 
-- 不覆盖真实支付、二维码、Stripe / PayPal 或团队套餐下单。
-- 不覆盖手机 `/remote` replayable 链路；该 case 只验证桌面本地 sidebar 升级入口与购买页 UI。
-- 不验证真实线上库存或真实 BigModel 账号权益，避免固定回归受线上状态影响。
+- Não cobre pagamento real, QR code, Stripe / PayPal ou contratação de planos de equipe.
+- Não cobre a cadeia replayable do `/remote` no celular; este case verifica apenas a entrada de upgrade da sidebar local do desktop e a UI da página de compra.
+- Não verifica estoque real nem direitos reais de conta BigModel, evitando que a regressão fixa sofra influência do estado online.
 
-## 验证命令
+## Comandos de verificação
 
 - `pnpm --filter @zcode/desktop typecheck:e2e`
 - `pnpm typecheck`

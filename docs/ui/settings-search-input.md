@@ -1,16 +1,14 @@
 # Settings Search Input
 
-设置页的 Skills、Hooks、Commands、MCP、Subagents 与插件市场搜索框统一复用
-`SettingsSearchInput`：
+As caixas de busca de Skills, Hooks, Commands, MCP, Subagents e do marketplace de plugins na página de configurações reutilizam uniformemente o `SettingsSearchInput`:
 
 - `Input size="lg"`
-- 高度 `h-9`
-- 圆角 `rounded-xl`
-- 左侧搜索图标 `size-4`
-- 输入内容左侧留白 `pl-9`
-- 颜色、边框、Hover 与 Focus 状态继承标准 `Input`
+- Altura `h-9`
+- Cantos arredondados `rounded-xl`
+- Ícone de busca à esquerda com `size-4`
+- Espaçamento à esquerda do conteúdo digitado `pl-9`
+- Cores, borda e estados de Hover e Focus herdados do `Input` padrão
 
-页面只能通过容器 class 控制宽度和布局，不得覆盖上述几何样式。
+A página só pode controlar largura e layout por meio de classes no container, sem sobrescrever os estilos geométricos acima.
 
-Skills 与 Subagents 搜索框右侧的状态筛选器使用同样的 `h-9 rounded-xl`，保持同行控件
-轮廓一致。
+Os filtros de estado à direita das caixas de busca de Skills e Subagents usam o mesmo `h-9 rounded-xl`, mantendo o contorno consistente dos controles da mesma linha.

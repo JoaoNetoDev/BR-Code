@@ -1,22 +1,25 @@
-# Subagent Timeout Policy
+# Política de timeout de subagent
 
-## 背景
+## Contexto
 
-`Agent` / `Task` 是父 runtime 调度子 agent 的入口。此前 ZCode 在工具层给
-`Agent` 设置固定 `600000ms` 超时；当前目标是移除这层固定墙钟限制，避免长时间
-但仍健康运行的子 agent 被父工具执行器提前判定为 `tool_timeout`。
+`Agent` / `Task` são as entradas pelas quais o runtime pai agenda subagents. Anteriormente o ZCode
+definia um timeout fixo de `600000ms` para `Agent` na camada de ferramentas; o objetivo atual é
+remover essa limitação fixa de tempo de parede, evitando que subagents que rodam há muito tempo,
+mas ainda saudáveis, sejam julgados pelo executor de ferramentas pai como `tool_timeout` antes da
+hora.
 
-## 目标语义
+## Semântica desejada
 
-- `Agent` / `Task` 不设置固定工具执行超时。
-- 前台 subagent 由子 runtime 自身完成、失败或被取消来结束。
-- 用户停止父 turn、父 turn abort、进程退出等取消信号仍会传递给正在等待的
-  `Agent` / `Task` 调用。
-- child session 的 setup、persist、resume 和 `onSessionReady` 等待都属于前台调用的
-  可取消、可检测 inactivity 生命周期；Ready 只是 `SubagentSpawned` 的发布屏障，不是
-  abort/watchdog 的安装边界。
-- 后台 subagent 的生命周期继续由 `SubagentPort` / runtime task registry 管理，
-  不通过工具执行器的固定 timeout 清理。
+- `Agent` / `Task` não definem timeout fixo de execução de ferramenta.
+- Um subagent em primeiro plano termina quando o próprio runtime filho conclui, falha ou é
+  cancelado.
+- Sinais de cancelamento como parar o turn pai, abort do turn pai ou saída do processo continuam
+  sendo propagados para as chamadas `Agent` / `Task` que estão aguardando.
+- Setup, persist, resume e a espera por `onSessionReady` da child session fazem parte do ciclo de
+  vida cancelável e detectável por inatividade da chamada em primeiro plano; Ready é apenas uma
+  barreira de publicação de `SubagentSpawned`, não o limite de instalação de abort/watchdog.
+- O ciclo de vida de subagents em segundo plano continua gerenciado por `SubagentPort` / runtime
+  task registry, sem limpeza pelo timeout fixo do executor de ferramentas.
 
 ```text
 register task -> child setup/persist/resume -> onSessionReady -> foreground/background race -> settle
@@ -25,25 +28,30 @@ register task -> child setup/persist/resume -> onSessionReady -> foreground/back
       +------------- parent abort + inactivity watchdog -----------------+
 ```
 
-- pre-ready 阶段收到父 abort 或 inactivity timeout 时，外层 `Agent` / `Task` 必须及时失败，
-  清理未发布的 runtime task，不能继续等待 child 主动调用 `onSessionReady`。
-- foreground task 转为 background 后，child tool mirror 的 `background` provenance 必须在
-  每条事件发出时读取 runtime task registry 当前状态；不能复用 child 启动时的布尔快照。
-  因此前台阶段的事件不带 `background: true`，切后台后的迟到事件必须带
-  `background: true`，允许父 turn 结束后继续投影真实 terminal lifecycle。
+- Ao receber abort do pai ou timeout por inatividade na fase pre-ready, o `Agent` / `Task` externo
+  deve falhar prontamente, limpar as runtime tasks não publicadas e não pode continuar esperando a
+  child chamar `onSessionReady` ativamente.
+- Depois que uma foreground task vira background, a provenance `background` do child tool mirror
+  deve ser lida do estado atual do runtime task registry a cada evento emitido; não pode reutilizar
+  o snapshot booleano do momento em que a child iniciou. Portanto, eventos da fase em primeiro plano
+  não carregam `background: true`, e eventos atrasados após a mudança para segundo plano devem
+  carregar `background: true`, permitindo que o lifecycle terminal real continue sendo projetado
+  após o fim do turn pai.
 
-## 非目标
+## Fora de escopo
 
-- 不改变 Bash、WebFetch、Read、Edit 等普通工具的 timeout 策略。
-- 不恢复 `120000ms` 前台自动转后台逻辑。
-- 不改变 `subagents.backgroundEnabled` 默认关闭的临时策略。
+- Não alterar a política de timeout de ferramentas comuns como Bash, WebFetch, Read e Edit.
+- Não restaurar a lógica de conversão automática de foreground para background com `120000ms`.
+- Não alterar a política temporária de `subagents.backgroundEnabled` desativado por padrão.
 
-## 实现约束
+## Restrições de implementação
 
-- 工具执行器必须显式支持 `timeout: { kind: "none" }`，不能让无 timeout 工具回退到
-  executor 默认 timeout。
-- `Agent` / `Task` 的 provider contract 不再暴露 `timeoutMs`，避免模型或 UI 误以为
-  subagent 有固定 10 分钟上限。
-- 无 timeout 只取消墙钟计时器；父级 `AbortSignal` 仍必须能取消等待中的 handler。
-- subagent inactivity watchdog 必须在 child setup 开始前启动；ready wait 与 completion wait
-  必须共同监听同一 task abort signal，且保留 watchdog 产生的 `ToolTimeout` 原因。
+- O executor de ferramentas deve suportar explicitamente `timeout: { kind: "none" }`; ferramentas sem
+  timeout não podem recorrer ao timeout padrão do executor.
+- O provider contract de `Agent` / `Task` não expõe mais `timeoutMs`, evitando que o modelo ou a UI
+  supostam que o subagent tem um limite fixo de 10 minutos.
+- A ausência de timeout cancela apenas o cronômetro de tempo de parede; o `AbortSignal` do nível
+  pai ainda deve conseguir cancelar o handler em espera.
+- O watchdog de inatividade do subagent deve ser iniciado antes do setup da child; a espera por
+  ready e a espera por completion devem observar juntas o mesmo task abort signal, preservando o
+  motivo `ToolTimeout` gerado pelo watchdog.

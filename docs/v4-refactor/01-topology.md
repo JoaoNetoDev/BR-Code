@@ -1,8 +1,8 @@
-# 进程拓扑：连接隔离与 CLI 权威事实
+# Topologia de processos: isolamento de conexão e fatos autoritativos do CLI
 
-> 当前事实（V4 wire v3）：桌面与手机共用同一个 session/runtime 事实源，但拥有彼此隔离的连接、订阅与投递策略。relay、desktop main 和 renderer 都不是 conversation 事实源。
+> Fato atual (V4 wire v3): desktop e mobile compartilham a mesma fonte de fatos de session/runtime, mas têm conexões, assinaturas e estratégias de entrega isoladas entre si. relay, desktop main e renderer não são fontes de fatos de conversation.
 
-## 1. 一条事实链，两种投递边界
+## 1. Uma cadeia de fatos, dois limites de entrega
 
 ```text
 Desktop renderer / SSH/WSL/Docker window
@@ -36,11 +36,14 @@ Mobile / Web remote        │
   profile=replayable
 ```
 
-同一个 session 可以被 A、B 同时订阅。两端看到的中间帧可以因 profile 不同而不同，但最终投影必须逐字段一致；任何一端的慢消费、重订阅或关闭都不得替换或污染另一端。
+A mesma sessão pode ser assinada por A e B ao mesmo tempo. Os quadros intermediários vistos por
+cada lado podem diferir por causa do profile, mas a projeção final precisa ser idêntica campo a
+campo; consumo lento, reassinatura ou fechamento em qualquer um dos lados não pode substituir nem
+contaminar o outro.
 
-## 2. 可信连接上下文
+## 2. Contexto de conexão confiável
 
-每个 RPC attachment 建立时由 host 创建不可伪造的连接上下文：
+Quando cada attachment de RPC é estabelecido, o host cria um contexto de conexão unforgeável:
 
 ```ts
 interface TrustedConnectionContext {
@@ -50,23 +53,25 @@ interface TrustedConnectionContext {
 }
 ```
 
-映射是固定产品边界，不按 UI 参数或底层 socket 类型猜测：
+O mapeamento é um limite de produto fixo e não é inferido por parâmetro de UI ou tipo de socket
+subjacente:
 
-| attachment                            | 可信 `clientMode`       | profile      |
+| attachment                            | `clientMode` confiável | profile      |
 | ------------------------------------- | ----------------------- | ------------ |
-| 本地桌面窗口                          | `desktop-continuous`    | `continuous` |
-| SSH / WSL / Docker 桌面窗口           | `desktop-continuous`    | `continuous` |
-| 手机 `/remote` shared-host attachment | `web-remote-replayable` | `replayable` |
+| janela local de desktop               | `desktop-continuous`    | `continuous` |
+| janela de desktop via SSH / WSL / Docker | `desktop-continuous`    | `continuous` |
+| shared-host attachment de `/remote` no celular | `web-remote-replayable` | `replayable` |
 | Web remote / relay WebSocket          | `web-remote-replayable` | `replayable` |
 
-`zcode-server /ws` 对所有普通连接固定使用 replayable；即使调用方携带旧的
-`x-zcode-rpc-client-mode` header，也不能把连接升格为 continuous。桌面
-server-remote 的 Node host 必须先向受现有 server auth middleware 保护的
-`POST /api/rpc-host-capability` 申请短期、一次性随机 capability，再把它放入
-Node-only header 连接专用 `/ws/host`。服务端消费 capability 后才建立 continuous
-trusted relay attachment，并仍为该 attachment 分配新的 `connectionId`。open/no-token
-server 也走相同的显式申请与一次消费流程；单独伪造角色 header 或重放 capability 都不能获得
-trusted role。
+`zcode-server /ws` usa replayable de forma fixa para todas as conexões comuns; mesmo que o chamador
+envie o header antigo `x-zcode-rpc-client-mode`, a conexão não pode ser promovida a continuous. O Node
+host do server-remote de desktop precisa antes solicitar, via
+`POST /api/rpc-host-capability` — protegido pelo middleware de autenticação de server existente —,
+uma capability aleatória de curto prazo e de uso único, e depois colocá-la em um header exclusivo de
+Node para conectar ao `/ws/host` dedicado. Só depois de consumir a capability o server estabelece o
+relay attachment continuous confiável, e ainda assim atribui um novo `connectionId` a esse
+attachment. O server open/no-token passa pelo mesmo fluxo explícito de solicitação e consumo único;
+forjar isoladamente o header de papel ou repetir a replay de uma capability não concede trusted role.
 
 ```text
 Desktop Node host
@@ -80,52 +85,55 @@ Browser / 任意普通 client
   └─ GET /ws（旧 mode header 被忽略）──────────> replayable terminal
 ```
 
-`hello/clientHello` 只完成 wire v3 协商、连接身份确认和遥测身份注册。客户端可上报稳定 `clientId`、版本与展示用途的 `clientKind`，但不能覆盖 host 注入的 `connectionId/clientMode/profile`。UI-facing `subscribe` 不再接受 `deliveryProfile` 或 `clientMode`。
+`hello/clientHello` apenas conclui a negociação do wire v3, confirma a identidade da conexão e
+registra a identidade de telemetria. O cliente pode reportar um `clientId` estável, a versão e o
+`clientKind` para fins de exibição, mas não pode sobrescrever o `connectionId/clientMode/profile`
+injetado pelo host. O `subscribe` voltado à UI não aceita mais `deliveryProfile` nem `clientMode`.
 
-远程 workspace 的连接、订阅、命令与缓存继续贯穿 `workspaceIdentity` 和 `remoteSessionId`。身份 key 一律为 `workspaceIdentity?.trim() || workspacePath`；文件读写与进程 cwd 才使用 `workspacePath`。
+A conexão, assinatura, comandos e cache de workspace remoto continuam atravessando `workspaceIdentity`
+e `remoteSessionId`. A chave de identidade é sempre `workspaceIdentity?.trim() || workspacePath`;
+somente leitura/escrita de arquivos e cwd de processo usam `workspacePath`.
 
-## 3. 连接级订阅注册表
+## 3. Registro de assinaturas por conexão
 
-host 为每个 attachment 建立独立 registry，最小索引为：
+O host mantém um registry separado para cada attachment, com o índice mínimo:
 
 ```text
 connectionId -> subscriptionId -> { topic, profile, visibility, state }
 subscriptionId -> owning attachment port
 ```
 
-规范性规则：
+Regras normativas:
 
-1. 同一连接对同一 topic 重订阅只替换该连接自己的旧 subscription；不同连接永不互相替换。
-2. CLI 下行帧只能写入拥有该 `subscriptionId` 的端口。禁止先做 workspace 广播，再让手机按 subId 丢弃桌面帧。
-3. attachment port 关闭、握手失败或连接被回收时，facade 必须一次性 unsubscribe 该 registry 的全部 subscription，并释放 fragment assembly 与 buffer。
-4. attachment 重建或 CLI runtime epoch 变化时，客户端自动以当前合法 base 重订阅；epoch 不匹配时走 snapshot。
-5. `onSaturated/onDrained` 属于连接级流控信号。手机链路可经 relay/main 透传到 owning attachment，但 relay/main 不解释 topic、seq、queue 或 snapshot。
-6. subscribe 发出前先建立 pending ownership；server 把 initial frame 放入 request-scoped
-   post-response outbox，connection 固定按 `response -> initial notification` 写 NDJSON。即便两行
-   位于同一 read，host/UI/task-index 的 ACK 前早帧也只能进入有界 staging；ACK 绑定
-   `subscriptionId` 后按原序释放给唯一 owner，close / stale generation 清空引用。task-index
-   overflow 会清空该代 staging 并标记 recovery-needed；host/UI 的 physical staging overflow
-   fault 语义留在 04B。UI transport 还必须等 store 写入 `subscriptionId` 并显式 activate 后再投递。
-7. unsubscribe 必须由 owned registry 条目生成完整
-   `{ topic, subscriptionId, connectionId }` route；CLI publisher 只删除三者完全匹配的订阅，不能按裸
-   `subscriptionId` 向多个 topic 广撒网。
+1. Reassinar o mesmo topic na mesma conexão substitui apenas a assinatura antiga daquela própria conexão; conexões diferentes nunca se substituem.
+2. Quadros de downlink do CLI só podem ser escritos na porta que possui aquele `subscriptionId`. É proibido fazer broadcast por workspace e deixar o celular descartar quadros do desktop por subId.
+3. Quando a porta do attachment é fechada, o handshake falha ou a conexão é reciclada, a facade deve cancelar de uma só vez todas as assinaturas daquele registry e liberar o fragment assembly e os buffers.
+4. Quando o attachment é reconstruído ou muda o epoch do runtime do CLI, o cliente reassina automaticamente com a base legal vigente; em caso de epoch incompatível, passa por snapshot.
+5. `onSaturated/onDrained` são sinais de flow control no nível da conexão. O link do celular pode repassá-los via relay/main até o attachment proprietário, mas relay/main não interpreta topic, seq, queue nem snapshot.
+6. Antes do subscribe ser emitido, a propriedade pendente é estabelecida; o server coloca o quadro inicial em uma outbox pós-resposta de escopo da requisição, e a conexão escreve NDJSON sempre na ordem fixa `response -> initial notification`. Mesmo que as duas linhas estejam na mesma leitura, quadros anteriores ao ACK de host/UI/task-index só podem entrar em staging limitado; depois que o ACK vincula o `subscriptionId`, eles são liberados na ordem original para o único owner, e close / stale generation limpa as referências. Overflow de task-index limpa o staging daquela geração e marca recovery-needed; a semântica de falha de physical staging overflow de host/UI fica em 04B. O transport da UI ainda precisa aguardar a escrita do `subscriptionId` no store e a ativação explícita antes de entregar.
+7. O unsubscribe precisa ser gerado pela entrada do registry proprietário, com a route completa `{ topic, subscriptionId, connectionId }`; o publisher do CLI só remove a assinatura em que os três coincidem exatamente, e não pode espalhar por vários topics usando um `subscriptionId` cru.
 
-## 4. 权威状态的归属
+## 4. Propriedade do estado autoritativo
 
-| 状态                                    | 唯一权威位置                                         | 其他层职责                               |
-| --------------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
-| session event log / projection          | CLI                                                  | host 仅路由与有界缓冲；UI apply          |
-| 已提交 busy/running 输入                | CLI `CommandInbox` / runtime queue                   | UI 仅保留 optimistic overlay             |
-| 未提交草稿、滚动位置                    | 当前客户端                                           | 不进入协议事实                           |
-| command 幂等结果                        | CLI LRU + transcript/marker/child + discarded ledger | UI 24h pending registry 用于对账         |
-| subscription buffer / fragment assembly | 每 connection/subscriber 易失状态                    | 关闭即丢，靠 resync 恢复                 |
-| owner / lease / stale-run               | host 路由层                                          | 保证单 owner、阻塞响应和跨 host 命令正确 |
+| Estado                                    | Local autoritativo único                                     | Responsabilidade das outras camadas                    |
+| ----------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------ |
+| session event log / projection            | CLI                                                           | o host apenas roteia e bufferiza com limite; a UI faz apply |
+| entrada busy/running já submetida         | `CommandInbox` do CLI / fila do runtime                      | a UI mantém apenas overlay otimista                    |
+| rascunho não submetido, posição de rolagem | cliente atual                                                 | não entra nos fatos do protocolo                      |
+| resultado idempotente de command          | LRU do CLI + transcript/marker/child + discarded ledger     | registry de pendentes de 24h na UI para reconciliação  |
+| subscription buffer / fragment assembly   | estado volátil por connection/subscriber                    | se perde ao fechar, recuperado por resync               |
+| owner / lease / stale-run                 | camada de roteamento do host                                 | garante owner único, respostas bloqueantes e comandos cross-host corretos |
 
-手机 V4 不再经过 host runtime command queue。所有已提交输入，无论来自桌面还是手机，都按 CLI 串行 admission 顺序进入同一个 `CommandInbox` FIFO。owner/lease 不能因 shared-host 主路径存在而删除：remote workspace、bot/proxy、跨 host fallback 和阻塞请求仍依赖它，但它不再拥有第二份 conversation queue。
+O mobile V4 não passa mais pela fila de comandos do runtime do host. Toda entrada submetida, venha do
+desktop ou do celular, entra no mesmo FIFO `CommandInbox` seguindo a ordem de admissão serial do
+CLI. owner/lease não pode ser removido por existir um caminho principal shared-host: workspace
+remoto, bot/proxy, fallback cross-host e requisições bloqueantes ainda dependem dele, mas ele já não
+possui uma segunda fila de conversation.
 
-## 5. Fork 的进程边界
+## 5. Limite de processo do fork
 
-running 时 fork 更早的稳定 assistant，只在 CLI 内复制稳定 transcript、fork 点配置和 fork 点之前的 goal 状态：
+Ao fazer fork de um assistant estável anterior enquanto está running, apenas o CLI copia o
+transcript estável, a configuração do ponto de fork e o estado de goal anterior ao ponto de fork:
 
 ```text
 parent runtime (继续 running) ── stable boundary ──> child transcript
@@ -133,14 +141,18 @@ shared workspace             ── 不 rewind / 不复制 checkpoint ──> �
 parent queue/active/background/continuation ──X──> child
 ```
 
-completed/idle fork 已有的 workspace checkpoint 行为本轮不扩大。running fork 不进入带 `ensureNoActiveTurn` 的 legacy bridge。
+O comportamento de checkpoint de workspace existente para fork completed/idle não é ampliado nesta
+rodada. Fork running não entra no legacy bridge com `ensureNoActiveTurn`.
 
-## 6. 三个实施门禁
+## 6. Três portões de implementação
 
-本次闭环按依赖顺序交付，后一门禁不能以旁路前一门禁的方式上线：
+Este ciclo fechado é entregue em ordem de dependência, e um portão posterior não pode entrar em
+produção contornando o anterior:
 
-1. **连接、订阅、帧与恢复**：可信 attachment 上下文、owned routing、1 MiB 物理帧、subscriber buffer 与自动 resync。
-2. **权威输入、队列与幂等**：统一 CLI FIFO、`ConversationInputIntent`、`commands/query`、`sourceCommandId` 和 discarded 对账。
-3. **稳定 assistant fork**：唯一 target resolver、running conversation-only fork 与 duplicate child 收口。
+1. **Conexão, assinatura, quadros e recuperação**: contexto de attachment confiável, owned routing, quadro físico de 1 MiB, buffer de subscriber e resync automático.
+2. **Entrada autoritativa, fila e idempotência**: FIFO unificado do CLI, `ConversationInputIntent`, `commands/query`, `sourceCommandId` e reconciliação de discarded.
+3. **Fork de assistant estável**: resolver de target único, fork running apenas de conversation e fechamento de child duplicado.
 
-最终不变量：每条已提交输入必须且只能处于 `queue / guided row / transcript / explicit rejected|failed|discarded` 之一；不能出现“UI 已清空，但 CLI 权威层无记录”。
+Invariante final: cada entrada submetida precisa estar, e só pode estar, em um destes estados
+`queue / guided row / transcript / explicit rejected|failed|discarded`; não pode existir "a UI já
+limpou, mas a camada autoritativa do CLI não tem registro".

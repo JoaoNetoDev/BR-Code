@@ -1,53 +1,56 @@
-# Todo 30：Provider 设置页滚动边界提示
+# Todo 30: Indicador de limite de rolagem na página de configurações de Provider
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-27
+> Data: 2026-08-27
 >
-> 来源：Provider 设置页真实体验反馈
+> Origem: feedback de experiência real na página de configurações de Provider
 
-## 1. 问题
+## 1. Problema
 
-Provider 设置页已经让左侧 Provider 导航和右侧详情各自独立滚动，但 macOS 默认可能隐藏系统滚动条。固定高度容器刚好在完整行边界截断时，用户容易误以为下方没有更多内容。
+A página de configurações de Provider já faz a navegação de Provider à esquerda e o detalhe à direita rolarem de forma
+independente, mas no macOS as barras de rolagem do sistema podem estar ocultas por padrão. Quando o contêiner de altura
+fixa corta o conteúdo exatamente no limite de uma linha completa, o usuário tende a supor que não há mais conteúdo abaixo.
 
-本 Todo 不改变滚动区域、容器高度、Provider/Model 排序或配置保存，只增加条件式滚动边界提示。
+Este Todo não altera as áreas de rolagem, a altura dos contêineres, a ordenação de Provider/Model ou o salvamento de
+configuração; apenas adiciona um indicador condicional de limite de rolagem.
 
-## 2. 交互
+## 2. Interação
 
 ```text
-无溢出
-└─ 不显示提示
+Sem overflow
+└─ Não mostra o indicador
 
-位于顶部且下方有内容
-└─ 只显示底部渐隐
+No topo e com conteúdo abaixo
+└─ Mostra apenas o fade inferior
 
-位于中间
-├─ 显示顶部渐隐
-└─ 显示底部渐隐
+No meio
+├─ Mostra o fade superior
+└─ Mostra o fade inferior
 
-位于底部
-└─ 只显示顶部渐隐
+No fim
+└─ Mostra apenas o fade superior
 ```
 
-- 左右两栏分别测量、分别更新，不共享滚动状态；
-- 保留系统滚动条行为，不强制常驻，不增加文字或箭头；
-- 渐隐层不接收指针事件，不遮挡模型操作、拖拽或 Provider 选择；
-- 使用语义化 Card 颜色，在 Zai Light / Zai Dark 下保持一致；
-- 内容变化、容器缩放和窗口缩放后重新测量；
-- 滚动监听使用 passive listener，并避免相同边界状态导致重复 React render。
+- As duas colunas são medidas e atualizadas separadamente, sem compartilhar estado de rolagem;
+- Preserva-se o comportamento das barras de rolagem do sistema, sem forçar barras permanentes e sem adicionar texto ou setas;
+- A camada de fade não recebe eventos de ponteiro e não obstrui operações de modelo, arrastar ou seleção de Provider;
+- Usa cores semânticas de Card, mantendo a consistência em Zai Light / Zai Dark;
+- Remede após mudanças de conteúdo, redimensionamento do contêiner e redimensionamento da janela;
+- A escuta de rolagem usa passive listener e evita renders React repetidos provocados pelo mesmo estado de limite.
 
-## 3. 验证
+## 3. Verificação
 
-- 纯函数覆盖无溢出、顶部、中间、底部及 1px 误差；
-- 组件测试覆盖滚动后 `top/bottom` 提示状态；
-- 布局测试证明 Provider 导航和详情都使用同一组件；
-- 回归 Provider/Model 拖拽、左右独立滚动、详情反馈横幅和窄屏布局；
-- 执行 UI 定向测试、typecheck、lint、格式检查和 `git diff --check`。
+- Funções puras cobrindo sem overflow, topo, meio, fim e erro de 1px;
+- Testes de componente cobrindo os estados de indicador `top/bottom` após a rolagem;
+- Testes de layout provam que a navegação de Provider e o detalhe usam o mesmo componente;
+- Regressão em arrastar Provider/Model, rolagem independente das colunas, banner de feedback do detalhe e layout de tela estreita;
+- Executar testes direcionados de UI, typecheck, lint, verificação de formatação e `git diff --check`.
 
-## 4. 实施结果
+## 4. Resultado da implementação
 
-- 新增 `ScrollEdgeShadowViewport`，左右两栏复用同一套边界测量和语义色渐隐；
-- 监听当前 viewport 的 passive scroll，并用 `ResizeObserver` 观察 viewport/content 尺寸变化；
-- 相同 `top/bottom` 状态保持原对象，避免滚动期间产生无意义 React render；
-- 渐隐层使用 `pointer-events-none`，详情反馈横幅继续位于更高层级；
-- 322 个 Provider 设置相关测试、全仓 typecheck 与 lint 通过；lint 仅保留本轮前已有 warning。
+- Novo `ScrollEdgeShadowViewport`, reutilizado pelas duas colunas com a mesma medição de limites e cores semânticas de fade;
+- Escuta passive de scroll do viewport atual e uso de `ResizeObserver` para observar mudanças de tamanho do viewport/conteúdo;
+- Estados `top/bottom` idênticos mantêm o mesmo objeto, evitando renders React sem sentido durante a rolagem;
+- A camada de fade usa `pointer-events-none`, e o banner de feedback do detalhe continua em camada superior;
+- 322 testes relacionados às configurações de Provider, o typecheck e o lint de todo o repositório passaram; o lint mantém apenas os warnings já existentes antes desta rodada.

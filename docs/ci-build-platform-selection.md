@@ -1,12 +1,12 @@
-# CI 打包平台选择
+# Seleção de plataformas de empacotamento no CI
 
-## 目标
+## Objetivo
 
-允许创建 GitLab pipeline 时通过可选变量 `ZCODE_BUILD_PLATFORMS` 指定自动打包的平台。MR pipeline 默认只自动打包 macOS ARM64 和 Windows x64，手动创建的 pipeline 未传变量时仍保持全平台自动打包。
+Permitir que, ao criar um pipeline do GitLab, a variável opcional `ZCODE_BUILD_PLATFORMS` especifique as plataformas com empacotamento automático. O pipeline de MR faz por padrão apenas o empacotamento automático de macOS ARM64 e Windows x64; pipelines criados manualmente sem a variável continuam com o empacotamento automático de todas as plataformas.
 
-## 平台标识
+## Identificadores de plataforma
 
-变量使用逗号分隔的完整平台标识，支持以下值：
+A variável usa identificadores completos de plataforma separados por vírgula, com suporte aos seguintes valores:
 
 - `macos-arm64`
 - `macos-x64`
@@ -15,59 +15,59 @@
 - `linux-x64`
 - `linux-arm64`
 
-示例：
+Exemplo:
 
 ```text
 ZCODE_BUILD_PLATFORMS=macos-arm64,windows-x64
 ```
 
-在 GitLab **Run pipeline** 页面手动创建流水线时，可以在 Variables 中填写该变量；通过 Pipeline API 或 Trigger API 创建 pipeline 时同样可以传入。这些手动触发方式都使用相同的平台选择规则。
+Ao criar manualmente um pipeline na página **Run pipeline** do GitLab, a variável pode ser preenchida em Variables; o mesmo vale para pipelines criados via Pipeline API ou Trigger API. Todas essas formas de disparo manual usam as mesmas regras de seleção de plataforma.
 
-## 行为契约
+## Contrato de comportamento
 
-- MR pipeline 由 workflow 默认注入 `ZCODE_BUILD_PLATFORMS=macos-arm64,windows-x64`，因此只自动运行 macOS ARM64 和 Windows x64；其余平台保留为非阻塞 manual job。
-- GitLab **Run pipeline**、Pipeline API 和 Trigger API 手动创建的 pipeline 未传或传入空的 `ZCODE_BUILD_PLATFORMS` 时，六个平台 job 全部按现有方式自动运行。
-- 传入非空列表时，列表内的平台 job 自动运行。
-- 传入非空列表时，列表外的平台 job 保留在 pipeline 中，状态为可选手动执行，且未执行时不阻塞流水线。
-- 平台判断使用逗号边界的完整 token 匹配，禁止用平台名或架构子串进行模糊匹配。
-- 变量在 GitLab 创建 pipeline 时参与 job graph 求值；GitLab UI 的 **Run pipeline** 属于受支持的手动 pipeline 创建入口。
-- pipeline 创建后点击某个 manual job，或给该 job 临时填写变量，不会改变其他 job 已经确定的调度状态。
-- 该选择规则用于 MR、GitLab **Run pipeline**（`web`）、Pipeline API（`api`）和 Trigger API（`trigger`）创建的 pipeline。
-- tag 与 `ci/*` 发布验证 pipeline 始终保持六个平台自动打包，避免正式上传/发布 DAG 缺少平台产物。
+- O pipeline de MR recebe por padrão `ZCODE_BUILD_PLATFORMS=macos-arm64,windows-x64` via workflow, portanto executa automaticamente apenas macOS ARM64 e Windows x64; as demais plataformas permanecem como manual job não bloqueante.
+- Pipelines criados manualmente pelo **Run pipeline** do GitLab, pela Pipeline API e pela Trigger API, sem `ZCODE_BUILD_PLATFORMS` ou com ela vazia, executam automaticamente os seis platform jobs como hoje.
+- Quando uma lista não vazia é informada, os platform jobs dentro da lista executam automaticamente.
+- Quando uma lista não vazia é informada, os platform jobs fora da lista permanecem no pipeline com status de execução manual opcional e não bloqueiam o pipeline quando não executados.
+- A verificação de plataforma usa correspondência de token completo com limite de vírgula; é proibido usar correspondência difusa por nome de plataforma ou substring de arquitetura.
+- A variável participa da avaliação do job graph no momento em que o GitLab cria o pipeline; o **Run pipeline** da UI do GitLab é um ponto de entrada suportado para criação manual de pipeline.
+- Após a criação do pipeline, clicar em um manual job, ou preencher temporariamente uma variável para esse job, não altera o estado de agendamento já determinado dos demais jobs.
+- Essa regra de seleção vale para pipelines criados por MR, **Run pipeline** do GitLab (`web`), Pipeline API (`api`) e Trigger API (`trigger`).
+- As pipelines de verificação de publicação por tag e `ci/*` mantêm sempre o empacotamento automático das seis plataformas, evitando que o DAG de upload/publicação formal fique sem artefatos de plataforma.
 
-## 调度时序
+## Sequência de agendamento
 
 ```text
-创建 pipeline
+criar pipeline
   |
-  +-- MR pipeline
-  |     `-- workflow 注入 macos-arm64,windows-x64
+  +-- pipeline de MR
+  |     `-- workflow injeta macos-arm64,windows-x64
   |           +-- macOS ARM64 / Windows x64 -> on_success
-  |           `-- 其他平台                  -> manual + allow_failure
+  |           `-- outras plataformas        -> manual + allow_failure
   |
   `-- Web / Pipeline API / Trigger API
         |
-        +-- ZCODE_BUILD_PLATFORMS 未传或为空 -> 所有平台 job on_success
-        `-- ZCODE_BUILD_PLATFORMS 为非空列表
-              +-- 当前平台完整命中 -> on_success
-              `-- 当前平台未命中   -> manual + allow_failure
+        +-- ZCODE_BUILD_PLATFORMS ausente ou vazio -> todos os platform jobs on_success
+        `-- ZCODE_BUILD_PLATFORMS como lista não vazia
+              +-- token completo da plataforma atual -> on_success
+              `-- plataforma atual não encontrada   -> manual + allow_failure
 ```
 
-## 实现边界
+## Limites de implementação
 
-- 选择逻辑只控制六个桌面安装包 build job，不通过脚本提前退出，避免未选择的平台占用 runner。
-- 平台 build template、打包命令、产物目录、上传和发布逻辑保持不变。
-- 与 macOS 安装包绑定的 CUA Helper job 跟随对应 macOS 平台选择，避免仅选择一个 macOS 架构时仍自动构建另一架构 helper；未选择的 helper 同样保留手动入口。
-- 飞书构建通知跟随对应平台是否自动打包；未选择的平台不自动通知，后续手动执行该平台 build 时仍可按需手动执行其通知 job。
-- 平台无关的 `build:desktop:app` 和 remote assets job 不属于平台列表，保持现有调度行为。
+- A lógica de seleção controla apenas os seis build jobs dos instaladores desktop, sem saída antecipada por script, para que plataformas não selecionadas não ocupem runner.
+- O build template de plataforma, os comandos de empacotamento, o diretório de artefatos e a lógica de upload/publicação permanecem inalterados.
+- O CUA Helper job, atrelado ao instalador macOS, acompanha a seleção da plataforma macOS correspondente, evitando que, ao escolher apenas uma arquitetura macOS, o helper da outra arquitetura ainda seja construído automaticamente; o helper não selecionado também mantém a entrada manual.
+- A notificação de build do Feishu acompanha se a plataforma correspondente teve empacotamento automático; plataformas não selecionadas não geram notificação automática, e ao executar manualmente o build dessa plataforma depois, seu job de notificação ainda pode ser executado manualmente conforme necessário.
+- O `build:desktop:app` e os jobs de remote assets, independentes de plataforma, não pertencem à lista de plataformas e mantêm o comportamento de agendamento atual.
 
-## 验证
+## Verificação
 
-自动化测试覆盖：
+Testes automatizados cobrem:
 
-- 六个平台 build job 都声明相同的可选参数调度契约。
-- 两个 CUA Helper job 与对应 macOS 平台使用一致的调度契约。
-- MR workflow 默认注入 `macos-arm64,windows-x64`。
-- 变量缺失或为空时，规则回落到自动运行。
-- 变量非空且未命中时，job 为非阻塞手动执行。
-- 平台匹配包含明确的逗号 token 边界。
+- Os seis platform build jobs declaram o mesmo contrato de agendamento com parâmetro opcional.
+- Os dois CUA Helper jobs usam o mesmo contrato de agendamento das plataformas macOS correspondentes.
+- O workflow de MR injeta por padrão `macos-arm64,windows-x64`.
+- Quando a variável está ausente ou vazia, a regra volta a executar automaticamente.
+- Quando a variável não está vazia e não há correspondência, o job é de execução manual não bloqueante.
+- A correspondência de plataforma inclui limites de token por vírgena explícitos.

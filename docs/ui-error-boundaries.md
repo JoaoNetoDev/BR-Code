@@ -1,30 +1,30 @@
-# UI Error Boundaries
+# Error Boundaries da UI
 
-ZCode 的 React 错误边界分两层：
+As error boundaries de React do ZCode são divididas em duas camadas:
 
-- 根级 `AppErrorBoundary`：兜住启动、Provider、Root 级异常，避免整窗白屏。
-- 局部 `ScopedErrorBoundary`：按 workspace 内的故障域隔离 sidebar、header、chat、terminal、side pane、settings layer 等区域。
+- `AppErrorBoundary` de nível raiz: cobre falhas de inicialização, de Provider e de nível Root, evitando que a janela inteira fique branca.
+- `ScopedErrorBoundary` local: isola regiões como sidebar, header, chat, terminal, side pane e settings layer dentro de um workspace, por domínio de falha.
 
-## 隔离范围
+## Escopo de isolamento
 
-局部边界优先放在稳定布局容器内部，避免 fallback 破坏 `ResizablePanelGroup` 这类结构性组件。比如 terminal 和 side pane 的边界放在各自 `ResizablePanel` 内容层里，而不是包住整个 panel。
+As boundaries locais devem ser posicionadas preferencialmente dentro de contêineres de layout estáveis, evitando que o fallback quebre componentes estruturais como `ResizablePanelGroup`. Por exemplo, as boundaries de terminal e side pane ficam na camada de conteúdo de cada `ResizablePanel`, em vez de envolver o panel inteiro.
 
 ## Reset Key
 
-涉及 workspace 级隔离时，统一使用：
+Quando envolver isolamento de nível de workspace, use uniformemente:
 
 ```ts
 const workspaceKey = workspaceIdentity?.trim() || workspacePath;
 ```
 
-不同区域再追加自己的上下文 key：
+Cada região acrescenta sua própria key de contexto:
 
-- chat：`workspaceKey + activeTaskId`
-- side pane：`workspaceKey + activeTabId`
-- terminal/sidebar：`workspaceKey`
+- chat: `workspaceKey + activeTaskId`
+- side pane: `workspaceKey + activeTabId`
+- terminal/sidebar: `workspaceKey`
 
-这样远程 workspace 能按身份隔离，本地 workspace 继续回退到真实路径。
+Dessa forma o workspace remoto é isolado por identidade, enquanto o workspace local continua recorrendo ao caminho real.
 
-## 日志
+## Logs
 
-局部边界统一通过 `packages/ui/src/logger.ts` 打 `error` 日志，日志中包含 `scope` 和 React component stack。事件回调、Promise、stream handler 等异步错误不会被 React Error Boundary 捕获，仍需要在对应 hook 或调用点显式处理。
+As boundaries locais registram logs de nível `error` uniformemente por meio de `packages/ui/src/logger.ts`, e o log inclui o `scope` e o component stack do React. Erros assíncronos em callbacks de evento, Promises e stream handlers não são capturados pela Error Boundary do React e ainda precisam ser tratados explicitamente no hook correspondente ou no ponto de chamada.

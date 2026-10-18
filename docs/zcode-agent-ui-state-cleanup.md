@@ -1,19 +1,19 @@
-# ZCode Agent UI 状态收口记录
+# Registro de Consolidação de Estado da UI do ZCode Agent
 
-## 目标
+## Objetivo
 
-UI 层只保留视图状态和必要的短期乐观态，session/runtime 的真实状态由 ZCode Agent 与 ZCode Protocol V4 projection 持有。新改动不得围绕旧协议命名扩展。
+A camada de UI mantém apenas o estado de visualização e o estado otimista de curto prazo estritamente necessário; o estado real de session/runtime é mantido pelo ZCode Agent e pela projection do ZCode Protocol V4. Novas alterações não devem serconstruídas em torno de nomes do protocolo antigo.
 
-## 当前收口
+## Consolidação atual
 
-- 旧 `workspaceInitByProvider` 已收敛为单一 `workspaceInit`。
-- `setWorkspaceInitState` / `setWorkspaceInitAttempts` 不再接收 provider 参数，写入语义变成 workspace 级初始化状态。
-- `getWorkspaceProviderInitState` 已替换为 `getWorkspaceInitState`，避免 UI 继续表达多 agent 初始化状态。
-- 默认 workspace state 使用稳定单例引用，避免未写入 workspace bucket 的 selector 连续读取生成不同快照。
-- `taskStatus` / `taskError` 已从 workspace 根状态移除。草稿态保留短期 `draftRuntime`，已有 task 的显示状态统一通过 `getWorkspaceDisplayedTaskState` 从 active task runtime 派生。
-- `availableModes` / `currentModeId` 已从 workspace 根状态移除。UI 通过 `getWorkspaceModeState` 从 `configOptions` 派生模式状态，`setAvailableModes` / `setCurrentModeId` 仅作为 `mode_update` 等旧入口的 `configOptions` 补丁兼容层。
+- O antigo `workspaceInitByProvider` foi consolidado em um único `workspaceInit`.
+- `setWorkspaceInitState` / `setWorkspaceInitAttempts` não recebem mais o parâmetro provider; a semântica de escrita passa a ser o estado de inicialização em nível de workspace.
+- `getWorkspaceProviderInitState` foi substituído por `getWorkspaceInitState`, evitando que a UI continue expressando o estado de inicialização de múltiplos agents.
+- O workspace state padrão usa uma referência de singleton estável, evitando que seletores que não escreveram no bucket do workspace gerem snapshots diferentes em leituras consecutivas.
+- `taskStatus` / `taskError` foram removidos do estado raiz do workspace. O estado de rascunho mantém o `draftRuntime` de curto prazo, e o estado de exibição de tasks existentes é derivado uniformemente do active task runtime por meio de `getWorkspaceDisplayedTaskState`.
+- `availableModes` / `currentModeId` foram removidos do estado raiz do workspace. A UI deriva o estado dos modos a partir de `configOptions` por meio de `getWorkspaceModeState`; `setAvailableModes` / `setCurrentModeId` permanecem apenas como camada de compatibilidade de patches de `configOptions` para entradas antigas como `mode_update`.
 
-## 后续方向
+## Direções futuras
 
-- `configOptions` 后续继续对齐 `ZCodeSessionSettingsState`，UI 不再新增独立的模型、模式、思考级别镜像字段。
-- `queuedPromptsByTaskId` 和 replayable mirror 状态后续迁到 ZCode session runtime / host command queue。
+- `configOptions` continuará sendo alinhado ao `ZCodeSessionSettingsState`; a UI não adicionará novos campos espelhados independentes de modelo, modo ou nível de raciocínio.
+- `queuedPromptsByTaskId` e o estado espelhado replayable serão migrados posteriormente para o ZCode session runtime / host command queue.

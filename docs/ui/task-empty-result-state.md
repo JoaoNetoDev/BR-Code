@@ -1,13 +1,13 @@
-# Task Empty Result State
+# Estado de Resultado Vazio da Tarefa
 
-## 背景
+## Contexto
 
-Task 已经创建但没有任何可见消息时，旧界面会退回到近似空白的聊天区。用户仍能看到输入区的 mode 胶囊，例如 `Plan`，容易误解为“计划面板有状态但内容没渲染”。
+Quando a Task já foi criada mas não há nenhuma mensagem visível, a interface antiga retornava a uma área de chat praticamente em branco. O usuário ainda via as cápsulas de modo da área de entrada, como `Plan`, e era fácil entender erroneamente que "o painel de plano tem estado, mas o conteúdo não foi renderizado".
 
-## 规范
+## Especificação
 
-- 新建草稿仍展示原有欢迎空态。
-- 历史 task 在 `creating` / `restoring` / `submitting` 阶段仍展示 loading。
-- 已绑定 task、消息为空、没有可见错误、且不在恢复阶段时，聊天区展示轻量空结果提示。
-- 空结果提示只说明本轮没有生成可展示内容，不把 mode 胶囊解释成 plan 内容。
-- 文案必须走 i18n，样式使用设计系统语义 token，兼容桌面、Web、手机窄屏、浅色和深色主题。
+- Um novo rascunho continua exibindo o estado vazio de boas-vindas original.
+- Tasks históricas continuam exibindo loading nas fases `creating` / `restoring` / `submitting`.
+- Quando a task está vinculada, as mensagens estão vazias, não há erro visível e não está em fase de restauração, a área de chat exibe um aviso leve de resultado vazio.
+- O aviso de resultado vazio apenas informa que esta rodada não gerou conteúdo a exibir; ele não interpreta a cápsula de modo como conteúdo de plano.
+- Os textos devem passar por i18n, o estilo deve usar os tokens semânticos do design system e ser compatível com desktop, Web, telas estreitas de celular e temas claro e escuro.

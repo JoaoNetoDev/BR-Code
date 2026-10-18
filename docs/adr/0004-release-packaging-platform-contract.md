@@ -1,16 +1,16 @@
-# Release Candidate 由打包平台托管
+# O Release Candidate é hospedado pela plataforma de empacotamento
 
-- 状态：Proposed
-- 日期：2026-08-18
-- 关联规格：`docs/specs/release-platform/release-platform-api-v1.md`
+- Status: Proposed
+- Data: 2026-08-18
+- Especificação relacionada: `docs/specs/release-platform/release-platform-api-v1.md`
 
 ## Context
 
-当前 z-code 的构建和发布已经拆开，但候选 manifest、审批文件和产物仍依赖 GitLab runner 共享目录。这个边界无法被独立打包平台稳定消费，也无法提供统一的重试、审计、幂等和跨平台状态。
+O build e o publish do z-code já foram separados, mas o manifest candidato, os arquivos de aprovação e os artefatos ainda dependem do diretório compartilhado do GitLab runner. Essa fronteira não pode ser consumida de forma estável por uma plataforma de empacotamento independente, nem oferece retry, auditoria, idempotência e estado multiplataforma unificados.
 
 ## Decision
 
-引入版本化的 `release-candidate.v1` 契约，并将打包平台作为 Release Candidate 的唯一状态源：
+Introduzir o contrato versionado `release-candidate.v1` e adopter a plataforma de empacotamento como única fonte de estado do Release Candidate:
 
 ```text
 z-code worker                    Packaging Platform
@@ -20,45 +20,45 @@ submit build result         ---> approval / publication
                                   final latest*.yml + rollout
 ```
 
-z-code worker 不得直接写稳定 feed、调用正式 release API 或持有长期 OSS 凭据。最终唯一的 `latest.yml` 由平台基于不可变 `update.base.yml`、artifact digest 和已审批 notes revision 生成，多语言日志统一写入 `releaseNotesByLocale`。
+O z-code worker não pode escrever diretamente no feed estável, chamar a API de release oficial nem manter credenciais OSS de longo prazo. O `latest.yml` final e único é gerado pela plataforma com base no `update.base.yml` imutável, no artifact digest e na revisão de notes já aprovada; logs multilíngue são gravados de forma unificada em `releaseNotesByLocale`.
 
-跨系统契约固定使用：
+Os contratos entre sistemas usam sempre:
 
 - JSON Schema `release-candidate.v1`
 - REST API `release-platform.v1`
-- CloudEvents 风格状态事件
-- `Idempotency-Key` 和 request ID
-- OIDC/短期 token scope
+- Eventos de estado no estilo CloudEvents
+- `Idempotency-Key` e request ID
+- OIDC / escopo de token de curto prazo
 
 ## Alternatives
 
-### 继续扩展 GitLab CI
+### Continuar estendendo o GitLab CI
 
-实现成本最低，但状态仍绑定 runner、共享目录和 CI YAML；平台接管时需要重新解释内部脚本，重试和审计边界也不清晰。拒绝。
+É o de menor custo de implementação, mas o estado continua preso ao runner, ao diretório compartilhado e ao YAML de CI; quando a plataforma assumir, os scripts internos precisariam ser reinterpretados, e os limites de retry e auditoria ficam pouco claros. Rejeitado.
 
-### 只上传压缩包，不上传标准 manifest
+### Enviar apenas o pacote comprimido, sem o manifest padrão
 
-平台可以存文件，但无法可靠验证版本、平台、digest、基础 update metadata 和 provenance。拒绝。
+A plataforma poderia guardar o arquivo, mas não conseguiria validar de forma confiável versão, plataforma, digest, metadata base de update e provenance. Rejeitado.
 
-### 平台只做审批，z-code 继续发布
+### A plataforma faz apenas a aprovação e o z-code continua publicando
 
-人工体验改善有限，正式 feed/API 仍然由 worker 控制，无法实现权限隔离和统一发布状态。拒绝。
+A experiência manual melhora pouco, o feed/API oficial continua controlado pelo worker e não é possível ter isolamento de permissões nem um estado de publicação unificado. Rejeitado.
 
 ## Consequences
 
-正面影响：
+Impactos positivos:
 
-- 构建 worker 可替换为 GitLab、Buildkite 或自托管 runner。
-- 候选制品可重复发布，日志修改不触发重新打包。
-- 平台能统一管理审批、重试、审计和 gray/stable。
-- runner 不再需要正式 OSS/release API 长期凭据。
+- O worker de build pode ser substituído por GitLab, Buildkite ou um runner self-hosted.
+- Os artefatos candidatos podem ser publicados de forma repetível, e uma modificação de log não dispara um novo empacotamento.
+- A plataforma passa a gerenciar de forma unificada aprovação, retry, auditoria e gray/stable.
+- O runner não precisa mais de credenciais de longo prazo para OSS/release API oficial.
 
-代价与风险：
+Custos e riscos:
 
-- 需要维护一个候选状态服务和对象存储生命周期。
-- v1 契约需要兼容旧 z-code CI 一段迁移期。
-- 平台必须承担 digest 校验、幂等处理和发布失败恢复。
+- É preciso manter um serviço de estado candidato e o ciclo de vida do object storage.
+- O contrato v1 precisa ser compatível com o CI antigo do z-code durante um período de migração.
+- A plataforma deve assumir a verificação de digest, o tratamento de idempotência e a recuperação de falhas de publicação.
 
 ## Rollback
 
-迁移期间保留 z-code 的兼容发布路径开关。若平台不可用，可以回退到旧 CI release 链路；回退不得让 test/sandbox 链路越过正式环境守卫，也不得复用平台未确认的 notes revision。
+Durante a migração, manter uma flag do caminho de publicação compatível do z-code. Se a plataforma estiver indisponível, é possível voltar para a cadeia antiga de release do CI; o rollback não pode deixar os caminhos test/sandbox ultrapassar as guardas do ambiente oficial nem reutilizar uma revisão de notes não confirmada pela plataforma.

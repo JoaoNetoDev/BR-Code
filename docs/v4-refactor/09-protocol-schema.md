@@ -1,20 +1,20 @@
-# Protocol Schema：V4 对话核心闭环
+# Protocol Schema: ciclo central de conversa do V4
 
-本文是 [10-protocol-spec.md](./10-protocol-spec.md) 的结构速查，定义 V4 wire v3、conversation topic、输入意图、查重与 fork 的公共形状。字段语义、限额和 guard 以 10 为准；订阅恢复与背压分别见 [04](./04-sync-and-recovery.md) 和 [05](./05-transport-and-backpressure.md)。
+Este documento é um guia rápido de estrutura de [10-protocol-spec.md](./10-protocol-spec.md), que define a forma comum do wire v3 do V4, do conversation topic, da intenção de entrada, da deduplicação e do fork. A semântica dos campos, os limites e os guards são definidos em 10; a recuperação de assinatura e a contrapressão são vistas em [04](./04-sync-and-recovery.md) e [05](./05-transport-and-backpressure.md), respectivamente.
 
-## 0. 设计立场
+## 0. Posição de projeto
 
-1. UI 只 apply CLI 权威 projection，不从 phase、数组位置或 raw message 推断 queue/fork 状态。
-2. 小对象整体替换；rows 只允许封闭的五种 delta；snapshot 永远原子替换。
-3. 所有已提交输入共享一个 CLI `CommandInbox` FIFO；UI 只保留 draft 与 optimistic overlay。
-4. transport/profile 只能改变中间帧，不能改变 command、queue、row 或最终状态语义。
+1. A UI apenas aplica a projection autoritativa da CLI, sem inferir o estado de queue/fork a partir de phase, posições em array ou mensagens brutas.
+2. Objetos pequenos são substituídos por inteiro; rows permitem apenas cinco deltas fechados; snapshot sempre é substituído atomicamente.
+3. Todas as entradas já submetidas compartilham uma única FIFO `CommandInbox` da CLI; a UI mantém apenas draft e optimistic overlay.
+4. transport/profile só podem alterar quadros intermediários, nunca a semântica de command, queue, row ou do estado final.
 
-## 1. Wire v3 握手与可信连接
+## 1. Handshake do wire v3 e conexão confiável
 
 ```ts
 interface HelloMessage {
   kind: "hello";
-  protocolVersion: 3; // wire version；projection snapshot schema 仍独立版本化
+  protocolVersion: 3; // versão do wire; o schema do snapshot de projection continua versionado à parte
   connectionId: string;
   clientMode: "desktop-continuous" | "web-remote-replayable";
   deliveryProfile: "continuous" | "replayable";
@@ -27,19 +27,19 @@ interface ClientHello {
   kind: "clientHello";
   protocolVersion: 3;
   clientId: string;
-  clientKind?: "desktop" | "web" | "mobileRemote" | "mobileApp"; // 仅遥测/展示
+  clientKind?: "desktop" | "web" | "mobileRemote" | "mobileApp"; // apenas telemetria/exibição
   appVersion: string;
 }
 ```
 
-`connectionId/clientMode/deliveryProfile` 由 host 按 attachment 类型赋值，客户端不能覆盖：桌面（含 SSH/WSL/Docker）=`continuous`，手机 remote/WebSocket=`replayable`。
+`connectionId/clientMode/deliveryProfile` são atribuídos pelo host conforme o tipo de attachment, e o cliente não pode sobrescrevê-los: desktop (incluindo SSH/WSL/Docker) = `continuous`, celular remote/WebSocket = `replayable`.
 
 ```ts
 interface SubscribeParams {
   topic: string;
   base?: { logEpoch: string; seq: number };
   visibility?: "foreground" | "background";
-  // 禁止 clientMode / deliveryProfile / connectionId：connection facade 自动注入。
+  // proibido clientMode / deliveryProfile / connectionId: a facade de conexão injeta automaticamente.
 }
 
 interface SubscribeAck {
@@ -55,11 +55,11 @@ interface ConversationResyncParams {
 }
 ```
 
-方法名：`v4/conversation/subscribe`、`v4/conversation/unsubscribe`、`v4/conversation/resync`。端口关闭等价于对该 `connectionId` 的所有 subscription 执行 unsubscribe。
+Nomes de métodos: `v4/conversation/subscribe`, `v4/conversation/unsubscribe`, `v4/conversation/resync`. O fechamento da porta equivale a executar unsubscribe em todas as subscriptions daquele `connectionId`.
 
-subscribe response 只返回 `SubscribeAck`。ACK 写出后，initial snapshot/resume 与在线帧统一使用 owning attachment 的 `TopicWireFrame` notification；禁止在 response 中内嵌 logical snapshot 或 `frames[]`。
+A response de subscribe retorna apenas `SubscribeAck`. Depois que o ACK é escrito, o snapshot/resume inicial e os quadros online usam uniformemente a notification `TopicWireFrame` do attachment proprietário; é proibido embutir snapshot lógico ou `frames[]` na response.
 
-## 2. Logical TopicFrame 与 physical TopicWireFrame
+## 2. TopicFrame lógico e TopicWireFrame físico
 
 ```ts
 interface TopicFrame<S, D> {
@@ -93,16 +93,16 @@ type TopicWireFrame<S, D> =
     };
 ```
 
-- 每个 physical JSON/RPC frame 连 envelope 严格 `<=1 MiB`。
-- subscriber buffer 在 profile filter + coalesce 后必须同时 `<=500 ops`、`<=max(1 MiB, snapshot 上界)`（见 05 §3）；超限清空并转 resync，下一次只发最新 snapshot。
-- snapshot/resume logical frame 可分片，assembly `<=16 MiB`；校验完整后原子 apply，缺片/冲突/超限触发 resync。
-- `toSeq <= localSeq` 静默丢弃；gap single-flight resync；resume 再 gap 强制 snapshot。
+- Cada quadro físico JSON/RPC, com envelope, deve ter estritamente `<=1 MiB`.
+- O buffer do subscritor, após o filtro de profile e o coalesce, deve respeitar simultaneamente `<=500 ops` e `<=max(1 MiB, limite superior do snapshot)` (ver 05 §3); ao exceder, limpa-se o buffer e inicia-se um resync, e a próxima vez envia apenas o snapshot mais recente.
+- Quadros lógicos de snapshot/resume podem ser fragmentados, com montagem `<=16 MiB`; após a verificação de integridade são aplicados atomicamente; fragmento faltante/conflito/excesso dispara resync.
+- `toSeq <= localSeq` é descartado silenciosamente; gap gera resync single-flight; gap após o resume força snapshot.
 
-## 3. ConversationSnapshot 与权威动作
+## 3. ConversationSnapshot e ações autoritativas
 
 ```ts
 interface ConversationSnapshot {
-  protocolVersion: 1; // projection schema version，与 wire v3 分离
+  protocolVersion: 1; // versão do schema de projection, separada do wire v3
   sessionId: string;
   logEpoch: string;
   seq: number;
@@ -126,7 +126,7 @@ type ActionAvailability =
   | { allowed: false; reasonCode: string };
 
 interface SessionActionAvailability {
-  fork: ActionAvailability; // session/global operation lock；目标资格仍看 row.actions.canFork
+  fork: ActionAvailability; // lock de operação de sessão/global; a elegibilidade do alvo ainda depende de row.actions.canFork
   compact: ActionAvailability;
   switchModelConfig: ActionAvailability;
   setFollowupMode: ActionAvailability;
@@ -142,25 +142,25 @@ interface RowActions {
 }
 ```
 
-UI 展示 fork 的条件来自 `availability.fork` 与目标行 `actions.canFork`，禁止从 `control.phase`、assistant 是否位于数组尾部或 raw message type 自行推断。
+A condição para a UI exibir fork vem de `availability.fork` e de `actions.canFork` da linha alvo; é proibido inferir por conta própria a partir de `control.phase`, de o assistant estar no fim do array ou do tipo de mensagem bruta.
 
-## 4. ConversationInputIntent：输入全字段守恒
+## 4. ConversationInputIntent: conservação total dos campos da entrada
 
 ```ts
 interface ConversationInputIntent {
-  sourceCommandId: string;      // 原始提交 commandId，贯穿所有后续事实
-  queueItemId: string;          // admission 时分配，edit/reorder/reserve/drain 均不变
+  sourceCommandId: string;      // commandId original do submit, percorre todos os fatos posteriores
+  queueItemId: string;          // atribuído na admission; inalterado em edit/reorder/reserve/drain
   clientId: string;
   kind: "sendText" | "sendGoalCommand";
-  text: string;                 // 原文，不存解析后摘要替代值
-  attachments: AttachmentRef[]; // 无附件为 []，避免沿途 undefined 丢字段
+  text: string;                 // texto original, sem substituir por resumo já analisado
+  attachments: AttachmentRef[]; // [] quando não há anexos, evitando perda de campo por undefined no caminho
   delivery: {
     requested: "auto" | "startNow" | "queue" | "guide";
     admitted: "startNow" | "queue" | "guide";
     fallbackReasonCode?: string;
   };
   order: {
-    admissionSeq: number;       // CLI 串行 admission 顺序
+    admissionSeq: number;       // ordem serial de admission da CLI
     queuePosition?: number;
   };
   steer: {
@@ -181,12 +181,12 @@ type QueueItem = ConversationInputIntent & {
 };
 
 interface QueueState {
-  items: QueueItem[]; // 顺序 = CLI admission/reorder 后的权威 FIFO 顺序
+  items: QueueItem[]; // ordem = FIFO autoritativa após admission/reorder da CLI
   autoDrain: boolean;
 }
 ```
 
-同一个 intent 贯穿：
+A mesma intent percorre:
 
 ```text
 CommandInbox admission
@@ -196,26 +196,26 @@ CommandInbox admission
   -> transcript message anchor(sourceCommandId=S)
 ```
 
-guide 不适用、带附件、compact/verifier busy 时必须保留完整 intent 回退普通 queue。empty/oversize/runtime reject 必须返回 `rejected/failed`，不能先清 UI 再丢 payload。
+Quando o guide não se aplica, há anexos, ou compact/verifier está ocupado, a intent completa precisa ser preservada e voltar para a queue comum. Rejeições por vazio/oversize/runtime devem retornar `rejected/failed`; não se pode limpar a UI antes e depois descartar o payload.
 
-`editQueueItem` 原地更新，保留 `queueItemId/sourceCommandId/clientId/order/attachments`；只改明确提交的新字段。`sendQueuedNow` 是：
+`editQueueItem` atualiza no lugar, preservando `queueItemId/sourceCommandId/clientId/order/attachments`; altera somente os campos novos explicitamente submetidos. `sendQueuedNow` é:
 
 ```text
 reserve(Q) -> stop barrier -> start/promote(Q) -> remove(Q)
    │                              │
-   └─ timeout/failure -> release ─┘（原项、原位、原字段保持）
+   └─ timeout/failure -> release ─┘（item original, posição original, campos preservados）
 ```
 
-同一 Q 的连续点击或多端竞争只能有一个 reservation owner。
+Cliques consecutivos no mesmo Q ou concorrência entre múltiplos clientes só podem ter um único dono da reserva.
 
-## 5. Row、marker 与持久化锚点
+## 5. Row, marker e âncoras persistentes
 
 ```ts
 interface UserInputRow extends RowBase {
   kind: "userInput";
   text: string;
   origin: "realUser" | "backgroundResult" | "goalContinuation" | "mailbox" | "synthetic";
-  sourceCommandId?: string; // realUser/guided 必带
+  sourceCommandId?: string; // obrigatório em realUser/guided
   queueItemId?: string;
   clientId?: string;
   guided?: true;
@@ -224,7 +224,7 @@ interface UserInputRow extends RowBase {
 
 interface TimelineMarkerRow extends RowBase {
   kind: "timelineMarker";
-  sourceCommandId?: string; // 用户命令产生的 marker 必带
+  sourceCommandId?: string; // obrigatório em markers gerados por comando do usuário
   marker: TimelineMarker;
 }
 
@@ -237,14 +237,14 @@ interface MessageAnchorMetadata {
 
 interface ChildSessionMetadata {
   parentSessionId: string;
-  sourceCommandId: string; // fork duplicate 返回同一个 child
+  sourceCommandId: string; // o fork duplicate retorna o mesmo child
   forkTarget: StableForkTarget;
 }
 ```
 
-QueueItem、drain event、user row、message anchor、用户产生的 marker 与 fork child metadata 必须保留原始 `sourceCommandId`，禁止 promotion/send-now 换成新命令 id。
+QueueItem, drain event, user row, message anchor, markers gerados pelo usuário e fork child metadata devem preservar o `sourceCommandId` original; é proibido trocar por um novo command id durante promotion/send-now.
 
-## 6. Command ACK、查询与 single-flight
+## 6. ACK de commands, consultas e single-flight
 
 ```ts
 interface CommandKey {
@@ -264,7 +264,7 @@ interface CommandsQueryResult {
 }
 ```
 
-每个 key 的查询顺序固定：
+A ordem de consulta de cada key é fixa:
 
 ```text
 in-memory LRU
@@ -275,11 +275,11 @@ in-memory LRU
   -> unknown
 ```
 
-discarded 命中返回 `CommandAck{status:"failed", reasonCode:"fault.command.inputDiscardedOnRestart", result:{type:"inputDisposition",delivery}}`，不是 `unknown`。同 key 的 `command execute` 与 `commands/query` 共享 single-flight/互斥入口，查询不能在“已开始执行、尚未写 LRU/transcript”的窗口误报 unknown，也不能触发第二次副作用。
+Um acerto em discarded retorna `CommandAck{status:"failed", reasonCode:"fault.command.inputDiscardedOnRestart", result:{type:"inputDisposition",delivery}}`, e não `unknown`. `command execute` e `commands/query` da mesma key compartilham a entrada single-flight/mutex: a consulta não pode reportar `unknown` por engano na janela entre "já começou a executar" e "ainda não escreveu no LRU/transcript", nem disparar um segundo efeito colateral.
 
-UI pending registry TTL 为 24h：普通文本/goal 保存可重发 payload，敏感 interaction 只保存 digest；QueueItem/guided projection 出现立即删除记录。CLI restart 后 discarded `queue/guide` 静默清账，只有未进入 transcript 的 `startNow` 或 `unknown` 提示用户确认重发；绝不自动恢复或自动重放 discarded input。
+O TTL do pending registry da UI é de 24h: texto/goal comuns guardam o payload reenviável; interactions sensíveis guardam apenas digest; assim que a projection de QueueItem/guided aparece, o registro é removido. Após restart da CLI, entradas discarded de `queue/guide` são silenciosamente zeradas, e apenas `startNow` que não entrou no transcript ou `unknown` pedem confirmação do usuário para reenvio; nunca restaurar nem reproduzir automaticamente uma discarded input.
 
-## 7. 稳定 assistant fork
+## 7. Fork estável do assistant
 
 ```ts
 interface StableForkTarget {
@@ -310,19 +310,19 @@ resolveStableForkTarget(target: { rowId: number; entityId: string }, baseLogEpoc
       | "guard.compactOperationLock" };
 ```
 
-唯一合法目标是 `completedSuccess` product turn 的**最后一段 completed assistant**。新数据以持久化 turn anchor 为准；旧数据只在 message/turn 边界唯一时 fallback。
+O único alvo legítimo é o **último bloco completed assistant** de um product turn `completedSuccess`. Para dados novos, vale a âncora de turn persistida; dados antigos só fazem fallback quando o limite message/turn é único.
 
-新数据的最终 assistant anchor 必须在 `TurnComplete` 发布前持久化 raw message segment、boundary 和显式 `goalBoundary`。`goalBoundary` 缺省只表示历史数据；新数据无 goal 必须写 `{ kind: "none" }`，不得用 parent 当前 goal 猜 fork 点状态。`snapshot.verificationEntryIds` 只包含该 transcript boundary 之前已经持久化的 verifier entry。
+A âncora final de assistant dos dados novos precisa ser persistida antes de publicar `TurnComplete`, junto do segmento de mensagem bruta, do limite e do `goalBoundary` explícito. Um `goalBoundary` ausente significa apenas que são dados históricos; dados novos sem goal devem gravar `{ kind: "none" }` e não adivinhar o estado do goal no ponto do fork a partir do goal atual do parent. `snapshot.verificationEntryIds` contém somente as verifier entries já persistidas antes daquele limite do transcript.
 
-- primary turn、foreground subagent、goal continuation、goal verifier running 时，可 fork 更早稳定目标。
-- compact 仍是全局 operation lock。
-- streaming/interrupted/failed partial、中间 assistant 段、user/tool/timeline 一律拒绝。
-- running fork 只复制稳定 transcript、fork 点 config、fork 点前 goal；不复制 queue、active/background work、continuation inbox，不 rewind shared workspace，parent 继续 running。
-- completed/idle 的既有 workspace checkpoint 行为本轮不扩大。
-- 同一 `sourceCommandId` 重试返回同一 child。
-- E10/FX08 按逻辑 turn boundary 复制工具块、工具结果后的最终 assistant 和该 turn 已产生的文件事实，不能只按“最后一条 raw assistant message”截断。
+- Quando há primary turn, foreground subagent, goal continuation ou goal verifier em execução, é possível fork para um alvo estável mais antigo.
+- compact continua sendo um lock de operação global.
+- Streaming/interrupted/failed parcial, blocos intermediários de assistant e user/tool/timeline são sempre rejeitados.
+- Um fork em execução copia apenas o transcript estável, a config no ponto do fork e o goal anterior ao fork; não copia queue, trabalhos active/background, continuation inbox, não faz rewind do shared workspace, e o parent continua rodando.
+- O comportamento já existente de checkpoint de workspace em completed/idle não é ampliado nesta rodada.
+- Uma nova tentativa com o mesmo `sourceCommandId` devolve o mesmo child.
+- E10/FX08 copiam blocos de ferramentas, o assistant final após o resultado das ferramentas e os fatos de arquivos já produzidos naquele turn segundo o limite lógico de turn; não podem truncar apenas pela "última mensagem bruta de assistant".
 
-## 8. Delta 与最终不变量
+## 8. Delta e invariantes finais
 
 ```ts
 type ConversationDelta =
@@ -333,6 +333,6 @@ type ConversationDelta =
   | { op: "state.updated"; patch: StatePatch };
 ```
 
-coalesce 不得跨 `row.removed`；`state.updated` 只做 key 级整体替换；stream path 是封闭白名单。任何结构无法安全表达、buffer 超限或 seq 不连续时，都发 snapshot resync，不在 UI 引入补偿 reducer。
+O coalesce não pode cruzar `row.removed`; `state.updated` faz apenas substituição integral por chave; o stream path é uma whitelist fechada. Sempre que uma estrutura não puder ser expressa com segurança, o buffer exceder o limite ou o seq não for contíguo, envia-se um snapshot resync, sem introduzir reducer de compensação na UI.
 
-最终不变量：每条已提交输入必须且只能处于 `queue / guided row / transcript / explicit rejected|failed|discarded` 之一；任何时刻都不能“UI 已清空，但权威层无记录”。
+Invariante final: cada entrada submetida deve estar, e somente estar, em um destes estados: `queue / guided row / transcript / explicit rejected|failed|discarded`; em nenhum momento pode haver "UI já limpa, mas a camada autoritativa sem registro".

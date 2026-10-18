@@ -1,36 +1,36 @@
-# Chat Input Context Coding Plan Usage
+# Uso do Coding Plan no Context da Caixa de Entrada do Chat
 
-## 背景
+## Contexto
 
-聊天输入框的 context usage 浮层可以同时展示当前任务上下文用量、Start Plan 当日余额和 Coding Plan 剩余额度。侧边栏 footer 不再展示 Usage Remaining，避免和 Usage 页、输入框 context 形成重复入口。
+A camada flutuante de uso de context da caixa de entrada do chat pode exibir simultaneamente o uso de contexto da tarefa atual, o saldo diário do Start Plan e a quota restante do Coding Plan. O footer da barra lateral não exibe mais Usage Remaining, para evitar duplicar a entrada com a página Usage e o context da caixa de entrada.
 
-输入框浮层不同：它贴近当前消息发送模型，展示的 Coding Plan 剩余额度必须跟随用户当前选中的模型 provider，不能因为账号里存在另一家 Coding Plan 权益就显示出来。
+A camada da caixa de entrada é diferente: ela fica próxima do modelo usado no envio da mensagem atual, portanto a quota restante do Coding Plan exibida precisa acompanhar o model provider atualmente selecionado pelo usuário, e não pode aparecer só porque existe outro entitlement de Coding Plan na conta.
 
-## 规则
+## Regras
 
-- 当前选中模型 provider 是 `builtin:zai-coding-plan` 时，context usage 浮层可以展示 Z.ai Coding Plan 剩余额度。
-- 当前选中模型 provider 是 `builtin:bigmodel-coding-plan` 时，context usage 浮层可以展示 BigModel Coding Plan 剩余额度。
-- 当前 BigModel family 连接方式选中 `team-plan:builtin:bigmodel-coding-plan:*` 时，context usage 浮层必须展示该 Team Plan 团队项目的剩余额度；个人 Coding Plan 无权益不能导致 Team Plan 浮层入口消失。
-- 当前选中模型 provider 是 Start Plan、普通 API Key、自定义 provider 或其他非 Coding Plan provider 时，不展示 paid Coding Plan 剩余额度。
-- Start Plan 继续使用独立的 Start Plan balance 面板，不复用 paid Coding Plan 的 quota 展示。
-- 侧边栏 footer 只保留升级/续费入口和账号旁的套餐 badge；剩余额度详情从 Usage 页或输入框 context 查看。
+- Quando o model provider selecionado é `builtin:zai-coding-plan`, a camada de context usage pode exibir a quota restante do Z.ai Coding Plan.
+- Quando o model provider selecionado é `builtin:bigmodel-coding-plan`, a camada de context usage pode exibir a quota restante do BigModel Coding Plan.
+- Quando o método de conexão do family BigModel atual tem `team-plan:builtin:bigmodel-coding-plan:*` selecionado, a camada de context usage deve exibir a quota restante do projeto de equipe desse Team Plan; a ausência de entitlement no Coding Plan pessoal não pode fazer a entrada da camada do Team Plan desaparecer.
+- Quando o model provider selecionado é Start Plan, uma API Key comum, um provider personalizado ou qualquer outro provider que não seja Coding Plan, a quota restante do Coding Plan pago não é exibida.
+- O Start Plan continua usando seu painel de saldo independente, sem reutilizar a exibição de quota do Coding Plan pago.
+- O footer da barra lateral mantém apenas a entrada de upgrade/renovação e o badge de plano ao lado da conta; os detalhes de quota restante são vistos na página Usage ou no context da caixa de entrada.
 
-## 实现约束
+## Restrições de Implementação
 
-- context usage 的 Coding Plan provider 从当前模型值或 custom supplier key 解析。
-- 解析结果只接受 paid Coding Plan provider id；不把 Start Plan 映射回同品牌 paid Coding Plan。
-- BigModel Team Plan 不是新的 provider id；它复用 `builtin:bigmodel-coding-plan` 模型目录，但用 `modelProviderFamilySelectedKeys.bigmodel` 中的 team source key 表达具体团队项目。
-- Team Plan 的 quota 查询必须带上对应 `organizationId` / `projectId`，让服务层复制并使用团队项目 API Key；不能只用 `builtin:bigmodel-coding-plan` 的个人/default 上下文。
-- 传给 context panel 的 provider 和 entitlement 必须过滤到当前模型对应的 paid Coding Plan provider 或 Team Plan source，避免 `resolveCodingPlanUsageRemainingState` 自动回落到另一家有权益的 provider。
+- O Coding Plan provider do context usage é resolvido a partir do valor do modelo atual ou da custom supplier key.
+- O resultado da resolução aceita apenas provider id de Coding Plan pago; o Start Plan não é mapeado de volta para o Coding Plan pago da mesma marca.
+- O BigModel Team Plan não é um novo provider id; ele reutiliza o catálogo de modelos `builtin:bigmodel-coding-plan`, mas expressa o projeto de equipe específico pela team source key em `modelProviderFamilySelectedKeys.bigmodel`.
+- A consulta de quota do Team Plan deve enviar o `organizationId` / `projectId` correspondente, para que a camada de serviço copie e use a API Key do projeto de equipe; não pode usar apenas o contexto pessoal/default de `builtin:bigmodel-coding-plan`.
+- O provider e o entitlement passados ao context panel devem ser filtrados para o Coding Plan provider pago correspondente ao modelo atual ou para a team source do Team Plan, evitando que `resolveCodingPlanUsageRemainingState` caia automaticamente em outro provider com entitlement.
 
-## 额度浮层布局
+## Layout da Camada de Quota
 
-- context usage 浮层固定使用 `w-80`（320px），不能因官方 Server MCP 额度出现而扩宽。
-- 5 小时、Weekly、Tool calls 与官方 Server MCP 共用最多三列的额度网格：主额度少于三张时，MCP 补入同一行，并按总卡片数使用一至三列；主额度已有三张时，MCP 在下一行横跨三列。
-- MCP 与主额度同排时使用相同的纵向卡片结构：标题与 info 图标、剩余百分比与重置日期、进度条；横跨整行时按 `ZCode MCP → 剩余百分比 · 重置日期 → 进度条` 的紧凑横向顺序排列。
-- MCP 行的百分比与进度条继续使用“剩余”口径；进度条复用图表色板的暖黄色 `--color-usage-chart-5`，不再单独维护 MCP 颜色变量。日期空间不足时允许截断，进度条优先保留可读宽度。
-- 主额度已有 3 张时，MCP 贯穿行的进度条宽度必须等于上方单张卡片的进度条宽度，按 `(100% - 16px) / 3` 与 `gap-2` 栅格口径一致。
-- MCP 贯穿行不使用独立背景容器；通过顶部 `border-border` 分隔线与上方三项额度区分。同排卡片不增加分隔线，保持与相邻额度相同的网格节奏。
-- `ZCode MCP` 名称与上方“5 小时 / 每周”标题保持一致，使用 `text-foreground-subtle` 且不额外加粗；不使用金色渐变或流光，黄色只保留在进度条上。
-- `ZCode MCP` 名称后紧跟 info 图标；鼠标悬停或键盘聚焦时，通过统一的 `ControlHintTooltip` 显示“ZCode 预置插件 MCP 每日合计额度”。说明文案必须支持中英文国际化，图标不得挤压右侧剩余量与进度条。
-- 桌面端和手机 Web 端共用同一紧凑布局，不增加仅针对单端的宽度分支。
+- A camada de context usage usa fixamente `w-80` (320px) e não pode ser alargada pela chegada da quota do MCP de servidor oficial.
+- 5 horas, Weekly, Tool calls e o Server MCP oficial compartilham uma grade de quota com no máximo três colunas: quando há menos de três quotas principais, o MCP entra na mesma linha e, conforme o total de cartões, usa de uma a três colunas; quando já existem três quotas principais, o MCP ocupa a linha seguinte atravessando as três colunas.
+- Quando MCP e quotas principais estão na mesma linha, usa-se a mesma estrutura vertical de cartão: título com ícone de info, percentual restante com data de reset e barra de progresso; quando atravessa a linha inteira, a ordem compacta é `ZCode MCP → percentual restante · data de reset → barra de progresso`.
+- O percentual e a barra de progresso da linha do MCP continuam usando a leitura de "restante"; a barra de progresso reaproveita o amarelo quente `--color-usage-chart-5` da paleta de gráficos, e não se mantém mais uma variável de cor específica do MCP. É permitido truncar quando falta espaço para a data, e a barra de progresso preserva prioritariamente uma largura legível.
+- Quando já existem 3 quotas principais, a largura da barra de progresso da linha completa do MCP deve ser igual à barra de progresso de um cartão individual acima, seguindo a mesma métrica de `(100% - 16px) / 3` e a grade `gap-2`.
+- A linha completa do MCP não usa um contêiner de fundo próprio; ela é separada das três quotas acima pela linha `border-border` no topo. Cartões na mesma linha não recebem divisor adicional, mantendo o mesmo ritmo de grade das quotas vizinhas.
+- O nome `ZCode MCP` é consistente com os títulos "5 horas / semanal" acima, usa `text-foreground-subtle` e não recebe negrito adicional; não há gradiente dourado nem efeito de brilho, e o amarelo fica somente na barra de progresso.
+- O nome `ZCode MCP` é seguido de imediato pelo ícone de info; ao passar o mouse ou focar pelo teclado, o `ControlHintTooltip` unificado exibe "quota diária total dos plugins MCP pré-instalados do ZCode". O texto explicativo precisa suportar internacionalização em chinês e inglês, e o ícone não pode comprimir o espaço do percentual restante e da barra de progresso à direita.
+- Desktop e Web mobile compartilham o mesmo layout compacto, sem adicionar ramificações de largura específicas de uma única plataforma.

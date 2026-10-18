@@ -1,34 +1,34 @@
-# Git 未验收需求清单
+# Lista de Requisitos Git Não Aceitos
 
-更新日期：2026-04-09
+Data de atualização: 2026-04-09
 
-## 说明
+## Descrição
 
-本文档列出来自 `requirements-review.md` 中所有 `验收状态` 为 `未验收` 的需求项，共 5 项。
+Este documento lista todos os itens de requisito de `requirements-review.md` cujo `验收状态` (status de aceitação) é `未验收` (não aceito), totalizando 5 itens.
 
-## 未验收需求
+## Requisitos Não Aceitos
 
-### 1. 超大 Diff 处理
-超大 diff 给出裁剪提示
+### 1. Tratamento de Diff Enorme
+Exibir um aviso de truncamento para diffs enormes.
 
-### 2. Patch 生成失败处理
-无法生成 patch 时给出不可用提示
+### 2. Tratamento de Falha na Geração de Patch
+Exibir um aviso de indisponibilidade quando não for possível gerar o patch.
 
-### 3. 空态处理 - 无改动
-当前版本至少处理"当前来源没有任何改动"空态
+### 3. Tratamento de Estado Vazio — Sem Alterações
+A versão atual trata pelo menos o estado vazio de "a origem atual não tem nenhuma alteração".
 
-### 4. 空态处理 - 无法预览
-当前版本至少处理"diff 无法预览"空态
+### 4. Tratamento de Estado Vazio — Sem Pré-visualização
+A versão atual trata pelo menos o estado vazio de "o diff não pode ser pré-visualizado".
 
-### 5. 跨平台兼容
-保持本地 / 远程 / 多操作系统兼容方向
+### 5. Compatibilidade entre Plataformas
+Manter a direção de compatibilidade entre local / remoto / múltiplos sistemas operacionais.
 
-## 验收进度
+## Progresso de Aceitação
 
-| 已验收 | 未验收 |
+| Aceito | Não aceito |
 |-------|--------|
 | 8/13  | 5/13   |
 
 ---
 
-> 完整需求清单请参考 [`requirements-review.md`](./requirements-review.md)
+> Para a lista completa de requisitos, consulte [`requirements-review.md`](./requirements-review.md)

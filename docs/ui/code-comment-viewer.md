@@ -1,27 +1,47 @@
 # Code Comment Viewer
 
-代码查看面板支持在行级范围上添加本地 comment，用作后续对话上下文能力的交互入口。
+O painel de visualização de código permite adicionar comments locais em um intervalo de linhas, funcionando como
+ponto de entrada interativo para a capacidade de contexto em conversas posteriores.
 
-## 交互范围
+## Escopo de interação
 
-- hover 行号栏时显示添加 comment 按钮。
-- 桌面端 hover / focus 添加 comment 按钮时在按钮右侧显示轻量 tooltip，提示支持点击或拖拽；手机端不依赖 hover，点击仍直接进入评论输入。
-- 点击按钮为单行添加 comment；按住并拖过其他行可选择连续行范围。
-- 松开拖拽后，在范围末行下方打开 comment 输入框；comment 文本可不填，直接提交时只把代码范围作为会话上下文。
-- 提交后，comment 预览显示在对应范围末行下方；删除预览不会修改源文件。
-- 提交后的 comment 会作为聚合 chip 显示在聊天输入框顶部，形态和普通附件一致。
-- 移除聊天输入框里的 comment chip 时，会同步清理 code viewer 中的本地预览。
-- 可以从其他项目的 code viewer 把 comment 添加到当前对话框；附件会保留来源 `workspacePath` / `workspaceIdentity` 和完整文件路径。
-- 关闭文件 tab 后，再打开同一 workspace + 文件路径时，会从 renderer 内的 preview store 恢复尚未提交/移除的 comment 预览。
+- ao passar o mouse sobre a barra de números de linha, aparece o botão de adicionar comment.
+- no desktop, ao passar o mouse ou focar o botão de adicionar comment, exibe-se à direita dele um tooltip leve
+  indicando que é possível clicar ou arrastar; no celular não há dependência de hover, e o clique entra diretamente na
+  entrada de comentário.
+- clicar no botão adiciona um comment em uma única linha; pressionar e arrastar sobre outras linhas seleciona um
+  intervalo contínuo de linhas.
+- ao soltar o arraste, a caixa de entrada do comment abre abaixo da última linha do intervalo; o texto do comment pode
+  ficar vazio e, ao enviar diretamente, apenas o intervalo de código é usado como contexto da sessão.
+- após o envio, a pré-visualização do comment aparece abaixo da última linha do intervalo; excluir a pré-visualização
+  não modifica o arquivo de origem.
+- o comment enviado é exibido como um chip agregado no topo da caixa de entrada do chat, com o mesmo formato de um
+  anexo comum.
+- ao remover o chip do comment na caixa de entrada do chat, a pré-visualização local no code viewer é limpa em
+  sincronia.
+- é possível adicionar um comment a partir do code viewer de outro projeto à conversa atual; o anexo preserva a origem
+  `workspacePath` / `workspaceIdentity` e o caminho completo do arquivo.
+- ao fechar a tab do arquivo, ao reabrir o mesmo workspace + caminho de arquivo as pré-visualizações de comments ainda
+  não enviadas/removidas são restauradas a partir do preview store dentro do renderer.
 
-## 实现边界
+## Limites de implementação
 
-- 当前阶段完成 code viewer 内的交互、本地预览，以及 composer 顶部和用户消息里的 comment 附件展示。
-- comment 不写入源文件。
-- comment preview 只在当前 renderer 生命周期内保存；刷新窗口或重启应用后不会恢复。
-- 发送 prompt 时，复用 `codeCommentContext` 中的结构化 prompt 工具拼接上下文；跨项目 comment 使用来源 workspace 信息做 preview 清理，不使用当前 composer 的 workspace 过滤添加事件。
-- 添加 comment 按钮继续使用 `@pierre/diffs` 内建 gutter utility 与 `onGutterUtilityClick`，tooltip 仅通过 Shadow DOM 内 unsafeCSS 和 `title` / `aria-label` 增强，不切换到自定义 `renderGutterUtility`，避免破坏拖拽选择多行范围。
+- nesta fase são concluídas a interação dentro do code viewer, a pré-visualização local e a exibição dos anexos de
+  comment no topo do composer e nas mensagens do usuário.
+- o comment não é gravado no arquivo de origem.
+- o comment preview só é mantido durante o ciclo de vida atual do renderer; após recarregar a janela ou reiniciar o
+  aplicativo, não é restaurado.
+- ao enviar o prompt, o contexto é montado reaproveitando as ferramentas de prompt estruturado em `codeCommentContext`;
+  comments entre projetos usam a informação de workspace de origem para limpar a pré-visualização e não usam o filtro
+  de workspace do composer atual para o evento de adição.
+- o botão de adicionar comment continua usando a gutter utility embutida de `@pierre/diffs` com
+  `onGutterUtilityClick`; o tooltip é melhorado apenas por `unsafeCSS` dentro do Shadow DOM e por `title` /
+  `aria-label`, sem migrar para um `renderGutterUtility` customizado, para não quebrar a seleção de múltiplas linhas por
+  arraste.
 
-## 布局说明
+## Explicação de layout
 
-普通代码行使用父级 grid 的行号列和代码列。comment 输入框/预览需要在横向滚动时固定在可视区域内，因此使用 sticky 的内部 grid；内部 grid 的内容列起点通过读取父 grid 中真实 code cell 的左边界对齐，避免行号位数变化导致错位。
+As linhas normais de código usam a coluna de números de linha e a coluna de código do grid pai. A caixa de entrada /
+pré-visualização do comment precisa permanecer fixa na área visível durante a rolagem horizontal, por isso usa um grid
+interno com sticky; o início da coluna de conteúdo do grid interno é alinhado lendo a borda esquerda da célula real de
+código no grid pai, evitando desalinhamento quando a quantidade de dígitos dos números de linha muda.

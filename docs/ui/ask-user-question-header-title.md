@@ -1,30 +1,46 @@
-# AskUserQuestion 移动端问题弹窗展示
+# Exibição do Diálogo de Pergunta do AskUserQuestion no Mobile
 
-## 背景
+## Contexto
 
-AskUserQuestion / elicitation 面板头部为了保持紧凑曾单行截断问题文本，并通过 hover title 兜底。该方式在桌面端可勉强查看完整内容，但移动 Web 远控没有 hover，用户会直接感知为“问题显示不完全”。
+O cabeçalho do painel AskUserQuestion / elicitation chegou a truncar o texto da pergunta em uma única linha para se
+manter compacto, com um title no hover como fallback. Isso funcionava de forma aceitável no desktop, mas o controle
+remoto Web mobile não tem hover, e o usuário percebe diretamente que "a pergunta não aparece por completo".
 
-移动端进一步存在视口高度不足的问题：长问题和多选项会占据大半屏，用户需要临时查看上下文时，不能只能通过提交或忽略来关闭阻塞问题弹窗。
+No mobile há ainda o problema de altura insuficiente de viewport: perguntas longas e muitas opções ocupam metade da
+tela, e quando o usuário precisa consultar temporariamente o contexto, não pode simplesmente fechar o diálogo
+bloqueante por meio de enviar ou ignorar.
 
-## 方案
+## Solução
 
-- 面板问题区采用 `<tag> <question>` 顺序：tag 在前，question 紧随其后。
-- 桌面端 question 不单行截断，必须自然换行展示完整文案。
-- 移动端长 question 默认限制为 4 行，并提供“展开问题 / 收起问题”按钮；展开后可完整阅读题干。
-- 移动端弹窗整体提供“折叠问题弹窗 / 展开问题弹窗”按钮。折叠后只保留紧凑摘要行、题号和展开按钮，隐藏选项区与底部动作，方便用户查看上下文。
-- 整体折叠只影响当前客户端 UI 状态，不响应、不取消、不修改 AskUserQuestion 请求；用户重新展开后继续使用原选项和草稿。
-- question 文案使用 `leading-6`，保证长问题换行后有足够行间距；选项答案文案保持紧凑高度。
-- 问题正文仍保留原生 `title`，作为桌面端复制/hover 的辅助能力，但不能作为唯一完整阅读路径。
-- 长 header 仍可在顶部用 Badge 紧凑展示，避免挤压翻页控件。
-- 选项文案按自然阅读顺序展示：标题在前，描述紧随其后。文案区域不使用 flex 布局，避免标题和描述被分散到不符合阅读顺序的位置。
-- 该能力不改变 AskUserQuestion 的协议、回答内容、任务流或 remote replayable/desktop continuous 语义。
+- a área de pergunta do painel adota a ordem `<tag> <question>`: tag primeiro, question logo em seguida.
+- no desktop a question não é truncada em uma linha e deve quebrar naturalmente mostrando o texto completo.
+- no mobile a question longa é limitada por padrão a 4 linhas, com os botões "expandir pergunta / recolher
+  pergunta"; após expandir, o enunciado pode ser lido por completo.
+- o diálogo no mobile oferece, de forma geral, os botões "recolher diálogo de pergunta / expandir diálogo de
+  pergunta". Após
+  recolher, resta apenas uma linha de resumo compacta, o número da pergunta e o botão de expandir, ocultando a área de
+  opções e as ações do rodapé, para facilitar a consulta do contexto.
+- a recolha completa afeta apenas o estado de UI do cliente atual; não responde, não cancela e não modifica a requisição
+  AskUserQuestion; ao expandir novamente, o usuário continua usando as opções e o rascunho originais.
+- o texto da question usa `leading-6`, garantindo espaçamento de linha suficiente após a quebra; o texto das opções de
+  resposta mantém altura compacta.
+- o corpo da pergunta continua com o `title` nativo, como apoio para copiar/hover no desktop, mas não pode ser o único
+  caminho de leitura completa.
+- um header longo ainda pode ser exibido de forma compacta no topo com um Badge, evitando espremer os controles de
+  paginação.
+- o texto das opções segue a ordem natural de leitura: título primeiro, descrição logo em seguida. A área de texto não
+  usa layout flex, evitando que título e descrição fiquem espalhados em posições fora da ordem de leitura.
+- essa capacidade não altera o protocolo, o conteúdo da resposta, o fluxo da tarefa nem a semântica de remote
+  replayable/desktop continuous do AskUserQuestion.
 
-## 验收
+## Aceitação
 
-- 长问题在桌面端无需 hover 即可完整阅读；移动端可通过“展开问题”完整阅读。
-- tag 与 question 按顺序展示，question 不使用 `truncate`。
-- question 使用 `leading-6`，选项标题和选项描述不被 question 行距调整影响。
-- 翻页控件不被长问题挤压。
-- 选项标题和描述在同一个文本流中展示，描述跟在标题后自然换行。
-- 移动端可以折叠整个问题弹窗，并在折叠摘要里重新展开，不影响任务流或回答草稿。
-- SSR 输出中包含完整问题的可见正文和 `title` 属性，避免后续回归。
+- perguntas longas podem ser lidas por completo no desktop sem hover; no mobile, por meio de "expandir pergunta".
+- tag e question são exibidos em ordem, e question não usa `truncate`.
+- question usa `leading-6`, e o ajuste de entrelinha da question não afeta o título nem a descrição das opções.
+- os controles de paginação não são espremidos por perguntas longas.
+- o título e a descrição das opções são exibidos no mesmo fluxo de texto, com a descrição quebrando naturalmente após o
+  título.
+- é possível recolher todo o diálogo de pergunta no mobile e expandi-lo novamente pelo resumo recolhido, sem afetar o
+  fluxo da tarefa nem o rascunho da resposta.
+- a saída do SSR contém o corpo visível da pergunta completa e o atributo `title`, evitando regressões futuras.

@@ -1,43 +1,37 @@
 # CLI Agent Trace
 
-本目录定义 `apps/zcode-cli` 内部 Agent 的 OpenTelemetry 执行链路。文档分为核心规范和专题参考
-两个层级：核心规范定义稳定的设计、边界和接入方式；专题参考展开底层概念、完整字段以及运行时与
-运维细节。
+Este diretório define a cadeia de execução OpenTelemetry do Agent interno de `apps/zcode-cli`. A documentação é dividida em dois níveis: a especificação central define design, fronteiras e forma de integração estáveis; as referências temáticas expandem conceitos de baixo nível, campos completos e detalhes de runtime e operação.
 
-## 文档结构
+## Estrutura da documentação
 
-| 层级     | 文档                                                                     | 内容                                                       |
-| -------- | ------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| 核心规范 | [CLI Agent Telemetry 设计与开发规范](./cli-agent-telemetry.md)           | 数据模型、链路拓扑、设计原则、接入方式、隐私约束和查询     |
-| 专题参考 | [OpenTelemetry 概念与 ZCode 取舍](./reference/otel-concepts.md)          | Resource、Context、SpanContext、Parent、Link、Event 等     |
-| 专题参考 | [Span、Attribute、Event 与 Metric 字典](./reference/schema-reference.md) | 完整字段、枚举、缺失语义、兼容投影、事件和指标             |
-| 专题参考 | [Runtime、隐私、性能与 ARMS 参考](./reference/runtime-and-operations.md) | Runtime 生命周期、传播、脱敏、容量、测试、查询和 Dashboard |
+| Nível            | Documento                                                                        | Conteúdo                                                            |
+| ---------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Especificação central | [Especificação de Design e Desenvolvimento do CLI Agent Telemetry](./cli-agent-telemetry.md) | Modelo de dados, topologia da cadeia, princípios de design, integração, restrições de privacidade e consultas |
+| Referência temática | [Conceitos de OpenTelemetry e escolhas do ZCode](./reference/otel-concepts.md)   | Resource, Context, SpanContext, Parent, Link, Event etc.             |
+| Referência temática | [Dicionário de Span, Attribute, Event e Metric](./reference/schema-reference.md) | Campos completos, enums, semântica de ausência, projeções de compatibilidade, eventos e métricas |
+| Referência temática | [Referência de Runtime, Privacidade, Performance e ARMS](./reference/runtime-and-operations.md) | Ciclo de vida do Runtime, propagação, mascaramento, capacidade, testes, consultas e Dashboard |
 
-核心规范与专题参考共同描述当前实现：设计原则和业务接入以核心规范为准；字段定义、运行时行为和
-平台统计口径以相应专题参考为准；方法签名和类型约束以 TypeScript Contracts 为准。
+A especificação central e as referências temáticas descrevem em conjunto a implementação atual: princípios de design e integração de negócio seguem a especificação central; definições de campos, comportamento de runtime e métricas de plataforma seguem a referência temática correspondente; assinaturas de método e restrições de tipo seguem os TypeScript Contracts.
 
-## 相邻但独立的本地观测
+## Observação local adjacente, mas independente
 
-- [Desktop Renderer 用户操作 Trace](./desktop-renderer-user-action-trace.md)
-- [CLI 本地 Usage Observability](../../apps/zcode-cli/docs/design/v2/usage-observability.md)
-- [CLI 本地 Debug Observability](../../apps/zcode-cli/docs/design/v2/debug-observability.md)
+- [Trace de ações do usuário do Desktop Renderer](./desktop-renderer-user-action-trace.md)
+- [Usage Observability local do CLI](../../apps/zcode-cli/docs/design/v2/usage-observability.md)
+- [Debug Observability local do CLI](../../apps/zcode-cli/docs/design/v2/debug-observability.md)
 
-Desktop Renderer Trace 只记录 Desktop UI 语义操作，不传播到 CLI；Usage 和 Debug 文档保留在
-CLI 包内，分别描述本地 SQLite 事实源和本地调试设施。它们不属于 CLI Agent ARMS Trace Schema，
-可用于 Trace 对账和故障诊断。
+O Trace do Desktop Renderer registra apenas ações semânticas da UI do Desktop e não é propagado para o CLI; os documentos de Usage e Debug permanecem dentro do pacote do CLI e descrevem, respectivamente, a fonte de fatos local em SQLite e a infraestrutura de depuração local. Eles não pertencem ao CLI Agent ARMS Trace Schema e podem ser usados para reconciliação de traces e diagnóstico de falhas.
 
-## 历史设计
+## Design histórico
 
-以下文档只用于追溯，不得作为新增 Span、Attribute、Event、Metric、查询或大盘的依据：
+Os documentos a seguir servem apenas para rastreabilidade e não podem ser a base para novos Span, Attribute, Event, Metric, consultas ou dashboards:
 
-- [V1 Model API 可观测设计](./archive/model-api-observability-v1.md)
-- [V2 Turn Trace 可观测设计](./archive/turn-trace-observability-v2.md)
-- [V4 → V5 升级设计](./archive/telemetry-v4-to-v5-upgrade-design.md)
+- [Design de observabilidade do Model API V1](./archive/model-api-observability-v1.md)
+- [Design de observabilidade do Turn Trace V2](./archive/turn-trace-observability-v2.md)
+- [Design da atualização V4 → V5](./archive/telemetry-v4-to-v5-upgrade-design.md)
 
-## 文档维护规则
+## Regras de manutenção da documentação
 
-1. 整体原则、接入接口或系统边界变化时，更新核心规范。
-2. 新增或修改 Span、Attribute、Event、Metric、枚举、兼容别名、隐私或统计口径时，必须更新
-   对应专题参考；完整字段字典必须随代码变更同步维护。
-3. 阶段性评审和迁移方案完成后移入 `archive/`，不在主目录保留多个版本。
-4. 代码、测试、ARMS 查询和 Dashboard 不得依赖归档文档。
+1. Quando princípios gerais, interfaces de integração ou fronteiras do sistema mudarem, atualizar a especificação central.
+2. Ao adicionar ou modificar Span, Attribute, Event, Metric, enums, aliases de compatibilidade, privacidade ou métricas, é obrigatório atualizar a referência temática correspondente; o dicionário completo de campos precisa ser mantido sincronizado com as mudanças de código.
+3. Revisões pontuais e planos de migração concluídos vão para `archive/`, sem manter várias versões no diretório principal.
+4. Código, testes, consultas ARMS e Dashboards não devem depender de documentos arquivados.

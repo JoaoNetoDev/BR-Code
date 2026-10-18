@@ -1,13 +1,13 @@
-# Store Listing 元数据放在市场目录层，展示时目录优先、manifest 回退
+# Metadados de Listagem da Loja na Camada do Catálogo do Marketplace, com prioridade do catálogo na exibição e fallback para o manifest
 
-插件商店化重设计需要 icon、hero 图、示例提示词、隐私/条款链接等展示元数据。我们决定把这些字段放在**市场目录**（marketplace.json 条目）而不是插件包内的 plugin.json：官方 CDN 只改目录 JSON 就能调整商店呈现（含 featured 名单），无需重新打包发布 zip；内置插件的目录由仓内 `official-plugin-definitions.ts` 生成，同样在仓内补字段。展示时目录 listing 字段优先，缺失则回退到 plugin.json 已有的 author/homepage——这让从未写过 listing 的个人来源插件也能免费获得开发者/网站信息行。
+O redesenho da loja de plugins precisa de metadados de exibição como icon, imagem hero, prompts de exemplo e links de privacidade/termos. Decidimos colocar esses campos no **catálogo do marketplace** (entradas de marketplace.json) em vez do plugin.json dentro do pacote do plugin: o CDN oficial consegue ajustar a apresentação da loja (inclusive a lista de featured) apenas alterando o JSON do catálogo, sem precisar reempacotar e republicar o zip; o catálogo dos plugins embutidos é gerado pelo `official-plugin-definitions.ts` no repositório, e os campos também são preenchidos lá. Na exibição, os campos de listing do catálogo têm prioridade e, quando ausentes, há fallback para o author/homepage já existente no plugin.json — assim, plugins de origem pessoal que nunca escreveram listing também obtêm de graça a linha de informações do desenvolvedor/site.
 
 ## Considered Options
 
-- **manifest 内嵌**（listing 写进 plugin.json）：改一个作者名/换一张图都要重发 zip + 改 sha256，运营成本不可接受；个人来源插件依然不会有 icon，问题没解决。
-- **独立 listing 服务/接口**：多一个网络依赖与失败模式，目录 JSON 本来就是逐条描述插件的地方，没必要。
+- **Embutido no manifest** (listing escrito no plugin.json): alterar um nome de autor ou trocar uma imagem exige republicar o zip e mudar o sha256, com custo operacional inaceitável; plugins de origem pessoal continuam sem icon, e o problema não é resolvido.
+- **Serviço/interface de listing separado**: mais uma dependência de rede e mais um modo de falha; o JSON do catálogo já é justamente o lugar onde cada plugin é descrito, não há necessidade.
 
 ## Consequences
 
-- CDN marketplace.json 与内置 seed 生成逻辑成为商店呈现的事实来源；wire 类型（AvailablePluginSummary 等）需要把 listing 字段和 manifest 回退字段一路透传到 UI。
-- 同一信息可能在两处存在且不一致（目录说作者是 A，manifest 说是 B）——按本决定，UI 永远信目录。
+- O CDN marketplace.json e a lógica de geração do seed embutido passam a ser a fonte de verdade da apresentação da loja; os tipos de wire (AvailablePluginSummary etc.) precisam propagar os campos de listing e os campos de fallback do manifesto até a UI.
+- A mesma informação pode existir em dois lugares e ficar inconsistente (o catálogo diz que o autor é A, o manifesto diz que é B) — por esta decisão, a UI sempre confia no catálogo.

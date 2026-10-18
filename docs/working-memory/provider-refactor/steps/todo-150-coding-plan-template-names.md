@@ -1,24 +1,24 @@
-# Todo150：Coding Plan 模板名称去掉 API
+# Todo150: Remover API dos nomes dos templates do Coding Plan
 
-状态：已实现并完成定向验证、代码复审；未推送、未发布线上配置，待实机展示验收。
+Estado: implementado e com verificação direcionada e revisão de código concluídas; não enviado, sem publicação de configuração online, aguardando aceitação na máquina real.
 
-## 范围与约束
+## Escopo e restrições
 
-- 添加供应商上排名称改为 `BigModel Coding Plan`、`Z.ai Coding Plan`，中英文一致。
-- 下排普通 API 为 `BigModel API`、`Z.ai API`。
-- 只修改 Built-in 的 `templateNameMap`，复用页面现有读取逻辑，不加前端特判。
-- 保留模板 ID、Access、URL、模型配置与已有 Personal Provider 名称，不做数据迁移。
-- 生产配置 revision 升至 28，通过现有脚本生成测试配置；不自动发布远端配置。
-- 本条延续并取代 [Todo111](./todo-111-zhipu-coding-plan-api-key-and-standard-api-templates.md) 的历史模板命名。
+- O nome na linha superior ao adicionar um provider foi alterado para `BigModel Coding Plan` e `Z.ai Coding Plan`, igual em chinês e inglês.
+- A API comum na linha inferior ficou `BigModel API` e `Z.ai API`.
+- Apenas o `templateNameMap` do Built-in foi modificado, reutilizando a lógica de leitura já existente na página, sem adicionar casos especiais no frontend.
+- Mantidos o ID do template, Access, URL, a configuração de modelos e os nomes de Personal Provider já existentes, sem migração de dados.
+- A revision da configuração de produção subiu para 28; a configuração de teste é gerada pelos scripts existentes; a configuração remota não é publicada automaticamente.
+- Este item continua e substitui a nomenclatura histórica de templates de [Todo111](./todo-111-zhipu-coding-plan-api-key-and-standard-api-templates.md).
 
-## 实施与验收（2026-09-14）
+## Implementação e aceitação (2026-09-14)
 
-2026-09-15 补充：按用户指定品牌写法，将两个模板的 `Z.AI` 改为 `Z.ai`。仅改模板中英文名称，并生成测试配置；不扩大为账号 Provider、历史文档或用户个人名称的全局替换。新增生产／测试配置断言，并在现有双主题浏览器图标用例中核对卡片及 tooltip 名称。
+Complemento de 2026-09-15: conforme a grafia de marca especificada pelo usuário, `Z.AI` foi alterado para `Z.ai` nos dois templates. Apenas os nomes em chinês e inglês dos templates foram alterados, e a configuração de teste foi gerada; não foi ampliado para uma substituição global em conta Provider, documentos históricos ou nomes pessoais de usuário. Foram adicionadas as asserções de configuração de produção/teste e a verificação dos nomes do cartão e do tooltip no caso de navegador de duplo tema já existente.
 
-补充验证：名称单测先红 2 项；修改后 Zhipu／OpenRouter 两文件 18 项通过，Pro 双主题 Z.ai 图标与模板名称、OpenRouter 名称共 4 个浏览器用例通过。tooltip 检查后显式按 Escape 关闭并等待消失，避免前一提示影响下一卡片。typecheck、Desktop typecheck:e2e、配置同步检查、架构检查通过，lint 0 错误、42 条既有警告。浏览器 pending 不替代完整安装包／手机远控验收，未发布线上配置。
+Verificação complementar: os testes unitários de nome falharam primeiro em 2 casos; após a modificação, 18 casos nos arquivos Zhipu/OpenRouter passaram, assim como 4 casos de navegador cobrindo o ícone Z.ai nos dois temas do Pro, o nome dos templates e o nome do OpenRouter. Após a verificação do tooltip, ele é fechado explicitamente com Escape e awaited até sumir, evitando que o hint anterior afete o próximo cartão. typecheck, Desktop typecheck:e2e, verificação de sincronia de configuração e verificação de arquitetura passaram; lint com 0 erros e 42 warnings preexistentes. O pending do navegador não substitui a aceitação do pacote completo / controle remoto do celular, e a configuração online não foi publicada.
 
-- [x] 实现提交：`b43bcb2588`。
-- [x] 先补名称断言并确认失败，修改后模板与配置完整性测试共 15 项通过。
-- [x] 生产／测试配置同步检查、typecheck、格式检查通过；lint 0 错误、42 条既有警告；架构检查 0 违规。
-- [x] 复审确认配置仅修改名称及 revision，普通 API 与其他行为不变。
-- [ ] 配置发布后，实机确认添加供应商页面两张卡片名称正确；本轮未执行桌面／手机界面验收。
+- [x] Commit de implementação: `b43bcb2588`.
+- [x] Asserções de nome adicionadas primeiro e falha confirmada; após a modificação, 15 casos de integridade de template e configuração passaram.
+- [x] Verificação de sincronia de configuração de produção/teste, typecheck e verificação de formatação passaram; lint com 0 erros e 42 warnings preexistentes; verificação de arquitetura com 0 violações.
+- [x] A revisão confirmou que a configuração alterou apenas nomes e revision, e que a API comum e os demais comportamentos permanecem inalterados.
+- [ ] Após a publicação da configuração, confirmar na máquina real se os nomes das duas cartas da página de adição de provider estão corretos; nesta rodada não foi executada a aceitação de interface do desktop/celular.

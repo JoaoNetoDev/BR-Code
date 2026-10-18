@@ -1,58 +1,49 @@
 # Agent Model Runtime Platform Headers
 
-## 背景
+## Contexto
 
-Agent 模型请求已经携带 `User-Agent`、`X-ZCode-App-Version`、`X-Title`、`x-request-id`
-和 `x-session-id` 等来源与请求归因 header。后端排查模型请求时，还需要知道发起请求的
-agent runtime 所在机器的操作系统、CPU 架构和系统版本，用来区分 macOS、Windows、Linux
-以及远程 workspace 上的运行环境。
+As requisições de modelo do Agent já carregam headers de origem e atribuição de requisição como `User-Agent`, `X-ZCode-App-Version`, `X-Title`, `x-request-id` e `x-session-id`. Ao investigar as requisições de modelo, o backend ainda precisa saber o sistema operacional, a arquitetura de CPU e a versão do sistema da máquina onde está o agent runtime que fez a requisição, para distinguir macOS, Windows, Linux e os ambientes de execução em workspaces remotos.
 
-## 目标
+## Objetivo
 
-- 所有 zcode-cli agent 模型请求默认携带运行环境 header：
+- Todas as requisições de modelo do agent do zcode-cli carregam por padrão headers do ambiente de execução:
   - `X-Platform`: `${process.platform}-${arch()}`
   - `X-Os-Category`: `macos` / `windows` / `linux`
   - `X-Os-Version`: `release()`
-- header 语义表示真正发起模型请求的 agent runtime 机器。远程 SSH / WSL / Docker workspace
-  由远端 zcode-cli runtime 生成 header，因此记录远端环境，不记录本机桌面或手机 `/remote`
-  客户端环境。
-- 复用 app 侧已有的 header 名称，不新增 `X-ZCode-OS` / `X-ZCode-Arch` / `X-ZCode-OS-Version`。
-- header 值只允许可打印 ASCII；无法生成安全值时省略对应可选 header，避免 HTTP fetch
-  在发送前因非法 header value 失败。
-- 用户在 provider config 中显式配置同名 header 时继续覆盖默认环境 header。
+- A semântica dos headers representa a máquina do agent runtime que realmente fez a requisição de modelo. Workspaces remotos SSH / WSL / Docker geram os headers pelo zcode-cli runtime remoto, portanto registram o ambiente remoto e não o ambiente do desktop local ou do cliente `/remote` no celular.
+- Reaproveitar os nomes de header já existentes no lado do app, sem adicionar `X-ZCode-OS` / `X-ZCode-Arch` / `X-ZCode-OS-Version`.
+- Os valores de header só podem ser ASCII imprimível; quando não for possível gerar um valor seguro, omitir o header opcional correspondente, evitando que o HTTP fetch falhe antes do envio por valor de header inválido.
+- Quando o usuário configura explicitamente um header de mesmo nome no provider config, a configuração do usuário continua sobrescrevendo o header de ambiente padrão.
 
-## 非目标
+## Fora de escopo
 
-- 不修改 `@zcode/protocol`，这些环境信息不需要从 app 传给 agent。
-- 不改变 `x-request-id`、`x-zcode-trace-id`、`x-session-id`、`x-query-id` 的请求级归因语义。
-- 不把手机 `/remote` 的设备信息写入 agent 模型请求 header。
-- 不新增环境变量或用户可见设置。
+- Não modificar o `@zcode/protocol`; essas informações de ambiente não precisam ser passadas do app para o agent.
+- Não alterar a semântica de atribuição por requisição de `x-request-id`, `x-zcode-trace-id`, `x-session-id`, `x-query-id`.
+- Não escrever informações de dispositivo do `/remote` do celular nos headers de requisição de modelo do agent.
+- Não adicionar variáveis de ambiente nem configurações visíveis ao usuário.
 
-## 设计
+## Design
 
-运行环境 header 在 `apps/zcode-cli/packages/bootstrap/src/model-config.ts` 的 provider 默认
-header 生成阶段构造，和 `User-Agent`、`X-ZCode-App-Version`、`X-Title`、`X-ZCode-Agent`
-保持同一层级。
+Os headers de ambiente de execução são construídos na etapa de geração dos headers padrão do provider em `apps/zcode-cli/packages/bootstrap/src/model-config.ts`, no mesmo nível de `User-Agent`, `X-ZCode-App-Version`, `X-Title` e `X-ZCode-Agent`.
 
-合并顺序保持现状：
+A ordem de mesclagem permanece como está:
 
-1. bootstrap 生成 provider 默认 header。
-2. provider config 中的 `target.headers` 覆盖默认 header。
-3. adapter 在单次 `generateText` / `streamText` 请求发送前合入请求级归因 header。
+1. O bootstrap gera os headers padrão do provider.
+2. `target.headers` do provider config sobrescreve os headers padrão.
+3. O adapter mescla os headers de atribuição por requisição antes do envio de cada requisição `generateText` / `streamText`.
 
-这样平台 header 不会污染 session/request 动态归因，也不会绕过用户显式 provider header
-配置。
+Assim os headers de plataforma não poluem a atribuição dinâmica de session/request nem contornam a configuração explícita de headers do provider pelo usuário.
 
-## 覆盖矩阵
+## Matriz de Cobertura
 
-| Case ID | Setup | Action | Assertions | Evidence |
+| Case ID | Setup | Action | Assertions | Evidência |
 | --- | --- | --- | --- | --- |
-| AMRPH-001 | 默认 provider config 无自定义 header | 创建 AI SDK provider registry config | provider headers 包含 `X-Platform`、`X-Os-Category`、`X-Os-Version` | bootstrap 单测 |
-| AMRPH-002 | provider config 显式设置同名 header | 创建 AI SDK provider registry config | 用户配置覆盖默认平台 header | bootstrap 单测 |
-| AMRPH-003 | provider headers 已含平台 header | 创建 `generateText` 请求 options | 平台 header 与 `x-request-id`、`x-session-id` 等请求级归因 header 共存 | adapter options 单测 |
+| AMRPH-001 | provider config padrão sem header customizado | Criar a config de registry do provider do AI SDK | Os provider headers contêm `X-Platform`, `X-Os-Category` e `X-Os-Version` | Teste unitário do bootstrap |
+| AMRPH-002 | provider config define explicitamente um header de mesmo nome | Criar a config de registry do provider do AI SDK | A configuração do usuário sobrescreve o header de plataforma padrão | Teste unitário do bootstrap |
+| AMRPH-003 | Os provider headers já contêm os headers de plataforma | Criar as options da requisição `generateText` | O header de plataforma coexiste com headers de atribuição por requisição como `x-request-id` e `x-session-id` | Teste unitário de options do adapter |
 
-## 验证
+## Verificação
 
-- 执行 `pnpm --dir apps/zcode-cli --filter @zcode/bootstrap test -- model-config`。
-- 执行 `pnpm --dir apps/zcode-cli --filter @zcode/adapters test -- runner-options`。
-- 按仓库要求执行 `pnpm typecheck` 和 `pnpm lint`。
+- Executar `pnpm --dir apps/zcode-cli --filter @zcode/bootstrap test -- model-config`.
+- Executar `pnpm --dir apps/zcode-cli --filter @zcode/adapters test -- runner-options`.
+- Executar `pnpm typecheck` e `pnpm lint` conforme exigido pelo repositório.

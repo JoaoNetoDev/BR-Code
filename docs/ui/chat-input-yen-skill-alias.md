@@ -1,32 +1,32 @@
-# Chat Input Yen Skill Alias
+# Alias de skill com yen no input do chat
 
-## 背景
+## Contexto
 
-聊天输入框用 `$` 触发 skill mention。中文和日文输入环境里，用户可能更容易输入 `¥` 或全角 `￥`，导致无法唤起 skill 面板。
+O campo de entrada do chat usa `$` para disparar o mention de skill. Em ambientes de entrada em chinês e japonês, o usuário pode digitar `¥` ou `￥` com mais facilidade, o que impede a exibição do painel de skills.
 
-## 目标
+## Objetivos
 
-- 用户在聊天输入框中输入 `¥` 或 `￥` 时，把它们作为 `$` 的触发别名唤起 skill mention 面板。
-- 别名只影响 trigger 识别语义，不在输入进入编辑器前把用户手输字符改写成 `$`。
-- 选择候选后继续复用现有 `$` skill mention token 插入和发送解析逻辑。
-- 行为在桌面端、本地 Web 和手机远控输入框中一致。
+- Quando o usuário digitar `¥` ou `￥` no campo de entrada do chat, tratá-los como alias de disparo de `$` para abrir o painel de mention de skill.
+- O alias afeta apenas a semântica de reconhecimento do trigger; não reescreve para `$` o caractere digitado manualmente pelo usuário antes de a entrada entrar no editor.
+- Após a seleção de um candidato, continua reutilizando a lógica existente de inserção do token de mention de skill `$` e de parsing de envio.
+- O comportamento é consistente nos campos de entrada do desktop, da Web local e do controle remoto do celular.
 
-## 边界
+## Limites
 
-- trigger 提取层识别 `¥` / `￥`，并把它们归一到现有 `$` skill trigger 分支。
-- 不新增独立的 `¥` trigger 类型，不新增独立面板，不修改 `$` 候选来源。
-- 不修改协议和 agent 解析层；候选选择后的 mention markdown 仍使用现有 `$skill` 语义。
+- A camada de extração do trigger reconhece `¥` / `￥` e os normaliza para o branch existente de trigger de skill `$`.
+- Não é criado um novo tipo de trigger `¥`, nem um painel separado, nem alterada a origem dos candidatos de `$`.
+- Não se modificam o protocolo nem a camada de parsing do agent; após a seleção do candidato, o markdown do mention continua usando a semântica `$skill` existente.
 
-## 兼容性
+## Compatibilidade
 
-- 逻辑位于 `packages/ui` 的 prompt trigger 解析层，桌面端、本地 Web 和手机远控复用同一输入组件与面板逻辑。
-- 不涉及 `@zcode/protocol`，不影响 session、continuous/replayable 实时消息流、远控 snapshot 或 task command queue。
-- `$` 原有输入、匹配、筛选和 mention 插入行为保持不变。
+- A lógica fica na camada de parsing de prompt trigger de `packages/ui`; desktop, Web local e controle remoto do celular reutilizam o mesmo componente de entrada e a mesma lógica de painel.
+- Não envolve `@zcode/protocol` nem afeta session, fluxo de mensagens em tempo real continuous/replayable, snapshot do controle remoto ou task command queue.
+- O comportamento original de `$` em digitação, correspondência, filtro e inserção de mention permanece inalterado.
 
-## 验收
+## Aceitação
 
-- 输入 `¥` 后，按 `$` 的空 query skill trigger 打开 skill mention 面板。
-- 输入 `￥code` 后，按 `$code` 过滤 skill 候选。
-- 选择候选后，`¥code` / `￥code` 被替换为现有 skill mention token，markdown 仍等同 `$skill`。
-- 不会在用户手输 `¥` 的瞬间把编辑器内容改写成 `$`。
-- 原有 `、` 位于全文开头时归一为 `/` 的行为保持不变。
+- Após digitar `¥`, o painel de mention de skill abre como o trigger de skill com query vazia do `$`.
+- Após digitar `￥code`, os candidatos de skill são filtrados como em `$code`.
+- Após selecionar o candidato, `¥code` / `￥code` é substituído pelo token de mention de skill existente, com markdown ainda equivalente a `$skill`.
+- O conteúdo do editor não é reescrito para `$` no instante em que o usuário digita `¥`.
+- O comportamento existente de normalização de `、` no início do texto inteiro para `/` permanece inalterado.

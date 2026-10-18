@@ -1,30 +1,30 @@
-# 桌面端输入框右键菜单国际化 Spec
+# Spec de internacionalização do menu de contexto nativo da caixa de entrada no desktop
 
-## 背景
+## Contexto
 
-桌面端输入框的右键菜单由 Electron 主进程监听 `context-menu` 事件后动态弹出。菜单项目前只设置了 Electron `role`，没有设置 `label`，因此文案由 Electron/操作系统默认语言决定，可能与 ZCode 当前应用语言不一致。
+O menu de contexto da caixa de entrada no desktop é exibido dinamicamente pelo processo principal do Electron ao ouvir o evento `context-menu`. Os itens do menu hoje definem apenas a `role` do Electron, sem `label`, portanto os textos ficam determinados pelo idioma padrão do Electron/sistema operacional, o que pode divergir do idioma atual do aplicativo ZCode.
 
-## 目标
+## Objetivos
 
-- 桌面端可编辑文本输入框的右键菜单（撤销、重做、剪切、复制、粘贴、删除、全选）使用当前应用 locale 的文案。
-- 保留 Electron `role` 和 `editFlags`，不改变原生编辑行为及禁用状态。
-- 应用切换语言后，下一次打开右键菜单立即使用新语言，不需要重启窗口。
+- O menu de contexto das caixas de texto editáveis no desktop (desfazer, refazer, recortar, copiar, colar, excluir, selecionar tudo) usa os textos do locale atual do aplicativo.
+- Preservar a `role` e as `editFlags` do Electron, sem alterar o comportamento nativo de edição nem os estados de desabilitado.
+- Depois de trocar o idioma do aplicativo, a próxima abertura do menu de contexto já usa o novo idioma, sem precisar reiniciar a janela.
 
-## 非目标与边界
+## Não objetivos e limites
 
-- 不修改手机 Web/远程 Web 的浏览器原生右键菜单；该菜单由浏览器控制，应用无法直接注入应用文案。
-- 不把输入框右键菜单改造成 React/DOM 自定义菜单。
-- 不改变选中文本、内置浏览器或终端的其他右键菜单。
+- Não modificar o menu de contexto nativo do navegador no Web móvel/Web remoto; esse menu é controlado pelo navegador, e o aplicativo não consegue injetar textos diretamente.
+- Não transformar o menu de contexto da caixa de entrada em um menu customizado em React/DOM.
+- Não alterar outros menus de contexto de texto selecionado, do navegador embutido ou do terminal.
 
-## 实现约束
+## Restrições de implementação
 
-- 菜单标签复用 `packages/shared/src/desktopMenu.ts` 的桌面菜单 locale 表。
-- 右键菜单创建时通过 locale getter 读取最新应用语言，而不是在窗口创建时固化语言。
-- `Delete` 补充独立的桌面菜单 message id，确保右键菜单中的全部操作都有中英文文案。
+- Os rótulos do menu reutilizam a tabela de locale do menu desktop em `packages/shared/src/desktopMenu.ts`.
+- Na criação do menu de contexto, o idioma atual do aplicativo é lido por um getter de locale, em vez de ser fixado no momento da criação da janela.
+- `Delete` recebe um id de message próprio do menu desktop, garantindo que todas as ações do menu de contexto tenham textos em chinês e em inglês.
 
-## 验收标准
+## Critérios de aceitação
 
-1. `zh-CN` 下编辑输入框右键菜单显示：撤销、重做、剪切、复制、粘贴、删除、全选。
-2. `en-US` 下显示：Undo、Redo、Cut、Copy、Paste、Delete、Select all。
-3. 各菜单项的 `role` 与 `enabled` 状态保持现有 `ContextMenuParams.editFlags` 结果。
-4. locale getter 在弹出菜单时读取，因此切换语言后无需重建 BrowserWindow。
+1. Em `zh-CN`, o menu de contexto da caixa de edição exibe: 撤销、重做、剪切、复制、粘贴、删除、全选.
+2. Em `en-US`, exibe: Undo, Redo, Cut, Copy, Paste, Delete, Select all.
+3. A `role` e o estado `enabled` de cada item do menu permanecem conforme o resultado atual de `ContextMenuParams.editFlags`.
+4. O getter de locale é lido no momento em que o menu é exibido, portanto trocar o idioma não exige recriar a BrowserWindow.

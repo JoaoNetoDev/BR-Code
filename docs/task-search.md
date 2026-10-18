@@ -1,9 +1,8 @@
 # Task Search
 
-侧栏“新建任务”下方提供“搜索”入口，快捷键为 `Cmd/Ctrl+K`。入口打开统一 Command Center；空搜索时展示当前任务最近变更、最近任务和分组命令，输入关键词后按命令、任务正文和文件匹配当前已打开 workspace 的 active 任务与文件。
+Abaixo de "Nova tarefa" na barra lateral há a entrada "Buscar", com o atalho `Cmd/Ctrl+K`. A entrada abre o Command Center unificado; com a busca vazia, são exibidas as alterações recentes da tarefa atual, as tarefas recentes e os comandos agrupados. Depois de digitar uma palavra-chave, a busca faz correspondência por comando, corpo da tarefa e arquivo nas tarefas ativas e nos arquivos do workspace aberto, usando os comandos, o corpo da tarefa e o nome do arquivo como chaves.
 
-搜索数据仍通过各 workspace scope 对应的 `zcodeTaskService.listTaskList` 获取：本地 workspace 通过本窗口
-共用的 Local Host，并按 workspaceKey 隔离查询；远程 workspace 查询对应 remote session 所属的 Remote Host。
-workspace scope 不代表独立 Host 进程。UI 不直接读取 session JSON，避免绕过 desktop / web remote 的服务边界。
+Os dados de busca continuam sendo obtidos por meio de `zcodeTaskService.listTaskList` correspondente a cada escopo de workspace: o workspace local usa o Local Host compartilhado por esta janela, com as consultas isoladas por workspaceKey; o workspace remoto consulta o Remote Host ao qual pertence a remote session correspondente.
+O escopo de workspace não representa um processo de Host independente. A UI não lê o JSON da session diretamente, evitando contornar os limites de serviço de desktop / web remote.
 
-为支持正文搜索，task sqlite 索引新增 `searchable_text` 字段。保存 task 时同步消息正文；旧会话在 schema migration 3 中从 session 快照回填。正文索引最多保留 200000 字符，避免长会话无限放大 `tasks-index.sqlite`。
+Para viabilizar a busca no corpo das tarefas, o índice sqlite de tasks ganhou o campo `searchable_text`. Ao salvar uma task, o corpo das mensagens é sincronizado; sessões antigas são preenchidas a partir do snapshot da session na schema migration 3. O índice de corpo guarda no máximo 200000 caracteres, evitando que sessões longas expandam indefinidamente o `tasks-index.sqlite`.

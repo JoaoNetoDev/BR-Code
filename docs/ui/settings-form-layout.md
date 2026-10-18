@@ -1,51 +1,49 @@
-# Settings Form Layout
+# Layout dos Formulários de Configurações
 
-## 背景
+## Contexto
 
-设置页里的新建和编辑表单沿用轻量卡片边界，但不增加卡片背景色。圆角、边框和内边距继续提供表单分组，透明背景避免从列表进入表单时产生过重的嵌套层级，桌面和 Web 端保持一致的信息密度。
+Os formulários de criação e edição da página de configurações seguem uma borda de cartão leve, sem adicionar cor de fundo ao cartão. Cantos arredondados, borda e padding continuam fornecendo o agrupamento do formulário; o fundo transparente evita uma hierarquia de aninhamento excessiva ao entrar no formulário a partir de uma lista, e desktop e Web mantêm a mesma densidade de informação.
 
-## 规范
+## Especificação
 
-- 表单根容器使用自然的 `space-y-*` 纵向布局，并保留 `rounded-xl border border-border p-4`
-  卡片边界，但不使用 `bg-card` 背景；Subagent、MCP Server、Command、Hook 表单统一遵守此规则。
-- 表单标题下方说明文字使用 `text-ui-base text-foreground-subtle`。
-- 自动化的定时任务与闲时任务新建/编辑页在面包屑后统一展示内容区标题和副标题：标题使用
-  `text-ui-xl font-semibold text-foreground`，副标题使用上述辅助信息样式；标题根据新建/编辑状态切换，
-  不用任务名称代替页面动作标题。
-- 字段 label 使用 `text-ui-base font-medium text-foreground-subtle`。
-- 普通字段使用现有 `Input` / `Textarea` / `Select` 组件和 `size="lg"`。
-- Subagent 表单的 Model picker 虽复用工具栏 `ModelConfigSelect`，其 trigger 必须使用
-  `bg-clip-border` 覆盖 Button 基础 `bg-clip-padding`，保持与普通 Select 相同的输入背景边界。
-- 多行字段统一使用设置页共享 Textarea，直接在 textarea 根节点应用
-  `rounded-lg border border-input-border bg-input px-2 py-2`，不增加仅用于视觉样式的容器。
-- `SelectTrigger` 不使用 `bg-clip-padding`，避免透明卡片内的选择器产生额外的背景裁切层次。
-- Hook Runner 使用与 Scope、Event 一致的 `size="lg"` Select；`process` 与 `command`
-  仍是互斥执行模式，并继续联动下方 Args 或 Shell/Async 字段。
-- 新建/编辑资源表单复用统一操作栏：删除操作仅在编辑态出现并放在左侧；Save 与 Cancel
-  放在右侧，顺序固定为 Save → Cancel。窄屏允许操作栏纵向排列，但 Save 与 Cancel
-  仍保持右对齐。字段提示放在操作区上方，不占用按钮的水平起点。
-- Hook 表单首行在桌面端并列展示 Scope、Event、Runner，窄屏回落为单列；Matcher 与
-  Command 组成执行配置双列。Timeout、Status message、Custom JSON 收入默认折叠的
-  Advanced 区域，降低首屏高度。
-- Hook 列表中的 User / Workspace tabs 与新会话生效提示同排展示，提示紧跟在 tabs 右边，
-  不贴容器右侧；窄屏允许换行。提示使用普通辅助文字，不增加卡片背景、边框、圆角或整块内边距。
-- Hook 资源在设置侧栏、列表项和插件能力详情中统一使用 `Anchor` 图标；真正的 Webhook
-  渠道仍使用 `Webhook` 图标。
-- 名称和作用域需要作为同一行的主身份信息展示：名称字段保持常规表单宽度，不撑满整行；作用域使用模型设置“连接方式”同款内联 label + `SelectTrigger size="lg"` 样式贴右侧，下拉触发器按文字内容自然宽度展示；窄屏下自然折行。
-- 资源表单里的短身份字段保持宽度一致，例如 MCP 服务器的“名称”和“类型”、命令的“名称”都使用 `w-48`。
-- 底部主操作区右对齐，取消按钮使用 `ghost`，保存按钮使用 `default`；新建和编辑场景的主操作文案统一为“保存”，不混用“添加”或“创建”。
-- 保存按钮统一在表单有效时启用：必填字段、名称格式、模型选择及 JSON 配置均参与即时有效性判断；
-  保存请求进行中继续禁用，避免重复提交。具体错误信息仍由提交校验或字段交互显示。
-- 技能、MCP 服务器、命令等资源列表头部的操作区优先放置“新建”按钮，再放导入、打开目录、刷新等辅助操作。
-- 返回列表按钮使用带左箭头图标的 `variant="link" size="sm"`，默认 `text-foreground-subtle`，hover 为 `text-foreground` 且不显示下划线，用 `-ml-2` 抵消视觉缩进，保证文字和表单内容左边缘对齐。
-- 表单/JSON 等模式切换放在标题行右侧，复用使用统计范围切换样式：`h-8 rounded-lg border border-border bg-background p-1` 外层，选中项使用 `data-active:bg-secondary data-active:text-foreground`。
-- 新建 MCP 服务器的类型下拉暂时不展示 `Streamable HTTP`，原因是该传输类型还需要 Agent 侧支持后再开放。
+- O container raiz do formulário usa o layout vertical natural `space-y-*` e mantém a borda de
+  cartão `rounded-xl border border-border p-4`, mas sem usar o fundo `bg-card`; os formulários de Subagent, MCP Server, Command e Hook seguem essa regra de forma unificada.
+- O texto explicativo abaixo do título do formulário usa `text-ui-base text-foreground-subtle`.
+- As páginas de criação/edição de tarefas agendadas e de tarefas off-peak mostram, de forma unificada após o breadcrumb, o título e o subtítulo da área de conteúdo: o título usa
+  `text-ui-xl font-semibold text-foreground` e o subtítulo usa o estilo de informação auxiliar acima; o título alterna conforme o estado de criação/edição,
+  sem substituir o título de ação da página pelo nome da task.
+- Os labels de campo usam `text-ui-base font-medium text-foreground-subtle`.
+- Campos comuns usam os componentes existentes `Input` / `Textarea` / `Select` e `size="lg"`.
+- O Model picker do formulário de Subagent reaproveita o `ModelConfigSelect` da barra de ferramentas, mas seu trigger precisa usar
+  `bg-clip-border` para sobrescrever o `bg-clip-padding` base do Button, mantendo a mesma borda de fundo de input de um Select comum.
+- Campos de múltiplas linhas usam uniformemente o Textarea compartilhado da página de configurações, aplicando
+  `rounded-lg border border-input-border bg-input px-2 py-2` diretamente no nó raiz do textarea, sem adicionar contêineres que sirvam apenas ao estilo visual.
+- `SelectTrigger` não usa `bg-clip-padding`, evitando que o seletor dentro do cartão transparente produza uma camada extra de recorte de fundo.
+- O Hook Runner usa um Select com `size="lg"` consistente com Scope e Event; `process` e `command`
+  continuam sendo modos de execução mutuamente exclusivos e continuam acoplando os campos Args ou Shell/Async abaixo.
+- Os formulários de criação/edição de recursos reaproveitam uma barra de ações unificada: a ação de exclusão aparece apenas no estado de edição e fica à esquerda; Save e Cancel
+  ficam à direita, na ordem fixa Save → Cancel. Em telas estreitas a barra de ações pode empilhar verticalmente, mas Save e Cancel
+  continuam alinhados à direita. As dicas de campo ficam acima da área de ações, sem ocupar o início horizontal dos botões.
+- A primeira linha do formulário de Hook exibe Scope, Event e Runner lado a lado no desktop e volta a uma coluna em tela estreita; Matcher e
+  Command formam as duas colunas da configuração de execução. Timeout, Status message e Custom JSON vão para a área Advanced, colapsada por padrão, reduzindo a altura da primeira tela.
+- As tabs User / Workspace da lista de Hooks são exibidas na mesma linha do aviso de «aplicado a novas sessões», com o aviso logo à direita
+  das tabs e sem encostar no lado direito do contêiner; em tela estreita a quebra de linha é permitida. O aviso usa texto auxiliar comum, sem fundo de cartão, borda, cantos arredondados ou bloco de padding.
+- O recurso Hook usa uniformemente o ícone `Anchor` na barra lateral de configurações, nos itens de lista e nos detalhes de capacidade do plugin; o canal Webhook real continua usando o ícone `Webhook`.
+- Nome e escopo precisam ser exibidos como a informação de identidade principal na mesma linha: o campo de nome mantém a largura convencional de formulário, sem ocupar a linha inteira; o escopo usa o mesmo label inline + `SelectTrigger size="lg"` das configurações de modelo em «Modo de conexão», colado à direita, com o trigger do dropdown mostrando a largura natural do conteúdo do texto; em tela estreita a quebra natural acontece.
+- Campos curtos de identidade nos formulários de recursos mantêm a largura consistente, por exemplo «Nome» e «Tipo» do servidor MCP e «Nome» do comando usam `w-48`.
+- A área principal de ação na parte inferior é alinhada à direita, o botão de cancelar usa `ghost` e o de salvar usa `default`; o texto da ação principal é uniformemente «Salvar» tanto na criação quanto na edição, sem misturar «Adicionar» ou «Criar».
+- O botão de salvar é habilitado uniformemente quando o formulário é válido: campos obrigatórios, formato do nome, seleção de modelo e configuração de JSON participam da avaliação imediata de validade;
+  o botão continua desabilitado enquanto a requisição de salvar está em andamento, evitando envio duplicado. As mensagens de erro específicas continuam sendo exibidas pela validação de envio ou pela interação com o campo.
+- Nas cabeçalhos das listas de recursos como habilidades, servidores MCP e comandos, a área de ações prioriza o botão «Novo», seguido pelas ações auxiliares de importação, abrir diretório e atualizar.
+- O botão de voltar para a lista usa `variant="link" size="sm"` com ícone de seta à esquerda, com `text-foreground-subtle` por padrão, `text-foreground` no hover e sem sublinhado, usando `-ml-2` para compensar o recuo visual e garantir o alinhamento da borda esquerda entre o texto e o conteúdo do formulário.
+- A alternância de modos como Formulário/JSON fica à direita da linha do título, reaproveitando o estilo da alternância de escopo das estatísticas de uso: contêiner externo `h-8 rounded-lg border border-border bg-background p-1`, com o item selecionado usando `data-active:bg-secondary data-active:text-foreground`.
+- O dropdown de tipo do novo servidor MCP não exibe `Streamable HTTP` por enquanto, porque esse tipo de transporte ainda precisa de suporte do lado do Agent antes de ser liberado.
 
-## 当前覆盖
+## Cobertura atual
 
-- 模型设置：新建模型供应商。
-- MCP 服务器：新建/编辑 MCP 服务器。
-- 命令：新建/编辑命令。
-- Subagent：新建/编辑用户 Subagent。
-- Hook：新建/编辑用户或工作区 Hook。
-- 自动化：新建/编辑定时任务与闲时任务。
+- Configurações de modelo: novo provedor de modelo.
+- Servidores MCP: criar/editar servidor MCP.
+- Comandos: criar/editar comando.
+- Subagent: criar/editar Subagent de usuário.
+- Hook: criar/editar Hook de usuário ou de workspace.
+- Automação: criar/editar tarefa agendada e tarefa off-peak.

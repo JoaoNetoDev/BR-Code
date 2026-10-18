@@ -1,56 +1,38 @@
-# Git 自动刷新
+# Refresh automático do Git
 
-## 背景
+## Contexto
 
-顶部 Git 操作入口和底部 Git 分支切换器都依赖 `useGitRepository` 读取的
-`GitRepositorySummary`。历史实现只在 workspace 切换、Git pane 打开、用户手动刷新，
-以及 Git 操作完成后重拉状态；如果用户在外部编辑器修改文件或切换分支，UI 会停留在旧状态。
+Tanto a entrada de operações Git no topo quanto o seletor de branch do Git na parte inferior dependem do `GitRepositorySummary` lido por `useGitRepository`. A implementação histórica só reabria o estado na troca de workspace, na abertura do Git pane, no refresh manual do usuário e após a conclusão de uma operação Git; se o usuário alterasse arquivos em um editor externo ou trocasse de branch, a UI ficaria presa ao estado antigo.
 
-## 实现
+## Implementação
 
-`useGitAutoRefresh` 在当前 workspace 可见且 Git 可用时，根据 workspace Host 的平台和
-`gitSummary.autoRefreshWatchPaths` 注册 `fileWatcherService.watch()`。Git service 只返回
-Git 自身解析出的 gitdir/common-dir 元数据路径，避免把 workspace 内容路径作为跨端共享的
-递归监听事实源；这同时兼容 monorepo 子目录和 linked worktree。
+`useGitAutoRefresh` registra `fileWatcherService.watch()` com base na plataforma do workspace Host e em `gitSummary.autoRefreshWatchPaths`, quando o workspace atual está visível e o Git está disponível. O Git service só devolve os caminhos de metadados de gitdir/common-dir resolvidos pelo próprio Git, evitando usar o caminho de conteúdo do workspace como fonte de verdade de escuta recursiva compartilhada entre plataformas; isso também torna a solução compatível com subdiretórios de monorepo e linked worktree.
 
-- macOS / Windows workspace：保留 workspace 内容路径的递归 watcher，并补充 Git 元数据路径。
-- Linux workspace（包含本地 Linux、SSH、WSL、Docker）：只监听 Git 元数据路径，不递归监听
-  整个 workspace。Linux 上的递归 `fs.watch` 需要遍历子目录，在慢挂载或大型生成目录下会
-  阻塞 workspace Host，进而延迟 task/session RPC。
-- workspace Host 平台尚未返回，或旧 server summary 仍携带 workspace 内容路径时：按 Linux
-  的保守策略处理，不注册 workspace 递归 watcher；手动刷新和 Git 操作完成后的刷新链路保持不变。
+- Workspace macOS / Windows: mantém o watcher recursivo do caminho de conteúdo do workspace e complementa com os caminhos de metadados do Git.
+- Workspace Linux (incluindo Linux local, SSH, WSL, Docker): escuta apenas os caminhos de metadados do Git, sem escuta recursiva de todo o workspace. O `fs.watch` recursivo no Linux precisa percorrer subdiretórios e bloqueia o workspace Host em montagens lentas ou diretórios grandes gerados, atrasando o RPC de task/session.
+- Quando a plataforma do workspace Host ainda não foi retornada, ou quando um server summary antigo ainda carrega o caminho de conteúdo do workspace: tratar com a estratégia conservadora do Linux, sem registrar o watcher recursivo do workspace; a cadeia de refresh manual e de refresh após operações Git permanece inalterada.
 
-事件到达后，hook 会做 1 分钟防抖，然后触发现有 `onRefreshGit()`，复用原来的
-`gitRefreshVersion` 刷新链路。
+Depois que o evento chega, o hook aplica um debounce de 1 minuto e então dispara o `onRefreshGit()` já existente, reutilizando a cadeia de refresh original do `gitRefreshVersion`.
 
-这条链路覆盖：
+Esta cadeia cobre:
 
-- macOS / Windows 外部编辑器修改、创建、删除文件后，顶部 Git 操作入口重新判断 dirty 状态。
-- 所有平台的外部命令切换分支、提交、stage/unstage 后，底部分支名和 push/commit 入口同步更新。
-- Linux workspace 的工作树外部编辑不会由 workspace watcher 触发即时 dirty 刷新；用户可手动刷新，
-  ZCode/Git 操作完成后的既有刷新链路不变。
-- 远程 workspace 继续通过 workspace-scoped services 注册 watcher；WSL/SSH/Docker 的平台事实
-  来自远端 Host 的 `systemService.info()`，不能使用桌面端平台判断。远程断连或平台不支持
-  watch 时，监听失败只记录 warn，保留手动刷新和操作后刷新链路。
+- Após criação, alteração ou exclusão de arquivos por um editor externo no macOS / Windows, a entrada de operações Git no topo reavalia o estado dirty.
+- Após troca de branch, commit e stage/unstage por comandos externos, em todas as plataformas, o nome da branch na parte inferior e as entradas de push/commit são atualizados em sincronia.
+- Edição externa da working tree em um workspace Linux não dispara um refresh dirty imediato vindo do watcher do workspace; o usuário pode fazer o refresh manual, e a cadeia de refresh já existente após operações ZCode/Git permanece inalterada.
+- Workspaces remotos continuam registrando o watcher por meio dos services com escopo de workspace; os fatos de plataforma de WSL/SSH/Docker vêm do `systemService.info()` do Host remoto e não podem usar a decisão de plataforma do desktop. Em caso de queda de conexão remota ou de plataforma sem suporte a watch, a falha na escuta é apenas registrada como warn, preservando as cadeias de refresh manual e pós-operação.
 
-## 取舍
+## Trade-offs
 
-这里没有使用固定间隔轮询。轮询会在大仓库和远程 workspace 上持续产生 Git CLI/RPC 开销；
-事件触发只在文件系统实际变化时刷新，更适合桌面端和 Web 远控共享的工作区模型。
+Aqui não foi usado polling com intervalo fixo. O polling geraria custo contínuo de Git CLI/RPC em repositórios grandes e workspaces remotos; a atualização por evento só refresca quando o sistema de arquivos realmente muda, o que se ajusta melhor ao modelo de workspace compartilhado entre o desktop e o controle remoto Web.
 
-## 大仓库状态降级
+## Degradação de status em repositórios grandes
 
-`git status --untracked-files=all` 的详细输出可能因为缓存目录或生成产物包含上万个未跟踪文件而
-超过 Git 命令的输出预算。此时不能直接放大预算：详细状态返回后还会逐个读取未跟踪文件统计行数，
-会把一次 UI 刷新放大成上万次并发文件读取。
+A saída detalhada de `git status --untracked-files=all` pode ultrapassar o orçamento de saída do comando Git quando diretórios de cache ou artefatos gerados contêm dezenas de milhares de arquivos não rastreados. Nesse caso não é possível simplesmente aumentar o orçamento: depois de retornar o status detalhado, as linhas de estatística dos arquivos não rastreados ainda são lidas uma a uma, o que amplifica um único refresh de UI em dezenas de milhares de leituras concorrentes de arquivo.
 
-Git repo 在首次发现详细状态超限后，必须对当前 `repoRoot` 做运行期能力降级：
+Depois de detectar pela primeira vez que o status detalhado excedeu o limite, o Git repo precisa fazer uma degradação de capacidade em tempo de execução para o `repoRoot` atual:
 
-- 重新执行 `git status --untracked-files=normal`，把未跟踪目录折叠成目录级记录，保证分支、
-  tracked change、dirty 状态和可操作的未跟踪入口仍能返回。
-- 同一个 repo 实例内后续刷新直接使用折叠模式，不再重复触发一次必然超限的详细命令。
-- 降级只按实际路径语义的 `repoRoot` 建 key，不使用 `workspaceIdentity`；不同远端 server 的
-  Git service 进程天然隔离。
-- 正常规模仓库仍使用 `--untracked-files=all`，保持逐文件展示语义不变。
-- 第一次降级记录一条 `warn`，后续刷新不重复刷相同告警；折叠模式仍超限时继续按真实失败处理，
-  不解析被截断的 Git 输出。
+- Reexecutar `git status --untracked-files=normal`, colapsando diretórios não rastreados em registros de nível de diretório, garantindo que branch, tracked change, estado dirty e a entrada acionável de não rastreados ainda sejam retornados.
+- Nos refreshes seguintes dentro da mesma instância de repo, usar diretamente o modo colapsado, sem disparar de novo um comando detalhado que inevitavelmente excederia o limite.
+- A degradação é chaveada pelo `repoRoot` com semântica de caminho real, sem usar `workspaceIdentity`; os processos de Git service de servidores remotos diferentes já são isolados naturalmente.
+- Repositórios em escala normal continuam usando `--untracked-files=all`, preservando a semântica de exibição arquivo a arquivo.
+- A primeira degradação registra um `warn`; os refreshes seguintes não repetem o mesmo alerta. Se o modo colapsado ainda exceder o limite, tratar como uma falha real, sem fazer parsing da saída do Git truncada.

@@ -1,10 +1,10 @@
-# 11 个可直接修复 E2E 失败实施计划
+# Plano de implementação para 11 falhas de E2E corrigíveis diretamente
 
-> 依据：`docs/superpowers/specs/2026-07-17-e2e-direct-failure-repairs-design.md`
+> Baseado em: `docs/superpowers/specs/2026-07-17-e2e-direct-failure-repairs-design.md`
 
-1. 为 WDIO Coding Plan mock spec gate 添加失败测试，补入 Turbo recovery/switch 两个正式 spec。
-2. 为 restart/settings DeepSeek fixture 添加 Anthropic `/messages` 合同测试，更新 I25/I29 对应 main response 和必要标题 response，运行 fixture check。
-3. 为权限 option 增加稳定 `data-permission-option-kind` 单测与实现，更新 E2E helper 和刷新 case 的行为断言。
-4. 用运行时 toast 证据确认 queue admission 正常，修正仅匹配英文的断言以覆盖中英文 workspace locale。
-5. 为 prepend DOM 锚点差值补充纯函数测试，在 loadOlder 触发前捕获锚点、prepend layout effect 中优先校正锚点。
-6. 运行受影响单测、E2E fixture check、`pnpm typecheck`、`pnpm lint`；检查 diff 后提交 Conventional Commit。
+1. Adicionar testes de falha para o spec gate do mock WDIO Coding Plan, incluindo os dois specs oficiais de Turbo recovery/switch.
+2. Adicionar testes de contrato de `/messages` da Anthropic para o fixture restart/settings com DeepSeek, atualizar as respostas main correspondentes de I25/I29 e a response de títulos necessária, e executar a verificação do fixture.
+3. Adicionar testes unitários estáveis com `data-permission-option-kind` para a opção de permissão, junto com a implementação; atualizar o helper de E2E e as asserções de comportamento do caso de refresh.
+4. Confirmar a admissão da fila usando evidência de toast em runtime e corrigir as asserções que só faziam match em inglês, para cobrir o locale de workspace em chinês e em inglês.
+5. Complementar com testes de função pura a diferença de âncoras de DOM no prepend, capturando a âncora antes da chamada de loadOlder e priorizando a correção da âncora no layout effect de prepend.
+6. Executar os testes unitários afetados, a verificação de fixtures de E2E, `pnpm typecheck` e `pnpm lint`; revisar o diff e enviar um Conventional Commit.

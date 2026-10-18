@@ -1,20 +1,20 @@
-# 文件显示工具
+# Ferramenta de Exibição de Arquivos
 
-新增了 `packages/ui/src/lib/fileDisplay.tsx`，用于把文件路径格式化成统一的展示片段。
+Foi adicionado `packages/ui/src/lib/fileDisplay.tsx`, usado para formatar caminhos de arquivo em fragmentos de exibição padronizados.
 
-默认行为：
+Comportamento padrão:
 
-- 显示文件图标
-- 只显示主文件名
+- Exibe o ícone do arquivo
+- Exibe apenas o nome principal do arquivo
 
-可选能力：
+Capacidades opcionais:
 
-- 传入 `basePath` 后输出相对路径的次要目录文本
-- 通过 `showIcon` / `showFilePath` 控制是否显示图标和路径
-- 通过 `FileDisplayInline` 在 React 组件里直接复用
-- 通过 `createFileDisplayDom` 在 Lexical / 原生 DOM 场景里复用
+- Ao passar `basePath`, emite o texto de diretório secundário do caminho relativo
+- Controla a exibição do ícone e do caminho via `showIcon` / `showFilePath`
+- Reutilização direta dentro de componentes React via `FileDisplayInline`
+- Reutilização em cenários Lexical / DOM nativo via `createFileDisplayDom`
 
-示例：
+Exemplo:
 
 ```ts
 resolveFileDisplayDescriptor("/Users/dev/Projects/element-web/apps/web/src/Avatar.ts", {
@@ -22,17 +22,17 @@ resolveFileDisplayDescriptor("/Users/dev/Projects/element-web/apps/web/src/Avata
 });
 ```
 
-输出语义：
+Semântica da saída:
 
 - file-icon: `typescript`
 - file-name: `Avatar.ts`
 - file-path: `apps/web/src/`
 
-当前 `PromptMentionNode` 已切到该工具，默认展示为“图标 + 文件名”。
+Atualmente `PromptMentionNode` já usa essa ferramenta, com exibição padrão "ícone + nome do arquivo".
 
-## Office 文件图标
+## Ícones de arquivos Office
 
-- `.doc`、`.docx` 统一映射到 `word.svg`，`.xlsx` 映射到 `table.svg`，`.pptx` 映射到 `powerpoint.svg`。
-- Office 扩展名与素材文件名不是一一对应关系，必须通过 `EXTENSION_ICON_ALIASES` 维护映射，不能直接使用扩展名拼接资源路径。
-- Desktop 与 Web 必须各自在 `public/material-icons` 中携带相同的图标文件，保证本地 `file://`、普通 Web 和手机 `/remote` 均可通过现有 `BASE_URL` 规则加载。
-- 图标只表达文件类型，不改变 Office 文件的预览、编辑或远程工作区能力边界。
+- `.doc` e `.docx` são mapeados de forma unificada para `word.svg`, `.xlsx` para `table.svg`, `.pptx` para `powerpoint.svg`.
+- As extensões Office e os nomes dos arquivos de recursos não têm correspondência de um para um; o mapeamento precisa ser mantido por meio de `EXTENSION_ICON_ALIASES`, e não é possível usar a extensão para concatenar diretamente o caminho do recurso.
+- Desktop e Web devem cada carregar os mesmos arquivos de ícone em `public/material-icons`, garantindo que o `file://` local, a Web comum e o `/remote` do celular possam carregar por meio das regras existentes de `BASE_URL`.
+- Os ícones apenas expressam o tipo do arquivo e não alteram os limites de capacidade de pré-visualização, edição ou espaço de trabalho remoto dos arquivos Office.

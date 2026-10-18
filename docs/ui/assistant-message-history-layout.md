@@ -1,26 +1,26 @@
 # Assistant Message History Layout
 
-> **历史状态**：本文记录 V4 迁移前 `ChatMessage` 的 DOM 方案，不是当前实现规范。
-> 当前 assistant 内容由 `packages/ui/src/v4/ConversationTurnGroup.tsx` 与
-> `packages/ui/src/v4/ConversationRowView.tsx` 按 projection rows/render units 渲染。
+> **Estado histórico**: este documento registra o esquema de DOM do `ChatMessage` antes da migração para o V4 e não é a especificação da implementação atual.
+> Hoje o conteúdo do assistant é renderizado por `packages/ui/src/v4/ConversationTurnGroup.tsx` e
+> `packages/ui/src/v4/ConversationRowView.tsx` a partir de projection rows/render units.
 
-## 目标
+## Objetivo
 
-调整 assistant 消息 DOM 结构，让同一条 `.is-assistant` 内部可以稳定区分“历史片段”和“最新片段”，方便样式和行为按层处理。
+Ajustar a estrutura de DOM das mensagens do assistant, para que dentro da mesma `.is-assistant` seja possível distinguir de forma estável os "fragmentos de histórico" e o "fragmento mais recente", facilitando o tratamento de estilo e de comportamento por camadas.
 
-## 历史结构
+## Estrutura histórica
 
 - `packages/ui/src/ChatMessage.tsx`
-  - `.is-assistant` 仍然是单条 assistant 消息的根容器
-  - 任务运行中，所有片段统一包进 `.history-message`
-  - 任务结束后，最后一个普通文本响应 `content part` 才会从 history 提升到 `.latest-message`
-  - `.history-message` 现在使用 `Collapsible` 承载
-  - 当前轮运行时历史区强制展开且不可收起，trigger 文案为 `Working for ...`
-  - 当前轮结束后历史区默认收起且可手动展开，trigger 文案为 `Worked for ...`
-  - 被提升出来的最后一个普通文本响应作为最新片段，挂在 `.history-message` 后面
-  - `MessageChangeSummaryPanel` 继续挂在 assistant 容器尾部，不进入 `.history-message`
+  - `.is-assistant` continua sendo o container raiz de uma única mensagem do assistant
+  - Enquanto a task está em execução, todos os fragmentos são envolvidos uniformemente por `.history-message`
+  - Depois que a task termina, apenas o último `content part` de resposta em texto simples é promovido do histórico para `.latest-message`
+  - `.history-message` passa a usar um `Collapsible`
+  - Durante a execução do turno atual, a área de histórico é forçadamente expandida e não recolhível, e o texto do trigger é `Working for ...`
+  - Depois que o turno atual termina, a área de histórico é recolhida por padrão e pode ser expandida manualmente, e o texto do trigger é `Worked for ...`
+  - A última resposta em texto simples promovida é o fragmento mais recente, posicionado depois de `.history-message`
+  - `MessageChangeSummaryPanel` continua no fim do container do assistant, sem entrar em `.history-message`
 
-## DOM 语义
+## Semântica do DOM
 
 ```html
 <div class="is-assistant">
@@ -33,10 +33,10 @@
 </div>
 ```
 
-## 约束
+## Restrições
 
-- `.history-message` 只在存在历史片段时渲染
-- 单片段 assistant 消息保持原样，不额外制造空容器
-- `latest-message` 只承载普通 assistant 文本响应，不承载 thought 或 tool block
-- `change summary` 仍然归属于当前 assistant 消息，但语义上独立于 history/latest 分层
-- 工作时长按语言使用自然的单位间距：英文数字与单位紧贴（如 `Worked for 7m 30s`），中文数字与单位之间保留空格（如 `已工作 7 分 30 秒`）；多个时长片段之间统一用一个空格分隔
+- `.history-message` só é renderizado quando existem fragmentos de histórico
+- Uma mensagem do assistant com um único fragmento permanece como está, sem criar containers vazios adicionais
+- `latest-message` carrega apenas respostas em texto simples do assistant, e não thought nem blocos de tool
+- `change summary` continua pertencendo à mensagem atual do assistant, mas semanticamente é independente da divisão history/latest
+- A duração de trabalho usa espaçamento de unidades natural conforme o idioma: em inglês, números e unidades ficam colados (como `Worked for 7m 30s`); em chinês, mantém-se um espaço entre número e unidade (como `已工作 7 分 30 秒`); entre múltiplos segmentos de duração usa-se uniformemente um único espaço como separador

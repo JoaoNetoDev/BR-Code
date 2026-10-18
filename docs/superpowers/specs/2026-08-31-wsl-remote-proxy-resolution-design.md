@@ -1,28 +1,28 @@
-# WSL 远程工作区代理自动解析
+# Resolução Automática de Proxy do Workspace Remoto WSL
 
-## 背景
+## Contexto
 
-桌面端的网络代理配置属于 Windows Host；WSL 远程工作区中的 Agent 是另一个 Linux 进程。
-在 WSL NAT 网络模式下，Agent 不能把 `localhost:端口` 当成 Windows Host 的代理地址，导致
-工作区连接后模型、MCP 或工具网络请求失败。当前 staging 已将远程资源下载接入 Host 代理，
-本设计只补齐 WSL 内 Agent 的运行时代理边界。
+A configuração de proxy de rede do desktop pertence ao Windows Host, enquanto o Agente no workspace remoto WSL é outro processo Linux.
+No modo de rede WSL NAT, o Agente não pode tratar `localhost:porta` como endereço de proxy do Windows Host, o que faz com que
+as requisições de rede de modelos, MCP ou ferramentas falhem após a conexão do workspace. O staging atual já conecta o download
+de recursos remotos ao proxy do Host; este design apenas completa a fronteira de proxy em runtime do Agente dentro do WSL.
 
-## 目标
+## Objetivos
 
-- 复用设置页现有的显式 `httpProxy` / `httpProxyNoProxy` 配置。
-- WSL NAT 模式下，自动把 loopback 代理地址转换成 WSL 可达的宿主网关地址。
-- WSL mirrored 模式或代理本来就是非 loopback 地址时保持原值。
-- 自动转换失败时不扫描局域网、不猜测端口，并保留原始配置作为可诊断的回退。
-- SSH、Docker、server remote、桌面 `desktop-continuous` 与手机 `web-remote-replayable` 链路保持原行为。
+- Reutilizar a configuração explícita existente `httpProxy` / `httpProxyNoProxy` da página de configurações.
+- No modo WSL NAT, converter automaticamente o endereço de proxy loopback para o endereço de gateway do host alcançável a partir do WSL.
+- No modo WSL mirrored, ou quando o proxy já for um endereço não loopback, manter o valor original.
+- Quando a conversão automática falhar, não varrer a rede local, não adivinhar portas e manter a configuração original como fallback diagnosticável.
+- As cadeias SSH, Docker, server remote, `desktop-continuous` do desktop e `web-remote-replayable` do mobile mantêm o comportamento original.
 
-## 非目标
+## Não Objetivos
 
-- 不新增全局代理发现或局域网端口扫描。
-- 不把 Windows 的凭据、shell 环境代理或完整代理 URL 日志传到远端。
-- 不修改 remote workspace 的 owner、lease、queue、snapshot 或 delivery 语义。
-- 本次不处理 Windows 证书路径到 WSL 路径的转换；自定义 CA 仍需后续独立设计。
+- Não introduzir descoberta global de proxy nem varredura de portas da rede local.
+- Não enviar para o remoto as credenciais do Windows, o proxy de ambiente do shell nem logs com a URL completa do proxy.
+- Não modificar as semânticas de owner, lease, queue, snapshot ou delivery do remote workspace.
+- desta rodada não trata a conversão do caminho de certificados do Windows para o caminho WSL; a CA customizada continua exigindo um design independente posterior.
 
-## 链路与边界
+## Cadeia e Fronteiras
 
 ```text
 AppSettings.httpProxy (Windows Host)
@@ -38,37 +38,33 @@ AppSettings.httpProxy (Windows Host)
                     非 loopback -> 保持用户配置
 ```
 
-连接初始化只把代理作为显式的 remote runtime network 选项传给 WSL server command；
-不扩展 `pickRemoteRuntimeEnv(process.env)`，避免继承用户 shell 的 `HTTP_PROXY` 越过现有
-运行时环境清洗边界。远端 server 再把这份显式网络配置用于下一次 Agent spawn。
+A inicialização da conexão passa o proxy apenas como uma opção explícita de rede do remote runtime para o comando do WSL server;
+`pickRemoteRuntimeEnv(process.env)` não é estendido, evitando herdar o `HTTP_PROXY` do shell do usuário além da fronteira
+existente de limpeza do ambiente de runtime. O server remoto então usa essa configuração de rede explícita no próximo spawn do Agente.
 
-## 解析规则
+## Regras de Resolução
 
-1. 无显式代理：不注入任何代理环境变量。
-2. 代理主机不是 `localhost`、`127.0.0.1` 或 `::1`：保持原始代理 URL。
-3. 代理主机是 loopback：
-   - 先在 WSL 内探测原始 loopback 的 TCP 端口；成功则认为是 mirrored/可直达，保持原值；
-   - 原始地址不可达时，优先读取 `ip route show default` 的下一跳作为宿主网关；只有 `ip`
-     不可用或没有 default route 时，才回退到 `/etc/resolv.conf`；
-   - route 候选拒绝 loopback；resolv.conf 候选还必须是私网或链路本地地址，避免把公网/企业
-     DNS 当作宿主网关；找到合法网关后替换 URL 的 hostname，保留 scheme、端口、认证和路径。
-4. 网关解析或探测失败：保留原始代理值，并在连接日志中说明自动解析未确认；不阻断 WSL
-   server 握手，以免错误的网络诊断阻塞本地工作区打开。
+1. Sem proxy explícito: nenhuma variável de ambiente de proxy é injetada.
+2. Se o host do proxy não for `localhost`, `127.0.0.1` ou `::1`: manter a URL de proxy original.
+3. Se o host do proxy for loopback:
+   - primeiro, sondar dentro do WSL a porta TCP do loopback original; se tiver sucesso, considera-se mirrored/acessível diretamente e o valor original é mantido;
+   - quando o endereço original é inacessível, prioriza-se a leitura do next hop de `ip route show default` como gateway do host; somente quando `ip` está indisponível ou não há default route é que se recorre a `/etc/resolv.conf`;
+   - o candidato de route rejeita loopback; o candidato de resolv.conf ainda precisa ser um endereço privado ou link-local, evitando tomar um DNS público/empresarial como gateway do host; depois de encontrar um gateway válido, o hostname da URL é substituído, preservando scheme, porta, autenticação e caminho.
+4. Se a resolução do gateway ou a sondagem falhar: manter o valor de proxy original e indicar nos logs de conexão que a resolução automática não foi confirmada; não bloquear o handshake do WSL server, para que uma diagnóstico de rede incorreto não impeça a abertura do workspace local.
 
-自动解析后的地址只存在于本次远程 server 进程和其 Agent 子进程环境中，不写回设置文件，
-因为 WSL 网关地址可能随发行版重启变化。
+O endereço após a resolução automática existe apenas no ambiente deste processo de server remoto e de seus subprocessos Agente, e não é gravado de volta no arquivo de configurações,
+porque o endereço do gateway WSL pode mudar a cada reinício da distribuição.
 
-## 安全与兼容性
+## Segurança e Compatibilidade
 
-- 只探测用户已经配置的 host/port，不进行网络扫描。
-- 日志只记录代理解析结果的 scheme、host、port 和 resolution kind，隐藏用户名、密码和路径。
-- 仅 `target.kind === "wsl"` 使用该能力；SSH/Docker/server 仍使用原有运行时环境。
-- 远程 Agent 仍属于 shared-host attachment；桌面链路保持 `desktop-continuous`，手机链路保持
-  `web-remote-replayable`。
+- Apenas o host/porta já configurado pelo usuário é sondado, sem varredura de rede.
+- Os logs registram somente o scheme, host, porta e resolution kind do resultado da resolução do proxy, ocultando usuário, senha e caminho.
+- A capacidade é usada apenas com `target.kind === "wsl"`; SSH/Docker/server continuam usando o ambiente de runtime original.
+- O Agente remoto continua pertencendo a um shared-host attachment; a cadeia do desktop permanece `desktop-continuous` e a do mobile permanece `web-remote-replayable`.
 
-## 测试计划
+## Plano de Testes
 
-- 纯函数：loopback、IPv4、IPv6、非 loopback、带认证 URL 的替换与脱敏。
-- WSL backend：loopback 可达时保持原值；不可达且能解析 gateway 时替换；解析失败时保留原值。
-- connect：仅 WSL 注入显式代理环境；不把 `HTTP_PROXY` 从调用进程环境白名单透传到 SSH/Docker。
-- 回归：现有 remote asset、remote connect、WSL lifecycle 单测；执行 `pnpm typecheck`、`pnpm lint`。
+- Funções puras: substituição e mascaramento para loopback, IPv4, IPv6, não loopback e URL com autenticação.
+- Backend WSL: manter o valor original quando o loopback está acessível; substituir quando inacessível e o gateway pode ser resolvido; manter o valor original quando a resolução falha.
+- connect: injetar ambiente de proxy explícito apenas no WSL; não repassar `HTTP_PROXY` da whitelist do ambiente do processo de chamada para SSH/Docker.
+- Regressão: testes unitários existentes de remote asset, remote connect e ciclo de vida WSL; executar `pnpm typecheck` e `pnpm lint`.

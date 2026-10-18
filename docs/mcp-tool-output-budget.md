@@ -1,68 +1,60 @@
-# MCP Tool Output Budget
+# Orçamento de Saída de Ferramentas MCP
 
-## 背景
+## Contexto
 
-MCP server 是外部输入源，工具结果不能默认信任其体积。之前 MCP 图片会被转换成模型可见的 inline image block；`resultBudget` 只按 `modelMessageContentToText` 统计占位文本，导致大 base64 图片没有在工具结果层被截断。虽然主模型请求还有 4 MiB media budget，但单张约 2 MiB 的 MCP screenshot 仍可能超过 provider/proxy 的 HTTP body 限制并触发 413。
+O servidor MCP é uma fonte de entrada externa, e o resultado da ferramenta não pode ter seu volume presumido por padrão. Antes, imagens MCP eram convertidas em blocos de imagem inline visíveis ao modelo; `resultBudget` contava apenas o texto de placeholder via `modelMessageContentToText`, o que fazia com que imagens base64 grandes não fossem truncadas na camada de resultado da ferramenta. Embora a requisição ao modelo principal ainda tenha um media budget de 4 MiB, um único screenshot MCP de cerca de 2 MiB ainda pode exceder o limite de HTTP body do provider/proxy e disparar 413.
 
-## 目标
+## Objetivos
 
-- MCP 文本结果继续受 `resultBudget` 约束。
-- 普通第三方 MCP 图片 base64 payload 超过 200 KiB 时，不再 inline 进模型请求。
-- 保留的 `node_repl/js` 是 browser use 的可信宿主工具；其 `nodeRepl.emitImage(...)` 图片超过
-  200 KiB 时先压缩到预算内，成功后继续作为 image block 进入模型，而不是直接丢失视觉能力。
-- 无法压缩的超限 MCP 图片保存一份本地 artifact 副本，模型只收到 artifact path/URI 和尺寸说明。
-- 没有 artifact store 时也不能把超限图片继续 inline，必须降级为文本说明。
-- 桌面端 `desktop-continuous` 和手机端 `web-remote-replayable` 的 session/task 语义不变；这是 agent runtime 内的工具结果投影，不改变远控 owner、queue、snapshot 边界。
+- Resultados de texto MCP continuam sujeitos ao `resultBudget`.
+- Imagens base64 comuns de MCP de terceiros que excedam 200 KiB deixam de ser embutidas inline na requisição ao modelo.
+- O `node_repl/js` mantido é a ferramenta hospedeira confiável de browser use; quando sua imagem via `nodeRepl.emitImage(...)` excede
+  200 KiB, ela é primeiro comprimida até o orçamento e, se tiver sucesso, continua entrando no modelo como bloco de imagem, em vez de simplesmente perder a capacidade visual.
+- Imagens MCP fora do limite que não podem ser comprimidas têm uma cópia local salva como artifact; o modelo recebe apenas o path/URI do artifact e a descrição de dimensões.
+- Sem artifact store, uma imagem fora do limite também não pode continuar embutida inline — deve degradar para uma descrição em texto.
+- A semântica de session/task do desktop `desktop-continuous` e do mobile `web-remote-replayable` permanece inalterada; isto é uma projeção de resultado de ferramenta dentro do agent runtime e não muda owner, queue ou limites de snapshot do controle remoto.
 
-## 设计
+## Design
 
-MCP tool handler 在调用 `McpPort.callTool` 后立即规范化结果，而不是等到 `formatModelContent`。原因是 handler 拥有 `artifactStore`、`sessionId`、`turnId` 和 `toolCallId`，可以保存副本；`formatModelContent` 只有 output，无法落盘。
+O handler da ferramenta MCP normaliza o resultado imediatamente após chamar `McpPort.callTool`, em vez de esperar por `formatModelContent`. A razão é que o handler possui `artifactStore`, `sessionId`, `turnId` e `toolCallId`, podendo salvar uma cópia; `formatModelContent` tem apenas a saída e não consegue persistir em disco.
 
-规范化规则：
+Regras de normalização:
 
-1. `type: "image"` 且 `data` / `mimeType` 合法时，计算 base64 payload 的 UTF-8 字节数。
-2. payload 不超过 `200 * 1024` 字节时保持 inline，兼容小图和现有视觉能力。
-3. 对 `serverName=node_repl && toolName=js` 的宿主图片先调用 `ImageProcessorPort.prepareForModel`：
-   - base64 payload 上限固定为 `200 * 1024` 字节；
-   - decoded binary 上限固定为 `floor(200 * 1024 * 3 / 4) = 153600` 字节，保证重新编码后的
-     base64 不越界；
-   - 最长边上限为 2000，和现有 `Read` 模型图片的可读尺寸一致；
-   - 复用 adapter 既有候选序列：保留格式/PNG 优化、2000 边界缩放、JPEG 质量阶梯、PNG 量化、
-     渐进缩放，最后才使用低质量 JPEG 小尺寸兜底；禁止在 MCP bridge 里新增另一套编解码器。
-4. 宿主图片压缩成功后，必须再次按实际 base64 字节数校验 `<= 200 KiB`，只把变换后的
-   `data` / `mimeType` 作为 image block 交给模型；原图不进入 provider request。
-5. 普通第三方 MCP 图片不执行 CPU 密集型压缩，仍直接进入 artifact 策略，避免把不可信 MCP
-   payload 变成通用图像解码攻击面。
-6. 宿主图片缺少 `ImageProcessorPort`、解码/压缩失败或防御性复验仍超预算时，也进入原有 tool
-   artifact 降级。优先使用 `writeToolResultBinaryArtifact` 保存 decoded binary，并按 `mimeType`
-   选择 `.png` / `.jpg` / `.gif` / `.webp` 等扩展名；模型只看到本地 path/URI。
-7. 模型可见 content block 替换为文本：说明 MCP 图片已保存、本地 path/URI、原始大小和阈值。
-8. 如果当前 artifact store 还不支持二进制写入，则 fallback 到文本 artifact：JSON 中包含
-   `dataUrl`、`mimeType`、server/tool 名称、原始 base64 字节数和生成时间。
-9. 如果 artifact store 不可用，替换为文本说明并明确没有保存副本，避免继续发送大 base64。
+1. Com `type: "image"` e `data` / `mimeType` válidos, calcula o número de bytes UTF-8 do payload base64.
+2. Quando o payload não excede `200 * 1024` bytes, mantém inline, preservando compatibilidade com imagens pequenas e a capacidade visual atual.
+3. Para imagens hospedeiras com `serverName=node_repl && toolName=js`, chama primeiro `ImageProcessorPort.prepareForModel`:
+   - o limite do payload base64 é fixo em `200 * 1024` bytes;
+   - o limite do binário decodificado é fixo em `floor(200 * 1024 * 3 / 4) = 153600` bytes, garantindo que o base64 re-codificado não ultrapasse o limite;
+   - o limite da borda mais longa é 2000, consistente com o tamanho legível das imagens do modelo no `Read` existente;
+   - reaproveita a sequência de candidatos já existente no adapter: preservação de formato/otimização PNG, redução na borda 2000, escada de qualidade JPEG, quantização PNG, redução progressiva e, por último, o fallback de JPEG de baixa qualidade em tamanho pequeno; é proibido adicionar outro conjunto de codecs na ponte MCP.
+4. Depois que a compressão da imagem hospedeira tem sucesso, é preciso validar novamente pelos bytes base64 reais que o resultado é `<= 200 KiB`, entregando ao modelo apenas o `data` / `mimeType` transformado como bloco de imagem; a imagem original não entra na requisição ao provider.
+5. Imagens MCP comuns de terceiros não passam por compressão intensiva de CPU e entram diretamente na estratégia de artifact, evitando transformar payload MCP não confiável em uma superfície genérica de ataque por decodificação de imagem.
+6. Quando a imagem hospedeira não tem `ImageProcessorPort`, quando a decodificação/compressão falha ou quando a revalidação defensiva ainda excede o orçamento, ela também entra na degradação de artifact já existente na ferramenta. Prefere-se usar `writeToolResultBinaryArtifact` para salvar o binário decodificado e escolher a extensão `.png` / `.jpg` / `.gif` / `.webp` conforme o `mimeType`; o modelo vê apenas o path/URI local.
+7. O bloco de content visível ao modelo é substituído por texto: informando que a imagem MCP foi salva, o path/URI local, o tamanho original e o limiar.
+8. Se o artifact store atual ainda não suportar escrita binária, há fallback para artifact de texto: o JSON contém
+   `dataUrl`, `mimeType`, os nomes de server/tool, o número de bytes base64 original e o horário de geração.
+9. Se o artifact store estiver indisponível, substitui-se por uma descrição em texto deixando explícito que nenhuma cópia foi salva, evitando continuar enviando base64 grande.
 
-### 范围与状态组合
+### Combinações de origem e estado
 
-| 来源           |  原始 base64 | ImageProcessor     | 结果                              | 状态     |
-| -------------- | -----------: | ------------------ | --------------------------------- | -------- |
-| `node_repl/js` | `<= 200 KiB` | 任意               | 原图 inline                       | accepted |
-| `node_repl/js` |  `> 200 KiB` | 成功压到预算内     | 压缩图 inline                     | accepted |
-| `node_repl/js` |  `> 200 KiB` | 缺失/失败/复验超限 | 原图 artifact 或无 store 文本降级 | accepted |
-| 其他 MCP       | `<= 200 KiB` | 任意               | 原图 inline                       | accepted |
-| 其他 MCP       |  `> 200 KiB` | 任意               | 原图 artifact 或无 store 文本降级 | accepted |
+| Origem         |  base64 original | ImageProcessor     | Resultado                              | Estado     |
+| -------------- | ---------------: | ------------------ | -------------------------------------- | ---------- |
+| `node_repl/js` | `<= 200 KiB`     | qualquer           | imagem original inline                 | accepted |
+| `node_repl/js` |  `> 200 KiB`     | comprimida no orçamento | imagem comprimida inline            | accepted |
+| `node_repl/js` |  `> 200 KiB`     | ausente/falha/revalidação excede | artifact da imagem original ou degradação em texto sem store | accepted |
+| outro MCP      | `<= 200 KiB`     | qualquer           | imagem original inline                 | accepted |
+| outro MCP      |  `> 200 KiB`     | qualquer           | artifact da imagem original ou degradação em texto sem store | accepted |
 
-本变更只发生在 agent tool-result 投影阶段，不新增 protocol 字段，不改变 session/task 状态，也不区分
-`desktop-continuous` 与 `web-remote-replayable`：两端共享同一个已预算化的工具结果。
+Esta mudança ocorre apenas na fase de projeção do resultado da ferramenta do agente, não adiciona campos de protocolo, não altera estado de session/task e não distingue `desktop-continuous` de `web-remote-replayable`: as duas pontas compartilham o mesmo resultado de ferramenta orçado.
 
-## 验证
+## Verificação
 
-- MCP 小图片仍投影为 image block。
-- MCP 大图片被替换为文本，支持二进制 artifact store 时保存 decoded image bytes，并返回图片 path/URI。
-- `node_repl/js` 的超限 PNG/JPEG 在 `ImageProcessorPort` 可用时压缩为不超过 200 KiB base64 的
-  image block，且不写 artifact。
-- 宿主图片压缩失败或压缩结果仍越界时不 inline，继续保存原图 artifact。
-- 真实 Jimp adapter 对长页面 screenshot 比例的 PNG 覆盖 2000 最长边与 200 KiB base64 双预算。
-- 旧 artifact store 仍可 fallback 为 JSON artifact，模型请求中不包含原始 base64。
-- 没有 artifact store 时，大图片仍被替换为文本，不进入模型请求。
-- 运行 MCP bridge 和 runtime tool loop 相关单测。
-- 执行 `pnpm typecheck` 和 `pnpm lint`。
+- Imagens MCP pequenas ainda são projetadas como bloco de imagem.
+- Imagens MCP grandes são substituídas por texto, salvando os bytes de imagem decodificados quando há artifact store com suporte binário, e retornando o path/URI da imagem.
+- PNG/JPEG fora do limite de `node_repl/js` são comprimidos para um bloco de imagem com base64 de no máximo 200 KiB quando `ImageProcessorPort` está disponível, sem gravar artifact.
+- Quando a compressão da imagem hospedeira falha ou o resultado comprimido ainda ultrapassa o limite, ela não é embutida e a imagem original continua sendo salva como artifact.
+- O adapter Jimp real respeita os dois orçamentos — borda mais longa 2000 e base64 de 200 KiB — para screenshots de página longa.
+- O artifact store antigo ainda faz fallback para artifact JSON, sem o base64 original na requisição ao modelo.
+- Sem artifact store, imagens grandes ainda são substituídas por texto e não entram na requisição ao modelo.
+- Executar os testes unitários relacionados à ponte MCP e ao runtime tool loop.
+- Executar `pnpm typecheck` e `pnpm lint`.

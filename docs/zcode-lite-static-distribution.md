@@ -1,34 +1,34 @@
 # ZCode Lite Static Distribution
 
-## 背景
+## Contexto
 
-ZCode Lite 是不安装 Desktop App 的本地 Web 形态。内网下载源只托管静态发布资源，用户机器负责运行 Node.js、本地 HTTP server、ZCode services 和 agent runtime。
+O ZCode Lite é a forma Web local que não instala o Desktop App. A fonte de download da intranet hospeda apenas os recursos estáticos da publicação, e a máquina do usuário fica responsável por executar o Node.js, o servidor HTTP local, os serviços do ZCode e o agent runtime.
 
-当前内网下载源是普通静态文件服务，不提供 npm registry metadata API：
+Atualmente a fonte de download da intranet é um serviço comum de arquivos estáticos e não oferece a API de metadados de registro npm:
 
 ```text
 http://intranet.example.invalid:12345/zcode/deps/
   -> /Users/dev/shared/zcode/deps/
 ```
 
-因此 ZCode Lite 不依赖 `npx --registry`。发布产物放在 `zcode-lite` 目录下，安装入口优先使用 `install.sh`，tarball 作为可直接下载的备选产物。
+Por isso o ZCode Lite não depende de `npx --registry`. Os artefatos de publicação ficam no diretório `zcode-lite`, e o ponto de entrada de instalação prioriza `install.sh`, com o tarball como artefato alternativo para download direto.
 
-## 目标
+## Objetivos
 
-- 构建脚本能在本地生成一套可上传到静态下载源的 ZCode Lite 发布目录。
-- 发布目录包含安装脚本、版本 manifest、压缩包和校验文件。
-- 用户机器只要求已有 Node.js，不随 ZCode Lite 打包 Node runtime。
-- `zcode-lite serve` 默认随机选择可用端口、绑定 `127.0.0.1`、自动打开浏览器。
-- 用户显式传 `--host 0.0.0.0` 时允许局域网访问，并默认启用访问 token。
+- O script de build gera localmente um conjunto de diretórios de publicação do ZCode Lite que possa ser enviado à fonte de download estática.
+- O diretório de publicação contém script de instalação, manifest de versão, pacote compactado e arquivo de checksum.
+- A máquina do usuário só precisa ter Node.js; o runtime Node não é empacotado com o ZCode Lite.
+- `zcode-lite serve` escolhe por padrão uma porta disponível ao acaso, faz bind em `127.0.0.1` e abre o navegador automaticamente.
+- Quando o usuário passa explicitamente `--host 0.0.0.0`, o acesso pela rede local é permitido e o token de acesso é habilitado por padrão.
 
-## 非目标
+## Não objetivos
 
-- 不把 push/upload 写进 build 脚本。上传目标是临时的，build 产物应能被发布到任意静态源。
-- 不实现 npm registry。
-- 不复用手机 Web 远控 relay，也不改变 `/remote` 的 replayable 恢复语义。
-- 不支持一个共享 server 服务多个隔离用户；运行发生在安装者自己的机器或服务器上。
+- Não embutir push/upload no script de build. O destino do upload é temporário, e os artefatos de build devem poder ser publicados em qualquer fonte estática.
+- Não implementar um registro npm.
+- Não reutilizar o relay de controle remoto Web do celular, nem alterar a semântica de recuperação replayable de `/remote`.
+- Não suportar um único server compartilhado servindo múltiplos usuários isolados; a execução ocorre na própria máquina ou servidor de quem instala.
 
-## 架构
+## Arquitetura
 
 ```text
 内网静态下载源
@@ -58,7 +58,7 @@ http://intranet.example.invalid:12345/zcode/deps/
   浏览器访问 Web UI
 ```
 
-ZCode Lite 使用普通 Web 模式同源 `/ws`，不是手机远控：
+O ZCode Lite usa o `/ws` de mesma origem do modo Web comum, e não o controle remoto do celular:
 
 ```text
 Lite Web:
@@ -68,11 +68,11 @@ Mobile Remote:
 mobile browser -> relay -> desktop main -> existing host/services -> existing runtime
 ```
 
-## 当前普通 Web 支持边界
+## Limite atual do Web comum
 
-这里的“普通 Web”指浏览器直接连接 `@zcode/server` 的同源 `/ws`，包括开发环境的 Web 入口和 `zcode-lite serve` 打开的 ZCode Lite 页面；它不包括手机 `/remote`。
+Aqui "Web comum" significa o navegador conectando diretamente ao `/ws` de mesma origem do `@zcode/server`, incluindo a entrada Web do ambiente de desenvolvimento e a página do ZCode Lite aberta por `zcode-lite serve`; não inclui o `/remote` do celular.
 
-当前普通 Web 没有 Desktop 的窗口级 Local Host 进程，因此也没有 Window Host Controller。依赖 Window Host Controller 聚合本地及远程 source 的左侧全局任务列表，暂时不支持普通 Web / ZCode Lite；Controller 不可用时，不在 Web renderer 中另外实现一套聚合或 fallback 逻辑。
+Atualmente o Web comum não tem o processo Local Host de nível de janela do Desktop, e portanto também não tem o Window Host Controller. A lista global de tarefas do lado esquerdo, que depende do Window Host Controller para agregar sources locais e remotos, ainda não é suportada no Web comum / ZCode Lite; quando o Controller não está disponível, não se implementa no renderer Web uma lógica adicional de agregação ou fallback.
 
 ```text
 当前普通 Web / ZCode Lite：
@@ -94,41 +94,41 @@ mobile /remote -> relay/main 透传 -> Desktop Window Local Host
                                         +-> SSH / WSL / Docker / Server source
 ```
 
-这条边界只限制依赖 Window Host Controller 的全局任务列表和多 source 聚合，不表示普通 Web 的静态页面、文件、终端、会话等现有 `/ws` 能力整体不可用，也不改变 Desktop 本地、Desktop 远程 workspace 或手机 `/remote` 的现有链路。
+Esse limite restringe apenas a lista global de tarefas dependente do Window Host Controller e a agregação de múltiplos sources; não significa que as capacidades existentes do `/ws` do Web comum, como páginas estáticas, arquivos, terminal e sessões, estejam indisponíveis, e também não altera as cadeias existentes do Desktop local, do workspace remoto do Desktop ou do `/remote` do celular.
 
-后续只有在 Lite / Browser Controller Runtime（或经架构确认的等价服务端 Controller 边界）实现，并补齐普通 Web、Desktop 和手机 `/remote` 回归验证后，才重新支持普通 Web 的全局任务列表。目标架构见 `docs/architecture/unified-zcode-lite-server-multi-server-plan.md`。
+O suporte à lista global de tarefas no Web comum só volta a existir depois que o Lite / Browser Controller Runtime (ou uma fronteira equivalente de Controller no servidor confirmada pela arquitetura) for implementado e depois de completar a regressão no Web comum, no Desktop e no `/remote` do celular. A arquitetura-alvo está em `docs/architecture/unified-zcode-lite-server-multi-server-plan.md`.
 
-## 命令行为
+## Comportamento do comando
 
-默认命令：
+Comando padrão:
 
 ```bash
 zcode-lite serve
 ```
 
-默认行为：
+Comportamento padrão:
 
-- `--host` 默认为 `127.0.0.1`。
-- `--port` 省略时随机找一个可用端口。
-- 绑定本机地址时默认自动打开浏览器。
-- `--host 0.0.0.0` 时默认不自动打开浏览器。
-- `--host 0.0.0.0` 时默认生成访问 token，并在 URL 中输出 `?token=...`。
+- `--host` tem como padrão `127.0.0.1`.
+- Quando `--port` é omitido, encontra-se uma porta disponível ao acaso.
+- Ao fazer bind no endereço local, o navegador é aberto automaticamente por padrão.
+- Com `--host 0.0.0.0`, o navegador não é aberto automaticamente por padrão.
+- Com `--host 0.0.0.0`, um token de acesso é gerado por padrão e `?token=...` é impresso na URL.
 
-常用服务端启动：
+Inicialização comum do servidor:
 
 ```bash
 zcode-lite serve --host 0.0.0.0 --port 3030 --no-open
 ```
 
-## 安全边界
+## Limites de segurança
 
-本地 `127.0.0.1` 启动不强制 token。绑定 `0.0.0.0` 时必须默认生成 token，server 对 `/api/*` 和 `/ws` 做 token 校验。浏览器首次携带 `?token=...` 访问时，server 写入同源 cookie，后续同源 WebSocket 自动带 cookie。
+A execução local em `127.0.0.1` não exige token. Ao fazer bind em `0.0.0.0`, um token deve ser gerado por padrão, e o server faz validação de token em `/api/*` e `/ws`. Quando o navegador acessa pela primeira vez com `?token=...`, o server grava um cookie de mesma origem e, depois disso, o WebSocket de mesma origem já envia o cookie automaticamente.
 
-静态资源可以被局域网读取；真正能读写文件、执行命令、访问 agent 的 RPC 入口必须受 token 保护。
+Os recursos estáticos podem ser lidos pela rede local; os pontos de entrada RPC que realmente leem e escrevem arquivos, executam comandos e acessam o agent precisam estar protegidos por token.
 
-## 发布目录
+## Diretório de publicação
 
-build 脚本只生成本地目录，例如：
+O script de build gera apenas um diretório local, por exemplo:
 
 ```text
 dist/zcode-lite/
@@ -139,18 +139,18 @@ dist/zcode-lite/
     sha256.txt
 ```
 
-上传是临时动作，不落脚本。当前内网上传目标是：
+O upload é uma ação temporária e não fica em script. O destino atual de upload na intranet é:
 
 ```text
 /Users/dev/shared/zcode/deps/zcode-lite/
 ```
 
-## 验证
+## Verificação
 
-完成后至少验证：
+Após a conclusão, verificar no mínimo:
 
-- `pnpm --filter @zcode/server test -- serverInfoHttp.test.ts` 覆盖静态资源和 token 保护。
-- `pnpm --filter @zcode/web build` 确认 Web bootstrap 能读取 `/api/server-info`。
-- `node scripts/build-zcode-lite.mjs --skip-build` 能生成发布目录和 tarball。
-- 解压 tarball 后运行 `node bin/zcode-lite.mjs serve --port 0 --no-open` 能启动 server 并输出 URL。
-- 提交前执行 `pnpm typecheck` 和 `pnpm lint`。
+- `pnpm --filter @zcode/server test -- serverInfoHttp.test.ts` cobre os recursos estáticos e a proteção por token.
+- `pnpm --filter @zcode/web build` confirma que o bootstrap Web consegue ler `/api/server-info`.
+- `node scripts/build-zcode-lite.mjs --skip-build` consegue gerar o diretório de publicação e o tarball.
+- Depois de extrair o tarball, `node bin/zcode-lite.mjs serve --port 0 --no-open` consegue iniciar o server e imprimir a URL.
+- Executar `pnpm typecheck` e `pnpm lint` antes do commit.

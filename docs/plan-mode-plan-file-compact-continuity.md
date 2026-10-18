@@ -1,30 +1,30 @@
-# Plan Mode Plan File Compact Continuity
+# Continuidade de Plan File no Plan Mode após Compact
 
-## 背景
+## Contexto
 
-当前 ZCode 的 `ExitPlanMode` 仍通过 tool input 的 `plan` 字段承载完整 plan。若 `ExitPlanMode` 审批后很快触发 compact，summary 可能没有保留完整 plan，compact/resume 后模型无法稳定拿回已批准 plan。
+Atualmente, o `ExitPlanMode` do ZCode ainda carrega o plan completo pelo campo `plan` do tool input. Se um compact for disparado logo após a aprovação do `ExitPlanMode`, o summary pode não ter preservado o plan completo, e após o compact/resume o modelo não consegue recuperar de forma estável o plan já aprovado.
 
-## 目标
+## Objetivo
 
-审批通过后的 `ExitPlanMode.plan` 必须同步写入 workspace root 下的确定性 plan file。compact 成功后，runtime 必须把该 plan file 的路径和完整内容作为 `plan_file_reference` model-only reminder 持久化到 compact 后历史里。
+O `ExitPlanMode.plan`, após a aprovação, precisa ser gravado de forma síncrona em um plan file determinístico sob a raiz do workspace. Após um compact bem-sucedido, o runtime precisa persistir o caminho desse plan file e seu conteúdo completo, como um model-only reminder de `plan_file_reference`, no histórico posterior ao compact.
 
-## 路径合同
+## Contrato de caminho
 
-plan file 路径为：
+O caminho do plan file é:
 
 ```text
 ${workspaceRoot}/.zcode/plans/plan-${sanitizedSessionId}.md
 ```
 
-`workspaceRoot` 表示工作区根路径；不能使用可能被 Bash `cd` 改变的 `workingDirectory`。`sanitizedSessionId` 只保留 `A-Z`、`a-z`、`0-9`、`.`、`_`、`-`，其他字符替换成 `-`，并去掉首尾 `-`。
+`workspaceRoot` representa a raiz do workspace; não se deve usar o `workingDirectory`, que pode ser alterado por um `cd` do Bash. `sanitizedSessionId` mantém apenas `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`; os demais caracteres são substituídos por `-`, e os `-` iniciais e finais são removidos.
 
-## 写入合同
+## Contrato de escrita
 
-`ExitPlanMode` 在用户审批通过并应用 permission broker 返回的最终 input 后写 plan file。写入内容必须是最终 `plan` 原始字符串，不能 trim、补换行或做其他规范化；空 plan 只用于输入校验。写入使用 `FileSystemPort.writeTextFile()`，参数必须包含 `createParents: true`、`atomic: true`、`encoding: "utf8"`。写失败只影响后续 compact continuity，不阻断用户已批准的退出 plan mode。
+`ExitPlanMode` grava o plan file depois que o usuário aprova e após aplicar o input final devolvido pelo permission broker. O conteúdo gravado deve ser a string original final do `plan`, sem trim, sem adicionar quebra de linha e sem qualquer outra normalização; um plan vazio serve apenas para validação de input. A escrita usa `FileSystemPort.writeTextFile()`, e os argumentos devem incluir `createParents: true`, `atomic: true` e `encoding: "utf8"`. Uma falha na escrita afeta apenas a continuidade posterior ao compact e não bloqueia a saída do plan mode já aprovada pelo usuário.
 
-## Compact 合同
+## Contrato de compact
 
-compact 成功后，如果确定性 plan file 存在且内容非空，runtime 在 `postCompactReminderEntries` 中追加 source 为 `plan_file_reference` 的 model-only reminder，内容格式为：
+Após um compact bem-sucedido, se o plan file determinístico existir e tiver conteúdo não vazio, o runtime acrescenta em `postCompactReminderEntries` um model-only reminder com source `plan_file_reference`, no seguinte formato:
 
 ```text
 A plan file exists from plan mode at: ${planFilePath}
@@ -36,14 +36,14 @@ ${planContent}
 If this plan is relevant to the current work and not already complete, continue working on it.
 ```
 
-该 reminder 排在 generic read-state reminders 前面，并通过现有 `persistCompactSummary()` 与 compact summary 一起持久化；任一步持久化失败时沿用现有 compact persistence rollback。
+Esse reminder vem antes dos generic read-state reminders e é persistido junto do compact summary pelo `persistCompactSummary()` já existente; se qualquer etapa da persistência falhar, vale o rollback de persistência de compact já existente.
 
-## 非目标
+## Não objetivos
 
-- 不改变 provider-visible `ExitPlanMode` input schema。
-- 不实现 runtime injected `plan` / `planFilePath`。
-- 不改变 `ExitPlanMode` output shape。
-- 不新增 UI 展示。
-- 不把 plan file 加入 generic read-state reminder。
-- 不处理用户手动删除 `.zcode/plans` 后的恢复。
-- 不在本次 compact continuity 改造内实现默认 plan file retention cleanup；若后续实现，应由保留周期配置驱动并清理默认 plans 目录下的过期 `.md`，不是 `ExitPlanMode`、compact 或 session 结束时的即时删除。
+- Não alterar o input schema de `ExitPlanMode` visível ao provider.
+- Não implementar `plan` / `planFilePath` injetados pelo runtime.
+- Não alterar o output shape de `ExitPlanMode`.
+- Não adicionar exibição na UI.
+- Não incluir o plan file no generic read-state reminder.
+- Não tratar a recuperação após o usuário apagar manualmente `.zcode/plans`.
+- Não implementar a limpeza de retenção padrão de plan files dentro desta mudança de compact continuity; se for implementada depois, ela deve ser guiada pela configuração do ciclo de retenção e limpar os `.md` expirados do diretório padrão de plans, e não uma remoção imediata em `ExitPlanMode`, no compact ou no fim da sessão.

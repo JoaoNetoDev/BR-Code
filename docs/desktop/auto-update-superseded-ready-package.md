@@ -1,23 +1,55 @@
-# 自动更新已下载包被新版本替代
+# Pacote baixado de atualização automática substituído por uma nova versão
 
-## 背景
+## Contexto
 
-桌面端使用 `electron-updater` generic feed。客户端运行版本可能落后于已经下载但尚未安装的版本，例如当前进程是 `3.1.2`，已下载 `3.1.3`，用户暂时没有点击重启安装。
+O desktop usa o generic feed do `electron-updater`. A versão em execução no cliente pode ficar
+atrás de uma versão já baixada, mas ainda não instalada, por exemplo: o processo atual é `3.1.2`,
+`3.1.3` já foi baixado e o usuário ainda não clicou em reinstalar.
 
-旧状态机在 `update-downloaded` 后把菜单固定为“重启以更新”，后台轮询只允许从 `idle` 发起。因此当 stable feed 后续推进到 `3.1.4` 时，同一运行进程不会再次检查，也就不会把可安装包替换为 `3.1.4`。只发现、尚未下载时也有同一类缺口：状态停在 `update-available` 后，轮询和菜单里的“检查更新”都不再请求 manifest，用户只能先安装第一次看到的版本。
+A antiga máquina de estados fixava o menu em "reiniciar para atualizar" após `update-downloaded`, e o
+polling em segundo plano só podia partir de `idle`. Portanto, quando o stable feed avançava depois
+para `3.1.4`, o mesmo processo em execução não verificava de novo e, portanto, não substituía o
+pacote instalável por `3.1.4`. Há uma lacuna da mesma natureza quando a versão apenas foi
+detectada, mas ainda não baixada: com o estado parado em `update-available`, nem o polling nem o
+"verificar atualização" do menu voltam a pedir o manifest, e o usuário só consegue instalar a
+primeira versão que viu.
 
-## 目标语义
+## Semântica desejada
 
-- 服务器最新版本是目标，本地包是另一件事实。已经展示 `update-available`、`download-progress` 或 `update-downloaded` 时，后台复查不得把界面切成 `checking`。
-- 启动立即检查一次。没有可见更新时每 15 分钟复查；更新入口还在时每 2 分钟复查。下载完成或取消时，如果没有检查在飞，立即再查一次。下载失败无论来自下载 Promise 还是 error 事件，都再查一次；如果失败发生在当前检查收口前，等收口后再查。强制更新失败不复查。已有检查在飞的完成或取消不另排队，由短轮询接手。
-- 菜单“检查更新”在 `update-available` 时重新请求 manifest，不回放内存里的旧版本。下载中只提示正在下载；已下载且仍等于目标时继续安装。
-- 复查结果更高时替换目标的版本、通道和 release notes。自动下载开启且当前没有下载在途时，下载这个新版本；否则留在发现态，等用户确认。
-- 复查结果等于当前目标时不重复下载。低于当前目标或该版本被跳过时，有 ready 包就留在 ready，没有则回到 idle。
-- 已下载包版本等于当前目标时，用户点击“重启以更新”继续安装该包。目标已经更高而新包尚未就绪时，退出和“重启以更新”都不安装旧包。
-- 若替换下载失败且旧 ready 包仍存在，菜单恢复到旧 ready 状态，避免用户失去原本可安装的更新入口。
+- A versão mais recente do servidor é o alvo; o pacote local é outro fato. Depois de exibir
+  `update-available`, `download-progress` ou `update-downloaded`, a reverificação em segundo plano
+  não pode mudar a interface para `checking`.
+- Verificar imediatamente no startup. Sem atualização visível, reverificar a cada 15 minutos; com a
+  entrada de atualização ainda presente, a cada 2 minutos. Ao concluir ou cancelar um download,
+  verificar mais uma vez se não houver verificação em voo. Se o download falhar, seja pela Promise
+  de download ou pelo evento de error, verificar de novo; se a falha ocorrer antes de a verificação
+  atual ser fechada, verificar depois do fechamento. Falha em atualização forçada não gera
+  reverificação. A conclusão ou o cancelamento de uma verificação já em voo não enfileira outra,
+  ficando a cargo do polling curto.
+- O "verificar atualização" do menu volta a pedir o manifest em `update-available`, sem reproduzir a
+  versão antiga em memória. Durante o download, apenas avisa que o download está em andamento; já
+  baixado e ainda igual ao alvo, continua a instalação.
+- Quando o resultado da reverificação for mais alto, substituem-se a versão, o canal e as release
+  notes do alvo. Com o download automático ativado e sem download em andamento, baixa-se essa nova
+  versão; caso contrário, permanece no estado de descoberta aguardando confirmação do usuário.
+- Quando o resultado da reverificação for igual ao alvo atual, não baixa-se novamente. Quando for
+  inferior ao alvo atual ou quando essa versão foi pulada, se houver um pacote pronto, permanece-se
+  em ready; sem ele, volta-se para idle.
+- Quando a versão do pacote baixado é igual ao alvo atual, o clique do usuário em "reiniciar para
+  atualizar" continua instalando esse pacote. Quando o alvo já é mais alto e o novo pacote ainda
+  não está pronto, tanto a saída quanto "reiniciar para atualizar" não instalam o pacote antigo.
+- Se o download substituto falhar e o pacote ready antigo ainda existir, o menu retorna ao estado
+  ready antigo, evitando que o usuário perca a entrada de atualização instalável que tinha.
 
-## 实现约束
+## Restrições de implementação
 
-- 下载由主进程显式触发：`electron-updater` 的 `autoDownload` 关闭，`update-available` 事件里根据 ready 版本判断是否调用 `downloadUpdate()`。下载进行中可以记住更高目标，但不并发启动另一次下载。
-- 版本比较使用 semver coercion，兼容 `v3.1.4` 这类版本字符串；无法解析时只在字符串不同的情况下视为需要下载。
-- 自动轮询从 `idle`、`update-available`、`update-downloaded` 发起。`checking` 与真正的 `download-progress` 仍然跳过，避免并发下载。macOS / Linux 仅在 ready 包版本等于当前目标时保留退出自动安装。
+- O download é disparado explicitamente pelo processo principal: o `autoDownload` do
+  `electron-updater` fica desligado e, no evento `update-available`, chama-se `downloadUpdate()`
+  conforme a versão ready. Durante um download em andamento é possível lembrar um alvo mais alto,
+  mas não iniciar concorrentemente outro download.
+- A comparação de versões usa coerção de semver, compatível com strings como `v3.1.4`; quando não
+  é possível fazer o parse, considera-se necessário baixar apenas se as strings forem diferentes.
+- O polling automático parte de `idle`, `update-available` e `update-downloaded`. `checking` e um
+  `download-progress` real continuam sendo pulados, evitando downloads concorrentes. Em macOS /
+  Linux, a instalação automática na saída é mantida apenas quando a versão do pacote ready é igual
+  ao alvo atual.

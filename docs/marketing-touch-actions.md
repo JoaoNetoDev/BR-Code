@@ -1,24 +1,24 @@
-# Marketing Touch：navigate 与 copy_text 协议方案
+# Marketing Touch: protocolo de navigate e copy_text
 
-更新：2026-09-11。状态：客户端已接入，macOS 隔离 App 验证通过；服务端版本/平台投放与统计口径仍需联调，非已上线声明。
+Atualizado em: 2026-09-11. Status: cliente já integrado, verificação com App isolado no macOS aprovada; a entrega de versões/plataformas pelo servidor e a semântica de estatística ainda exigem integração conjunta e não são uma declaração de já estar no ar.
 
-现有实现见 [Marketing Touch 客户端接入](marketing-touch-client.md)。文档更新不表示新动作已经可下发。
+A implementação existente está em [Integração do cliente Marketing Touch](marketing-touch-client.md). A atualização deste documento não significa que novas ações já podem ser entregues.
 
-## 1. 范围
+## 1. Escopo
 
-| 动作 | 状态 | 用途 |
+| Ação | Status | Uso |
 | --- | --- | --- |
-| close | 已实现，保持 | 关闭营销内容 |
-| open_url | 已实现，保持 | 打开 HTTP/HTTPS 网页 |
-| claim_zcode_plan | 已实现，保持 | 复用资格、安全校验与领取流程 |
-| navigate | 本期新增，客户端已实现 | 设置分区、提供商设置、插件市场与详情导航 |
-| copy_text | 本期新增，客户端已实现 | 复制原始纯文本，不执行 |
+| close | implementada, mantida | fecha o conteúdo de marketing |
+| open_url | implementada, mantida | abre páginas HTTP/HTTPS |
+| claim_zcode_plan | implementada, mantida | reutiliza elegibilidade, verificação de segurança e fluxo de resgate |
+| navigate | nova nesta rodada, já implementada no cliente | navegação para seções de configurações, configurações de provedor, mercado de plugins e detalhes |
+| copy_text | nova nesta rodada, já implementada no cliente | copia texto puro original, sem executar |
 
-明确不做：`create_task`、`select_model`、填入提示词、安装/启用插件、自动授权、工作区选择和启动功能引导。不得恢复旧领取流程中自动切换套餐连接与模型的逻辑。
+Fora de escopo de forma explícita: `create_task`, `select_model`, preenchimento de prompt, instalação/ativação de plugin, autorização automática, seleção de workspace e recursos de onboarding. Não se deve restaurar a lógica do fluxo antigo de resgate que trocava automaticamente conexão de plano e modelo.
 
-不改变：纯图片 Banner、空文案按钮、ghost 圆形透明关闭/loading、资源准备完成后展示、正式10分钟/测试30秒轮询、服务端决定重投放、Hero ZIP 校验与沙箱机制。
+Sem mudanças: banner apenas com imagem, botão com texto vazio, botão ghost circular transparente de fechamento/loading, exibição após o recurso estar pronto, polling oficial de 10 minutos / de teste de 30 segundos, decisão do servidor sobre reexibição, validação Hero ZIP e mecanismo de sandbox.
 
-## 2. 通用下发结构
+## 2. Estrutura comum de entrega
 
 ```json
 {
@@ -27,32 +27,32 @@
 }
 ```
 
-| 位置 | 展示与操作 |
+| Posição | Exibição e operação |
 | --- | --- |
-| banner.buttons[] | 最多一个 close、一个常规动作；常规动作绑定整图，文案可空，仅补无障碍标签 |
-| popup.buttons[] | 独立弹窗的可见按钮 |
-| banner.success_popup.buttons[] | 成功结果弹窗的可见按钮 |
+| banner.buttons[] | no máximo um close e uma ação comum; a ação comum se vincula à imagem inteira, o texto pode ser vazio e apenas o rótulo de acessibilidade é preenchido |
+| popup.buttons[] | botão visível de um popup independente |
+| banner.success_popup.buttons[] | botão visível do popup de resultado de sucesso |
 
-不新增顶层 banner.action，不使用动作数组。文本保持现有 plaintext/html/markdown 和可选/null style 契约，不直接把 style 注入 DOM。
+Não se adiciona um banner.action de nível superior nem se usam arrays de ações. O texto mantém o contrato existente de plaintext/html/markdown e style opcional/null, e style não é injetado diretamente no DOM.
 
-## 3. navigate 参数
+## 3. Parâmetros de navigate
 
-定义 settings、plugin_marketplace、upgrade、rewards 四个顶层 page。稳定协议标识由客户端映射既有入口，不向服务端暴露路由路径或组件名。
+Define-se a page de nível superior settings, plugin_marketplace, upgrade e rewards. O identificador de protocolo estável é mapeado pelo cliente para as entradas existentes, sem expor caminhos de rota ou nomes de componentes ao servidor.
 
-| 参数 | 类型 | 必填 | 约束 |
+| Parâmetro | Tipo | Obrigatório | Restrição |
 | --- | --- | --- | --- |
-| page | 枚举 | 是 | settings / plugin_marketplace / upgrade / rewards |
-| section | 枚举 | 否 | 仅 settings 使用，取下表白名单 |
-| provider_id | 字符串 | 否 | 仅 settings + models 使用，实际稳定提供商标识 |
-| plugin_id | 字符串 | 否 | 仅 plugin_marketplace 使用，可信目录完整插件标识 |
+| page | enum | sim | settings / plugin_marketplace / upgrade / rewards |
+| section | enum | não | usado apenas por settings, com valor da lista de permissões abaixo |
+| provider_id | string | não | usado apenas por settings + models, identificador real e estável do provedor |
+| plugin_id | string | não | usado apenas por plugin_marketplace, identificador completo do plugin do catálogo confiável |
 
-ID 非空，最多128字符。可选字段省略，不以 null 表示省略。新动作 args 严格校验未知字段、枚举和参数组合；外围投放保持现有单条隔离策略。
+IDs não vazios, no máximo 128 caracteres. Campos opcionais são omitidos, sem usar null para representar omissão. Para novas ações, args faz validação estrita de campos desconhecidos, enums e combinações de parâmetros; a entrega periférica mantém a estratégia atual de isolamento por item.
 
-### 邀请好友
+### Convidar amigos
 
-`{"type":"navigate","args":{"page":"rewards"}}` 不接受其他参数，旧 page=referrals 不再接受。打开奖励中心 /{cn|en}/rewards，旧 /{cn|en}/referrals 不再支持。Banner、弹窗按钮和资源包交互共用原动作分发与 confirm 上报。客户端支持不等于服务端已开始投放。
+`{"type":"navigate","args":{"page":"rewards"}}` não aceita outros argumentos, e o antigo page=referrals não é mais aceito. Abre a central de recompensas /{cn|en}/rewards, e o antigo /{cn|en}/referrals não é mais suportado. Banner, botões de popup e interação com pacotes de recursos compartilham o despacho de ações original e o envio de confirm. Suporte no cliente não significa que o servidor já começou a entregar.
 
-RewardsProvider 接收导航后，已登录直接打开；未登录请求统一 app-login，记录本次 loginAttemptId。成功且 user 就绪后打开，取消、失败或尝试被替换则清除；不因后续无关登录再次打开。此待处理意图不放在登录后会重建的营销 controller 中。confirm 表示导航意图已接收，不表示登录或发奖成功；不新增或重复上报。
+Após o RewardsProvider receber a navegação, se o usuário já estiver logado abre diretamente; se não estiver, solicita app-login de forma unificada e registra o loginAttemptId desta vez. Abre quando tiver sucesso e o user estiver pronto, e limpa em caso de cancelamento, falha ou substituição da tentativa; não abre de novo por um login posterior sem relação. Essa intenção pendente não fica no controller de marketing, que é recriado após o login. O confirm significa que a intenção de navegação foi recebida, não que o login ou o resgate foi bem-sucedido; não se adiciona nem se duplica o envio do relatório.
 
 ```text
 navigate(rewards) → RewardsProvider → 已登录：打开
@@ -61,36 +61,36 @@ navigate(rewards) → RewardsProvider → 已登录：打开
                                           → 取消/失败/新 ID：清除
 ```
 
-桌面使用既有隔离 WebView，Web/手机使用既有 HTTPS 外部打开，不转发 App token。语言、主题、环境和鉴权沿用 Rewards 接入契约，不改变任务和远控状态。
+O desktop usa o WebView isolado existente; Web e celular usam a abertura externa HTTPS existente, sem encaminhar o token do App. Idioma, tema, ambiente e autenticação seguem o contrato de integração do Rewards, sem alterar o estado de tarefas e de controle remoto.
 
-### 设置分区白名单
+### Lista de permissões de seções de configurações
 
-| 页面 | 下发 section | 当前内部标识 |
+| Página | section entregue | identificador interno atual |
 | --- | --- | --- |
-| 常规 | general | general |
-| 外观 | appearance | appearance |
-| 模型设置 | models | modelProvider |
-| 浏览器控制 | browser | browser |
-| 电脑控制 | computer_use | computerUse |
-| 记忆 | memory | memory |
-| 子智能体 | subagents | subagents |
-| 插件管理 | plugins | plugin |
-| MCP 服务器 | mcp | mcp |
-| 技能 | skills | skill |
-| 命令 | commands | commands |
-| 钩子 | hooks | hooks |
-| 索引库 | indexing | indexing |
-| 使用统计 | usage | usage |
+| Geral | general | general |
+| Aparência | appearance | appearance |
+| Configurações de modelos | models | modelProvider |
+| Controle do navegador | browser | browser |
+| Controle do computador | computer_use | computerUse |
+| Memória | memory | memory |
+| Subagentes | subagents | subagents |
+| Gerenciamento de plugins | plugins | plugin |
+| Servidores MCP | mcp | mcp |
+| Skills | skills | skill |
+| Comandos | commands | commands |
+| Hooks | hooks | hooks |
+| Índice | indexing | indexing |
+| Estatísticas de uso | usage | usage |
 
-section 省略时沿用设置默认/上次分区；已打开时激活已有设置页。底部“引导”不是普通设置分区，本期不纳入。不得原样透传内部历史 plugins、automations 等标识。
+Quando section é omitido, vale a seção padrão/anterior das configurações; se as configurações já estiverem abertas, ativa-se a página existente. O "guia" no rodapé não é uma seção comum de configurações e não entra nesta rodada. Não se repassam como são identificadores internos históricos como plugins ou automations.
 
-打开模型设置：
+Abrir as configurações de modelos:
 
 ```json
 { "type": "navigate", "args": { "page": "settings", "section": "models" } }
 ```
 
-定位指定提供商，只定位、不切换模型/套餐/连接、不自动授权：
+Localizar um provedor específico: apenas localizar, sem trocar modelo/plano/conexão e sem autorização automática:
 
 ```json
 {
@@ -99,19 +99,19 @@ section 省略时沿用设置默认/上次分区；已打开时激活已有设�
 }
 ```
 
-打开技能：
+Abrir as skills:
 
 ```json
 { "type": "navigate", "args": { "page": "settings", "section": "skills" } }
 ```
 
-### 插件管理与插件市场
+### Gerenciamento de plugins e mercado de plugins
 
-| 目标 | 完整 args | 边界 |
+| Objetivo | args completos | Limite |
 | --- | --- | --- |
-| 管理已安装插件 | `{"page":"settings","section":"plugins"}` | 只打开管理首页 |
-| 浏览插件市场 | `{"page":"plugin_marketplace"}` | 只打开市场首页 |
-| 市场插件详情 | `{"page":"plugin_marketplace","plugin_id":"名称@市场"}` | 只展示指定插件详情 |
+| Gerenciar plugins instalados | `{"page":"settings","section":"plugins"}` | abre apenas a página inicial de gerenciamento |
+| Navegar pelo mercado de plugins | `{"page":"plugin_marketplace"}` | abre apenas a página inicial do mercado |
+| Detalhes de um plugin do mercado | `{"page":"plugin_marketplace","plugin_id":"名称@市场"}` | mostra apenas os detalhes do plugin indicado |
 
 ```json
 { "type": "navigate", "args": { "page": "settings", "section": "plugins" } }
@@ -128,15 +128,15 @@ section 省略时沿用设置默认/上次分区；已打开时激活已有设�
 }
 ```
 
-不增加独立 page=plugin_detail；详情统一由 plugin_marketplace + plugin_id 表达。当前入口按“名称@市场”识别插件，实际值必须来自可信目录，占位符不可上线。
+Não se adiciona uma page=plugin_detail separada; os detalhes são sempre expressos por plugin_marketplace + plugin_id. A entrada atual identifica o plugin por "nome@mercado" e o valor real deve vir do catálogo confiável; placeholders não podem ir para produção.
 
-本期不定位某个已安装插件，不支持 query 搜索参数，不自动安装、启用或卸载。指定插件不存在时明确失败，不静默打开首页。
+Nesta rodada não se localiza um plugin instalado específico, não há suporte a parâmetros de busca via query e não há instalação, ativação ou desinstalação automática. Quando o plugin indicado não existe, a falha é explícita, sem abrir silenciosamente a página inicial.
 
-不新增 plans、help、release_notes 枚举；外部页面继续使用 open_url。不接受任意内部路由、URL、组件名、本地路径或 RPC 方法。
+Não se adicionam os enums plans, help e release_notes; páginas externas continuam usando open_url. Não se aceitam rotas internas, URLs, nomes de componentes, caminhos locais ou métodos RPC arbitrários.
 
-### 升级购买入口补充
+### Complemento da entrada de compra de upgrade
 
-`{"type":"navigate","args":{"page":"upgrade"}}` 复用现有 CodingPlanUpgradeDialogProvider 和内嵌官网购买页，不接受套餐/provider/自动购买参数。提供商沿用当前侧栏升级目标解析。仅桌面支持内嵌 webview；Web/手机明确失败，不新建购买 runtime。
+`{"type":"navigate","args":{"page":"upgrade"}}` reutiliza o CodingPlanUpgradeDialogProvider existente e a página de compra embutida do site oficial, e não aceita argumentos de plano/provedor/compra automática. O provedor segue a resolução atual do alvo de upgrade na barra lateral. Apenas o desktop suporta webview embutido; Web e celular falham explicitamente, sem criar um novo runtime de compra.
 
 ```text
 营销点击 -> 当前升级入口 inventory 守卫 -> 原购买容器 -> webview dom-ready
@@ -146,15 +146,15 @@ section 省略时沿用设置默认/上次分区；已打开时激活已有设�
                         恢复营销内容                      收口营销内容
 ```
 
-等待时暂时隐藏营销 Dialog，保留 Controller 快照；30秒超时/账号变化/卸载关闭本次待打开容器，迟到事件不报成功。正常入口不改变。登录已迁入官网页，不再由 App 弹登录后恢复；购买页成功打开即表示导航成功，随后取消网页登录/关闭购买页不撤销 confirm，不等同购买成功，不下单或支付。原购买完成刷新保持不变。
+Enquanto aguarda, o Dialog de marketing é ocultado temporariamente e o snapshot do Controller é preservado; um timeout de 30 segundos, mudança de conta ou desinstalação fecham o container pendente desta vez, e eventos atrasados não reportam sucesso. A entrada normal não muda. O login já foi migrado para o site oficial e o App não abre mais um login e depois retoma; a abertura bem-sucedida da página de compra significa navegação bem-sucedida, e cancelar o login na página ou fechar a página de compra depois disso não revoga o confirm, não equivale a compra bem-sucedida e não gera pedido nem pagamento. A atualização após a compra bem-sucedida continua igual.
 
-验收：严格拒绝 upgrade 多余字段；inventory 不可用、失败/关闭/取消无 confirm；真实隔离 webview ready 后营销 Popup 消失且 confirm 一次；既有升级入口回归。
+Aceitação: rejeitar estritamente campos extras de upgrade; sem confirm quando inventory está indisponível, falha, fechamento ou cancelamento; o Popup de marketing desaparece e o confirm ocorre uma única vez após o webview isolado real ficar ready; regressão das entradas de upgrade existentes.
 
-## 4. copy_text 参数与反馈
+## 4. Parâmetros e feedback de copy_text
 
-| 参数 | 类型 | 必填 | 约束 |
+| Parâmetro | Tipo | Obrigatório | Restrição |
 | --- | --- | --- | --- |
-| text | 字符串 | 是 | 最多20,000字符；拒绝空白-only 内容；保留原文与换行 |
+| text | string | sim | no máximo 20.000 caracteres; rejeita conteúdo só com espaços em branco; preserva o texto original e as quebras de linha |
 
 ```json
 {
@@ -166,19 +166,19 @@ section 省略时沿用设置默认/上次分区；已打开时激活已有设�
 }
 ```
 
-- 复制原始纯文本；即使包含命令或 HTML，也不执行、不解析为可执行内容。
-- 不填入输入框、不创建任务、不自动发送。
-- 成功后保留 Banner/Popup，不展示 success_popup。
-- Popup 按钮短暂显示本地化“已复制”，再恢复原文案，复用公共弹窗现有2秒反馈。
-- Banner 使用本地化成功提示，不新增常驻文字。
-- 写入失败提示并恢复操作，不显示虚假成功。
-- 用户可以再次点击，每次实际执行写入；在途操作防连点。
+- Copia o texto puro original; mesmo contendo comandos ou HTML, não executa nem é interpretado como conteúdo executável.
+- Não preenche campos de entrada, não cria tarefa e não envia automaticamente.
+- Após o sucesso, mantém o Banner/Popup e não exibe success_popup.
+- O botão do Popup mostra brevemente o "已复制" localizado e depois restaura o texto original, reutilizando o feedback existente de 2 segundos do popup comum.
+- O Banner usa a mensagem de sucesso localizada, sem novo texto permanente.
+- Em caso de falha na escrita, mostra o aviso e restaura a operação, sem exibir sucesso falso.
+- O usuário pode clicar novamente e cada clique executa de fato a escrita; operações em andamento têm proteção contra cliques repetidos.
 
-不增加 close_after_action、report_type、skip_confirmation 等远端参数，行为由客户端按动作固定定义。
+Não se adicionam parâmetros remotos como close_after_action, report_type e skip_confirmation; o comportamento é definido de forma fixa pelo cliente conforme a ação.
 
-## 5. 客户端执行与状态
+## 5. Execução e estado no cliente
 
-Marketing Touch Controller 仍为营销展示和当前操作的唯一 owner。导航/剪贴板通过窄能力适配入口复用既有功能，不模拟 DOM 点击，不直接修改模型、插件或任务状态。
+O Marketing Touch Controller continua sendo o único owner da exibição de marketing e da operação atual. Navegação e área de transferência reutilizam as funcionalidades existentes por entradas estreitas de adaptação de capacidade, sem simular cliques no DOM e sem modificar diretamente estado de modelo, plugin ou tarefa.
 
 ```text
 Banner / Popup 按钮
@@ -197,32 +197,32 @@ Controller 防连点
 失败 --> 恢复可操作状态 + 本地化提示，不报 confirm
 ```
 
-### 导航适配
+### Adaptação de navegação
 
-- settings 先登记分区/提供商意图，再打开或激活设置页，复用 setPendingSettingsSectionIntent 与 openSettingsTab。
-- plugin_marketplace 复用市场打开和插件定位入口。
-- 既有入口的事件/状态更新现由窗口内一次性请求关联和成功/失败确认补足；不能 dispatch 事件就宣称页面已展示。
-- 成功判据是目标页面激活且请求的分区/提供商/插件定位完成；已经处于目标状态也可确认成功。
-- 指定目标不存在时失败，不静默回退首页；列表未加载完成时等待既有加载结果，避免误判。
-- 通过既有机制协调营销弹窗和目标页面的模态层，避免焦点争抢；失败保留/恢复重试入口。
-- navigate 成功后不展示 success_popup，避免遮住新页面。这只适用于新增动作，不改现有领取/外链行为。
-- navigate/copy_text 不触发领取专属的操作后立即查询，避免查询与异步 confirm 竞争导致旧弹窗遮挡目标；正常定时轮询和服务端重投放仍保留，不做历史去重。
-- 插件市场位于工作区：发送市场意图后激活原工作区（带 workspaceIdentity），目标组件验证活动工作区身份和列表/详情状态再确认，不能把设置层背后的挂载视为成功。
+- settings registra primeiro a intenção de seção/provedor e depois abre ou ativa a página de configurações, reutilizando setPendingSettingsSectionIntent e openSettingsTab.
+- plugin_marketplace reutiliza as entradas existentes de abertura do mercado e de localização de plugin.
+- As atualizações de evento/estado das entradas existentes passam a ser complementadas por uma requisição única correlacionada dentro da janela e por confirmação de sucesso/falha; não se pode alegar que a página já foi exibida só porque foi possível despachar o evento.
+- O critério de sucesso é a página alvo estar ativa e a localização de seção/provedor/plugin solicitada ter sido concluída; já estar no estado desejado também permite confirmar sucesso.
+- Quando o alvo indicado não existe, a operação falha sem voltar silenciosamente à página inicial; enquanto a lista não terminou de carregar, aguarda-se o resultado de carga existente para evitar avaliação errada.
+- A camada modal do popup de marketing e da página alvo é coordenada pelos mecanismos existentes para evitar disputa de foco; em caso de falha, a entrada de tentar novamente é mantida/restaurada.
+- Após o sucesso de navigate, não se exibe success_popup, para não cobrir a nova página. Isso vale apenas para as novas ações e não muda os comportamentos existentes de resgate/link externo.
+- navigate/copy_text não acionam a consulta imediata após um resgate, evitando que a consulta compita com o confirm assíncrono e cause sobreposição de popup antigo sobre o alvo; o polling periódico normal e a reexibição pelo servidor são mantidos, sem deduplicação histórica.
+- O mercado de plugins fica no workspace: depois de enviar a intenção de mercado, ativa-se o workspace original (com workspaceIdentity), e o componente alvo verifica a identidade do workspace ativo e o estado de lista/detalhes antes de confirmar; não se pode considerar sucesso o fato de o componente estar montado atrás da camada de configurações.
 
-### 剪贴板适配
+### Adaptação da área de transferência
 
-优先复用现有能力；缺统一入口时补跨平台适配。由用户点击触发，处理权限、安全上下文及宿主限制；写入成功后才反馈与上报。
+Prioriza-se a reutilização das capacidades existentes; quando falta uma entrada unificada, adiciona-se uma adaptação multiplataforma. A operação é disparada por clique do usuário e trata permissões, contexto seguro e limitações do host; o feedback e o relatório só ocorrem após a escrita bem-sucedida.
 
-公共 CloudContentDialog 的内部 navigate/copy_text 分发与复制反馈已接入 Marketing Touch。导航使用内部 button ID 关联原始 args，避免丢失 section/provider_id/plugin_id；复制处理函数将失败传回公共弹窗，只有真实成功才显示“已复制”。
+O despacho interno de navigate/copy_text do CloudContentDialog e o feedback de cópia já foram integrados ao Marketing Touch. A navegação usa um ID de botão interno para correlacionar os args originais, evitando perder section/provider_id/plugin_id; a função de tratamento da cópia repassa a falha ao popup comum e só exibe "已复制" em caso de sucesso real.
 
-### 生命周期与多端
+### Ciclo de vida e múltiplos dispositivos
 
-- 操作期间固定原始 Campaign、账号代次、窗口和请求上下文；轮询不能替换正在执行的快照。
-- Banner 图片不变，关闭位使用透明 loading，沿用 pending 防连点与关闭拦截策略。
-- 异步能力必须有限等待；具体超时依据既有能力确定，不用固定延迟假装成功。
-- 身份变化、目标失效、卸载后，迟到结果不能重开旧营销内容，旧事件不能用新凭据上报。
-- 丢弃迟到 UI 不等于撤销已产生的导航/复制副作用；超时结果不明时不自动重复执行。
-- 不改变轮询、资源缓存、同 ID 重投放规则，不新增 Campaign 历史黑名单。
+- Durante a operação, a Campaign original, a geração da conta, a janela e o contexto da requisição ficam fixos; o polling não pode substituir o snapshot em execução.
+- A imagem do Banner não muda e a posição de fechamento usa loading transparente, mantendo as estratégias de proteção contra cliques repetidos e de interceptação de fechamento.
+- Capacidades assíncronas devem ter espera limitada; o timeout concreto é determinado pelas capacidades existentes, sem simular sucesso com atraso fixo.
+- Após mudança de identidade, invalidação do alvo ou desinstalação, resultados atrasados não podem reabrir conteúdo de marketing antigo, e eventos antigos não podem ser reportados com credenciais novas.
+- Descartar UI atrasado não equivale a desfazer os efeitos colaterais de navegação/cópia já produzidos; quando o resultado do timeout é incerto, não se repete a execução automaticamente.
+- Não se alteram o polling, o cache de recursos e a regra de reexibição do mesmo ID, e não se adiciona blacklist histórico de Campaign.
 
 ```text
 营销 Controller --> 能力适配 --> 既有设置/市场/剪贴板
@@ -230,11 +230,11 @@ Controller 防连点
 手机任务 web-remote-replayable ---> 原 shared-host / 恢复链路（不变）
 ```
 
-桌面/Web/手机复用组件与能力接口，不从共享 UI 直接调用 Electron API。不支持页面的平台明确失败，服务端提前按版本/平台限制投放。不另起 Agent runtime，不改变 remote attachment、任务流或 workspace 身份隔离，不下发任意工作区路径。
+Desktop/Web/celular reutilizam componentes e interfaces de capacidade e não chamam a API do Electron diretamente da UI compartilhada. Plataformas sem suporte à página falham de forma explícita, e o servidor restringe a entrega por versão/plataforma antecipadamente. Não se inicia outro Agent runtime, não se altera o remote attachment, o fluxo de tarefas ou o isolamento de identidade do workspace, e não se entrega caminho de workspace arbitrário.
 
-## 6. 上报规则
+## 6. Regras de relatório
 
-继续使用现有接口，不新增 action_id：
+Continua-se usando a interface existente, sem novo action_id:
 
 ```http
 POST /api/v1/marketing/touch/action
@@ -249,94 +249,94 @@ Authorization: Bearer <登录时附带>
 { "campaign_id": "<原始投放 ID>", "action_type": "confirm" }
 ```
 
-下表为客户端目标语义；复制后保留视图产生多事件的统计规则须服务端确认后才开放投放。
+A tabela abaixo é a semântica alvo do cliente; as regras de estatística que produzem múltiplos eventos ao copiar mantendo a visualização precisam ser confirmadas pelo servidor antes de a entrega ser liberada.
 
-| 事件 | 上报 | 营销内容 |
+| Evento | Relatório | Conteúdo de marketing |
 | --- | --- | --- |
-| navigate 成功 | confirm | 关闭 |
-| navigate 失败 | 不报成功 | 保留/恢复并提示 |
-| copy_text 成功 | 每次实际成功复制报一次 confirm | 保留 |
-| copy_text 失败 | 不报成功 | 保留并提示 |
-| 复制后关闭独立 Popup/Banner | cancel | 关闭 |
-| 关闭领取成功结果弹窗 | 不重复报 cancel | 关闭 |
-| 结果弹窗内执行新的导航/复制 | 成功后报 confirm | 按动作处理 |
-| 查询、资源下载与展示 | 不报 show | 不变 |
+| navigate com sucesso | confirm | fecha |
+| navigate com falha | não reporta sucesso | mantém/restaura e avisa |
+| copy_text com sucesso | um confirm por cópia realmente realizada | mantém |
+| copy_text com falha | não reporta sucesso | mantém e avisa |
+| Fechar Popup/Banner independente após copiar | cancel | fecha |
+| Fechar o popup de resultado de resgate | não reporta cancel novamente | fecha |
+| Executar uma nova navegação/cópia dentro do popup de resultado | reporta confirm após o sucesso | tratado conforme a ação |
+| Consulta, download e exibição de recursos | não reporta show | inalterado |
 
-confirm/cancel 表示操作事件，不是互斥的最终转化状态。同一投放可以多次 confirm，之后还有 cancel；关闭不撤销复制成功。不能为此重新加入跨轮询去重。
+confirm/cancel representam eventos de operação e não estados finais de conversão mutuamente exclusivos. Uma mesma entrega pode ter vários confirms e depois um cancel; fechar não revoga uma cópia bem-sucedida. Não se pode reintroduzir deduplicação entre ciclos de polling por causa disso.
 
-现有接口不能区分同一投放内具体哪个按钮，无法按钮级归因，本期不擅自扩展字段。按钮文案“确认”但 action=close 时仍报 cancel。
+A interface existente não distingue qual botão específico foi usado dentro de uma mesma entrega, não permitindo atribuição por botão; esta rodada não estende campos por conta própria. Um botão com texto "确认" mas com action=close continua reportando cancel.
 
-匿名用户以合法设备 UUID 上报设备维度；登录后记录用户和设备。上报失败不逆转业务成功、不阻塞 UI，不自动重试结果不确定的 POST，不接收客户端时间。
+Usuários anônimos reportam a dimensão de dispositivo com um UUID de dispositivo válido; após o login, registram usuário e dispositivo. Falha de relatório não reverte o sucesso do negócio nem bloqueia a UI, não há retry automático de POST com resultado incerto e não se aceita tempo do cliente.
 
-## 7. 失败、安全与兼容
+## 7. Falhas, segurança e compatibilidade
 
-| 场景 | 处理 |
+| Cenário | Tratamento |
 | --- | --- |
-| 未知动作/页面/分区/字段 | 按现有单条投放隔离拒绝并记录原因，不影响其他合法资源位 |
-| 展示后目标或能力消失 | 点击时再次校验，提示失败，不执行其他动作 |
-| 平台不支持页面 | 明确提示，不用另起 runtime 补偿 |
-| 剪贴板权限/写入失败 | 不提示成功、不报 confirm，允许用户重试 |
-| 账号变化/卸载/目标失效 | 失效旧关联，丢弃迟到 UI |
-| 超时且结果不明 | 提示检查状态，不自动重复副作用 |
-| 上报失败 | 脱敏记录，不逆转导航/复制 |
+| Ação/página/seção/campo desconhecida | rejeita pelo isolamento por entrega já existente e registra o motivo, sem afetar outras posições de recurso legítimas |
+| O alvo ou a capacidade desaparece após a exibição | valida de novo no clique, avisa a falha e não executa outra ação |
+| Plataforma não suporta a página | aviso explícito, sem compensar com outro runtime |
+| Permissão/falha de escrita na área de transferência | não avisa sucesso, não reporta confirm e permite nova tentativa |
+| Mudança de conta / desinstalação / invalidação do alvo | invalida as correlações antigas e descarta a UI atrasada |
+| Timeout com resultado incerto | orienta a verificar o estado, sem repetir o efeito colateral automaticamente |
+| Falha no relatório | registro anonimizado, sem reverter navegação/cópia |
 
-不接受任意脚本、RPC、凭据、静默安装、全局配置修改或付费操作。日志仅记录 Campaign、动作、结果、错误码，不输出凭据或完整复制文本；UI 使用既有 logger。
+Não se aceitam scripts, RPC, credenciais, instalação silenciosa, alteração global de configuração ou operações pagas. O log registra apenas Campaign, ação, resultado e código de erro, sem saída de credenciais ou do texto completo copiado; a UI usa o logger existente.
 
-新客户端先发布，服务端再按客户端版本/平台开放运营投放，客户端保留最终校验。旧客户端不兼容的新投放不得直接放量。本期不新增能力协商接口。
+O cliente novo é publicado primeiro e o servidor abre a entrega operacional por versão/plataforma do cliente, mantendo a validação final no cliente. Novas entregas incompatíveis com clientes antigos não podem ser liberadas em escala. Esta rodada não adiciona interface de negociação de capacidade.
 
-## 8. 两端改动与实施顺序
+## 8. Mudanças dos dois lados e ordem de implementação
 
-| 范围 | 工作 |
+| Escopo | Trabalho |
 | --- | --- |
-| 服务端枚举/模型 | 注册两种动作，按 page/section 严格校验 args |
-| 设置导航表单 | 页面/分区下拉框，models 可选提供商 |
-| 市场导航表单 | 首页或可信目录指定插件 |
-| 复制表单 | 纯文本正文，长度与非空校验 |
-| 运营到 C 端映射 | 明确复制正文来源，不能混用按钮标签与正文 |
-| 投放策略 | 版本/平台限制，确认多事件统计语义 |
-| Shared | 动作判别联合、字段及组合校验 |
-| 导航适配 | 复用入口，补请求关联、完成与失败反馈 |
-| 剪贴板适配 | 跨平台写入和成功/失败反馈 |
-| Controller/展示 | 导航收口、复制保留、pending 和上报复用 |
+| Enums/modelo do servidor | registrar as duas ações e validar args estritamente por page/section |
+| Formulário de navegação de configurações | dropdown de página/seção, com provedor opcional em models |
+| Formulário de navegação do mercado | página inicial ou plugin indicado do catálogo confiável |
+| Formulário de cópia | corpo em texto puro, com validação de tamanho e não vazio |
+| Mapeamento do lado operacional para o cliente | definir explicitamente a origem do corpo copiado, sem misturar rótulo de botão e corpo |
+| Estratégia de entrega | restrição por versão/plataforma e confirmação da semântica de estatística com múltiplos eventos |
+| Shared | união discriminada de ações, campos e validação de combinações |
+| Adaptação de navegação | reutilizar entradas e complementar correlação de requisição, conclusão e feedback de falha |
+| Adaptação da área de transferência | escrita multiplataforma e feedback de sucesso/falha |
+| Controller/exibição | fechamento na navegação, manutenção na cópia, reutilização de pending e do relatório |
 
-复制正文在运营侧直接配置还是引用现有 i18n 库，由服务端评审；C 端始终收到当前语言最终 args.text，不要求 App 解析 i18n key。
+Se o corpo copiado é configurado diretamente pelo lado operacional ou referencia a biblioteca i18n existente é algo a ser avaliado pelo servidor; o cliente sempre recebe o args.text final no idioma atual, e não é exigido que o App interprete chaves i18n.
 
-实施顺序：确认 spec/事件语义 → 扫描调用边界 → 先写 Schema/行为测试 → 能力适配与 Controller → 两端注册及版本限制 → 隔离 App E2E → 真实投放联调。不得 UI 直接调用 Repo，不另建营销专属模型/插件状态。
+Ordem de implementação: confirmar spec/semântica de eventos → varrer as fronteiras de chamada → escrever primeiro os testes de Schema/comportamento → adaptação de capacidade e Controller → registro dos dois lados e restrições de versão → E2E em App isolado → integração com a entrega real. A UI não deve chamar o Repo diretamente e não se cria estado de modelo/plugin exclusivo de marketing.
 
-## 9. 验收矩阵
+## 9. Matriz de aceitação
 
-| 类别 | 必须验证 |
+| Categoria | O que deve ser verificado |
 | --- | --- |
-| Schema | 全部 page/section、缺失/空值、错误组合、未知字段、长度边界 |
-| 设置 | 全部分区、已打开复用、默认页、提供商存在/不存在/加载中 |
-| 插件 | 管理与市场区分、首页/详情、目标不存在、不自动安装启用 |
-| 无副作用导航 | 不切模型、不改连接或配置、不创建任务 |
-| 复制 | 原文/换行/HTML纯文本、成功、权限失败、重复复制 |
-| 展示 | 导航收口、复制保留、均不触发 success_popup、失败恢复 |
-| 上报 | confirm/cancel、匿名、复制后关闭、结果弹窗新动作、上报失败 |
-| 状态 | 防连点、账号切换、卸载、目标变化、超时、迟到结果 |
-| UI | 空文案 Banner、透明关闭/loading、明暗主题、中英文、键盘、窄屏 |
-| 多端 | 桌面/手机支持与不支持路径，task/remote 链路不变 |
-| 回归 | 领取、关闭、轮询、同 ID 重投放、Hero ZIP 校验与缓存不变 |
+| Schema | todas as page/section, ausência/valor vazio, combinações erradas, campos desconhecidos, limites de tamanho |
+| Configurações | todas as seções, reuso quando já aberta, página padrão, provedor existente/inexistente/carregando |
+| Plugins | distinção entre gerenciamento e mercado, página inicial/detalhes, alvo inexistente, sem instalação/ativação automática |
+| Navegação sem efeito colateral | não troca modelo, não muda conexão ou configuração, não cria tarefa |
+| Cópia | texto original/quebras de linha/HTML como texto puro, sucesso, falha de permissão, cópia repetida |
+| Exibição | fechamento na navegação, manutenção na cópia, nenhuma delas dispara success_popup, recuperação em caso de falha |
+| Relatório | confirm/cancel, anônimo, fechamento após cópia, nova ação no popup de resultado, falha de relatório |
+| Estado | proteção contra cliques repetidos, troca de conta, desinstalação, mudança de alvo, timeout, resultados atrasados |
+| UI | Banner com texto vazio, fechamento/loading transparente, tema claro/escuro, chinês/inglês, teclado, tela estreita |
+| Múltiplos dispositivos | caminhos suportados e não suportados em desktop/celular, cadeia de task/remote inalterada |
+| Regressão | resgate, fechamento, polling, reexibição do mesmo ID, validação Hero ZIP e cache inalterados |
 
-实现时更新 spec、先写测试再写代码，运行架构、类型、Lint、单测和 App E2E。隔离 fixture 通过不代表线上资格、真实安全校验及所有平台验收，未验证路径必须单列。
+Na implementação, atualizar o spec, escrever testes antes do código e rodar arquitetura, tipos, Lint, testes unitários e App E2E. A aprovação do fixture isolado não equivale à qualificação em produção, à verificação de segurança real nem à aceitação em todas as plataformas; caminhos não verificados devem ser listados separadamente.
 
-### 实现约束补充
+### Complemento das restrições de implementação
 
-导航使用窗口内一次性请求关联，目标组件在 React 提交后确认；等待上限30秒，取消/超时清理关联，不自动重试。提供商定位仅改变设置页选中节点，不调用连接方式保存逻辑；同一 family 下的套餐提供商定位到该 family 页面，保持用户当前连接方式。内置提供商真实 ID 带 builtin: 前缀（例如 builtin:bigmodel），不能使用展示名。复制直接复用浏览器 Clipboard API，等待上限10秒，不引入 Electron 专属调用。
+A navegação usa uma correlação de requisição única dentro da janela, e o componente alvo confirma após o commit do React; o limite de espera é de 30 segundos, cancelamento/timeout limpa a correlação e não há retry automático. A localização de provedor apenas altera o nó selecionado da página de configurações e não chama a lógica de salvamento do método de conexão; um provedor de plano dentro do mesmo family é localizado na página daquele family, mantendo o método de conexão atual do usuário. Os IDs reais de provedores embutidos têm o prefixo builtin: (por exemplo builtin:bigmodel) e não se pode usar o nome de exibição. A cópia reutiliza diretamente a Clipboard API do navegador, com limite de espera de 10 segundos e sem introduzir chamadas exclusivas do Electron.
 
-## 10. 上线前待确认
+## 10. A confirmar antes do lançamento
 
-复制正文的运营/i18n 来源；服务端多事件统计；提供商和插件标识实际值；各平台页面可用性；导航完成反馈与逐能力超时。
+Origem do corpo copiado no lado operacional/i18n; estatística de múltiplos eventos no servidor; valores reais dos identificadores de provedor e plugin; disponibilidade de páginas em cada plataforma; feedback de conclusão de navegação e timeout por capacidade.
 
-客户端完成标准：两种新动作及列出目标实现并通过隔离验证。上线标准另需两端版本/平台策略和上报语义对齐；本次不修改外部服务端。
+Critério de conclusão do cliente: as duas novas ações e os alvos listados implementados e aprovados na verificação isolada. O critério de lançamento exige ainda alinhamento da estratégia de versão/plataforma dos dois lados e da semântica de relatório; desta vez não se modifica o servidor externo.
 
-## 11. 客户端验证记录（2026-09-11）
+## 11. Registro de verificação do cliente (2026-09-11)
 
-- 升级入口增量：6个相关单测文件96项通过；macOS Electron 隔离 App E2E 12项通过，run `desktop-e2e-20260911061657474-p89925-d239ab3a54e48ea1`。新增严格 upgrade 参数、打开结果一次性通知与取消防迟到测试，以及真实内嵌购买页 ready 后 confirm 一次、关闭购买页不追加营销上报的场景。复用原购买容器；营销弹窗渲染拆为 MarketingDialogs，保持单一 Controller。真实官网登录、下单及支付未执行，Windows/Linux/手机实机未验证。
-- 10个相关单测文件86项通过：Schema、按钮适配、重复复制、复制后关闭、结果弹窗新动作、超时/取消、导航关联、原领取/轮询/缓存回归。
-- macOS Electron 隔离 App E2E 11项通过，run `desktop-e2e-20260911034056333-p11822-7b0e93cb78872140`。包含全部14个设置分区、提供商定位且落盘连接配置不变、市场首页/可信目录详情、缺失提供商/插件失败、真实剪贴板原文与重复写入、模拟权限拒绝、confirm/cancel ledger；保留5项旧投放/领取/ZIP回归。
-- 运行时发现并修正：市场挂在设置层背后不能确认成功；新增动作不沿用领取后立即查询，避免异步上报与旧投放重查竞争。测试 fixture 按单次投放关联，旧上报不能清空新测试数据；原同 campaign 重投放用例不变。
-- `pnpm typecheck`、`pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm architecture:check --changed`、改动文件格式检查通过；`pnpm lint` 为0错误/46条既有警告。
-- 按 architecture-governance / React / e2e-case-lifecycle 技能约束保留单一 Controller、窄导航关联、目标组件确认；E2E 保持 manual-review/pending，不自行提升正式套件。
-- 未验证：真实服务端新动作投放和多事件统计、真实安全校验、Windows/Linux/手机实机、双主题窄屏人工视觉验收。本次未修改外部服务端，也不恢复 App Mock 入口；Hero ZIP 保留不变。
+- Incremento da entrada de upgrade: 6 arquivos de teste unitário relacionados, 96 casos aprovados; E2E de App isolado Electron no macOS, 12 casos aprovados, run `desktop-e2e-20260911061657474-p89925-d239ab3a54e48ea1`. Adicionados testes de parâmetro upgrade estrito, notificação única do resultado de abertura e cancelamento de eventos atrasados, além do cenário de confirm único após a página de compra embutida real ficar ready e de ausência de relatório de marketing adicional ao fechar a página de compra. Reutiliza-se o container de compra original; a renderização do popup de marketing foi dividida em MarketingDialogs, mantendo um único Controller. Login real no site oficial, pedido e pagamento não foram executados, e Windows/Linux/celular reais não foram verificados.
+- 10 arquivos de teste unitário relacionados, 86 casos aprovados: Schema, adaptação de botões, cópia repetida, fechamento após cópia, nova ação no popup de resultado, timeout/cancelamento, correlação de navegação e regressões do resgate/polling/cache originais.
+- E2E de App isolado Electron no macOS, 11 casos aprovados, run `desktop-e2e-20260911034056333-p11822-7b0e93cb78872140`. Inclui todas as 14 seções de configurações, localização de provedor sem alteração da configuração de conexão persistida, página inicial do mercado e detalhes do catálogo confiável, falha de provedor/plugin ausente, texto original real e escrita repetida na área de transferência, negação de permissão simulada e ledger confirm/cancel; mantém 5 regressões de entrega/resgate/ZIP anteriores.
+- Problemas encontrados em tempo de execução e corrigidos: o mercado montado atrás da camada de configurações não pode ser confirmado como sucesso; novas ações não usam a consulta imediata após o resgate, evitando a corrida entre o relatório assíncrono e a nova consulta da entrega antiga. Os fixtures de teste usam correlação por entrega única, e relatórios antigos não podem limpar dados novos de teste; o caso original de reexibição da mesma campaign permanece inalterado.
+- `pnpm typecheck`, `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm architecture:check --changed` e a verificação de formatação dos arquivos alterados passaram; `pnpm lint` ficou com 0 erros e 46 avisos preexistentes.
+- Seguindo as restrições das skills architecture-governance / React / e2e-case-lifecycle, mantém-se um único Controller, correlação de navegação estreita e confirmação pelo componente alvo; o E2E permanece em manual-review/pending, sem promoção própria para a suíte oficial.
+- Não verificado: entrega real das novas ações pelo servidor e estatística de múltiplos eventos, verificação de segurança real, Windows/Linux/celular em máquinas reais e aceitação visual manual em tela estreita nos dois temas. Desta vez não se modificou o servidor externo nem se restaurou a entrada de App Mock; o Hero ZIP permanece inalterado.

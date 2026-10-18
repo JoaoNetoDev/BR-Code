@@ -1,102 +1,102 @@
-# Todo128 影响面与验收边界
+# Superfície de Impacto e Limites de Aceitação do Todo128
 
-## Feature Summary
+## Resumo da Funcionalidade
 
-| Field | Value |
+| Campo | Valor |
 | --- | --- |
-| Intent / capability | 启动只表示就绪；闲时资格读取当前 Registry 并串行刷新 |
-| Change layer / mode | validation、option-source；planning |
-| Seeds | ProviderRuntime、NodeProviderConfigRuntime、NodeProviderRegistryRuntime、ProviderRegistryService、offPeakTaskStore |
-| Existing docs | Todo128、docs/off-peak-task/spec.md |
-| Out of scope | Composer、持久化、账号同步重构、闲时远程支持、实际取号规则 |
+| Intenção / capacidade | A inicialização significa apenas prontidão; em tempo ocioso a elegibilidade é lida do Registry atual e atualizada serialmente |
+| Camada de mudança / modo | validation, option-source; planning |
+| Sementes | ProviderRuntime, NodeProviderConfigRuntime, NodeProviderRegistryRuntime, ProviderRegistryService, offPeakTaskStore |
+| Docs existentes | Todo128, docs/off-peak-task/spec.md |
+| Fora de escopo | Composer, refatoração de persistência, refatoração de sincronização de conta, suporte remoto em tempo ocioso, regras efetivas de retirada de número |
 
-## UI Surface Matrix
+## Matriz de Superfície de UI
 
-| Scenario / entry | Shared implementation | Display/draft | Default | Guard | Commit / authority | Mode / isolation |
+| Cenário / entrada | Implementação compartilhada | Exibição/rascunho | Padrão | Guarda | Commit / autoridade | Modo / isolamento |
 | --- | --- | --- | --- | --- | --- | --- |
-| Automations 创建入口 | Store + Provider Settings 完成通知 | Store 资格；表单草稿独立 | 无资格默认 | 当前连接支持且额度 ready | getCodingPlanSupport → getTakeNumberAvailability；Host Registry/服务端 | 仅既有桌面本地范围；不影响定时任务 |
-| OffPeakNewTaskEntry | 同一 Store/刷新 Hook | 横幅及导航草稿 | 现有模板 | 导航使用任意套餐；不替代创建校验 | 仅导航，不取号 | 当前未挂载，不借修复重新开放入口 |
+| Entrada de criação em Automations | Store + notificação de conclusão das Provider Settings | Elegibilidade no Store; rascunho de formulário independente | Padrão sem elegibilidade | Conexão atual suportada e quota ready | getCodingPlanSupport → getTakeNumberAvailability; Registry do Host/servidor | Apenas o escopo local desktop já existente; não afeta tarefas agendadas |
+| OffPeakNewTaskEntry | O mesmo Store/hook de atualização | Banner e rascunho de navegação | Template existente | A navegação usa qualquer plano; não substitui a validação de criação | Apenas navegação, sem retirar número | Atualmente não montado; não reabrir a entrada por causa da correção |
 
-## Shared And Divergent Behavior
+## Comportamento Compartilhado e Divergente
 
-| Concern | Shared | Different / reason |
+| Aspecto | Compartilhado | Divergente / motivo |
 | --- | --- | --- |
-| UI / option source | 最新已完成 Provider 事实 | 不调整布局；首页和创建门禁不同 |
-| Default / validation | 未确认不放行；资格与额度同代 | 首页导航不等于取号 |
-| Commit / persistence | 无新缓存、无数据库修改 | 实际取号仍由 Host 服务端验证；不改变 Ticket 绑定 |
+| UI / origem das opções | Fato mais recente concluído de Provider | Não ajusta o layout; a home e o portão de criação diferem |
+| Padrão / validação | Não liberar sem confirmação; elegibilidade e quota da mesma geração | Navegação da home não equivale a retirar número |
+| Commit / persistência | Sem novo cache, sem modificação no banco | A retirada de número efetiva ainda é validada pelo servidor do Host; não muda o vínculo de Ticket |
 
-## Feature Relationships
+## Relacionamentos da Funcionalidade
 
-| Rank | Edge | Why / evidence |
+| Rank | Aresta | Por quê / evidência |
 | --- | --- | --- |
-| must-inspect | start → 闲时凭据解析 | node.ts 当前消费首次 Promise 的旧快照 |
-| must-inspect | Registry → ProviderSettings.onDidChange → 闲时重查 | Facade 的 View 通知基于已发布快照 |
-| must-inspect | 页面初始化/连接变化/手动刷新 → Store | 当前三处并发且可能拼接资格额度 |
-| should-inspect | Node 启动 → Protocol 启动日志 | 返回值改 void 后显式读取一次快照 |
-| invariant-only | 创建/派发/鉴权 | 同一凭据解析闭包；不放宽资格 |
-| invariant-only | Web shared-host / workspace identity | 不新增 Host、不改 continuous/replayable |
+| must-inspect | start → resolução de credenciais ociosas | node.ts hoje consome o snapshot antigo da primeira Promise |
+| must-inspect | Registry → ProviderSettings.onDidChange → reconsulta ociosa | A notificação de View do Facade é baseada no snapshot já publicado |
+| must-inspect | inicialização da página/mudança de conexão/atualização manual → Store | Hoje os três pontos são concorrentes e podem combinar elegibilidade e quota |
+| should-inspect | Início do Node → log de inicialização do Protocol | Após a mudança do retorno para void, ler o snapshot explicitamente uma vez |
+| invariant-only | criação/envio/autenticação | O mesmo closure de resolução de credenciais; não afrouxar a elegibilidade |
+| invariant-only | Host compartilhado Web / identidade de workspace | Não adicionar Host, não alterar continuous/replayable |
 
-## State Owners And Commit Sinks
+## Donos de Estado e Destinos de Commit
 
-| Fact | Owner | Mirror / sink |
+| Fato | Dono | Espelho / destino |
 | --- | --- | --- |
-| 当前模型资格 | Registry | Store 只保存脱敏支持结果 |
-| 取号额度 | 服务端 | Store 同代结果；非持久化 |
-| 启动就绪 | Runtime 生命周期 Promise<void> | 不充当数据缓存 |
-| 连接选择 | Settings | UI 只比对，不写回或回退连接 |
+| Elegibilidade do modelo atual | Registry | O Store guarda apenas o resultado de suporte mascarado |
+| Quota de retirada de número | Servidor | Resultado da mesma geração no Store; não persistente |
+| Prontidão da inicialização | Promise<void> do ciclo de vida do Runtime | Não serve como cache de dados |
+| Seleção de conexão | Settings | A UI apenas compara, sem escrever de volta nem reverter a conexão |
 
-## Must-Preserve Invariants
+## Invariantes que Precisam Ser Preservados
 
-启动去重、失败后可重试、dispose、后台刷新不变。API Key 和账号模型资格不放宽。资格/额度只有最新一代可一起发布；旧成功、失败、finally 不开门。未知状态禁入。发送与同步不新绑等待。
+Deduplicação na inicialização, nova tentativa após falha, dispose e atualização em segundo plano permanecem inalterados. A elegibilidade de API Key e de modelos de conta não é afrouxada. Elegibilidade/quota só podem ser publicadas juntas na geração mais recente; sucesso antigo, falha e finally não abrem a porta. Estado desconhecido impede entrada. Envio e sincronização não passam a depender de nova espera.
 
-## Codegraph Evidence
+## Evidência do Codegraph
 
-本环境没有 Codegraph 工具，未执行 Codegraph 扫描；使用 dep:refs 的 ProviderRegistryService 引用报告（/tmp/provider128-refs.log）及精确 rg 调用检查替代。深度 2：Runtime→消费闭包→闲时服务；Store→两入口→创建门禁。不得把静态命中写成运行验证。
+Este ambiente não possui a ferramenta Codegraph; a varredura do Codegraph não foi executada; foram usados, como alternativa, o relatório de referências de `ProviderRegistryService` da dep:refs (`/tmp/provider128-refs.log`) e verificações precisas com chamadas de rg. Profundidade 2: Runtime→closure consumidor→serviço ocioso; Store→duas entradas→portão de criação. Não é permitido registrar um acerto estático como verificação em execução.
 
-## Graph Drift Candidates
+## Candidatos a Deriva do Grafo
 
-图中“Provider 无 enabled”、旧套餐模型清单已过时，由对应 Todo 独立承接，不借本次扩大修改。只补确认的启动/闲时刷新关系。
+No grafo, "Provider sem enabled" e a lista antiga de modelos de plano estão desatualizados; ficam por conta dos Todo correspondentes, sem ampliar a modificação nesta rodada. Apenas completar as relações confirmadas de inicialização/atualização ociosa.
 
-## Graph Delta
+## Delta do Grafo
 
-confirmed：Provider Registry 和闲时 Store 节点增加生命周期/资格同代约束，以及已完成通知边；依据 Todo128 已确认裁决。
+confirmado: os nós de Provider Registry e do Store ocioso recebem a restrição de ciclo de vida/elegibilidade da mesma geração, além da aresta de notificação de conclusão; com base na decisão já confirmada no Todo128.
 
-## Unresolved Questions
+## Questões em Aberto
 
-无新产品裁决。Air 实机可用性仅为验证前置，不阻塞独立开发，不把未测算通过。
+Nenhuma decisão nova de produto. A disponibilidade real da Air é apenas pré-requisito de verificação, não bloqueia o desenvolvimento independente, e não deve ser considerada aprovada sem medição.
 
-## Planning Handoff
+## Passagem para Planning
 
-规格以 Todo128 §2–5 和本页为准；下面是合并后的用例目录、覆盖矩阵、裁决表。UI 用例进入 pending 回归，共享真实 Store/Hook，服务端受控；最终实机另记。
+A especificação segue o Todo128 §2–5 e esta página; abaixo estão o catálogo de casos consolidado, a matriz de cobertura e a tabela de decisões. Os casos de UI entram na regressão pending, compartilhando Store/hook reais, com o servidor controlado; a verificação real em máquina é registrada separadamente.
 
-## Clarification Log / Boundary Decisions
+## Log de Esclarecimentos / Decisões de Limite
 
-用户已确认：四个 start 返回 void；统一闲时资格刷新；不动 Composer/同步/资格规则。因此不重复提问。
+O usuário já confirmou: os quatro start retornam void; atualização unificada de elegibilidade ociosa; não mexer em Composer/sincronização/regras de elegibilidade. Portanto não há perguntas a repetir.
 
-## Domain Scope / High-Risk Cross-Products
+## Escopo de Domínio / Riscos Cruzados Entre Produtos
 
-Provider 生命周期、闲时 validation 两域。重点：首次未就绪 × 账号后到；连接切换 × 旧资格/额度/错误晚到；双入口 × 同一通知。排除全端全账号笛卡尔积。
+Dois domínios: ciclo de vida de Provider e validation ociosa. Foco: primeira inicialização não pronta × conta chegando depois; troca de conexão × elegibilidade/quota/erro antigo chegando tarde; dupla entrada × mesma notificação. Exclui o produto cartesiano completo de todos os clientes e todas as contas.
 
-## Concept Map / State Owners / Dimensions
+## Mapa de Conceitos / Donos de Estado / Dimensões
 
-start 是就绪，不是最新业务数据；Registry 是事实；Store 是显示。状态轴：未初始化/检查中/ready/error，事件轴：初始化/已完成通知/连接变化/手动刷新；旧请求可在资格或额度阶段结束。Owner 见上表。
+start significa prontidão, não o dado de negócio mais recente; o Registry é o fato; o Store é a exibição. Eixo de estado: não inicializado/verificando/ready/error; eixo de eventos: inicialização/notificação de conclusão/mudança de conexão/atualização manual; requisições antigas podem terminar na fase de elegibilidade ou na de quota. Donos na tabela acima.
 
-## Candidate Combinations / Accepted Cases
+## Combinações Candidatas / Casos Aceitos
 
-| ID | Setup → action | Assertions | Evidence / E2E |
+| ID | Configuração → ação | Asserções | Evidência / E2E |
 | --- | --- | --- | --- |
-| S1 | 四 Runtime 并发启动；修改 Personal 后再次 start | void；读取接口最新；资源不重复 | 单测 |
-| S2 | 启动失败/释放 | 保留原重试/释放边界 | 既有测试 + 类型 |
-| Q1 | 冷启动无套餐 → Registry Team 就绪通知 | 无需重开页面，支持与额度一次更新 | Store + pending UI |
-| Q2 | 旧 support/额度在途 → 连接变更 | 串行合并重查；旧成功/错误不覆盖；无中间 ready | Store |
-| Q3 | 双入口同时初始化/收到同 revision | 共用检查，不重复并发取号查询 | Store + pending UI |
-| Q4 | 手动刷新，资格由 false→true / true→false | 先资格再额度；失败不开放创建 | Store + pending UI |
-| Q5 | 无灰度/无资格/额度错误 | 保持禁入；后续通知仍可恢复 | Store |
+| S1 | Início concorrente dos quatro Runtime; modify Personal e start de novo | void; lê o mais recente da interface; recursos não duplicados | Teste unitário |
+| S2 | Falha na inicialização/liberação | Mantém os limites originais de nova tentativa/liberação | Testes existentes + tipos |
+| Q1 | Inicialização a frio sem plano → notificação de prontidão de Registry Team | Sem precisar reabrir a página; suporte e quota atualizados de uma vez | Store + UI pending |
+| Q2 | support/quota antigo em trânsito → mudança de conexão | Reconsulta combinada serialmente; sucesso/erro antigo não sobrescreve; sem ready intermediário | Store |
+| Q3 | Dupla entrada inicializando/recebendo a mesma revision ao mesmo tempo | Verificação compartilhada, sem consulta concorrente repetida de retirada de número | Store + UI pending |
+| Q4 | Atualização manual, elegibilidade de false→true / true→false | Primeiro elegibilidade, depois quota; falha não abre a criação | Store + UI pending |
+| Q5 | Sem rollout gradual/sem elegibilidade/erro de quota | Mantém a entrada bloqueada; notificações posteriores ainda podem recuperar | Store |
 
-## Pruning Decisions / Questions For User
+## Decisões de Poda / Perguntas para o Usuário
 
-不运行真实取号、取消 Ticket 或改真实账号设置；用户未要求扩大该权限。手机闲时创建、Composer 提交属于排除项。无待确认问题。
+Não executar retirada real de número, cancelamento de Ticket nem alteração de configurações reais de conta; o usuário não pediu ampliação dessa permissão. A criação ociosa no celular e o envio pelo Composer são itens excluídos. Sem perguntas pendentes.
 
-## Matrix Backfill / E2E Handoff Notes
+## Notas de Preenchimento da Matriz / Passagem para E2E
 
-本页维护 S1–Q5 矩阵；Store 单测复用延迟 Promise，不靠 sleep；浏览器 pending 复用共享 Hook/Store 和受控服务事件。文件使用临时目录，Provider 网络不参与模拟。无需 replay provider fixture（本组不发模型请求）。Air 若不可连需如实留验证限制；不当作实现成功证据。
+Esta página mantém a matriz S1–Q5; os testes unitários do Store reutilizam Promises com atraso, sem depender de sleep; o browser pending reutiliza o Hook/Store compartilhados e eventos de servidor controlados. Os arquivos usam diretório temporário, e a rede de Provider não participa da simulação. Não é preciso fixture de replay de provider (este grupo não envia requisições de modelo). Se a Air não estiver acessível, registrar honestamente a limitação de verificação; não tratar como evidência de sucesso da implementação.

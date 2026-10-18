@@ -1,46 +1,46 @@
-# 上游供应商 E2E
+# E2E de Provedor Upstream
 
-`packages/desktop/test/e2e/upstream-provider.test.ts` 是 E2E 上游供应商的固定回归 case。
-供应商的地址、API key 与模型名都由环境变量控制，仓库不写死任何供应商。
+`packages/desktop/test/e2e/upstream-provider.test.ts` é o caso de regressão fixo do E2E de provedor upstream.
+O endereço do provedor, a API key e o nome do modelo são todos controlados por variáveis de ambiente; o repositório não fixa nenhum provedor.
 
-它会通过桌面端设置页写入 E2E 供应商，添加主模型，回到工作区后选择该模型并发送请求。默认模式不访问真实网络，而是启动本地 fixture replay server，把已采集过的真实响应作为 HTTP 内容回放，保证固定 case 可以稳定复现。
+Ele grava o provedor E2E pela página de configurações do desktop, adiciona o modelo principal, volta ao workspace, seleciona esse modelo e envia a requisição. O modo padrão não acessa a rede real: ele sobe um fixture replay server local, que reproduz como conteúdo HTTP respostas reais já coletadas, garantindo que o caso fixo possa ser reproduzido de forma estável.
 
-## 环境变量
+## Variáveis de ambiente
 
-| 变量 | 作用 | 未设置时 |
+| Variável | Função | Quando não definida |
 | --- | --- | --- |
-| `E2E_PROVIDER_BASE_URL` | 上游供应商地址 | capture 模式报错；回放不需要 |
-| `E2E_PROVIDER_API_KEY` | 上游 API key | capture 模式报错；回放固定使用 `e2e-fixture-key` |
-| `E2E_PROVIDER_MODEL` | 主模型名 | 回放夹具的录制模型 |
-| `E2E_PROVIDER_SECONDARY_MODEL` | 第二个模型名（模型切换、备用供应商等 case） | 回放夹具的录制模型 |
-| `E2E_PROVIDER_PRESET` | `env`（默认，上面四个变量）/ `glmhighspeed` / `bigmodel53` / `stagingmodel` | `env` |
+| `E2E_PROVIDER_BASE_URL` | Endereço do provedor upstream | Erro no modo capture; desnecessária no replay |
+| `E2E_PROVIDER_API_KEY` | API key do upstream | Erro no modo capture; no replay usa sempre `e2e-fixture-key` |
+| `E2E_PROVIDER_MODEL` | Nome do modelo principal | Modelo gravado no fixture de replay |
+| `E2E_PROVIDER_SECONDARY_MODEL` | Nome do segundo modelo (troca de modelo, provedor de reserva etc.) | Modelo gravado no fixture de replay |
+| `E2E_PROVIDER_PRESET` | `env` (padrão, as quatro variáveis acima) / `glmhighspeed` / `bigmodel53` / `stagingmodel` | `env` |
 
-- 录制模型只在 `packages/desktop/test/e2e/helpers/upstream-recorded-models.ts` 定义一次。产品内置模型规则按模型 ID 匹配思考档位与请求形态，夹具按录制模型采集；更换默认模型需要重新录制夹具。
-- `E2E_PROVIDER_RUNTIME_BASE_URL` 是 WDIO 写给各测试进程的实际生效地址（回放时指向本地 replay server），不要手动设置。
-- 设置页“新增供应商模板”等用例验证的是产品内置模板（含 DeepSeek），不属于 E2E 供应商配置。
+- Os modelos gravados são definidos uma única vez em `packages/desktop/test/e2e/helpers/upstream-recorded-models.ts`. As regras de modelos embutidos do produto casam nível de pensamento e forma da requisição pelo ID do modelo, e o fixture é coletado conforme o modelo gravado; trocar o modelo padrão exige regravar o fixture.
+- `E2E_PROVIDER_RUNTIME_BASE_URL` é o endereço efetivo que o WDIO escreve para cada processo de teste (no replay, aponta para o replay server local); não defina manualmente.
+- Casos da página de configurações como “novo template de provedor” validam os templates embutidos do produto (incluindo DeepSeek) e não pertencem à configuração do provedor E2E.
 
-## 默认固定回放
+## Replay fixo padrão
 
-直接运行指定 spec 即可：
+Basta executar o spec especificado diretamente:
 
 ```bash
 pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/upstream-provider.test.ts
 ```
 
-默认回放模式的行为：
+Comportamento do modo replay padrão:
 
-- WDIO 启动本地 replay server，并把 E2E 供应商的地址指到该 server。
-- API key 会强制使用 `e2e-fixture-key`，不会读取或泄露本地真实 key。
-- 固定响应来自 `packages/desktop/test/e2e/fixtures/upstream/provider-basic.json`。
-- WDIO 会在隔离 HOME 里预置主模型与第二模型；新增会话状态隔离用例复用这份 fixture，避免把 provider 设置页“新增模型”当成会话区测试前置条件。
-- 请求抓包 artifact 写到 `packages/desktop/.e2e-home/.zcode/e2e-network-capture/upstream-provider.json`，认证 header 和 token 字段会脱敏。
-- case 同时校验 UI、请求 body、思考深度字段，以及 context 消耗是否等于 fixture 中真实响应的 usage。
+- O WDIO inicia o replay server local e aponta o endereço do provedor E2E para esse server.
+- A API key é forçada para `e2e-fixture-key`, sem ler nem vazar a key real local.
+- A resposta fixa vem de `packages/desktop/test/e2e/fixtures/upstream/provider-basic.json`.
+- O WDIO pré-configura o modelo principal e o segundo modelo em um HOME isolado; os novos casos de isolamento de estado de sessão reutilizam este mesmo fixture, evitando tomar a página de configurações de provider (“adicionar modelo”) como pré-condição dos testes da área de sessão.
+- O artefato de captura das requisições é gravado em `packages/desktop/.e2e-home/.zcode/e2e-network-capture/upstream-provider.json`, com o header de autenticação e os campos de token anonimizados.
+- O caso valida simultaneamente a UI, o body da requisição, os campos de profundidade de pensamento e se o consumo de context equivale ao usage da resposta real presente no fixture.
 
-这个 case 是“采集一次，固定回放”的回归：fixture 内容来自真实上游请求，但默认执行时不再依赖账号余额、上游限流和模型实时可用性。
+Este caso é a regressão do “coletar uma vez, replay fixo”: o conteúdo do fixture vem de requisições reais ao upstream, mas na execução padrão não depende mais de saldo de conta, limitação do upstream nem disponibilidade em tempo real do modelo.
 
-## 采集真实数据
+## Coletando dados reais
 
-需要刷新 fixture 时，显式切到 capture 模式，并用环境变量给出上游地址、key 与模型。刷新现有夹具时，模型需要与录制模型一致：
+Para atualizar o fixture, mude explicitamente para o modo capture e informe endereço, key e modelo do upstream por variáveis de ambiente. Ao atualizar um fixture existente, o modelo precisa ser igual ao modelo gravado:
 
 ```bash
 E2E_PROVIDER_HTTP_MODE=capture \
@@ -50,23 +50,23 @@ E2E_PROVIDER_MODEL=<model-id> \
 pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/upstream-provider.test.ts
 ```
 
-capture 模式会在本机启动透明 MITM 抓包代理：
+O modo capture sobe, na própria máquina, um proxy de captura MITM transparente:
 
-- provider endpoint 仍是真实地址；性能样本默认推荐 `glmhighspeed` preset。
-- 代理只转发和抓包，不合成模型响应。
-- CA 只生成在 `packages/desktop/.e2e-home/.zcode/e2e-network-capture/ca`，不会写入系统证书库。
-- WDIO 会把 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE` 注入到 e2e 进程树。
-- 抓包 artifact 写到 `packages/desktop/.e2e-home/.zcode/e2e-network-capture/upstream-provider.json`。
-- artifact 会额外记录 `responseChunkTimeline`，保存 response chunk 的相对时间和 bytes；用于之后按真实 SSE 节奏回放。
+- O endpoint do provider continua sendo o endereço real; para amostras de performance, o preset `glmhighspeed` é o recomendado por padrão.
+- O proxy apenas encaminha e captura, não sintetiza respostas de modelo.
+- A CA é gerada somente em `packages/desktop/.e2e-home/.zcode/e2e-network-capture/ca` e não é escrita no repositório de certificados do sistema.
+- O WDIO injeta `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE` na árvore de processos e2e.
+- O artefato de captura é gravado em `packages/desktop/.e2e-home/.zcode/e2e-network-capture/upstream-provider.json`.
+- O artefato registra adicionalmente `responseChunkTimeline`, guardando o tempo relativo e os bytes de cada response chunk; isso é usado depois para reproduzir no ritmo real do SSE.
 
-采集完成后，把脱敏后的响应整理成单 case fixture。固定 case 不直接依赖最新线上响应；动态网络回归需要单独命名和显式运行。
+Após a coleta, organize a resposta anonimizada em um fixture de caso único. O caso fixo não depende diretamente da resposta online mais recente; regressões dinâmicas de rede precisam de nomenclatura própria e execução explícita.
 
-## 采集长流式性能样本
+## Coletando amostras de performance de streaming longo
 
-默认 replay 仍使用仓库内录制的 fixture，保证固定 provider 回归不访问真实网络。需要录制长 Markdown 流式性能样本时，可以显式指定
-`E2E_PROVIDER_PRESET=glmhighspeed`。该 preset 使用
-`https://open.bigmodel.cn/api/anthropic` 和模型 `glm-5.1-highspeed`。
-GLM highspeed preset 默认不选择思考深度，也不会断言 thinking 字段；录制 fixture 回放和 `env` preset 默认选择并断言 `high`。
+O replay padrão continua usando o fixture gravado no repositório, garantindo que a regressão fixa de provider não acesse a rede real. Para gravar amostras de performance de Markdown longo em streaming, especifique explicitamente
+`E2E_PROVIDER_PRESET=glmhighspeed`. Esse preset usa
+`https://open.bigmodel.cn/api/anthropic` e o modelo `glm-5.1-highspeed`.
+O preset GLM highspeed não seleciona nível de pensamento por padrão nem faz asserção sobre o campo thinking; a reprodução do fixture gravado e o preset `env` selecionam e verificam `high` por padrão.
 
 ```bash
 E2E_PROVIDER_HTTP_MODE=capture \
@@ -77,7 +77,7 @@ E2E_PROVIDER_EXPECT_REPLY_TEXT=PERF_TRACE_DONE \
 pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/upstream-provider.test.ts
 ```
 
-后续回放自定义 fixture 或 capture artifact：
+Para depois reproduzir um fixture customizado ou o artefato de capture:
 
 ```bash
 E2E_PROVIDER_PRESET=glmhighspeed \
@@ -85,20 +85,20 @@ E2E_PROVIDER_REPLAY_FIXTURE_PATH=/absolute/path/to/upstream-provider.json \
 pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/upstream-provider.test.ts
 ```
 
-当 replay fixture 带 `response.chunks`，或直接使用含 `responseChunkTimeline` 的 capture artifact 时，
-本地 replay server 会按原始 chunk offset 流式写回响应，而不是一次性返回完整 body。
+Quando o fixture de replay traz `response.chunks`, ou quando se usa diretamente um artefato de capture com `responseChunkTimeline`, o
+replay server local escreve a resposta em streaming respeitando o offset original de cada chunk, em vez de devolver o body completo de uma só vez.
 
-## 本地配置
+## Configuração local
 
-只有 capture 模式和真实 provider smoke 需要真实地址与 key，仓库不提供默认值。
-WDIO 按顺序读取 `packages/desktop/.env.e2e.local`、根目录 `.env.e2e.local`；shell 里显式传入的值优先。
-根目录 `.env.e2e.local.example` 只列出变量名、值留空，不作为 fallback 读取。推荐写到本地忽略文件里：
+Apenas o modo capture e o smoke test com provider real precisam de endereço e key verdadeiros; o repositório não fornece valores padrão.
+O WDIO lê, em ordem, `packages/desktop/.env.e2e.local` e o `.env.e2e.local` da raiz; valores passados explicitamente no shell têm prioridade.
+O `.env.e2e.local.example` da raiz lista apenas nomes de variáveis, deixando os valores vazios, e não é lido como fallback. O recomendado é escrever no arquivo local ignorado:
 
 ```bash
 cp .env.e2e.local.example .env.e2e.local
 ```
 
-然后在 `.env.e2e.local` 里填写地址、key 与模型。GLM highspeed 录制优先读取
-`GLM_HIGHSPEED_E2E_API_KEY`，也兼容 `BIGMODEL_API_KEY` / `ZHIPUAI_API_KEY`。
+Depois preencha endereço, key e modelo no `.env.e2e.local`. A gravação do GLM highspeed lê primeiro
+`GLM_HIGHSPEED_E2E_API_KEY`, e também aceita `BIGMODEL_API_KEY` / `ZHIPUAI_API_KEY`.
 
-`*.local` 表示本机私有配置，适合长期个人 API key，已被 `.gitignore` 忽略；不要把真实 key 写进可提交的 `.env.e2e`。
+`*.local` indica configuração privada da própria máquina, adequada para uma API key pessoal de longo prazo, e já está ignorado pelo `.gitignore`; não grave keys reais no `.env.e2e`, que é versionável.

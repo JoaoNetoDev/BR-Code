@@ -1,103 +1,104 @@
-# UI 组件 testid 审计报告
+# Relatório de auditoria de testid dos componentes de UI
 
-> **状态：2026-03-31 历史审计快照。** 表中的 `ChatView`、`ChatMessage`、`ChatInputToolbar`
-> 等组件已被 V4 conversation UI 取代；本文不再代表当前缺口清单。当前 E2E 定位必须以
-> `packages/shared/src/test-ids.ts`、V4 组件和现行 E2E 为准。
+> **Status: instantâneo histórico de auditoria de 2026-03-31.** Os componentes `ChatView`,
+> `ChatMessage` e `ChatInputToolbar` listados na tabela foram substituídos pela UI de conversation
+> V4; este documento não representa mais a lista atual de lacunas. O posicionamento E2E atual deve
+> se basear em `packages/shared/src/test-ids.ts`, nos componentes V4 e nos E2E vigentes.
 
-> 审计时间：2026-03-31  
-> 审计范围：`packages/ui/src/**/*.tsx`，排除 `components/ui/`  
-> testid 单一来源：`packages/shared/src/test-ids.ts`
+> Data da auditoria: 2026-03-31  
+> Escopo da auditoria: `packages/ui/src/**/*.tsx`, excluindo `components/ui/`  
+> Fonte única dos testid: `packages/shared/src/test-ids.ts`
 
-## 规范说明
+## Especificação
 
-- 每个 React 级别的组件（对应一个用户可见的功能区）应有一个根容器 testid
-- 动态列表项用 `testId(BASE, suffix)` 拼接，如 `testId(TID_TASK_ITEM, taskId)`
-- testid 常量统一在 `test-ids.ts` 声明，组件中不硬编码字符串
-- E2E 测试和 DOM 定位全部通过 `data-testid` 属性查找
+- Cada componente em nível de React (correspondente a uma área funcional visível ao usuário) deve ter um testid de container raiz
+- Itens de listas dinâmicas são concatenados com `testId(BASE, suffix)`, por exemplo `testId(TID_TASK_ITEM, taskId)`
+- As constantes de testid são declaradas unicamente em `test-ids.ts`; os componentes não têm strings hardcoded
+- Os testes E2E e o posicionamento no DOM são feitos inteiramente pelo atributo `data-testid`
 
 ---
 
-## 审计结果
+## Resultados da auditoria
 
-### 缺少 testid 的组件
+### Componentes sem testid
 
-| 组件文件 | 缺少的 testid | 说明 |
+| Arquivo do componente | testid ausente | Observação |
 |---------|--------------|------|
-| `SettingsPage.tsx` | `TID_SETTINGS_BACK_BUTTON` | `test-ids.ts` 已定义，但组件没有加上返回按钮的 testid |
-| `PermissionDialog.tsx` | 容器 testid | 权限确认对话框整体没有 testid，E2E 无法定位 |
-| `ChatPlan.tsx` | 容器 testid | 计划展示面板没有 testid |
-| `ChatErrorBanner.tsx` | 容器 testid | 错误提示条没有 testid |
-| `ChatInputToolbar.tsx` | 容器 testid | 底部配置工具栏（model/mode/thought 选择器）没有 testid |
-| `DebugInfoBar.tsx` | 容器 testid | 调试信息栏没有 testid |
-| `NewTaskButtonGroup.tsx` | dropdown trigger 按钮 testid | 切换 provider 的下拉箭头按钮没有 testid，仅主按钮有 `TID_TASK_NEW_BUTTON` |
-| `WorkspaceSidebar.tsx` | 空状态 testid | 空状态提示 div 没有 testid |
+| `SettingsPage.tsx` | `TID_SETTINGS_BACK_BUTTON` | Já definido em `test-ids.ts`, mas o componente não adiciona o testid ao botão de voltar |
+| `PermissionDialog.tsx` | testid de container | O diálogo de confirmação de permissão inteiro não tem testid, o E2E não consegue posicioná-lo |
+| `ChatPlan.tsx` | testid de container | O painel de exibição de plano não tem testid |
+| `ChatErrorBanner.tsx` | testid de container | A barra de mensagem de erro não tem testid |
+| `ChatInputToolbar.tsx` | testid de container | A barra de ferramentas inferior (seletores de model/mode/thought) não tem testid |
+| `DebugInfoBar.tsx` | testid de container | A barra de informações de depuração não tem testid |
+| `NewTaskButtonGroup.tsx` | testid do botão trigger do dropdown | O botão de seta para alternar o provider não tem testid; apenas o botão principal tem `TID_TASK_NEW_BUTTON` |
+| `WorkspaceSidebar.tsx` | testid do estado vazio | A div de aviso de estado vazio não tem testid |
 
-### 已定义但实际未使用的 testid
+### testid definidos mas não utilizados de fato
 
-| 常量名 | 问题 |
+| Nome da constante | Problema |
 |--------|------|
-| `TID_PREVIEW_PREV_BUTTON` | `PreviewPane` 用自动滚动加载，没有显式"上一段"按钮，testid 定义多余 |
-| `TID_PREVIEW_NEXT_BUTTON` | 同上 |
-| `TID_WORKSPACE_PATH` | 未在任何组件中使用 |
-| `TID_LOCALE_TOGGLE` | `LocaleSwitcher.tsx` 没有使用此 testid |
+| `TID_PREVIEW_PREV_BUTTON` | `PreviewPane` usa carregamento por rolagem automática e não tem botão explícito de "parágrafo anterior"; a definição do testid é redundante |
+| `TID_PREVIEW_NEXT_BUTTON` | O mesmo |
+| `TID_WORKSPACE_PATH` | Não é usado em nenhum componente |
+| `TID_LOCALE_TOGGLE` | `LocaleSwitcher.tsx` não usa este testid |
 
 ---
 
-## 覆盖良好的组件（供参考）
+## Componentes com boa cobertura (para referência)
 
-| 组件 | testid 覆盖情况 |
+| Componente | Situação da cobertura de testid |
 |------|--------------|
-| `WelcomeScreen.tsx` | 完整：form、username、password、button、error |
-| `Terminal.tsx` | 完整：容器、关闭按钮 |
-| `SSHDialog.tsx` | 完整：触发按钮、弹窗容器、所有输入框、确认/取消 |
-| `FileTree.tsx` | 完整：根容器、每个 item（动态后缀） |
-| `EmbeddedBrowserPane.tsx` | 完整：容器、地址栏、前进/后退/刷新/调试、webview |
-| `PreviewPane.tsx` | 部分：有容器和关闭按钮，但定义了 PREV/NEXT 却未实现 |
-| `TaskList.tsx` | 完整：容器、每个 item、删除按钮、空状态、设置按钮 |
-| `NewTaskButtonGroup.tsx` | 部分：主按钮有 testid，下拉 trigger 没有 |
-| `ChatView.tsx` | 完整：容器、消息列表、空状态、输入框、附件按钮、发送/停止、loading |
-| `ChatMessage.tsx` | 部分：仅工具调用里的"查看代码"按钮，消息气泡本身没有 testid |
-| `App.tsx` | 完整：header、sidebar、tabs、workspace header、ZCode 状态徽章 |
-| `WorkspaceSidebar.tsx` | 部分：主容器、工作区列表/item/close、打开按钮，但空状态缺 testid |
-| `SettingsPage.tsx` | 部分：页面容器有，返回按钮缺 |
+| `WelcomeScreen.tsx` | Completa: form, username, password, button, error |
+| `Terminal.tsx` | Completa: container, botão de fechar |
+| `SSHDialog.tsx` | Completa: botão trigger, container do diálogo, todos os campos de entrada, confirmar/cancelar |
+| `FileTree.tsx` | Completa: container raiz, cada item (sufixo dinâmico) |
+| `EmbeddedBrowserPane.tsx` | Completa: container, barra de endereço, avançar/voltar/refresh/debug, webview |
+| `PreviewPane.tsx` | Parcial: tem container e botão de fechar, mas define PREV/NEXT sem implementar |
+| `TaskList.tsx` | Completa: container, cada item, botão de excluir, estado vazio, botão de configurações |
+| `NewTaskButtonGroup.tsx` | Parcial: o botão principal tem testid, o trigger do dropdown não |
+| `ChatView.tsx` | Completa: container, lista de mensagens, estado vazio, campo de entrada, botão de anexo, enviar/parar, loading |
+| `ChatMessage.tsx` | Parcial: apenas o botão "ver código" dentro da chamada de ferramenta; o bubble da mensagem em si não tem testid |
+| `App.tsx` | Completa: header, sidebar, tabs, workspace header, badge de status do ZCode |
+| `WorkspaceSidebar.tsx` | Parcial: container principal, lista/item/close de workspace, botão de abrir; falta o testid do estado vazio |
+| `SettingsPage.tsx` | Parcial: o container da página tem; falta o botão de voltar |
 
 ---
 
-## 修复优先级建议
+## Sugestões de prioridade de correção
 
-**P0（E2E 流程强依赖）**
-- `PermissionDialog` 容器 testid —— 权限流程无法自动化测试
-- `ChatErrorBanner` 容器 testid —— 错误场景无法断言，也无法机械执行“正向 conversation case 默认不得出现 `ChatViewErrorBanner`”的验证标准
+**P0 (forte dependência do fluxo E2E)**
+- testid de container de `PermissionDialog` —— o fluxo de permissão não pode ser testado de forma automatizada
+- testid de container de `ChatErrorBanner` —— o cenário de erro não pode ser verificado por asserção, nem é possível executar mecanicamente o critério de verificação de que "no conversation case positivo o `ChatViewErrorBanner` não deve aparecer por padrão"
 
-**P1（功能区定位）**
-- `ChatInputToolbar` —— 覆盖模型/模式选择器
-- `ChatPlan` —— 计划步骤面板
-- `DebugInfoBar` —— 调试信息栏
-- `NewTaskButtonGroup` dropdown trigger
+**P1 (posicionamento de áreas funcionais)**
+- `ChatInputToolbar` —— cobre os seletores de modelo/modo
+- `ChatPlan` —— painel de etapas do plano
+- `DebugInfoBar` —— barra de informações de depuração
+- trigger do dropdown de `NewTaskButtonGroup`
 
-**P2（清理冗余）**
-- 删除 `TID_PREVIEW_PREV_BUTTON`、`TID_PREVIEW_NEXT_BUTTON`（或真正实现翻页按钮）
-- 删除 `TID_WORKSPACE_PATH`（无对应 UI）
-- 在 `LocaleSwitcher.tsx` 补上 `TID_LOCALE_TOGGLE`，或从 `test-ids.ts` 删除
+**P2 (limpeza de redundância)**
+- remover `TID_PREVIEW_PREV_BUTTON` e `TID_PREVIEW_NEXT_BUTTON` (ou implementar de fato os botões de paginação)
+- remover `TID_WORKSPACE_PATH` (sem UI correspondente)
+- adicionar `TID_LOCALE_TOGGLE` em `LocaleSwitcher.tsx`, ou removê-lo de `test-ids.ts`
 
 ---
 
-## 修复步骤模板
+## Modelo de passos de correção
 
-1. 在 `test-ids.ts` 补充新常量（带中文注释）：
+1. Adicionar a nova constante em `test-ids.ts` (com comentário):
    ```ts
-   /** PermissionDialog 权限确认容器 */
+   /** Contêiner de confirmação de permissão do PermissionDialog */
    export const TID_PERMISSION_DIALOG = "permission-dialog";
    ```
 
-2. 在组件根元素加 `data-testid`：
+2. Adicionar `data-testid` no elemento raiz do componente:
    ```tsx
    import { TID_PERMISSION_DIALOG } from "@zcode/shared";
    
    <Confirmation data-testid={TID_PERMISSION_DIALOG} ...>
    ```
 
-3. 如果组件不支持 `data-testid` prop（如 ai-elements 组件），包一层 `<div>`：
+3. Se o componente não aceitar a prop `data-testid` (como os componentes ai-elements), envolva-o em uma `<div>`:
    ```tsx
    <div data-testid={TID_CHAT_PLAN}>
      <Plan ...>

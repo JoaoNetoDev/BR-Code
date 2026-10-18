@@ -1,43 +1,30 @@
-# Settings 顶部面包屑
+# Breadcrumb do topo em Settings
 
-## 目标
+## Objetivo
 
-Settings 内容面板顶部的窗口拖拽区展示当前层级，帮助用户在分区和分区内部详情之间保持位置感。
+A área de arraste da janela no topo do painel de conteúdo de Settings exibe a hierarquia atual, ajudando o usuário a manter a noção de posição entre as seções e os detalhes dentro de uma seção.
 
 ```text
 当前分区 > 分区内部详情...
 ```
 
-## 产品合同
+## Contrato de produto
 
-- 默认一级为当前 Settings section 标题，不显示固定的“设置”根节点。从独立的插件市场进入插件管理时，
-  一级允许投影跨越 Settings 边界的来源节点 `Plugin Marketplace`，用于保留用户的返回路径；直接从
-  Settings 进入时仍以 `Plugins` 为一级。
-- 只有一级时顶栏保持为空；进入二级或更深的页面级导航后才显示面包屑。
-- 分区可以追加只读详情层级。Project Memory 依次追加项目名和文件名，形成
-  `Memory > 项目 > 文件`。
-- 面包屑只投影现有导航状态，不拥有或持久化导航状态。除当前层外，上级层级复用分区既有返回动作，
-  点击后回到对应层级；当前层保持只读文本。
-- 分隔符使用 `ChevronRight` 和 `text-foreground-subtlest`；上级层使用 `ghost + default` 按钮，默认
-  `text-foreground-subtle`、Hover 为 `text-foreground`；末级使用主文本。所有层级单行截断，不能挤占右侧
-  Help、Linux caption menu 或 Windows caption controls 的安全区。
-- Settings path 容器使用 `px-2.5` 水平内边距，与标题栏紧凑密度保持一致。
-- 面包屑层级及分隔符两侧统一使用 `gap-0`，间距由层级内容自身的 padding 提供。
-- 当前层文本使用与 `Button size="default"` 相同的 `text-ui-base/relaxed` 字体尺寸、行高和 `px-2`
-  水平内边距。
-- 面包屑容器保持 `pointer-events-none`，上级按钮单独恢复 `pointer-events-auto` 和 `[app-region:no-drag]`；
-  按钮之外的标题栏仍为 `[app-region:drag]`。
-- 面包屑达到二级时，隐藏 Settings 外层重复的 section 大标题（例如 `Memory`），并移除详情页原有
-  Back 按钮；返回动作统一由面包屑上级按钮承载。一级页面恢复 section 大标题。插件市场来源路径是
-  例外：`Plugin Marketplace > Plugins` 的一级是外部来源而非当前 section，因此内容区继续显示
-  `Plugins` 大标题，确保进入插件管理后当前页面标题明确；进入插件、MCP 或 Skill 详情后仍保留
-  `Plugins` 中间层级。
-- Command、Subagent、MCP、Hook 的新建/编辑当前内容标题使用 `text-ui-xl`。
-- Model Settings 和 Usage Stats 不使用面包屑；它们始终保留内容区的大标题。Model Settings
-  的内部供应商导航和 Usage Stats 的 Tab 都属于同页切换，不提升为页面层级。
-- Desktop、普通 Web 和 Mobile 复用相同层级语义；非 Electron 环境忽略 app-region 样式即可。
+- O primeiro nível é, por padrão, o título da seção atual de Settings, sem exibir um nó raiz fixo "Ajustes". Ao entrar na gestão de plugins pelo marketplace de plugins independente, o primeiro nível pode projetar o nó de origem `Plugin Marketplace`, que atravessa o limite de Settings, para preservar o caminho de volta do usuário; quando se entra diretamente por Settings, o primeiro nível continua sendo `Plugins`.
+- Com apenas o primeiro nível, a barra superior permanece vazia; o breadcrumb só aparece ao entrar em uma navegação de página de segundo nível ou mais profundo.
+- Uma seção pode acrescentar níveis de detalhe somente leitura. Project Memory acrescenta sequencialmente o nome do projeto e o nome do arquivo, formando `Memory > projeto > arquivo`.
+- O breadcrumb apenas projeta o estado de navegação existente, não sendo dono nem persistidor desse estado. Exceto o nível atual, os níveis superiores reutilizam a ação de retorno já existente da seção e voltam ao nível correspondente ao clicar; o nível atual permanece como texto somente leitura.
+- O separador usa `ChevronRight` e `text-foreground-subtlest`; os níveis superiores usam botões `ghost + default`, com `text-foreground-subtle` por padrão e `text-foreground` no Hover; o último nível usa o texto principal. Todos os níveis são truncados em uma única linha e não podem ocupar a área segura à direita do Help, do caption menu do Linux ou dos caption controls do Windows.
+- O container do path de Settings usa padding horizontal `px-2.5`, mantendo consistência com a densidade compacta da barra de título.
+- Os níveis do breadcrumb e os dois lados do separador usam uniformemente `gap-0`; o espaçamento vem do próprio padding do conteúdo de cada nível.
+- O texto do nível atual usa o mesmo tamanho de fonte, altura de linha e padding horizontal `px-2` de `text-ui-base/relaxed`, igual a `Button size="default"`.
+- O container do breadcrumb mantém `pointer-events-none`, e os botões de nível superior restauram individualmente `pointer-events-auto` e `[app-region:no-drag]`; a barra de título fora dos botões continua como `[app-region:drag]`.
+- Quando o breadcrumb chega ao segundo nível, o grande título de seção duplicado no exterior de Settings é ocultado (por exemplo `Memory`), e o botão Back original da página de detalhes é removido; a ação de retorno passa a estar uniformemente a cargo do botão de nível superior do breadcrumb. As páginas de primeiro nível restauram o grande título de seção. O caminho de origem do marketplace de plugins é a exceção: o primeiro nível de `Plugin Marketplace > Plugins` é uma origem externa, e não a seção atual, então a área de conteúdo continua exibindo o grande título `Plugins`, garantindo que o título da página atual fique claro após entrar na gestão de plugins; depois de entrar nos detalhes de um plugin, MCP ou Skill, o nível intermediário `Plugins` é preservado.
+- O título do conteúdo atual de criação/edição de Command, Subagent, MCP e Hook usa `text-ui-xl`.
+- Model Settings e Usage Stats não usam breadcrumb; elas sempre mantêm o grande título na área de conteúdo. A navegação interna de providers de Model Settings e as abas de Usage Stats são trocas dentro da mesma página e não são promovidas a nível de página.
+- Desktop, Web comum e Mobile reutilizam a mesma semântica de hierarquia; em ambiente não-Electron basta ignorar os estilos de app-region.
 
-## 状态链路
+## Cadeia de estado
 
 ```text
 SettingsPage.activeSection ----------------+
@@ -45,31 +32,31 @@ SettingsPage.activeSection ----------------+
 active section page-level navigation state +--> breadcrumb items --> header
 ```
 
-子层级仅在所属 section 激活时参与展示。切换分区后旧详情不得泄漏到其他 section。
+Os subníveis só participam da exibição quando a seção à qual pertencem está ativa. Depois de trocar de seção, os detalhes antigos não podem vazar para outra seção.
 
-## 覆盖范围
+## Escopo de cobertura
 
-- Memory：项目、文件。
-- 插件：插件详情、已安装插件管理；详情当前层名称与列表卡片、详情标题统一使用本地化展示名称，不使用内部 canonical name。没有配置 `displayName` 时，将 `cloudbase-skills` 这类 `-` / `_` 分隔名称格式化为 `Cloudbase Skills`。直接进入插件设置时路径以 `Plugins` 开始；从插件市场进入时以 `Plugin Marketplace` 开始，并在管理页及其插件、MCP、Skill 子页面保留 `Plugins` 中间层级。
-- Subagents、MCP、Commands、Hooks：新建或编辑页。
-- 自动化：定时任务和闲时任务的新建或编辑页。
-- Model Settings 的供应商/套餐导航、Usage Stats 的 Tab，以及独立 Skills 分区的详情、确认框、授权、同步、搜索、筛选、scope 和表单内部 Tab 不是页面层级，不进入面包屑。Plugins 内的 Skill tab 详情属于插件管理子页面，按插件路径进入面包屑。
+- Memory: projeto, arquivo.
+- Plugins: detalhes de plugin e gestão de plugins instalados; o nome do nível atual nos detalhes e nos cartões da lista, assim como o título dos detalhes, usam uniformemente o nome de exibição localizado, e não o canonical name interno. Quando não há `displayName` configurado, nomes separados por `-` / `_`, como `cloudbase-skills`, são formatados como `Cloudbase Skills`. Ao entrar diretamente nos ajustes de plugins, o caminho começa em `Plugins`; ao entrar pelo marketplace de plugins, começa em `Plugin Marketplace`, mantendo o nível intermediário `Plugins` na página de gestão e nas subpáginas de plugin, MCP e Skill.
+- Subagents, MCP, Commands, Hooks: páginas de criação ou edição.
+- Automação: páginas de criação ou edição de tarefas agendadas e de tarefas ociosas.
+- A navegação de providers/planos de Model Settings, as abas de Usage Stats, e os detalhes, caixas de confirmação, autorização, sincronização, busca, filtros, scope e abas internas de formulário da seção independente Skills não são níveis de página e não entram no breadcrumb. Os detalhes da aba de Skill dentro de Plugins pertencem a uma subpágina de gestão de plugins e entram no breadcrumb pelo caminho de plugin.
 
-## 验收
+## Aceitação
 
 | ID    | Setup            | Action             | Assertions                                 |
 | ----- | ---------------- | ------------------ | ------------------------------------------ |
-| SHB01 | Settings General | 打开设置           | 顶栏不显示面包屑，保留拖拽区和右侧安全边距 |
-| SHB02 | Memory 项目列表  | 打开 Memory        | 顶栏不显示面包屑                           |
-| SHB03 | Memory 项目详情  | 点击项目           | 显示 `Memory > 项目名`                     |
-| SHB04 | Memory 文件正文  | 点击文件           | 追加文件名                                 |
-| SHB05 | Memory 详情      | 返回或切换 section | 面包屑同步收缩，不残留旧层级               |
-| SHB06 | Memory 文件正文  | 点击项目按钮       | 返回项目文件列表，面包屑收缩为两级         |
-| SHB07 | 任意二级页面     | 点击 section 按钮  | 复用该分区返回动作回到一级页面             |
-| SHB08 | 任意二级页面     | 进入详情           | 隐藏外层 section 大标题，不显示重复 Back   |
-| SHB09 | Model Settings   | 切换供应商或套餐   | 顶栏无面包屑，内容区持续显示大标题         |
-| SHB10 | Usage Stats      | 切换用量 Tab       | 顶栏无面包屑，内容区持续显示大标题         |
-| SHB11 | Settings 插件列表 | 打开插件详情       | 显示 `Plugins > Example Plugin`            |
-| SHB12 | 插件市场         | 打开市场插件详情   | 显示 `Plugin Marketplace > Example Plugin` |
-| SHB13 | 插件市场         | 点击管理已安装     | 显示 `Plugin Marketplace > Plugins`，内容区保留 `Plugins` 大标题 |
-| SHB14 | 市场来源插件管理 | 打开插件、MCP 或 Skill 子页面 | 显示 `Plugin Marketplace > Plugins > 当前页`；点击 `Plugins` 返回管理页 |
+| SHB01 | Settings General | abrir os ajustes          | a barra superior não mostra breadcrumb e mantém a área de arraste e a margem segura à direita |
+| SHB02 | lista de projetos do Memory | abrir o Memory      | a barra superior não mostra breadcrumb |
+| SHB03 | detalhes de projeto do Memory | clicar no projeto   | exibe `Memory > Nome do projeto` |
+| SHB04 | corpo de arquivo do Memory | clicar no arquivo  | acrescenta o nome do arquivo |
+| SHB05 | detalhes do Memory | voltar ou trocar de seção | o breadcrumb encolhe junto e não deixa níveis antigos |
+| SHB06 | corpo de arquivo do Memory | clicar no botão do projeto | volta à lista de arquivos do projeto e o breadcrumb encolhe para dois níveis |
+| SHB07 | qualquer página de segundo nível | clicar no botão da seção | reutiliza a ação de retorno daquela seção para voltar à página de primeiro nível |
+| SHB08 | qualquer página de segundo nível | entrar nos detalhes | oculta o grande título de seção externo e não mostra Back duplicado |
+| SHB09 | Model Settings | trocar de provider ou plano | sem breadcrumb na barra superior e grande título continuamente visível na área de conteúdo |
+| SHB10 | Usage Stats | trocar de aba de uso | sem breadcrumb na barra superior e grande título continuamente visível na área de conteúdo |
+| SHB11 | lista de plugins em Settings | abrir os detalhes do plugin | exibe `Plugins > Example Plugin` |
+| SHB12 | marketplace de plugins | abrir os detalhes de um plugin do mercado | exibe `Plugin Marketplace > Example Plugin` |
+| SHB13 | marketplace de plugins | clicar em gerenciar instalados | exibe `Plugin Marketplace > Plugins` e mantém o grande título `Plugins` na área de conteúdo |
+| SHB14 | gestão de plugins de origem do mercado | abrir subpágina de plugin, MCP ou Skill | exibe `Plugin Marketplace > Plugins > página atual`; clicar em `Plugins` volta à página de gestão |

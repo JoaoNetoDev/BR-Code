@@ -1,172 +1,125 @@
-# MCP 2026-07-28 无状态 Node REPL 规格
+# Especificação MCP 2026-07-28 — Node REPL sem estado
 
-> 状态：实施中。
-> 日期：2026-08-06。
-> 协议依据：MCP `2026-07-28`、SEP-2567 Sessionless MCP。
-> 产品边界：Browser Use 继续使用 `mcp__node_repl__js`，不新增模型可见的
-> `browser_use` server、context handle 或替代工具语义。
+> Status: em implementação.
+> Data: 2026-08-06.
+> Base de protocolo: MCP `2026-07-28`, SEP-2567 Sessionless MCP.
+> Limite de produto: o Browser Use continua usando `mcp__node_repl__js`, sem adicionar um server `browser_use` visível ao modelo, context handle ou semântica de ferramenta alternativa.
 
-## 1. 目标
+## 1. Objetivo
 
-本次只改变 `node_repl` 的运行时生命周期和 MCP wire era：
+Esta alteração muda apenas o ciclo de vida de runtime do `node_repl` e a era do fio MCP:
 
-1. 内置 `node_repl` 固定使用 MCP `2026-07-28`，同一
-   `workspaceKey = workspaceIdentity?.trim() || workspacePath` 的 session 复用一个 MCP frontend。
-2. 每次 `js` 调用使用独立的一次性 worker 和 `NodeReplSession`；调用结束后销毁 worker，禁止
-   `globalThis`、timer、动态 import module cache、response meta 或 Browser wrapper 跨调用延续。
-3. Browser Use 与 Computer Use 共用同一个模型入口 `mcp__node_repl__js`（本规格成文时只有
-   Browser Use，CUA 于 2026-08 接入同一宿主）。页面、tab、权限和 backend generation 继续由现有
-   BrowserControl/session registry 管理，模型每次调用重新 bootstrap 并按稳定 tab id 找回页面；
-   CUA 侧对应 shared-host 的 `CuaControlPort` 与 frame registry。
-4. 保留 code-only 运行时兼容，避免改变既有工具身份和回放合同。`js_reset` 与
-   `js_add_node_module_dir` 已于 2026-09-18 连同 moduleDirs 能力一并删除（见下文「已删除的两个工具」），
-   回放合同由 UI 名称映射承担。
-5. 普通第三方 MCP 继续使用 dual-era `auto`；已知 legacy server 和 SSE 继续走 legacy。
+1. O `node_repl` embutido usa fixamente o MCP `2026-07-28`, e sessões com o mesmo `workspaceKey = workspaceIdentity?.trim() || workspacePath` reutilizam um frontend MCP.
+2. Cada chamada `js` usa um worker descartável próprio e um `NodeReplSession`; ao fim da chamada o worker é destruído, proibindo que `globalThis`, timers, cache de módulo de import dinâmico, response meta ou wrappers de Browser atravessem de uma chamada para a outra.
+3. Browser Use e Computer Use compartilham a mesma entrada de modelo `mcp__node_repl__js` (na redação desta spec havia apenas Browser Use; o CUA passou a usar o mesmo host em 2026-08). Páginas, tabs, permissões e backend generation continuam sendo gerenciados pelo BrowserControl/session registry existente; o modelo faz bootstrap de novo a cada chamada e recupera a página pelo tab id estável; no lado do CUA, corresponde ao `CuaControlPort` do shared-host e ao frame registry.
+4. Preserva-se a compatibilidade do runtime code-only, para não alterar identidades de ferramentas existentes nem o contrato de replay. `js_reset` e `js_add_node_module_dir` foram removidos em 2026-09-18 junto com a capacidade de moduleDirs (veja “As duas ferramentas removidas” abaixo), e o contrato de replay passa a ser suportado pelo mapeamento de nomes na UI.
+5. MCP de terceiros comuns continuam usando o dual-era `auto`; servers legacy conhecidos e SSE continuam pelo legacy.
 
-“无状态”特指执行 kernel 无状态，不表示删除所有兼容配置，也不表示关闭浏览器页面：
+“Sem estado” refere-se especificamente ao kernel de execução sem estado; não significa apagar toda configuração de compatibilidade nem significa desligar páginas de navegador:
 
 ```text
-session A ─┐
-           ├─ lease ─> workspace-scoped node_repl MCP frontend (2026-07-28)
-session B ─┘                         |
-                                      +─ js(A) -> one-shot worker A -> dispose
-                                      +─ js(B) -> one-shot worker B -> dispose
-                                      `─ small session-keyed module-dir config
+sessão A ─┐
+           ├─ lease ─> node_repl MCP frontend de escopo de workspace (2026-07-28)
+sessão B ─┘                         |
+                                      +─ js(A) -> worker descartável A -> dispose
+                                      +─ js(B) -> worker descartável B -> dispose
+                                      `─ config pequena de module-dir por session key
 
-Browser/page authority
+Autoridade de Browser/página
 sessionId -> BrowserControlPort.requireSession -> workspace/remote/clientMode
-          -> Browser backend/tab registry (existing owner; not MCP frontend state)
+          -> Browser backend/tab registry (owner existente; não é estado do frontend MCP)
 ```
 
-## 2. 模型可见工具合同
+## 2. Contrato de ferramentas visível ao modelo
 
-模型只看到一个宿主工具：
+O modelo vê apenas uma ferramenta de host:
 
 - `mcp__node_repl__js`
 
-`node_repl` 的 server instructions 和该 tool description 声明 “Browser Use and Computer Use only”
-（成文时为 “Browser Use only”，CUA 接入后两处文案已同时限域到两个官方能力）。不得把它改成通用
-JavaScript、文件、Shell、包检查或数据处理工具，也不得提示模型改用专门的 `browser_use` 工具。
+As server instructions do `node_repl` e a descrição dessa tool declaram “Browser Use and Computer Use only” (na redação original era “Browser Use only”; após a entrada do CUA, os dois textos passaram a limitar o escopo às duas capacidades oficiais). Não pode ser transformada em uma ferramenta genérica de JavaScript, arquivos, shell, inspeção de pacotes ou processamento de dados, e também não se pode sugerir ao modelo que use uma ferramenta `browser_use` dedicada.
 
-模型 guidance 以升级前 `control-browser` skill 和 Browser API 文档为内容基线。除下列与 kernel
-生命周期直接冲突的语句外，导航、定位、popup 恢复、截图、安全、tab 生命周期和错误恢复规则必须保留：
+O guidance para o modelo tem como linha de base de conteúdo a skill `control-browser` anterior ao upgrade e a documentação da Browser API. Exceto pelas frases abaixo, que entram em conflito direto com o ciclo de vida do kernel, as regras de navegação, localização, recuperação de popup, screenshot, segurança, ciclo de vida de tabs e recuperação de erros devem ser preservadas:
 
-- `persistent kernel/binding/module cache` 改为每次 `js` 调用 fresh；
-- `globalThis.browser/globalThis.tab` 跨 cell 复用改为每次 bootstrap 后按当前用户选择重新取得 browser，
-  再用完整 tab facts 和稳定 id 找回 tab；
-- `js_reset` 与 `js_add_node_module_dir` 已删除，guidance 不得再提它们，也不得暗示存在一个待重建的
-  持久 kernel 或可由模型配置的模块搜索根。
+- `persistent kernel/binding/module cache` passa a ser fresh a cada chamada `js`;
+- O reaproveitamento de `globalThis.browser/globalThis.tab` entre cells passa a exigir, após cada bootstrap, obter novamente o browser conforme a escolha atual do usuário e então recuperar a tab com os facts completos da tab e o id estável;
+- `js_reset` e `js_add_node_module_dir` foram removidos; o guidance não deve mais mencioná-los nem sugerir que exista um kernel persistente a ser reconstruído ou raízes de busca de módulos configuráveis pelo modelo.
 
-禁止为了说明无状态而压缩或重写其他 guidance。每次调用的 bootstrap 示例只负责加载
-`scripts/browser-client.mjs` 和执行 `setupBrowserRuntime`，不得在通用模板中硬编码
-`agent.browsers.getDefault()`，以免覆盖用户已经明确选择的 IAB、extension 或 CDP backend。
+É proibido comprimir ou reescrever os demais guidance apenas para explicar a ausência de estado. O exemplo de bootstrap de cada chamada serve apenas para carregar `scripts/browser-client.mjs` e executar `setupBrowserRuntime`, e não deve codificar `agent.browsers.getDefault()` em um template genérico, para não sobrescrever o backend IAB, extension ou CDP que o usuário já tenha escolhido explicitamente.
 
 ### `js`
 
-- `tools/list` 模型 schema 继续要求 `code + title`，并保持 `additionalProperties: false`。
-- `code` 字段描述必须同时适用于 core 的兼容 REPL 和 fresh-kernel MCP，不得继续向 Browser Use 模型
-  声明 “persistent Node REPL session”，也不得伪造跨调用状态。
-- 运行时 parser 继续接受历史 code-only 输入；UI 对旧数据使用既有本地化 fallback。
-- `timeout_ms` 继续使用 60 秒默认值、120 秒上限和既有超时文案。
-- 每次调用创建一次性 worker；worker 内创建 `NodeReplSession`、注入 Browser bridge、执行、
-  返回结果并销毁。
-- 模型代码的 import 只支持 `node:*` 内置模块与基于官方 skill root 的绝对 `file://` URL；
-  裸包名不解析（`resolveSpecifier` 与 moduleDirs 已随工具一并删除）。
-- 同一 session 的 `js` 调用串行；不同 session 可并发。
+- O schema de modelo de `tools/list` continua exigindo `code + title` e mantém `additionalProperties: false`.
+- A descrição do campo `code` precisa valer tanto para o REPL de compatibilidade do core quanto para o MCP de kernel fresh, e não pode continuar declarando “persistent Node REPL session” ao modelo de Browser Use nem falsificar estado entre chamadas.
+- O parser de runtime continua aceitando entrada code-only histórica; a UI usa o fallback de localização já existente para dados antigos.
+- `timeout_ms` continua com valor padrão de 60 segundos, teto de 120 segundos e o texto de timeout já existente.
+- Cada chamada cria um worker descartável; dentro do worker são criados o `NodeReplSession`, injetado o Browser bridge, a execução acontece, o resultado é devolvido e tudo é destruído.
+- O import no código do modelo suporta apenas módulos embutidos `node:*` e URLs `file://` absolutas baseadas no skill root oficial; nomes de pacote puro não são resolvidos (`resolveSpecifier` e moduleDirs foram removidos junto com as ferramentas).
+- Chamadas `js` da mesma sessão são seriais; sessões diferentes podem ser concorrentes.
 
-### 已删除的两个工具（2026-09-18）
+### As duas ferramentas removidas (2026-09-18)
 
-`js_reset` 与 `js_add_node_module_dir` 从 `tools/list`、handler 和执行链中整体移除，`node_repl`
-只保留 `js`。调用它们返回 `Tool not found`。两者实测调用量均为 0（310 个本地会话、17134 次真实
-`js` 调用）。
+`js_reset` e `js_add_node_module_dir` foram removidos por completo de `tools/list`, dos handlers e da cadeia de execução, e o `node_repl` passou a manter apenas `js`. Chamá-las retorna `Tool not found`. O volume de chamadas medido das duas foi 0 (310 sessões locais, 17134 chamadas reais de `js`).
 
-`js_reset`：fresh-kernel 改造后已无可执行语义——下一次 `js` 本来就是新 kernel，它唯一的残余行为是
-排进同 session 的串行队列，而模型 tool_use 天然串行、不同 session 用不同 sessionKey，那个 barrier
-恒为空。它每轮请求携带约 117 token 的工具定义，而且因为固定返回成功、永不失败，弱模型不会换策略
-（工单 ZCT-2100503886992535552：155 次连调、19 分钟 4837 万输入 token 直到 429）。失败结果才是
-模型换策略所需的信号。
+`js_reset`: depois da mudança para kernel fresh ela não tem mais semântica executável — a próxima `js` já é um kernel novo, e seu único comportamento residual era entrar na fila serial da mesma sessão, mas o tool_use do modelo já é serial e sessões diferentes usam sessionKeys diferentes, de modo que essa barreira é sempre vazia. Ela carrega cerca de 117 tokens de definição de ferramenta por requisição e, como sempre retorna sucesso e nunca falha, modelos fracos não mudam de estratégia (ticket ZCT-2100503886992535552: 155 sessões seguidas, 19 minutos e 48,37 milhões de tokens de entrada até dar 429). O resultado de falha é justamente o sinal de que o modelo precisa mudar de estratégia.
 
-`js_add_node_module_dir`：它把宿主职责推给了模型。模型无法自行知道该传哪个 `node_modules`，能告诉
-它的只有 skill 文档，而文档知道的路径宿主自己就能注入。两个官方 SDK 的 bootstrap 都只用 `node:*`
-内置模块加基于 skill root 的绝对 `file://` URL，从不需要裸包名解析。随之删除的还有
-`NodeReplExecuteInput.moduleDirs`、worker 传递链、`NodeReplSession` 的 `moduleDirs`/`addModuleDir`/
-`getModuleDirs` 与 `resolveSpecifier`（其两个分支都有 `moduleDirs.length > 0` 守卫，在恒空的生产
-路径下从未触发，因此删除不改变任何既有行为）。将来若官方 skill 真要携带第三方包，由宿主在创建
-runtime 时注入，不要再给模型开配置工具。
+`js_add_node_module_dir`: ela empurrava a responsabilidade do host para o modelo. O modelo não consegue saber sozinho qual `node_modules` passar, e a única coisa que poderia lhe dizer é a documentação da skill, cujos caminhos o próprio host sabe injetar. O bootstrap dos dois SDKs oficiais usa apenas módulos embutidos `node:*` mais URLs `file://` absolutas baseadas no skill root, e nunca precisou resolver nomes de pacote puro. Junto foram removidos `NodeReplExecuteInput.moduleDirs`, a cadeia de passagem do worker, os `moduleDirs`/`addModuleDir`/`getModuleDirs` do `NodeReplSession` e o `resolveSpecifier` (os dois ramos dele tinham guarda `moduleDirs.length > 0` e nunca foram acionados no caminho de produção, que é sempre vazio, portanto a remoção não altera nenhum comportamento existente). Se no futuro um skill oficial precisar Really carregar pacotes de terceiros, o host injeta isso ao criar o runtime, sem reabrir uma ferramenta de configuração para o modelo.
 
-删除只作用于可执行路径。历史 transcript 的渲染继续依赖 `packages/shared/src/tool-identity.ts`
-和 `packages/ui/src/lib/nodeReplToolDisplay.ts` 的名称映射，必须保留：它们只读取历史记录里的
-toolName，与当前 `tools/list` 无关，删掉会让旧会话的调用块退化成 unknown fallback renderer。
+A remoção só atua sobre o caminho executável. A renderização de transcripts históricos continua dependendo do mapeamento de nomes em `packages/shared/src/tool-identity.ts` e `packages/ui/src/lib/nodeReplToolDisplay.ts`, e esses devem ser preservados: eles leem apenas o toolName do histórico, não têm relação com o `tools/list` atual, e removê-los faria os blocos de chamada de sessões antigas degradarem para um renderer fallback desconhecido.
 
-## 3. Browser Use 与请求身份
+## 3. Browser Use e identidade de requisição
 
-MCP `2026-07-28` 的 `_meta` 是请求 envelope/context，不是独立授权凭证。内置链路按以下顺序校验：
+O `_meta` do MCP `2026-07-28` é o envelope/contexto da requisição, não uma credencial de autorização independente. O encadeamento embutido valida na seguinte ordem:
 
 ```text
 tools/call _meta["com.zcode/request-context"]
-  -> node_repl 只读取宿主命名空间，不读取模型参数里的 session 字段
-  -> child 使用进程私有 broker socket + 256-bit token
-  -> broker 校验 token（不再按 runtimeScope 拒绝 subagent）
+  -> node_repl lê apenas o namespace do host, e não os campos de sessão nos parâmetros do modelo
+  -> child usa um broker socket privado de processo + token de 256 bits
+  -> o broker valida o token (não rejeita mais subagent por runtimeScope)
   -> BrowserControlPort.list/execute
-  -> requireSession(sessionId；子会话经 forChildSession 登记映射到父会话)
-  -> 恢复 workspaceIdentity / remoteSessionId / clientMode
-  -> 当前 session 的 backend/tab/permission policy
+  -> requireSession(sessionId; sessões filhas são registradas via forChildSession e mapeadas para a sessão pai)
+  -> restaura workspaceIdentity / remoteSessionId / clientMode
+  -> política de backend/tab/permissão da sessão atual
 ```
 
-因此不能“只信任 `_meta.session_id`”；可信边界是私有 stdio child、私有 broker token、宿主写入的
-namespaced request context 与 session registry 共同成立。页面连续性不再需要额外 opaque handle：
-`BrowserControlPort` 已按 session 管理 tab/page，fresh kernel 只重建临时 `agent/browser/tab` wrapper。
+Portanto não se pode “confiar apenas em `_meta.session_id`”; a fronteira de confiança é sustentada em conjunto pelo child stdio privado, pelo token privado do broker, pelo request context namespaced escrito pelo host e pelo session registry. A continuidade de página não precisa mais de um handle opaque adicional: o `BrowserControlPort` já gerencia tabs/páginas por sessão, e o kernel fresh apenas reconstrói o wrapper temporário `agent/browser/tab`.
 
-subagent 可以使用 Browser Use：父 runtime 经 `BrowserControlPort.forChildSession`（`tabOwner: "parent"`）
-登记后，子会话的请求以当前对话为 tab 归属下发，子代理看得到对话全部 tab，它开的 tab 在面板里展开，
-结束时不关 tab（`docs/browser-use/2026-07-16-subagent-browser-unavailable-spec.md`）。未登记的子会话、伪造顶层
-`_meta.session_id`、workspace path 或 browser id 都不能绕过 session registry。
+Subagentes podem usar Browser Use: depois que o runtime pai registra via `BrowserControlPort.forChildSession` (`tabOwner: "parent"`), as requisições da sessão filha são despachadas com a tab pertencendo à conversa atual, o subagente enxerga todas as tabs da conversa, as tabs que ele abre são expandidas no painel e não são fechadas ao final (`docs/browser-use/2026-07-16-subagent-browser-unavailable-spec.md`). Sessões filhas não registradas, um `_meta.session_id` de topo forjado, workspace path ou browser id forjado não conseguem contornar o session registry.
 
-## 4. 共享、回收与日志
+## 4. Compartilhamento, reciclagem e logs
 
-- `node_repl` 配置固定为 `protocolVersion="2026-07-28"`、`isolation="workspace"`。
-- 连接池 key 保持 `server config fingerprint + workspaceKey`；第三方 server 默认仍为 session isolation。
-- 每个 session 持有 lease；最后一个 lease 释放后按现有 grace period 关闭 frontend。
-- `mcp.server.connected` 记录 `mcpConnectionId`、`workspaceKey`、`mcpIsolation=workspace`、
-  `mcpProtocolEra=modern`、`mcpProtocolVersion=2026-07-28` 和 stdio PID。
-- `mcp.pool.lease.acquired/released` 用同一 `mcpConnectionId` 分别记录每个 sessionId；共享连接日志不伪造唯一 owner。
-- frontend 崩溃后下一次调用按现有 adapter 逻辑重连。因为 kernel 无持久状态，重连不需要恢复 JavaScript；
-  Browser tab/page 仍由 Agent/host 的既有 owner 决定。
+- `node_repl` é configurado com `protocolVersion="2026-07-28"` e `isolation="workspace"` fixos.
+- A key do pool de conexões permanece `server config fingerprint + workspaceKey`; servers de terceiros continuam por padrão em isolamento de sessão.
+- Cada sessão mantém um lease; depois que o último lease é liberado, o frontend é fechado conforme o grace period já existente.
+- `mcp.server.connected` registra `mcpConnectionId`, `workspaceKey`, `mcpIsolation=workspace`, `mcpProtocolEra=modern`, `mcpProtocolVersion=2026-07-28` e o PID do stdio.
+- `mcp.pool.lease.acquired/released` registra cada sessionId separadamente com o mesmo `mcpConnectionId`; logs de conexão compartilhada não forjam um owner único.
+- Após um crash do frontend, a próxima chamada reconecta conforme a lógica de adapter já existente. Como o kernel não tem estado persistente, a reconexão não precisa restaurar JavaScript; tabs/páginas do Browser continuam sendo determinadas pelos owners já existentes do Agent/host.
 
-## 5. 多端边界
+## 5. Limites multiplataforma
 
 ```text
 desktop / desktop-continuous ──┐
-                               ├─ existing shared host -> Agent -> node_repl lease
+                               ├─ shared host existente -> Agent -> lease do node_repl
 mobile / web-remote-replayable ┘
 
-relay/main: auth + attachment + frame transport only
-Agent: MCP pool + request routing
-BrowserControl/desktop guest manager: tab/page authority
+relay/main: apenas auth + attachment + transporte de frames
+Agent: pool MCP + roteamento de requisições
+BrowserControl/desktop guest manager: autoridade de tab/página
 ```
 
-- 手机 `/remote` 只 attachment 到桌面窗口已有 host/Agent，不另起 Agent、MCP 或 browser runtime。
-- 本改动不新增 task event、snapshot、queue、owner 或 replay state。
-- desktop continuous 不拼接 replayable 恢复消息；mobile replayable 不绕过 gap/snapshot 边界。
-- remote workspace 的身份继续贯穿 `workspaceIdentity + remoteSessionId`，不能退化为 `workspacePath`。
+- O `/remote` do celular apenas faz attachment ao host/Agent já existente da janela do desktop, não inicia outro Agent, MCP ou browser runtime.
+- Esta alteração não adiciona task event, snapshot, queue, owner nem estado de replay.
+- O desktop continuous não concatena mensagens de recuperação replayable; o mobile replayable não contorna os limites de gap/snapshot.
+- A identidade de workspace remoto continua atravessando `workspaceIdentity + remoteSessionId` e não pode degradar para `workspacePath`.
 
-## 6. 验收
+## 6. Aceitação
 
-- 工具 identity 仅为 `mcp__node_repl__js`；`js_reset` 与 `js_add_node_module_dir` 不在 `tools/list` 中，
-  调用返回 `Tool not found`；不存在内置 `mcp__browser_use__*` 或 `mcp__computer-use__*` 模型工具。
-- 连续两次 `js`：第二次看不到第一次的 global、timer、import module singleton 修改和 response meta；
-  同一 Browser tab 的 DOM/page state 仍连续。
-- Desktop IAB full-chain 与 multi-tab replay 中，每个独立 `js` 都重新 bootstrap；下一次调用使用上一条
-  真实 tool result 中的动态 stable tab id 执行 `tabs.get`。每次工具终态先断言 completed 和结果 marker，
-  V4 投影滞后时以模型收到的 `tool_result.is_error` 为准；`ReferenceError` 等失败必须在工具边界直接
-  暴露，不能退化成后续 UI 或 provider matcher 超时。
-- 同 workspace 两个 session 只保留一个稳定 `zcode-node-repl-mcp` frontend/PID；A/B 的 global、
-  module dirs、tool result、权限和 tab 隔离。
-- `tools/list` 仍要求 title；直接 runtime call 接受 code-only。
-- `control-browser` 与 Browser API 文档保留升级前全部非状态 guidance；只替换 persistent/fresh、
-  跨 cell binding 和 reset 语义。通用 bootstrap 不选择默认 backend。
-- 模型可见 `js.code` schema 不包含与 fresh kernel 冲突的 persistent 文案。
-- `js_reset` 与 `js_add_node_module_dir` 的模型可见描述、handler、schema 与 moduleDirs 执行链全部
-  移除；UI 名称映射保留供历史回放渲染。
-- main 与 subagent Browser Use 都可用；subagent 与当前对话共用 tab，结束后 tab 保留；返回 main 后原 tab/page 可继续。
-- modern/legacy 第三方 MCP 协商回归、focused tests、Desktop pending E2E、`pnpm typecheck`、`pnpm lint` 通过。
+- A identidade de ferramenta é apenas `mcp__node_repl__js`; `js_reset` e `js_add_node_module_dir` não estão em `tools/list`, chamá-las retorna `Tool not found`; não existem ferramentas de modelo `mcp__browser_use__*` ou `mcp__computer-use__*` embutidas.
+- Em duas chamadas `js` consecutivas: a segunda não enxerga globals da primeira, nem timers, nem modificações de singleton de módulo importado, nem response meta; o DOM/page state do mesmo Browser tab continua contínuo.
+- No full-chain do Desktop IAB e no replay multi-tab, cada `js` independente faz bootstrap de novo; a chamada seguinte executa `tabs.get` usando o tab id dinâmico presente no tool result real anterior. Primeiro se afirma completed e o marker de resultado em cada estado terminal de ferramenta; quando a projection V4 estiver atrasada, vale o `tool_result.is_error` recebido pelo modelo; falhas como `ReferenceError` precisam ser expostas diretamente na fronteira da ferramenta, sem degradar para timeout posterior de UI ou de matcher do provider.
+- Duas sessões no mesmo workspace mantêm apenas um frontend/PID `zcode-node-repl-mcp` estável; globals, module dirs, tool results, permissões e tabs de A/B ficam isolados.
+- `tools/list` continua exigindo title; chamada direta de runtime aceita code-only.
+- A documentação `control-browser` e a Browser API preservam todo o guidance não estatal anterior ao upgrade; apenas persistent/fresh, binding entre cells e a semântica de reset são substituídos. O bootstrap genérico não escolhe backend padrão.
+- O schema de `js.code` visível ao modelo não contém texto persistent em conflito com o kernel fresh.
+- As descrições visíveis ao modelo de `js_reset` e `js_add_node_module_dir`, seus handlers, schemas e a cadeia de execução de moduleDirs foram totalmente removidos; o mapeamento de nomes da UI é preservado para a renderização de replay histórico.
+- Browser Use funciona tanto no main quanto em subagentes; o subagente compartilha as tabs da conversa atual e as tabs permanecem após o fim; ao voltar ao main, a tab/página original continua utilizável.
+- Passam a regressão de negociação de MCP de terceiros modern/legacy, os focused tests, o E2E pendente de Desktop, `pnpm typecheck` e `pnpm lint`.

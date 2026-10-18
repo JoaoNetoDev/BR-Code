@@ -1,40 +1,40 @@
-# Conversation Prompt Scroll Focus
+# Rolagem e foco do prompt na conversa
 
-## Feature Summary
+## Resumo da funcionalidade
 
-| Field                 | Value                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------- |
-| Change                | 用户在阅读上文时提交新的 prompt，只有立即发送路径才执行一次现有“滚动到底部”动作                         |
-| User-visible surfaces | V4 conversation composer、queue item “立即发送”、desktop/Web/mobile shared UI                           |
-| Existing docs         | `docs/conversation-session-case-catalog.md`、`docs/testing/conversation-session-e2e-coverage-matrix.md` |
-| Existing code owners  | `ConversationTimeline` 持有 renderer-local 滚动状态；`SessionPane` 编排 composer/queue command          |
-| Out of scope          | 永久强制吸底、协议/CLI queue 改动、跨 renderer 同步滚动位置、edit/retry/自动 drain                      |
+| Campo                   | Valor                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| Mudança                 | O usuário envia um novo prompt enquanto lê o contexto anterior; somente o caminho de envio imediato executa uma vez a ação existente de "rolar até o final" |
+| Superfícies visíveis ao usuário | Composer de conversa V4, item de fila "立即发送" (enviar agora), UI compartilhada desktop/Web/mobile |
+| Documentos existentes    | `docs/conversation-session-case-catalog.md`、`docs/testing/conversation-session-e2e-coverage-matrix.md` |
+| Responsáveis pelo código existente | `ConversationTimeline` mantém o estado de rolagem local do renderer; `SessionPane` orquestra o comando composer/queue |
+| Fora de escopo           | Fixar permanentemente no final, mudanças de fila no protocolo/CLI, sincronizar posição de rolagem entre renderers, edit/retry/drenagem automática |
 
-## Clarification Log
+## Registro de esclarecimentos
 
-| Round | Question                                    | User answer                                  | Boundary fixed              | Follow-up needed |
-| ----- | ------------------------------------------- | -------------------------------------------- | --------------------------- | ---------------- |
-| 1     | 普通发送、入队、queue send-now 是否都触发？ | 消息入队列不触发；点击消息队列的立即发送触发 | 立即发送与 enqueue 分开裁决 | no               |
+| Rodada | Pergunta                                          | Resposta do usuário                            | Limite fixado                                    | Acompanhamento necessário |
+| ------ | ------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------ | ------------------------ |
+| 1      | Envio normal, enfileiramento e send-now da fila disparam todos? | Mensagem enfileirada não dispara; clicar em enviar agora na fila de mensagens dispara | Envio imediato e enqueue são julgados separadamente | não                      |
 
-## Boundary Decisions
+## Decisões de limite
 
-| Boundary | Decision                          | Includes                                         | Excludes / prunes                   | Source                               |
-| -------- | --------------------------------- | ------------------------------------------------ | ----------------------------------- | ------------------------------------ |
-| Trigger  | 复用现有 instant “滚动到底部”动作 | composer 直发 accepted；queue item 点击 send-now | 仅 enqueue、自动 drain、edit、retry | user                                 |
-| Lifetime | 一次性恢复 `following=true`       | 本次到底部及之后既有的自然跟随                   | 永久锁底；用户上滚后继续强拉        | user + existing scroll state machine |
-| Failure  | composer 发送失败不改变阅读位置   | accepted/no-throw send                           | rejected/throw                      | existing ACK boundary                |
-| Client   | shared renderer 语义              | desktop continuous、普通 Web、mobile remote UI   | 跨设备同步滚动位置                  | architecture invariant               |
+| Limite    | Decisão                                        | Inclui                                                                | Exclui / poda                        | Fonte                                     |
+| --------- | ---------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------- |
+| Gatilho   | Reutiliza a ação instantânea existente de "rolar até o final" | Envio direto pelo composer aceito; clique em send-now do item da fila | Apenas enqueue, drenagem automática, edit, retry | usuário                                   |
+| Tempo de vida | Restauração única de `following=true`          | Ir até o final nesta ocasião e o acompanhamento natural já existente depois | Trava permanente no final; continuar forçando a rolagem após o usuário rolar para cima | usuário + máquina de estados de rolagem existente |
+| Falha     | Falha de envio pelo composer não altera a posição de leitura | Envio aceito/sem throw                            | rejeitado/throw                      | limite de ACK existente                   |
+| Cliente   | Semântica do renderer compartilhado            | desktop contínuo, Web comum, UI remota mobile | Sincronizar posição de rolagem entre dispositivos | invariante de arquitetura                |
 
-## Domain Scope
+## Escopo de domínio
 
-| Domain                | Include?      | Why it can change behavior                                      | Primary sources                       |
-| --------------------- | ------------- | --------------------------------------------------------------- | ------------------------------------- |
-| Conversation/session  | yes           | `inputRouting.mode` 区分 start-now 与 enqueue                   | conversation protocol declaration     |
-| Renderer scroll state | yes           | `followingRef`、scroll memory 和 bottom action 决定用户阅读位置 | `ConversationTimeline.tsx`、SRM cases |
-| Mobile replayable     | boundary only | 共享 UI，但恢复协议不能拥有滚动状态                             | message flow architecture             |
-| Protocol/CLI          | no            | 不新增 command/result 或 queue 状态                             | renderer-local invariant              |
+| Domínio                    | Inclui?  | Por que pode alterar o comportamento                                | Fontes primárias                       |
+| -------------------------- | -------- | -------------------------------------------------------------------- | -------------------------------------- |
+| Conversa/sessão            | sim      | `inputRouting.mode` distingue start-now de enqueue                   | declaração do protocolo de conversa    |
+| Estado de rolagem do renderer | sim    | `followingRef`, memória de rolagem e ação de final definem onde o usuário lê | `ConversationTimeline.tsx`, casos SRM  |
+| Mobile replayable          | apenas limite | UI compartilhada, mas o protocolo de recuperação não pode ter estado de rolagem | arquitetura de fluxo de mensagens      |
+| Protocolo/CLI              | não      | Nenhum command/result novo nem estado de fila                        | invariante local do renderer           |
 
-## Concept Map And State Owners
+## Mapa conceitual e responsáveis pelo estado
 
 ```text
 composer start-now --ACK accepted--\
@@ -46,43 +46,43 @@ scrollToBottom(): following=true -> instant bottom -> existing content-follow be
 user scrolls up: following=false -> hold reading position
 ```
 
-| State / fact              | Authority                                                  | Evidence                             |
-| ------------------------- | ---------------------------------------------------------- | ------------------------------------ |
-| start-now vs enqueue      | current V4 `snapshot.inputRouting.mode` + held disposition | focused policy unit test             |
-| queue send-now click      | `ConversationQueuePanel` user action                       | SessionPane component test           |
-| scroll position/following | `ConversationTimeline` component instance                  | timeline action-ref unit test         |
-| conversation/queue truth  | CLI projection                                             | unchanged                            |
+| Estado / fato                 | Autoridade                                                   | Evidência                            |
+| ----------------------------- | ------------------------------------------------------------ | ------------------------------------ |
+| start-now vs enqueue          | `snapshot.inputRouting.mode` atual do V4 + disposition retido | teste de política focado             |
+| clique em send-now da fila    | ação do usuário em `ConversationQueuePanel`                  | teste de componente SessionPane       |
+| posição de rolagem/following  | instância do componente `ConversationTimeline`               | teste unitário de action-ref da timeline |
+| verdade de conversa/fila      | projeção do CLI                                               | inalterado                           |
 
-## Dimensions And Candidate Combinations
+## Dimensões e combinações candidatas
 
-| Candidate ID | State                                                      | Event                                           | Expected effect                                | Status                                                      |
-| ------------ | ---------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------- |
-| PSF01        | existing session, user is above bottom, routing=`startNow` | composer send resolves accepted                 | instant bottom; `following=true`               | accepted                                                    |
-| PSF02        | existing session, user is above bottom, routing=`enqueue`  | composer input is accepted into queue           | keep reading position; `following=false`       | accepted                                                    |
-| PSF03        | queue visible, user is above bottom                        | click queue item send-now                       | immediately run the same bottom action         | accepted                                                    |
-| PSF04        | direct composer send throws/rejects                        | send fails                                      | keep reading position and draft                | pruned from trigger by success guard                        |
-| PSF05        | PSF01/PSF03 already moved to bottom                        | user scrolls up again                           | existing scroll handler sets `following=false` | accepted invariant                                          |
-| PSF06        | automatic queue drain                                      | runtime consumes an item without send-now click | no new forced scroll intent                    | ignored; existing following state decides content anchoring |
+| ID candidato | Estado                                                            | Evento                                                       | Efeito esperado                                        | Status                                                      |
+| ------------ | ----------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------- |
+| PSF01        | sessão existente, usuário acima do final, routing=`startNow`     | envio pelo composer resolve como aceito                      | final instantâneo; `following=true`                    | aceito                                                      |
+| PSF02        | sessão existente, usuário acima do final, routing=`enqueue`     | entrada do composer é aceita na fila                         | mantém posição de leitura; `following=false`           | aceito                                                      |
+| PSF03        | fila visível, usuário acima do final                             | clique em send-now do item da fila                           | executa imediatamente a mesma ação de final            | aceito                                                      |
+| PSF04        | envio direto pelo composer lança/erejeita                        | envio falha                                                  | mantém posição de leitura e rascunho                   | podado do gatilho pela guarda de sucesso                 |
+| PSF05        | PSF01/PSF03 já moveram para o final                              | usuário rola para cima novamente                             | handler de rolagem existente define `following=false`  | invariante aceita                                           |
+| PSF06        | drenagem automática da fila                                       | runtime consome um item sem clique em send-now               | sem nova intenção de rolagem forçada                   | ignorado; o estado following existente decide a ancoragem do conteúdo |
 
-## Pruning Decisions
+## Decisões de poda
 
-| Decision ID | Pruned combinations                                         | Guard/invariant                                   | Product reason                                | Representative coverage      |
-| ----------- | ----------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------- | ---------------------------- |
-| P1          | provider/model/goal/tool × prompt scroll                    | routing result is the only relevant UI dimension  | these axes do not change scroll intent        | PSF01/PSF02                  |
-| P2          | desktop continuous × mobile replayable product-state matrix | scroll is renderer-local                          | delivery changes recovery, not this UI action | shared component unit        |
-| P3          | edit/retry/automatic drain                                  | no composer-new-prompt or explicit send-now event | avoid unrelated jumps while reading history   | absence of trigger in wiring |
+| ID decisão | Combinações podadas                                                  | Guarda/invariante                                    | Motivo no produto                                  | Cobertura representativa       |
+| ---------- | -------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------- | ------------------------------ |
+| P1         | provider/model/goal/tool × prompt scroll                             | o resultado do routing é a única dimensão de UI relevante | esses eixos não alteram a intenção de rolagem     | PSF01/PSF02                    |
+| P2         | desktop contínuo × matriz de product-state mobile replayable         | a rolagem é local do renderer                          | a entrega muda a recuperação, não esta ação de UI  | unidade de componente compartilhado |
+| P3         | edit/retry/drenagem automática                                       | nenhum evento de novo prompt no composer nem send-now explícito | evitar saltos não relacionados durante a leitura | ausência de gatilho na fiação   |
 
-## Accepted Cases And Coverage
+## Casos aceitos e cobertura
 
-| Case ID | Setup                                                                 | Action                                          | Assertions                                                                                      | Evidence layers             | E2E status |
-| ------- | --------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------- | ---------- |
-| SRM05   | long session, user scrolled away from bottom, routing start-now       | submit composer prompt and receive accepted ACK | bottom action runs once, latest content visible, following restored; later user up-scroll holds | UI + command ACK            | planned    |
-| SRM06   | long running session, user scrolled away from bottom, routing enqueue | submit composer prompt                          | queue gains item; scroll position/following unchanged                                           | UI + projection             | planned    |
-| SRM07   | long session with visible queue, user scrolled away from bottom       | click a queue item “立即发送”                   | bottom action runs immediately; command still follows existing send-now lifecycle               | UI + command ACK/projection | planned    |
+| ID caso | Preparação                                                                    | Ação                                          | Asserções                                                                                     | Camadas de evidência       | Status E2E |
+| ------- | ----------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------- | ---------- |
+| SRM05   | sessão longa, usuário rolou para longe do final, routing start-now            | envia prompt pelo composer e recebe ACK aceito | ação de final roda uma vez, conteúdo mais recente visível, following restaurado; rolagem posterior para cima é mantida | UI + command ACK            | planejado  |
+| SRM06   | sessão longa em execução, usuário rolou para longe do final, routing enqueue | envia prompt pelo composer                    | a fila ganha um item; posição de rolagem/following inalteradas                               | UI + projeção               | planejado  |
+| SRM07   | sessão longa com fila visível, usuário rolou para longe do final            | clica em "立即发送" em um item da fila        | ação de final roda imediatamente; o command segue o ciclo de vida existente de send-now       | UI + command ACK/projeção   | planejado  |
 
-## E2E Handoff Notes
+## Notas de passagem para E2E
 
-- Reuse the existing V4 long-conversation scroll fixture and queue fixture.
-- Use controlled-stream only for SRM06; SRM05/SRM07 need no new provider contract beyond existing fixtures.
-- Desktop continuous is the formal representative. Mobile replayable only needs a shared-component assertion unless a future remote-specific regression appears.
-- Keep the implementation renderer-local; do not add protocol fields, snapshot state, relay state, or persistent scroll state.
+- Reutilizar as fixtures existentes de rolagem em conversa longa do V4 e de fila.
+- Usar controlled-stream somente para SRM06; SRM05/SRM07 não precisam de novo contrato de provider além das fixtures existentes.
+- Desktop contínuo é o representante formal. Mobile replayable precisa apenas de uma asserção de componente compartilhado, a menos que apareça uma regressão específica de remota.
+- Manter a implementação local do renderer; não adicionar campos de protocolo, estado de snapshot, estado de relay ou estado de rolagem persistente.

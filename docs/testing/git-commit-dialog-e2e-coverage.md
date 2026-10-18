@@ -1,64 +1,64 @@
-# Git Commit Dialog E2E Coverage
+# Cobertura E2E do Diálogo de Commit Git
 
-更新时间：2026-07-07
+Data de atualização: 2026-07-07
 
-## Feature Summary
+## Resumo do Recurso
 
-本轮需求把顶部 Git 写操作收敛为“提交或推送”主入口，并把提交弹窗改成紧凑、键盘优先的手动提交流程：自动生成提交信息只负责填充输入框，提交 / 提交并推送 / 推送由用户在底部 Command 动作区手动触发。
+Esta rodada de requisitos consolidou as operações de escrita do Git no topo em uma entrada principal "Commit ou Push" e transformou o diálogo de commit em um fluxo de commit manual, compacto e com prioridade de teclado: a geração automática da mensagem de commit apenas preenche o campo de entrada, e commit / commit e push / push são acionados manualmente pelo usuário na área de ações Command na parte inferior.
 
-## UI Operation Inventory
+## Inventário de Operações de UI
 
-| ID | UI 操作 | 期望行为 | 证据层 |
+| ID | Operação de UI | Comportamento esperado | Camada de evidência |
 | --- | --- | --- | --- |
-| GCD01 | 点击顶部 Git “提交或推送”主按钮 | dirty 仓库打开提交弹窗；按钮右侧不再出现三点下拉 | DOM / dialog |
-| GCD02 | 打开提交弹窗 | 显示标准 overlay；弹窗宽度为紧凑 `max-w-md`；顶部显示当前分支和 `+/-` 统计 | DOM / layout |
-| GCD03 | 弹窗内容加载完成 | 自动聚焦提交信息输入框 | activeElement |
-| GCD04 | 点击顶部当前分支 | 展开可切换分支列表；提交弹窗不显示分支 footer 操作 | DOM / branch list |
-| GCD05 | 手动输入提交信息 | 输入框保留焦点和输入内容 | DOM value |
-| GCD06 | 点击右下角 Sparkles 生成按钮 | 只生成并填充提交信息，不自动提交 | service / DOM value |
-| GCD07 | 切换“包含未暂存的更改” | checkbox 使用 shadcn 风格；开关会影响文件计数和后续 stage/commit scope | DOM / service payload |
-| GCD08 | 聚焦提交信息输入框时按 ArrowDown / ArrowUp | 下方 Command 选中动作在“提交 / 提交并推送 / 推送”之间切换 | DOM selected state |
-| GCD09 | 聚焦底部 Command 时按 ArrowDown / ArrowUp | 同样切换选中动作；不显示对号，只显示选中项快捷键 badge | DOM selected state |
-| GCD10 | 按主快捷键 + Enter | macOS 使用 Command+Enter，Windows/Linux 使用 Ctrl+Enter，触发当前选中动作 | keyboard / service call |
-| GCD11 | 选择“提交” | 必须手动提交；如果输入为空才先生成 Conventional Commit message 后提交 | service call / git state |
-| GCD12 | 选择“提交并推送” | 成功提交后立即 push 当前分支 | service call / git state |
-| GCD13 | clean 且 ahead 仓库点击主按钮 | 主按钮变为推送路径，打开推送弹窗 | DOM / service call |
+| GCD01 | Clicar no botão principal "Commit ou Push" do Git no topo | Em repositório dirty, abre o diálogo de commit; o menu de três pontos não aparece mais à direita do botão | DOM / dialog |
+| GCD02 | Abrir o diálogo de commit | Exibe o overlay padrão; o diálogo tem largura compacta `max-w-md`; o topo mostra a branch atual e as estatísticas de `+/-` | DOM / layout |
+| GCD03 | Conteúdo do diálogo carregado | Foco automático no campo de entrada da mensagem de commit | activeElement |
+| GCD04 | Clicar na branch atual no topo | Expande a lista de branches para troca; o diálogo de commit não exibe ações de footer de branch | DOM / branch list |
+| GCD05 | Digitar a mensagem de commit manualmente | O campo de entrada mantém o foco e o conteúdo digitado | DOM value |
+| GCD06 | Clicar no botão Sparkles no canto inferior direito | Apenas gera e preenche a mensagem de commit, sem fazer commit automático | service / DOM value |
+| GCD07 | Alternar "Incluir alterações não preparadas" | O checkbox usa o estilo shadcn; o toggle afeta a contagem de arquivos e o escopo de stage/commit seguinte | DOM / service payload |
+| GCD08 | Pressionar ArrowDown / ArrowUp com foco no campo da mensagem de commit | A ação Command selecionada abaixo alterna entre "Commit / Commit e push / Push" | DOM selected state |
+| GCD09 | Pressionar ArrowDown / ArrowUp com foco no Command inferior | Também alterna a ação selecionada; não exibe o marcador de visto, apenas o badge de atalho do item selecionado | DOM selected state |
+| GCD10 | Pressionar o atalho principal + Enter | macOS usa Command+Enter, Windows/Linux usa Ctrl+Enter, acionando a ação selecionada | keyboard / service call |
+| GCD11 | Selecionar "Commit" | É preciso fazer o commit manualmente; se a entrada estiver vazia, primeiro gera uma mensagem de Conventional Commit e só então faz o commit | service call / git state |
+| GCD12 | Selecionar "Commit e push" | Após o commit bem-sucedido, faz push da branch atual imediatamente | service call / git state |
+| GCD13 | Clicar no botão principal em repositório clean e ahead | O botão principal passa a ser o caminho de push e abre o diálogo de push | DOM / service call |
 
-## Pruning Decisions
+## Decisões de Poda
 
-| Candidate | Decision | Reason |
+| Candidato | Decisão | Motivo |
 | --- | --- | --- |
-| GCD01/GCD02/GCD03/GCD04/GCD05/GCD07/GCD08/GCD09 | accepted | 纯 UI / 本地 Git 状态可稳定构造，不需要 provider 请求或远端 remote |
-| GCD06 | planned | 需要 case-local provider replay 或 manual capture；不能混进纯 UI case |
-| GCD10 | planned | 需要验证平台快捷键映射和动作触发；适合单独做 no-push commit service 断言 |
-| GCD11 | planned | 会改变 Git 历史，应单独构造 disposable repo 并断言 commit message / staged paths |
-| GCD12/GCD13 | planned | 需要 remote/upstream fixture，不能和提交弹窗基础 UI 混测 |
+| GCD01/GCD02/GCD03/GCD04/GCD05/GCD07/GCD08/GCD09 | accepted | UI pura / estado Git local é construível de forma estável, sem necessidade de requisição a provider ou remote remoto |
+| GCD06 | planned | Exige replay de provider case-local ou captura manual; não pode ser misturado a um caso de UI pura |
+| GCD10 | planned | Exige validar o mapeamento de atalhos por plataforma e o disparo da ação; adequado para uma asserção de service de commit sem push, isoladamente |
+| GCD11 | planned | Altera o histórico Git; deve construir um repo descartável separado e verificar commit message / staged paths |
+| GCD12/GCD13 | planned | Exigem fixture de remote/upstream e não podem ser testados junto com a UI básica do diálogo de commit |
 
-## E2E Case Plan
+## Plano de Casos E2E
 
-| Case | Path | Status | Setup | Action | Assert |
+| Caso | Caminho | Status | Setup | Ação | Asserção |
 | --- | --- | --- | --- | --- | --- |
-| GCD-UI-01 | `packages/desktop/test/e2e/git/git-commit-dialog-ui-flow.test.ts` | formal | WDIO 启动前把默认 workspace 初始化为 Git repo，包含 staged、unstaged 和第二个本地分支 | 打开提交弹窗，输入提交信息，切换 checkbox，方向键切换 Command，展开分支列表 | 弹窗 overlay 存在，输入框自动聚焦，按钮 / checkbox / Command / branch list 状态符合预期 |
-| GCD-GEN-01 | 待定 | planned | case-local provider replay + dirty repo | 点击 Sparkles 生成 | 输入框填入 Conventional Commit message，未触发 commit |
-| GCD-COMMIT-01 | 待定 | planned | disposable repo + no remote | 手动输入 message，Cmd/Ctrl+Enter 触发“提交” | Git 历史新增 commit；只 stage 当前 scope 文件 |
-| GCD-PUSH-01 | 待定 | planned | disposable bare remote + ahead branch | clean ahead 点击主按钮 | 打开推送弹窗并执行 push / set-upstream |
+| GCD-UI-01 | `packages/desktop/test/e2e/git/git-commit-dialog-ui-flow.test.ts` | formal | Antes do WDIO iniciar, inicializar o workspace padrão como repositório Git, contendo staged, unstaged e um segundo branch local | Abrir o diálogo de commit, digitar a mensagem, alternar o checkbox, alternar o Command com as setas, expandir a lista de branches | O overlay do diálogo existe, o campo de entrada recebe foco automático, e o estado dos botões / checkbox / Command / branch list está conforme o esperado |
+| GCD-GEN-01 | a definir | planned | replay de provider case-local + repo dirty | Clicar no Sparkles para gerar | Uma mensagem de Conventional Commit é preenchida no campo e nenhum commit é acionado |
+| GCD-COMMIT-01 | a definir | planned | repo descartável + sem remote | Digitar a message manualmente e acionar "Commit" com Cmd/Ctrl+Enter | Um commit é adicionado ao histórico Git; apenas os arquivos do escopo atual entram em stage |
+| GCD-PUSH-01 | a definir | planned | bare remote descartável + branch ahead | Clicar no botão principal em repositório clean e ahead | O diálogo de push é aberto e o push / set-upstream é executado |
 
-## Handoff Notes
+## Notas de Passagem
 
-- `e2e:promote` dry-run 已确认当前脚本只支持 `conversation-session`，Git 域本次按同等转正规则手动移动到正式 case root；后续可把 promote 工具扩展到 `git` domain。
-- 当前 `e2e:fixture:check` 只支持 `conversation-session` 正式目录；`GCD-UI-01` 不依赖 provider fixture，正式验证以 WDIO 单 spec 为准。
-- `GCD-UI-01` 的稳定合同是 `providerRequestPolicy=none`，不点击生成、提交或推送。
-- 后续生成 / 提交 / 推送 case 需要拆成 case-local fixture，避免模型请求、Git 历史副作用和 remote push 互相污染。
+- O dry-run de `e2e:promote` confirmou que o script atual só suporta `conversation-session`; nesta rodada o domínio Git foi movido manualmente para a raiz de casos formais sob a mesma regra de promoção. A ferramenta de promote pode ser estendida para o domínio `git` mais adiante.
+- O `e2e:fixture:check` atual só suporta o diretório formal `conversation-session`; `GCD-UI-01` não depende de fixture de provider, e a validação formal se baseia em um único spec do WDIO.
+- O contrato estável de `GCD-UI-01` é `providerRequestPolicy=none`, sem clicar em gerar, commit ou push.
+- Os casos futuros de geração / commit / push precisam ser separados em fixtures case-local, para evitar que requisições ao modelo, efeitos colaterais no histórico Git e push para o remote se contaminem mutuamente.
 
-## 弹窗圆角迁移（2026-09-04）
+## Migração do Raio de Canto do Diálogo (2026-09-04)
 
-依据 [DESIGN.md 的弹窗圆角规则](../../DESIGN.md#dialogs)，普通 Dialog 外壳统一 `2xl`，清理业务 `xl` / `3xl` 覆盖；聊天附件预览、反馈截图预览、CUA 截图预览显式保留 `xl`。本次不调整弹窗内部容器和控件。
+Com base nas [regras de raio de canto de diálogos do DESIGN.md](../../DESIGN.md#dialogs), o shell comum dos Dialogs passa a usar uniformemente `2xl`, removendo as sobrescritas de negócio com `xl` / `3xl`; a pré-visualização de anexos do chat, a pré-visualização de capturas da tela de feedback e a pré-visualização de capturas da tela do CUA mantêm explicitamente `xl`. Esta rodada não ajusta os containers internos nem os controles do diálogo.
 
-GCD-UI-01 增加提交弹窗计算圆角 16px 的断言。共享默认值、业务覆盖和三个预览例外由单测覆盖。桌面和手机 Web 复用相同组件，无进程、状态同步或恢复语义变更；跨平台和手机端独立视觉验证需另行记录。
+GCD-UI-01 ganha uma asserção de raio de canto calculado de 16px para o diálogo de commit. O padrão compartilhado, as sobrescritas de negócio e as três exceções de pré-visualização são cobertas por testes unitários. Desktop e Web móvel reutilizam os mesmos componentes, sem mudança de processo, sincronização de estado ou semântica de recuperação; a verificação visual independente entre plataformas e no mobile precisa ser registrada à parte.
 
-### 本次验证结果
+### Resultados da Verificação Desta Rodada
 
-- 新增圆角测试在修改前失败；修改后相关单测通过（首轮 34 项，补充聊天区查找分支后该测试组 18 项通过）。
-- `pnpm typecheck`、`pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm lint` 通过；Lint 为 41 个已有警告、0 错误。
-- macOS Electron GCD-UI-01：1/1 通过，包含计算圆角 16px 断言；运行 ID：`desktop-e2e-20260904080854303-p50838-b01f152a8e3d50f0`。
-- 三类预览保留 xl 的入口由单测验证，未逐个运行预览 UI；手机 Web、Windows、Linux 尚未进行独立视觉验证。
+- O novo teste de raio de canto falhava antes da alteração; após a alteração, os testes unitários relacionados passaram (34 itens na primeira rodada; após incluir a busca na área de chat, 18 itens desse grupo de testes passaram).
+- `pnpm typecheck`, `pnpm --filter @zcode/desktop typecheck:e2e` e `pnpm lint` passaram; o Lint apresentou 41 warnings já existentes e 0 erros.
+- GCD-UI-01 no Electron do macOS: 1/1 passou, incluindo a asserção de raio de canto calculado de 16px; run ID: `desktop-e2e-20260904080854303-p50838-b01f152a8e3d50f0`.
+- As entradas das três pré-visualizações que mantêm `xl` foram verificadas por teste unitário, sem execução individual da UI de pré-visualização; Web móvel, Windows e Linux ainda não passaram por verificação visual independente.

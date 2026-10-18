@@ -1,62 +1,72 @@
-# M5：v4 会话 composer 还原（输入区能力收口）
+# M5: restauração do composer de sessão do v4 (consolidação das capacidades da área de entrada)
 
-## 目标
+## Objetivo
 
-把 v4 SessionPane 的输入区从 M3 竖切的裸 textarea 还原到旧 UI 的完整能力：
-Lexical 编辑器、模式选择、模型选择器、思考深度、context usage、发送键状态机、`/` 候选面板。
+Restaurar a área de entrada do SessionPane do v4, que no M3 havia sido reduzida verticalmente a um textarea
+nu, de volta às capacidades completas da UI antiga: editor Lexical, seleção de modo, seletor de modelo,
+profundidade de raciocínio, uso de contexto, máquina de estados da tecla de envio e painel de candidatos de `/`.
 
-## 新旧分界（硬约束：UI 用老的，逻辑新写）
+## Divisão entre novo e antigo (restrição rígida: UI antiga, lógica nova)
 
-| 层 | 来源 | 说明 |
+| Camada | Origem | Descrição |
 | --- | --- | --- |
-| `LexicalChatInput`（packages/ui/src/LexicalChatInput.tsx） | 从 `b44d4a87a^` 原样恢复 | provider 读存活的 `v4/activeTaskProvider`；`ChatComposerPasteEvent` 收口本文件；保留 `enableMentionPanel` 开关；slash command 固定读取 CLI workspace catalog |
-| `ChatPromptEditor` / `ChatPromptActionMenu` / `usePromptEditorDragState`（packages/ui/src/prompt-editor/） | 原样恢复 | 纯 props 展示壳；`onSubmit` 返回值透传（false=保留草稿）是唯一行为适配 |
-| `CatalogSlashCommandPlugin`（packages/ui/src/prompt-editor/） | 初期迁移组件，现已删除 | 宿主静态 command 目录通道已退役，当前只保留读取 CLI workspace slash catalog 的 `SlashCommandPlugin` |
-| `V4ComposerToolbar`（packages/ui/src/v4/composer/） | 新写 wiring | 复用 ModelConfigSelect / ChatModeSwitchControl / ThoughtLevelCycleControl / ChatContextUsage 展示件；当前值读 v4 `snapshot.config` / `snapshot.usage`；写路径 v4 命令 |
-| `ConversationComposer`（packages/ui/src/v4/） | 全新重写 | 发送键状态机 + held choice + Stop + dock 布局 |
+| `LexicalChatInput` (packages/ui/src/LexicalChatInput.tsx) | Restaurado como estava em `b44d4a87a^` | O provider lê o `v4/activeTaskProvider` existente; `ChatComposerPasteEvent` fica consolidado neste arquivo; mantém a flag `enableMentionPanel`; o slash command lê sempre o catálogo de workspace do CLI |
+| `ChatPromptEditor` / `ChatPromptActionMenu` / `usePromptEditorDragState` (packages/ui/src/prompt-editor/) | Restaurados como estavam | Casca de exibição puramente por props; o valor de retorno de `onSubmit` é repassado (false=manter rascunho), sendo essa a única adaptação de comportamento |
+| `CatalogSlashCommandPlugin` (packages/ui/src/prompt-editor/) | Componente migrado inicialmente, já removido | O canal de diretório de commands estático do host foi desativado; hoje permanece apenas o `SlashCommandPlugin`, que lê o slash catalog de workspace do CLI |
+| `V4ComposerToolbar` (packages/ui/src/v4/composer/) | Wiring novo | Reutiliza os componentes de exibição ModelConfigSelect / ChatModeSwitchControl / ThoughtLevelCycleControl / ChatContextUsage; o valor atual vem de `snapshot.config` / `snapshot.usage` do v4; o caminho de escrita usa comandos do v4 |
+| `ConversationComposer` (packages/ui/src/v4/) | Reescrito do zero | Máquina de estados da tecla de envio + held choice + Stop + layout do dock |
 
-## 数据面接线
+## Fiação da interface de dados
 
-- 模型/思考深度 → `switchModelConfig`。工具条只上抛语义事件
-  `onSelectModel(providerId, modelId)` / `onSelectThought(thought)`（value 经
-  `decodeCustomModelValue` 解码），**命令参数由 SessionPane 从 snapshotRef（最新投影）补齐**
-  ——memo 子组件的 config prop 在连续操作时会落后投影一拍；CAS stale 用
-  `ack.revisionAtDecision` 有界重试（连续「切模型→切思考深度」的 revision 竞态）。
-- 模式选择 → **新增 additive 命令 `switchCollaborationMode`**（mode ∈ build/edit/plan/yolo，CAS）：
-  - CLI handler（`commands/handlers/model-config.ts`）：`app.getMode()` 快照 → `app.setMode(mode)` →
-    `runtime.emitModeChanged`（新增 core 方法，补发 `SessionModeChanged(source=command)`；
-    `app.setMode` 本身不产事件）。
-  - 投影：`onSessionModeChanged` → `config.mode`（additive 字段，带 default `"build"` 不破坏旧帧）。
-    plan 工具路径（enterPlanMode/exitPlanMode）的 SessionModeChanged 同样被消费，UI 跟随。
-- context usage → `snapshot.usage.contextWindow`（已有字段，ModelComplete 时投影写入），
-  UI 复用 ChatContextUsage（`{used: usedTokens, size: maxTokens}`）。
-- 模型目录（选择器选项）属配置面：暂走存活服务读（`useModelProviders` +
-  `useToolbarConfigOptions(workspacePath, null)`），**死期 = 配置面 v4 化**。
-- 发送键状态机（对齐旧 ChatViewComposer）：running+空草稿 → Stop（v4 `stop` 命令，
-  自 header 迁入 composer）；running+有草稿 → 「加入队列」；held（inputRouting.mode=choice）→
-  清空/保留两钮（M4 testid 契约不变）；pending → spinner；发送失败草稿保留。
+- Modelo/profundidade de raciocínio → `switchModelConfig`. A barra de ferramentas apenas emite os eventos
+  semânticos `onSelectModel(providerId, modelId)` / `onSelectThought(thought)` (o value passa por
+  `decodeCustomModelValue`), e **os parâmetros do comando são completados pelo SessionPane a partir do snapshotRef
+  (projeção mais recente)** — o config prop dos subm componentes memoizados fica uma projeção atrasada em
+  operações consecutivas; um CAS stale usa retry limitado via `ack.revisionAtDecision` (corrida de revision em
+  “trocar modelo → trocar profundidade de raciocínio” seguidos).
+- Seleção de modo → **novo comando aditivo `switchCollaborationMode`** (mode ∈ build/edit/plan/yolo, CAS):
+  - Handler do CLI (`commands/handlers/model-config.ts`): snapshot `app.getMode()` → `app.setMode(mode)` →
+    `runtime.emitModeChanged` (novo método do core, que reemite
+    `SessionModeChanged(source=command)`; o próprio `app.setMode` não gera eventos).
+  - Projeção: `onSessionModeChanged` → `config.mode` (campo aditivo, com default `"build"` para não quebrar
+    frames antigos). O SessionModeChanged do caminho de plan (enterPlanMode/exitPlanMode) também é consumido, e a
+    UI acompanha.
+- Uso de contexto → `snapshot.usage.contextWindow` (campo já existente, gravado na projeção em ModelComplete),
+  com a UI reutilizando ChatContextUsage (`{used: usedTokens, size: maxTokens}`).
+- O catálogo de modelos (opções do seletor) pertence à superfície de configuração: por enquanto passa pela leitura
+  dos serviços vivos (`useModelProviders` + `useToolbarConfigOptions(workspacePath, null)`), com **data de
+  expiração = v4 da superfície de configuração**.
+- Máquina de estados da tecla de envio (alinhada ao antigo ChatViewComposer): running+rascunho vazio → Stop
+  (comando `stop` do v4, migrado do header para o composer); running+com rascunho → “Adicionar à fila”; held
+  (inputRouting.mode=choice) → dois botões de limpar/manter (contrato de testid do M4 inalterado); pending →
+  spinner; em caso de falha de envio, o rascunho é preservado.
 
-## e2e 契约
+## Contrato de e2e
 
-- `TID_V4_COMPOSER_INPUT` 变为 Lexical contenteditable：`setInputValueByTestIdDom`
-  增加 `__zcodeLexicalInputE2E` bridge 分支（驱动真实 editor state；Lexical update
-  微任务后才 commit，写入采用轮询确认），spec 断言语义不变。
-- Radix 控件驱动口径：受控 DropdownMenu 触发用 WebDriver 真实点击（element.click()
-  不含 pointerdown）；Radix SelectItem 的确认合成 pointer 手势会被忽略，统一走
-  「item 聚焦 + Enter」键盘路径（`selectRadixOption` helper）+ 菜单关闭校验。
-- 可观测性：生产 renderer 日志关闭，v4 命令 ack 摘要写入
-  `window.__zcodeV4CommandAcksE2E` 有界环形缓冲（`v4/commandAckObservability.ts`），
-  spec 失败报文自动附带。
-- M4 调试表单（v4-model-provider-input 等 4 个 testid）退役；`switchV4Model` helper 适配为
-  驱动 `TID_CHAT_MODEL_SELECT_*` / `TID_CHAT_THOUGHT_LEVEL_SELECT_*`（真实选择器）。
-- 新增 `TID_CHAT_MODE_SELECT_TRIGGER/ITEM`（模式选择 e2e 锚点）；`TID_V4_MODEL_CONFIG`
-  锚点扩展 data-mode / data-usage-used / data-usage-max。
-- 新 spec：`conversation-session-v4-composer-toolbar.test.ts`（slash 面板出现/过滤/选中、
-  模型选择器切 secondary、模式切换投影、usage 投影非零）。
+- `TID_V4_COMPOSER_INPUT` passa a ser contenteditable do Lexical: `setInputValueByTestIdDom` ganha um ramo de
+  bridge `__zcodeLexicalInputE2E` (que dirige o estado real do editor; o commit do Lexical só ocorre depois do
+  microtask de update, e a escrita adota confirmação por polling), com as asserções do spec semanticamente
+  inalteradas.
+- Critério de direção dos controles Radix: gatilhos de DropdownMenu controlados usam clique real do WebDriver
+  (`element.click()` não emite pointerdown); os gestos de pointer sintetizados na confirmação de um Radix
+  SelectItem são ignorados, então usa-se uniformemente o caminho de teclado “item focado + Enter” (helper
+  `selectRadixOption`) mais a verificação de fechamento do menu.
+- Observabilidade: os logs de produção do renderer são desligados, e o resumo de ack dos comandos do v4 é
+  gravado em um buffer circular limitado `window.__zcodeV4CommandAcksE2E`
+  (`v4/commandAckObservability.ts`), anexado automaticamente às mensagens de falha do spec.
+- Os formulários de debug do M4 (4 testids como v4-model-provider-input) são desativados; o helper `switchV4Model`
+  é adaptado para dirigir `TID_CHAT_MODEL_SELECT_*` / `TID_CHAT_THOUGHT_LEVEL_SELECT_*` (seletores reais).
+- Novos `TID_CHAT_MODE_SELECT_TRIGGER/ITEM` (âncoras de e2e da seleção de modo); a âncora `TID_V4_MODEL_CONFIG`
+  ganha data-mode / data-usage-used / data-usage-max.
+- Novo spec: `conversation-session-v4-composer-toolbar.test.ts` (aparição/filtro/seleção do painel de slash,
+  troca do seletor de modelo para secondary, projeção da troca de modo e projeção de usage não nula).
 
-## 本期不做（入口保留，props 开关关闭）
+## Fora do escopo nesta fase (entradas mantidas, flags de props desligadas)
 
-mention/@/# 面板、附件选择/拖拽/粘贴附件、prompt history 持久化——v4 数据面就绪后打开
-（`showMentionButton` / `attachmentAction` / `enableExternalFileDrop` / `enableMentionPanel` / `onPaste`）。
-另：draft 期投影 `config.mode` 初值固定 `"build"`，持久化偏好非 build 时以首条
-SessionModeChanged 为准（TODO M6：draft 期免 revision 的种子通道）。
+Painéis de mention/@/#, seleção/arrastar/soltar/colar anexos e persistência do prompt history — serão ativados
+quando a superfície de dados do v4 estiver pronta (`showMentionButton` / `attachmentAction` /
+`enableExternalFileDrop` / `enableMentionPanel` / `onPaste`).
+
+Além disso: durante o período de draft, o valor inicial projetado de `config.mode` é fixo em `"build"`; quando a
+preferência persistida não for build, a primeira `SessionModeChanged` prevalece (TODO M6: canal de seed sem
+revision durante o período de draft).

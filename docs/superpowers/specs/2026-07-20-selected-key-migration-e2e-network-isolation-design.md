@@ -1,71 +1,71 @@
-# SelectedKey Migration E2E Network Isolation Design
+# Design de Isolamento de Rede do E2E da Migração de SelectedKey
 
-## 问题与目标
+## Problema e objetivo
 
-`conversation-session-model-provider-selected-key-migration.test.ts` 的 I32～I34
-只验证本地 `modelProviderFamilySelectedKeys` 启动迁移，但 WDIO 默认 fixture 会写入
-`oauth:active_provider=zai`、Z.AI access token 与 `zcodejwttoken`。应用重载后因此进入
-OAuth 恢复刷新，并使用假的 `e2e-oauth-token` 请求真实 Z.AI provider、API Key 与权益接口。
+Os casos I32～I34 de `conversation-session-model-provider-selected-key-migration.test.ts`
+verificam apenas a migração de inicialização local de `modelProviderFamilySelectedKeys`, mas o fixture padrão do WDIO grava
+`oauth:active_provider=zai`, o access token da Z.AI e `zcodejwttoken`. Após o reload do app isso faz o runtime entrar na
+recuperação de OAuth e usar o `e2e-oauth-token` falso para requisitar o provider, a API Key e os endpoints de benefícios reais da Z.AI.
 
-本次修复的目标是让 I32～I34 完全不依赖外部网络，同时保持真实 App 重载和本地设置迁移
-链路不变。OAuth 恢复后的远端刷新语义由已有 UI 单测独立覆盖，不在这三个迁移 case 中重复。
+O objetivo desta correção é tornar I32～I34 totalmente independentes de rede externa, mantendo inalterados o reload real do app e a cadeia local de migração de configurações.
+A semântica de refresh remoto após a recuperação de OAuth já é coberta de forma independente por testes unitários de UI e não é repetida nestes três casos de migração.
 
-## 选定方案
+## Esquema escolhido
 
-为 selectedKey migration spec 增加显式的启动凭据策略：
+Adicionar ao spec de migração de selectedKey uma política explícita de credenciais de inicialização:
 
-- 保留 fake `auth_token`，兼容仍读取 legacy token 的通用 E2E 辅助链路。
-- 不写 `oauth:active_provider`。
-- 不写 `oauth:zai:access_token`、OAuth user info 或 `zcodejwttoken`。
-- 继续使用现有 fake settings、model provider 与 replay fixture。
+- manter o `auth_token` falso, por compatibilidade com as cadeias auxiliares de E2E genéricas que ainda leem o token legado.
+- não gravar `oauth:active_provider`.
+- não gravar `oauth:zai:access_token`, informações de usuário do OAuth nem `zcodejwttoken`.
+- continuar usando os fixtures existentes de settings, model provider e replay falsos.
 
-凭据选择逻辑抽成无副作用的纯函数，由 WDIO `seedE2EStartupState()` 调用。单元测试直接断言
-selectedKey migration spec 的结果不包含任何可触发恢复刷新或 Plan 网络请求的凭据。
+A lógica de escolha de credenciais é extraída para uma função pura sem efeitos colaterais, chamada pelo `seedE2EStartupState()` do WDIO. O teste unitário afirma diretamente que o
+resultado do spec de migração de selectedKey não contém nenhuma credência capaz de disparar refresh de recuperação ou requisições de rede de Plan.
 
-## 启动时序
+## Sequência de inicialização
 
-修复前：
+Antes da correção:
 
 ```text
 fake active OAuth session
   -> restoreCachedSession
   -> refreshCodingPlanApiKey(Z.AI Coding + Start)
-  -> 真实 provider/API Key/权益请求
-  -> 再次按 selectedKey 刷新
-  -> 本地 selectedKey migration
+  -> requisições reais de provider/API Key/benefícios
+  -> novo refresh por selectedKey
+  -> migração local de selectedKey
 ```
 
-修复后：
+Após a correção:
 
 ```text
 fake local settings/providers + legacy auth_token
-  -> restoreCachedSession: active provider 不存在
-  -> 跳过 OAuth provider family 刷新
-  -> 本地 selectedKey migration
-  -> I32/I33/I34 读取 setting.json 断言
+  -> restoreCachedSession: active provider inexistente
+  -> refresh de família OAuth ignorado
+  -> migração local de selectedKey
+  -> I32/I33/I34 leem setting.json e afirmam
 ```
 
-## 状态组合与剪枝
+## Combinações de estado e poda
 
-| 组合 | 处理 | 原因 |
+| Combinação | Tratamento | Motivo |
 | --- | --- | --- |
-| 本地 mode/selectedKey 冲突 + 无 active OAuth | 保留 | I32～I34 的最小产品语义 |
-| 本地迁移 + Z.AI OAuth 恢复成功 | 剪枝 | OAuth 恢复刷新已有 `rootOAuthCallbackHandling.test.ts` 覆盖 |
-| 本地迁移 + 真实 Z.AI 网络成功/失败/超时 | 剪枝 | 与 selectedKey 迁移算法无关，且会引入外部不确定性 |
-| BigModel Team 完整/畸形 identity | 保留 | 分别对应 I33/I34 的核心边界 |
+| Conflito de mode/selectedKey local + sem OAuth ativo | Manter | Semântica mínima de produto de I32～I34 |
+| Migração local + recuperação de OAuth da Z.AI bem-sucedida | Podar | O refresh após recuperação de OAuth já é coberto por `rootOAuthCallbackHandling.test.ts` |
+| Migração local + rede real da Z.AI com sucesso/falha/timeout | Podar | Sem relação com o algoritmo de migração de selectedKey e introduz incerteza externa |
+| identity do BigModel Team completo/malformado | Manter | Correspondem aos limites centrais de I33/I34 |
 
-## 代码与测试范围
+## Escopo de código e testes
 
-- 新增纯函数 helper：根据 worker specs 构造默认或 network-isolated credentials fixture。
-- WDIO 启动 seed 改用该 helper；其他 spec 的默认 OAuth fixture 保持兼容。
-- 单测先验证当前实现会错误地产生 active OAuth 凭据，再实现 helper 使其通过。
-- 运行 I32～I34 的目标 E2E，确认用例完成且运行日志中不出现
-  `model-provider.refreshCodingPlanApiKey` 或真实 `billing/balance` 请求。
-- 执行项目强制的 `pnpm typecheck` 与 `pnpm lint`。
+- novo helper de função pura: constrói o fixture de credenciais padrão ou network-isolated conforme os specs de worker.
+- o seed de inicialização do WDIO passa a usar esse helper; o fixture OAuth padrão dos demais specs permanece compatível.
+- o teste unitário verifica primeiro que a implementação atual gera credenciais de OAuth ativo de forma incorreta e só então o helper é implementado para fazê-lo passar.
+- executar o E2E alvo de I32～I34 e confirmar que os casos concluem e que o log de execução não contém
+  `model-provider.refreshCodingPlanApiKey` nem requisições reais de `billing/balance`.
+- executar o `pnpm typecheck` e o `pnpm lint` obrigatórios do projeto.
 
-## 非目标
+## Não objetivos
 
-- 不修改产品 OAuth、provider 刷新、重试或超时逻辑。
-- 不缩短真实网络请求超时。
-- 不为该迁移 spec 搭建完整 OAuth HTTP mock server。
-- 不改变桌面 continuous、手机 remote replayable、workspace identity 或 Agent runtime 语义。
+- não modificar a lógica de OAuth, refresh de provider, retry ou timeout do produto.
+- não encurtar o timeout de requisições de rede reais.
+- não montar um mock server HTTP de OAuth completo para este spec de migração.
+- não alterar a semântica de desktop continuous, mobile remote replayable, workspace identity ou do Agent runtime.

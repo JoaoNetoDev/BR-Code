@@ -1,17 +1,17 @@
-# 内置 Subagent 模型控件
+# Controle de Modelo dos Subagents Embutidos
 
-Settings 为内置和插件 subagent 显示同一行内模型控件，但其他字段仍保持只读。
+O Settings exibe o controle de modelo na mesma linha para subagents embutidos e de plugin, mas os demais campos permanecem somente leitura.
 
-- `general-purpose` 默认继承父会话 main model。
-- `Explore` 默认继承父会话 main model。
-- 用户选择具体模型后写入 built-in model override。
-- 清空覆盖后恢复内置默认行为。
-- 思考等级与 Draft 都读取目标 Environment 的 Selection View；不再用 App metadata/catalog 双源回填。
-- 加载失败与明确不可用分开；仅当前 ready 候选缺少原模型时提示“选择模型”，不清空持久意图。
-- 内置 agent 不显示 edit、delete、enabled switch、prompt editor 或 tools editor。
-- user subagent 继续沿用现有模型摘要展示。
-- plugin subagent 的“继承默认”表示删除用户覆盖，回到插件 Markdown 的模型声明；没有声明才继承父模型。
-  行内不重复显示模型徽标，行不可点击进入编辑，覆盖不写插件目录。
+- `general-purpose` herda por padrão o main model da sessão pai.
+- `Explore` herda por padrão o main model da sessão pai.
+- Depois que o usuário seleciona um modelo concreto, isso é gravado como built-in model override.
+- Ao limpar o override, o comportamento padrão embutido é restaurado.
+- O nível de raciocínio e o Draft passam a ler a Selection View do Environment alvo; não se usa mais o duplo preenchimento a partir de App metadata/catalog.
+- Falha de carregamento é separada de indisponibilidade explícita; a mensagem "selecionar modelo" aparece somente quando o candidato atual está pronto mas sem o modelo original, e a intenção persistida não é limpa.
+- Agents embutidos não exibem edit, delete, enabled switch, prompt editor nem tools editor.
+- user subagent continua usando a exibição do resumo de modelo existente.
+- "Herdar padrão" de um plugin subagent significa remover o override do usuário, voltando à declaração de modelo do Markdown do plugin; apenas quando não há declaração é que o modelo pai é herdado.
+  O badge do modelo não é exibido novamente na linha, a linha não é clicável para edição e o override não é gravado no diretório do plugin.
 
 ```text
 目标 Environment Selection View
@@ -21,5 +21,4 @@ Settings 为内置和插件 subagent 显示同一行内模型控件，但其他�
                   `--> loading / error --> 保留意图，区分加载与失败
 ```
 
-主动选择新模型使用其最高档；历史缺档位不自动补齐。内置及插件覆盖一次写完整 ModelSelection，
-保存失败回滚组合，保存成功后的刷新失败不回滚。完整合同见 `docs/subagents-built-in-model-overrides.md`。
+A escolha ativa de um novo modelo usa o nível mais alto dele; lacunas históricas de nível não são preenchidas automaticamente. Overrides embutidos e de plugin gravam um ModelSelection completo de uma vez; se o salvamento falhar, a combinação é revertida, e uma falha de atualização após o salvamento bem-sucedido não é revertida. O contrato completo está em `docs/subagents-built-in-model-overrides.md`.

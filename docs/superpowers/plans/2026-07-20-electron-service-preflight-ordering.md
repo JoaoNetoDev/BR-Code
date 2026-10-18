@@ -1,28 +1,39 @@
 # Electron Service Preflight Ordering Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este
+> plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 消除 Desktop E2E 项目 preflight 与 `wdio-electron-service` 初始化同阶段并发导致的 ContextId/窗口竞态。
+**Objetivo:** eliminar a corrida de ContextId/janela causada pela concorrência entre o preflight de projeto do
+Desktop E2E e a inicialização do `wdio-electron-service` na mesma fase.
 
-**Architecture:** `config.before` 只保存 worker specs，不执行任何 browser 命令；`mochaOpts.rootHooks.beforeAll` 在 WDIO 等待全部 service/config `before` hooks 后执行 renderer bridge preflight。必须使用真正由 Mocha 管理的 root hook，不能使用会吞普通异常的 WDIO config `beforeSuite`；preflight rejection 要中止 test body 并产生非零 failure count，同时禁止在同一 hook 内 `reloadSession()`。
+**Arquitetura:** `config.before` apenas salva os worker specs e não executa nenhum comando de browser;
+`mochaOpts.rootHooks.beforeAll` executa o preflight do renderer bridge depois que o WDIO aguarda todos os hooks
+`before` de service/config. É preciso usar um root hook realmente gerenciado pelo Mocha, e não o `beforeSuite`
+de config do WDIO, que engole exceções comuns; uma rejeição do preflight deve abortar o corpo do teste e gerar
+um failure count diferente de zero, ao mesmo tempo em que é proibido chamar `reloadSession()` dentro do mesmo
+hook.
 
-**Tech Stack:** WebdriverIO 9、`wdio-electron-service` 9、Mocha、Vitest、TypeScript。
+**Stack:** WebdriverIO 9, `wdio-electron-service` 9, Mocha, Vitest, TypeScript.
 
-## Global Constraints
+## Restrições Globais
 
-- 不增加固定 sleep 或基于 `browser.electron` 单字段的伪完成轮询。
-- Mocha root `beforeAll` 必须复用 `currentE2EWorkerSpecs`，保留错误中的 spec 归属。
-- 禁止用 WDIO config `beforeSuite` 承载失败屏障；其普通异常不会传播给 Mocha。
-- preflight 失败不得在 worker hook 内创建第二个 Electron session。
-- bug 原因和修复理由使用中文注释，并记录独立 `before-suite` lifecycle。
-- 保留用户已有 I55 未提交改动，本次 commit 只包含此计划列出的文件。
-- 必须执行 `pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm typecheck`、`pnpm lint`。
+- Não adicionar sleep fixo nem polling de pseudo-conclusão baseado em um único campo `browser.electron`.
+- O `beforeAll` root do Mocha precisa reutilizar `currentE2EWorkerSpecs`, preservando a atribuição do spec nos
+  erros.
+- É proibido usar o `beforeSuite` de config do WDIO como barreira de falha; suas exceções comuns não chegam ao
+  Mocha.
+- Uma falha de preflight não pode criar uma segunda sessão Electron dentro do worker hook.
+- A causa do bug e a justificativa da correção usam comentários em português, e o lifecycle `before-suite` é
+  documentado separadamente.
+- Preservar as alterações não commitadas do usuário para I55; este commit contém apenas os arquivos listados
+  neste plano.
+- É obrigatório executar `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: 串行化 Electron service 与 renderer preflight
+### Task 1: serializar o Electron service e o preflight do renderer
 
-**Files:**
+**Arquivos:**
 
 - Modify: `docs/testing/desktop-e2e-runtime-performance.md`
 - Modify: `packages/desktop/wdio.conf.ts`
@@ -35,22 +46,30 @@
 
 **Interfaces:**
 
-- Consumes: WDIO `before(capabilities, specs)` 和 Mocha root `beforeAll` 生命周期。
-- Produces: `before` 仅设置 `currentE2EWorkerSpecs`；`mochaOpts.rootHooks.beforeAll` 调用 `runE2ERendererBridgePreflight(currentE2EWorkerSpecs)`；失败由 Mocha 计为 root-hook failure，test body 不执行。
+- Consumes: o lifecycle de `before(capabilities, specs)` do WDIO e o `beforeAll` root do Mocha.
+- Produces: `before` apenas define `currentE2EWorkerSpecs`; `mochaOpts.rootHooks.beforeAll` chama
+  `runE2ERendererBridgePreflight(currentE2EWorkerSpecs)`; a falha é contada pelo Mocha como root-hook failure e
+  o corpo do teste não é executado.
 
-- [ ] **Step 1: 先写失败的配置契约测试**
+- [ ] **Step 1: escrever primeiro o teste de contrato de configuração que falha**
 
-在 `e2eWindowTargetBinding.test.ts` 读取 `wdio.conf.ts`，断言 `before` 不调用 preflight、配置不声明 WDIO `beforeSuite`、`mochaOpts.rootHooks` 调用 preflight 并记录 `before-suite`，同时断言 `runE2ERendererBridgePreflight` 函数片段不含 `browser.reloadSession()`。在 `e2eRendererBridgeRootHook.test.ts` 用真实 Mocha runner 验证 preflight rejection 产生一个 failure 且 test body 不执行，健康路径顺序为 preflight 后 test body。
+Em `e2eWindowTargetBinding.test.ts`, ler `wdio.conf.ts` e afirmar que `before` não chama o preflight, que a
+configuração não declara o `beforeSuite` do WDIO, que `mochaOpts.rootHooks` chama o preflight e registra
+`before-suite`, e afirmar também que o trecho da função `runE2ERendererBridgePreflight` não contém
+`browser.reloadSession()`. Em `e2eRendererBridgeRootHook.test.ts`, validar com um runner Mocha real que a
+rejeição do preflight gera um failure e que o corpo do teste não é executado, e que no caminho saudável a ordem é
+preflight e depois corpo do teste.
 
-- [ ] **Step 2: 运行测试并确认因旧实现失败**
+- [ ] **Step 2: rodar os testes e confirmar a falha pela implementação antiga**
 
 Run: `pnpm vitest run packages/desktop/test/e2eWindowTargetBinding.test.ts`
 
-Expected: FAIL，错误指向仍声明 `async beforeSuite`、缺少 `rootHooks` 或 preflight 函数仍包含 `browser.reloadSession()`。
+Expected: FAIL, com erro apontando para o `async beforeSuite` ainda declarado, para a ausência de `rootHooks` ou
+para a função de preflight ainda contendo `browser.reloadSession()`.
 
-- [ ] **Step 3: 实现最小修复**
+- [ ] **Step 3: implementar a correção mínima**
 
-在 `wdio.conf.ts` 中实现以下生命周期结构：
+Implementar a seguinte estrutura de lifecycle em `wdio.conf.ts`:
 
 ```ts
 async before(_capabilities, specs) {
@@ -65,15 +84,19 @@ mochaOpts: {
 },
 ```
 
-`createE2ERendererBridgeRootHooks` 只把 callback 注册为真正的 Mocha `beforeAll`。`runE2ERendererBridgePreflight` 只执行一次 `waitForE2ERendererBridgePreflight()`；成功返回，失败直接调用 `createE2ERendererBridgePreflightError(..., false)`。删除不再使用的 `shouldRebuildE2ESessionAfterPreflightFailure` 导入、实现和对应单测，并把 `"before-suite"` 加入 `E2ELifecyclePhase`。
+`createE2ERendererBridgeRootHooks` apenas registra o callback como um `beforeAll` real do Mocha.
+`runE2ERendererBridgePreflight` executa uma única vez `waitForE2ERendererBridgePreflight()`; em caso de sucesso
+retorna, e em caso de falha chama diretamente `createE2ERendererBridgePreflightError(..., false)`. Remover o
+import, a implementação e o teste unitário não utilizados de `shouldRebuildE2ESessionAfterPreflightFailure`, e
+adicionar `"before-suite"` a `E2ELifecyclePhase`.
 
-- [ ] **Step 4: 运行定向单测并确认通过**
+- [ ] **Step 4: rodar os testes unitários direcionados e confirmar que passam**
 
 Run: `pnpm vitest run packages/desktop/test/e2eWindowTargetBinding.test.ts packages/desktop/test/e2eRendererBridgeRootHook.test.ts packages/desktop/test/e2eWorkerIsolation.test.ts packages/desktop/test/e2eReportingLifecycle.test.ts`
 
-Expected: PASS，0 failures。
+Expected: PASS, 0 failures.
 
-- [ ] **Step 5: 执行强制验证**
+- [ ] **Step 5: executar as verificações obrigatórias**
 
 Run: `pnpm --filter @zcode/desktop typecheck:e2e`
 
@@ -81,11 +104,13 @@ Run: `pnpm typecheck`
 
 Run: `pnpm lint`
 
-Expected: 三条命令 exit 0；既有 warning 与新增 failure 分开报告。
+Expected: os três comandos terminam com exit 0; warnings existentes e novos failures são reportados
+separadamente.
 
-- [ ] **Step 6: 复核并提交**
+- [ ] **Step 6: revisar e commitar**
 
-只 stage 本任务七个实现/测试文件与两个文档，复核 staged diff 后提交：
+Adicionar ao stage somente os sete arquivos de implementação/teste desta tarefa e os dois documentos, revisar o
+staged diff e commitar:
 
 ```text
 fix(desktop-e2e): serialize renderer preflight startup

@@ -1,64 +1,64 @@
-# BG26 429 Failure Projection Isolation Design
+# Design de Isolamento da Projeção de Falhas 429 do BG26
 
-## 目标
+## Objetivo
 
-稳定 BG26 的 case-local synthetic `429` replay，验证 provider 原始错误进入 background subagent failed notification、失败 hover 与 snapshot restore。BG26 不新增或修改产品侧主模型 retry、queue、stream recovery 语义。
+Estabilizar o replay sintético `429` local ao case do BG26 e verificar que o erro original do provider entra na notificação de falha do background subagent, no hover de falha e na restauração de snapshot. O BG26 não adiciona nem altera a semântica de retry do modelo principal do produto, de fila ou de recuperação de stream.
 
-## 运行时证据与根因
+## Evidência de runtime e causa raiz
 
-早期失败 run `desktop-e2e-20260721-110945-241` 中，child attempt 1～6 到达 replay server，attempt 7 只有 `model.request.started` / `model.network.started`；其它 run 的停点会漂移。下列实验均被真实 E2E 否定：
+No run de falha inicial `desktop-e2e-20260721-110945-241`, as child attempts 1 a 6 chegaram ao replay server, mas a attempt 7 teve apenas `model.request.started` / `model.network.started`; em outros runs o ponto de parada deriva. Os experimentos a seguir foram todos refutados por E2E real:
 
-1. 调整产品侧 stream cleanup/abort 顺序后，focused test 通过，但 BG26 仍卡在物理请求发送前。
-2. 显式关闭 429 响应连接后，run `desktop-e2e-20260721-121455-420` 收到第一个 429，却在 attempt 2 发送前卡住。
-3. 仅把 BG26 retry 设为 0 后，run `desktop-e2e-20260721-122552-864` 已记录 child `attempt=1/maxAttempts=1`，但首个物理请求仍未到 replay server。
+1. Depois de ajustar a ordem de cleanup/abort do stream no lado do produto, o teste focado passou, mas o BG26 continua travando antes do envio da requisição física.
+2. Depois de fechar explicitamente a conexão da resposta 429, o run `desktop-e2e-20260721-121455-420` recebeu o primeiro 429, mas travou antes do envio da attempt 2.
+3. Depois de definir apenas o retry do BG26 como 0, o run `desktop-e2e-20260721-122552-864` já registrou child `attempt=1/maxAttempts=1`, mas a primeira requisição física ainda não chegou ao replay server.
 
-因此失败不在 projection、hover、snapshot restore 或产品错误转换。BG26 作为 projection case 同时继承了产品默认 retry 和进程级 global fetch 通道；父请求完成后，child 请求在该共享测试通道上可能停在 replay server 之前。把 retry 降为一次只能缩小 case 语义，不能单独隔离不稳定通道。
+Portanto a falha não está na projeção, no hover, na restauração de snapshot nem na conversão de erros do produto. Como case de projeção, o BG26 também herda o retry padrão do produto e o canal global de fetch em nível de processo; depois que a requisição pai termina, a requisição child pode parar antes do replay server nesse canal de teste compartilhado. Reduzir o retry para uma única tentativa apenas estreita a semântica do case, sem isolar sozinho o canal instável.
 
 ```text
-旧链路
+cadeia antiga
   parent title / launch / ACK
-    -> 进程级 global fetch 通道
-  child 429（默认还会 retry）
-    -> 某次或首个 attempt 只有 network.started
+    -> canal global de fetch em nível de processo
+  child 429 (por padrão ainda sofre retry)
+    -> alguma tentativa, ou a primeira, tem apenas network.started
     -X-> replay server
-    -> child 无 terminal failed
-    -> 父 notification 永不到达
+    -> child sem failed terminal
+    -> notificação pai nunca chega
 
-目标链路
-  BG26 worker
+cadeia alvo
+  worker do BG26
     -> retry = 0
-    -> ZCODE_HTTP_PROXY = 当前 replay server
-    -> Node http + 当前请求独立 ProxyAgent
-    -> 1 次真实 429
+    -> ZCODE_HTTP_PROXY = replay server atual
+    -> Node http + ProxyAgent independente da requisição atual
+    -> 1 429 real
     -> child terminal failed
-    -> parent failed notification
-    -> live hover
-    -> 切换任务后的 snapshot restore
+    -> notificação de falha no parent
+    -> hover ao vivo
+    -> restauração de snapshot após trocar de tarefa
 ```
 
-## 方案
+## Solução
 
-采用 case-local worker 隔离，不修改产品网络代码：
+Adotar isolamento com um worker local ao case, sem modificar o código de rede do produto:
 
-1. WDIO `beforeSession` 根据当前 worker specs 判断 BG26，仅该 worker 设置 `ZCODE_MODEL_RETRY_MAX_RETRIES=0`。
-2. replay server 启动并获得动态端口后，仅 BG26 worker 设置 `ZCODE_HTTP_PROXY` 为该 server 的 base URL，并清空显式 `ZCODE_NO_PROXY`。`ProxyAgent` 会发送 absolute-form HTTP URL，而 replay server 已支持该格式。
-3. 非 BG26 worker 和 capture 模式恢复 WDIO 启动前的 proxy/no-proxy 配置，避免串扰其它 case 或开发者环境。
-4. BG26 fixture 保留一次真实 `429 AccountRateLimitExceeded`、原始 provider message 和 `retry-after: 0`，删除不属于本 case 合同的 retry fixture。
-5. provider message、status code、child marker、notification matcher 和 UI/restore 断言保持不变。
+1. O `beforeSession` do WDIO identifica o BG26 com base nos worker specs atuais; apenas esse worker define `ZCODE_MODEL_RETRY_MAX_RETRIES=0`.
+2. Depois que o replay server sobe e obtém a porta dinâmica, apenas o worker do BG26 define `ZCODE_HTTP_PROXY` como a base URL desse server e limpa o `ZCODE_NO_PROXY` explícito. O `ProxyAgent` envia HTTP URL em absolute-form, e o replay server já suporta esse formato.
+3. Workers que não são BG26 e o modo capture restauram a configuração de proxy/no-proxy anterior ao start do WDIO, evitando interferência em outros cases ou no ambiente do desenvolvedor.
+4. A fixture do BG26 mantém um `429 AccountRateLimitExceeded` real, a mensagem original do provider e `retry-after: 0`, removendo as fixtures de retry que não pertencem ao contrato deste case.
+5. A mensagem do provider, o status code, o marcador child, o matcher de notificação e as asserções de UI/restauração permanecem inalterados.
 
-该边界与 conversation case catalog 中 BG26 的已确认语义一致：`429` 只作为真实失败代表，不定义主模型 retry/queue 语义。产品默认 retry 仍由 adapters focused tests 覆盖。
+Essa fronteira é consistente com a semântica já confirmada do BG26 no conversation case catalog: `429` serve apenas como representante de uma falha real e não define a semântica de retry/fila do modelo principal. O retry padrão do produto continua coberto pelos testes focados de adapters.
 
-## 影响边界
+## Fronteira de impacto
 
-- 只修改测试基础设施、BG26 fixture/manifest 与定向测试。
-- 不修改 `apps/zcode-cli`、`packages/ui`、`product-projection.ts`、conversation projection 或 E2E timeout。
-- 桌面 `continuous` 与手机 `web-remote-replayable` 的运行态、snapshot 和恢复边界均不改变。
+- Modifica apenas a infraestrutura de testes, as fixture/manifest do BG26 e os testes direcionados.
+- Não modifica `apps/zcode-cli`, `packages/ui`, `product-projection.ts`, a conversation projection nem timeouts de E2E.
+- Os limites de runtime, snapshot e recuperação do `continuous` no desktop e do `web-remote-replayable` no celular não mudam.
 
-## 验证结果
+## Resultados da verificação
 
-- Worker isolation 与 replay server focused tests：`8 passed`。
-- BG26 fixture contract：`5 fixtures`，通过。
-- 原样 BG26 连续两轮通过：
+- Isolamento de worker e testes focados do replay server: `8 passed`.
+- Contrato de fixtures do BG26: `5 fixtures`, aprovado.
+- Duas rodadas consecutivas do BG26 como está:
   - `desktop-e2e-20260721-123822-673`
   - `desktop-e2e-20260721-124220-804`
-- 两轮 capture 都是 5 条 complete 请求，child 只有一个 `429`；Agent 日志记录 `attempt=1/maxAttempts=1/statusCode=429`，随后出现 `turn.failed`、`subagent.background.failed` 和父 notification 请求，原始 provider message 保留。
+- As duas rodadas de capture tiveram 5 requisições completas, com apenas um `429` no child; o log do Agent registra `attempt=1/maxAttempts=1/statusCode=429`, seguido de `turn.failed`, `subagent.background.failed` e da requisição de notificação ao pai, com a mensagem original do provider preservada.

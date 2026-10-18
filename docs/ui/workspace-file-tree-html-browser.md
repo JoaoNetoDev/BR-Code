@@ -1,17 +1,17 @@
-# 文件树 HTML 内置浏览器打开
+# Abertura de HTML pelo navegador embutido a partir da árvore de arquivos
 
-## 目标
+## Objetivo
 
-文件树右键菜单对本地 `.html` / `.htm` 文件提供“用内置浏览器打开”动作。动作使用文件的绝对路径生成 `file://` URL，并交给现有右侧 Browser side pane 打开。
+O menu de contexto da árvore de arquivos oferece, para arquivos `.html` / `.htm` locais, a ação "Abrir com o navegador embutido". A ação usa o caminho absoluto do arquivo para gerar uma URL `file://` e a entrega ao pane lateral Browser existente, à direita.
 
-## 行为边界
+## Limites de comportamento
 
-- 仅本地 desktop 文件树显示该动作；远程 workspace 不显示，避免把远端路径误当成本机 `file://` 文件。
-- 仅文件类型为 `file` 且扩展名为 `.html` / `.htm` 时显示；目录、Git deleted 虚拟文件不显示。
-- URL 生成复用 UI 层路径工具 `toFileUrl()`，保证 macOS/Linux `file:///...` 与 Windows `file:///C:/...` 都能被内置浏览器接收。
-- 打开浏览器仍走 `handleOpenBrowserUrl()`，由现有 Browser side pane 负责创建 tab、校验 URL 和导航，不让文件树直接操作 webview。
+- A ação só aparece na árvore de arquivos local do desktop; workspaces remotos não a exibem, evitando tratar caminhos remotos como arquivos `file://` da máquina local.
+- Só é exibida quando o tipo do item é `file` e a extensão é `.html` / `.htm`; diretórios e arquivos virtuais de Git deleted não a exibem.
+- A geração da URL reaproveita a ferramenta de caminhos da camada de UI `toFileUrl()`, garantindo que tanto `file:///...` em macOS/Linux quanto `file:///C:/...` no Windows sejam aceitos pelo navegador embutido.
+- A abertura do navegador continua passando por `handleOpenBrowserUrl()`, que fica a cargo do pane lateral Browser existente criar a tab, validar a URL e navegar; a árvore de arquivos não opera o webview diretamente.
 
-## 验证
+## Verificação
 
-- `packages/ui/test/workspaceFileTree.test.ts` 覆盖 HTML 扩展名识别和 `file://` URL 生成。
-- 该变更不修改 ZCode session/task realtime、snapshot、queue、replayable/continuous 语义。
+- `packages/ui/test/workspaceFileTree.test.ts` cobre o reconhecimento das extensões HTML e a geração da URL `file://`.
+- A alteração não modifica a semântica de sessão/task realtime do ZCode, snapshot, queue, nem replayable/continuous.

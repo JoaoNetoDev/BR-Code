@@ -1,41 +1,41 @@
-# UI Perf Telemetry Attribution Implementation Plan
+# Plano de Implementação de Atribuição de Telemetry de Performance da UI
 
-> 状态（2026-07-15）：已实施，本文保留为历史实施计划。当前事件字段和归因口径以
-> `docs/monitoring/performance-telemetry-catalog.md`、`docs/monitoring/business-monitoring.md`
-> 与 `packages/ui/src/lib/uiPerfArmsTelemetry.ts` 为准。
+> Status (2026-07-15): já implementado; este documento é preservado como plano de implementação histórico. Os campos de evento e o critério de atribuição atuais têm como referência
+> `docs/monitoring/performance-telemetry-catalog.md`, `docs/monitoring/business-monitoring.md`
+> e `packages/ui/src/lib/uiPerfArmsTelemetry.ts`.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. As etapas usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Strengthen UI-side Agent/RUM telemetry so 3.1.5 performance issues can be attributed to turn completion, stream stalls, and model network status without adding high-frequency runtime overhead.
+**Objetivo:** Fortalecer a telemetry de Agent/RUM do lado da UI para que os problemas de performance da 3.1.5 possam ser atribuídos à conclusão de turno, travamentos de stream e status de rede do modelo sem adicionar overhead de runtime de alta frequência.
 
-**Architecture:** Reuse the existing `uiPerfArmsTelemetry.ts` and `planUsageArmsTelemetry.ts` wrappers. Add one low-frequency turn breakdown event emitted once per prompt completion, enrich stream stall with chunk type, and mirror existing model network statuses into `plan_request` with sanitized properties.
+**Arquitetura:** Reaproveitar os wrappers existentes `uiPerfArmsTelemetry.ts` e `planUsageArmsTelemetry.ts`. Adicionar um evento de baixa frequência de breakdown de turno emitido uma vez por conclusão de prompt, enriquecer o travamento de stream com o tipo de chunk e espelhar os status de rede de modelo existentes em `plan_request` com propriedades saneadas.
 
-**Tech Stack:** TypeScript, Vitest, existing `IPlatformService.reportArmsCustomEvent`, ARMS custom event payloads.
+**Stack técnico:** TypeScript, Vitest, `IPlatformService.reportArmsCustomEvent` existente, payloads de custom event do ARMS.
 
 ---
 
-### Task 1: Document Scope and Performance Guardrails
+### Tarefa 1: Documentar o escopo e as guardrails de performance
 
-**Files:**
-- Modify: `docs/superpowers/specs/2026-06-16-ui-perf-arms-telemetry-design.md`
-- Create: `docs/superpowers/plans/2026-06-25-ui-perf-telemetry-attribution.md`
+**Arquivos:**
+- Modificar: `docs/superpowers/specs/2026-06-16-ui-perf-arms-telemetry-design.md`
+- Criar: `docs/superpowers/plans/2026-06-25-ui-perf-telemetry-attribution.md`
 
-- [x] **Step 1: Update the existing spec**
+- [x] **Passo 1: Atualizar a spec existente**
 
-Document the attribution gap, low-overhead rules, new event names, and runtime-only future fields.
+Documentar a lacuna de atribuição, as regras de baixo overhead, os novos nomes de evento e os campos futuros apenas de runtime.
 
-- [x] **Step 2: Save this implementation plan**
+- [x] **Passo 2: Salvar este plano de implementação**
 
-Save this file under `docs/superpowers/plans/`.
+Salvar este arquivo em `docs/superpowers/plans/`.
 
-### Task 2: Add Failing Tests for UI Perf Payloads
+### Tarefa 2: Adicionar testes falhando para os payloads de UI Perf
 
-**Files:**
-- Modify: `packages/ui/test/uiPerfArmsTelemetry.test.ts`
+**Arquivos:**
+- Modificar: `packages/ui/test/uiPerfArmsTelemetry.test.ts`
 
-- [x] **Step 1: Add tests before production code**
+- [x] **Passo 1: Adicionar testes antes do código de produção**
 
-Add tests for:
+Adicionar testes para:
 
 ```ts
 reportUiTurnBreakdown({
@@ -55,99 +55,99 @@ reportUiTurnBreakdown({
 });
 ```
 
-Expected payload: `name=perf_ui_turn_breakdown`, `group=ui_perf`, `value=9000`, with numeric properties rounded and string ids preserved.
+Payload esperado: `name=perf_ui_turn_breakdown`, `group=ui_perf`, `value=9000`, com propriedades numéricas arredondadas e ids de string preservados.
 
-Add a stream stall test with `chunkType: "thought"` and expect `properties.chunk_type = "thought"`.
+Adicionar um teste de travamento de stream com `chunkType: "thought"` e esperar `properties.chunk_type = "thought"`.
 
-- [x] **Step 2: Run the targeted test and verify failure**
+- [x] **Passo 2: Executar o teste direcionado e verificar a falha**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts
 ```
 
-Expected: fail because `reportUiTurnBreakdown` and `chunkType` support do not exist yet.
+Esperado: falhar porque `reportUiTurnBreakdown` e o suporte a `chunkType` ainda não existem.
 
-### Task 3: Implement UI Perf Payload Enhancements
+### Tarefa 3: Implementar as melhorias de payload de UI Perf
 
-**Files:**
-- Modify: `packages/ui/src/lib/uiPerfArmsTelemetry.ts`
-- Modify: `packages/ui/src/hooks/taskStreamEventHandlers.ts`
-- Modify: `packages/ui/src/hooks/useZCodeChat.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/lib/uiPerfArmsTelemetry.ts`
+- Modificar: `packages/ui/src/hooks/taskStreamEventHandlers.ts`
+- Modificar: `packages/ui/src/hooks/useZCodeChat.ts`
 
-- [x] **Step 1: Add `UI_PERF_EVENT_TURN_BREAKDOWN` and `reportUiTurnBreakdown`**
+- [x] **Passo 1: Adicionar `UI_PERF_EVENT_TURN_BREAKDOWN` e `reportUiTurnBreakdown`**
 
-Implementation must:
-- Emit one event per prompt completion.
-- Reuse the existing async `emit()` helper.
-- Round numeric values.
-- Keep absent optional values undefined.
+A implementação deve:
+- Emitir um evento por conclusão de prompt.
+- Reaproveitar o helper async `emit()` existente.
+- Arredondar valores numéricos.
+- Manter indefinidos os valores opcionais ausentes.
 
-- [x] **Step 2: Add `chunkType` to stream stall**
+- [x] **Passo 2: Adicionar `chunkType` ao travamento de stream**
 
-Extend `recordStreamChunkArrival()` options with `chunkType?: "message" | "thought" | "unknown"` and add `chunk_type` to properties.
+Estender as options de `recordStreamChunkArrival()` com `chunkType?: "message" | "thought" | "unknown"` e adicionar `chunk_type` às propriedades.
 
-- [x] **Step 3: Pass chunk type at call sites**
+- [x] **Passo 3: Passar o tipo de chunk nos pontos de chamada**
 
-Pass `chunkType: "message"` for `agent_message_chunk` and `chunkType: "thought"` for `agent_thought_chunk`.
+Passar `chunkType: "message"` para `agent_message_chunk` e `chunkType: "thought"` para `agent_thought_chunk`.
 
-- [x] **Step 4: Emit turn breakdown from prompt completion**
+- [x] **Passo 4: Emitir o breakdown de turno a partir da conclusão do prompt**
 
-Parse existing `completionTelemetry.eventExtraDetail` values in `useZCodeChat.ts` and call `reportUiTurnBreakdown()` once alongside `reportUiMessageComplete()`.
+Parsear os valores existentes de `completionTelemetry.eventExtraDetail` em `useZCodeChat.ts` e chamar `reportUiTurnBreakdown()` uma vez junto com `reportUiMessageComplete()`.
 
-### Task 4: Add Failing Tests for Plan Network Status Mirroring
+### Tarefa 4: Adicionar testes falhando para o espelhamento do status de rede do Plan
 
-**Files:**
-- Modify: `packages/ui/test/planUsageArmsTelemetry.test.ts` or create if missing.
-- Modify: `packages/ui/src/lib/planUsageArmsTelemetry.ts`
+**Arquivos:**
+- Modificar: `packages/ui/test/planUsageArmsTelemetry.test.ts` ou criá-lo, caso não exista.
+- Modificar: `packages/ui/src/lib/planUsageArmsTelemetry.ts`
 
-- [x] **Step 1: Add tests before production code**
+- [x] **Passo 1: Adicionar testes antes do código de produção**
 
-Test that `model_request_completed`, `model_request_failed`, `model_retry_scheduled`, and `model_stream_stalled` are mirrored to `plan_request` with sanitized duration/status/retry fields.
+Testar que `model_request_completed`, `model_request_failed`, `model_retry_scheduled` e `model_stream_stalled` são espelhados em `plan_request` com campos de duration/status/retry saneados.
 
-- [x] **Step 2: Run the targeted test and verify failure**
+- [x] **Passo 2: Executar o teste direcionado e verificar a falha**
 
-Run:
+Executar:
 
 ```bash
 pnpm vitest run packages/ui/test/planUsageArmsTelemetry.test.ts
 ```
 
-Expected: fail because only `model_request_started` is currently mirrored.
+Esperado: falhar porque hoje apenas `model_request_started` é espelhado.
 
-### Task 5: Implement Plan Network Status Mirroring
+### Tarefa 5: Implementar o espelhamento do status de rede do Plan
 
-**Files:**
-- Modify: `packages/ui/src/lib/planUsageArmsTelemetry.ts`
+**Arquivos:**
+- Modificar: `packages/ui/src/lib/planUsageArmsTelemetry.ts`
 
-- [x] **Step 1: Rename the helper internally or extend it in place**
+- [x] **Passo 1: Renomear o helper internamente ou estendê-lo no local**
 
-Keep the existing exported `reportPlanUsageModelRequestStartedToArms()` name for call-site compatibility, but allow all `task_network_debug_status` model status types through.
+Manter o nome exportado existente `reportPlanUsageModelRequestStartedToArms()` por compatibilidade com os pontos de chamada, mas permitir que passem todos os tipos de status de modelo de `task_network_debug_status`.
 
-- [x] **Step 2: Include sanitized properties**
+- [x] **Passo 2: Incluir propriedades saneadas**
 
-Include `duration_ms`, `status_code`, `delay_ms`, `idle_ms`, `timeout_ms`, `retryable`, `reason`, `transport`, `provider_kind`, `next_attempt` when present. Do not include headers or raw messages.
+Incluir `duration_ms`, `status_code`, `delay_ms`, `idle_ms`, `timeout_ms`, `retryable`, `reason`, `transport`, `provider_kind`, `next_attempt` quando presentes. Não incluir headers nem mensagens brutas.
 
-### Task 6: Verification and Commit
+### Tarefa 6: Verificação e commit
 
-**Files:**
-- All modified files.
+**Arquivos:**
+- Todos os arquivos modificados.
 
-- [x] **Step 1: Run targeted tests**
+- [x] **Passo 1: Executar os testes direcionados**
 
 ```bash
 pnpm vitest run packages/ui/test/uiPerfArmsTelemetry.test.ts packages/ui/test/planUsageArmsTelemetry.test.ts
 ```
 
-- [x] **Step 2: Run required checks**
+- [x] **Passo 2: Executar as verificações obrigatórias**
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-- [x] **Step 3: Commit**
+- [x] **Passo 3: Commitar**
 
 ```bash
 git add docs/superpowers/specs/2026-06-16-ui-perf-arms-telemetry-design.md docs/superpowers/plans/2026-06-25-ui-perf-telemetry-attribution.md packages/ui/src/lib/uiPerfArmsTelemetry.ts packages/ui/src/lib/planUsageArmsTelemetry.ts packages/ui/src/hooks/taskStreamEventHandlers.ts packages/ui/src/hooks/useZCodeChat.ts packages/ui/test/uiPerfArmsTelemetry.test.ts packages/ui/test/planUsageArmsTelemetry.test.ts

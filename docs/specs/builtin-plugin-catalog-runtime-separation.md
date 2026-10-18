@@ -1,67 +1,67 @@
-# 内置插件卸载后的 Catalog / Runtime 分离方案
+# Separação Catalog / Runtime após desinstalar plugins embutidos
 
-状态：实现完成（2026-08-21）
-适用分支：`fix/builtin-plugin-detail-after-uninstall`
-评审：Fable 只读对抗评审已通过，结论为“方向成立，落点应在 Catalog/seed 层”。
+Status: implementação concluída (2026-08-21)
+Branch aplicável: `fix/builtin-plugin-detail-after-uninstall`
+Revisão: a revisão adversarial somente-leitura do Fable foi aprovada, com a conclusão de que "a direção se sustenta; o ponto de aplicação deve ficar na camada Catalog/seed".
 
-## 1. Feature Summary / Impact Brief
+## 1. Resumo da feature / impacto
 
-| Field | Value |
+| Campo | Valor |
 | --- | --- |
-| Developer intent | 内置 Document Skills 卸载后仍能打开详情并查看完整组件清单；行为与非内置 Marketplace 插件一致 |
-| Capability | Plugin Marketplace detail、builtin uninstall/restore、official seed/cache |
-| Change layer | `option-source`、`commit-effect`、`persistence`、`validation` |
-| Operating mode | `planning` → implementation |
-| Primary seeds | `bundled-plugins.ts`、`plugins.ts`、`marketplace.ts`、`official-marketplace.ts`、`pluginStoreListing.ts`、Plugin Store detail UI |
-| Out of scope | 新协议/schema、单项组件启停、Web/手机 remote、workspace-scope 安装、conversation E2E |
+| Intenção do desenvolvedor | Document Skills embutidos continuam abrindo o detalhe e exibindo a lista completa de componentes mesmo após a desinstalação; comportamento idêntico ao de plugins de Marketplace não embutidos |
+| Capacidade | detalhe do Plugin Marketplace, uninstall/restore de embutidos, seed/cache oficial |
+| Camada de mudança | `option-source`, `commit-effect`, `persistence`, `validation` |
+| Modo de operação | `planning` → implementação |
+| Seeds principais | `bundled-plugins.ts`, `plugins.ts`, `marketplace.ts`, `official-marketplace.ts`, `pluginStoreListing.ts`, UI de detalhe do Plugin Store |
+| Fora de escopo | novos protocolos/schemas, ativação/desativação de componente individual, Web/mobile remote, instalação em workspace-scope, conversation E2E |
 
-### 1.1 当前事实（Fact）
+### 1.1 Fatos atuais (Fact)
 
-1. 内置插件卸载通过 `plugins.suppressedBuiltins` 表示；Agent discovery、Desktop `skillsService`、`commandsService` 和 session facade 都会据此过滤运行时资源。
-2. `writeOfficialMarketplace` 当前把 suppressed 内置插件从 bundled marketplace 分片过滤掉。
-3. seed 当前对 suppressed 插件删除 `cache/<official>/<name>/<version>` 并跳过物化。
-4. `plugins/describe` 对未安装插件依赖 Marketplace entry 和 source root；`filesystem/sea` entry 当前只从 `cachePath` 或计算出的 cache 目录读取。
-5. UI 将 suppressed 内置插件重新投影为 `restorable=true`，但详情页仍因 `info` 缺失调用 `plugins/describe`，于是得到 `plugin_not_found` 或 cache missing。
-6. 官方内置分片和 CDN 分片已经按同一 `zcode-plugins-official` 身份合并；ADR-0001 要求 listing 属于 Catalog，而不是安装态。
+1. A desinstalação de plugins embutidos é representada por `plugins.suppressedBuiltins`; o Agent discovery, o `skillsService` do Desktop, o `commandsService` e o session facade filtram os recursos de runtime com base nisso.
+2. `writeOfficialMarketplace` atualmente filtra os plugins embutidos suprimidos do shard bundled do marketplace.
+3. O seed atualmente remove `cache/<official>/<name>/<version>` para plugins suprimidos e pula a materialização.
+4. `plugins/describe` depende, para plugins não instalados, da entry do Marketplace e da source root; a entry `filesystem/sea` hoje só é lida a partir de `cachePath` ou do diretório de cache calculado.
+5. A UI reprojeta plugins embutidos suprimidos como `restorable=true`, mas a página de detalhe ainda chama `plugins/describe` por falta de `info`, resultando em `plugin_not_found` ou cache ausente.
+6. O shard oficial embutido e o shard de CDN já são mesclados sob a mesma identidade `zcode-plugins-official`; o ADR-0001 exige que o listing pertença ao Catalog, e não ao estado de instalação.
 
-### 1.2 推断（Inference）
+### 1.2 Inferências (Inference)
 
-- Catalog（目录身份、listing、只读组件详情）与 Runtime（是否发现、是否启用、用户配置、data）职责混淆，是本次 bug 的根因。
-- 内置 cache 的字节来自应用 bundle/SEA，不是用户下载的安装产物；删除它不会从设备移除真实内置代码，只会破坏离线 describe 并制造 seed↔uninstall 互删竞态。
-- 保留只读内置 cache，并由 discovery 继续过滤 suppression，可以在不新增 SEA 感知 adapter 的前提下复用非内置插件的 describe UI 合同。
+- A confusão entre responsabilidades de Catalog (identidade de diretório, listing, detalhe de componente somente leitura) e Runtime (se é descoberto, se é habilitado, configuração do usuário, data) é a causa raiz deste bug.
+- Os bytes do cache embutido vêm do bundle/SEA do aplicativo, não de um artefato de instalação baixado pelo usuário; removê-los não retira código embutido real do dispositivo, apenas quebra o describe offline e cria uma condição de corrida de seed↔uninstall se deletando.
+- Preservar o cache embutido somente leitura e deixar o discovery continuar filtrando a supressão permite reutilizar o contrato de UI de describe dos plugins não embutidos sem precisar de um adapter com consciência de SEA.
 
-### 1.3 未知 / 明确延后（Unknown / Deferred）
+### 1.3 Desconhecidos / explicitamente adiados (Unknown / Deferred)
 
-- 当前 config read-modify-write 与 plugin storage lock 之间存在低概率 lost-update 窗口；本次不扩展为跨进程锁重构，记录为后续任务。
-- `ZCodeAvailablePluginSummary.installed` 对活跃内置插件的底层投影仍可能为 false；本次通过 UI join 保证 Marketplace 行为，协议字段修正另行处理。
+- Existe hoje uma janela de baixa probabilidade de lost-update entre o read-modify-write do config e o lock de storage de plugins; esta entrega não se expande para um refactor de lock entre processos, e o registro fica como tarefa posterior.
+- `ZCodeAvailablePluginSummary.installed` ainda pode projetar false para plugins embutidos ativos; nesta entrega o comportamento do Marketplace é garantido via join na UI, e a correção do campo de protocolo fica para outro momento.
 
-## 2. Product Contract
+## 2. Contrato de produto
 
-### 2.1 用户可见合同
+### 2.1 Contrato visível ao usuário
 
-卸载前后，内置插件与普通 Marketplace 插件保持同一产品语义：
+Antes e depois da desinstalação, plugins embutidos e plugins comuns de Marketplace mantêm a mesma semântica de produto:
 
-| 状态 | `installed` | `runtimeLoaded` | Catalog/detail | 主操作 |
+| Estado | `installed` | `runtimeLoaded` | Catalog/detalhe | Ação principal |
 | --- | --- | --- | --- | --- |
-| 已安装 | true | true（若 enabled） | 可查看完整组件和 metadata | 管理 / 卸载 |
-| 已卸载内置 | false | false | Catalog、listing、组件详情仍可读 | Install（内部走 restore） |
-| 普通未安装候选 | false | false | 从 Marketplace source describe | Install |
-| 恢复后 | true | 按 enabled 生效 | 与安装前一致 | 管理 / 卸载 |
+| Instalado | true | true (se enabled) | Componentes e metadata completos visíveis | Gerenciar / Desinstalar |
+| Embutido desinstalado | false | false | Catalog, listing e detalhe de componentes ainda legíveis | Install (internamente faz restore) |
+| Candidato comum não instalado | false | false | Descrito a partir da source do Marketplace | Install |
+| Após restaurar | true | Vale conforme enabled | Idêntico ao estado anterior à instalação | Gerenciar / Desinstalar |
 
-卸载后的详情读取必须是只读操作：不得清除 suppression、不得启用插件、不得创建 installed record、不得触发模型会话或 MCP runtime。
+A leitura de detalhe após a desinstalação deve ser uma operação somente leitura: não pode limpar a supressão, não pode habilitar o plugin, não pode criar registro de instalado, não pode disparar sessão de modelo nem runtime MCP.
 
-### 2.2 状态与归属
+### 2.2 Estado e propriedade
 
-| 状态/事实 | 权威 owner | Mirror/cache | 读写边界 |
+| Estado/fato | Owner autoritativo | Mirror/cache | Limite de leitura/escrita |
 | --- | --- | --- | --- |
-| 官方 Catalog entry/listing | bundled + CDN marketplace partitions 合并层 | `marketplace.json` | 只读详情/列表；刷新只更新 CDN 分片 |
-| 内置源物化目录 | seed boundary（filesystem/SEA → official cache） | `cache/<official>/<name>/<version>` | 不代表 installed；可被 describe 读取 |
-| 内置卸载态 | user config `plugins.suppressedBuiltins` | overview 的 `restorableBuiltins`、UI `restorable` | 唯一 Runtime 抑制真相源 |
-| enabled/options | user plugin config | Agent/UI overview | 卸载时清理；不影响 Catalog |
-| plugin data | `data/<plugin-id>` | 无 | 卸载时删除 |
-| 普通 Marketplace 安装记录 | `installed_plugins.json` | UI installed summary | 只归属 cache/Marketplace 安装；内置 restore 不写入 |
+| Entry/listing oficial do Catalog | camada de mesclagem dos partitions bundled + CDN do marketplace | `marketplace.json` | Detalhe/listagem somente leitura; refresh atualiza apenas o shard de CDN |
+| Diretório materializado da source embutida | fronteira de seed (filesystem/SEA → official cache) | `cache/<official>/<name>/<version>` | Não representa installed; pode ser lido pelo describe |
+| Estado de desinstalação de embutido | config do usuário `plugins.suppressedBuiltins` | `restorableBuiltins` do overview, `restorable` da UI | Única fonte de verdade de supressão do Runtime |
+| enabled/options | config de plugin do usuário | overview do Agent/UI | Limpo na desinstalação; não afeta o Catalog |
+| plugin data | `data/<plugin-id>` | Nenhum | Removido na desinstalação |
+| Registro de instalação comum de Marketplace | `installed_plugins.json` | summary de installed da UI | Apenas para instalações cache/Marketplace; restore de embutido não escreve aqui |
 
-## 3. Architecture Boundary
+## 3. Limite arquitetural
 
 ```text
                  ┌──────────────────────────────────────────────┐
@@ -94,137 +94,137 @@
 
 ### 3.1 Seed boundary
 
-- `resolveSeedSource` remains the only place that understands filesystem vs SEA.
-- `seedBundledOfficialPlugins` always writes all official plugin entries and materializes missing or outdated cache roots with existing temp-directory + marker + atomic replacement safeguards.
-- `writeOfficialMarketplace` writes all bundled entries. Suppression is not compiled into Catalog.
-- `resolveOfficialPluginRoots` may keep accepting suppression only as a compatibility parameter if removing it would create unnecessary churn, but suppression must remain enforced by discovery and direct readers; it must not delete Catalog/cache.
+- `resolveSeedSource` continua sendo o único lugar que entende filesystem vs SEA.
+- `seedBundledOfficialPlugins` sempre escreve todas as entries de plugins oficiais e materializa cache roots ausentes ou desatualizados, com as salvaguardas existentes de temp-directory + marker + atomic replacement.
+- `writeOfficialMarketplace` escreve todas as entries bundled. A supressão não é compilada no Catalog.
+- `resolveOfficialPluginRoots` pode continuar aceitando supressão apenas como parâmetro de compatibilidade, caso removê-lo gere churn desnecessário, mas a supressão deve continuar sendo aplicada pelo discovery e pelos leitores diretos; ela não deve apagar Catalog/cache.
 
 ### 3.2 Runtime boundary
 
-- `discoverNodePluginsSync` continues filtering official candidates by suppressed ID before producing `PluginLoadOutcome`.
-- `skillsService` and `commandsService` direct cache scans continue applying the same suppression check.
-- `plugin-facade`, browser runtime feature gates, and startup marks continue to use the filtered outcome.
-- No new reader may treat cache presence as proof of installation or enablement.
+- `discoverNodePluginsSync` continua filtrando candidatos oficiais por ID suprimido antes de produzir o `PluginLoadOutcome`.
+- As varreduras diretas de cache de `skillsService` e `commandsService` continuam aplicando a mesma verificação de supressão.
+- `plugin-facade`, os feature gates de runtime do browser e as startup marks continuam usando o resultado filtrado.
+- Nenhum novo leitor pode tratar a presença de cache como prova de instalação ou habilitação.
 
-### 3.3 Marketplace describe/install boundary
+### 3.3 Boundary de describe/install do Marketplace
 
-- `plugins/describe` for a suppressed builtin reads the preserved merged Catalog entry and materialized cache; it does not call restore or mutate config.
-- `plugins/restoreBuiltin` remains the canonical builtin recovery operation.
-- Any direct CLI/protocol install path that resolves an official `filesystem`/`sea` entry must route to builtin restore instead of writing a marketplace-owned installed record. CDN same-name entries with a real CDN source remain normal Marketplace installs.
+- `plugins/describe` para um embutido suprimido lê a entry do Catalog mesclado que foi preservada e o cache materializado; não chama restore nem altera config.
+- `plugins/restoreBuiltin` continua sendo a operação canônica de recuperação de embutidos.
+- Qualquer caminho de instalação direto via CLI/protocolo que resolva uma entry oficial `filesystem`/`sea` deve ser roteado para o restore de embutido, em vez de escrever um registro de instalado pertencente ao marketplace. Entries de CDN com o mesmo nome e uma source CDN real continuam sendo instalações normais de Marketplace.
 
-## 4. UI Surface Matrix
+## 4. Matriz de superfícies de UI
 
-| User scenario | UI entry | Shared implementation | Display/draft owner | Validation/gating | Commit action | Authority/persistence | Mode boundary | Must remain isolated from |
+| Cenário do usuário | Entrada de UI | Implementação compartilhada | Owner de exibição/rascunho | Validação/gating | Ação de commit | Autoridade/persistência | Limite de modo | Deve permanecer isolado de |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Browse public plugin | `PluginStorePage` list/card | `buildStoreItems`, `PluginStoreCard` | Plugin management store projection | Catalog entry exists; `restorable` controls primary action | `onOpenDetail` / `onInstall` | Agent `plugins/overview`, Catalog partitions | Desktop local and existing Web service abstraction; no new remote branch | Runtime enablement |
-| View uninstalled builtin detail | `PluginStoreDetailView` | same detail + `plugins/describe` cache | `describeCache` keyed by stable plugin ID | Catalog/cache readable; no runtime `info` required | read-only `plugins/describe` | Agent Catalog + immutable cache | No session/clientMode change | `suppressedBuiltins`, enable/options, data |
-| Uninstall builtin | detail/card/manage menu + confirm dialog | `usePluginUninstall`, management store | operation state in plugin management store | explicit confirmation; builtin is uninstallable | `plugins/uninstall` | user config + data cleanup; Catalog untouched | Desktop local lifecycle only | Marketplace source removal semantics |
-| Restore builtin | Install button on restorable item | `handleInstall`, `restoreBuiltin` | operation state + refreshed overview | `item.restorable === true` | `plugins/restoreBuiltin` | suppression removed; seed self-heals missing cache | Desktop local lifecycle only | ordinary installed record |
-| View installed detail | detail/manage | `ZCodePluginInfo` runtime projection | `item.info` | runtime info available | no mutation for read | discovery outcome | unchanged | catalog-only detail fallback |
+| Navegar em plugin público | lista/card de `PluginStorePage` | `buildStoreItems`, `PluginStoreCard` | projeção do store de gestão de plugins | entry do Catalog existe; `restorable` controla a ação principal | `onOpenDetail` / `onInstall` | `plugins/overview` do Agent, partitions do Catalog | Desktop local e abstração de serviço Web existente; sem novo ramo remote | habilitação de runtime |
+| Ver detalhe de embutido desinstalado | `PluginStoreDetailView` | mesmo detalhe + cache de `plugins/describe` | `describeCache` indexado por ID de plugin estável | Catalog/cache legíveis; `info` de runtime não é obrigatório | `plugins/describe` somente leitura | Catalog do Agent + cache imutável | Sem mudança de sessão/clientMode | `suppressedBuiltins`, enable/options, data |
+| Desinstalar embutido | detalhe/card/menu de gestão + diálogo de confirmação | `usePluginUninstall`, store de gestão | estado da operação no store de gestão de plugins | confirmação explícita; embutido é desinstalável | `plugins/uninstall` | config do usuário + limpeza de data; Catalog intocado | Apenas ciclo de vida local do Desktop | semântica de remoção de source do Marketplace |
+| Restaurar embutido | botão Install em item restorable | `handleInstall`, `restoreBuiltin` | estado da operação + overview atualizado | `item.restorable === true` | `plugins/restoreBuiltin` | supressão removida; seed auto-repara cache ausente | Apenas ciclo de vida local do Desktop | registro de instalado comum |
+| Ver detalhe de plugin instalado | detalhe/gestão | projeção de runtime `ZCodePluginInfo` | `item.info` | info de runtime disponível | sem mutação para leitura | resultado do discovery | inalterado | fallback de detalhe só de catálogo |
 
-## 5. Shared And Divergent Behavior
+## 5. Comportamento compartilhado e divergente
 
-| Concern | Shared across surfaces | Deliberately different | Why it matters |
+| Aspecto | Compartilhado entre superfícies | Deliberadamente diferente | Por que importa |
 | --- | --- | --- | --- |
-| Catalog/detail | All Marketplace entries use listing + `plugins/describe` | Builtin source is local immutable cache; Git/URL source may clone/download | User-visible detail contract stays identical without making adapter SEA-aware |
-| Runtime | All effective capabilities come from filtered discovery | Builtin suppression uses config; ordinary plugin absence uses installed record/source state | Cache presence must never imply runtime presence |
-| Install | UI always shows Install for `installed=false` | Builtin Install routes to restore; ordinary candidate routes to install | Prevents builtin being rewritten as marketplace-owned |
-| Uninstall | UI confirmation and cleanup semantics | Builtin clears suppression/config/data but preserves source Catalog/cache; ordinary plugin removes its install cache/record | Aligns product behavior while respecting immutable App-bundled source |
-| Failure | Describe failure is visible and retryable | Missing cache is a seed/storage fault, not a normal “uninstalled” state | Avoids deterministic Retry loops after valid uninstall |
+| Catalog/detalhe | Todas as entries de Marketplace usam listing + `plugins/describe` | A source embutida é um cache local imutável; source Git/URL pode clonar/baixar | O contrato de detalhe visível ao usuário permanece idêntico sem tornar o adapter consciente de SEA |
+| Runtime | Todas as capacidades efetivas vêm do discovery filtrado | A supressão de embutidos usa config; a ausência de plugin comum usa registro de instalado/estado de source | A presença de cache nunca pode implicar presença em runtime |
+| Install | A UI sempre mostra Install para `installed=false` | Install de embutido vai para restore; candidato comum vai para install | Evita que o embutido seja reescrito como pertencente ao marketplace |
+| Uninstall | Confirmação de UI e semântica de limpeza | O embutido limpa supressão/config/data mas preserva Catalog/cache de source; plugin comum remove seu cache/registro de instalação | Alinha o comportamento de produto respeitando a source imutável embutida no App |
+| Falha | Falha de describe é visível e pode ser repetida | Cache ausente é uma falha de seed/storage, não um estado normal de "desinstalado" | Evita loops determinísticos de Retry após uma desinstalação válida |
 
-## 6. Impact Relationships
+## 6. Relações de impacto
 
-| Rank | From | Semantic edge | To | Condition | Why inspect it | Evidence |
+| Rank | De | Aresta semântica | Para | Condição | Por que inspecionar | Evidência |
 | --- | --- | --- | --- | --- | --- | --- |
-| must-inspect | official seed | materializes | Catalog/cache | filesystem or SEA source | Fixing suppression must not break packaged assets | `bundled-plugins.ts`, `official-marketplace.ts` |
-| must-inspect | Catalog/cache | read-by | `plugins/describe` | detail has no runtime info | Direct root cause of screenshot | `marketplace.ts:941-1025` |
-| must-inspect | suppression | filters | Runtime discovery | official stable ID | Preserve no-runtime invariant | adapters `index.ts`, services scanners |
-| must-inspect | UI restorable projection | routes-to | restoreBuiltin | duplicate available/restorable ID | Prevent wrong installed-record ownership | `pluginStoreListing.ts`, `PluginStorePage.tsx` |
-| must-inspect | uninstall | persists-to | user config + data | builtin confirm path | Separate Catalog from user state | `plugins.ts`, config adapter |
-| should-inspect | Catalog merge | overrides | CDN same-name entry | official CDN source present | Preserve official identity/ownership | `official-marketplace.ts`, ADR-0001 |
-| invariant-only | plugin management | executes-through | Agent Host | local or remote workspace | No new process/remote runtime | lifecycle catalog scope |
-| evidence-only | lifecycle contract | covered-by | PLM cases/matrix | manual-review fixtures | Regression proof | `docs/plugin-management-lifecycle-case-catalog.md` |
+| must-inspect | official seed | materializa | Catalog/cache | source filesystem ou SEA | Corrigir a supressão não pode quebrar assets empacotados | `bundled-plugins.ts`, `official-marketplace.ts` |
+| must-inspect | Catalog/cache | lido-por | `plugins/describe` | detalhe sem info de runtime | Causa raiz direta da captura de tela | `marketplace.ts:941-1025` |
+| must-inspect | supressão | filtra | Runtime discovery | ID oficial estável | Preservar o invariante de ausência em runtime | adapters `index.ts`, scanners de services |
+| must-inspect | projeção restorable da UI | roteia-para | restoreBuiltin | ID duplicado available/restorable | Evitar propriedade errada do registro de instalado | `pluginStoreListing.ts`, `PluginStorePage.tsx` |
+| must-inspect | uninstall | persiste-em | config do usuário + data | caminho de confirmação de embutido | Separar Catalog do estado do usuário | `plugins.ts`, adapter de config |
+| should-inspect | mesclagem do Catalog | sobrescreve | entry de CDN com mesmo nome | source CDN oficial presente | Preservar identidade/propriedade oficial | `official-marketplace.ts`, ADR-0001 |
+| invariant-only | gestão de plugins | executa-através-de | Agent Host | workspace local ou remoto | Sem novo runtime de processo/remoto | escopo de catálogo de lifecycle |
+| evidence-only | contrato de lifecycle | coberto-por | cases/matrix PLM | fixtures de revisão manual | Prova de regressão | `docs/plugin-management-lifecycle-case-catalog.md` |
 
-## 7. Must-Preserve Invariants
+## 7. Invariantes que devem ser preservados
 
-| Invariant | Surfaces/modes | Proof needed |
+| Invariante | Superfícies/modos | Prova necessária |
 | --- | --- | --- |
-| Suppressed builtin never contributes Skill/Command/MCP/Hook | Agent discovery, Desktop direct scanners, session facade | cache exists + suppressed; runtime lists omit plugin |
-| Catalog remains readable after uninstall | Public list, card, detail | describe returns components/metadata; no config diff |
-| Describe is read-only | detail/retry | suppression/config/data/cache unchanged before/after |
-| Builtin restore does not create ordinary installed record | Install button and direct protocol install | `installed_plugins.json` unchanged; suppression removed; runtime returns |
-| CDN same-name ownership remains source-based | official merged Catalog | CDN source uses Marketplace install; bundled source uses restore |
-| Seed and uninstall do not oscillate cache | startup/list/overview + uninstall | no delete/recreate loop; cache marker remains valid |
-| Desktop continuous and web-remote-replayable boundaries unchanged | all plugin settings surfaces | no session/task stream or remote delivery changes |
-| Workspace identity contract unchanged | local/remote service calls | existing `workspaceIdentity?.trim() || workspacePath` fallback remains |
+| Plugin embutido suprimido nunca contribui com Skill/Command/MCP/Hook | Agent discovery, scanners diretos do Desktop, session facade | cache existe + suprimido; listas de runtime omitem o plugin |
+| O Catalog continua legível após a desinstalação | lista pública, card, detalhe | describe retorna componentes/metadata; sem diff de config |
+| O describe é somente leitura | detalhe/retry | supressão/config/data/cache inalterados antes/depois |
+| O restore de embutidos não cria registro de instalado comum | botão Install e instalação direta via protocolo | `installed_plugins.json` inalterado; supressão removida; runtime retorna |
+| A propriedade de mesmo nome na CDN continua sendo baseada em source | Catalog oficial mesclado | source CDN usa instalação de Marketplace; source bundled usa restore |
+| Seed e uninstall não oscilam o cache | startup/list/overview + uninstall | sem loop de delete/recreate; cache marker permanece válido |
+| Limites de Desktop contínuo e web-remote-replayable inalterados | todas as superfícies de configurações de plugins | sem mudanças em stream de sessão/tarefa ou entrega remota |
+| Contrato de identidade de workspace inalterado | chamadas de serviço local/remoto | fallback existente `workspaceIdentity?.trim() || workspacePath` permanece |
 
-## 8. Accepted Cases And Pruning
+## 8. Cases aceitos e podados
 
-### 8.1 Accepted cases
+### 8.1 Cases aceitos
 
-| Case ID | Setup | Action | Assertions | Evidence layers | Status |
+| Case ID | Setup | Ação | Asserções | Camadas de evidência | Status |
 | --- | --- | --- | --- | --- | --- |
-| `PLM-LC-014 builtin-uninstall-detail-parity` | Isolated HOME; builtin seeded and enabled with config/data | Open detail; uninstall; remain on detail; retry; restart; restore | After uninstall: `installed=false`, suppression present, runtime absent, Catalog/cache and full components still visible, no error banner; retry is read-only; restart preserves detail; Install restores runtime and leaves no ordinary installed record | UI + protocol + config/data/cache + fresh discovery | accepted / focused unit coverage |
-| `PLM-LC-015 bundled-install-ownership` | Suppressed builtin and merged official entry; optional CDN same-name fixture | Invoke Install through UI and direct protocol paths | bundled source routes restore; CDN source routes Marketplace install; no stale suppression/duplicate ownership | protocol + installed record + runtime | accepted / focused unit coverage |
-| `PLM-LC-016 seed-cache-runtime-separation` | Suppressed builtin with cache present/missing; dev filesystem and SEA fixture | Resolve/list/describe/skills/commands; remove cache and resolve again | Suppression always filters runtime; missing cache self-heals from seed; describe works before/after; no Catalog filtering | bootstrap + adapter + services tests | accepted / focused unit coverage |
+| `PLM-LC-014 builtin-uninstall-detail-parity` | HOME isolado; embutido seeded e enabled com config/data | Abrir detalhe; desinstalar; permanecer no detalhe; retry; restart; restore | Após a desinstalação: `installed=false`, supressão presente, runtime ausente, Catalog/cache e componentes completos ainda visíveis, sem banner de erro; retry é somente leitura; restart preserva o detalhe; Install restaura o runtime e não deixa registro de instalado comum | UI + protocolo + config/data/cache + discovery limpo | aceito / cobertura de unitário focada |
+| `PLM-LC-015 bundled-install-ownership` | Embutido suprimido e entry oficial mesclada; fixture opcional de CDN com mesmo nome | Invocar Install via UI e via protocolo direto | source bundled vai para restore; source CDN vai para instalação de Marketplace; sem supressão obsoleta nem propriedade duplicada | protocolo + registro de instalado + runtime | aceito / cobertura de unitário focada |
+| `PLM-LC-016 seed-cache-runtime-separation` | Embutido suprimido com cache presente/ausente; fixtures de filesystem em dev e de SEA | Resolver/listar/describe/skills/commands; remover cache e resolver de novo | A supressão sempre filtra o runtime; cache ausente se auto-repara a partir do seed; describe funciona antes/depois; sem filtragem de Catalog | bootstrap + adapter + testes de services | aceito / cobertura de unitário focada |
 
-### 8.2 Reuse / update existing case
+### 8.2 Reaproveitar / atualizar case existente
 
-`PLM-LC-006 builtin-suppress-restore` remains the lifecycle case, but its assertions change:
+`PLM-LC-006 builtin-suppress-restore` continua sendo o case de lifecycle, mas suas asserções mudam:
 
-- remove “cache清理”和“重启不 reseed” assertions;
-- require Catalog/cache preservation and detail readability;
-- continue requiring config/data cleanup, suppression persistence, runtime absence, and clean restore.
+- remover as asserções de "cache清理" e "重启不 reseed";
+- exigir a preservação de Catalog/cache e a legibilidade do detalhe;
+- continuar exigindo limpeza de config/data, persistência da supressão, ausência em runtime e restore limpo.
 
-### 8.3 Pruned combinations
+### 8.3 Combinações podadas
 
-| Dimension | Pruned values | Reason |
+| Dimensão | Valores podados | Motivo |
 | --- | --- | --- |
-| Client | Web standalone, mobile `/remote` | no new remote protocol or delivery behavior |
-| Scope | workspace-scope plugin install | current UI contract is user-scope only |
-| Component runtime | MCP + Skill closure; Command/Agent/Hook enumeration | existing lifecycle catalog covers representative runtime paths |
-| Source | public network SEA and real CDN in formal CI | use deterministic local filesystem/SEA/HTTP fixtures; real CDN remains manual smoke |
-| Locale/theme/viewport | existing pairwise UI contract | not a new presentation change |
+| Client | Web standalone, mobile `/remote` | sem novo protocolo remoto ou comportamento de entrega |
+| Scope | instalação de plugin em workspace-scope | o contrato de UI atual é apenas de user-scope |
+| Runtime de componente | fechamento MCP + Skill; enumeração de Command/Agent/Hook | o catálogo de lifecycle existente já cobre caminhos de runtime representativos |
+| Source | SEA de rede pública e CDN real no CI formal | usar fixtures locais determinísticos de filesystem/SEA/HTTP; CDN real permanece como smoke manual |
+| Locale/theme/viewport | contrato de UI existente pairwise | não é uma nova mudança de apresentação |
 
-## 9. Minimal Implementation Plan
+## 9. Plano mínimo de implementação
 
-1. Update the lifecycle spec/catalog/matrix and feature graph (this dossier first).
-2. Add failing bootstrap/adapter tests for suppressed builtin: full bundled manifest, cache retained/self-healed, describe succeeds, runtime still filtered.
-3. Add failing UI listing/detail tests for duplicate `available + restorable` ID and successful detail rendering.
-4. Change seed/catalog/uninstall ownership in `bundled-plugins.ts` and `plugins.ts`.
-5. Fix `buildStoreItems` merge and builtin install routing; keep protocol schemas unchanged.
-6. Run focused tests and inspect persisted snapshots for config, data, cache, manifest, installed records.
-7. Run mandatory `pnpm typecheck` and `pnpm lint`; then run broader plugin lifecycle tests and `git diff --check`.
+1. Atualizar a spec/ catálogo/ matrix de lifecycle e o grafo de features (este dossiê primeiro).
+2. Adicionar testes de bootstrap/adapter inicialmente falhando para embutido suprimido: manifesto bundled completo, cache retido/auto-reparado, describe com sucesso, runtime ainda filtrado.
+3. Adicionar testes de UI de listing/detalhe inicialmente falhando para ID duplicado `available + restorable` e renderização de detalhe com sucesso.
+4. Alterar a propriedade de seed/catalog/uninstall em `bundled-plugins.ts` e `plugins.ts`.
+5. Corrigir a mesclagem de `buildStoreItems` e o roteamento de install de embutidos; manter os schemas de protocolo inalterados.
+6. Rodar testes focados e inspecionar os snapshots persistidos de config, data, cache, manifesto e registros de instalado.
+7. Rodar `pnpm typecheck` e `pnpm lint` obrigatórios; em seguida rodar os testes mais amplos de lifecycle de plugins e `git diff --check`.
 
-### Planned code files
+### Arquivos de código planejados
 
 - `apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts`
 - `apps/zcode-cli/packages/bootstrap/src/plugins.ts`
-- `apps/zcode-cli/packages/bootstrap/src/app/startup-marks.ts` (only if suppression parameter is removed)
+- `apps/zcode-cli/packages/bootstrap/src/app/startup-marks.ts` (somente se o parâmetro de supressão for removido)
 - `apps/zcode-cli/packages/ui/src/settings/pluginStoreListing.ts`
-- `apps/zcode-cli/packages/adapters/src/plugins/marketplace.ts` only if bundled install routing requires a narrow helper
-- bootstrap/adapters/services/UI tests covering the accepted cases above
+- `apps/zcode-cli/packages/adapters/src/plugins/marketplace.ts` somente se o roteamento de instalação bundled exigir um helper estreito
+- testes de bootstrap/adapters/services/UI cobrindo os cases aceitos acima
 
-### Explicitly not changed
+### Explicitamente não alterado
 
-- `packages/shared` protocol schemas
-- Web remote / mobile replayable state
-- conversation case catalogs
-- component-level enable/disable model
-- cross-process config locking redesign
+- schemas de protocolo de `packages/shared`
+- Web remote / estado replayable do mobile
+- catálogos de cases de conversation
+- modelo de enable/disable por componente
+- redesenho de lock de config entre processos
 
-## 10. Rollback / Failure Boundaries
+## 10. Rollback / limites de falha
 
-- If Catalog/cache retention causes a runtime leak, rollback must first prove every reader still filters suppression; do not “fix” by hiding the detail UI.
-- If a seed fails, retain the previous valid cache marker and expose a diagnostic; do not write a partial cache.
-- If restore fails, suppression remains and the plugin stays absent from Runtime; Catalog detail remains readable when cache is valid.
-- If direct install ownership cannot be distinguished safely for CDN same-name entries, keep the UI restore path and defer the direct CLI route as a separately gated fix; never create a duplicate installed record.
+- Se a retenção de Catalog/cache causar um vazamento em runtime, o rollback deve primeiro provar que todo leitor ainda filtra a supressão; não "corrigir" escondendo a UI de detalhe.
+- Se um seed falhar, manter o cache marker válido anterior e expor um diagnóstico; não escrever cache parcial.
+- Se o restore falhar, a supressão permanece e o plugin continua ausente do Runtime; o detalhe do Catalog continua legível quando o cache é válido.
+- Se não for possível distinguir com segurança a propriedade de instalação direta para entries de CDN com o mesmo nome, manter o caminho de restore da UI e adiar a rota direta de CLI como uma correção com gate separado; nunca criar um registro de instalado duplicado.
 
-## 11. Feature Boundary Planner Output
+## 11. Saída do Feature Boundary Planner
 
-### Codegraph evidence
+### Evidência do codegraph
 
-This checkout has no `.codegraph/` directory, so the scan used current source/docs/tests with `rg` after confirming the CodeGraph index is absent. The primary depth-2 paths are:
+Este checkout não tem diretório `.codegraph/`, então a varredura usou as fontes/documentos/testes atuais com `rg` após confirmar que o índice do CodeGraph está ausente. Os caminhos principais de profundidade 2 são:
 
 ```text
 PluginStorePage
@@ -234,37 +234,37 @@ PluginStorePage
   -> skillsService / commandsService / session facade
 ```
 
-### Graph drift candidates
+### Candidatos a drift de grafo
 
-1. Existing graph has `capability.plugin-source-acquisition` and `persistence.plugin-marketplace-installed-cache`, but no explicit Catalog-vs-Runtime separation or builtin suppression owner.
-2. Existing lifecycle case `PLM-LC-006` encodes the superseded cache-deletion contract.
-3. UI `restorableBuiltins` and `plugins/describe` relationship is not represented as a separate graph edge.
+1. O grafo existente tem `capability.plugin-source-acquisition` e `persistence.plugin-marketplace-installed-cache`, mas nenhuma separação explícita Catalog-vs-Runtime nem owner de supressão de embutidos.
+2. O case de lifecycle existente `PLM-LC-006` codifica o contrato superado de remoção de cache.
+3. A relação entre `restorableBuiltins` da UI e `plugins/describe` não está representada como uma aresta separada do grafo.
 
-### Proposed graph delta
+### Delta de grafo proposto
 
-Add `capability.plugin-catalog-runtime-separation` with code seeds for bundled seed, merged official marketplace, describe resolver, suppression filter, builtin uninstall/restore, UI detail and lifecycle evidence. Add edges:
+Adicionar `capability.plugin-catalog-runtime-separation` com code seeds para bundled seed, marketplace oficial mesclado, resolver de describe, filtro de supressão, uninstall/restore de embutidos, detalhe de UI e evidência de lifecycle. Adicionar as arestas:
 
-- capability → Catalog/cache persistence (`must-inspect`);
-- capability → Runtime suppression/discovery (`must-preserve-runtime-contract`);
+- capability → persistência de Catalog/cache (`must-inspect`);
+- capability → supressão/discovery de Runtime (`must-preserve-runtime-contract`);
 - Catalog/cache → `plugins/describe` (`read-by`, `must-inspect`);
-- restorable UI projection → `restoreBuiltin` (`commits-to`, `must-inspect`);
-- capability → PLM-014/015/016 evidence (`covered-by`, evidence-only).
+- projeção restorable da UI → `restoreBuiltin` (`commits-to`, `must-inspect`);
+- capability → evidências PLM-014/015/016 (`covered-by`, somente evidência).
 
-## 12. Planning Handoff
+## 12. Handoff do planejamento
 
-| Item | Destination | Status |
+| Item | Destino | Status |
 | --- | --- | --- |
-| Feature spec / dossier | this file | complete before code |
-| Existing lifecycle case catalog | `docs/plugin-management-lifecycle-case-catalog.md` | update PLM-LC-006 + add PLM-LC-014/015/016 |
-| Coverage matrix | `docs/testing/plugin-management-lifecycle-e2e-coverage-matrix.md` | add/update rows |
-| Feature graph | `.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml` | add confirmed capability and edges |
-| Formal proof | `packages/formal-proof` | not applicable; no conversation state-space change |
-| E2E handoff | plugin manual-review pending specs | planned after focused tests; no formal promotion in this task |
+| Feature spec / dossiê | este arquivo | completo antes do código |
+| Catálogo de cases de lifecycle existente | `docs/plugin-management-lifecycle-case-catalog.md` | atualizar PLM-LC-006 + adicionar PLM-LC-014/015/016 |
+| Coverage matrix | `docs/testing/plugin-management-lifecycle-e2e-coverage-matrix.md` | adicionar/atualizar linhas |
+| Grafo de features | `.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml` | adicionar a capability confirmada e as arestas |
+| Prova formal | `packages/formal-proof` | não aplicável; sem mudança de espaço de estados de conversation |
+| Handoff de E2E | specs de plugin em revisão manual pendentes | planejado após os testes focados; sem promoção formal nesta tarefa |
 
-## 13. Implementation and Verification
+## 13. Implementação e verificação
 
-- `bundled-plugins.ts` now always materializes the complete official Catalog/cache and leaves Runtime suppression to discovery.
-- builtin uninstall now preserves the official Catalog/cache while still clearing suppression-controlled config and plugin data.
-- direct install of a suppressed bundled `filesystem`/`sea` entry routes through `restoreBuiltin`; CDN-backed entries retain Marketplace ownership.
-- UI joins duplicate available/restorable IDs so listing metadata and component detail remain available in the uninstalled state.
-- Focused verification: Bootstrap `tests/plugins.test.ts` 33/33, Adapters `tests/plugins.test.ts` 74/74, UI listing/card tests 20/20; package typechecks pass; root `pnpm typecheck` and `pnpm lint` pass (lint reports existing warnings only).
+- `bundled-plugins.ts` agora materializa sempre o Catalog/cache oficial completo e deixa a supressão de Runtime para o discovery.
+- A desinstalação de embutidos agora preserva o Catalog/cache oficial enquanto ainda limpa a config controlada por supressão e os dados do plugin.
+- A instalação direta de uma entry `filesystem`/`sea` bundled suprimida passa por `restoreBuiltin`; entries com CDN mantêm a propriedade de Marketplace.
+- A UI faz join de IDs duplicados available/restorable, de modo que os metadados de listing e o detalhe de componentes permanecem disponíveis no estado desinstalado.
+- Verificação focada: Bootstrap `tests/plugins.test.ts` 33/33, Adapters `tests/plugins.test.ts` 74/74, testes de listing/card de UI 20/20; typechecks de pacote passam; `pnpm typecheck` e `pnpm lint` da raiz passam (o lint reporta apenas warnings já existentes).

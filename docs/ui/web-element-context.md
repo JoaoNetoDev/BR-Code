@@ -1,19 +1,18 @@
-# Web Element Context
+# Contexto de Elemento Web
 
-ZCode 的内置浏览器支持在桌面端把网页元素加入聊天上下文。
+O navegador embutido do ZCode suporta adicionar elementos da página ao contexto da conversa no desktop.
 
-## Flow
+## Fluxo
 
-1. Browser toolbar 中的元素选择按钮进入 picking mode。
-2. `EmbeddedBrowserPane` 通过 Electron `webview.executeJavaScript` 临时注入 picker。
-3. 用户 hover 时页面内部显示高亮和基础信息浮窗，click 后采集当前元素并退出；Esc 会取消选择态。
-4. Renderer 派发 `zcode:web-element-context-add-to-chat` 事件。
-5. Chat composer 显示网页元素 chip，发送时把上下文拼成 Markdown text block。
+1. O botão de seleção de elementos da barra de ferramentas do navegador entra em picking mode.
+2. O `EmbeddedBrowserPane` injeta temporariamente o picker via Electron `webview.executeJavaScript`.
+3. Ao passar o mouse, a página exibe internamente um destaque e um popup com informações básicas; ao clicar, o elemento atual é coletado e o modo é encerrado; Esc cancela o estado de seleção.
+4. O Renderer dispara o evento `zcode:web-element-context-add-to-chat`.
+5. O composer do chat exibe um chip do elemento web e, ao enviar, concatena o contexto em um bloco de texto Markdown.
 
-## V4 Composer Wiring
+## Ligação do Composer V4
 
-V4 不新增协议字段，web element context 仍然是 prompt 文本上下文；chip 只是 composer
-与 transcript 的可视化外壳。
+O V4 não adiciona campos de protocolo; o contexto de elemento web continua sendo contexto de texto do prompt; o chip é apenas um invólucro visual do composer e do transcript.
 
 ```
 EmbeddedBrowserPane
@@ -34,32 +33,32 @@ EmbeddedBrowserPane
        visible content + read-only WebElementContextAttachmentChip
 ```
 
-## V4 State Boundaries
+## Fronteiras de Estado no V4
 
-- Composer chip 只保存在当前 React composer 内存中；切 session、切 workspace、刷新页面都会清空。
-- 草稿持久化只保存文字/editorState，不保存 web element context。
-- 发送成功后清空 context；发送失败保留 chip 和输入，便于重试。
-- `contextAttachmentCount` 只用于 app 侧 slash-command 保护，不进入 v4 protocol payload。
-- Transcript copy/edit/retry 使用原始 `row.text`，因此 Markdown context block 不会丢失。
+- O chip do composer só existe na memória do composer React atual; trocar de sessão, trocar de workspace ou recarregar a página limpa tudo.
+- A persistência de rascunho salva apenas texto/editorState, não o contexto de elemento web.
+- Após o envio bem-sucedido o contexto é limpo; em caso de falha o chip e o texto digitado são mantidos para facilitar a reenvio.
+- `contextAttachmentCount` é usado apenas para a proteção de slash-commands no app e não entra no payload do protocolo v4.
+- Copy/edit/retry do transcript usam o `row.text` original, portanto o bloco de contexto Markdown não se perde.
 
-## Boundaries
+## Fronteiras
 
-- 采集逻辑只运行在桌面端 `webview` 内，不经过 host process 或 service。
-- Web / 手机端不直接读取跨站 DOM，第一版不支持该能力。
-- 上下文按 `workspaceIdentity?.trim() || workspacePath` 归属当前 workspace。
-- V4 远程 workspace 必须继续传 `workspaceIdentity`；禁止只按 `workspacePath` 过滤 context。
-- 不读取 cookie、localStorage、sessionStorage，也不采集 input 当前 value；password input 会被 mask。
-- 发送给 ZCode Agent 的内容是纯文本 Markdown，兼容当前 provider。
+- A lógica de coleta roda apenas dentro do `webview` do desktop, sem passar pelo host process ou por service.
+- Web / celular não leem DOM entre sites diretamente; a primeira versão não suporta essa capacidade.
+- O contexto é atribuído ao workspace atual por `workspaceIdentity?.trim() || workspacePath`.
+- Workspace remoto no V4 deve continuar passando `workspaceIdentity`; é proibido filtrar o contexto apenas por `workspacePath`.
+- Não lê cookie, localStorage nem sessionStorage, e não coleta o value atual do input; campos de senha são mascarados.
+- O conteúdo enviado ao ZCode Agent é texto Markdown puro, compatível com o provider atual.
 
-## Captured Fields
+## Campos Capturados
 
-- page URL and title
-- tag name, role, accessible name
-- selector and XPath
-- visible text and nearby text
-- safe attribute whitelist
-- visible bounding rect
-- computed style summary: color, background color, font family, font size, font weight, display
-- sanitized HTML excerpt
+- URL e título da página
+- nome da tag, role, accessible name
+- selector e XPath
+- texto visível e texto próximo
+- whitelist segura de atributos
+- bounding rect visível
+- resumo de estilos computados: color, background color, font family, font size, font weight, display
+- trecho de HTML sanitizado
 
-All large text fields are truncated before entering the prompt.
+Todos os campos de texto grandes são truncados antes de entrar no prompt.

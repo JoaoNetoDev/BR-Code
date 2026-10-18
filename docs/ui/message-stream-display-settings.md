@@ -1,19 +1,19 @@
-# Message Stream Display Settings
+# Configurações de exibição do fluxo de mensagens
 
-常规设置中的两个开关独立控制对话详情消息流的展示内容：
+Dois toggles das configurações comuns controlam de forma independente o conteúdo exibido no fluxo de mensagens do detalhe da conversa:
 
-- `messageStreamShowReasoning`：开启时展示全部 reasoning / thought 行；关闭时每个 assistant 轮次仍展示第一条 reasoning，后续 reasoning 隐藏。
-- `messageStreamShowTodos`：开启时展示 Todo 工具卡片，关闭时不展示。
+- `messageStreamShowReasoning`: quando ligado, exibe todas as linhas de reasoning / thought; quando desligado, cada turno do assistant ainda exibe a primeira linha de reasoning e as seguintes ficam ocultas.
+- `messageStreamShowTodos`: quando ligado, exibe os cards da ferramenta Todo; quando desligado, não exibe.
 
-四种开关组合都必须成立：首条 reasoning 始终展示；“显示思考过程”只控制同一轮的后续 reasoning，“显示待办”独立控制 Todo。设置变化通过共享设置快照传入 V4 `SessionPane` 的行渲染上下文；每轮首条 reasoning 的 `rowId` 由 `ConversationTurnGroup` 根据该轮全序行派生，不复制 renderer-local 可见性状态。
+As quatro combinações de toggles precisam valer: a primeira linha de reasoning é sempre exibida; "显示思考过程" ("Mostrar processo de pensamento") controla apenas os raciocínios seguintes do mesmo turno, e "显示待办" ("Mostrar pendências") controla o Todo de forma independente. As mudanças de configuração chegam pelo snapshot de configurações compartilhado ao contexto de renderização de linhas do `SessionPane` do V4; o `rowId` da primeira linha de reasoning de cada turno é derivado pelo `ConversationTurnGroup` a partir da ordem total de linhas do turno, sem copiar estado de visibilidade local do renderer.
 
-“显示思考过程”对新用户默认开启。切换默认值的版本使用
-`messageStreamShowReasoningMigrationInitialized` 执行一次性迁移：
+"显示思考过程" vem ligado por padrão para novos usuários. A versão que troca o valor padrão usa
+`messageStreamShowReasoningMigrationInitialized` para executar uma migração única:
 
-- 旧 `setting.json` 没有迁移标记时，无论 `messageStreamShowReasoning` 原值为
-  `true`、`false` 还是缺失，都统一迁移为 `true`，并把迁移标记与结果一起通过设置服务的串行写入队列原子落盘。
-- 迁移标记存在后，磁盘中的 `true` / `false` 都是权威用户选择；用户再次关闭时，后续读取和升级不得重新开启。
-- 新安装直接解析为 `messageStreamShowReasoning=true` 且迁移已完成；首次正常设置写入会把这两个字段一起持久化。
+- Quando o `setting.json` antigo não tem a marca de migração, independentemente de o valor original de `messageStreamShowReasoning` ser
+  `true`, `false` ou ausente, migra-se uniformemente para `true`, e a marca de migração junto com o resultado são persistidos atomicamente pela fila de escrita serial do serviço de configurações.
+- Depois que a marca de migração existe, tanto `true` quanto `false` no disco são a escolha autoritativa do usuário; quando ele desliga de novo, leituras e upgrades posteriores não podem religar.
+- Em novas instalações, a resolução é direta para `messageStreamShowReasoning=true` com a migração já concluída; a primeira escrita normal de configurações persiste os dois campos juntos.
 
 ```text
 settings read
@@ -23,6 +23,6 @@ settings read
   +-- migration marker present --> preserve stored true/false
 ```
 
-这两个开关只裁剪 UI 渲染，不修改 CLI projection、session snapshot、工具执行结果或持久化消息。`ConversationStatusPanel` 继续按 `plan` / `todoGroups` 展示会话进度摘要，不受 `messageStreamShowTodos` 影响。
+Esses dois toggles apenas recortam a renderização da UI e não modificam a projection do CLI, o snapshot de sessão, os resultados de execução de ferramentas nem as mensagens persistidas. `ConversationStatusPanel` continua exibindo o resumo de progresso da sessão a partir de `plan` / `todoGroups`, sem sofrer influência de `messageStreamShowTodos`.
 
-桌面端 `desktop-continuous` 与手机 Web 端 `web-remote-replayable` 复用同一渲染规则；开关不参与传输、恢复、队列或 workspace identity 判定。
+O `desktop-continuous` do desktop e o `web-remote-replayable` da Web no celular reutilizam as mesmas regras de renderização; os toggles não participam de decisões de transmissão, restauração, fila ou workspace identity.

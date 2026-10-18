@@ -1,16 +1,19 @@
-# Provider 调研
+# Pesquisa sobre Provider
 
-Research 保存支撑设计和实施判断的代码事实。它不定义目标架构；当代码继续演进时，每篇调研都应保留调查日期和适用范围。
+Research guarda os fatos de código que sustentam o desenho e as decisões de implementação. Ele não define a
+arquitetura-alvo; conforme o código evolui, cada pesquisa deve preservar a data da investigação e o escopo de
+aplicabilidade.
 
-| 专题 | 状态 | 用途 |
+| Tema | Estado | Uso |
 | --- | --- | --- |
-| [`todo154-start-plan-independence-impact.md`](./todo154-start-plan-independence-impact.md) | 实施前调查归档；新实现与验证转 Todo154 §8 | 记录 current／鉴权限制、Session／草稿写回与独立配置差异、I27 纠偏和提交推荐入口，支撑 Todo154 |
-| [`builtin-online-release-review-2026-09-11.md`](./builtin-online-release-review-2026-09-11.md) | 调研完成，修复待执行 | 线上 CDN 字段实测、Standalone 更新停滞、正文超时复现、缓存／版本／各端生效审查；实施归 Todo117 |
-| [`embedded-search-provider-dependency.md`](./embedded-search-provider-dependency.md) | 调研完成 | 证明 Embedded Search 的 Provider Connection 依赖可以删除 |
-| [`reasoning-config-to-wire.md`](./reasoning-config-to-wire.md) | 调研完成，迁移未实施 | 还原 reasoning level、provider options 和最终请求字段的完整现状映射 |
-| [`m2-registry-aggregation-and-refresh.md`](./m2-registry-aggregation-and-refresh.md) | 历史现状调研；结论已进入 Design/M2，残留见 Cleanup | 还原 M2 前 Host、Core Worker 和 Renderer 的 Registry 构建、推送、缓存与刷新链路 |
-| [`account-provider-facts-and-auth.md`](./account-provider-facts-and-auth.md) | 历史现状调研；Account 边界已经裁决并实施 | 区分 Plan 的静态配置、账号访问范围和请求鉴权，并定位 Model 需要固定的账号访问身份 |
-| [`legacy-model-provider-service-call-map.md`](./legacy-model-provider-service-call-map.md) | 历史调用面；主要消费者已迁移，残留见 M2 Cleanup | 将旧 IModelProviderService 方法按 Settings、Selection、Account、Connectivity 与 Worker Bridge 归类 |
-| [`provider-config-schema-and-builtin-glm-draft.md`](./provider-config-schema-and-builtin-glm-draft.md) | 历史设计草案；配置结构已进入 Design | 汇总 Provider access/api 双维度、Account Access Overlay、各类 Builtin Provider，以及 GLM-5.2、GLM-5.3、GLM-5-Turbo 的协议配置 |
+| [`todo154-start-plan-independence-impact.md`](./todo154-start-plan-independence-impact.md) | Arquivo da investigação pré-implementação; nova implementação e verificação vão para Todo154 §8 | Registra as restrições de current/autenticação, as diferenças de Session/escrita de volta de rascunho e de configuração independente, a correção I27 e o ponto de entrada recomendado de submissão, sustentando o Todo154 |
+| [`builtin-online-release-review-2026-09-11.md`](./builtin-online-release-review-2026-09-11.md) | Pesquisa concluída, correções pendentes | Medição real dos campos de CDN em produção, estagnação da atualização Standalone, reprodução do timeout do corpo da mensagem, revisão de cache/versão/eficácia em cada ponta; a implementação vai para Todo117 |
+| [`embedded-search-provider-dependency.md`](./embedded-search-provider-dependency.md) | Pesquisa concluída | Prova que a dependência de Provider Connection do Embedded Search pode ser removida |
+| [`reasoning-config-to-wire.md`](./reasoning-config-to-wire.md) | Pesquisa concluída, migração não implementada | Reconstrói o mapeamento completo do estado atual entre reasoning level, provider options e os campos finais da requisição |
+| [`m2-registry-aggregation-and-refresh.md`](./m2-registry-aggregation-and-refresh.md) | Pesquisa do estado histórico; as conclusões já entraram em Design/M2, pendências em Cleanup | Reconstrói, antes do M2, a construção, o push, o cache e o refresh do Registry no Host, Core Worker e Renderer |
+| [`account-provider-facts-and-auth.md`](./account-provider-facts-and-auth.md) | Pesquisa do estado histórico; a fronteira de Account já foi decidida e implementada | Distingue a configuração estática do Plan, o escopo de acesso da conta e a autenticação da requisição, e localiza a identidade de acesso de conta que o Model precisa fixar |
+| [`legacy-model-provider-service-call-map.md`](./legacy-model-provider-service-call-map.md) | Superfície de chamadas histórica; os principais consumidores já migraram, pendências em M2 Cleanup | Classifica os métodos antigos de IModelProviderService por Settings, Selection, Account, Connectivity e Worker Bridge |
+| [`provider-config-schema-and-builtin-glm-draft.md`](./provider-config-schema-and-builtin-glm-draft.md) | Rascunho de design histórico; a estrutura de configuração já entrou em Design | Reúne as duas dimensões de acesso/api do Provider, o Account Access Overlay, os diversos Builtin Providers e a configuração de protocolo de GLM-5.2, GLM-5.3 e GLM-5-Turbo |
 
-阅读调研中的候选命名和历史判断时，以其文首的“结论去向”为准；当前有效目标始终由 [`../design/design.md`](../design/design.md) 维护。
+Ao ler nomes candidatos e julgamentos históricos em uma pesquisa, prevaleça o "destino da conclusão" no início do
+documento; o alvo válido atual é sempre mantido por [`../design/design.md`](../design/design.md).

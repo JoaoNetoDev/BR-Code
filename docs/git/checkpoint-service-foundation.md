@@ -1,56 +1,56 @@
-# Git Checkpoint 底层能力实现总结
+# Resumo da implementação da capacidade de base do Git Checkpoint
 
-更新日期：2026-04-13
+Data de atualização: 2026-04-13
 
-## 本次目标
+## Objetivo desta rodada
 
-本次只实现 Git checkpoint 的底层能力与服务接线，不接入上层 ZCode task turn 编排，也不接入 UI 交互。
+Esta rodada implementa apenas a capacidade de base e a fiação de serviço do Git checkpoint, sem integrar a orquestração de task turn da camada superior do ZCode e sem integrar interações de UI.
 
-完成范围：
+Escopo concluído:
 
-- 在 Git 域新增独立的 `IGitCheckpointService`
-- 新增 checkpoint 相关 shared DTO 与 RPC 频道
-- 在 `packages/services/src/git/` 下落地 `service -> repo -> store` 实现
-- 打通 local / remote / web 统一服务访问链路
-- 补充基于真实 Git 仓库的服务测试
+- Adicionar um `IGitCheckpointService` independente no domínio Git
+- Adicionar os DTOs compartilhados de checkpoint e o canal RPC
+- Implementar `service -> repo -> store` em `packages/services/src/git/`
+- Abrir o caminho de acesso unificado de serviço local / remote / web
+- Acrescentar testes de serviço baseados em repositórios Git reais
 
-这次实现重点解决的是：
+O que esta implementação resolve prioritariamente:
 
-- 如何创建不可变的 workspace 文件快照
-- 如何比较两个 checkpoint 的文件差异
-- 如何在不引入 worktree 的前提下，把当前 live workspace 从一个 checkpoint 安全恢复到另一个 checkpoint
+- Como criar snapshots imutáveis dos arquivos do workspace
+- Como comparar as diferenças de arquivos entre dois checkpoints
+- Como restaurar com segurança o workspace live atual de um checkpoint para outro sem introduzir worktree
 
-## 当前落地状态
+## Estado atual da implementação
 
-已完成的能力范围：
+Faixa de capacidades concluída:
 
 - `createCheckpoint`
 - `diffCheckpoints`
 - `restoreBetweenCheckpoints`
 - `deleteCheckpoint`
 
-已完成的工程接线：
+Fiação de engenharia concluída:
 
 - `ServiceChannels.GitCheckpoint`
 - `IGitCheckpointService`
-- `createLocalServices()` 注册
-- `IServiceAccessor` / `RemoteServiceAccess` 暴露
-- 远程 workspace renderer 会切到远端 `gitCheckpointService`
+- Registro em `createLocalServices()`
+- Exposição via `IServiceAccessor` / `RemoteServiceAccess`
+- O renderer de workspace remoto passa a usar o `gitCheckpointService` remoto
 
-当前实现可以定义为：
+A implementação atual pode ser caracterizada como:
 
-- Git 域的通用文件 checkpoint 底座已可用
-- 能在真实 Git 仓库中完成 create / diff / restore / delete 的完整闭环
-- 还未进入 ZCode task turn 级 checkpoint 编排，也未暴露给 UI 直接操作
+- A base de checkpoint de arquivos genérica do domínio Git já está disponível
+- É possível fechar o ciclo completo de create / diff / restore / delete em repositórios Git reais
+- Ainda não entrou na orquestração de checkpoint em nível de task turn do ZCode, nem foi exposto para operação direta pela UI
 
-## 关键文件
+## Arquivos-chave
 
 ### Shared
 
 - [packages/shared/src/channels.ts](../../packages/shared/src/channels.ts)
-  - 新增 `ServiceChannels.GitCheckpoint`
+  - Adiciona `ServiceChannels.GitCheckpoint`
 - [packages/shared/src/git.ts](../../packages/shared/src/git.ts)
-  - 新增 checkpoint DTO：
+  - Adiciona os DTOs de checkpoint:
     - `GitCheckpointMeta`
     - `GitCheckpointDiff`
     - `GitCheckpointFileDiff`
@@ -60,17 +60,17 @@
 ### Services
 
 - [packages/services/src/git/gitCheckpoint.ts](../../packages/services/src/git/gitCheckpoint.ts)
-  - 定义 `IGitCheckpointService`
+  - Define `IGitCheckpointService`
 - [packages/services/src/git/gitCheckpointService.ts](../../packages/services/src/git/gitCheckpointService.ts)
-  - service 层编排
+  - Orquestração na camada de service
 - [packages/services/src/git/repo/gitCheckpointRepo.ts](../../packages/services/src/git/repo/gitCheckpointRepo.ts)
-  - repo 层核心实现
+  - Implementação central na camada de repo
 - [packages/services/src/git/repo/gitCheckpointHelpers.ts](../../packages/services/src/git/repo/gitCheckpointHelpers.ts)
-  - diff/path/tree 相关纯工具逻辑
+  - Lógica utilitária pura relacionada a diff/path/tree
 - [packages/services/src/git/repo/gitCheckpointStore.ts](../../packages/services/src/git/repo/gitCheckpointStore.ts)
-  - manifest 持久化
+  - Persistência do manifest
 
-### 接线
+### Fiação
 
 - [packages/services/src/node.ts](../../packages/services/src/node.ts)
 - [packages/services/src/accessor.ts](../../packages/services/src/accessor.ts)
@@ -78,15 +78,15 @@
 - [packages/client/src/remoteServiceAccess.ts](../../packages/client/src/remoteServiceAccess.ts)
 - [packages/desktop/src/renderer/src/main.tsx](../../packages/desktop/src/renderer/src/main.tsx)
 
-### 测试
+### Testes
 
 - [packages/services/test/gitCheckpointService.test.ts](../../packages/services/test/gitCheckpointService.test.ts)
 
-## 实现关系图
+## Diagrama de relações da implementação
 
 ```mermaid
 flowchart LR
-  Client["ZCode task / 其它业务服务"] --> Accessor["IServiceAccessor.gitCheckpointService"]
+  Client["ZCode task / outros serviços de negócio"] --> Accessor["IServiceAccessor.gitCheckpointService"]
   Accessor --> RPC["ProxyChannel / RPC"]
   RPC --> Service["GitCheckpointService"]
   Service --> Store["GitCheckpointStore"]
@@ -98,45 +98,45 @@ flowchart LR
   Repo --> HiddenRef["refs/zcode/checkpoints/{workspaceHash}/{checkpointId}"]
 ```
 
-这张图对应当前实现的两条关键原则：
+Esse diagrama corresponde a dois princípios-chave da implementação atual:
 
-- 执行位置始终跟随 workspace 所在环境，不区分 local / remote / web 的业务语义
-- 真实文件内容交给 Git object database，业务层只持久化轻量 manifest
+- O local de execução sempre acompanha o ambiente onde o workspace está, sem distinguir a semântica de negócio entre local / remote / web
+- O conteúdo real dos arquivos fica a cargo do object database do Git; a camada de negócio persiste apenas um manifest leve
 
-## 分层职责
+## Responsabilidades por camada
 
 ### Service
 
-`GitCheckpointService` 负责：
+`GitCheckpointService` é responsável por:
 
-- 生成 `checkpointId`
-- 读取 / 校验 manifest
-- 校验两个 checkpoint 是否属于同一 `repoRoot`、同一 `scope`
-- 调用 repo 执行真正的 create / diff / restore / delete
-- 调用 store 落盘或删除 manifest
+- Gerar o `checkpointId`
+- Ler / validar o manifest
+- Validar se dois checkpoints pertencem ao mesmo `repoRoot` e ao mesmo `scope`
+- Chamar o repo para executar o create / diff / restore / delete de fato
+- Chamar o store para gravar ou apagar o manifest
 
 ### Repo
 
-`GitCheckpointRepo` 负责：
+`GitCheckpointRepo` é responsável por:
 
-- 解析 `workspacePath` 对应的 Git 仓库
-- 用 Git plumbing 创建隐藏 checkpoint commit
-- 对两个 checkpoint 做结构化 diff
-- 对当前 worktree 做冲突检测
-- 把当前磁盘从 `fromCheckpoint` 恢复到 `toCheckpoint`
-- 删除隐藏 ref
+- Resolver o repositório Git correspondente a `workspacePath`
+- Criar o commit de checkpoint oculto usando Git plumbing
+- Fazer diff estruturado entre dois checkpoints
+- Fazer detecção de conflitos no worktree atual
+- Restaurar o disco atual de `fromCheckpoint` para `toCheckpoint`
+- Apagar a ref oculta
 
 ### Store
 
-`GitCheckpointStore` 负责：
+`GitCheckpointStore` é responsável por:
 
-- 按 `workspaceHash` 写入 checkpoint manifest
-- 读取 manifest
-- 删除 manifest
+- Gravar o manifest de checkpoint por `workspaceHash`
+- Ler o manifest
+- Apagar o manifest
 
-## 当前接口
+## Interface atual
 
-当前对外接口就是 [gitCheckpoint.ts](../../packages/services/src/git/gitCheckpoint.ts) 里的：
+A interface exposta hoje é exatamente a de [gitCheckpoint.ts](../../packages/services/src/git/gitCheckpoint.ts):
 
 ```ts
 export interface IGitCheckpointService {
@@ -147,24 +147,24 @@ export interface IGitCheckpointService {
 }
 ```
 
-当前没有加入：
+Atualmente não foi incluído:
 
-- checkpoint 列表接口
-- checkpoint GC 接口
-- checkpoint rename / annotate 能力
-- 上层 task/turn 语义字段
+- Interface de listagem de checkpoints
+- Interface de GC de checkpoints
+- Capacidade de rename / annotate de checkpoint
+- Campos semânticos de task/turn da camada superior
 
-## 存储与引用
+## Armazenamento e referências
 
 ### Manifest
 
-默认 manifest 目录：
+Diretório padrão de manifest:
 
 ```text
 ~/.zcode/v2/checkpoints/{workspaceHash}/{checkpointId}.json
 ```
 
-manifest 当前只保存：
+O manifest hoje guarda apenas:
 
 - `checkpointId`
 - `workspacePath`
@@ -177,214 +177,214 @@ manifest 当前只保存：
 
 ### Hidden Ref
 
-每个 checkpoint 都会创建一个 hidden ref：
+Cada checkpoint cria uma hidden ref:
 
 ```text
 refs/zcode/checkpoints/{workspaceHash}/{checkpointId}
 ```
 
-当前实现里，hidden ref 的作用是：
+Na implementação atual, o papel da hidden ref é:
 
-- 让 Git 对象有稳定锚点，不会被 GC 提前清掉
-- 让后续 diff / restore / delete 能稳定定位到该 checkpoint
+- Dar aos objetos do Git uma âncora estável, que não seja removida antes pela GC
+- Permitir que diff / restore / delete posteriores localizem o checkpoint de forma estável
 
-## 关键实现流程
+## Fluxos principais de implementação
 
 ### 1. `createCheckpoint`
 
-入口位置：
+Pontos de entrada:
 
 - [gitCheckpointService.ts](../../packages/services/src/git/gitCheckpointService.ts)
 - [gitCheckpointRepo.ts](../../packages/services/src/git/repo/gitCheckpointRepo.ts)
 
-当前流程：
+Fluxo atual:
 
-1. `GitCheckpointService.createCheckpoint()` 生成新的 `checkpointId`
-2. `GitCheckpointRepo.createCheckpoint()` 调 `resolveRepository()` 解析 Git 仓库
-3. 创建临时目录与临时 `GIT_INDEX_FILE`
-4. 执行 `git add -A -- <workspace pathspec>`，把当前 workspace scope 的 live 状态写入临时 index
-5. 执行 `git write-tree`
-6. 执行 `git commit-tree`
-7. 执行 `git update-ref refs/zcode/checkpoints/...`
-8. 返回 `GitCheckpointMeta`
-9. `GitCheckpointStore.save()` 写入 manifest
+1. `GitCheckpointService.createCheckpoint()` gera um novo `checkpointId`
+2. `GitCheckpointRepo.createCheckpoint()` chama `resolveRepository()` para resolver o repositório Git
+3. Cria um diretório temporário e um `GIT_INDEX_FILE` temporário
+4. Executa `git add -A -- <workspace pathspec>`, gravando no índice temporário o estado live do scope atual do workspace
+5. Executa `git write-tree`
+6. Executa `git commit-tree`
+7. Executa `git update-ref refs/zcode/checkpoints/...`
+8. Retorna `GitCheckpointMeta`
+9. `GitCheckpointStore.save()` grava o manifest
 
-当前实现里最重要的约束是：
+As restrições mais importantes da implementação atual são:
 
-- 只使用临时 index，不碰真实 `.git/index`
-- 不创建用户可见 branch
-- 不切换 HEAD
+- Usa apenas o índice temporário, sem tocar no `.git/index` real
+- Não cria branch visível ao usuário
+- Não troca o HEAD
 
 ### 2. `diffCheckpoints`
 
-入口位置：
+Pontos de entrada:
 
 - [gitCheckpointService.ts](../../packages/services/src/git/gitCheckpointService.ts)
 - [gitCheckpointRepo.ts](../../packages/services/src/git/repo/gitCheckpointRepo.ts)
 
-当前流程：
+Fluxo atual:
 
-1. service 层先加载 `from/to` 两个 manifest
-2. 校验两者：
-   - `workspacePath` 一致
-   - `repoRoot` 一致
-   - `scope` 一致
-   - `workspaceInRepoPath` 一致
-3. repo 层执行：
+1. A camada de service carrega primeiro os dois manifests `from/to`
+2. Valida que ambos têm:
+   - `workspacePath` igual
+   - `repoRoot` igual
+   - `scope` igual
+   - `workspaceInRepoPath` igual
+3. A camada de repo executa:
    - `git diff --name-status --find-renames -z <from> <to> -- <workspace pathspec>`
    - `git diff --numstat --find-renames -z <from> <to> -- <workspace pathspec>`
-4. 用 helper 合并成结构化 `GitCheckpointDiff`
+4. Usa o helper para mesclar em um `GitCheckpointDiff` estruturado
 
-当前实现里：
+Na implementação atual:
 
-- `name-status` 决定文件和改动类型
-- `numstat` 提供 added / removed 统计
-- 最终 diff 只面向当前 workspace scope，而不是整仓输出
+- `name-status` determina arquivos e tipo de alteração
+- `numstat` fornece estatísticas de added / removed
+- O diff final é voltado apenas para o scope atual do workspace, e não a saída do repositório inteiro
 
 ### 3. `restoreBetweenCheckpoints`
 
-入口位置：
+Pontos de entrada:
 
 - [gitCheckpointService.ts](../../packages/services/src/git/gitCheckpointService.ts)
 - [gitCheckpointRepo.ts](../../packages/services/src/git/repo/gitCheckpointRepo.ts)
 
-这是当前底座里最核心的方法。
+Este é o método mais central da base atual.
 
-当前语义不是“直接恢复到某个 checkpoint”，而是：
+A semântica atual não é "restaurar diretamente para um checkpoint", mas sim:
 
-- 调用方声明：当前磁盘应当还处于 `fromCheckpoint`
-- 实际目标：希望恢复到 `toCheckpoint`
+- O chamador declara: o disco atual deveria ainda estar em `fromCheckpoint`
+- Alvo real: deseja-se restaurar para `toCheckpoint`
 
-当前流程：
+Fluxo atual:
 
-1. service 层加载并校验 `from/to` manifest
-2. repo 层先计算 `from -> to` 的结构化 diff
-3. 从 diff 中折叠出受影响 path 集
-4. 调 `collectWorkspaceConflicts()` 做冲突检测
-5. 如果存在冲突且 `force !== true`，直接返回 `{ success: false, conflicts }`
-6. 无冲突或 `force === true` 时：
-   - 对非删除路径执行
+1. A camada de service carrega e valida os manifests `from/to`
+2. A camada de repo calcula primeiro o diff estruturado de `from -> to`
+3. Colapsa o conjunto de paths afetados a partir do diff
+4. Chama `collectWorkspaceConflicts()` para detecção de conflitos
+5. Se houver conflito e `force !== true`, retorna diretamente `{ success: false, conflicts }`
+6. Sem conflito, ou com `force === true`:
+   - Para paths que não são deleção, executa
      - `git restore --source=<toCommit> --worktree -- <paths>`
-   - 对删除路径和 rename 原路径执行本地删除
-7. 再次用 `collectWorkspaceConflicts()` 对 `toCheckpoint` 做恢复后校验
-8. 校验通过后返回 `{ success: true, restoredPaths }`
+   - Para paths de deleção e paths de origem de rename, executa a remoção local
+7. Usa novamente `collectWorkspaceConflicts()` para validar o `toCheckpoint` após a restauração
+8. Se a validação passar, retorna `{ success: true, restoredPaths }`
 
-### 4. 当前冲突检测策略
+### 4. Estratégia atual de detecção de conflitos
 
-`collectWorkspaceConflicts()` 的核心不是看整个 repo 是否 dirty，而是只检查 restore 将触达的路径。
+O núcleo de `collectWorkspaceConflicts()` não é olhar se o repositório inteiro está sujo, mas apenas verificar os paths que o restore vai tocar.
 
-当前做法：
+Abordagem atual:
 
-1. 先用 `git ls-tree -r -z <fromCommit> -- <affected paths>` 取出 `fromCheckpoint` 里这些路径的 tree entry
-2. 对每个受影响路径逐个判断：
-   - 如果 `fromCheckpoint` 里不存在，但磁盘上存在
+1. Primeiro usa `git ls-tree -r -z <fromCommit> -- <affected paths>` para obter as tree entries desses paths em `fromCheckpoint`
+2. Para cada path afetado, julga individualmente:
+   - Se não existe em `fromCheckpoint`, mas existe no disco
      - `unexpected-file-in-worktree`
-   - 如果 `fromCheckpoint` 里存在，但磁盘上不存在
+   - Se existe em `fromCheckpoint`, mas não existe no disco
      - `missing-in-worktree`
-   - 如果类型不匹配
+   - Se os tipos não correspondem
      - `type-mismatch`
-   - 如果类型匹配但 `hash-object` 后内容 hash 不等
+   - Se os tipos correspondem, mas o hash de conteúdo após `hash-object` difere
      - `content-mismatch`
 
-当前实现里，不比较 mtime、size 这些弱信号，而是直接比较 blob hash。
+Na implementação atual não se comparam sinais fracos como mtime e size, e sim diretamente o hash do blob.
 
 ### 5. `deleteCheckpoint`
 
-当前删除分成两层：
+A exclusão atual é dividida em duas camadas:
 
-- repo 层删除 hidden ref
-- store 层删除 manifest
+- A camada de repo apaga a hidden ref
+- A camada de store apaga o manifest
 
-执行顺序：
+Ordem de execução:
 
-1. `GitCheckpointService.deleteCheckpoint()` 先加载 manifest
-2. `GitCheckpointRepo.deleteCheckpoint()` 执行：
+1. `GitCheckpointService.deleteCheckpoint()` carrega primeiro o manifest
+2. `GitCheckpointRepo.deleteCheckpoint()` executa:
    - `git update-ref -d <refName>`
-3. `GitCheckpointStore.delete()` 删除对应 manifest 文件
+3. `GitCheckpointStore.delete()` apaga o arquivo de manifest correspondente
 
-Git object 本身不做业务侧显式清理，交给 Git GC。
+Os objetos do Git em si não recebem limpeza explícita do lado do negócio; isso fica a cargo do Git GC.
 
-## 多端接线
+## Fiação entre ambientes
 
-当前 checkpoint 服务已经和其它业务服务一样走统一 RPC：
+O serviço de checkpoint atual já trafega pelo RPC unificado, igual aos demais serviços de negócio:
 
-### Local Desktop
+### Desktop local
 
-- `createLocalServices()` 注册 `IGitCheckpointService`
+- `createLocalServices()` registra `IGitCheckpointService`
 
-### Remote Desktop
+### Desktop remoto
 
-- `RemoteServiceAccess` 会创建 `gitCheckpointService` 代理
-- remote workspace session 注册时，会把远端的 `gitCheckpointService` 带进 renderer 侧服务对象
+- `RemoteServiceAccess` cria o proxy `gitCheckpointService`
+- Ao registrar uma sessão de workspace remota, o `gitCheckpointService` remoto é trazido para o objeto de serviço do lado do renderer
 
 ### Web
 
-- 通过现有 `IServiceAccessor` / RPC / websocket 链路自然透传
+- Passa naturalmente pelo encadeamento já existente `IServiceAccessor` / RPC / websocket
 
-因此当前结论是：
+Portanto, a conclusão atual é:
 
-- 协议统一
-- 执行位置跟随 workspace
-- 上层不需要区分 local / remote / web
+- Protocolo unificado
+- O local de execução acompanha o workspace
+- A camada superior não precisa distinguir local / remote / web
 
-## 当前测试覆盖
+## Cobertura de testes atual
 
-测试文件：
+Arquivo de teste:
 
 - [gitCheckpointService.test.ts](../../packages/services/test/gitCheckpointService.test.ts)
 
-已覆盖的关键场景：
+Cenários-chave cobertos:
 
-- 创建 workspace-scoped checkpoint
-- checkpoint diff 正确识别：
-  - 修改
-  - 新增
-  - 删除
-  - 重命名
-- diff 只作用于当前 workspace scope，不误伤 monorepo 其它目录
-- `restoreBetweenCheckpoints()` 能把文件从 changed 恢复到 base
-- restore 后不改变真实 staged 状态
-- 路径发生漂移时，默认返回 conflict
-- `force=true` 时允许覆盖恢复
-- `deleteCheckpoint()` 后再访问已删除 checkpoint 会报错
+- Criar checkpoint de escopo de workspace
+- O diff de checkpoint identifica corretamente:
+  - Modificação
+  - Adição
+  - Deleção
+  - Renomeação
+- O diff atua apenas sobre o scope atual do workspace, sem afetar outros diretórios do monorepo
+- `restoreBetweenCheckpoints()` consegue restaurar arquivos de changed para base
+- O restore não altera o estado real de staged
+- Quando há drift de path, retorna conflict por padrão
+- Com `force=true` permite sobrescrever na restauração
+- Acessar um checkpoint já apagado após `deleteCheckpoint()` gera erro
 
-## 当前验证结果
+## Resultados de verificação atuais
 
-已验证：
+Verificado:
 
 - `pnpm vitest run packages/services/test/gitCheckpointService.test.ts packages/services/test/gitService.test.ts packages/services/test/gitCliRepo.test.ts`
-  - 结果：通过
+  - Resultado: passou
 - `pnpm typecheck`
-  - 结果：通过
+  - Resultado: passou
 
-未完全通过：
+Não passou completamente:
 
 - `pnpm lint`
-  - 结果：未通过
-  - 说明：当前失败项仍然是仓库里已有的全局 `max-lines` / `no-unused-vars` 等问题，不是本次 checkpoint 能力新增的问题
+  - Resultado: não passou
+  - Observação: as falhas atuais continuam sendo problemas globais já existentes no repositório, como `max-lines` / `no-unused-vars`, e não foram introduzidos por esta capacidade de checkpoint
 
-## 当前边界与限制
+## Limites e restrições atuais
 
-当前实现明确只承诺下面这些边界：
+A implementação atual promete explicitamente apenas os seguintes limites:
 
-- 只支持 Git 仓库 workspace
-- 只支持 `scope = "workspace"`
-- 只处理 repo 内文件
-- 不处理 repo 外副作用
-- 默认不保证 ignored 文件
-- 不处理 ZCode session / task / turn 语义
-- 不提供 worktree 隔离
+- Suporta apenas workspace em repositório Git
+- Suporta apenas `scope = "workspace"`
+- Processa apenas arquivos dentro do repo
+- Não processa efeitos colaterais fora do repo
+- Por padrão não garante arquivos ignorados
+- Não processa semântica de session / task / turn do ZCode
+- Não oferece isolamento por worktree
 
-当前尚未实现：
+Ainda não implementado:
 
-- checkpoint 列表 / GC
-- ignored 文件策略
-- submodule / nested repo / sparse checkout 的专项支持
-- ZCode turn 级 `baseFileCheckpoint/resultFileCheckpoint` 编排
-- UI 层直接使用 checkpoint 能力
+- Listagem / GC de checkpoints
+- Estratégia para arquivos ignorados
+- Suporte dedicado a submodule / nested repo / sparse checkout
+- Orquestração de `baseFileCheckpoint/resultFileCheckpoint` em nível de turn do ZCode
+- Uso direto da capacidade de checkpoint pela camada de UI
 
-## 当前推荐结论
+## Conclusão recomendada atual
 
-- Git checkpoint 底层能力已经形成可复用的 service/repo/store 闭环
-- `restoreBetweenCheckpoints(from, to)` 已经可以作为通用文件回滚底座使用
-- 后续 ZCode task 若要支持真正的文件撤销、re-edit、fork 后文件恢复，应直接复用这套能力，而不是继续扩展 `beforeContent/afterContent` 方案
+- A capacidade de base do Git checkpoint já forma um ciclo reutilizável de service/repo/store
+- `restoreBetweenCheckpoints(from, to)` já pode ser usado como base genérica de rollback de arquivos
+- Se uma task futura do ZCode quiser suportar desfazer de arquivos de verdade, re-edit e restauração de arquivos após fork, deve reutilizar diretamente essa capacidade, em vez de continuar estendendo o esquema `beforeContent/afterContent`

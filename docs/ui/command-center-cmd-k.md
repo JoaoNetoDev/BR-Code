@@ -1,75 +1,105 @@
-# Command Center Cmd+K Initial State
+# Estado Inicial do Command Center (Cmd+K)
 
-## 目标
+## Objetivo
 
-`Cmd/Ctrl+K` 打开的 Command Center 需要同时承担工作区快捷入口和当前任务上下文入口。默认打开时优先展示当前任务最近变更、最近任务和按语义拆分的命令分组；输入搜索词后继续复用现有 commands / tasks / files 混合搜索能力。
+O Command Center aberto por `Cmd/Ctrl+K` precisa atender simultaneamente às entradas rápidas de workspace e à
+entrada de contexto da task atual. Na abertura padrão, exibe-se prioritariamente as alterações recentes da task
+atual, as tasks recentes e os comandos agrupados semanticamente; depois que um termo de busca é digitado, a
+busca mista existente de commands / tasks / files continua sendo reutilizada.
 
-## 默认内容
+## Conteúdo Padrão
 
-空搜索且范围为 `All` 时按以下顺序展示：
+Com busca vazia e escopo `All`, a exibição segue esta ordem:
 
 1. `Recent changes`
-   - 数据来源是当前 active task 已加载的 assistant messages。
-   - 与聊天区每轮 `summary changes` 保持同源：从 assistant tool calls 的 `raw` / `input` / `output` / `display` 结构中解析文件变更摘要。
-   - 不读取 sqlite 的 `summary_*` 字段，不读取 `ZCodeTaskMeta.changeSummary`，也不从 `perTurnFileChangesByTaskId` / `perTurnSummariesByTaskId` 做兜底。
-   - 只展示当前任务最近修改过的文件，不能使用整个 workspace 的 Git unstaged/staged 变更。
-   - 默认展示最多 3 条。
-   - 每行展示文件图标、workspace 相对路径、`+added -removed`。
-   - 当前任务没有变更摘要时隐藏该分组。
+   - A origem dos dados são as assistant messages já carregadas da task ativa atual.
+   - Mantém a mesma origem que o `summary changes` de cada turno da área de chat: os resumos de alterações de
+     arquivo são extraídos das estruturas `raw` / `input` / `output` / `display` das tool calls do assistant.
+   - Não lê os campos `summary_*` do sqlite, não lê `ZCodeTaskMeta.changeSummary` e também não usa
+     `perTurnFileChangesByTaskId` / `perTurnSummariesByTaskId` como fallback.
+   - Mostra apenas os arquivos modificados recentemente pela task atual; não pode usar as alterações
+     unstaged/staged do Git de todo o workspace.
+   - Exibe no máximo 3 itens por padrão.
+   - Cada linha mostra o ícone do arquivo, o caminho relativo ao workspace e `+added -removed`.
+   - O grupo é ocultado quando a task atual não tem resumo de alterações.
 
 2. `Recent tasks`
-   - 数据来源是当前 workspace 已加载任务列表。
-   - 默认展示最多 3 条最近更新任务。
-   - 点击后切换到对应任务。
+   - A origem dos dados é a lista de tasks já carregada do workspace atual.
+   - Exibe no máximo 3 tarefas atualizadas recentemente.
+   - Clicar troca para a tarefa correspondente.
 
-3. 命令分组
-   - 原先单一 `Quick actions` 拆成 `Suggested`、`Chat`、`Navigation`、`Panels`、`Configure`、`App`。
-   - 分组模型保持稳定；本轮没有默认命令的分组不展示空标题，但不能从 registry / i18n / section order 中删除。
-   - `Suggested` 只展示 `New task`、`Open workspace`、`Settings`。
-   - `Chat` 与 `Navigation` 暂无默认命令项，后续对话和导航动作仍回到对应分类承接。
-   - `Panels` 展示 `Toggle sidebar`、`Toggle terminal`、`Toggle preview`、`Add terminal tab`、`Add browser tab`、`Add review tab`。
-   - `Configure` 展示 `Settings`、`Switch theme to light/dark`、`Skills`、`MCP Servers`。
-   - `App` 展示 `Feedback`、`Community`、`Product docs`、`Connect/Disconnect`。
+3. Grupos de comandos
+   - O antigo `Quick actions` único foi dividido em `Suggested`, `Chat`, `Navigation`, `Panels`, `Configure` e
+     `App`.
+   - O modelo de grupos permanece estável; grupos sem comando padrão nesta rodada não exibem título vazio, mas
+     não podem ser removidos do registry / i18n / ordem de seções.
+   - `Suggested` exibe apenas `New task`, `Open workspace`, `Settings`.
+   - `Chat` e `Navigation` ainda não têm itens de comando padrão; as ações futuras de conversa e navegação
+     continuam voltando para a categoria correspondente.
+   - `Panels` exibe `Toggle sidebar`, `Toggle terminal`, `Toggle preview`, `Add terminal tab`,
+     `Add browser tab`, `Add review tab`.
+   - `Configure` exibe `Settings`, `Switch theme to light/dark`, `Skills`, `MCP Servers`.
+   - `App` exibe `Feedback`, `Community`, `Product docs`, `Connect/Disconnect`.
 
-## 范围 Tabs
+## Tabs de Escopo
 
-搜索框下方始终展示范围 tabs：`All`、`Actions`、`Tasks`、`Files`。tabs 是范围筛选，不只是搜索前缀快捷入口；因此即使没有输入内容，切换 tab 也必须展示对应范围的默认内容。
+Abaixo da caixa de busca, os tabs de escopo são sempre exibidos: `All`, `Actions`, `Tasks`, `Files`. Os tabs são
+filtros de escopo, não apenas atalhos de prefixo de busca; portanto, mesmo sem texto digitado, trocar de tab
+precisa exibir o conteúdo padrão do escopo correspondente.
 
 - `All`
-  - 空搜索时展示完整默认首页：`Recent changes`、`Recent tasks`、命令分组，其中上下文分组只展示最多 3 条预览。
-  - 输入搜索词后混合搜索 actions、tasks、files；任务和文件结果按首页预览节奏折叠。
+  - Com busca vazia, exibe a homepage padrão completa: `Recent changes`, `Recent tasks` e os grupos de comandos,
+    sendo que os grupos de contexto exibem no máximo 3 itens de pré-visualização.
+  - Com termo de busca, busca actions, tasks e files de forma mista; tarefas e arquivos seguem o ritmo de
+    pré-visualização da homepage.
 - `Actions`
-  - 空搜索时只展示命令分组：`Suggested`、`Chat`、`Navigation`、`Panels`、`Configure`、`App`。
-  - 输入搜索词后只搜索 actions。
+  - Com busca vazia, exibe apenas os grupos de comandos: `Suggested`, `Chat`, `Navigation`, `Panels`,
+    `Configure`, `App`.
+  - Com termo de busca, busca apenas actions.
 - `Tasks`
-  - 空搜索时只展示最近任务，不能沿用 `All` 首页的 3 条预览限制。
-  - 输入搜索词后只搜索 tasks，并直接展示任务结果列表，不沿用 `All` 的 3 条预览限制。
+  - Com busca vazia, exibe apenas as tarefas recentes, sem herdar o limite de 3 itens de pré-visualização da
+    homepage de `All`.
+  - Com termo de busca, busca apenas tasks e mostra diretamente a lista de resultados de tarefas, sem o limite
+    de 3 itens de `All`.
 - `Files`
-  - 空搜索时只展示当前 active task 修改过的文件，即 `Recent changes`，不能沿用 `All` 首页的 3 条预览限制。
-  - 输入搜索词后只搜索 workspace files，并直接展示文件结果列表，不沿用 `All` 的 3 条预览限制。
-  - workspace files 与 Composer `@` 文件候选复用同一个 Host 侧 `listWorkspaceFiles` 索引和[默认过滤器](../superpowers/specs/2026-08-07-workspace-file-search-default-filter-design.md)；UI 不维护独立黑名单，本期不提供自定义规则配置入口。
+  - Com busca vazia, exibe apenas os arquivos modificados pela task ativa atual, ou seja, `Recent changes`, sem
+    o limite de 3 itens de pré-visualização da homepage de `All`.
+  - Com termo de busca, busca apenas workspace files e mostra diretamente a lista de resultados de arquivos, sem
+    o limite de 3 itens de `All`.
+  - Os workspace files e as sugestões de arquivo `@` do Composer reutilizam o mesmo índice `listWorkspaceFiles` do
+    lado do Host e o
+    [filtro padrão](../superpowers/specs/2026-08-07-workspace-file-search-default-filter-design.md); a UI não
+    mantém uma blacklist separada, e esta fase não oferece entrada de configuração de regras customizadas.
 
-视觉上搜索框和范围 tabs 属于同一个 header block，header block 使用紧凑的 8px 横向 padding，中间不放分割线；只在 tabs 下方进入结果列表前使用弱分隔。搜索框本体使用带边框的胶囊输入壳，遵循 input 背景、边框、hover 与 focus token。tabs 使用小尺寸胶囊按钮，保持紧凑、可横向滚动，避免移动端长文案挤压搜索框。
+Visualmente, a caixa de busca e os tabs de escopo pertencem ao mesmo header block; o header block usa padding
+horizontal compacto de 8px, sem divisória no meio, e só usa um divisor fraco abaixo dos tabs, antes de entrar na
+lista de resultados. O corpo da caixa de busca usa um shell de input em cápsula com borda, seguindo os tokens de
+fundo, borda, hover e focus de input. Os tabs usam botões em cápsula de tamanho pequeno, mantendo o visual
+compacto e com rolagem horizontal, para evitar que textos longos no mobile comprimam a caixa de busca.
 
-## 搜索状态
+## Estado de Busca
 
-输入搜索词后，保留现有 Command Center 搜索语义：
+Depois que um termo é digitado, a semântica de busca existente do Command Center é preservada:
 
-- 无前缀时同时搜索 commands、tasks、files。
-- `>` 限定 commands。
-- `#` 限定 tasks。
-- `@` 限定 files。
-- 搜索结果仍按命令、任务、文件分组展示，并保留搜索历史。
+- Sem prefixo, busca commands, tasks e files simultaneamente.
+- `>` limita a commands.
+- `#` limita a tasks.
+- `@` limita a files.
+- Os resultados continuam agrupados por comando, tarefa e arquivo, e o histórico de busca é preservado.
 
-## 视觉细节
+## Detalhes Visuais
 
-- Command Center 与 QuickPick 的列表 item 使用 `rounded-xl`，让键盘选中态和 hover 态更柔和。
-- 底层 `CommandItem` 保持 `rounded-lg` 默认值；Cmd+K/QuickPick 通过共享 item class 覆盖为更大圆角，避免影响其它命令列表。
-- 命令图标优先复用对应既有入口的 Lucide 图标；同一动作在 Header、Sidebar、Side pane 与 Cmd+K 中不能使用不同语义图标。
+- Os itens de lista do Command Center e do QuickPick usam `rounded-xl`, tornando mais suaves os estados de seleção
+  por teclado e de hover.
+- O `CommandItem` subjacente mantém o padrão `rounded-lg`; o Cmd+K/QuickPick sobrescreve para um raio maior por
+  meio de uma classe de item compartilhada, sem afetar as outras listas de comandos.
+- Os ícones de comando priorizam a reutilização do ícone Lucide da entrada correspondente existente; a mesma
+  ação não pode usar ícones semanticamente diferentes no Header, na Sidebar, no Side pane e no Cmd+K.
 
-## 兼容边界
+## Boundaries de Compatibilidade
 
-- UI 必须兼容桌面端和 Web 端。
-- 主快捷键继续遵循平台规则：macOS 使用 Command，Windows/Linux 使用 Ctrl。
-- 本地和远程 workspace 的最近任务仍走已有 task list 服务边界，UI 不直接读取 session JSON。
-- `workspaceIdentity?.trim() || workspacePath` 继续作为任务与历史隔离 key。
+- A UI deve ser compatível com desktop e Web.
+- O atalho principal continua seguindo a regra da plataforma: no macOS, Command; no Windows/Linux, Ctrl.
+- As tarefas recentes de workspaces locais e remotos continuam passando pela boundary existente do serviço de
+  task list, e a UI não lê diretamente o JSON de sessão.
+- `workspaceIdentity?.trim() || workspacePath` continua sendo a key de isolamento de tarefas e histórico.

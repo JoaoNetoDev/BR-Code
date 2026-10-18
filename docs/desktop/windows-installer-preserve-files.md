@@ -1,30 +1,66 @@
-# Windows 更新：安装目录文件保留规范
+# Windows: especificação de preservação de arquivos do diretório de instalação na atualização
 
-## 目标
+## Objetivo
 
-managed 覆盖更新只清理由 ZCode 发行包声明拥有的文件，安装目录中用户或其他程序放置的无关文件必须保留。安装器不得再以 `RMDir /r $INSTDIR` 作为该更新路径的清理策略；无 manifest 的历史升级不在本规范保证范围内。
+A atualização por sobrescrita gerenciada limpa apenas os arquivos declarados como pertencentes ao
+pacote de distribuição do ZCode; arquivos não relacionados colocados pelo usuário ou por outros
+programas no diretório de instalação devem ser preservados. O instalador não pode mais usar
+`RMDir /r $INSTDIR` como estratégia de limpeza desse caminho de atualização; upgrades históricos sem
+manifest não estão no escopo de garantia desta especificação.
 
-## 所有权清单
+## Lista de propriedade
 
-- 打包阶段在 Windows 应用输出目录根部生成 `.zcode-install-manifest`，每行一个相对文件路径（反斜杠分隔、UTF-8、以换行结束）。清单只包含发行包实际携带的文件。
-- 清单文件随应用包一起安装，供下一次更新时的旧卸载器读取；清单本身也属于 ZCode 所有文件。
-- `customRemoveFiles` 仅按清单删除文件，不删除安装目录根目录或任意未列出的文件/目录。删除失败立即终止旧卸载器并保留未处理的文件，交由安装器报告失败。
-- 清单路径缺失或无法读取时采用迁移安全策略：当前卸载器不删除任何安装目录文件，继续安装并保留旧版本残留。注意：首次从没有清单的旧版本升级仍会先运行旧卸载器；旧卸载器可能递归删除整个目录，本规范暂不承诺该路径的无关文件保留，需后续单独实现可回滚的 legacy 迁移。
-- 清单由打包流程生成而非用户输入。实现仍拒绝绝对路径和 `..` 路径，避免恶意或损坏清单越界删除。
+- A fase de empacotamento gera `.zcode-install-manifest` na raiz do diretório de saída do
+  aplicativo Windows, com um caminho relativo de arquivo por linha (separado por barras
+  invertidas, UTF-8, terminado em quebra de linha). O manifesto contém apenas os arquivos que o
+  pacote de distribuição realmente carrega.
+- O arquivo de manifesto é instalado junto com o pacote do aplicativo, para ser lido pelo antigo
+  desinstalador na próxima atualização; o próprio manifesto também é um arquivo pertencente ao
+  ZCode.
+- `customRemoveFiles` apaga somente os arquivos listados no manifesto; não apaga a raiz do
+  diretório de instalação nem arquivos/diretórios não listados. Uma falha de remoção encerra
+  imediatamente o antigo desinstalador e preserva os arquivos não processados, deixando o
+  instalador reportar a falha.
+- Quando o caminho do manifesto está ausente ou não pode ser lido, adota-se a estratégia segura para
+  migração: o desinstalador atual não apaga nenhum arquivo do diretório de instalação, a instalação
+  continua e os resíduos da versão antiga são preservados. Atenção: a primeira atualização a partir de
+  uma versão antiga sem manifesto ainda executa o antigo desinstalador; ele pode apagar o diretório
+  inteiro recursivamente, e esta especificação não promete a preservação de arquivos não
+  relacionados nesse caminho, exigindo uma implementação posterior separada de migração legacy com
+  rollback.
+- O manifesto é gerado pelo fluxo de empacotamento, e não por entrada do usuário. A implementação
+  continua rejeitando caminhos absolutos e caminhos com `..`, evitando que um manifesto malicioso
+  ou corrompido apague arquivos fora do escopo.
 
-## 版本边界
+## Limites de versão
 
-- manifest 是 ownership cleanup 的能力标记；从首个带 manifest 的版本开始，后续版本之间的覆盖更新属于强保证范围。
-- 首次从没有 manifest 的历史版本升级时，旧卸载器可能仍执行全树清理或返回原生错误文案。本规范不为该路径增加迁移备份、恢复和回滚，用户可以通过卸载重装或手动迁移完成升级。
-- 版本持续前进时，只对新版本之间仍可复现的失败增加保护和诊断，不追求一次性兼容所有历史安装状态。
+- O manifest é um marcador de capacidade da limpeza por propriedade; a partir da primeira versão com
+  manifest, as atualizações por sobrescrita entre versões subsequentes estão no escopo da garantia
+  forte.
+- Na primeira atualização a partir de uma versão histórica sem manifest, o antigo desinstalador
+  ainda pode executar a limpeza de toda a árvore ou retornar mensagem de erro nativa. Esta
+  especificação não adiciona backup, restauração nem rollback de migração para esse caminho; o
+  usuário pode concluir a atualização desinstalando e reinstalando ou fazendo a migração manual.
+- Conforme as versões avançam, adicionam-se proteções e diagnósticos apenas para falhas ainda
+  reproduzíveis entre versões novas, sem buscar compatibilidade de uma só vez com todos os estados
+  históricos de instalação.
 
-## 兼容和边界
+## Compatibilidade e limites
 
-- 普通卸载（无 `--updated`）继续由 electron-builder 默认流程处理；本规范只改变覆盖更新的清理阶段。
-- 安装目录之外的数据目录（例如 `%USERPROFILE%\.zcode`）不在清单范围内，也不会被更新清理。
-- 清单只记录文件，不主动删除空目录，因此目录中无关文件和目录结构均保留。
+- A desinstalação comum (sem `--updated`) continua sendo tratada pelo fluxo padrão do
+  electron-builder; esta especificação altera apenas a fase de limpeza da atualização por
+  sobrescrita.
+- O diretório de dados fora do diretório de instalação (por exemplo `%USERPROFILE%\.zcode`) está
+  fora do escopo do manifesto e não é limpo pela atualização.
+- O manifesto registra apenas arquivos e não apaga ativamente diretórios vazios, portanto arquivos
+  não relacionados e a estrutura de diretórios são preservados.
 
-## 验证要求
+## Requisitos de verificação
 
-- NSIS 隔离夹具验证：带清单时列出的旧应用文件被删除、未列出的 `user-data.txt` 保留；新卸载器清单缺失时所有旧文件保留；删除被 Windows 文件句柄阻断时返回非零并写入 `cleanup-failed` 与数字 PID。旧卸载器的 legacy 递归清理不在本阶段覆盖范围内。
-- 夹具使用 electron-builder 对应的真实 NSIS 编译器；不写入真实安装目录、桌面、开始菜单或产品注册表。
+- Verificação com fixture isolado do NSIS: com o manifesto presente, os arquivos antigos listados
+  são apagados e o `user-data.txt` não listado é preservado; com o manifesto ausente no novo
+  desinstalador, todos os arquivos antigos são preservados; quando a remoção é bloqueada por um
+  file handle do Windows, retorna-se um código diferente de zero e são gravados `cleanup-failed` e o
+  PID numérico. A limpeza recursiva legacy do antigo desinstalador está fora do escopo desta etapa.
+- O fixture usa o compilador NSIS real correspondente ao electron-builder e não grava em
+  diretórios reais de instalação, na área de trabalho, no menu Iniciar ou no registro de produtos.

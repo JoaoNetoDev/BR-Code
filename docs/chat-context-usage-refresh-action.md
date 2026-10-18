@@ -1,21 +1,21 @@
 # Chat Context Usage Refresh Action
 
-## Scope
+## Escopo
 
-Composer context hover panel 中的 Coding Plan 剩余额度 header 右侧操作位用于进入用量详情。
+A posição de ação à direita do header de cota restante do Coding Plan no painel de hover de contexto do composer é usada para entrar nos detalhes de uso.
 
-## Behavior
+## Comportamento
 
-- 当额度远端刷新正在进行时，操作位隐藏“更多/详情”按钮，显示 loading 图标。
-- 当刷新从 loading 结束且没有错误时，操作位显示绿色成功勾 1 秒。
-- 成功勾自动消失后恢复“更多/详情”按钮。
-- 额度明细仍可在缓存快照存在时继续展示，本变更只影响 header 操作位。
-- 有缓存额度时更新失败不占据内容区：保留缓存额度条，只在“更多”旁边显示 warning 色 info 图标，tooltip 提示失败原因。
-- 无可展示额度时使用 info notice：左侧信息图标，中间用户文案，右侧刷新图标按钮。
-- 失败提示不展示 provider/raw error（例如 timeout code），避免把后台刷新细节直接暴露在 hover 面板。
+- Quando a atualização remota da cota está em andamento, a posição de ação oculta o botão "mais/detalhes" e exibe um ícone de loading.
+- Quando a atualização termina o loading sem erros, a posição de ação exibe umcheckmark verde de sucesso por 1 segundo.
+- Depois que o checkmark de sucesso desaparece automaticamente, o botão "mais/detalhes" é restaurado.
+- Os detalhes da cota continuam podendo ser exibidos enquanto houver um snapshot em cache; esta alteração afeta apenas a posição de ação do header.
+- Quando existe cota em cache e a atualização falha, a área de conteúdo não é ocupada: a barra de cota em cache é mantida e apenas um ícone de info na cor de warning é exibido ao lado de "mais", com um tooltip indicando o motivo da falha.
+- Quando não há cota exibível, usa-se um info notice: ícone de informação à esquerda, texto do usuário ao centro e botão de ícone de atualizar à direita.
+- A mensagem de falha não exibe o provider/raw error (por exemplo, código de timeout), evitando expor diretamente os detalhes da atualização em segundo plano no painel de hover.
 
-## Implementation Notes
+## Notas de Implementação
 
-- 状态封装在 `CodingPlanUsageHeaderAction`，避免把刷新完成反馈逻辑继续堆进 context 面板聚合文件。
-- 有缓存的错误提示由 `CodingPlanUsageHeaderAction` 承载；无缓存/不可用空态封装在 `CodingPlanUsageNotice`。
-- `silent` access refresh 在已有缓存快照时会保持 `entitlement.loading=false`，避免缓存内容闪回 checking；因此 hover 触发的刷新图标由 `ChatContextUsage` 跟踪 `onAccess` promise 后通过 `refreshing` 传入。
+- O estado é encapsulado em `CodingPlanUsageHeaderAction`, evitando continuar empilhando a lógica de feedback de conclusão da atualização no arquivo agregador do painel de contexto.
+- A mensagem de erro com cache é carregada por `CodingPlanUsageHeaderAction`; o estado vazio sem cache/indisponível é encapsulado em `CodingPlanUsageNotice`.
+- O access refresh `silent`, quando já existe um snapshot em cache, mantém `entitlement.loading=false`, evitando que o conteúdo em cache entre em flash como checking; portanto, o ícone de atualizar disparado pelo hover é passado por `ChatContextUsage` via `refreshing` após rastrear a promise de `onAccess`.

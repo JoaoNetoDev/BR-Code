@@ -1,33 +1,33 @@
-# 自动下载并安装更新
+# Download e instalação automáticos de atualizações
 
-## 背景
+## Contexto
 
-Electron 自动更新弹窗需要支持用户选择“以后自动下载并安装更新”。该偏好必须持久化到全局设置，并和设置页里的同名开关保持一致。独立更新窗口不挂完整 workspace service，因此不能直接依赖 UI 层的 `settingService`。
+O popup de atualização automática do Electron precisa suportar que o usuário escolha "baixar e instalar atualizações automaticamente depois". Essa preferência precisa ser persistida nas configurações globais e manter consistência com a chave de mesmo nome na página de configurações. A janela independente de atualização não registra o service completo de workspace e, portanto, não pode depender diretamente do `settingService` da camada de UI.
 
-## 行为
+## Comportamento
 
-- 新增设置项 `autoDownloadAndInstallUpdates`，默认关闭。
-- 更新弹窗在“未下载”状态的底部按钮上方展示左对齐 checkbox：`以后自动下载并安装更新`。
-- 在设置页通用分组中展示同一个开关。
-- 当该设置开启并检测到可用更新时，main 进程自动调用当前下载流程。
-- 下载中主更新入口只展示进度/加载态，不允许点击打开更新弹窗。
-- 下载完成后用户点击“重启以更新”：
-  - 若没有运行中的 Agent session，直接执行现有 `quitAndInstallUpdate()`。
-  - 若存在运行中任务，先提示应用将退出并重启、进行中的任务会中断；用户确认后再执行更新。
+- Nova configuração `autoDownloadAndInstallUpdates`, desabilitada por padrão.
+- No popup de atualização, no estado "não baixado", exibe-se um checkbox alinhado à esquerda acima dos botões inferiores: `以后自动下载并安装更新`.
+- Na página de configurações, o mesmo toggle é exibido no grupo genérico.
+- Quando essa configuração está ativa e uma atualização disponível é detectada, o processo main chama automaticamente o fluxo de download atual.
+- Durante o download, a entrada principal de atualização mostra apenas o progresso/estado de carregamento, sem permitir clicar para abrir o popup de atualização.
+- Quando o download é concluído e o usuário clica em "reiniciar para atualizar":
+  - se não houver Agent session em execução, executar diretamente o `quitAndInstallUpdate()` existente.
+  - se houver tarefa em execução, avisar primeiro que o aplicativo vai sair e reiniciar e que as tarefas em andamento serão interrompidas; após a confirmação do usuário, executar a atualização.
 
-## 架构
+## Arquitetura
 
-- 设置持久化继续使用 `AppSettings` 和 `settingService`。
-- 主进程 `autoUpdater` 在 `update-available` 事件中读取设置并触发自动下载，避免依赖任何 renderer 窗口是否打开。
-- 独立更新窗口通过窄平台接口读写自动更新偏好，不暴露完整 setting service。
-- 重启前任务检查复用现有 `IPlatformService.getDesktopSessionActivity()`，避免 UI 层直接读取任务 store 或跨层访问服务实现。
+- A persistência da configuração continua usando `AppSettings` e `settingService`.
+- O `autoUpdater` do processo main lê a configuração no evento `update-available` e dispara o download automático, evitando depender de qualquer janela renderer estar aberta.
+- A janela independente de atualização lê e grava a preferência de atualização automática por uma interface estreita de plataforma, sem expor o setting service completo.
+- A verificação de tarefas antes da reinicialização reutiliza o `IPlatformService.getDesktopSessionActivity()` existente, evitando que a camada de UI leia diretamente o store de tarefas ou acesse implementações de serviço entre camadas.
 
-## 验证
+## Verificação
 
-- 单测覆盖：
-  - 设置 schema 默认值和 patch。
-  - 开启偏好后检测到更新自动开始下载。
-  - 弹窗 checkbox 写入设置并在当前可用更新下触发下载。
-  - 下载中主更新入口禁用。
-  - 有运行中任务时重启按钮先请求确认。
-- 仍需执行 `pnpm typecheck` 和 `pnpm lint`。
+- Cobertura de testes unitários:
+  - valor padrão e patch do schema de configurações.
+  - com a preferência ativa, o download começa automaticamente ao detectar uma atualização.
+  - o checkbox do popup grava a configuração e dispara o download com a atualização disponível.
+  - a entrada principal de atualização fica desabilitada durante o download.
+  - com tarefa em execução, o botão de reiniciar solicita confirmação antes.
+- Ainda é preciso executar `pnpm typecheck` e `pnpm lint`.

@@ -1,61 +1,61 @@
-# Z Code 通信协议分层（当前事实）
+# Camadas do protocolo de comunicação do ZCode (fatos atuais)
 
-> 本文给出理解当前进程通信的最简模型。它是项目架构的三层心智模型，不是要求每条链路都严格经过同一套协议栈。
+> Este documento apresenta o modelo mais simples para entender a comunicação atual entre processos. É o modelo mental de três camadas da arquitetura do projeto, e não a exigência de que cada cadeia passe exatamente pela mesma pilha de protocolos.
 
-## 先记住三层
-
-```text
-第 3 层：内容 —— 要做什么
-第 2 层：信封 —— 如何描述、编号和匹配消息
-第 1 层：通道 —— 消息通过什么管道传输
-```
-
-可以类比成寄快递：
+## Guarde primeiro as três camadas
 
 ```text
-快递里的物品 = 业务内容
-快递单和包装 = 消息协议
-卡车、公路、飞机 = 传输通道
+Camada 3: conteúdo —— o que fazer
+Camada 2: envelope —— como descrever, numerar e casar mensagens
+Camada 1: canal —— por qual tubulação a mensagem é transportada
 ```
 
-发送时从第 3 层向下打包，接收时从第 1 层向上拆包。
+Uma analogia com o envio de encomenda:
 
-## 第 1 层：通道（Transport）
+```text
+O item dentro da encomenda = conteúdo de negócio
+A etiqueta e a embalagem = protocolo de mensagem
+O caminhão, a estrada, o avião = canal de transporte
+```
 
-通道只负责搬运字节或结构化消息，不理解聊天、文件、Git 等业务。
+Na envio, empacota-se de cima para baixo, da camada 3; na recepção, desempacota-se de baixo para cima, da camada 1.
 
-当前项目的通道包括：
+## Camada 1: Canal (Transport)
 
-- `MessagePort`：Renderer 与 Window Host 之间的本地端口。
-- `stdio`：Host 与 `zcode-cli`，以及 `zcode-server` 与其 Agent 子进程之间的标准输入输出。
-- `WebSocket`：连接已存在的 `zcode-server`，或连接手机远控 Relay。
-- Electron IPC：Renderer 与 Main 之间的平台调用。
-- UtilityProcess `postMessage`：Main 与 Window Host 之间的进程控制消息。
+O canal só seResponsável por transportar bytes ou mensagens estruturadas e não entende negócios como chat, arquivos ou Git.
 
-这一层回答：**“消息走哪根管道？”**
+Os canais do projeto atual incluem:
 
-## 第 2 层：信封（Message / Call Protocol）
+- `MessagePort`: porta local entre o Renderer e o Window Host.
+- `stdio`: entrada e saída padrão entre o Host e o `zcode-cli`, e entre o `zcode-server` e seus subprocessos de Agent.
+- `WebSocket`: conexão com um `zcode-server` existente, ou com o Relay de controle remoto do celular.
+- Electron IPC: chamadas de plataforma entre o Renderer e o Main.
+- `postMessage` do UtilityProcess: mensagens de controle de processo entre o Main e o Window Host.
 
-这一层负责把内容包装成可处理的消息，解决：
+Esta camada responde: **“por qual tubulação a mensagem segue?”**
 
-- 这是请求、响应还是事件？
-- 请求编号是多少？
-- 调用哪个服务、哪个方法？
-- 响应应该匹配哪个请求？
-- 数据如何序列化？
+## Camada 2: Envelope (Message / Call Protocol)
 
-当前有三种主要形式：
+Esta camada empacota o conteúdo em mensagens tratáveis e resolve:
+
+- É uma requisição, uma resposta ou um evento?
+- Qual é o número da requisição?
+- Qual serviço e qual método são chamados?
+- A resposta deve casar com qual requisição?
+- Como os dados são serializados?
+
+Existem hoje três formas principais:
 
 ### `@zcode/rpc`
 
-通用的 Service 调用协议，支持 `call`、`response`、`listen` 和事件通知。它主要用于：
+Protocolo genérico de chamada de Service, com suporte a `call`, `response`, `listen` e notificações de evento. É usado principalmente para:
 
-- Renderer ↔ Window Host；
-- Window Host ↔ 远程 `zcode-server`。
+- Renderer ↔ Window Host;
+- Window Host ↔ `zcode-server` remoto.
 
-### ZCode Protocol JSON envelope
+### Envelope JSON do ZCode Protocol
 
-Host 与 `zcode-cli` 使用的 JSON 请求/响应/通知外壳，典型结构如下（为便于阅读省略了部分身份字段）：
+Casca JSON de requisição/resposta/notificação usada entre o Host e o `zcode-cli`, com estrutura típica assim (alguns campos de identidade foram omitidos para facilitar a leitura):
 
 ```json
 {
@@ -71,11 +71,11 @@ Host 与 `zcode-cli` 使用的 JSON 请求/响应/通知外壳，典型结构如
 }
 ```
 
-这些 JSON 对象通常以 NDJSON（一行一个 JSON）通过 stdio 传输。
+Esses objetos JSON costumam trafegar em NDJSON (um JSON por linha) pelo stdio.
 
 ### Typed IPC / `postMessage`
 
-Main 的控制消息不经过通用 `@zcode/rpc`，而是直接发送带有 `type` 的结构化对象，例如：
+As mensagens de controle do Main não passam pelo `@zcode/rpc` genérico, mas são enviadas diretamente como objetos estruturados com `type`, por exemplo:
 
 ```ts
 {
@@ -85,104 +85,104 @@ Main 的控制消息不经过通用 `@zcode/rpc`，而是直接发送带有 `typ
 }
 ```
 
-这里的 `type` 本身就是消息路由信息。
+Aqui o próprio `type` já é a informação de roteamento da mensagem.
 
-## 第 3 层：内容（Business Meaning）
+## Camada 3: Conteúdo (Significado de negócio)
 
-这一层定义消息真正要表达的业务含义。
+Esta camada define o significado de negócio que a mensagem realmente expressa.
 
-### V4 对话协议
+### Protocolo de conversa V4
 
-V4 负责 Agent 会话和对话事实，例如：
+O V4 responde pela sessão do Agent e pelos fatos de conversa, por exemplo:
 
-- 命令：`createSession`、`sendText`、`stop`、`compact`、`switchModelConfig`；
-- 命令 ACK：接受、拒绝、过期、重复等；
-- conversation topic：snapshot、delta、`seq`、`revision`；
-- 订阅、断线恢复、resync；
-- `desktop-continuous` 与 `web-remote-replayable` 交付语义。
+- Comandos: `createSession`, `sendText`, `stop`, `compact`, `switchModelConfig`;
+- ACK de comandos: aceito, rejeitado, expirado, duplicado etc.;
+- Tópico de conversa: snapshot, delta, `seq`, `revision`;
+- Assinatura, recuperação de desconexão, resync;
+- Semântica de entrega `desktop-continuous` e `web-remote-replayable`.
 
-V4 的最终事实源和命令裁决者是 workspace 对应的 `zcode-cli`，不是 Renderer、Main 或 Relay。
+A fonte final de fatos e o arbitro de comandos do V4 é o `zcode-cli` correspondente ao workspace, e não o Renderer, o Main ou o Relay.
 
 ### Service API
 
-Service API 是 Host 对外暴露的能力，例如：
+A Service API é a capacidade exposta pelo Host, por exemplo:
 
-- `fileService.readFile`；
-- `terminalService.create`；
-- `gitService.status`；
-- `zcodeAgentService.sendConversationCommandV4`；
-- `zcodeAgentService.subscribeConversationV4`。
+- `fileService.readFile`;
+- `terminalService.create`;
+- `gitService.status`;
+- `zcodeAgentService.sendConversationCommandV4`;
+- `zcodeAgentService.subscribeConversationV4`.
 
-Service API 可以承载 V4，也可以承载文件、终端、Git 等非 V4 能力。
+A Service API pode transportar V4, mas também capacidades não-V4 como arquivos, terminal e Git.
 
-### Host 控制消息
+### Mensagens de controle do Host
 
-Main 与 Host 之间传递的是进程和连接控制，例如：
+O que passa entre Main e Host é controle de processo e de conexão, por exemplo:
 
-- 初始化 Host；
-- `ConnectRemoteWorkspace`；
-- `AttachServicePort` / `DetachServicePort`；
-- Renderer reload 后重新绑定 attachment。
+- Inicialização do Host;
+- `ConnectRemoteWorkspace`;
+- `AttachServicePort` / `DetachServicePort`;
+- Re-vinculação do attachment após um reload do Renderer.
 
-这些不是 V4 对话命令。
+Essas não são comandos de conversa do V4.
 
-## 各链路对应关系
+## Correspondência por cadeia
 
-| 链路 | 第 3 层：内容 | 第 2 层：信封 | 第 1 层：通道 |
+| Cadeia | Camada 3: conteúdo | Camada 2: envelope | Camada 1: canal |
 | --- | --- | --- | --- |
-| Renderer → Host | Service API、V4 命令/查询/订阅 | `@zcode/rpc` | `MessagePort` |
-| Renderer → Main | 平台操作 | Electron IPC channel | Electron IPC |
-| Main → Host | Host 控制消息 | typed `{ type, ... }` | `postMessage` |
-| Host → 本地 CLI | V4、少量 legacy 操作 | ZCode Protocol JSON | stdio NDJSON |
-| Host → `zcode-server` | 远程 Service API，参数可携带 V4 | `@zcode/rpc` | SSH stdio 或 WebSocket |
-| `zcode-server` → 远端 CLI | V4、少量 legacy 操作 | ZCode Protocol JSON | stdio NDJSON |
-| 手机 → Relay → Main | 远控 Service/V4 调用 | relay envelope + `rpc-frame` | WebSocket |
+| Renderer → Host | Service API, comandos/consultas/assinaturas V4 | `@zcode/rpc` | `MessagePort` |
+| Renderer → Main | operações de plataforma | canal do Electron IPC | Electron IPC |
+| Main → Host | mensagens de controle do Host | typed `{ type, ... }` | `postMessage` |
+| Host → CLI local | V4, poucas operações legacy | ZCode Protocol JSON | stdio NDJSON |
+| Host → `zcode-server` | Service API remota, com parâmetros podendo transportar V4 | `@zcode/rpc` | SSH stdio ou WebSocket |
+| `zcode-server` → CLI remoto | V4, poucas operações legacy | ZCode Protocol JSON | stdio NDJSON |
+| Celular → Relay → Main | chamadas de Service/V4 do controle remoto | envelope do relay + `rpc-frame` | WebSocket |
 
-手机远控还会通过 shared-host attachment 进入已有 Window Host；Relay 和 Main 只负责鉴权、配对、心跳、frame 透传与 attachment 调度，不持有 conversation/task/stream 业务状态。
+O controle remoto do celular também entra, via shared-host attachment, em um Window Host já existente; o Relay e o Main são responsáveis apenas por autenticação, pareamento, heartbeat, repasse de frames e agendamento de attachments, sem manter estado de negócio de conversation/task/stream.
 
-## 一条远程 `sendText` 的完整路径
+## Caminho completo de um `sendText` remoto
 
 ```text
-第 3 层：V4 sendText 命令
+Camada 3：comando V4 sendText
         │
         ▼
 Renderer
-  第 2 层：@zcode/rpc 调用 sendConversationCommandV4(...)
-  第 1 层：MessagePort
+  Camada 2: chamada @zcode/rpc sendConversationCommandV4(...)
+  Camada 1: MessagePort
         │
         ▼
 Window Host
-  第 2 层：远程 @zcode/rpc Service 调用
-  第 1 层：SSH stdio / WebSocket
+  Camada 2: chamada de Service @zcode/rpc remota
+  Camada 1: SSH stdio / WebSocket
         │
         ▼
 zcode-server
-  第 2 层：ZCode Protocol JSON，method = "v4/command"
-  第 1 层：子进程 stdio
+  Camada 2: ZCode Protocol JSON, method = "v4/command"
+  Camada 1: stdio do subprocesso
         │
         ▼
-远端 zcode-cli
-  CommandInbox 裁决并执行 sendText
+zcode-cli remoto
+  CommandInbox arbitra e executa o sendText
 ```
 
-同一条 V4 命令可以被多次“调用”承载，但“命令”和“调用”不是同一个概念：
+O mesmo comando V4 pode ser transportado por várias “chamadas”, mas “comando” e “chamada” não são o mesmo conceito:
 
 ```text
-V4 命令 = 具体业务意图，例如 sendText
-V4 调用 = 调用 Service API，把这条命令送到下一跳
+Comando V4 = intenção de negócio concreta, por exemplo sendText
+Chamada V4 = chamada da Service API que leva esse comando ao próximo salto
 ```
 
-因此，截图中“Host → zcode-server：V4 调用”更准确的说法是：
+Por isso, no lugar de “Host → zcode-server: chamada V4” em um diagrama, a formulação mais precisa é:
 
-> **远程 Service RPC，参数中携带 V4 命令或 V4 查询。**
+> **RPC de Service remoto, carregando um comando ou consulta V4 nos parâmetros.**
 
-## 相关实现入口
+## Pontos de entrada relacionados
 
-- [代码架构总览](./zcode-code-architecture-overview.md)
+- [Visão geral da arquitetura de código](./zcode-code-architecture-overview.md)
 - [Message Flow](./message-flow.md)
-- [`@zcode/rpc` 分层实现](../../packages/rpc/src/index.ts)
-- [V4 command schema](../../packages/shared/src/zcode-protocol-v4/command.ts)
-- [V4 transport schema](../../packages/shared/src/zcode-protocol-v4/transport.ts)
-- [远程 RPC 连接](../../packages/server/src/remote/connect.ts)
-- [zcode-server stdio RPC server](../../packages/server/src/stdio.ts)
-- [Agent ZCode Protocol client](../../packages/services/src/zcode-agent/zcodeProtocolClient.ts)
+- [Implementação em camadas de `@zcode/rpc`](../../packages/rpc/src/index.ts)
+- [Schema de comandos do V4](../../packages/shared/src/zcode-protocol-v4/command.ts)
+- [Schema de transport do V4](../../packages/shared/src/zcode-protocol-v4/transport.ts)
+- [Conexão RPC remota](../../packages/server/src/remote/connect.ts)
+- [RPC server stdio do zcode-server](../../packages/server/src/stdio.ts)
+- [Client ZCode Protocol do Agent](../../packages/services/src/zcode-agent/zcodeProtocolClient.ts)

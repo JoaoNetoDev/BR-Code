@@ -1,27 +1,27 @@
-# Settings Usage Stats
+# Estatísticas de Uso nas Configurações
 
-设置页新增 `Usage` 分区，用来展示本地 session 快照聚合出来的粗略使用统计。
+A página de configurações ganha uma nova seção `Usage`, usada para exibir estatísticas de uso aproximadas, agregadas a partir dos snapshots de sessão locais.
 
-## 数据来源
+## Origem dos Dados
 
-- host 侧新增 `usage-stats` RPC 服务，统一扫描 `~/.zcode/v2/sessions/**` 下的 task 快照
-- UI 不直接读磁盘，只通过 `useUsageStats()` 调服务
-- 历史旧数据没有 usage 字段时，读取侧会回退到 `message.content + thought` 的字符数，以及 `task.meta.model`
+- No lado do host, um novo serviço RPC `usage-stats` varre uniformemente os snapshots de task em `~/.zcode/v2/sessions/**`
+- A UI não lê o disco diretamente; ela chama o serviço somente por `useUsageStats()`
+- Quando os dados históricos antigos não têm o campo de usage, o lado de leitura faz fallback para a contagem de caracteres de `message.content + thought`, além de `task.meta.model`
 
-## 估算口径
+## Critério de Estimativa
 
-- 估算 token 统一按 `字符数 ÷ 3`，除数放在 `ESTIMATED_TOKEN_CHAR_DIVISOR`
-- 新写入的消息会额外持久化：
+- O token estimado é uniformemente calculado como `contagem de caracteres ÷ 3`, com o divisor em `ESTIMATED_TOKEN_CHAR_DIVISOR`
+- As mensagens recém-gravadas persistem adicionalmente:
   - `message.model`
   - `message.characterCount`
-- 之所以保存原始字符数而不是直接保存 token，是为了后续调整除数时可以重算历史数据
+- A razão de armazenar a contagem bruta de caracteres, em vez do token direto, é permitir recalcular os dados históricos ao ajustar o divisor no futuro
 
-## 当前展示
+## Exibição Atual
 
-- 区域圆角：使用概览指标卡、每日 Token 趋势、模型用量分布、Coding Plan 额度卡和共享空状态统一使用 `rounded-xl`，保持主要统计模块的视觉层级一致
-- Token 活动：独立提供每日、每周、累计三种范围；每日按天显示，每周按周总量显示，累计按截至当周的累计 Token 显示。范围切换使用 Hooks 范围切换同款 pill tabs，尺寸和字号对齐 task tabs（外层 `h-7`，trigger `h-6`、`text-ui-sm`）；网格固定展示最近 52 个自然周，第一行固定为周日，52 列使用 `minmax(0, 1fr)` 等分容器且不横向滚动，横纵格子间距使用 `gap-0.5`；底部月份文案锚定在每月 1 日所在的周列，最多只显示最后 12 个有效月份文案，多出的起始月份段保留网格占位但文字留空，因此当前年度周期显示为去年 9 月到今年 8 月，后续按年份自然递进；每周和累计 hover 任意格时高亮整列，tooltip 锚定整列；tooltip 使用两行结构，第一行展示日期/周范围，第二行展示 Token 数和消息轮数，容器使用 `rounded-xl`
-- 每日 Token 趋势图：默认展示近 7 日，可切换近 30 日；连续补齐空白日期后展示估算 token 折线；Y 轴上限按实际展示的模型折线单点峰值计算，不使用同日所有模型总量，也不计入未展示模型，避免非堆叠折线被总量范围压缩；Tooltip 顶部总量和每个 Model 的值都使用本地化紧凑 Token 单位（中文万/亿、英文 K/M/B，并带 `tokens`），避免模型明细显示无量纲的长裸数字；Tooltip 数字使用等宽字体保证对齐，`tokens` / `tokens/s` 单位使用 UI Sans 和弱化文字色，不能继承 `font-mono`；下方时间范围 tabs 使用 pill 样式，尺寸对齐 task tabs（外层 `h-7`，trigger `h-6`、`text-ui-sm`）
-- Coding Plan 系统健康度：固定展示近 7 日的 Max&Pro / Lite 高峰期平均 Decode 速度，不提供时间范围筛选，也不请求或下发 30 日健康度数据；标题右侧以只读文案标明“近 7 日”。
-- Coding Plan 用量趋势：近 7 日 / 近 30 日以及模型 / 工具维度统一使用并排柱状图；新旧数据都展示具体 Model / Tool 勾选列表，最多同时选择 3 项且至少保留 1 项。Models 的 Token 用量在顶部 Total、Model 勾选项、Tooltip Total 和 Tooltip 明细中都必须带 `tokens` 单位；积分模式在上述四处带本地化的“积分 / credits”单位；数字保持等宽字体，单位使用 UI Sans。Tools 调用次数不添加 Token 或积分单位。旧版仅包含 Token / 调用次数的数据同样使用柱状图，不再回退折线图；积分 / 用量指标切换仅在存在积分数据时展示。折线图仅用于下方固定近 7 日的系统健康度。
-- 模型用量图：按模型聚合估算 token，以饼图展示占比；超过 6 个分区时合并为“其他模型”，配色复用趋势图的 `--color-usage-chart-*` token；手机端维持 224px 图形高度并纵向排列，桌面端图形区与明细区各占一半，图形高度提升到 256px、最大宽度 288px，并相对右侧明细整体垂直居中，使环形图更充分利用可用空间且不会随宽屏无限放大
-- 摘要指标：估算 token、会话数、活跃天数、最常用模型、最长会话、连续活跃天数
+- Cantos arredondados da seção: os cartões de métricas do resumo de uso, a tendência diária de tokens, a distribuição de uso por modelo, o cartão de quota do Coding Plan e o estado vazio compartilhado usam uniformemente `rounded-xl`, mantendo consistente a hierarquia visual dos principais módulos de estatística
+- Atividade de tokens: oferece de forma independente os escopos diário, semanal e acumulado; o diário exibe por dia, o semanal exibe o total por semana e o acumulado exibe os tokens acumulados até a semana corrente. A troca de escopo usa as mesmas pill tabs de troca de escopo dos Hooks, com dimensões e tamanho de fonte alinhados às task tabs (externo `h-7`, trigger `h-6`, `text-ui-sm`); a grade exibe fixamente as últimas 52 semanas naturais, com a primeira linha fixa no domingo, e as 52 colunas dividem o contêiner igualmente usando `minmax(0, 1fr)`, sem rolagem horizontal, com espaçamento de grade vertical e horizontal de `gap-0.5`; os textos de mês na parte inferior são ancorados na coluna da semana que contém o dia 1 de cada mês, mostrando no máximo os últimos 12 textos de mês válidos; os segmentos iniciais de mês excedentes mantêm o espaço ocupado na grade, mas com o texto vazio, de modo que o ciclo do ano atual aparece como setembro do ano passado até agosto deste ano, avançando naturalmente por ano depois; ao passar o mouse sobre qualquer célula nos escopos semanal e acumulado, a coluna inteira é destacada e o tooltip é ancorado à coluna inteira; o tooltip usa uma estrutura de duas linhas, com data/intervalo de semanas na primeira linha e contagem de tokens e de rodadas de mensagens na segunda, e o contêiner usa `rounded-xl`
+- Gráfico de tendência diária de tokens: exibe por padrão os últimos 7 dias, com opção de alternar para os últimos 30 dias; após preencher continuamente as datas em branco, exibe uma linha de tokens estimados; o limite do eixo Y é calculado pelo pico de ponto único das linhas de modelo efetivamente exibidas, sem usar o total de todos os modelos do mesmo dia e sem contar modelos não exibidos, evitando que a linha não empilhada seja comprimida pelo intervalo do total; o total no topo do tooltip e o valor de cada Model usam a unidade compacta localizada de tokens (万/亿 em chinês, K/M/B em inglês, com `tokens`), evitando que o detalhe de modelos exiba números longos sem dimensão; os números do tooltip usam fonte monoespaçada para garantir alinhamento, e as unidades `tokens` / `tokens/s` usam UI Sans com cor de texto atenuada, sem herdar `font-mono`; as tabs de intervalo de tempo abaixo usam estilo pill, com dimensões alinhadas às task tabs (externo `h-7`, trigger `h-6`, `text-ui-sm`)
+- Saúde do sistema Coding Plan: exibe de forma fixa a velocidade média de Decode nos horários de pico Max&Pro / Lite dos últimos 7 dias, sem oferecer filtro de intervalo de tempo e sem solicitar nem entregar dados de saúde de 30 dias; à direita do título há um texto somente leitura indicando "últimos 7 dias".
+- Tendência de uso do Coding Plan: para os últimos 7 dias / últimos 30 dias e para as dimensões de modelo / ferramenta, usa uniformemente gráficos de barras lado a lado; dados novos e antigos exibem uma lista de checkboxes de Model / Tool específicos, com no máximo 3 itens selecionados simultaneamente e pelo menos 1 item mantido. O uso de tokens de Models deve trazer a unidade `tokens` no Total superior, nos itens de Model selecionados, no Total do Tooltip e no detalhamento do Tooltip; no modo de pontos, essas mesmas quatro posições trazem a unidade localizada de "pontos / credits"; os números mantêm fonte monoespaçada e as unidades usam UI Sans. A contagem de chamadas de Tools não recebe unidade de token nem de pontos. Dados antigos que contêm apenas tokens / contagem de chamadas também usam o gráfico de barras, sem voltar ao gráfico de linhas; a troca entre métricas de pontos / uso só aparece quando existem dados de pontos. O gráfico de linhas é usado apenas na saúde do sistema dos últimos 7 dias, fixa na parte inferior.
+- Gráfico de uso por modelo: agrega tokens estimados por modelo e exibe a proporção em um gráfico de pizza; quando há mais de 6 fatias, elas são combinadas em "outros modelos", e as cores reutilizam os tokens `--color-usage-chart-*` do gráfico de tendência; no mobile, mantém-se a altura de 224px do gráfico com disposição vertical, e no desktop a área do gráfico e a área de detalhe ocupam metade cada, com a altura do gráfico elevada para 256px e a largura máxima de 288px, centralizada verticalmente em relação ao detalhe à direita, para que o gráfico de anel aproveite melhor o espaço disponível sem crescer indefinidamente em telas largas
+- Métricas de resumo: tokens estimados, número de sessões, dias ativos, modelo mais usado, sessão mais longa, dias consecutivos de atividade

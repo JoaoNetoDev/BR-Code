@@ -1,44 +1,42 @@
-# Remote prompt attachment materialization
+# Materialização de anexos de prompt remoto
 
-> **当前状态**：下文首段 `zcodeTaskService.sendPrompt` 描述保留为 V4 前的故障背景；
-> 当前实现以“V4 eager staging”一节和 `IPromptAttachmentTransferService` 为准。
+> **Estado atual**: o primeiro parágrafo abaixo, que descreve `zcodeTaskService.sendPrompt`, é preservado como contexto de falha anterior ao V4;
+> a implementação atual é regida pela seção "V4 eager staging" e pelo `IPromptAttachmentTransferService`.
 
-## 背景
+## Contexto
 
-WSL/SSH/Docker remote workspace 中，桌面 renderer 和 host 仍运行在本机，ZCode Agent runtime 运行在远端。`ZCodePromptAttachment.localPath` 过去只表达“一个本地路径”，没有说明这个路径属于 desktop host 还是 remote runtime。
+Em workspaces remotos WSL/SSH/Docker, o renderer do desktop e o host continuam rodando na máquina local, enquanto o runtime do ZCode Agent roda no ambiente remoto. `ZCodePromptAttachment.localPath` antigamente expressava apenas "um caminho local", sem indicar se esse caminho pertencia ao desktop host ou ao runtime remoto.
 
-这会让以下链路在 WSL remote 下断裂：
+Isso quebra as seguintes cadeias no remote WSL:
 
-- 长文本粘贴超过阈值后，desktop main 先写入 Windows 侧 `.zcode/tmp/paste-attachments/...`，再把 Windows `localPath` 作为 file 附件发送。
-- 桌面文件选择、拖拽文件和大图为了避免 base64 放大，也会优先发送 `localPath`。
-- 带本地缓存路径的图片附件如果进入远端 runtime，后续工具按该路径读取时会访问错误机器的文件系统。
+- Ao colar texto longo acima do limite, o desktop main grava primeiro em `.zcode/tmp/paste-attachments/...` no lado Windows e depois envia o `localPath` do Windows como anexo de arquivo.
+- A seleção de arquivos no desktop, o arraste de arquivos e as imagens grandes também priorizam enviar o `localPath`, para evitar o aumento de tamanho em base64.
+- Se um anexo de imagem com caminho de cache local entrar no runtime remoto, as ferramentas subsequentes que lerem esse caminho acessarão o sistema de arquivos da máquina errada.
 
-远端 agent 收到这些附件后，会在 remote runtime 的文件系统里 `stat/read` 该 `localPath`。WSL 中读取 `C:\Users\...` 或其他 host 路径会失败，因此表现为粘贴内容/附件不可读。
+Depois de receber esses anexos, o agente remoto executa `stat/read` desse `localPath` no sistema de arquivos do runtime remoto. No WSL, ler `C:\Users\...` ou outro caminho do host falha, o que se manifesta como conteúdo colado/anexo ilegível.
 
-## 约束
+## Restrições
 
-- 不让 agent/core runtime 理解 Windows 路径；core 只应读取自己所在机器可访问的路径。
-- 不把大文件和长文本退回 inline/base64，避免再次放大 RPC payload 和 prompt 上下文。
-- 桌面本地 workspace 继续原样使用 `localPath`。
-- remote workspace 在跨 host -> remote 边界前完成附件物化，保持 web remote shared-host 链路不另起 runtime。
+- Não fazer o agent/core runtime entender caminhos do Windows; o core deve ler apenas caminhos acessíveis na máquina onde ele está.
+- Não reenviar arquivos grandes e textos longos como inline/base64, evitando ampliar novamente o payload RPC e o contexto do prompt.
+- Workspaces locais do desktop continuam usando `localPath` como antes.
+- Workspaces remotos concluem a materialização dos anexos antes da fronteira host -> remote, mantendo o链路 web remote shared-host sem iniciar outro runtime.
 
-## 方案
+## Solução
 
-desktop host 包装远端 `zcodeTaskService.sendPrompt` 时，对 prompt 附件做 materialize：
+Ao envolver o `zcodeTaskService.sendPrompt` remoto no desktop host, o host faz materialize dos anexos do prompt:
 
-1. 扫描 `attachments` 中带 `localPath` 的附件。
-2. 将 host 可读的附件上传到 remote runtime 可读的用户私有临时目录：`~/.zcode/tmp/prompt-attachments/<trace>/<random>/...`。
-3. 用上传后的 remote path 替换附件 `localPath`，再调用远端 `sendPrompt`。
-4. 保留 `sourceKind: "clipboard-text"`，长文本粘贴仍作为 deferred file reference，不提前塞入 prompt body。
-5. 如果 prompt 正文里包含被替换的附件路径，也同步替换成 remote path，避免缓存图片等场景提示模型读取 host 路径。
+1. Percorre `attachments` procurando anexos com `localPath`.
+2. Envia os anexos legíveis pelo host para um diretório temporário privado do usuário, legível pelo runtime remoto: `~/.zcode/tmp/prompt-attachments/<trace>/<random>/...`.
+3. Substitui o `localPath` do anexo pelo remote path após o envio e só então chama o `sendPrompt` remoto.
+4. Preserva `sourceKind: "clipboard-text"`, e a colagem de texto longo continua sendo uma deferred file reference, sem ser inserida antecipadamente no corpo do prompt.
+5. Se o corpo do prompt contiver o caminho do anexo substituído, substitui-o também pelo remote path, evitando que cenas como imagens em cache indiquem ao modelo a leitura de um caminho do host.
 
-这只是边界修复。长期更完整的协议语义可以新增 attachment locality 字段，将 host-local、runtime-local、inline 三类来源显式编码。
+Isto é apenas um reparo de fronteira. A semântica de protocolo mais completa a longo prazo pode adicionar um campo de localidade do anexo, codificando explicitamente as três origens: host-local, runtime-local e inline.
 
 ## V4 eager staging
 
-V4 composer 不再等到点击发送才 materialize。选择 host-local 附件后，renderer 通过
-`IPromptAttachmentTransferService` 立即请求承载当前 workspace scope 的 Local/Remote Host 暂存；服务按 operation id
-发布连接级进度，并支持 cancel/cleanup。
+O composer do V4 não espera mais o clique em enviar para materializar. Após selecionar um anexo host-local, o renderer solicita imediatamente, via `IPromptAttachmentTransferService`, o staging no Local/Remote Host que hospeda o escopo do workspace atual; o serviço publica progresso no nível da conexão por operation id e suporta cancel/cleanup.
 
 ```text
 renderer composer
@@ -57,40 +55,28 @@ renderer composer
         -> AttachmentRef(server runtime path)
 ```
 
-service resolver 以当前 workspace session accessor 为边界：本地 workspace 使用窗口 Local Host 的
-`createLocalPromptAttachmentTransferService()`；SSH/WSL/Docker workspace 必须使用 Remote Host 注入的
-`createRemotePromptAttachmentTransferService()`；Server remote 则完整使用 server-authoritative service
-collection。workspace service scope 只决定选用哪一个 service 实例，不创建新的 Host 进程。
+O service resolver usa o accessor de sessão do workspace atual como fronteira: workspaces locais usam o `createLocalPromptAttachmentTransferService()` do Local Host da janela; workspaces SSH/WSL/Docker devem usar o `createRemotePromptAttachmentTransferService()` injetado pelo Remote Host; o remote Server usa por completo a service collection server-authoritative. O escopo de serviço do workspace apenas decide qual instância de serviço usar e não cria um novo processo de Host.
 
-- 身份隔离使用 `workspaceKey = workspaceIdentity?.trim() || workspacePath`；远程连接路由继续传递 `remoteSessionId`。
-- composer 判断附件是否必须远端物化时，对任意非空 `workspaceIdentity` 都按远端目标
-  fail closed，不要求 identity 已能被当前解析器识别；`remoteSessionId` 也直接证明目标是远端。
-  identity 已建立但 session id 尚未注入时，host-local 附件必须停在 `waitingSession`，待
-  session 就绪后再 stage；禁止非规范/新格式 identity 在注入窗口退化为本地 `localPath` 零复制。
-- SSH/WSL/Docker workspace 的 session service accessor 必须显式使用远端
-  `promptAttachmentTransferService`。不能从本地 `baseServices` 继承该服务，否则 eager stage
-  会在桌面本机完成并把 `/Users/...`、`C:\Users\...` 等 host path 原样交给远端 CLI。
-- 远端 host-local 附件调用 `stage` 后必须得到 `staged: true`。`staged: false` 表示传输服务
-  没有跨越 host -> remote 文件系统边界，composer 必须 fail closed 并保持发送门禁，不能把返回
-  的 host path 包装成 ready `AttachmentRef`。
-- 运行中暂存记录归承载该 workspace scope 的 Local/Remote Host 所有，relay/main 不维护镜像。
-- 发送成功后将 staged file 标记为 adopted，供 runtime 在当前 session/queue 中读取；发送前删除或取消则立即清理。
-- 未显式清理的 eager stage 由 24 小时 janitor 回收，避免 renderer 崩溃/断线遗留文件。
-- SSH SFTP 失败回落 exec pipe 时保留同一 operation id，进度不回退；WSL/Docker 也使用同一 progress/cancel 合同。
-- runtime 换代后未提交 ref 视为失效，renderer 按附件重试预算重新 stage；已进入 CLI queue/transcript 的 `AttachmentRef` 仍由 CLI 权威状态管理。
+- O isolamento de identidade usa `workspaceKey = workspaceIdentity?.trim() || workspacePath`; o roteamento da conexão remota continua passando `remoteSessionId`.
+- Quando o composer decide se um anexo precisa obrigatoriamente de materialização remota, para qualquer `workspaceIdentity` não vazio ele falha de forma fechada (fail closed) como alvo remoto, sem exigir que a identity já seja reconhecível pelo resolvedor atual; o próprio `remoteSessionId` já prova que o alvo é remoto.
+  Quando a identity já está estabelecida mas o session id ainda não foi injetado, o anexo host-local deve permanecer em `waitingSession` e só ser staged quando a sessão estiver pronta; é proibido que uma identity não canônica ou de novo formato degrade para o caminho local de `localPath` zero-copy durante a janela de injeção.
+- O accessor de serviço de sessão de workspaces SSH/WSL/Docker deve usar explicitamente o `promptAttachmentTransferService` remoto. Não pode herdar esse serviço dos `baseServices` locais, caso contrário o eager stage aconteceria na máquina local do desktop e entregaria host paths como `/Users/...` e `C:\Users\...` ao CLI remoto.
+- Anexos host-local remotos, depois de chamar `stage`, devem obrigatoriamente obter `staged: true`. `staged: false` indica que o serviço de transferência não cruzou a fronteira de sistema de arquivos host -> remote; o composer deve falhar de forma fechada e manter o portão de envio, sem empacotar o host path retornado como um `AttachmentRef` pronto.
+- Os registros de staging em execução pertencem ao Local/Remote Host que hospeda o escopo daquele workspace; relay/main não mantém espelho.
+- Após o envio bem-sucedido, o arquivo staged é marcado como adopted para que o runtime o leia na sessão/fila atual; se for removido ou cancelado antes do envio, a limpeza é imediata.
+- O eager stage que não for explicitamente limpo é recolhido por um janitor de 24 horas, evitando arquivos órfãos por crash/queda de conexão do renderer.
+- Quando o SSH SFTP falha e há fallback para exec pipe, o mesmo operation id é preservado e o progresso não retrocede; WSL/Docker também usam o mesmo contrato de progress/cancel.
+- Após a troca de runtime, refs não submetidos são considerados inválidos e o renderer faz novo stage conforme o orçamento de retentativas por anexo; `AttachmentRef`s que já entraram na fila/transcript do CLI continuam gerenciados pelo estado autoritativo do CLI.
 
-回归测试必须为本地、远端 accessor 注入不同的 transfer service 实例，并断言：
+Os testes de regressão devem injetar instâncias distintas de transfer service para o accessor local e o remoto e afirmar:
 
-- 本地 workspace 选择窗口 Local Host 实例，`stage` 返回 `staged: false` 并保留本机 `localPath`，
-  不调用 `IRemoteBackend.upload`。
-- 普通 remote workspace 选择远端实例，以触发 `IRemoteBackend.upload`。
-- server remote workspace 保持 server-authoritative accessor，所有服务均由远端提供。
-- 远端 identity（包括当前解析器尚不识别的非规范/新格式 identity）已知但 `remoteSessionId`
-  暂缺时，host-local 文件保持 waiting；id 注入后只调用远端 `stage`，不经过本地
-  `attachmentPut`/零复制路径。
-- 远端 `stage` 返回 `staged: false` 时附件进入 permanent failed，`prepareForSend` 返回 null。
+- O workspace local seleciona a instância do Local Host da janela, `stage` retorna `staged: false` e preserva o `localPath` local, sem chamar `IRemoteBackend.upload`.
+- Um workspace remote comum seleciona a instância remota, de modo a disparar `IRemoteBackend.upload`.
+- O workspace remote Server mantém o accessor server-authoritative, com todos os serviços fornecidos pelo remoto.
+- Quando a identity remota (incluindo identities não canônicas/de novo formato que o resolvedor atual ainda não reconhece) é conhecida mas o `remoteSessionId` está ausente, o arquivo host-local permanece em waiting; após a injeção do id, apenas o `stage` remoto é chamado, sem passar pelo caminho local `attachmentPut`/zero-copy.
+- Quando o `stage` remoto retorna `staged: false`, o anexo entra em permanent failed e `prepareForSend` retorna null.
 
-## 状态与多端边界
+## Estados e fronteira multi-dispositivo
 
 ```text
 desktop remote composer（renderer-local draft）

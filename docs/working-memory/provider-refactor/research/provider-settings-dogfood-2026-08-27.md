@@ -1,32 +1,32 @@
-# Provider Settings 体验问题记录（2026-08-27）
+# Registro de Problemas de Experiência em Provider Settings (2026-08-27)
 
-## 1. 用途
+## 1. Finalidade
 
-本文记录 Provider Refactor 首轮 macOS 实包体验中发现的问题。处理原则：
+Este documento registra os problemas encontrados durante a primeira rodada de experiência prática em macOS no mac Pak do Provider Refactor. Princípios de tratamento:
 
-- 不改变既有 Provider / Model Config、Overlay、Registry 抽象的问题直接修复并由测试固定；
-- 涉及 Account Overlay、套餐权益或模型可用性事实来源的问题只记录运行时证据和代码边界，等待裁决；
-- 不用 UI 兜底、强制启用或绕过 Resolver 掩盖领域问题。
+- Problemas que não alteram as abstrações existentes de Provider / Model Config, Overlay ou Registry são corrigidos diretamente e fixados por testes;
+- Problemas que envolvem Account Overlay, direitos de plano ou a fonte de verdade sobre disponibilidade de modelos são apenas registrados com evidências de runtime e limites de código, aguardando decisão;
+- Não mascarar problemas de domínio com fallbacks de UI, habilitação forçada ou bypass do Resolver.
 
-## 2. 已直接修复
+## 2. Corrigidos diretamente
 
-| 问题 | 根因 | 修复后的契约 |
+| Problema | Causa raiz | Contrato após a correção |
 | --- | --- | --- |
-| 历史 Provider 重名阻断无关保存 | 保存时对整个 Effective Provider 集合重新执行唯一性门禁，迁移遗留的既有重名会阻断任意 Provider | 只禁止本次名称变更新引入重名；既有历史重名不阻断其他保存 |
-| 空 Base URL 无法保存草稿 Provider | Renderer 把空输入序列化为 `baseURL: ""`，在 Resolver 判断完整性之前就被 URL Schema 拒绝 | 空值不写 `baseURL`；Provider 可以保存但不可执行，非空非法 URL 仍拒绝 |
-| Provider / Model 整行不能拖动 | Provider 依赖独立 grip；Model 的自定义 Pointer Sensor 又把 `useSortable` 自动添加的行级 `role=button` 误判为交互控件 | Provider、Model 的名称、图标及非交互空白都可启动整行拖动，真实控件除外，拖动时禁止选中文字 |
-| 模型弹窗可穿透拖动背景模型 | Radix Dialog 通过 Portal 渲染，但 React 事件仍沿组件树冒泡到模型行的 DnD activator | Dialog content、overlay 和显式 `data-no-model-drag` 区域都不能启动背景排序 |
-| 模型行信息与开关排列混乱 | 摘要和操作没有稳定布局边界 | Context 紧跟 Model ID；开关固定在模型行最右侧；模型行不提供单字段“恢复默认” |
-| Provider 启停重复展示 | 状态标签和操作按钮分别占位 | 一个按钮同时表达当前状态并执行切换 |
-| 模型编辑器把继承值伪装成 Personal 输入 | Draft 使用 Effective Config 初始化；JSON 又额外重复展示只读值 | Personal 输入为空时，继承值只作为 placeholder；删除重复只读 JSON 区 |
-| 模型编辑器层级过深且接近全屏 | 常用字段混在“高级”折叠中，弹窗最大高度接近整个视口 | 去掉“高级”；桌面使用居中的中等最大高度并仅滚动内容区 |
-| 模型编辑器字段顺序不符合使用频率 | Max Output、输入输出格式排在能力和复杂 JSON 后 | `Model ID/启用 -> Context -> Max Output -> 输入 -> 输出 -> 能力 -> 复杂配置` |
-| 只能逐字段恢复继承值 | 缺少模型级清空 Personal Overlay 的入口 | Footer 提供“全部恢复默认”，清空该模型的 Personal Model Config Overlay 后再由用户保存 |
-| 国内 Provider 在新增菜单靠后 | 菜单直接使用 Built-in 配置顺序，旧顺序把海外 Provider 放在前面 | Built-in 配置及新增菜单统一先列国内 Provider，再列海外 Provider |
+| Nomes duplicados de Providers históricos bloqueiam salvamentos não relacionados | Ao salvar, a validação de unicidade era reaplicada a todo o conjunto de Effective Providers, e duplicatas legadas da migração bloqueavam qualquer Provider | Só é proibido que a mudança de nome deste salvamento introduza duplicatas; duplicatas históricas existentes não bloqueiam outros salvamentos |
+| Base URL vazio impede salvar o rascunho de Provider | O Renderer serializava entrada vazia como `baseURL: ""`, sendo rejeitada pelo Schema de URL antes mesmo de o Resolver avaliar a completude | Valor vazio não grava `baseURL`; o Provider pode ser salvo mas não executado, e URL inválida não vazia continua sendo rejeitada |
+| A linha inteira de Provider / Model não pode ser arrastada | O Provider depende de um grip separado; o Pointer Sensor customizado do Model misinterpretava o `role=button` de nível de linha adicionado automaticamente por `useSortable` como um controle interativo | O nome, o ícone e a área em branco não interativa de Provider e Model podem iniciar o arraste da linha inteira, exceto controles reais; a seleção de texto é proibida durante o arraste |
+| O diálogo de modelo consegue atravessar e arrastar o modelo de fundo | O Radix Dialog renderiza via Portal, mas os eventos do React ainda sobem pela árvore de componentes até o ativador de DnD da linha do modelo | Dialog content, overlay e regiões explícitas com `data-no-model-drag` não conseguem iniciar a ordenação de fundo |
+| Informações e interruptor da linha do modelo desorganizados | Resumo e ações não tinham limites de layout estáveis | O Context vem logo após o Model ID; o interruptor fica fixo na extremidade direita da linha do modelo; a linha do modelo não oferece "restaurar padrão" por campo individual |
+| Exibição duplicada da ativação do Provider | A etiqueta de status e o botão de ação ocupavam espaços separados | Um único botão expressa o estado atual e executa a alternância |
+| O editor de modelo disfarça valores herdados como entrada Personal | O Draft era inicializado com o Effective Config; o JSON ainda exibia valores somente-leitura duplicados | Quando a entrada Personal está vazia, o valor herdado aparece apenas como placeholder; a seção de JSON somente-leitura duplicada foi removida |
+| Editor de modelo com hierarquia profunda e próximo de tela cheia | Campos comuns ficavam misturados ao colapso "Avançado", e a altura máxima do diálogo ficava próxima de toda a viewport | "Avançado" foi removido; no desktop usa-se uma altura máxima média centralizada com rolagem apenas na área de conteúdo |
+| Ordem dos campos do editor de modelo não corresponde à frequência de uso | Max Output e formatos de entrada/saída ficavam depois de capacidades e do JSON complexo | `Model ID/Ativado -> Context -> Max Output -> Entrada -> Saída -> Capacidades -> Configuração complexa` |
+| Só é possível restaurar valores herdados campo a campo | Faltava um ponto de entrada para limpar o Personal Overlay no nível do modelo | O Footer oferece "Restaurar tudo para o padrão", limpando o Personal Model Config Overlay daquele modelo antes de o usuário salvar |
+| Providers nacionais aparecem no fim do menu de adição | O menu usava diretamente a ordem da configuração Built-in, e a ordem antiga colocava Providers estrangeiros primeiro | A configuração Built-in e o menu de adição listam primeiro os Providers nacionais e depois os estrangeiros |
 
-## 3. Personal Config 来源与 Official 名称核对
+## 3. Verificação da origem do Personal Config e dos nomes Official
 
-Pro 机器保留的迁移前备份与清理前备份证明：
+O backup pré-migração mantido na máquina Pro e o backup anterior à limpeza comprovam:
 
 ```text
 旧 ~/.zcode/v2/config.json.provider
@@ -36,32 +36,29 @@ Pro 机器保留的迁移前备份与清理前备份证明：
 新 config.json.providers + modelConfigRules
 ```
 
-清理前的 Personal Config 不是新的 Official Config 内容本身，而是迁移器把旧配置投影进新 Personal Overlay 后留下的结果，
-其中同时包含：
+O Personal Config antes da limpeza não era o conteúdo do novo Official Config em si, mas o resultado deixado pelo migrador depois de projetar a configuração antiga no novo Personal Overlay, contendo simultaneamente:
 
-- 旧版本可编辑的 `builtin:*` Provider 配置；
-- 用户创建的自定义 Provider；
-- 用户对标准 Provider 顺序、模型成员和模型属性的 Personal 覆盖。
+- As configurações de Providers `builtin:*` editáveis na versão antiga;
+- Providers customizados criados pelo usuário;
+- Overrides Personal do usuário sobre a ordem dos Providers padrão, a associação de modelos e os atributos dos modelos.
 
-因此截图中的旧 Coding Plan 重名属于迁移遗留，不是当前 Official Config 又创建了一份同名 Provider。当前
-`config/provider/zcode-builtin.json` 的 Provider label 已核对为唯一；Z.ai / BigModel 的 API、Individual、Team、Start、
-Idle Plan 使用不同名称。为继续体验而执行的 Personal Config 清理保留了带时间戳备份，可恢复。
+Portanto, o Coding Plan duplicado nas capturas é um resíduo da migração, e não o Official Config atual criando novamente um Provider com o mesmo nome. Os labels de Provider do `config/provider/zcode-builtin.json` atual foram verificados como únicos; Z.ai / BigModel usam nomes diferentes para API, Individual, Team, Start e Idle Plan. A limpeza do Personal Config executada para continuar a experiência manteve um backup com timestamp, recuperável.
 
-## 4. 待裁决：Team Plan 有效但 Account Provider / 权益展示不可用
+## 4. Aguardando decisão: Team Plan válido, mas exibição de Account Provider / direitos indisponível
 
-### 4.1 运行时事实
+### 4.1 Fatos de runtime
 
-Pro 的 `~/.zcode/v2/logs/2026-08-27.log` 在同一次 Team Plan 选择之后同时出现：
+O `~/.zcode/v2/logs/2026-08-27.log` do Pro mostra, após a mesma seleção de Team Plan:
 
-- Settings 已持久化 `bigmodel -> team-coding-plan`，并包含 product、organization、project；
-- Team Plan 项目校验命中所选项目，机构列表非空；
-- Team Plan quota 接口返回业务成功且有额度数据；
-- 但 Usage entitlement 对 `account:bigmodel-team-coding-plan` 记录的 `organizationId/projectId` 都是 `null`，随后报告未找到可用授权；
-- Registry 在此之前只发布了一个 Personal Provider，没有观察到 Team Account Provider 进入可执行集合。
+- O Settings persistiu `bigmodel -> team-coding-plan`, incluindo product, organization e project;
+- A validação de projetos do Team Plan acertou o projeto selecionado, com a lista de organizações não vazia;
+- A interface de quota do Team Plan retornou sucesso de negócio e havia dados de cota;
+- Mas o entitlement de Usage registrou `organizationId/projectId` como `null` para `account:bigmodel-team-coding-plan`, e em seguida reportou nenhuma autorização disponível;
+- O Registry, antes disso, só publicou um Personal Provider; não foi observado nenhum Team Account Provider entrando no conjunto executável.
 
-这证明“账号确实有 Team Plan”与“页面显示获取失败”不是同一个上游请求的真假冲突，而是套餐选择事实进入不同消费者时发生了断裂。
+Isso prova que "a conta realmente tem um Team Plan" e "a página exibe falha na obtenção" não são um conflito de veracidade sobre a mesma requisição upstream, mas uma quebra no momento em que o fato da seleção do plano entra em consumidores diferentes.
 
-### 4.2 当前链路
+### 4.2 Cadeia atual
 
 ```text
 setting.json
@@ -80,22 +77,18 @@ Account Provider Resolver          Settings Usage entitlement
 Effective Provider / Registry       “暂时无法确认 Coding Plan 权益”
 ```
 
-`createAccountProviderConnectionResolver()` 本身直接读取 Family selection，并在可用后才创建带 Team scope 的
-`ZhipuAccountAccessConfig`。而 Renderer 的 `resolveAccountProviderAccess()` 只接受已经出现在
-`ProviderSettingsView.effectiveConfig.access` 中、且能通过完整 Account Access Schema 的结果。也就是说，权益 UI
-把 Account Overlay 的输出重新当作自己的访问输入；一旦 Overlay 没有成功发布完整 access，页面无法使用
-`setting.json` 中已经存在的 Team selection 解释失败原因。
+O próprio `createAccountProviderConnectionResolver()` lê diretamente a Family selection e, só após disponível, cria o `ZhipuAccountAccessConfig` com escopo Team. Já o `resolveAccountProviderAccess()` do Renderer só aceita resultados que já apareceram em `ProviderSettingsView.effectiveConfig.access` e que passam pelo Schema completo de Account Access. Ou seja, a UI de entitlement reaproveita a saída do Account Overlay como entrada de seu próprio acesso; assim que o Overlay não publica um access completo, a página não consegue usar a Team selection que já existe no `setting.json` para explicar a causa da falha.
 
-### 4.3 不能直接采用的修复
+### 4.3 Correções que não podem ser adotadas diretamente
 
-- 不能因为 Team quota 请求成功就在 Renderer 强制把 Provider 标为 enabled；这会绕过 Account Overlay。
-- 不能让 Usage UI 自己拼一份新的 `accessId` 或 Account Config；这会产生第二套 Account Access 事实。
-- 不能在 Registry 为空时回退到固定 Provider ID 或默认模型；这会破坏 Provider / Model 身份边界。
+- Não é possível forçar no Renderer a marcação do Provider como enabled só porque a requisição de quota do Team teve sucesso; isso burlaria o Account Overlay.
+- Não é possível deixar a UI de Usage montar por conta própria um novo `accessId` ou Account Config; isso criaria um segundo conjunto de fatos de Account Access.
+- Não é possível recorrer a um Provider ID fixo ou ao modelo padrão quando o Registry está vazio; isso quebraria a fronteira de identidade de Provider / Model.
 
-### 4.4 后续需要对齐的问题
+### 4.4 Questões a alinhar posteriormente
 
-1. Team selection 到 Account Overlay 发布之间究竟在哪一步丢失完整 access；需要给 Connection Result / Overlay 发布增加可观察证据并复现实测。
-2. Usage entitlement 应继续消费 Effective Account Access，还是应消费账号连接域的选择事实；两者的职责需要统一，不能各自拼装。
-3. Account Provider 已验证可用但未进入 Registry 时，Settings View 应如何同时呈现“套餐有效”和“Provider 不可执行”的诊断，而不是统一显示获取失败。
+1. Em qual etapa entre a Team selection e a publicação do Account Overlay o access completo é perdido; é necessário adicionar evidência observável à publicação do Connection Result / Overlay e reproduzir a medição.
+2. O entitlement de Usage deve continuar consumindo o Effective Account Access ou deve consumir o fato de seleção do domínio de conexão da conta; as responsabilidades precisam ser unificadas, sem montagem paralela por parte de cada um.
+3. Quando o Account Provider já foi validado como disponível mas não entrou no Registry, como a Settings View deve apresentar simultaneamente o diagnóstico de "plano válido" e "Provider não executável", em vez de exibir uniformemente uma falha na obtenção.
 
-在这些问题裁决前，本轮不修改 Account Overlay、accessId、套餐模型成员约束或 Registry 完整性语义。
+Até que essas questões sejam decididas, esta rodada não modifica o Account Overlay, o accessId, as restrições de associação de modelos por plano ou a semântica de integridade do Registry.

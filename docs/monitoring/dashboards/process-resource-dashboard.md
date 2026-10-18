@@ -1,69 +1,69 @@
-# ZCode 全进程资源监控
+# Monitoramento de recursos de todos os processos do ZCode
 
-## 已确认的产品范围
+## Escopo de produto confirmado
 
-2026-09-15 经讨论确认：新建独立阿里云 CMS 仪表盘，优先回答版本回归和资源健康问题，兼顾单设备排查与采集验收。本期不创建告警、订阅或分享权限。
+2026-09-15, confirmado por discussão: criar um dashboard independente no Alibaba Cloud CMS, priorizando respostas a perguntas de regressão de versão e de saúde de recursos, ao mesmo tempo atendendo à investigação de um único dispositivo e à aceitação da coleta. Nesta etapa não são criados alertas, assinaturas nem permissões de compartilhamento.
 
-- 工作空间：`arms-id-placeholder`。
-- 数据源：北京 `arms-project-placeholder` / `logstore-rum`。
-- 应用约束：`service_id = arms-id-placeholder`。
-- 仅消费 `perf_process_window`、`perf_system_window`、`perf_tool_exec_resource`。旧看板继续独立存在，不拼接旧资源事件。
-- 默认 `prod`、最近 24 小时。提供环境、版本和操作系统筛选；硬件筛选用于控制版本比较的机器差异。
-- 双列图表、七个折叠分区，首页突出总览与版本比较。
+- Workspace: `arms-id-placeholder`.
+- Fonte de dados: `arms-project-placeholder` de Pequim / `logstore-rum`.
+- Restrição da aplicação: `service_id = arms-id-placeholder`.
+- Consome apenas `perf_process_window`, `perf_system_window`, `perf_tool_exec_resource`. O dashboard antigo continua existindo de forma independente, sem concatenar eventos de recursos antigos.
+- Padrão `prod`, últimas 24 horas. Oferece filtros de ambiente, versão e sistema operacional; o filtro de hardware serve para controlar as diferenças de máquina na comparação de versões.
+- Gráficos em duas colunas, sete seções colapsáveis, com a home-page destacando visão geral e comparação de versões.
 
-## 分区
+## Seções
 
-| 分区           | 展示内容                                                                      |
-| -------------- | ----------------------------------------------------------------------------- |
-| 资源总览       | 上报设备标识数、事件新鲜度、应用 CPU/RSS 的设备分布与趋势、整机压力           |
-| 版本与进程角色 | 按版本/角色的 CPU、RSS、单进程峰值、后台 CPU、JS heap、进程数量与 uptime 分桶 |
-| MCP 资源排行   | 本机 MCP 按 mcp_id 的内存与后台 CPU 排行                                      |
-| 慢 Bash        | 本机运行至少 15 秒命令的耗时、资源、退出类型及采样情况                        |
-| 远端资源       | 远端 CLI/MCP 的角色指标及远端慢 Bash，独立于本机应用总量                      |
-| 单设备排查     | 按 device_mid 选择设备，展示本机应用、角色、整机上下文时间线                  |
-| 采集质量       | 三类事件及角色覆盖、采样数量、heap 覆盖、遥测自身开销                         |
+| Seção                  | Conteúdo exibido                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Visão geral de recursos | Quantidade de identificadores de dispositivos reportados, frescura dos eventos, distribuição e tendência de CPU/RSS da aplicação e pressão da máquina inteira |
+| Versão e papel do processo | CPU, RSS, pico de processo único, CPU de background, JS heap, quantidade de processos e buckets de uptime por versão/papel |
+| Ranking de recursos MCP | Ranking de memória e CPU de background dos MCP locais por `mcp_id` |
+| Bash lento | Duração, recursos, tipo de saída e situação de amostragem de comandos executados localmente com pelo menos 15 segundos |
+| Recursos remotos | Métricas por papel de CLI/MCP remoto e Bash lento remoto, independentes do total da aplicação local |
+| Investigação de um dispositivo | Seleção de dispositivo por `device_mid`, exibindo linha do tempo do aplicativo local, dos papéis e do contexto da máquina inteira |
+| Qualidade da coleta | As três classes de eventos e cobertura por papel, quantidade de amostras, cobertura de heap e o próprio custo da telemetria |
 
-## 统计契约
+## Contrato estatístico
 
-1. 同一时间范围、同一筛选条件下比较有新事件的版本。本期不做共同设备升级前后配对，不自动指定稳定版本，不计算旧/新事件之间的涨跌。
-2. CPU/RSS 稳态指标先按设备及版本汇总窗口均值，再计算设备之间的 P50/P95。趋势图在每个时间桶内执行同一规则。不得把窗口 p95 的分位数标成原始 CPU 样本的 p95。
-3. 峰值先取每设备在范围内的最大值，再计算群体分布；角色总 RSS、最大单进程 RSS 和 heap 的统计口径分别注明。多实例 heap 是最大单进程读数，不是角色 heap 总量。
-4. 每组显示设备标识数量；少于 100 时显示样本不足，local 始终仅用于验收。数值可查看，但不作回归健康评级，不使用红绿表示版本好坏。
-5. 无事件时显示暂无数据；可确认的事件数可为 0，CPU、RSS、比例等无样本指标为 null/空，不填零、不插值补齐缺口。
-6. 整机事件只描述桌面机器及本机应用进程。远端数据的 device_mid 是上报桌面端标识，不是远端物理机 ID；没有上报远端环境 ID，无法在看板中区分同一桌面连接的同规格多台远端机器，禁止将这些样本相加为远端总量。
-7. Windows 慢 Bash 没有进程树资源；sample_count=0 的命令也不参与进程树消耗统计。慢 Bash 只有 >=15 秒命令，不能计算全部命令慢命令率。CPU 时间/耗时为已观测 CPU 核数当量，可大于 1，不能直接证明是在等待网络或输入。
-8. Bash 事件没有 arch、CPU 核数、总内存字段；硬件筛选只对具有该字段的进程/系统分区生效。Bash 不关联猜测远端总内存，不计算整机剩余内存百分比。
-9. uptime 分桶的设备群体可能不同，趋势只提供排查线索，不直接诊断泄漏。缺少 heap 的角色/窗口保留空值。
-10. 低 sample_count 可能来自正常退出残窗，角色缺失可能来自未启动，不直接判为采集故障。遥测自身耗时是窗口内 main 采样聚合的累计墙钟毫秒数，不等于整套遥测 CPU 成本。
+1. Comparar versões que têm eventos novos sob o mesmo intervalo de tempo e os mesmos filtros. Nesta etapa não se faz pareamento de antes/depois da atualização no mesmo dispositivo, não se indica automaticamente uma versão estável e não se calcula variação entre eventos antigos e novos.
+2. Para as métricas de regime permanente de CPU/RSS, primeiro agrega-se a média da janela por dispositivo e versão, e só então se calculam P50/P95 entre dispositivos. Os gráficos de tendência aplicam a mesma regra dentro de cada bucket de tempo. Não é permitido rotular o percentil do p95 da janela como p95 das amostras brutas de CPU.
+3. Para os picos, toma-se primeiro o máximo por dispositivo dentro do intervalo e só então se calcula a distribuição populacional; a base de cálculo do RSS total por papel, do RSS máximo de processo único e do heap deve ser anotada separadamente. O heap de múltiplas instâncias é a maior leitura de processo único, não o total de heap do papel.
+4. Cada grupo exibe a quantidade de identificadores de dispositivos; abaixo de 100 mostra "amostra insuficiente", e `local` serve sempre apenas para aceitação. Os valores podem ser consultados, mas não servem como avaliação de saúde de regressão, e não se usa vermelho/verde para indicar qualidade de versão.
+5. Sem eventos, exibe "sem dados"; uma quantidade de eventos confirmável pode ser 0, enquanto métricas sem amostra (CPU, RSS, proporções) são null/vazias — não se preenche com zero e não se interpola para completar lacunas.
+6. Eventos de máquina inteira descrevem apenas máquinas desktop e o processo do aplicativo local. O `device_mid` dos dados remotos é o identificador do desktop que reportou, e não o ID da máquina física remota; como não há ID do ambiente remoto reportado, não é possível distinguir no dashboard várias máquinas remotas de mesma especificação conectadas ao mesmo desktop. É proibido somar essas amostras como total remoto.
+7. Bash lento no Windows não tem recursos de árvore de processos; comandos com `sample_count=0` também não participam da estatística de consumo da árvore de processos. Bash lento cobre apenas comandos >=15 segundos, portanto não é possível calcular a taxa de comandos lentos sobre todos os comandos. O tempo de CPU / a duração corresponde ao equivalente em núcleos de CPU já observados, pode ser maior que 1 e não prova, por si só, que houve espera por rede ou por entrada.
+8. Eventos de Bash não têm campos de arch, número de núcleos de CPU nem memória total; o filtro de hardware só tem efeito nas seções de processo/sistema que possuem esses campos. Bash não é associado a uma memória total remota estimada e a porcentagem de memória restante da máquina inteira não é calculada.
+9. Os grupos de dispositivos por bucket de uptime podem ser diferentes; a tendência oferece apenas pistas de investigação e não diagnostica vazamento diretamente. Papéis/janelas sem heap mantêm o valor vazio.
+10. Um `sample_count` baixo pode vir da janela residual de uma saída normal, e um papel ausente pode vir de nunca ter sido iniciado; nenhum dos dois é diretamente classificado como falha de coleta. O tempo gasto pela própria telemetria é a soma acumulada de milissegundos de wall clock da agregação das amostras de main dentro da janela, e não equivale ao custo de CPU de toda a telemetria.
 
-## 配置与验收
+## Configuração e aceitação
 
-可导入 [原生 JSON](./process-resource-dashboard.json) 与 [SQL 查询清单](./process-resource-queries.json) 放在本目录。
+Podem ser colocados neste diretório o [JSON nativo](./process-resource-dashboard.json) e a [lista de consultas SQL](./process-resource-queries.json) para importação.
 
-### 已交付（2026-09-15）
+### Entregue (2026-09-15)
 
-- [线上仪表盘](https://cmsnext.console.aliyun.com/next/region/cn-beijing/workspace/arms-id-placeholder/app/dashboard/detail/dashboard-1789470797128-483124)：`dashboard-1789470797128-483124`。
-- 32 张数据图表/卡片、7 个折叠分区、8 个全局筛选控件；查询清单为 32 条面板查询和 1 条版本列表查询。
-- 默认时间通过 `attribute.time` 固定最近 24 小时；环境采用单选变量 `env`，SQL 缺省为 prod，防止开发和生产混算。版本保留原生多选过滤器。
-- 趋势图使用原生 `classify` 转换，将 `time / series / value` 拆成独立曲线。不能只在 SQL 中 GROUP BY series 后用默认线图，否则不同角色会连成一条线。
-- 全局过滤器统一保留 `xPos=0`，通过 `fixedTopOrder` 排序，防止被原生布局排序分入第一条折叠行。设备输入配有顶部可移除标签；清除标签后单设备区回到未选择空态。
-- 变量按原值替换，字符串必须在 SQL 中显式引用；默认全部维度使用 `all` 分支。不要误以为带前缀的变量会自动添加 SQL 引号。
-- 空样本 CPU/RSS 卡片的聚合查询使用 HAVING 排除无有效值结果，避免显示 `null%`。事件计数仍显示真实 0。整机 CPU 趋势含 90% 参考线；内存水位表含应用占用 40% 和整机空闲 5% 参考阈值，无自动告警。
-- SLS 当前上下文的 `from_unixtime` 已输出北京时间，不能再手动加 28800 秒。
+- [Dashboard em produção](https://cmsnext.console.aliyun.com/next/region/cn-beijing/workspace/arms-id-placeholder/app/dashboard/detail/dashboard-1789470797128-483124): `dashboard-1789470797128-483124`.
+- 32 gráficos/cartões de dados, 7 seções colapsáveis, 8 controles de filtro globais; a lista de consultas contém 32 consultas de painel e 1 consulta de lista de versões.
+- O tempo padrão é fixado nas últimas 24 horas por `attribute.time`; o ambiente usa a variável de seleção única `env`, com padrão prod no SQL, evitando misturar desenvolvimento e produção em um cálculo. As versões mantêm o filtro nativo de múltipla seleção.
+- Os gráficos de tendência usam a transformação nativa `classify`, quebrando `time / series / value` em curvas separadas. Não se pode apenas fazer GROUP BY de series no SQL e usar o gráfico de linhas padrão, senão os diferentes papéis seriam conectados em uma única linha.
+- Os filtros globais mantêm uniformemente `xPos=0` e são ordenados via `fixedTopOrder`, evitando serem posicionadas na primeira linha colapsada pelo layout nativo. O campo de dispositivo tem uma etiqueta removível no topo; depois de remover a etiqueta, a seção de dispositivo único volta ao estado vazio sem seleção.
+- As variáveis são substituídas pelo valor original, e strings precisam ser explicitamente referenciadas no SQL; a dimensão padrão "todos" usa o ramo `all`. Não se deve supor que variáveis com prefixo adicionam aspas de SQL automaticamente.
+- As consultas de agregação dos cartões de CPU/RSS sem amostras usam HAVING para excluir resultados sem valores válidos, evitando exibir `null%`. A contagem de eventos continua exibindo o 0 real. A tendência de CPU da máquina inteira inclui uma linha de referência de 90%; a tabela de nível de memória inclui os limiares de referência de 40% de ocupação da aplicação e 5% de ociosidade da máquina inteira, sem alerta automático.
+- O `from_unixtime` do contexto atual do SLS já devolve o horário de Pequim; não se pode mais somar manualmente 28800 segundos.
 
-### 验证结果
+### Resultados da verificação
 
-- 33 条基础查询全部在真实 SLS 执行通过；覆盖 local、prod、平台/硬件、前后台、指定设备和未指定设备。变量引用修正后，对关键默认值和筛选路径再次执行 SQL 并在真实浏览器验证。
-- 浏览器重新打开默认 prod / 1 天：事件数和设备数为 0，CPU/RSS 和趋势显示“暂无数据”。切到 local / macOS 后查询正常。
-- local 观测：进程事件 231 条、系统事件 24 条、慢 Bash 2 条；版本 3.12.1。系统对照表显示 13 个设备标识及“local：仅验收”；全部新事件覆盖 23 个标识，不能解释为 23 台物理机。
-- 页面核对了版本对照、角色分线、慢 Bash 正常完成/终止各一条、采集覆盖和北京时间。单设备输入能产生角色时间线，清除顶部标签后输入为空；折叠全部分区后 8 个全局筛选器仍保留。
-- MCP / remote 无真实新样本，SQL 成功返回空集；尚不能验证它们的真实数据分布、Windows 资源字段表现或双版本比较效果。生产尚无新事件，不作生产资源结论。
-- `pnpm typecheck`、`pnpm lint` 通过，lint 为 0 error / 43 条既有 warning。本次只新增仪表盘 JSON、查询清单及说明，没有改应用或 Agent 实现。
+- As 33 consultas básicas passaram todas na execução real do SLS; cobrem local, prod, plataforma/hardware, foreground/background, dispositivo especificado e não especificado. Depois de corrigidas as referências de variáveis, o SQL das chaves de valor padrão e dos caminhos de filtro foi executado novamente e verificado em um navegador real.
+- Reabrindo prod / 1 dia no navegador: quantidade de eventos e de dispositivos é 0, e CPU/RSS e tendências mostram "sem dados". Ao alternar para local / macOS, a consulta funciona normalmente.
+- Observação em local: 231 eventos de processo, 24 eventos de sistema, 2 eventos de Bash lento; versão 3.12.1. A tabela de controle do sistema mostra 13 identificadores de dispositivo e "local: apenas para aceitação"; todos os eventos novos cobrem 23 identificadores, o que não pode ser interpretado como 23 máquinas físicas.
+- A página conferiu comparação de versões, linhas por papel, um caso de Bash lento concluído normalmente e um encerrado, cobertura de coleta e horário de Pequim. O campo de dispositivo único consegue produzir a linha do tempo por papel; após remover a etiqueta do topo, o campo fica vazio; com todas as seções colapsadas, os 8 filtros globais são preservados.
+- MCP / remote não têm amostras novas reais, e o SQL retorna com sucesso um conjunto vazio; ainda não é possível verificar a distribuição real de dados deles, o comportamento dos campos de recursos no Windows ou o efeito da comparação de duas versões. Ainda não há eventos novos em produção, e nenhuma conclusão de recursos de produção é extraída.
+- `pnpm typecheck` e `pnpm lint` passaram, com lint em 0 error / 43 warnings já existentes. Desta vez foram adicionados apenas o JSON do dashboard, a lista de consultas e a explicação; nenhuma implementação do aplicativo ou do Agent foi alterada.
 
-### 后续更新与回滚
+### Atualizações futuras e rollback
 
-2026-09-15 的逐图 SQL 复审见 [仪表盘 SQL 复审](./process-resource-dashboard-review.md)。其中记录已确认的口径缺陷与展示增强建议，尚未修改已交付配置。
+A revisão de SQL gráfico a gráfico de 2026-09-15 está em [Revisão de SQL do dashboard](./process-resource-dashboard-review.md). Ali estão registrados os defeitos de base de cálculo confirmados e as sugestões de aprimoramento de exibição, sem que a configuração entregue tenha sido modificada.
 
-在已有线上仪表盘的「编辑 → 设置 → 仪表盘 JSON」更新同一 ID；更新前保留当前版本，禁止重复新建同名仪表盘。原生平台的「版本」页可恢复之前配置。修改 SQL 后先运行只读 SLS 查询，再核对环境、空态、实际变量替换和图例，最后同步本目录文件。首批 prod 和第二个新版本到达后，补真实群体、MCP、remote 和跨版本验收；告警另行讨论。
+Para atualizar o mesmo ID no dashboard já existente em produção, use «Editar → Configurações → JSON do dashboard»; antes de atualizar, preserve a versão atual e é proibido recriar um dashboard duplicado com o mesmo nome. A aba «Versões» da plataforma nativa permite restaurar configurações anteriores. Depois de alterar o SQL, execute primeiro as consultas somente leitura do SLS, depois confira ambiente, estado vazio, substituição real de variáveis e a legenda e, por fim, sincronize os arquivos deste diretório. Depois que os primeiros dados de prod e a segunda versão nova chegarem, complete a aceitação com grupos reais, MCP, remote e entre versões; alertas serão discutidos à parte.
 
-原生格式参考：[阿里云仪表盘 JSON 导入导出说明](https://help.aliyun.com/zh/sls/import-and-export-sls-dashboards)。统计字段定义来自 [全进程资源 spec](../process-resource-telemetry.md)。
+Referências ao formato nativo: [Instruções de importação e exportação de dashboards JSON do Alibaba Cloud](https://help.aliyun.com/zh/sls/import-and-export-sls-dashboards). As definições dos campos estatísticos vêm do [spec de recursos de todos os processos](../process-resource-telemetry.md).

@@ -1,12 +1,12 @@
-# Assistant Streaming Text Rendering（当前事实）
+# Renderização de Texto em Streaming do Assistant (fatos atuais)
 
-Assistant 正文来自 V4 `assistantText` row。CLI reducer 产生 row delta，`ConversationProjectionStore` 应用后，`ConversationRowView` 把当前完整 `row.text` 交给 `MessageResponse`/Streamdown 渲染。
+O corpo do Assistant vem da row V4 `assistantText`. O reducer da CLI produz row deltas, o `ConversationProjectionStore` os aplica e o `ConversationRowView` entrega o `row.text` completo atual ao `MessageResponse`/Streamdown para renderização.
 
-当前没有旧 `useTaskStreamEvents` 50ms batch，也没有 UI 自行维护的逐词 reveal 队列。节奏由权威 delta 到达和 React 渲染决定；结束态必须与 snapshot 中的 row 文本逐字一致。
+Atualmente não existe o antigo batch de 50ms do `useTaskStreamEvents` nem uma fila de reveal palavra a palavra mantida pela própria UI. O ritmo é determinado pela chegada dos deltas autoritativos e pela renderização do React; o estado final deve ser idêntico, caractere a caractere, ao texto da row no snapshot.
 
 ```text
 CLI text event -> ProductProjection row delta -> SessionDataLayer
   -> ConversationProjectionStore -> ConversationRowView -> MessageResponse
 ```
 
-优化流式体验时不能在 UI 生成第二份正文或用 timer 改写最终文本；合批必须保持 seq、rowId 和 snapshot/delta 收敛语义。
+Ao otimizar a experiência de streaming, a UI não pode gerar uma segunda cópia do corpo nem reescrever o texto final com timer; o agrupamento em lotes deve preservar seq, rowId e a semântica de convergência snapshot/delta.

@@ -1,25 +1,25 @@
-# Slash Command 和官方插件描述汉化
+# Localização das Descrições de Slash Commands e Plugins Oficiais
 
-## 背景
+## Contexto
 
-`/` 面板会把 ZCode Agent 的可见 slash command 和已启用 skill 合并展示。内置 command 的描述来自协议命令表，官方插件附带的 command、skill 和 MCP 工具描述来自插件包自身的元数据与 MCP server 注册信息。
+O painel `/` combina na exibição os slash commands visíveis do ZCode Agent e as skills habilitadas. As descrições dos commands embutidos vêm da tabela de comandos do protocolo, enquanto as descrições de commands, skills e ferramentas MCP fornecidos pelos plugins oficiais vêm dos metadados do próprio pacote do plugin e das informações de registro do MCP server.
 
-## 目标
+## Objetivos
 
-- 中文 UI 中，内置 `/compact`、`/goal` 的描述必须显示中文。
-- 官方插件附带的 command frontmatter `description` 必须是中文。
-- 官方插件附带的 skill frontmatter `description` 必须是中文。
-- 官方插件附带的 MCP tool `title`、`description` 和参数 `describe(...)` 必须是中文，避免工具列表继续出现英文说明。
+- Na UI em chinês, as descrições dos `/compact` e `/goal` embutidos devem ser exibidas em chinês.
+- O `description` do frontmatter dos commands fornecidos pelos plugins oficiais deve estar em chinês.
+- O `description` do frontmatter das skills fornecidas pelos plugins oficiais deve estar em chinês.
+- O `title`, a `description` dos MCP tools fornecidos pelos plugins oficiais e os `describe(...)` dos parâmetros devem estar em chinês, evitando que a lista de ferramentas continue exibindo explicações em inglês.
 
-## 边界
+## Limites
 
-- 用户自定义 command、用户/工作区 skill、第三方插件的原始描述不自动翻译，继续展示作者提供的文案。
-- 内置 command 仍保留协议层的兼容字段；UI 展示时按当前 locale 覆盖稳定内置命令的描述。
-- 官方插件当前没有 per-locale manifest/frontmatter 协议，因此官方资源的展示描述直接写为中文。
+- Commands definidos pelo usuário, skills de usuário/workspace e as descrições originais de plugins de terceiros não são traduzidos automaticamente; continuam exibindo o texto fornecido pelo autor.
+- Os commands embutidos mantêm os campos de compatibilidade da camada de protocolo; na exibição da UI, a descrição dos commands embutidos estáveis é sobrescrita conforme o locale atual.
+- Os plugins oficiais atualmente não possuem um protocolo de manifest/frontmatter por locale; por isso, as descrições dos recursos oficiais são escritas diretamente em chinês.
 
-## 验收
+## Aceitação
 
-- 中文 `/` 面板中 `/compact` 和 `/goal` 不再显示英文描述。
-- 官方插件的 `android-dev`、`ios-dev`、`control-browser`、`docx`、`pdf`、`skill-creator` 技能描述为中文。
-- 官方插件 `android-dev`、`ios-dev` command 描述为中文。
-- Android Emulator 和 iOS Simulator MCP 工具标题、说明、参数说明为中文。
+- No painel `/` em chinês, `/compact` e `/goal` não exibem mais descrições em inglês.
+- As descrições das skills `android-dev`, `ios-dev`, `control-browser`, `docx`, `pdf` e `skill-creator` dos plugins oficiais estão em chinês.
+- As descrições dos commands `android-dev` e `ios-dev` dos plugins oficiais estão em chinês.
+- Os títulos, as descrições e as descrições de parâmetros das ferramentas MCP do Android Emulator e do iOS Simulator estão em chinês.

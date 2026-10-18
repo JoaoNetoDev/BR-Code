@@ -1,97 +1,146 @@
-# M6 Phase 1 — CLI provider/凭据解析（runtimeModel）历史设计
+# M6 Fase 1 — desenho histórico da resolução de provider/credenciais na CLI (runtimeModel)
 
-> **状态：已被 Provider Refactor 取代，仅保留方案选择与迁移轨迹。** 当前常态由目标 Environment 的
-> Provider Registry 与 ModelFactory 创建 Active Model；`workspace model catalog`、`runtimeModel` 回落、
-> `workspace/updateProviderRegistry` 和凭据快照下发已经退出。当前事实见
-> `docs/working-memory/provider-refactor/design/`。
+> **Status: substituído pelo Provider Refactor; apenas as escolhas de solução e o rastro de migração são mantidos.**
+> O estado atual é criado pelo Provider Registry e pelo ModelFactory do Environment de destino; o
+> `workspace model catalog`, o fallback de `runtimeModel`, o `workspace/updateProviderRegistry` e o
+> envio de snapshots de credenciais saíram de cena. Os fatos atuais estão em
+> `docs/working-memory/provider-refactor/design/`.
 
-补齐 v4 「切模型只支持同 provider 直切」的地基：让**跨 provider / 切连接方式**真正在 runtime 生效。
-承 `m6-model-selection-parity.md`；用户裁决全量对齐 + 保留默认兜底与 coding-plan 逻辑。
+Consolidar a base do v4 "trocar de modelo só suporta troca direta no mesmo provider": fazer a troca **entre
+providers / de modo de conexão** realmente valer em runtime.
+Dando continuidade a `m6-model-selection-parity.md`; o usuário decidiu pelo alinhamento total, mantendo o fallback
+padrão e a lógica de coding-plan.
 
-## 0. 一句话结论（勘查两侧后的关键发现）
+## 0. Conclusão em uma frase (a descoberta-chave após investigar os dois lados)
 
-**app 从不手搓 runtimeModel。** 老版 toolbar 只推「模型 ref 选择」，真正的 `runtimeModel`
-（凭据/endpoint/Start-Plan JWT 头/Team-Plan projectId+key/官方版本安全校验头/thought 收窄）由
-**存活的 service 层**（`packages/services/.../zcodeAgentService.ts` + `modelProviderService.ts`）
-在每次 RPC 派发时**从 app 的 provider registry 快照惰性解析**。该 service 层是**共享基建，
-不是被删的 UI toolbar，也不在 CLI 的 `zcode-protocol/` 禁区**——v4 可整体复用。
-→ **「保留 coding-plan + 默认兜底」几乎白送：只要复用 service 层的解析/registry 快照，不重写。**
+**O app nunca monta o runtimeModel à mão.** A toolbar antiga empurra apenas a "seleção de ref de modelo"; o
+`runtimeModel` real (credenciais/endpoint/cabeçalho Start-Plan JWT/projectId+key do Team-Plan/cabeçalho de
+verificação de segurança da versão oficial/redução de thought) é resolvido de forma preguiçosa pela **camada de
+service viva** (`packages/services/.../zcodeAgentService.ts` + `modelProviderService.ts`) **a partir do snapshot
+do provider registry do app, a cada despacho de RPC**. Essa camada de service é **infraestrutura compartilhada,
+não a toolbar de UI removida, e também não está na zona proibida `zcode-protocol/` da CLI** — o v4 pode reutilizá-la
+inteiramente.
+→ **"Manter coding-plan + fallback padrão" sai quase de graça: basta reutilizar a resolução/snapshot de registry da
+camada de service, sem reescrever.**
 
-## 1. 现状事实（两侧勘查）
+## 1. Fatos atuais (investigação dos dois lados)
 
-### CLI 侧（apply 原语 + 兜底）
+### Lado da CLI (primitivas de apply + fallbacks)
 
-- v4 handler `zcode-protocol-v4/commands/handlers/model-config.ts:41` 只 `app.setModel(formatModelRef)`
-  ——**只在当前 registry 内重选模型，不换 provider client**（注释 :36 自认）。
-- 真正换 provider client 的核心原语（v4 可原生调，不碰禁区）：
-  **`record.app.setModelCatalogOverlay(overlay)`（装带凭据的 provider registry → `modelAdapter.replaceRegistryConfig`，`app/model-catalog-overlay.ts:69`）→ 再 `app.setModel(...)` + 可选 `setThoughtLevel`。**
-- overlay 由 `createModelCatalogOverlay(catalog, env)`（`zcode-protocol/workspace-model-catalog.ts:1181`）
-  从 `context.workspaceModelCatalogs` 构建；catalog 由 `updateProviderRegistry` 推入。
-- **无桥禁令**（`bootstrap/tests/v4-native-boundary.test.ts`）：v4 目录禁 import 任何 `zcode-protocol/`
-  路径（含 server-operations **与** workspace-model-catalog）；但 `record.app.*` / `record.app.runtime.*`
-  自由可调。**binder `v4-bridge.ts` 在旧目录，合法 import workspace-model-catalog 的原语** → overlay 构建走 host capability 注入。
-- **要保留的 CLI 兜底**（都在 apply 写路径之外，本 Phase 不动、原样保留）：
-  `reconcileResumedRuntimeSettings`（`server-operations.ts:3106`：`runtime_model_authoritative` :3136 + `persisted_model_unavailable` 保留当前值并 warn :3145）、
-  `derivePersistedRuntimeSettings`（:3013）、`ensureSessionModelAvailableForNextTurn`（:2535，**已绑为 v4 `ensureModelReady` hook**）、`DEFAULT_MODEL`/`createModelConfigMissingError`（`model-config.ts:33/47`）。
+- o handler v4 `zcode-protocol-v4/commands/handlers/model-config.ts:41` só faz `app.setModel(formatModelRef)`
+  —— **reseleciona o modelo dentro do registry atual, sem trocar o client do provider** (o próprio comentário em :36 admite
+  isso).
+- a primitiva central que realmente troca o client do provider (chamável nativamente pelo v4, sem tocar a zona
+  proibida):
+  **`record.app.setModelCatalogOverlay(overlay)` (instala o provider registry com credenciais →
+  `modelAdapter.replaceRegistryConfig`, `app/model-catalog-overlay.ts:69`) → e então `app.setModel(...)` +
+  `setThoughtLevel` opcional.**
+- o overlay é construído por `createModelCatalogOverlay(catalog, env)`
+  (`zcode-protocol/workspace-model-catalog.ts:1181`) a partir de `context.workspaceModelCatalogs`; o catalog é
+  empurrado por `updateProviderRegistry`.
+- **Não há proibição de ponte** (`bootstrap/tests/v4-native-boundary.test.ts`): o diretório v4 proíbe importar
+  qualquer caminho `zcode-protocol/` (tanto server-operations **quanto** workspace-model-catalog); mas
+  `record.app.*` / `record.app.runtime.*` podem ser chamados livremente. **O binder `v4-bridge.ts` fica no diretório
+  antigo, e ali é legal importar as primitivas de workspace-model-catalog** → a construção do overlay passa por
+  injeção de host capability.
+- **Fallbacks da CLI a manter** (todos fora do caminho de escrita do apply; esta Fase não os toca e os mantém como
+  estão):
+  `reconcileResumedRuntimeSettings` (`server-operations.ts:3106`: `runtime_model_authoritative` :3136 +
+  `persisted_model_unavailable` mantém o valor atual e emite warn :3145),
+  `derivePersistedRuntimeSettings` (:3013), `ensureSessionModelAvailableForNextTurn` (:2535, **já ligado como hook v4
+  `ensureModelReady`**), `DEFAULT_MODEL`/`createModelConfigMissingError` (`model-config.ts:33/47`).
 
-### App/service 侧（解析 runtimeModel + coding-plan + 兜底）
+### Lado App/service (resolução do runtimeModel + coding-plan + fallbacks)
 
-- **两层**：toolbar（`modelChangeActions.ts` 三条 handler：推 model-ref + 决定 restart + 推 registry）
-  → service（`zcodeAgentService.ts`：`const runtimeModel = params.runtimeModel ?? await resolveRuntimeModelConfig({...})`，从 `modelProviderService.getProviderRegistrySnapshot()` 惰性解析并随 RPC 下发）。
-- **runtimeModel 解析引擎**（service，共享，**复用不重写**）：`resolveRuntimeModelConfig`（`zcodeAgentService.ts:1569`）+ `createRuntimeModelConfig`（:645）+ `modelProviderService.buildProviderRegistrySnapshot`（:803）。
-- **coding-plan/start-plan/team-plan 凭据注入全在 service 层**（⚠️ 保留）：
-  `pickResolvedFamilyProvider`（连接方式 Start/APIKey/Coding/Team 选型，:196）、
-  `buildStartPlanRuntimeAuthorizationHeaders`（Start Plan `Authorization: Bearer <jwt>`，:541）、
-  `resolveSelectedBigModelTeamPlanRuntimeApiKey`（Team Plan org/projectId + project key，:559）、
-  剥离官方版本安全校验一次性头的 helper（:516）、
-  `resolveSupportedRuntimeThoughtLevel`（目标模型不支持 thought 则丢弃，:615）、
-  Team Plan 移除守卫（provider 被过滤则抛 unavailable 不静默兜底个人 key，:1615/:855）。
-- **runtimeModel schema**（`shared/zcode-protocol/index.ts:523` `zcodeModelRuntimeConfigSchema`）：
-  `{revision, generatedAt, model{providerId,modelId,variant?}, provider(providerId,kind,apiFormat?,baseURL?,apiKey?(inline/credential/env),apiKeyRequired?,headers?,providerOptions?,models[]…), thoughtLevel?}`。
-- **service 契约**：`IZCodeAgentService.setModel({..., model, runtimeModel?, modelProviderFamilySelectedKeys?})` / `updateRuntimeModelConfig({..., runtimeModel, applyModelSelection?})` / `updateProviderRegistry({..., registry})`。
-- **要保留的 app 兜底**（多数属 Phase 2，本 Phase 只需复用 service resolver 自带的那部分）：
-  `resolveRuntimeModelConfig` 内建兜底（历史缺失→undefined 让 agent 恢复 :1583；provider 被移除→抛 unavailable :1615；stale 默认→registry 首个可用 :1678）。
-  toolbar 侧的 `resolveUnavailableModelListFallback` / `resolveLoginProviderFirstModel` / `<synthetic>` / context-window guard / recovery path 归 **Phase 2**（本 Phase 不做，但设计不能挡它们）。
+- **Duas camadas**: toolbar (`modelChangeActions.ts` com três handlers: empurra model-ref + decide restart +
+  empurra o registry)
+  → service (`zcodeAgentService.ts`: `const runtimeModel = params.runtimeModel ?? await
+  resolveRuntimeModelConfig({...})`, resolvido preguiçosamente a partir de
+  `modelProviderService.getProviderRegistrySnapshot()` e enviado junto com o RPC).
+- **Motor de resolução do runtimeModel** (service, compartilhado, **reutilizado e não reescrito**):
+  `resolveRuntimeModelConfig` (`zcodeAgentService.ts:1569`) + `createRuntimeModelConfig` (:645) +
+  `modelProviderService.buildProviderRegistrySnapshot` (:803).
+- **A injeção de credenciais de coding-plan/start-plan/team-plan está toda na camada de service** (⚠️ manter):
+  `pickResolvedFamilyProvider` (seleção do modo de conexão Start/APIKey/Coding/Team, :196),
+  `buildStartPlanRuntimeAuthorizationHeaders` (`Authorization: Bearer <jwt>` do Start Plan, :541),
+  `resolveSelectedBigModelTeamPlanRuntimeApiKey` (org/projectId + project key do Team Plan, :559),
+  helpers que removem o cabeçalho de uso único de verificação de segurança da versão oficial (:516),
+  `resolveSupportedRuntimeThoughtLevel` (descarta quando o modelo alvo não suporta thought, :615), e a guarda de
+  remoção do Team Plan (se o provider é filtrado, lança unavailable em vez de cair silenciosamente na key pessoal,
+  :1615/:855).
+- **Schema do runtimeModel** (`shared/zcode-protocol/index.ts:523` `zcodeModelRuntimeConfigSchema`):
+  `{revision, generatedAt, model{providerId,modelId,variant?}, provider(providerId,kind,apiFormat?,baseURL?,apiKey?(inline/credential/env),apiKeyRequired?,headers?,providerOptions?,models[]…), thoughtLevel?}`.
+- **Contratos de service**: `IZCodeAgentService.setModel({..., model, runtimeModel?, modelProviderFamilySelectedKeys?})`
+  / `updateRuntimeModelConfig({..., runtimeModel, applyModelSelection?})` / `updateProviderRegistry({..., registry})`.
+- **Fallbacks do app a manter** (a maioria pertence à Fase 2; nesta Fase basta reutilizar a parte embutida no
+  resolver de service):
+  fallback embutido em `resolveRuntimeModelConfig` (histórico ausente→undefined deixa o agent restaurar :1583;
+  provider removido→lança unavailable :1615; default stale→primeiro disponível do registry :1678).
+  `resolveUnavailableModelListFallback` / `resolveLoginProviderFirstModel` / `<synthetic>` / guard de context window /
+  caminho de recuperação do lado da toolbar pertencem à **Fase 2** (não são feitos nesta Fase, mas o desenho não pode
+  bloqueá-los).
 
-## 2. 核心设计：1c 混合（用户 2026-07-07 裁决）
+## 2. Desenho central: híbrido 1c (decisão do usuário em 2026-07-07)
 
-runtimeModel（含凭据）怎么进 CLI，三方案对比后**选定 1c 混合**：常态走 1b（CLI 从已推
-registry 解析），provider 不在 registry（刚加/竞态/远端）时回落 1a（app 解析 runtimeModel 随命令推）。
-逐字落地用户「优先 app 传（registry）/ 没有用 CLI 现值 / 更新同步（re-push）」。
+Como o runtimeModel (com credenciais) entra na CLI? Depois de comparar três opções, **optou-se pelo híbrido 1c**: no
+caso normal segue-se 1b (a CLI resolve a partir do registry já enviado); quando o provider não está no registry
+(acabou de ser adicionado/corrida/remoto), há fallback para 1a (o app resolve o runtimeModel e o envia com o comando).
+Implementando literalmente a decisão do usuário "priorizar o envio pelo app (registry) / na ausência usar o valor atual
+da CLI / atualizar sincronizando (re-push)".
 
-| 方案                            | app 侧                                                                                            | v4 协议                                                   | CLI 侧                                                                                                             | 评价                                                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| **1a 每次切换推 runtimeModel**  | 复用 service resolver 解析 runtimeModel，塞进 `switchModelConfig` payload                         | `switchModelConfig` additive `runtimeModel?`（重 schema） | host capability 把 `runtimeModel.provider` 并入 catalog + 建 overlay + setModel                                    | 最贴老版（legacy `session/setModel` 恒带 runtimeModel）、最稳、支持远端；但每命令带凭据、v4 协议耦合重 schema |
-| **1b CLI 从已推 registry 解析** | 只发 `{provider,model}`（现状），保证 registry 已推（连接/凭据变更时 re-push）                    | 零改动                                                    | host capability 从 `context.workspaceModelCatalogs` 建 overlay + setModel                                          | 最省（无协议改、无凭据满天飞）、最贴 v4「CLI 权威」；依赖 registry 时效性                                     |
-| **1c 混合（推荐）**             | 常态走 1b（registry 权威）；provider 不在 CLI registry（刚加/竞态/远端）时回落 1a 带 runtimeModel | additive `runtimeModel?`（可选，仅回落用）                | host capability：payload 有 runtimeModel 用之；否则从 registry 建 overlay；都缺→抛 unavailable 让 app re-push 重试 | 正好落地用户三段式：**优先 app 传（registry）/ 没有用 CLI 现值 / 更新同步（re-push）**；回落链完整            |
+| Opção                              | Lado do app                                                                                        | Protocolo v4                                                | Lado da CLI                                                                                                        | Avaliação                                                                                              |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **1a empurra o runtimeModel a cada troca** | reutiliza o resolver de service para resolver o runtimeModel e o coloca no payload de `switchModelConfig` | `switchModelConfig` aditivo com `runtimeModel?` (redefine o schema) | o host capability funde `runtimeModel.provider` no catalog, monta o overlay e faz setModel | o mais próximo da versão antiga (o legacy `session/setModel` sempre carrega o runtimeModel), o mais estável e com suporte a remoto; mas leva credenciais em cada comando e acopla o v4 a um schema pesado |
+| **1b a CLI resolve a partir do registry já enviado** | envia apenas `{provider,model}` (como hoje), garantindo que o registry já foi enviado (re-push em mudança de conexão/credencial) | nenhuma alteração                                            | o host capability monta o overlay a partir de `context.workspaceModelCatalogs` e faz setModel                       | o mais enxuto (sem mudança de protocolo, sem credenciais voando), o mais alinhado ao "CLI autoritativa" do v4; depende da atualidade do registry |
+| **1c híbrido (recomendado)**        | no caso normal segue 1b (registry autoritativo); quando o provider não está no registry da CLI (recém-adicionado/corrida/remoto), há fallback para 1a com runtimeModel | aditivo com `runtimeModel?` (opcional, só para o fallback)  | host capability: usa o runtimeModel se ele vier no payload; senão monta o overlay a partir do registry; sem nenhum dos dois → lança unavailable para o app fazer re-push e tentar de novo | materializa exatamente a regra de três partes do usuário: **priorizar o envio pelo app (registry) / na ausência usar o valor atual da CLI / atualizar sincronizando (re-push)**; cadeia de fallback completa |
 
-**推荐 1c**：与用户心智（"优先 app 传给 cli；没有用 cli 返回；更新同步"）逐字对上，且 registry 常态、runtimeModel 仅作竞态/远端回落。若想先快落地，可先做 **1b 最小闭环**（依赖现有 registry 推送），再补 1a 回落。
+**Recomendação de 1c**: corresponde literalmente à mentalidade do usuário ("priorizar o envio do app para a CLI; na
+ausência usar o retorno da CLI; atualizar sincronizando"), com registry no caso normal e runtimeModel apenas como
+fallback de corrida/remoto. Se quiser entregar rápido, pode-se fazer primeiro o **mínimo ciclo fechado de 1b** (apoiado no envio
+do registry atual) e depois completar o fallback 1a.
 
-## 3. 分步实现（1c）
+## 3. Implementação por etapas (1c)
 
-**Layer A — v4 协议（additive）** `packages/shared/src/zcode-protocol-v4/command.ts:65`
+**Camada A — protocolo v4 (aditivo)** `packages/shared/src/zcode-protocol-v4/command.ts:65`
 
-- `switchModelConfig` 加 `runtimeModel?`（可选）。schema 复用 `@zcode/shared/zcode-protocol` 的 `zcodeModelRuntimeConfigSchema`（共享包内引用，非 CLI 服务桥；若嫌耦合可定义 v4 mirror——决策见 §5）。
-- `createSession.config` 同样支持携带（首发即用正确 provider），`applyRequestedSessionConfig` 消费。
+- `switchModelConfig` ganha `runtimeModel?` (opcional). O schema reaproveita o `zcodeModelRuntimeConfigSchema` de
+  `@zcode/shared/zcode-protocol` (referência dentro do pacote compartilhado, não a ponte de service da CLI; se o
+  acoplamento incomodar, pode-se definir um espelho v4 — a decisão está na §5).
+- `createSession.config` também pode carregá-lo (desde o primeiro uso já com o provider correto), consumido por
+  `applyRequestedSessionConfig`.
 
-**Layer B — CLI binder + handler**
+**Camada B — binder da CLI + handler**
 
-- `commands/types.ts:41` `V4CommandCoreHost` 加能力 `resolveAndApplyRuntimeModel(sessionId, { model, runtimeModel? }): Promise<{applied:boolean, reason?}>`（过渡 hook，死期=配置面 v4 化，与 `ensureModelReady` 同档）。
-- `v4-bridge.ts:42` coreHost 实现（旧目录合法）：
-  - payload 带 runtimeModel（1a 回落）→ `applyRuntimeModelConfigToWorkspace` 并入 catalog；
-  - 否则从 `context.workspaceModelCatalogs.get(workspaceKey)` 取已推 registry；
-  - `syncAppWorkspaceModelCatalog` → `app.setModelCatalogOverlay(overlay)`；provider 缺失→返回 `{applied:false, reason:"provider_not_in_registry"}`（不抛，交 handler 出结构化 ACK 让 app re-push 重试）。
-- `handlers/model-config.ts:41` `switchModelConfig`：`app.setModel` **之前**调 `host.resolveAndApplyRuntimeModel(...)`；`applied:false` → `failed` ACK（reasonCode `provider.notInRegistry`）不静默；其余保持 setModel/setThoughtLevel/emitModelSelected。`applyRequestedSessionConfig` 同接。
+- `commands/types.ts:41` `V4CommandCoreHost` ganha a capability
+  `resolveAndApplyRuntimeModel(sessionId, { model, runtimeModel? }): Promise<{applied:boolean, reason?}>` (hook de
+  transição, com prazo de morte = a config do v4, na mesma categoria de `ensureModelReady`).
+- `v4-bridge.ts:42` implementação no coreHost (legal por estar no diretório antigo):
+  - payload com runtimeModel (fallback 1a) → `applyRuntimeModelConfigToWorkspace` e funde no catalog;
+  - senão pega o registry já enviado em `context.workspaceModelCatalogs.get(workspaceKey)`;
+  - `syncAppWorkspaceModelCatalog` → `app.setModelCatalogOverlay(overlay)`; provider ausente → devolve
+    `{applied:false, reason:"provider_not_in_registry"}` (não lança, deixando o handler emitir um ACK estruturado para
+    o app fazer re-push e tentar de novo).
+- `handlers/model-config.ts:41` `switchModelConfig`: chama `host.resolveAndApplyRuntimeModel(...)` **antes** de
+  `app.setModel`; `applied:false` → ACK `failed` (reasonCode `provider.notInRegistry`) sem silêncio; o resto mantém
+  setModel/setThoughtLevel/emitModelSelected. `applyRequestedSessionConfig` recebe o mesmo tratamento.
 
-**Layer C — renderer/service（app 侧）**
+**Camada C — renderer/service (lado do app)**
 
-- 1b 常态：保证 registry 时效——沿用现有 `updateProviderRegistry` 推送；**连接方式变更（P4b）/加 provider 时触发 re-push**（对齐老版 `syncModelProviderRegistryBeforeCustomModelWrite`）。
-- 1a 回落：暴露 service resolver 供 v4 调——`IZCodeAgentService` 加 `resolveRuntimeModelForV4({model, modelProviderFamilySelectedKeys})`（薄封装现有 `resolveRuntimeModelConfig`，**零重写 coding-plan/兜底**）；SessionPane `handleSelectModel` 在 `provider_not_in_registry` 回执时解析 runtimeModel 重发一次。
-- 保留 toolbar 兜底（Phase 2 主体，但本 Phase 不得挡）：context-window guard 在会话态切小窗模型时的确认/压缩（`modelSwitchContextWindowGuard`，reserve 64k）；restart-runtime 决策（非 GLM 的外部 agent 类型切模型需 restart，**GLM 不 restart**——v4 主力 GLM 基本不触发）。
+- 1b no caso normal: garantir a atualidade do registry — reaproveitar o `updateProviderRegistry` existente; **disparo
+  de re-push na mudança de modo de conexão (P4b) / ao adicionar provider** (alinhado ao antigo
+  `syncModelProviderRegistryBeforeCustomModelWrite`).
+- fallback 1a: expor o resolver de service para o v4 — `IZCodeAgentService` ganha
+  `resolveRuntimeModelForV4({model, modelProviderFamilySelectedKeys})` (encapsulamento fino do
+  `resolveRuntimeModelConfig` existente, **sem reescrever coding-plan/fallback**); o `handleSelectModel` do SessionPane
+  resolve o runtimeModel e reenvia uma vez ao receber o ACK `provider_not_in_registry`.
+- Manter os fallbacks da toolbar (corpo da Fase 2, mas que esta Fase não pode bloquear): guard de context window na
+  confirmação/compressão ao trocar para um modelo de janela pequena em uma sessão viva
+  (`modelSwitchContextWindowGuard`, reserva de 64k); decisão de restart do runtime (trocar de modelo em um tipo de
+  agent externo que não é GLM exige restart, **GLM não reinicia** — o principal alvo do v4, GLM, quase nunca dispara).
 
-### 3.1 Phase 2 app fallback 收口语义（2026-07-09）
+### 3.1 Semântica de fechamento do fallback de app da Fase 2 (2026-07-09)
 
-Phase 2 只恢复两条旧行为，不重建完整旧 toolbar 状态机：
+A Fase 2 restaura apenas dois comportamentos antigos, sem reconstruir a máquina de estados completa da toolbar antiga:
 
 ```text
 用户选模型
@@ -103,14 +152,21 @@ Phase 2 只恢复两条旧行为，不重建完整旧 toolbar 状态机：
   -> 第二次 ACK 作为最终结果，不再循环
 ```
 
-约束：
+Restrições:
 
-- `provider.notInRegistry` 只自动恢复一次。第二次仍失败时保留原 failed ACK 和日志，由现有错误 UI/调试缓冲呈现。
-- app 侧只同步 provider registry 并为本次 retry 附带 `runtimeModel`；不修改 stream、snapshot、queue 或 replay 语义。
-- 桌面仍是 `desktop-continuous` 实时链路；手机 `/remote` 仍是 `web-remote-replayable` 恢复链路。provider registry 是 workspace 配置控制面，不得把 replayable 恢复消息拼接到桌面 continuous，也不得让手机绕过 replayable gap/snapshot 边界。
-- 远程/分屏 pane 必须把 `remoteSessionId` 传给 provider registry sync；身份/隔离 key 统一 `workspaceIdentity?.trim() || workspacePath`，执行路径仍使用 `workspacePath`。
+- `provider.notInRegistry` só se recupera automaticamente uma vez. Se a segunda tentativa falhar, o ACK failed e o log
+  originais são mantidos, apresentados pela UI de erro e pelo buffer de debug existentes.
+- o lado do app apenas sincroniza o provider registry e anexa o `runtimeModel` a este retry; não modifica as
+  semânticas de stream, snapshot, queue ou replay.
+- o desktop continua sendo a cadeia em tempo real `desktop-continuous`; o celular em `/remote` continua sendo a
+  cadeia de recuperação `web-remote-replayable`. O provider registry é o plano de controle de configuração do
+  workspace e não pode ser anexado às mensagens de recuperação replayable do desktop continuous, nem o celular pode
+  contornar os limites de gap/snapshot do replayable.
+- panes remotos/de tela dividida devem passar `remoteSessionId` para o sync do provider registry; a chave de
+  identidade/isolamento é uniformemente `workspaceIdentity?.trim() || workspacePath`, e o caminho de execução
+  continua usando `workspacePath`.
 
-prepare/configOptions 失败时恢复 custom provider 选择：
+Ao falhar prepare/configOptions, recupera-se a seleção de custom provider:
 
 ```text
 workspace configOptionsStatus=error
@@ -122,34 +178,67 @@ workspace configOptionsStatus=error
   -> configOptions 回填，模型菜单恢复
 ```
 
-这条路径只服务 prepare 失败恢复；不恢复旧版 `modelSwitchStage` 全量 UI、context-window guard、跨 provider busy lock 细节和旧 restart 决策矩阵。
+Este caminho serve apenas à recuperação de falha de prepare; não restaura a UI completa de `modelSwitchStage` da
+versão antiga, o guard de context window, os detalhes de busy lock entre providers nem a antiga matriz de decisão de
+restart.
 
-## 4. 要保留的清单（验收对照）
+## 4. Lista do que manter (comparação de aceitação)
 
-- **coding-plan/连接方式**（复用 service resolver 即保留）：Start Plan Authorization 头、BigModel Team Plan org/projectId+project key、官方版本安全校验一次性头（`applyModelSelection:false` 子 agent 路径，边缘，先记 TODO）、family 连接选型、thought 收窄、Team Plan 移除不静默兜底。
-- **默认兜底**：CLI resume `reconcileResumedRuntimeSettings`（两 bugfix）+ `ensureModelReady` + `DEFAULT_MODEL`/missing error（原样保留）；service `resolveRuntimeModelConfig` 三兜底（历史缺失/移除/stale 首个可用）。
-- **P4b 协同**：连接方式 Select `onConnectionValueChange` = 写 `modelProviderFamilySelectedKeys`（AppSettings）→ registry cache 失效 → re-push（1b 常态生效）/ 或解析新连接 runtimeModel 重发（1a）。**P1 做完，P4b ≈ 只补「写 family key + 触发 re-push」。**
+- **coding-plan/modo de conexão** (mantido ao reutilizar o resolver de service): cabeçalho Authorization do Start
+  Plan, org/projectId+project key do BigModel Team Plan, cabeçalho de uso único de verificação de segurança da versão
+  oficial (caminho de sub agent com `applyModelSelection:false`, caso de borda, registrado como TODO), seleção de
+  conexão por family, redução de thought e remoção do Team Plan sem fallback silencioso.
+- **Fallback padrão**: `reconcileResumedRuntimeSettings` no resume da CLI (dois bugfixes) + `ensureModelReady` +
+  `DEFAULT_MODEL`/missing error (mantidos como estão); os três fallbacks de `resolveRuntimeModelConfig` no service
+  (histórico ausente/removido/stale primeiro disponível).
+- **Colaboração com P4b**: o Select de modo de conexão `onConnectionValueChange` = escrever
+  `modelProviderFamilySelectedKeys` (AppSettings) → invalidar o cache do registry → re-push (1b no caso normal) ou
+  resolver o novo runtimeModel de conexão e reenviar (1a). **Com o P1 pronto, o P4b equivale a apenas "escrever a
+  family key + disparar o re-push".**
 
-## 5. 决策点
+## 5. Pontos de decisão
 
-1. ~~1a/1b/1c~~ **已定：1c 混合（2026-07-07 用户裁决）**。实现顺序：先 1b 核心闭环（CLI 从 registry 解析），再叠 1a 回落（app 解析 runtimeModel + `provider.notInRegistry` 重发）。
-2. v4 命令 `runtimeModel` schema：**倾向引用共享 `zcodeModelRuntimeConfigSchema`**（DRY，共享包内非 CLI 服务桥）+ 注释溯源；实现时若发现耦合过重再改 v4 mirror。
-3. 官方版本安全校验一次性头（Start Plan 子 agent，`applyModelSelection:false`）：**本 Phase 记 TODO 不接**（边缘场景，属子 agent 安全校验路径）。
+1. ~~1a/1b/1c~~ **Definido: híbrido 1c (decisão do usuário em 2026-07-07)**. Ordem de implementação: primeiro o núcleo
+   de 1b (a CLI resolve a partir do registry), depois o fallback 1a (o app resolve o runtimeModel e reenvia com
+   `provider.notInRegistry`).
+2. Schema do `runtimeModel` no comando v4: **tendência a referenciar o `zcodeModelRuntimeConfigSchema` compartilhado**
+   (DRY, referência interna ao pacote compartilhado e não à ponte de service da CLI) com comentário de
+   rastreabilidade; se o acoplamento for pesado demais na implementação, mudar para um espelho v4.
+3. Cabeçalho de uso único de verificação de segurança da versão oficial (sub agent do Start Plan,
+   `applyModelSelection:false`): **registrado como TODO nesta Fase e não implementado** (cenário de borda, pertence ao
+   caminho de verificação de segurança do sub agent).
 
-## 7. 实现顺序（1c）—— 进度
+## 7. Ordem de implementação (1c) — progresso
 
-1. ✅ **v4 协议 additive**（`command.ts` runtimeModel?，引用共享 schema）— commit `c9c67b061`。
-2. ✅ **CLI binder host capability** `resolveAndApplyRuntimeModel`（v4-bridge 复用 workspace-model-catalog overlay 构建，无桥合规）+ types.ts 接口。
-3. ✅ **CLI handler**（switchModelConfig/applyRequestedSessionConfig setModel 前调能力，`provider.notInRegistry`→结构化 failed ACK）。
-4. ✅ **L2 + 无桥门禁**（4 新 case + 6 存量 applyRequestedSessionConfig 迁签名；model-config 18 / v4-commands 13 / shared-schema 8 / boundary 全绿；CLI turbo typecheck 20/20）。
-5. 🚧 **app 回落（1a）——Phase 2 收口**：常态 1b 已够（registry 在 workspace prepare 推送，CLI catalog 有全部已配置 provider → `catalog.providers.has` 命中 → 跨切生效）。1a 覆盖「provider 在 app 但未推 CLI」的 desync 边缘（刚加/竞态/远端）：SessionPane 收 `provider.notInRegistry` → `syncWorkspaceModelProvidersToAgent({ force: true })` re-push registry → service `resolveRuntimeModelForV4` 解析 runtimeModel → `switchModelConfig` 带 runtimeModel 重试一次。prepare/configOptions 失败时只恢复 custom provider 选择、workspace default 写入、restart + prepare，不恢复旧全局 stage UI。
-6. ⬜ **e2e**（攒批独占跑）：选 custom-key provider 模型→投影换 provider + 真发一轮——验证 1b 常态闭环。
+1. ✅ **Protocolo v4 aditivo** (`command.ts` com runtimeModel?, referenciando o schema compartilhado) — commit
+   `c9c67b061`.
+2. ✅ **Host capability de binder na CLI** `resolveAndApplyRuntimeModel` (o v4-bridge reutiliza a construção de overlay
+   do workspace-model-catalog, conforme com a regra de ponte) + interface em types.ts.
+3. ✅ **Handler da CLI** (switchModelConfig/applyRequestedSessionConfig chamam a capability antes do setModel,
+   `provider.notInRegistry` → ACK failed estruturado).
+4. ✅ **L2 + gate sem ponte** (4 casos novos + 6 casos existentes de applyRequestedSessionConfig migrados de
+   assinatura; model-config 18 / v4-commands 13 / shared-schema 8 / boundary tudo verde; turbo typecheck da CLI
+   20/20).
+5. 🚧 **Fallback do app (1a) — fechamento da Fase 2**: o 1b normal já basta (o registry é enviado no prepare do
+   workspace, o catalog da CLI tem todos os providers configurados → `catalog.providers.has` acerta → a troca entre
+   providers vale). O 1a cobre a aresta de desync "provider no app mas não enviado para a CLI" (recém-adicionado/
+   corrida/remoto): o SessionPane recebe `provider.notInRegistry` → `syncWorkspaceModelProvidersToAgent({ force: true })`
+   reenvia o registry → o service `resolveRuntimeModelForV4` resolve o runtimeModel → `switchModelConfig` é tentado
+   novamente uma vez com o runtimeModel. Em falha de prepare/configOptions, restaura-se apenas a seleção de custom
+   provider, a escrita do default do workspace, restart + prepare, sem restaurar a antiga UI global de stages.
+6. ⬜ **e2e** (execução exclusiva em lote): selecionar um modelo de provider com custom key → projeta a troca de
+   provider + envia de fato um turno, validando o fechamento normal do 1b.
 
-> **P1 核心（跨 provider 切换的 CLI 使能）已完成并 L2 背书；1a 边缘回落 + e2e 为收尾项。**
+> **O núcleo do P1 (habilitação da troca entre providers na CLI) está concluído e endossado pelo L2; o fallback de
+> borda 1a e o e2e são os itens de fechamento.**
 
-## 6. 测试
+## 6. Testes
 
-- L2（v4 CLI）：跨 provider 切换 → overlay 应用 → `getModelRef` 换 provider；provider 不在 registry → 结构化 `provider.notInRegistry` ACK；同 provider 直切仍走既有路径；resume reconcile 两兜底回归。
-- L1：service resolver 薄封装透传（coding-plan/team-plan 快照命中不回归——复用既有 modelProvider 测试）。
-- e2e（攒批独占跑）：选 custom-key provider 模型 → 投影 config 换 provider + 真发一轮；切连接方式（P4b 落地后）。
-- 先补 `docs/conversation-session-case-catalog.md` + coverage matrix。
+- L2 (v4 CLI): troca entre providers → aplicação do overlay → `getModelRef` trocando o provider; provider fora do
+  registry → ACK estruturado `provider.notInRegistry`; a troca direta no mesmo provider segue o caminho existente;
+  regressão dos dois fallbacks de reconcile do resume.
+- L1: passagem transparente do resolver de service fino (sem regressão nos snapshots de coding-plan/team-plan —
+  reaproveitando os testes de modelProvider existentes).
+- e2e (execução exclusiva em lote): selecionar um modelo de provider com custom key → projeta a config com a troca de
+  provider + envia de fato um turno; troca de modo de conexão (depois que o P4b for entregue).
+- Completar primeiro `docs/conversation-session-case-catalog.md` + coverage matrix.

@@ -1,96 +1,96 @@
-# V4 Guide 与 Goal Queue 消费边界实施计划
+# Plano de implementação dos limites de consumo de Guide e Goal Queue no V4
 
-> 本计划先冻结产品语义和证明范围，再进入实现。实现阶段必须按任务清单先补测试、再改代码。
+> Este plano congela primeiro a semântica de produto e o escopo de prova, e só então entra na implementação. Na fase de implementação é obrigatório seguir a lista de tarefas, complementar os testes primeiro e só depois alterar o código.
 
-**Goal:** 恢复 V4 的“引导”提交入口，并把 guide 与普通 queue 拆成两条可机械验证的消费路径：guide 只在完整 tool result batch 落事实后注入当前轮；普通 queue 只在 session ready，且当前 goal 不存在或 target 已 `complete` 时自动消费。verifier fail-open 视为通过，手动终止 verifier 不视为通过。
+**Goal:** Restaurar a entrada de envio de «guia» do V4 e separar guide e queue comum em dois caminhos de consumo verificáveis mecanicamente: o guide só é injetado no turno atual depois que um batch completo de tool result registra o fato; a queue comum só é consumida automaticamente quando a session está ready e o goal atual não existe ou o target já está `complete`. Um verifier fail-open conta como aprovado, e uma terminação manual do verifier não conta como aprovação.
 
-**Architecture:** CLI/runtime 继续拥有唯一 `CommandInbox` 与 conversation product facts。guide 是当前 turn 的 inline delivery，普通 queue 是未来 turn 的 promotion；两者共享输入身份和 FIFO admission，但不共享 drain trigger。desktop `continuous` 与 mobile `replayable` 只改变投递/恢复方式，不改变消费 guard。
+**Architecture:** CLI/runtime continua possuindo o único `CommandInbox` e os conversation product facts. O guide é a entrega inline do turno atual, e a queue comum é a promoção de turnos futuros; ambos compartilham a identidade de entrada e o admission FIFO, mas não compartilham o drain trigger. `continuous` do desktop e `replayable` do mobile só alteram a forma de entrega/restauração, e não o guard de consumo.
 
-**Tech Stack:** TypeScript、ZCode V4 protocol、CLI core/runtime、bootstrap projection、React 19、Vitest、WDIO controlled-stream E2E。
+**Tech Stack:** TypeScript, protocolo V4 da ZCode, CLI core/runtime, bootstrap projection, React 19, Vitest, E2E WDIO controlled-stream.
 
 ## Feature Summary
 
 | Field | Value |
 | --- | --- |
-| Change | 恢复 V4 guide 提交；普通 queue 延迟到 goal verify pass（含 fail-open）并完成 target 更新后消费 |
-| User-visible surfaces | Settings 的“引导”偏好、V4 Composer、queued prompt 列表、goal status panel |
-| Existing docs | `docs/chat/interaction-behavior.md`、conversation protocol/state space、case catalog、E2E matrices、V4 protocol spec |
-| Existing code owners | `packages/ui/src/v4`、CLI core runtime steering/turn loop、bootstrap V4 bridge、contracts projection |
-| Out of scope | 跨端全局 FIFO、relay/main 持有业务 queue、CLI restart 自动重放、扩大附件 guide 能力、重新设计 Stop/立即发送 |
+| Change | Restaurar o envio de guide do V4; a queue comum passa a ser consumida só depois que a verificação do goal passa (incluindo fail-open) e a atualização do target é concluída |
+| User-visible surfaces | A preferência «引导» nas Settings, o Composer do V4, a lista de prompts enfileirados, o painel de status do goal |
+| Existing docs | `docs/chat/interaction-behavior.md`, protocolo/estado da conversation, catálogo de cases, matrizes de E2E, spec do protocolo V4 |
+| Existing code owners | `packages/ui/src/v4`, steering/turn loop do runtime do CLI core, bootstrap V4 bridge, projection de contracts |
+| Out of scope | FIFO global entre plataformas, relay/main possuindo a queue de negócio, replay automático após restart do CLI, ampliar a capacidade de guide para anexos, redesenhar Stop/envio imediato |
 
 ## Clarification Log
 
 | Round | Question | User answer | Boundary fixed | Follow-up needed |
 | --- | --- | --- | --- | --- |
-| 1 | fail-open 是否等于手动终止 verifier；普通 queue 是否必须等 goal 通过 | fail-open 是 verifier 自身异常后按通过收口；手动终止不是通过；其余推荐语义确认 | fail-open 走 `passed=true`，cancel/abort 走 paused/cancelled | no |
-| 2 | 没有 tool 的 guide、多条 guide、Stop/paused/budget-limited、混合 queue kind 如何处理 | 均接受推荐方案 | 无 tool 回退 queue；每批最多一条 guide；非 complete goal 持续阻塞所有普通 queue kind | no |
-| 3 | parallel tool call、tool 前提交 guide、eligibility fallback、desktop/mobile 是否共享产品终态 | 均接受推荐方案 | 等完整 tool batch；guide 可提前等待；沿用 eligibility；两端共享 CLI 事实 | no |
-| 4 | guide 是否需要按模型/provider 限制 | 不需要；这是 runtime 的通用 model-step continuation | 模型/provider 从 eligibility 中删除；此前“沿用 eligibility”的 provider 部分被本轮决定覆盖 | no |
+| 1 | fail-open equivale a terminação manual do verifier; a queue comum precisa esperar o goal passar | fail-open é o fechamento como aprovado após uma exceção do próprio verifier; terminação manual não é aprovação; as demais semânticas recomendadas foram confirmadas | fail-open segue `passed=true`, cancel/abort seguem paused/cancelled | no |
+| 2 | Como tratar guide sem tool, várias guides, Stop/paused/budget-limited e queue kinds misturadas | Todas as recomendações foram aceitas | guide sem tool volta para a queue; no máximo uma guide por batch; goal não complete bloqueia continuamente todos os queue kinds comuns | no |
+| 3 | tool call paralelo, guide enviada antes da tool, fallback de eligibility, desktop/mobile compartilham o produto final | Todas as recomendações foram aceitas | esperar o batch completo de tools; a guide pode esperar mais cedo; manter a eligibility; as duas pontas compartilham os fatos do CLI | no |
+| 4 | A guide precisa de restrição por modelo/provider | Não; esta é uma continuação model-step genérica do runtime | modelo/provider foram removidos da eligibility; a parte de provider de «manter a eligibility» anterior é coberta por esta decisão | no |
 
 ## Boundary Decisions
 
 | Boundary | Decision | Includes | Excludes / prunes | Source |
 | --- | --- | --- | --- | --- |
-| Guide trigger | 仅在一次 model step 的全部 sibling tool results 已提交后，最多消费一条 guide | 单 tool、parallel tool、成功/失败 tool result | text-only completion、单个 sibling 提前完成 | user + protocol |
-| Guide no-tool fallback | 当前 turn 在未出现可用 tool batch 的情况下收口，原 guide intent 原地改投普通 queue | 保留原文、附件、client、IDs、admission order | 丢弃、另建新 intent、终态后仍永久等待 guide | user |
-| Guide eligibility | 模型/provider 无关；不适用时回退 queue | 任意模型/provider、无附件、无既有 queue、未 Stop 的 eligible running turn | 本轮扩大 attachment steer 能力 | current user decision + runtime architecture |
-| Ordinary queue trigger | 只在 session ready 后自动提升；存在 target 时还必须 `target.status=complete` | text、goal command、compact 共用 FIFO gate | tool result 边界直接 drain、verification marker 单独 drain | user |
-| Fail-open | verifier 基础设施/输出/工具误用异常返回 `passed=true`，随后完成 target，等同显式 pass | fail-open 记录、target complete、正常 queue drain | 绕过 target update 的特殊 drain 分支 | user + code |
-| Manual verifier stop | cancelled/aborted，target paused，queue 保留且 `autoDrain=false` | Stop 与独立 pause 的既有语义 | 当作 fail-open 或 pass | user |
-| Explicit send-now | 保留现有显式抢占例外 | reservation、Stop barrier、selected item promotion | 受普通 auto-drain goal gate 约束 | user + existing protocol |
-| Transport | desktop/mobile 收敛到相同 CLI facts | desktop-continuous、web-remote-replayable live/cold 等价 | relay/main 新业务状态、双队列 | architecture docs |
+| Guide trigger | Só depois que todos os tool results irmãos de um model step foram submetidos, consome-se no máximo uma guide | tool única, tool paralela, tool result de sucesso/falha | completion somente de texto, conclusão antecipada de um único irmão | user + protocol |
+| Guide no-tool fallback | O turno atual fecha quando não há batch de tools utilizável, e a intent original da guide é reenviada no lugar para a queue comum | preservar o texto original, anexos, client, IDs e ordem de admission | descartar, criar uma nova intent, ficar esperando guide para sempre após um estado terminal | user |
+| Guide eligibility | Independente de modelo/provider; quando não se aplica, volta para a queue | qualquer modelo/provider, sem anexos, sem queue existente, turno em execução elegível e não parado | ampliar a capacidade de steer de anexo nesta rodada | current user decision + runtime architecture |
+| Ordinary queue trigger | Só é promovida automaticamente depois de a session ficar ready; quando há target, é preciso também `target.status=complete` | text, goal command e compact compartilham o mesmo gate FIFO | drain direto na fronteira de tool result, marker de verificação com drain separado | user |
+| Fail-open | Exceções de infraestrutura/saída/uso indevido de ferramenta do verifier retornam `passed=true`, e então o target é concluído, equivalendo a um pass explícito | registro de fail-open, target complete, drain normal da queue | branch de drain especial que contorne a atualização do target | user + code |
+| Manual verifier stop | cancelled/aborted, target paused, queue preservada e `autoDrain=false` | a semântica existente de Stop e de pause independente | tratar como fail-open ou pass | user |
+| Explicit send-now | Preserva a exceção explícita de preempção já existente | reservation, barreira de Stop, promoção do item selecionado | fica sujeito ao guard de goal do auto-drain comum | user + existing protocol |
+| Transport | desktop/mobile convergem para os mesmos fatos do CLI | equivalência live/cold de desktop-continuous e web-remote-replayable | novo estado de negócio em relay/main, fila dupla | architecture docs |
 
 ## Domain Scope
 
 | Domain | Include? | Why it can change behavior | Primary sources |
 | --- | --- | --- | --- |
-| conversation/session runtime | yes | guide 注入与 queue promotion 都改变 turn 边界 | CLI core turn loop/steering |
-| goal/target | yes | queue gate 依赖 target terminal status | target verifier + bootstrap bridge |
-| V4 command/projection | yes | delivery fallback 和 queue 状态必须 live/cold 一致 | contracts + bootstrap projection |
-| UI/composer | yes | 当前 V4 `mode=guide` 禁用了按钮和 Enter | `ConversationComposer` / `SessionPane` |
-| tool lifecycle | yes | guide 的唯一 inline drain boundary 是完整 tool batch | runtime tool execution |
-| remote/replay | yes, representative | 证明同一 CLI fact 在 continuous/replayable 不分叉 | architecture + bootstrap tests |
-| relay/main process | no | 只透传，不拥有 queue/goal/stream 业务状态 | remote architecture |
-| workspace identity | no new behavior | 本功能按 session 隔离，不新建 workspace key | architecture constraints |
-| model/provider eligibility | pruned invariant | runtime 在 model-step 边界追加统一 user history，不依赖 provider 原生 steer | current user decision + core runtime |
+| conversation/session runtime | yes | a injeção de guide e a promoção da queue mudam a fronteira do turno | CLI core turn loop/steering |
+| goal/target | yes | o gate da queue depende do status terminal do target | target verifier + bootstrap bridge |
+| V4 command/projection | yes | o fallback de entrega e o estado da queue precisam ser live/cold consistentes | contracts + bootstrap projection |
+| UI/composer | yes | o `mode=guide` atual do V4 desabilita o botão e o Enter | `ConversationComposer` / `SessionPane` |
+| tool lifecycle | yes | a única fronteira de drain inline da guide é o batch completo de tools | runtime tool execution |
+| remote/replay | yes, representative | prova que o mesmo fato do CLI não bifurca em continuous/replayable | architecture + bootstrap tests |
+| relay/main process | no | apenas repassa e não possui estado de negócio de queue/goal/stream | remote architecture |
+| workspace identity | no new behavior | esta funcionalidade isola por session e não cria workspace key | architecture constraints |
+| model/provider eligibility | pruned invariant | o runtime acrescenta um histórico de usuário unificado na fronteira model-step e não depende do steer nativo do provider | current user decision + core runtime |
 
 ## High-Risk Cross-Products
 
 | Cross-product | Candidate risk | Initial handling |
 | --- | --- | --- |
-| guide × single/parallel/failed tool result | sibling 未完成就注入，或失败 result 永远不触发 | 枚举 single、parallel、failed result 三个代表 |
-| guide × text-only/Stop | guide 永久悬空或丢失 | accepted fallback-to-queue case |
-| queue kind × goal target status | 只 gate text，goal/compact 越权消费 | 枚举 mixed FIFO，一个共同 gate |
-| verifier result × target update | verification marker 与 target complete 竞态 | 显式 pass、fail-open、manual cancel 三代表 |
-| guide × active goal phase | 引导误 Stop target，或 verifier 被当可 steer turn | output/continuation 可 guide；verifier busy fallback queue |
-| delivery × client profile | desktop 与手机产生不同产品终态 | 业务 case 不做全排列；用 live/cold projection 等价证明 |
+| guide × single/parallel/failed tool result | injetar antes de o irmão terminar, ou um result de falha nunca disparar | enumerar três representantes: single, parallel, failed result |
+| guide × text-only/Stop | guide ficar permanentemente pendente ou se perder | caso aceito de fallback para a queue |
+| queue kind × goal target status | gate só para text, deixando goal/compact consumirem por excesso de poder | enumerar um FIFO misturado com um gate comum |
+| verifier result × target update | corrida entre o marker de verificação e o target complete | três representantes: pass explícito, fail-open, cancel manual |
+| guide × active goal phase | a guia parar o target por engano, ou o verifier ser tratado como turno steerável | output/continuation podem receber guide; verifier busy cai para a queue |
+| delivery × client profile | desktop e celular produzindo estados finais de produto diferentes | não fazer o produto cartesiano completo para os casos de negócio; provar com equivalência de projeção live/cold |
 
 ## Concept Map
 
 | Concept | Why it matters | Source |
 | --- | --- | --- |
-| `ConversationInputIntent` | queue/guide 共享的输入身份；fallback 不能换 ID 或顺序 | V4 protocol spec |
-| `delivery.admitted` | 决定 inline guide 还是 future queue | V4 protocol spec |
-| `CommandInbox` | desktop/mobile busy input 的唯一 FIFO authority | protocol declaration |
-| tool result batch | guide 可以进入当前 turn 的唯一提交边界 | CLI runtime |
-| session ready | 普通 queue promotion 的第一层 guard | conversation behavior |
-| `target.status` | goal queue promotion 的第二层 guard | target contracts |
-| `autoDrain` | 普通 queue 是否已武装 | queue projection |
-| explicit send-now reservation | 用户主动绕过自动消费等待的显式路径 | protocol declaration |
+| `ConversationInputIntent` | identidade de entrada compartilhada por queue/guide; o fallback não pode trocar ID nem ordem | V4 protocol spec |
+| `delivery.admitted` | decide entre guide inline e queue futura | V4 protocol spec |
+| `CommandInbox` | única autoridade FIFO para input busy de desktop/mobile | protocol declaration |
+| tool result batch | única fronteira de commit em que a guide pode entrar no turno atual | CLI runtime |
+| session ready | primeira camada de guard da promoção da queue comum | conversation behavior |
+| `target.status` | segunda camada de guard da promoção da queue de goal | target contracts |
+| `autoDrain` | se a queue comum já está armada | queue projection |
+| explicit send-now reservation | caminho explícito em que o usuário contorna a espera pelo consumo automático | protocol declaration |
 
 ## State Owners
 
 | State / fact | Authority | Mirrors / caches | Evidence |
 | --- | --- | --- | --- |
-| queue/guide intent、admissionSeq | CLI CommandInbox/session input ledger | V4 QueueState、renderer projection | command ACK + live/cold snapshot |
+| queue/guide intent、admissionSeq | CLI CommandInbox/session input ledger | V4 QueueState, renderer projection | command ACK + live/cold snapshot |
 | tool batch completion | CLI core runtime | tool rows/timeline | ordered runtime facts |
-| target status | CLI target store | V4 goal projection、task meta compatibility mirror | target changed event + snapshot |
+| target status | CLI target store | V4 goal projection, espelho de compatibilidade de task meta | target changed event + snapshot |
 | session ready/active controller | CLI/bootstrap runtime | V4 control projection | controller lifecycle + snapshot |
-| followup preference | app setting，已打开 session 同步到 CLI config | V4 config projection | setting + command ACK |
+| followup preference | app setting, sincronizado com o CLI config na session já aberta | V4 config projection | setting + command ACK |
 
 ## Delivery State And Event Order
 
-guide 与 queue 共享 admission，但从 admission 之后立即分流：
+guide e queue compartilham o admission, mas divergem imediatamente depois dele:
 
 ```text
 sendText while running
@@ -115,7 +115,7 @@ sendText while running
                     yes -> promote one head item by original kind
 ```
 
-Goal verification 的提交顺序必须单向推进：
+A ordem de commit da verificação do goal precisa avançar em uma única direção:
 
 ```text
 explicit verifier pass ─┐
@@ -135,55 +135,55 @@ manual verifier Stop/abort
 
 | Dimension | Values / equivalence classes | Source | Include? | Reason |
 | --- | --- | --- | --- | --- |
-| delivery | queue、guide、guide→queue fallback | product setting/protocol | yes | 核心变化 |
-| tool batch | none、single、parallel、failed-result | runtime | yes | guide boundary |
-| guide count | one、2+ | user decision | yes | 每批一条、FIFO |
-| goal status | none、active、paused、budget_limited、complete | target contracts | yes | ordinary queue gate |
-| verifier terminal | explicit pass、fail-open、fail/continue、manual cancel | verifier runtime | yes | pass/cancel 区分 |
-| queue kind | sendText、sendGoalCommand、compact、mixed | CommandInbox | yes | gate 不得只覆盖文本 |
-| queue action | auto drain、resume、send-now | protocol | yes | send-now 是明确例外 |
-| client profile | desktop-continuous、web-remote-replayable | remote architecture | representative | 不复制业务笛卡尔积 |
-| provider/tool name | eligible provider；readonly representative tool | current eligibility/tool matrix | representative | 不扩产品支持面 |
+| delivery | queue、guide、guide→queue fallback | product setting/protocol | yes | mudança central |
+| tool batch | none、single、parallel、failed-result | runtime | yes | fronteira da guide |
+| guide count | one、2+ | user decision | yes | uma por batch, FIFO |
+| goal status | none、active、paused、budget_limited、complete | target contracts | yes | gate da queue comum |
+| verifier terminal | explicit pass、fail-open、fail/continue、manual cancel | verifier runtime | yes | distinção pass/cancel |
+| queue kind | sendText、sendGoalCommand、compact、mixed | CommandInbox | yes | o gate não pode cobrir só texto |
+| queue action | auto drain、resume、send-now | protocol | yes | send-now é uma exceção explícita |
+| client profile | desktop-continuous、web-remote-replayable | remote architecture | representative | não replicar o produto cartesiano de negócio |
+| provider/tool name | eligible provider；readonly representative tool | current eligibility/tool matrix | representative | não ampliar a superfície de suporte do produto |
 
 ## Candidate Combinations
 
 | Candidate ID | State | Event | Target/surface | Expected guard/effect | Initial status | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| GDQ-01 | running + followupMode=guide + eligible | Composer submit/Enter | V4 UI/command | 按钮和 Enter 可提交；accepted 后才清空 | bug-candidate | 当前 V4 composer 将 guide 当 disabled |
-| GDQ-02 | eligible guide waits + single tool | tool result committed | current turn | result 后 inline drain 一条 guide，再发下一 provider request | accepted | 核心顺序代表 |
-| GDQ-03 | eligible guide waits + parallel tools | last sibling result committed | current turn | 所有 sibling result 先落事实，之后最多一条 guide | accepted | 不按单个 tool 提前 drain |
-| GDQ-04 | 2+ guide intents + repeated batches | each batch completes | CommandInbox/current turn | 每批一条，按 admission FIFO | accepted | 不一次清空全部 guide |
-| GDQ-05 | guide admitted + text-only terminal | turn completes without tool | queue | 同一 intent 原地 fallback queue | accepted | 保留 IDs/order |
-| GDQ-06 | guide requested but ineligible | admission/runtime reject | queue | 同一 intent fallback queue + reason | accepted | provider/attachment/existing queue/Stop/compact/verifier |
-| GDQ-07 | active goal output/continuation + eligible guide | guide submitted, tool batch completes | goal current turn | inline guide；不 Stop/pause target，不等 verifier pass | accepted | verifier request 本身不 steer |
-| GQD-01 | queue>0 + target active/paused/budget_limited | session becomes otherwise ready | queue | 所有 kind 保留，不启动 provider/goal/compact | bug-candidate | 当前 ready drain 缺 target gate |
-| GQD-02 | queue>0 + explicit verifier pass | target becomes complete | queue | ready 后按 FIFO 自动提升 | accepted | marker alone 不够 |
-| GQD-03 | queue>0 + verifier fail-open | target becomes complete | queue | 与显式 pass 同终态、同 drain | accepted | 不增加特殊 bypass |
-| GQD-04 | queue>0 + manual verifier cancel | target becomes paused | queue | queue held；不自动 drain | accepted | cancel 不等于 fail-open |
-| GQD-05 | mixed text/goal/compact queue + active goal | target complete | queue | 三种 kind 共用 gate，随后保持原顺序和语义 | accepted | compact 不生成 user row |
-| GQD-06 | queue>0 + no target | session ready | queue | 按既有 ready/autoDrain 规则消费 | accepted | 无 goal 回归 |
-| GQD-07 | noncomplete target + queued item | explicit send-now | selected item | reservation + Stop barrier + promote | accepted | 明确例外，不是 auto-drain |
-| GQD-08 | queue>0 + autoDrain=false + noncomplete target | user resumes queue | queue | 只设置 autoDrain=true；仍等待 target complete | accepted | “继续”不是显式 send-now |
+| GDQ-01 | running + followupMode=guide + eligible | Composer submit/Enter | V4 UI/command | botão e Enter podem enviar; só é limpo após o accepted | bug-candidate | o composer do V4 atual trata guide como disabled |
+| GDQ-02 | eligible guide waits + single tool | tool result committed | current turn | inline drain de uma guide após o result, e então a próxima requisição ao provider | accepted | representante central da ordem |
+| GDQ-03 | eligible guide waits + parallel tools | last sibling result committed | current turn | todos os results irmãos registram o fato primeiro, e então no máximo uma guide | accepted | não fazer drain antecipado por tool individual |
+| GDQ-04 | 2+ guide intents + repeated batches | each batch completes | CommandInbox/current turn | uma por batch, por admission FIFO | accepted | não limpar todas as guides de uma vez |
+| GDQ-05 | guide admitted + text-only terminal | turn completes without tool | queue | a mesma intent faz fallback para a queue no lugar | accepted | preserva IDs/ordem |
+| GDQ-06 | guide requested but ineligible | admission/runtime reject | queue | a mesma intent faz fallback para a queue com um motivo | accepted | provider/anexo/queue existente/Stop/compact/verifier |
+| GDQ-07 | active goal output/continuation + eligible guide | guide submitted, tool batch completes | goal current turn | guide inline; não para/não pausa o target, não espera o verifier passar | accepted | a própria requisição do verifier não faz steer |
+| GQD-01 | queue>0 + target active/paused/budget_limited | session becomes otherwise ready | queue | todos os kinds são preservados, sem iniciar provider/goal/compact | bug-candidate | o drain ready atual não tem gate de target |
+| GQD-02 | queue>0 + explicit verifier pass | target becomes complete | queue | promovido automaticamente por FIFO depois do ready | accepted | o marker sozinho não basta |
+| GQD-03 | queue>0 + verifier fail-open | target becomes complete | queue | mesmo estado final e mesmo drain do pass explícito | accepted | sem bypass especial |
+| GQD-04 | queue>0 + manual verifier cancel | target becomes paused | queue | queue retida; sem drain automático | accepted | cancel não equivale a fail-open |
+| GQD-05 | mixed text/goal/compact queue + active goal | target complete | queue | os três kinds compartilham o gate e depois mantêm a ordem e a semântica originais | accepted | compact não gera user row |
+| GQD-06 | queue>0 + no target | session ready | queue | consumido pelas regras existentes de ready/autoDrain | accepted | sem regressão de goal |
+| GQD-07 | noncomplete target + queued item | explicit send-now | selected item | reservation + barreira de Stop + promoção | accepted | exceção explícita, não auto-drain |
+| GQD-08 | queue>0 + autoDrain=false + noncomplete target | user resumes queue | queue | apenas define autoDrain=true; continua esperando o target complete | accepted | «continuar» não é send-now explícito |
 
 ## Pruning Decisions
 
 | Decision ID | Pruned combinations | Guard/invariant | Product reason | Representative coverage |
 | --- | --- | --- | --- | --- |
-| P-01 | 每个具体 tool 名 × guide | guideAfterCompletedToolBatch | 消费边界只依赖 batch terminal，不依赖工具业务 | readonly success + failed result + parallel batch |
-| P-02 | desktop/mobile × 全部业务状态 | trustedDeliveryBoundary | 两端共享 CLI facts，传输恢复维度独立 | desktop E2E + bootstrap live/cold equivalence |
-| P-03 | active/paused/budget_limited 分别 × 每种 queue kind | incompleteGoalBlocksQueueDrain | 都是 `status !== complete` 同一 guard | mixed FIFO + status reducer/unit representatives |
-| P-04 | fail-open 的每种底层异常 | verifierFailOpenCompletesTarget | 格式/网络/工具误用共享 `passed=true` contract | 一种 deterministic fail-open E2E + contract unit cases |
-| P-05 | 每个模型/provider × guide | guideIsModelAgnostic | runtime 不改写 in-flight request；统一在 model-step 边界追加 user history | 非 GLM bootstrap 代表回归 |
-| P-06 | relay/main queue state | cliOwnsConversationProjection | 业务状态不得下沉到 relay/main | architecture/static review |
-| P-07 | guide 扩展到附件 | guideModeEligibilityGuard | 本轮不扩大附件 steer 能力 | attachment fallback case |
+| P-01 | cada nome concreto de tool × guide | guideAfterCompletedToolBatch | a fronteira de consumo depende só do terminal do batch, e não do negócio da ferramenta | readonly success + failed result + parallel batch |
+| P-02 | desktop/mobile × todos os estados de negócio | trustedDeliveryBoundary | as duas pontas compartilham os fatos do CLI, e a dimensão de recuperação de transporte é independente | desktop E2E + bootstrap live/cold equivalence |
+| P-03 | active/paused/budget_limited separados × cada queue kind | incompleteGoalBlocksQueueDrain | são o mesmo guard `status !== complete` | mixed FIFO + representantes unitários do status reducer |
+| P-04 | cada exceção subjacente do fail-open | verifierFailOpenCompletesTarget | formato/rede/uso indevido de ferramenta compartilham o contrato `passed=true` | um fail-open E2E determinístico + casos unitários de contrato |
+| P-05 | cada modelo/provider × guide | guideIsModelAgnostic | o runtime não reescreve a request in-flight; acrescenta uniformemente o histórico de usuário na fronteira model-step | regressão representativa de bootstrap não-GLM |
+| P-06 | estado de queue em relay/main | cliOwnsConversationProjection | o estado de negócio não pode descer para relay/main | architecture/static review |
+| P-07 | estender a guide para anexos | guideModeEligibilityGuard | esta rodada não amplia a capacidade de steer de anexo | attachment fallback case |
 
 ## Questions For User
 
 | Question ID | Candidate(s) | Need to decide | Options | Impact |
 | --- | --- | --- | --- | --- |
-| Q-01 | GDQ-05 | 无 tool 时 guide 是否丢弃/等待/回退 | 已决定：回退普通 queue | resolved |
-| Q-02 | GDQ-03/04 | parallel/multiple guide 的消费粒度 | 已决定：完整 batch 后、每批一条 | resolved |
-| Q-03 | GQD-03/04 | fail-open 与手动 cancel 是否等价 | 已决定：不等价；只有 fail-open 通过 | resolved |
+| Q-01 | GDQ-05 | sem tool, a guide é descartada, espera ou faz fallback | já decidido: fazer fallback para a queue comum | resolved |
+| Q-02 | GDQ-03/04 | granularidade de consumo de guide paralela/múltipla | já decidido: depois do batch completo, uma por batch | resolved |
+| Q-03 | GQD-03/04 | fail-open e cancel manual são equivalentes | já decidido: não são equivalentes; só o fail-open aprova | resolved |
 
 ## Accepted Cases
 
@@ -209,16 +209,16 @@ manual verifier Stop/abort
 
 | File | Change |
 | --- | --- |
-| `docs/conversation-session-case-catalog.md` | 扩充 H08/H12 与 M06a-g，记录 fail-open/cancel、完整 tool batch、每批一条、V4 composer 与无 tool fallback |
-| `docs/testing/conversation-session-e2e-coverage-matrix.md` | 把旧 guide “covered”降为真实缺口，拆分 M06a-g；H08/H11/H12 对齐新 guard |
-| `docs/testing/conversation-session-goal-specific-coverage-matrix.md` | G1-10/G1-13/G1-14 增加 pass/fail-open/cancel 与 UI 恢复缺口 |
-| `docs/testing/conversation-session-tool-cross-product-matrix.md` | 增加 guide × tool-batch 的代表等价类，不按全部 tool 名爆炸 |
-| `docs/conversation-protocol-declaration.md` | 新增 guide batch、fallback identity、incomplete goal queue gate 不变量 |
-| `docs/conversation-product-state-space.md` | 增加 delivery/toolBatch/verifier terminal 维度与规则 |
+| `docs/conversation-session-case-catalog.md` | Expandir H08/H12 e M06a-g, registrando fail-open/cancel, batch completo de tools, uma guide por batch, o composer do V4 e o fallback sem tool |
+| `docs/testing/conversation-session-e2e-coverage-matrix.md` | Rebaixar o antigo guide «covered» para uma lacuna real e separar M06a-g; alinhar H08/H11/H12 aos novos guards |
+| `docs/testing/conversation-session-goal-specific-coverage-matrix.md` | Acrescentar pass/fail-open/cancel e as lacunas de recuperação de UI em G1-10/G1-13/G1-14 |
+| `docs/testing/conversation-session-tool-cross-product-matrix.md` | Acrescentar as classes de equivalência representativas de guide × tool-batch, sem explodir por todos os nomes de tool |
+| `docs/conversation-protocol-declaration.md` | Novos invariantes de guide batch, fallback identity e incomplete goal queue gate |
+| `docs/conversation-product-state-space.md` | Acrescentar as dimensões delivery/toolBatch/verifier terminal e as regras |
 
 ## Implementation Tasks
 
-### Task 1: Focused Tests First
+### Task 1: testes focados primeiro
 
 **Files:**
 
@@ -227,12 +227,12 @@ manual verifier Stop/abort
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/v4-native-queue.test.ts`
 - Modify: contracts/projection focused tests
 
-- [ ] 增加 V4 guide mode 按钮、Enter、ACK 后清空测试，并确认当前实现失败。
-- [ ] 增加完整 tool batch 后一条 guide 的事件顺序测试。
-- [ ] 增加多 guide 每批一条、text-only fallback、ordinary queue 不在 tool boundary drain 测试。
-- [ ] 增加 active target 阻塞 text/goal/compact、queue resume 只武装、explicit pass/fail-open drain、cancel no-drain 测试。
+- [ ] Adicionar testes de botão, Enter e limpeza após ACK no modo guide do V4, e confirmar que a implementação atual falha.
+- [ ] Adicionar teste de ordem de eventos de uma guide depois de um batch completo de tools.
+- [ ] Adicionar testes de várias guides com uma por batch, de fallback somente de texto e de a queue comum não dar drain na fronteira de tools.
+- [ ] Adicionar testes de target ativo bloqueando text/goal/compact, de resume da queue apenas armando, de drain por pass/fail-open explícitos e de cancel sem drain.
 
-### Task 2: Restore V4 Guide Composer
+### Task 2: restaurar o Composer de guide do V4
 
 **Files:**
 
@@ -240,12 +240,12 @@ manual verifier Stop/abort
 - Modify: `packages/ui/src/v4/ConversationComposer.tsx`
 - Verify: `packages/ui/src/v4/SessionPane.tsx`
 
-- [ ] `inputRouting.mode=guide` 保持正常 composer/button/Enter 可提交，不增加第二套输入框。
-- [ ] 保留 attachment readiness、Plan-mode、held queue choice 与 ACK-before-clear 现有 guards。
-- [ ] guide 不适用由 CLI 返回同 intent 的 queue fallback，UI 不自行制造第二队列。
-- [ ] UI 日志如有新增统一使用 `packages/ui/src/logger.ts`。
+- [ ] `inputRouting.mode=guide` mantém o composer/botão/Enter normais able to submit, sem adicionar um segundo conjunto de campos de entrada.
+- [ ] Preservar os guards existentes de attachment readiness, Plan-mode, held queue choice e ACK-before-clear.
+- [ ] Quando a guide não se aplica, o CLI devolve o fallback para a queue da mesma intent, e a UI não cria uma segunda fila por conta própria.
+- [ ] Se houver logs novos na UI, usar uniformemente `packages/ui/src/logger.ts`.
 
-### Task 3: Split Inline Guide From Ordinary Queue Drain
+### Task 3: separar o drain inline da guide do drain da queue comum
 
 **Files:**
 
@@ -253,13 +253,13 @@ manual verifier Stop/abort
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/steering.ts`
 - Modify: tool execution/model-step runtime methods
 
-- [ ] 删除 generic round-trip 对普通 queue 的 inline drain 能力。
-- [ ] 在完整 tool result batch 持久化/提交之后检查 guide 队首，最多 drain 一条。
-- [ ] 保证 parallel siblings 全部完成后才 drain；失败 tool result 与成功 result 使用相同 terminal boundary。
-- [ ] text-only/Stop/terminal 前仍未 drain 的 guide 原地 reclassify 为 ordinary queue。
-- [ ] 高频 tool/steer 顺序日志只使用 `debug`，中文注释解释旧实现为何会过早消费。
+- [ ] Remover do generic round-trip a capacidade de inline drain da queue comum.
+- [ ] Verificar a guide no topo da fila depois que o batch completo de tool result for persistido/submetido, drenando no máximo uma.
+- [ ] Garantir que o drain só aconteça depois que todos os irmãos paralelos terminarem; tool result de falha e de sucesso usam o mesmo terminal boundary.
+- [ ] Uma guide ainda não drenada antes de text-only/Stop/terminal é reclassificada no lugar como queue comum.
+- [ ] Logs de ordem de tool/steer de alta frequência usam apenas `debug`, e comentários em chinês explicam por que a implementação antiga consumia cedo demais.
 
-### Task 4: Add Durable Guide Fallback Fact
+### Task 4: adicionar o fato durável de fallback da guide
 
 **Files:**
 
@@ -267,49 +267,49 @@ manual verifier Stop/abort
 - Modify: core persistence adapters
 - Modify: bootstrap live/cold projection
 
-- [ ] 优先新增明确的 delivery-changed/fallback fact，不用“重复 queued event”暗示原地改投。
-- [ ] 事件携 `queueItemId/sourceCommandId/requested/admitted/reasonCode`，严格 schema 校验。
-- [ ] reducer 原地更新 intent，保留 admissionSeq、payload、attachments、clientId 和 FIFO 位置。
-- [ ] live projection、cold hydration 和 session-input ledger 收敛到同一结果。
+- [ ] Preferir um fato explícito de delivery-changed/fallback, sem sugerir a reentrega no lugar com um «queued event» repetido.
+- [ ] O evento carrega `queueItemId/sourceCommandId/requested/admitted/reasonCode`, com validação estrita de schema.
+- [ ] O reducer atualiza a intent no lugar, preservando admissionSeq, payload, attachments, clientId e a posição FIFO.
+- [ ] live projection, cold hydration e session-input ledger convergem para o mesmo resultado.
 
-### Task 5: Gate Ordinary Queue On Target Completion
+### Task 5: condicionar a queue comum à conclusão do target
 
 **Files:**
 
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts`
 - Reuse: target completion verification/fail-open contracts
 
-- [ ] 将普通 auto-promotion guard 收敛成一个可单测 helper：head queued + autoDrain + no active controller + session ready + (`target=null` 或 `target.status=complete`)。
-- [ ] 所有 `sendText/sendGoalCommand/compact` 都通过同一 helper，禁止 kind-specific bypass。
-- [ ] target 更新与 controller 清理后都重新评估，避免 pass 已完成但无人唤醒 drain。
-- [ ] fail-open 不增加特殊 drain；复用 `passed=true -> target complete`。
-- [ ] manual cancel/Stop 保持 target paused、queue retained、autoDrain=false。
-- [ ] `sendQueuedNow` 继续保留 reservation + Stop barrier 的显式例外。
+- [ ] Consolidar o guard de auto-promotion comum em um helper testável unitariamente: head queued + autoDrain + no active controller + session ready + (`target=null` ou `target.status=complete`).
+- [ ] Todas as `sendText/sendGoalCommand/compact` passam pelo mesmo helper, proibindo bypass por kind.
+- [ ] Reavaliar tanto depois da atualização do target quanto da limpeza do controller, evitando que o drain fique sem ninguém para acordá-lo depois de um pass concluído.
+- [ ] O fail-open não ganha drain especial; reaproveitar `passed=true -> target complete`.
+- [ ] O cancel manual/Stop mantém target paused, queue retida e autoDrain=false.
+- [ ] `sendQueuedNow` continua preservando a exceção explícita de reservation + barreira de Stop.
 
-### Task 6: Runtime And E2E Proof
+### Task 6: prova de runtime e E2E
 
-- [ ] controlled-stream：V4 设置 guide 后真实按钮/Enter 提交。
-- [ ] controlled-stream：single tool 与 parallel tool batch 顺序。
-- [ ] goal queue：explicit fail→continue→pass 后 drain。
-- [ ] goal queue：deterministic fail-open 后 target complete/drain。
-- [ ] goal queue：manual verifier Stop 后 paused/no drain。
-- [ ] mixed FIFO：text/goal/compact 在 complete 后按原 kind 顺序执行。
-- [ ] desktop formal E2E 证明交互；bootstrap live/cold 测试证明 mobile replayable 不改变业务终态。
-- [ ] 用 runtime debug log/provider capture 证明 ordering；用 CDP 证明 Composer 的 disabled 状态已恢复，避免只凭静态阅读。
+- [ ] controlled-stream: com guide configurada nas Settings do V4, envio real por botão/Enter.
+- [ ] controlled-stream: ordem de tool única e de batch de tools paralelas.
+- [ ] goal queue: drain após fail→continue→pass explícito.
+- [ ] goal queue: target complete/drain após fail-open determinístico.
+- [ ] goal queue: paused/no drain após Stop manual do verifier.
+- [ ] mixed FIFO: text/goal/compact executando na ordem original dos kinds após complete.
+- [ ] O E2E formal do desktop prova a interação; os testes live/cold do bootstrap provam que o replayable do mobile não muda o estado final de negócio.
+- [ ] Usar runtime debug log/provider capture para provar a ordem; usar CDP para provar que o estado disabled do Composer foi restaurado, evitando confiar apenas na leitura estática.
 
-### Task 7: Required Verification And Commit
+### Task 7: verificação obrigatória e commit
 
-- [ ] 运行 focused unit/integration tests。
-- [ ] 运行新增/受影响 conversation E2E；无法运行的 remote/mobile 项在提交说明列风险。
-- [ ] 运行 `pnpm typecheck`。
-- [ ] 运行 `pnpm lint`。
-- [ ] `git diff --check`，审阅只包含本功能文件。
-- [ ] Conventional Commit，例如 `feat(conversation): restore guide and gate goal queue drain`。
+- [ ] Executar os testes focados de unidade/integração.
+- [ ] Executar os E2E de conversation novos/afetados; itens de remote/mobile que não puderem rodar são listados como risco na descrição do commit.
+- [ ] Executar `pnpm typecheck`.
+- [ ] Executar `pnpm lint`.
+- [ ] `git diff --check`, revisando que só entram os arquivos desta funcionalidade.
+- [ ] Conventional Commit, por exemplo `feat(conversation): restore guide and gate goal queue drain`.
 
 ## E2E Handoff Notes
 
-- Provider fixture: controlled SSE 必须能稳定生成 text-only、single tool、parallel tool、failed tool result、goal verifier explicit pass 和 malformed fail-open。
-- File-system fixture: readonly tool 使用 case-local 临时文件；不依赖真实外网或用户目录。
-- Timing strategy: 以 command ACK、runtime fact 和 provider request marker 为 barrier；不使用固定 sleep 猜测 tool/verify terminal。
-- Docker preset: 若 provider fixture 需要 replay isolation，沿用 conversation E2E Docker preset；本轮不扩大真实 mobile network。
-- Review risks: 并行 tool result 提交顺序、target complete 与 active controller 清理竞态、guide→queue live/cold projection、现有 paused queue choice/send-now 回归。
+- Provider fixture: o SSE controlado precisa gerar de forma estável text-only, single tool, parallel tool, failed tool result, goal verifier explicit pass e malformed fail-open.
+- File-system fixture: a tool readonly usa um arquivo temporário local do caso; não depende de internet real nem do diretório do usuário.
+- Timing strategy: usar o ACK de command, os fatos de runtime e marcadores de requisição ao provider como barreira; não usar sleep fixo para adivinhar o terminal de tool/verify.
+- Docker preset: se o provider fixture precisar de isolamento de replay, manter o Docker preset dos E2E de conversation; esta rodada não amplia a rede mobile real.
+- Review risks: ordem de commit de tool results paralelos, corrida entre target complete e limpeza do active controller, projeção live/cold de guide→queue, e regressões da escolha de queue paused/send-now existentes.

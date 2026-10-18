@@ -1,23 +1,34 @@
-# Ripgrep Runtime
+# Runtime Ripgrep
 
-## 背景
+## Contexto
 
-- ZCode Agent 在 GUI desktop、SSH remote、WSL、Docker 里执行 shell 时，不能稳定依赖宿主机器是否已经把 `rg` 放进 `PATH`
-- 同一批环境里还会遇到 GUI / 非 login shell 丢失 `bun`、`nvm` 路径的问题
+- ao executar shell no GUI desktop, SSH remote, WSL e Docker, o ZCode Agent não pode depender de forma confiável de o
+  host já ter colocado `rg` no `PATH`
+- no mesmo conjunto de ambientes também há problemas com shells GUI / não-login perderem o caminho de `bun` e `nvm`
 
-## 方案
+## Solução
 
-- `packages/shared/src/runtime-tool-runtime.ts` 统一声明内置 `bfs`、`ripgrep`、`ugrep` runtime tool
-- 本地 desktop/SEA 和 Linux remote 的 `ripgrep` 固定为 Microsoft `ripgrep-prebuilt v14.1.1-1`；macOS arm64/x64、Linux arm64/x64 与 Windows x64/arm64 全部从 `${ZCODE_DEPS_BASE_URL}/native-search-tools/ripgrep-v14.1.1-1` 下载固定 SHA-256 的 Microsoft 原始归档，不再由 native-search producer 构建。所选 macOS 归档的 deployment target 不高于 12.0，Linux 使用无 glibc 依赖的 musl 静态归档，Windows 两个架构拒绝动态 CRT 与本应静态链接的构建依赖，因此升级 rg 不改变 ZCode 原有系统分发下限。Darwin remote producer 暂时保留历史 `v13.0.0-10` 资源，两者不共用版本 metadata，desktop prepare 不再暴露旧版本下载入口
-- `packages/services/src/runtime-tools/runtimeCommandEnv.ts` 在 host / server 启动时：
-  - 尝试从 login shell 回放一份 `PATH`
-  - 再把内置工具目录 append 到 `PATH`；`rg` 保留用户已有命令的优先级，`find` / `grep` 由 embedded-search prelude 直接使用随包绝对路径
-  - 同时注入 `ZCODE_BFS_BINARY`、`ZCODE_RG_BINARY`、`ZCODE_UGREP_BINARY`
-- ZCode Agent 子进程继续通过 clean runtime env 继承这套环境，不需要各入口单独处理
+- `packages/shared/src/runtime-tool-runtime.ts` declara de forma unificada as runtime tools embutidas `bfs`, `ripgrep` e
+  `ugrep`
+- o `ripgrep` do desktop local/SEA e do Linux remote é fixado no Microsoft `ripgrep-prebuilt v14.1.1-1`; macOS
+  arm64/x64, Linux arm64/x64 e Windows x64/arm64 baixam todos o arquivo original da Microsoft com SHA-256 fixo a partir de
+  `${ZCODE_DEPS_BASE_URL}/native-search-tools/ripgrep-v14.1.1-1`, sem mais serem construídos pelo native-search producer.
+  O deployment target dos arquivos macOS escolhidos não é superior a 12.0, o Linux usa arquivos musl estáticos sem
+  dependência de glibc e, nas duas arquiteturas do Windows, são rejeitados o CRT dinâmico e dependências de build que
+  deveriam ter sido linkadas estaticamente; assim, atualizar o rg não altera o piso de distribuição de sistemas do
+  ZCode. O producer Darwin remote mantém temporariamente o recurso histórico `v13.0.0-10`; as duas versões não
+  compartilham metadata de versão e o prepare do desktop não expõe mais a entrada de download da versão antiga
+- `packages/services/src/runtime-tools/runtimeCommandEnv.ts`, na inicialização de host / server:
+  - tenta reproduzir um `PATH` a partir de uma login shell
+  - depois anexa o diretório de ferramentas embutidas ao `PATH`; o `rg` mantém a prioridade dos comandos que o usuário já
+    tem, e `find` / `grep` são usados pelo prelude de embedded-search diretamente pelo caminho absoluto embutido
+  - também injeta `ZCODE_BFS_BINARY`, `ZCODE_RG_BINARY` e `ZCODE_UGREP_BINARY`
+- os subprocessos do ZCode Agent continuam herdando esse ambiente pelo runtime env limpo, sem necessidade de tratamento
+  separado em cada entrada
 
-## 资源布局
+## Layout de recursos
 
-### 本地 desktop
+### Desktop local
 
 ```text
 packages/desktop/bundled-tools/<platform>/ripgrep/rg(.exe)
@@ -31,12 +42,14 @@ mock-cdn/releases/<version>/tools/linux-<arch>/{bfs,ripgrep,ugrep}/<binary>
 ~/.zcode/server/tools/{bfs,ripgrep,ugrep}/<binary>
 ```
 
-Linux remote（包括 WSL、Linux SSH 与 Linux Docker）部署 `bfs 4.1.1-2`、
-`ugrep 7.8.4-1` 与 Microsoft `ripgrep 14.1.1-1`。Darwin remote 继续部署历史
-`ripgrep 13.0.0-10`，不随 Linux remote 迁移；旧版本发布的 rg13 资产也继续保留。
+O Linux remote (incluindo WSL, SSH Linux e Docker Linux) faz deploy de `bfs 4.1.1-2`, `ugrep 7.8.4-1` e Microsoft
+`ripgrep 14.1.1-1`. O Darwin remote continua implantando o histórico `ripgrep 13.0.0-10`, sem migrar junto com o Linux
+remote; os assets rg13 da publicação antiga também continuam sendo mantidos.
 
-## 结果
+## Resultado
 
-- 本地 GUI 启动时，ZCode Agent/终端能恢复 login shell 里的 `bun`
-- 宿主机已有 `rg` 时继续优先使用用户版本；没有 `rg` 时，ZCode Agent 在本地和 remote 都能直接运行随包版本
-- desktop/SEA 与 Linux remote 可使用随包 `bfs` / `ugrep`；工具缺失或不可执行时仍分别回退 system `find` / `grep`
+- na inicialização da GUI local, o ZCode Agent/terminal recupera o `bun` da login shell
+- quando o host já tem `rg`, a versão do usuário continua sendo preferida; sem `rg`, o ZCode Agent consegue executar
+  diretamente a versão embutida tanto localmente quanto no remote
+- desktop/SEA e Linux remote podem usar o `bfs` / `ugrep` embutidos; quando a ferramenta está ausente ou não é
+  executável, ainda há fallback para o `find` / `grep` do sistema

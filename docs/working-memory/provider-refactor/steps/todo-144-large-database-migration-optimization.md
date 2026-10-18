@@ -1,180 +1,297 @@
-# Todo 144：数据库启动保护（SQL 优化已撤出范围）
+# Todo 144: Proteção de inicialização do banco de dados (otimização de SQL removida do escopo)
 
-> 后续执行已转入 [Todo 145：进入 ZCode 前统一准备数据库](./todo-145-global-database-startup-loading.md)。本文仅保留首轮实施轨迹；工作区 loading 和 Host 延后范围不再是当前方案。
+> A execução posterior foi transferida para [Todo 145: preparação unificada do banco de dados antes de entrar no ZCode](./todo-145-global-database-startup-loading.md). Este documento mantém apenas o rastro da primeira rodada de implementação; o loading de workspace e o escopo adiado do Host não fazem mais parte da solução atual.
 
-> 状态：范围调整中；2026-09-14 用户取消 SQL 优化，启动前全屏 loading 待重新设计。
-> 优先级：P0。日期：2026-09-14。
-> 创建基线：`hotfix/3.12.2`，`16c3f15c3f`。
-> 当前授权：2026-09-14 用户「开始执行」，实施并用隔离数据库验证；20 GB 性能测量仍暂缓。
+> Status: em ajuste de escopo; em 2026-09-14 o usuário cancelou a otimização de SQL, e o loading de tela cheia antes da inicialização aguarda redesenho.
+> Prioridade: P0. Data: 2026-09-14.
+> Baseline de criação: `hotfix/3.12.2`, `16c3f15c3f`.
+> Autorização atual: em 2026-09-14 o usuário autorizou "começar a execução", com implementação e verificação em banco de dados isolado; a medição de desempenho de 20 GB continua suspensa.
 
-## 最新范围与执行清单（优先于下方历史记录）
+## Escopo mais recente e checklist de execução (tem prioridade sobre o histórico abaixo)
 
-用户认为现有优化未解决关键的峰值内存问题，决定本 hotfix 不做迁移 SQL 优化，也不继续实现 batch。
+O usuário entendeu que as otimizações existentes não resolvem o problema crítico de pico de memória, e decidiu que este
+hotfix não faz otimização de SQL de migração nem continua a implementação de batch.
 
-- [x] 删除 0020/0022 优化 SQL 和执行白名单，runner 直接执行冻结原 SQL。
-- [x] 删除优化专属扫描计划测试，保留原 SQL 执行、账本兼容、用户后续修改与失败回滚回归。
-- [x] 移除执行版本和实现指纹字段，仅保留既有 migration checksum；不改变原 SQL、ID、账本或数据库结构。
-- [x] 验证同步/异步启动执行原 SQL；继续验证等锁、状态 flush、提交后 ready、崩溃恢复。
-- [x] 准备当前草稿 MR 的范围与验证记录，随本次提交推送更新；不把历史优化测试作为当前性能证据。
-- [ ] 按“进入 ZCode 前全屏 loading”重新设计启动入口。现有工作区门禁未满足目标，不能标记完成。
+- [x] Remover os SQL de otimização 0020/0022 e a whitelist de execução; o runner passa a executar diretamente o SQL
+      original congelado.
+- [x] Remover os testes de plano de execução exclusivos da otimização, preservando a regressão de execução do SQL
+      original, a compatibilidade do ledger, as modificações posteriores do usuário e o rollback de falha.
+- [x] Remover os campos de versão de execução e de impressão digital de implementação, mantendo apenas o checksum de
+      migration existente; sem alterar o SQL original, os IDs, o ledger ou a estrutura do banco.
+- [x] Verificar que a inicialização síncrona/assíncrona executa o SQL original; continuar verificando espera de lock,
+      flush de estado, ready após commit e recuperação de crash.
+- [x] Preparar o escopo e o registro de verificação do MR de draft atual, enviados como atualização junto deste commit;
+      não usar os testes históricos de otimização como evidência de desempenho atual.
+- [ ] Redesinhar a entrada de inicialização segundo o "loading de tela cheia antes de entrar no ZCode". A liberação de
+      workspace existente não atende ao objetivo e não pode ser marcada como concluída.
 
-本次撤回只减少执行实现，不重置分支，不撤销独立 Provider JSON 保护，不修改用户数据库。
-SQLite/账本继续拥有唯一迁移事实；Host/UI 只观察阶段。下方保留首轮实施轨迹，其中 SQL 优化及其验证结果已退出交付范围。
+Este cancelamento reduz apenas a implementação de execução, não reseta o branch, não revoga a proteção independente do
+Provider JSON e não modifica o banco de dados do usuário.
+SQLite/ledger continuam sendo o único fato de migração; Host/UI apenas observam a fase. Abaixo é preservado o rastro da
+primeira rodada de implementação, na qual a otimização de SQL e seus resultados de verificação saíram do escopo de
+entrega.
 
-### 本次撤回验证
+### Verificação deste cancelamento
 
-- 先增加实际执行原 SQL 的断言，撤回前失败（0020/0022 被替换），撤回后通过。
-- 存储、冻结原迁移与同步/异步 runner、真实锁和崩溃恢复：4 文件 55 用例通过；旧迁移及旧 Reader 回归：5 文件 46 用例通过。
-- Host 协议与门禁：2 文件 15 用例通过；bootstrap Writable flush：1 文件 1 用例通过。
-- `pnpm typecheck`、CLI adapters/bootstrap typecheck、`pnpm lint`（42 个既有 warning，0 error）、`pnpm architecture:check --changed`（0 violation）通过。
-- bootstrap 首轮测试加载旧 adapters/dist，因旧执行指纹不符合新 schema 失败；重新构建 adapters 后同一测试通过，无生产代码兜底。
-- 原 migrations.ts 与 migrations/ 相对 hotfix 目标分支 diff 为空；未修改用户数据库，未执行大库性能测量或 UI E2E。
-- dep:refs 未加载 CLI adapters project；删除边界依据仓库全文引用扫描与 CLI/跨包类型检查，不声称语言服务确认零引用。
+- Primeiro foi adicionada uma asserção que executa de fato o SQL original, falhando antes do cancelamento (0020/0022
+  estavam substituídos) e passando depois.
+- Armazenamento, SQL original congelado e runner síncrono/assíncrono, locks reais e recuperação de crash: 4 arquivos com
+  55 casos passaram; regressão das migrations antigas e do Reader antigo: 5 arquivos com 46 casos passaram.
+- Protocolo e liberação do Host: 2 arquivos com 15 casos passaram; bootstrap Writable flush: 1 arquivo com 1 caso
+  passou.
+- `pnpm typecheck`, typecheck de adapters/bootstrap da CLI, `pnpm lint` (42 warnings já existentes, 0 erro) e
+  `pnpm architecture:check --changed` (0 violation) passaram.
+- Na primeira rodada, o teste de bootstrap carregou o adapters/dist antigo e falhou porque a impressão digital antiga de
+  execução não correspondia ao novo schema; após reconstruir os adapters, o mesmo teste passou, sem fallback em código de
+  produção.
+- O diff entre o migrations.ts e a pasta migrations/ originais e o branch alvo do hotfix é vazio; o banco de dados do
+  usuário não foi modificado e nenhuma medição de desempenho de banco grande ou E2E de UI foi executada.
+- dep:refs não carrega o projeto CLI adapters; o limite de remoção foi determinado por varredura de referências em todo o
+  repositório e por typecheck da CLI e entre pacotes, sem alegar confirmação de zero referências pelo serviço de
+  linguagem.
 
-## 首轮实施历史（已被上述范围修订覆盖）
+## Histórico da primeira rodada de implementação (substituído pelo ajuste de escopo acima)
 
-## 本次 hotfix 范围裁决
+## Decisão de escopo deste hotfix
 
-2026-09-14 用户在讨论 Host 初始化改动规模后，确认先按会话库范围继续：
-- 本次：会话库 `db.sqlite` 的 SQL 优化、锁等待、启动通知、业务请求门禁和 loading。
-- 后续：[Host tasks-index 初始化可观测性](./host-tasks-index-startup-followup.md)。本次不改它的初始化线程、事务或服务发布顺序。
-- 20 GB 性能测量、Windows/macOS 真机验证和发布灰度仍单独记录，不以隔离小库测试代替。
+Em 2026-09-14, após discutir a escala das mudanças de inicialização do Host, o usuário confirmou seguir primeiro pelo
+escopo do banco de sessões:
 
-## 1. 背景与目标
+- nesta rodada: otimização de SQL, espera de lock, notificação de inicialização, liberação de requisições de negócio e
+  loading do `db.sqlite` de sessão.
+- posteriormente: [Observabilidade da inicialização do tasks-index do Host](./host-tasks-index-startup-followup.md).
+  Esta rodada não altera sua thread de inicialização, sua transação nem a ordem de publicação de serviços.
+- A medição de desempenho de 20 GB, a verificação real em Windows/macOS e o rollout gradual de release continuam
+  registrados separadamente e não são substituídos por testes com banco pequeno isolado.
 
-部分用户已灰度升级，部分用户仍未迁移；历史会话数据库可能达到 20 GB。
-当前 0020 对 part 执行三条 JSON 条件 UPDATE，0022 对历史用户消息排名后关联修复对象，存在减少扫描和中间结果的空间。
-数据库迁移又处于启动事务中，可能与其他 Agent 的 5 秒锁等待、普通协议约 3 分钟请求超时及进程回收冲突。
+## 1. Contexto e objetivo
 
-目标：同一 hotfix 兼容已完成和未完成迁移的用户，减少大表处理成本，并让用户在真实迁移完成后进入依赖它的工作区。
-20 GB 的扫描量、耗时和内存分析目前只是静态估算，不作为性能结果或通过阈值。
+Parte dos usuários já recebeu a atualização gradual, e parte ainda não migrou; o banco de dados de sessões históricos
+pode chegar a 20 GB.
+Atualmente o 0020 executa três UPDATEs com condição JSON sobre part, e o 0022 classifica mensagens de usuário históricas e
+depois corrige os objetos associados, o que abre espaço para reduzir varreduras e resultados intermediários.
+A migração do banco de dados ocorre dentro da transação de inicialização e pode conflitar com a espera de lock de 5
+segundos de outros Agents, com o timeout de requisição de cerca de 3 minutos do protocolo comum e com o recolhimento de
+processo.
+Objetivo: o mesmo hotfix é compatível com usuários que concluíram e não concluíram a migração, reduz o custo de
+processamento de tabelas grandes e deixa o usuário entrar no workspace que depende delas depois que a migração real
+concluir.
+O volume de varredura, o tempo e a análise de memória de 20 GB são, no momento, apenas estimativas estáticas e não
+servem como resultado de desempenho nem como limiar de aprovação.
 
-关联：
+Relacionados:
 
-- [完整启动门禁、协议、错误与跨端方案](../../../desktop/database-migration-startup-gate-plan.md)
-- [Todo 109：数据库迁移与回退可读性](./todo-109-database-migration-consolidation-and-rollback-readability.md)
-- [SQLite 多 Agent 并发启动合同](../../../superpowers/specs/2026-07-15-sqlite-concurrent-agent-startup-design.md)
-- [已合入的聊天配置等待隔离](../../../performance/session-config-blocking-hotfix.md)：不得在启动门禁中重新引入可选远端配置依赖。
+- [Plano completo de liberação de inicialização, protocolo, erros e solution cross-platform](../../../desktop/database-migration-startup-gate-plan.md)
+- [Todo 109: consolidação das migrações de banco de dados e legibilidade de rollback](./todo-109-database-migration-consolidation-and-rollback-readability.md)
+- [Contrato de inicialização concorrente de múltiplos Agents no SQLite](../../../superpowers/specs/2026-07-15-sqlite-concurrent-agent-startup-design.md)
+- [Isolamento de espera da configuração de chat já mergeado](../../../performance/session-config-blocking-hotfix.md): não
+  reintroduzir dependências opcionais de configuração remota na liberação de inicialização.
 
-## 2. 实施清单
+## 2. Checklist de implementação
 
-### A. 先固定语义与测试
+### A. Fixar primeiro a semântica e os testes
 
-- [x] 核对最新分支 `dc1026894d`、0020–0022 冻结定义及 config.storage.sessionDbPath 路径来源。
-- [ ] 发布评审：执行契约交数据库 owner 复核。本次无 schema 变更，没有触发「修改数据库结构必须同步」条件；未联系他人。
-- [x] 先建立冻结旧 SQL 与候选新实现的差分测试，再实现优化。
-- [x] 覆盖新库、未迁移、已迁移、部分账本、失败回滚、旧版回退再升级。
-- [x] 固定 JSON null/缺失、未知字段、显式空选择、坏 JSON、相同排序值、旧回退字段及用户后续修改的断言。
+- [x] Conferir o branch mais recente `dc1026894d`, as definições congeladas 0020–0022 e a origem do caminho de
+      config.storage.sessionDbPath.
+- [ ] Revisão de release: o contrato de execução vai ao owner do banco para conferência. Não há mudança de schema
+      nesta rodada, então a condição de "alterar a estrutura do banco exige sincronização" não foi acionada; ninguém foi
+      contatado.
+- [x] Estabelecer primeiro um teste diferencial entre o SQL antigo congelado e a nova implementação candidata, e só então
+      implementar a otimização.
+- [x] Cobrir banco novo, não migrado, migrado, ledger parcial, rollback de falha, downgrade e nova atualização.
+- [x] Fixar as asserções de JSON null/ausente, campos desconhecidos, seleção explicitamente vazia, JSON inválido,
+      valores de ordenação iguais, campos antigos de downgrade e modificações posteriores do usuário.
 
-### B. P0：0020 的 part 三次扫描合并
+### B. P0: consolidar as três varreduras de part do 0020
 
-- [x] 将 fromModel、toModel、subtask.model 的转换合并为一次候选扫描。
-- [x] timeline/model_change 同一行同时处理 from/to；subtask 按自身规则转换。
-- [x] 精确保留每个字段的触发条件，未匹配的行不写入，不把缺失字段无条件改成 null。
-- [x] 保留所有旧成员、未知成员、正文、附件引用、行 ID 和时间字段。
-- [x] 核对执行计划确实减少 part 扫描，而非仅把三段 SQL 包进 CTE 后仍重复扫描。
+- [x] Consolidar a conversão de fromModel, toModel e subtask.model em uma única varredura candidata.
+- [x] Tratar from/to na mesma linha de timeline/model_change; subtask segue a conversão pelas suas próprias regras.
+- [x] Preservar com precisão a condição de disparo de cada campo; linhas sem correspondência não são gravadas e campo
+      ausente não é alterado incondicionalmente para null.
+- [x] Preservar todos os membros antigos, membros desconhecidos, corpo, referências de anexos, IDs de linha e campos de
+      tempo.
+- [x] Conferir que o plano de execução realmente reduz as varreduras de part, e não apenas embrulha os três trechos de
+      SQL em uma CTE continuando a varrer.
 
 ```text
-当前：扫描 part → from；扫描 part → to；扫描 part → subtask.model
-目标：扫描 part → 按类型与字段条件转换 → 每个匹配行一次更新
+atual: varredura part → from; varredura part → to; varredura part → subtask.model
+alvo: varredura part → conversão por tipo e condição de campo → uma atualização por linha correspondente
 ```
 
-### C. P0：0022 缩小历史查询范围
+### C. P0: reduzir o escopo da consulta histórica do 0022
 
-- [x] 先确定符合原规则的候选 session_entry/session，候选为空直接结束。
-- [x] 在排名输入中限定候选会话，或使用候选会话驱动的索引查询取得最新用户消息。
-- [x] 保持“先取最新用户消息，再检查模型/档位”的顺序；不能改为寻找更早的有效档位。
-- [x] 保持 sequence、time_created、rowid 的原有排序与并列规则。
-- [x] 保持原先“迁移后用户未修改过且模型一致”约束，不修复无关会话。
+- [x] Determinar primeiro as session_entry/session candidatas que atendem à regra original; se as candidatas estiverem
+      vazias, encerrar diretamente.
+- [x] Limitar as sessões candidatas na entrada da classificação, ou usar uma consulta de índice orientada pelas sessões
+      candidatas para obter a mensagem de usuário mais recente.
+- [x] Manter a ordem "obter primeiro a mensagem de usuário mais recente e só então verificar modelo/tier"; não pode ser
+      trocada por procurar um tier válido mais antigo.
+- [x] Manter a ordenação e as regras de empate originais de sequence, time_created e rowid.
+- [x] Manter a restrição original "o usuário não modificou nada após a migração e o modelo é consistente", sem corrigir
+      sessões sem relação.
 
-### D. P1：消息转换与中间结果
+### D. P1: conversão de mensagens e resultados intermediários
 
-- [x] 评估 0020 用户/助手消息的两条 UPDATE 合并扫描，保持两类触发条件和结果。
-- [x] 评估排名列：0020 去掉 `message.*`，仅携带 session_id/时间/data；0022 改成索引查询。0020 纯 ID 排名后回表仍留作后续性能比较，未宣称实现。
-- [x] 优先利用已有索引；增加大索引须计入构建成本、磁盘空间和锁占用，不默认新增。
-- [x] 不把 SQL 函数调用次数直接当成 JSON 全量解析次数；以后以执行计划和测量确认收益。
+- [x] Avaliar a consolidação das varreduras das duas UPDATEs de mensagens de usuário/assistente do 0020, preservando as
+      condições de disparo e os resultados dos dois tipos.
+- [x] Avaliar as colunas de classificação: o 0020 remove `message.*` e carrega apenas session_id/tempo/data; o 0022
+      passa a ser uma consulta de índice. A classificação do 0020 apenas por ID, com retorno à tabela, fica como
+      comparação de desempenho posterior e não é declarada como implementada.
+- [x] Aproveitar primeiro os índices existentes; índices grandes adicionais devem contabilizar custo de construção,
+      espaço em disco e ocupação de lock, e não são adicionados por padrão.
+- [x] Não tratar o número de chamadas de função SQL como o número de parses JSON completos; os ganhos serão confirmados
+      depois por plano de execução e medição.
 
-### E. P0：灰度兼容执行契约
+### E. P0: contrato de execução compatível com o rollout gradual
 
-- [x] 保留原 migration ID、原 SQL 定义、原 checksum 和 ledger 格式；历史定义不原地修改。
-- [x] 评审并实现明确白名单的优化 executor / executionRevision，作为同一冻结语义的可审计执行实现。
-- [x] 已记录项仍按原 checksum 校验并跳过；只有未执行项进入优化实现。
-- [x] 优化实现与账本同事务提交；不提前写成功、不删除账本、不跳过 checksum 错误。
-- [x] 保持原迁移顺序及逐项跳过行为；存在部分账本时只处理缺失项。
-- [x] 新实现的错误/回滚行为也必须等价；不能只比较正常结果后填回旧 checksum。
-- [x] 使用冻结旧版实际 Reader/binary 验证回退后内容可读，再升级不重迁或复活用户清空的设置。
+- [x] Preservar o ID de migration original, a definição do SQL original, o checksum original e o formato do ledger; as
+      definições históricas não são modificadas no lugar.
+- [x] Revisar e implementar um executor de otimização / executionRevision com whitelist explícita, como uma implementação
+      de execução auditável da mesma semântica congelada.
+- [x] Itens já registrados continuam sendo validados pelo checksum original e pulados; apenas itens não executados entram
+      na implementação otimizada.
+- [x] A implementação otimizada é commitada na mesma transação do ledger; sem gravar sucesso antecipadamente, sem
+      apagar o ledger e sem pular erro de checksum.
+- [x] Preservar a ordem original das migrations e o comportamento de pular item a item; havendo ledger parcial, apenas os
+      itens ausentes são tratados.
+- [x] O comportamento de erro/rollback da nova implementação também precisa ser equivalente; não basta comparar o
+      resultado normal e depois preencher de volta o checksum antigo.
+- [x] Usar o Reader/binary real da versão antiga congelada para verificar que o conteúdo continua legível após o
+      downgrade, e que uma nova atualização não remigra nem ressuscita configurações que o usuário limpou.
 
 ```text
-已完成迁移 → 校验原 checksum → 跳过大扫描
-未完成迁移 → 等价优化实现 → 数据与迁移记录同事务提交
-执行失败   → 回滚 → 下次按真实账本重试
+migração concluída → validar o checksum original → pular a varredura grande
+migração pendente  → implementação otimizada equivalente → dados e registro de migração commitados na mesma transação
+falha na execução → rollback → próxima tentativa usa o ledger real
 ```
 
-### F. P0：配套启动保护
+### F. P0: proteção de inicialização de apoio
 
-- [x] 按完整方案建立 checking / waiting_for_lock / migrating / committing / ready / failed 状态。
-- [x] 复用现有 Agent，在数据库业务就绪前传出严格类型的启动通知，禁止解析 stderr 文案作为状态协议。
-- [x] Host 提供带 attempt/generation/sequence 的快照和订阅，Root 展示真实阶段与已用时间，不显示虚假百分比。
-- [x] SQLite 保持唯一迁移协调者；取得锁后重新检查账本，不让 Host/UI 持有第二把迁移锁。
-- [x] 区分迁移锁等待与普通请求超时；迁移期间不发送普通业务请求，防 watchdog 回收导致反复迁移。
-- [x] 服务层阻止依赖库的会话、历史、Wiki、scheduler/bot 提前进入；不能只加 UI 遮罩。
-- [x] 数据准备不依赖账号、Key、权益或可选远端配置；不同物理库保持独立。
-- [x] 完成 Host 同步初始化静态审查；用户确认移入后续任务，本次 loading 不覆盖服务发布前的 tasks-index 初始化。
-- [ ] 覆盖多窗口、独立 CLI、SSH/WSL/Docker、Web；手机复用 shared-host，不另起 runtime，不混用 continuous/replayable。
-- [ ] 评审具体等待预算、退出和错误重试策略；失败保留数据库，不建空库、不删除 WAL/SHM。
+- [x] Estabelecer os estados checking / waiting_for_lock / migrating / committing / ready / failed conforme o plano
+      completo.
+- [x] Reaproveitar o Agent existente para emitir uma notificação de inicialização estritamente tipada antes de o banco
+      estar pronto para uso de negócio, proibindo usar o texto do stderr como protocolo de estado.
+- [x] O Host fornece snapshot e assinatura com attempt/generation/sequence, e o Root exibe a fase real e o tempo já
+      decorrido, sem porcentagens falsas.
+- [x] O SQLite permanece o único coordenador de migração; o ledger é reconferido após obter o lock, e Host/UI não mantêm
+      uma segunda trava de migração.
+- [x] Distinguir a espera do lock de migração do timeout comum de requisição; durante a migração não são enviadas
+      requisições de negócio comuns, evitando que o recolhimento por watchdog cause migrações repetidas.
+- [x] A camada de serviço impede que sessões, histórico, Wiki e scheduler/bot que dependem do banco entrem cedo demais;
+      não basta adicionar uma máscara de UI.
+- [x] A preparação de dados não depende de conta, Key, entitlement ou configuração remota opcional; bancos físicos
+      diferentes permanecem independentes.
+- [x] Concluir a revisão estática da inicialização síncrona do Host; o usuário confirmou a transferência para tarefa
+      posterior, e este loading não cobre a inicialização do tasks-index anterior à publicação dos serviços.
+- [ ] Cobrir múltiplas janelas, CLI independente, SSH/WSL/Docker e Web; o celular reutiliza o shared-host, não inicia
+      outro runtime e não mistura continuous/replayable.
+- [ ] Revisar o orçamento de espera concreto e as estratégias de saída e retry de erro; em caso de falha, o banco é
+      preservado, sem criar banco vazio e sem apagar WAL/SHM.
 
-## 3. 验收与证据
+## 3. Aceitação e evidências
 
-- [x] 差分：旧/新实现最终行语义、旧字段、顺序、时间戳、账本及错误回滚一致。
-- [x] 并发：持锁超过旧 5 秒后等待者仍可正常完成；同库只迁一次；异库不相互阻塞。
-- [ ] 生命周期：COMMIT 前崩溃、COMMIT 后通知丢失、Root reload、手机重连、迟到旧 ready 正确处理。
-- [x] 灰度：已完成用户不重扫、不覆盖后续修改；首次与部分升级执行正确；原 checksum 错误仍明确失败。
-- [ ] E2E：先确认完整方案 DBSTART-01～18 用例，按 e2e-case-lifecycle 进入 pending，记录 UI/协议/DB 证据。
-- [ ] 性能（后续明确允许测试时）：隔离的 20 GB、不同表体积分布和超大单行；对比扫描/执行计划、耗时、峰值 RSS、WAL/临时空间、持锁时间。
-- [ ] 平台：Windows/macOS/Linux，以及深浅主题、中英文、手机视口；无法验证的项目明确列出。
-- [ ] 机械检查：typecheck、lint、architecture:check、相关差分/多进程/协议测试已通过；E2E 类型检查通过，但桌面运行被当前环境阻塞，不能勾选整体通过。
+- [x] Diferencial: a semântica final de linha da implementação antiga/nova, os campos antigos, a ordem, os timestamps,
+      o ledger e o rollback de erro são consistentes.
+- [x] Concorrência: quem espera termina normalmente mesmo segurando o lock além dos 5 segundos antigos; o mesmo banco
+      migra só uma vez; bancos diferentes não se bloqueiam.
+- [ ] Ciclo de vida: crash antes do COMMIT, notificação perdida depois do COMMIT, reload do Root, reconexão no celular e
+      ready antigo atrasado são tratados corretamente.
+- [x] Rollout gradual: usuários já migrados não são re-escaneados nem têm modificações posteriores sobrescritas;
+      primeira atualização e atualização parcial executam corretamente; erro de checksum original ainda falha de forma
+      explícita.
+- [ ] E2E: confirmar primeiro os casos DBSTART-01～18 do plano completo, entrar em pending pelo e2e-case-lifecycle e
+      registrar as evidências de UI/protocolo/DB.
+- [ ] Desempenho (quando os testes forem explicitamente liberados): 20 GB isolado, com distribuições de volume por tabela e
+      linhas isoladas enormes; comparar varredura/plano de execução, tempo, RSS de pico, espaço de WAL/temporário e tempo
+      de retenção do lock.
+- [ ] Plataforma: Windows/macOS/Linux, além dos temas claro e escuro, zh/en e viewport de celular; listar explicitamente
+      os itens que não puderem ser verificados.
+- [ ] Verificações mecânicas: typecheck, lint, architecture:check e os testes diferenciais/multiprocesso/protocolo
+      relacionados passaram; o typecheck do E2E passou, mas a execução no desktop foi bloqueada pelo ambiente atual e a
+      aprovação geral não pode ser marcada.
 
-## 4. 发布与回滚
+## 4. Release e rollback
 
-- [ ] 同包按“已迁移 → 未迁小库 → 未迁大库 → 多进程/远端”逐步灰度，分别观察失败率和资源开销。
-- [ ] 优化执行分支可回退为冻结旧实现；已经提交的迁移不反向重跑，旧性能风险须写明。
-- [x] 普通业务 timeout 不因升级策略被整体放宽；不修改 task owner/lease、CommandInbox 或 replay 边界。
-- [ ] 提交与 MR 单独列出 SQL优化、执行契约、启动UI/协议及平台验证；与 Provider JSON 读取保护补丁区分范围。
+- [ ] No mesmo pacote, fazer o rollout gradual em etapas "migrado → banco pequeno não migrado → banco grande não
+      migrado → multiprocesso/remoto", observando separadamente a taxa de falha e o custo de recursos.
+- [ ] O ramo de execução otimizado pode voltar à implementação antiga congelada; migrations já commitadas não são
+      reexecutadas ao contrário, e o risco de desempenho antigo precisa ser explicitado.
+- [x] O timeout comum de negócio não é ampliado globalmente por causa da estratégia de atualização; não são modificados
+      task owner/lease, CommandInbox nem os limites de replay.
+- [ ] Listar separadamente no commit e no MR a otimização de SQL, o contrato de execução, a UI/protocolo de
+      inicialização e a validação de plataforma, separando o escopo do patch de proteção de leitura do JSON do Provider.
 
-不在本 Todo 中做：分批 COMMIT、后台半迁移格式、运行时每次读取补迁、无条件全库备份、未知数据清洗或直接修改用户真实数据库。
-完成标准是数据兼容、首次迁移成本与启动体验同时有证据；仅出现 loading 或单次迁移最终成功，不视为完成。
+Não fazer neste Todo: COMMIT em lotes, formato de migração parcial em segundo plano, migração complementar a cada leitura
+em runtime, backup incondicional de todo o banco, limpeza de dados desconhecidos ou modificação direta do banco de
+dados real do usuário.
+O critério de conclusão é ter evidências simultâneas de compatibilidade de dados, custo da primeira migração e experiência
+de inicialização; apenas exibir loading ou o sucesso final de uma única migração não conta como conclusão.
 
-## 5. 2026-09-14 实施与验证记录
+## 5. Registro de implementação e verificação de 2026-09-14
 
-代码已落地，按用户要求进入独立分支提交与草稿 MR；E2E 和发布验收未完成前不标记 Todo 完成。
+O código foi entregue e, por pedido do usuário, entrou em commit em branch independente e em MR de draft; o Todo não
+é marcado como concluído antes de E2E e aceitação de release.
 
-| 层次 | 已有证据 | 限制 |
+| Camada | Evidências existentes | Limites |
 | --- | --- | --- |
-| 旧/新 SQL 差分 | `optimized-migrations.test.ts` 16 个用例；完整行与 JSON 字节、账本、回滚、未知字段、自定义 trigger；EXPLAIN 验证 part 单次扫描与候选会话索引查询 | 隔离小库；不代表 20 GB 峰值内存或耗时 |
-| 迁移协调 | `async-migration-startup.test.ts` 4 个用例，真实写锁保持 5.1 秒；同/异库、超预算与错误回滚 | 大库及操作系统差异未测 |
-| 原有存储回归 | `session-store.test.ts` 44 个用例含重复双进程启动；旧 Selection/Reasoning/Provider 迁移与旧版实际 Reader 的 5 文件 52 个用例通过 | 回退证据使用冻结旧 Reader，未运行完整旧版本 GUI |
-| 崩溃恢复 | `migration-crash-recovery.test.ts` 2 个真实子进程用例；COMMIT 前 SIGKILL 后重迁，COMMIT 后通知丢失不重迁 | 当前 Linux |
-| 状态通知与日志 | `bootstrap/tests/storage-startup.test.ts` 1 个用例；真实 Writable flush 屏障、严格 schema、attempt/databaseId/sequence 与诊断同源 | 状态日志按阶段产生，无逐行 SQL 日志 |
-| Host 与 UI | 最新聚焦 6 文件 59 个用例通过：协议请求计时、进程管理、门禁、hook 换代/手机观察、Root 远控订阅边界 | 手机真实 relay/SSH/WSL/Docker 尚待回归 |
-| E2E | pending 新增 `conversation-session-database-startup.test.ts`，真实旧库+写锁+页面刷新+释放后核对数据 | 正在验证，尚未晋级正式覆盖 |
+| Diferencial de SQL antigo/novo | `optimized-migrations.test.ts` com 16 casos; linha completa e bytes de JSON, ledger, rollback, campos desconhecidos, trigger customizado; EXPLAIN confirma varredura única de part e consulta de índice de sessões candidatas | banco pequeno isolado; não representa pico de memória nem tempo de 20 GB |
+| Coordenação de migração | `async-migration-startup.test.ts` com 4 casos, mantendo um lock de escrita real por 5,1 s; mesmo/diferente banco, excedente de orçamento e rollback de erro | banco grande e diferenças de sistema operacional não testados |
+| Regressão de armazenamento existente | `session-store.test.ts` com 44 casos, incluindo inicialização duplicada por dois processos; 5 arquivos com 52 casos das migrations antigas de Selection/Reasoning/Provider e do Reader real antigo | a evidência de downgrade usa o Reader antigo congelado; não executou a GUI antiga completa |
+| Recuperação de crash | `migration-crash-recovery.test.ts` com 2 casos reais de subprocesso; remigração após SIGKILL antes do COMMIT e sem remigração quando a notificação se perde depois do COMMIT | Linux atual |
+| Notificação de estado e logs | `bootstrap/tests/storage-startup.test.ts` com 1 caso; barreira real de Writable flush, schema estrito, attempt/databaseId/sequence e diagnóstico da mesma origem | os logs de estado são gerados por fase, sem log de SQL linha a linha |
+| Host e UI | execução focada mais recente com 6 arquivos e 59 casos: temporização de requisição do protocolo, gerenciamento de processo, liberação, troca de hook/observação no celular e limite de assinatura de controle remoto do Root | relay real no celular/SSH/WSL/Docker ainda aguardam regressão |
+| E2E | novo pending `conversation-session-database-startup.test.ts`, com banco antigo real + write lock + refresh de página + conferência dos dados após a liberação | em verificação, ainda promovido à cobertura oficial |
 
-执行预算：内置新版 Agent 首通知 30 秒；SQLite 外部写锁总等待 60 分钟，单次 native busy 25ms，异步退避 10–200ms；长 SQL 不加自动超时杀进程，10 分钟显示耗时提示。业务期恢复原 5 秒 busy timeout，普通 RPC 原 timeout 不变。自定义旧 Agent 仍兼容旧路径；收到合法启动帧后启用新等待语义。
+Orçamento de execução: 30 segundos para a primeira notificação do Agent novo embutido; espera total por lock externo de
+escrita do SQLite de 60 minutos, com busy nativo de 25 ms por tentativa e backoff assíncrono de 10–200 ms; SQL longo
+não ganha timeout automático que mate o processo, e após 10 minutos exibe uma dica de tempo decorrido. No período de
+negócio volta o busy timeout original de 5 segundos, e o timeout original das RPC comuns não muda. O Agent antigo
+customizado continua compatível com o caminho antigo; a nova semântica de espera é ativada ao receber um frame de
+inicialização válido.
 
-保留历史 ledger 中未知 ID 的原有兼容行为，仅校验当前已知 ID 的 checksum；不为本 hotfix 新增“遇到未来 ID 就失败”的规则。存在非标准 trigger 时执行冻结原 SQL；原 0015 的两个已知 AFTER INSERT sequence trigger 不受合并 UPDATE 影响。
+Preserva-se o comportamento de compatibilidade original para IDs desconhecidos no ledger histórico, validando apenas o
+checksum dos IDs conhecidos atualmente; esta hotfix não adiciona a regra "falhar ao encontrar um ID futuro". Na presença
+de triggers não padronizados, executa-se o SQL original congelado; os dois triggers AFTER INSERT de sequence da 0015
+original não são afetados pela consolidação do UPDATE.
 
-诊断环境：最初 desktop E2E 在浏览器会话创建前失败，日志确认虚拟 X server 缺少 `/usr/bin/xkbcomp`。依赖只解压到 `/tmp`；不修改系统安装或用户真实配置。后续结果以 E2E 产物为准。
+Ambiente de diagnóstico: inicialmente o desktop E2E falhou antes da criação da sessão no navegador, e o log confirmou que
+o X server virtual não tinha `/usr/bin/xkbcomp`. As dependências foram extraídas apenas em `/tmp`; não se modifica a
+instalação do sistema nem a configuração real do usuário. Os resultados seguintes seguem os artefatos do E2E.
 
-### 最终补查（当前环境）
+### Verificação complementar final (ambiente atual)
 
-- 追加真实子进程回归发现并修复：旧启动请求结清时，即使 pending RPC 为 0，迁移也不能进入 idle 回收。`zcodeAgentProcessManager.test.ts` 40 个用例通过；ready 后恢复原空闲策略。
-- 最新会话库/崩溃/启动通知聚焦运行：5 文件 67 个用例通过；App 门禁聚焦 6 文件此前 59 个用例通过，随后进程管理器增加上述第 40 个用例。
-- `pnpm typecheck`、`pnpm lint`（42 个既有 warning，0 error）、`pnpm architecture:check --changed`（0 violation）、CLI bootstrap typecheck、desktop `typecheck:e2e` 通过。
-- 最后一次桌面 E2E 产物：`packages/desktop/.e2e-artifacts/desktop-e2e-20260914103736847-p37727-53170acac47dff56/summary.md`。用例尚未进入执行，ChromeDriver 在创建会话时失败。补齐虚拟显示后，一个仅调用 `app.whenReady()` / `new BrowserWindow()`、不加载 ZCode 的最小 Electron 应用仍以 `Trace/breakpoint trap` 退出（`/tmp/zcode-migration-electron-minimal.log`）；因此当前环境不具备完成桌面 UI 验证的条件，不将它标为业务用例失败或通过。
-- 仍待可运行桌面环境补验 loading/刷新/成功放行、失败重试、主题/语言/手机视口与真实远端链路。未执行 20 GB 测量，未发布。用户在了解验证限制后要求更名分支、推送并建 MR，并明确本次忽略 Agent 会话 trailer；不猜测 ID。
-- 未使用 codegraph。`dep:refs` 不加载 CLI bootstrap project，旧协议同步 helper 的移除依据仓库全文引用检查与入口切换后的类型检查，不声称语言服务确认零引用。
+- Uma regressão real de subprocesso adicional descobriu e corrigiu: ao quitar a requisição de inicialização antiga, mesmo
+  com 0 RPC pendentes, a migração não pode entrar na reciclagem por idle. `zcodeAgentProcessManager.test.ts` passou com
+  40 casos; a política ociosa original é restaurada depois do ready.
+- Execução focada mais recente de biblioteca de sessão/crash/notificação de inicialização: 5 arquivos com 67 casos
+  passaram; a liberação do App em execução focada passou antes com 6 arquivos e 59 casos, e depois o gerenciador de
+  processo recebeu o 40º caso acima.
+- `pnpm typecheck`, `pnpm lint` (42 warnings já existentes, 0 erro), `pnpm architecture:check --changed` (0 violation),
+  typecheck do CLI bootstrap e `typecheck:e2e` do desktop passaram.
+- Último artefato do desktop E2E:
+  `packages/desktop/.e2e-artifacts/desktop-e2e-20260914103736847-p37727-53170acac47dff56/summary.md`. O caso ainda não
+  chegou a executar e o ChromeDriver falhou ao criar a sessão. Depois de completar o display virtual, um aplicativo
+  Electron mínimo que chama apenas `app.whenReady()` / `new BrowserWindow()`, sem carregar o ZCode, ainda sai com
+  `Trace/breakpoint trap` (`/tmp/zcode-migration-electron-minimal.log`); portanto o ambiente atual não tem condições de
+  concluir a verificação de UI de desktop, e isso não é marcado como falha nem como aprovação de caso de negócio.
+- Ainda falta verificar em ambiente de desktop funcional o loading/refresh/liberação em sucesso, o retry em falha,
+  tema/idioma/viewport de celular e a cadeia remota real. A medição de 20 GB não foi executada e nada foi publicado.
+  Tendo ciência das limitações de verificação, o usuário pediu renomear o branch, fazer push e abrir o MR, e deixou
+  explícito que nesta rodada o trailer de sessão do Agent é ignorado; nenhum ID é adivinhado.
+- codegraph não foi usado. `dep:refs` não carrega o projeto CLI bootstrap, e a remoção do helper de sincronização do
+  protocolo antigo se baseia na verificação de referências em todo o repositório e no typecheck após a troca de entrada,
+  sem alegar confirmação de zero referências pelo serviço de linguagem.
 
-### 提交基线与授权
+### Baseline de commit e autorização
 
-2026-09-14：源分支改为 `fix-database-migration-startup`，目标 `hotfix/3.12.2`。先快进至 `5d7165d328`（CLI 异常遥测），再合回本次改动，无冲突；与新增遥测共用的进程管理器和协议经过聚焦回归，7 文件 72 个用例通过，typecheck 通过。Provider JSON 读取保护独立提交，和 Todo 144 同一草稿 MR 供审查；草稿阶段仍保留上述 E2E/平台/性能待验项。
+2026-09-14: o branch de origem passou a `fix-database-migration-startup`, com alvo `hotfix/3.12.2`. Primeiro houve
+fast-forward até `5d7165d328` (telemetria de exceções da CLI) e então as mudanças desta rodada foram mescladas de volta,
+sem conflitos; o gerenciador de processo e o protocolo compartilhados com a nova telemetria passaram por regressão
+focada, com 7 arquivos e 72 casos, e o typecheck passou. A proteção de leitura do JSON do Provider é um commit
+independente, no mesmo MR de draft do Todo 144 para revisão; na fase de draft, os itens pendentes de E2E/plataforma/
+desempenho acima são mantidos.
 
-推送前扩大回归：首次 related 扫描 971 文件，970 通过，Root update overlay 的 6 个用例因旧 `useWorkspaceServices` mock 将首参路径原样返回而失败。修正测试替身的服务契约后，6 个用例聚焦通过；生产代码不为测试增加空服务兜底。
+Regressão ampliada antes do push: a primeira varredura de related cobriu 971 arquivos, com 970 passando; 6 casos do Root
+update overlay falharam porque o mock antigo de `useWorkspaceServices` devolvia o primeiro argumento (o caminho) sem
+alteração. Depois de corrigir o contrato de serviço do test double, os 6 casos passaram em execução focada; o código de
+produção não ganhou um fallback de serviço vazio apenas por causa dos testes.

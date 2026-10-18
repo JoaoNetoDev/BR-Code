@@ -1,35 +1,34 @@
-# Edit Tool 模型可见结果契约
+# Contrato do Resultado Visível ao Modelo na Ferramenta Edit
 
-## 背景
+## Contexto
 
-Edit 工具的 provider-visible `tool_result` 是模型判断编辑是否生效、是否需要重读文件的依据。
-本文约束 Edit 成功与失败时的模型可见文本、`old_string` 的转义匹配，以及 read-before-edit
-的读取状态判定。
+O `tool_result` provider-visible da ferramenta Edit é a base para o modelo 판단 se a edição teve efeito e se é preciso reler o arquivo.
+Este documento restringe o texto visível ao modelo quando o Edit tem sucesso ou falha, a correspondência com escape de `old_string` e a determinação do estado de leitura do read-before-edit.
 
-## 行为
+## Comportamento
 
-- 成功 Edit 的模型可见文本需要带 freshness suffix：
-  ` (file state is current in your context — no need to Read it back)`。
-- Edit 执行错误进入模型上下文时需要包装为
-  `<tool_use_error>...</tool_use_error>`，但 UI/日志使用的原始错误消息仍保持裸文本。
-- `old_string` 中的 `\uXXXX` escape 应能匹配文件中的真实字符，例如
-  `<tag>` 匹配 `<tag>`。
-- 已读取且未变更的 partial view read state 可作为 Edit 的 read-before-edit 依据；
-  文件变更后仍必须走 stale guard。
+- O texto visível ao modelo de um Edit bem-sucedido precisa trazer o freshness suffix:
+  ` (file state is current in your context — no need to Read it back)`.
+- Quando um erro de execução do Edit entra no contexto do modelo, ele precisa ser envolvido como
+  `<tool_use_error>...</tool_use_error>`, mas a mensagem de erro original usada na UI/logs continua em texto puro.
+- O escape `\uXXXX` em `old_string` deve conseguir corresponder ao caractere real no arquivo, por exemplo
+  `<tag>` correspondendo a `<tag>`.
+- Um partial view read state já lido e inalterado pode servir de base para o read-before-edit do Edit;
+  depois que o arquivo muda, o stale guard ainda precisa ser respeitado.
 
-## 目标
+## Objetivos
 
-1. Edit success/error 的模型可见文本使用上述固定形态。
-2. 保持 Edit error 的结构化错误类型和 UI 展示消息不被 `<tool_use_error>` 包装污染。
-3. 支持 unicode escape fallback 的 `old_string` 匹配。
-4. 保持 stale 文件保护，不因为允许 partial read state 而放宽已变更文件的写入保护。
+1. O texto visível ao modelo de success/error do Edit usa a forma fixa acima.
+2. O tipo de erro estruturado do Edit e a mensagem exibida na UI não são contaminados pelo wrapper `<tool_use_error>`.
+3. Suportar a correspondência de `old_string` com fallback de unicode escape.
+4. Manter a proteção contra arquivos stale, sem afrouxar a proteção de escrita de arquivos já alterados por causa da permissão de partial read state.
 
-## 非目标
+## Não objetivos
 
-- 不修改桌面端、Web 端或手机远控链路。
-- 不修改 Read/Bash/WebSearch 等其它 tool 的模型可见错误格式。
+- Não modificar o desktop, a Web ou o caminho de controle remoto do celular.
+- Não modificar o formato de erro visível ao modelo de outras tools como Read/Bash/WebSearch.
 
-## 验证
+## Verificação
 
 - `apps/zcode-cli/packages/core/tests/edit-tool-contract.test.ts`
 - `pnpm typecheck`

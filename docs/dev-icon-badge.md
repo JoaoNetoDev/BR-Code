@@ -1,28 +1,45 @@
-# Dev 版应用图标角标
+# Distintivo de ícone da versão Dev
 
-## 背景
+## Contexto
 
-本地同时运行开发版（`pnpm dev:desktop`）和正式版 ZCode 时，两套 Dock 图标完全相同，无法区分。
+Ao rodar a versão de desenvolvimento (`pnpm dev:desktop`) e a versão oficial do ZCode simultaneamente na máquina
+local, os dois ícones do Dock são idênticos, impossibilitando diferenciá-los.
 
-## 方案
+## Solução
 
-未打包（`!app.isPackaged`）运行时，主进程在启动阶段给应用图标叠加一条左上角蓝色对角 "DEV" 绶带（ribbon）：
+Quando o app não está empacotado (`!app.isPackaged`), o processo principal sobrepõe ao ícone do aplicativo uma fita
+diagonal azul com "DEV" em branco no canto superior esquerdo, durante a etapa de inicialização:
 
-- 渲染：`packages/desktop/src/main/devIconBadge.ts` 的 `renderDevBadgeIcon()`
-  - 读入 `build/icon.png`（Windows 为 `icon_windows.png`）
-  - 用 `sharp` 直接合成：`buildDevRibbonSvg(size)` 生成一条绕 -45° 旋转的蓝底白字 "DEV" 绶带 SVG，几何参数随图标尺寸等比缩放
-  - 绶带厚度使用图标尺寸的 `19.9%`，文字使用 `15.2%`，在上一版基础上整体再放大约 `20%`
-  - 旋转中心位于图标尺寸的 `24%` 处；丝带放大后同步向右下移动，为左上角保留更明显的原图黑色区域
-  - 先把绶带 `composite` 到原图，再用原图自身作 `dest-in` 遮罩，使绶带沿图标圆角轮廓裁切、不溢出到透明角
-  - 结果 PNG 转 `nativeImage`，全程内存态、不落盘
-  - 任何一步失败记 warn 日志并返回 `null`，回退原图标，不影响启动
-  - 早期实现用隐藏 offscreen `BrowserWindow` + canvas 渲染（依赖窗口生命周期/轮询/超时，较慢且脆）；desktop 已直接依赖 `sharp`，改为纯图像合成后更精简可靠
-- 应用点（`packages/desktop/src/main/index.ts`）：
-  - macOS Dock：`applyAppIcon(devBadgeIcon ?? iconPath)`（`applyAppIcon` 已支持直接传 `NativeImage`）
-  - Windows/Linux 窗口图标：主窗口经 `createWindowInstance()` → `createWindow()` → `createBrowserWindow()` 创建，`iconPath` 参数已扩展为 `string | NativeImage`，dev 下传入 `devBadgeIcon ?? iconPath`，任务栏/标题栏据此显示 DEV 角标；更新状态窗口同样使用角标图
-- 打包版完全不走该逻辑，图标不变。
+- renderização: `renderDevBadgeIcon()` em `packages/desktop/src/main/devIconBadge.ts`
+  - lê `build/icon.png` (no Windows, `icon_windows.png`)
+  - compõe com `sharp` diretamente: `buildDevRibbonSvg(size)` gera um SVG de fita "DEV" branca sobre fundo azul,
+    girada em -45°, com parâmetros geométricos escalados proporcionalmente ao tamanho do ícone
+  - a espessura da fita usa 19,9% do tamanho do ícone e o texto usa 15,2%, cerca de 20% maiores no total em
+    relação à versão anterior
+  - o centro de rotação fica a 24% do tamanho do ícone; ao ampliar, a fita também se desloca para baixo e para a
+    direita, preservando uma área preta mais visível da imagem original no canto superior esquerdo
+  - a fita é primeiro composta com `composite` sobre a imagem original e depois recortada usando a própria imagem
+    original como máscara `dest-in`, de modo que a fita siga o contorno arredondado do ícone sem transbordar para os
+    cantos transparentes
+  - o PNG resultante é convertido em `nativeImage`, todo o processo em memória, sem gravação em disco
+  - qualquer falha em uma etapa gera um log de warning e retorna `null`, com fallback para o ícone original, sem
+    afetar a inicialização
+  - a implementação inicial usava um `BrowserWindow` offscreen oculto + renderização em canvas (dependia do ciclo de
+    vida da janela/polling/timeout, mais lento e frágil); como o desktop já depende de `sharp` diretamente, a
+    composição apenas de imagem ficou mais simples e confiável
+- pontos de aplicação (`packages/desktop/src/main/index.ts`):
+  - Dock do macOS: `applyAppIcon(devBadgeIcon ?? iconPath)` (`applyAppIcon` já aceita um `NativeImage` diretamente)
+  - ícone da janela em Windows/Linux: a janela principal é criada por
+    `createWindowInstance()` → `createWindow()` → `createBrowserWindow()`, e o parâmetro `iconPath` foi estendido para
+    `string | NativeImage`; em dev passa-se `devBadgeIcon ?? iconPath`, de modo que a barra de tarefas / barra de
+    título exiba o distintivo DEV; a janela de status de atualização também usa a imagem com distintivo
+- a versão empacotada não passa por essa lógica; o ícone permanece inalterado.
 
-## 测试
+## Testes
 
-- `packages/desktop/test/devIconBadge.test.ts`：绶带 SVG 契约（对角旋转、蓝底、尺寸等比、左上角定位）；`renderDevBadgeIcon` 成功、读取失败、空图回退路径
-- `packages/desktop/test/desktopWindowChrome.test.ts`：`applyAppIcon` 直接使用传入 `NativeImage`；`createBrowserWindow` 把 `NativeImage` 图标透传给 `BrowserWindow.icon`（Windows/Linux 主窗口角标回归护栏）
+- `packages/desktop/test/devIconBadge.test.ts`: contrato do SVG da fita (rotação diagonal, fundo azul, escala
+  proporcional, posicionamento no canto superior esquerdo); caminho de sucesso de `renderDevBadgeIcon`, falha de
+  leitura e fallback com imagem vazia
+- `packages/desktop/test/desktopWindowChrome.test.ts`: `applyAppIcon` usando diretamente o `NativeImage` passado;
+  `createBrowserWindow` repassando o ícone `NativeImage` para `BrowserWindow.icon` (rede de proteção contra regressão
+  do distintivo da janela principal em Windows/Linux)

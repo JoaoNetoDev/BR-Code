@@ -1,18 +1,16 @@
-# Automations Main Window Drag Region
+# Região de Arrasto da Main Window de Automations
 
-## 背景
+## Contexto
 
-Workspace 主视图切到 `automations` 时不会渲染 `WorkspaceHeader`。普通聊天页和草稿页依赖 header 顶部的 `[app-region:drag]` 区域来拖动桌面窗口；定时任务主视图缺少这一层后，桌面端用户无法在页面顶部按住拖动 App。
+Quando a view principal do Workspace muda para `automations`, o `WorkspaceHeader` não é renderizado. As páginas de chat comum e de rascunho dependem da região `[app-region:drag]` no topo do header para arrastar a janela do desktop; sem essa camada na view principal de tarefas agendadas, os usuários do desktop não conseguem arrastar o app pela parte superior da página.
 
-## 规范
+## Especificações
 
-- 桌面端定时任务主视图顶部必须保留一条 `h-12` 的 `[app-region:drag]` 区域，对齐其他主视图标题栏拖拽高度。
-- 定时任务内容区继续独立滚动，不把列表卡片、菜单按钮、创建按钮放进 drag 区域。
-- Web / 手机远控不需要桌面窗口拖拽能力，不增加额外标题栏高度。
-- 如果未来定时任务主视图恢复统一 `WorkspaceHeader`，应移除独立拖拽占位，避免出现双标题栏。
+- A view principal de tarefas agendadas no desktop precisa manter no topo uma região `[app-region:drag]` de `h-12`, alinhada à altura de arraste das barras de título das demais views principais.
+- A área de conteúdo das tarefas agendadas continua rolando de forma independente; cards da lista, botões de menu e o botão de criação não entram na região de arraste.
+- O controle remoto Web / celular não precisa da capacidade de arrastar a janela do desktop, portanto não há altura de título adicional.
+- Se no futuro a view principal de tarefas agendadas voltar a usar o `WorkspaceHeader` unificado, o placeholder de arraste independente deve ser removido, para evitar uma barra de título duplicada.
 
-## 编辑路径面包屑
+## Breadcrumb do caminho de edição
 
-工作区 Automations 主视图的 48px 桌面拖拽区同时承载二级页面面包屑。列表页只有一级
-“自动化”，按全局规则不显示；新建与编辑页显示“自动化 > 新建任务/任务名称”。一级按钮
-调用编辑视图既有的脏状态返回逻辑，不能绕过未保存确认。移动 Web 不渲染桌面拖拽条。
+A área de arraste de 48px da view principal de Automations do workspace também comporta o breadcrumb das páginas de segundo nível. A página de lista tem apenas um nível, "自动化", que, pela regra global, não é exibido; as páginas de criação e edição exibem "自动化 > 新建任务/任务名称". O botão de primeiro nível chama a lógica de retorno com estado sujo já existente na view de edição e não pode contornar a confirmação de alterações não salvas. O Web móvel não renderiza a barra de arraste do desktop.

@@ -1,26 +1,22 @@
-# 进程、工作区与实时链路边界
+# Limites de processo, workspace e cadeia em tempo real
 
-修改 main/host/services 的进程职责、工作区隔离、session/task、输入队列、stream、snapshot 或远控链路前读取。这里只保留跨模块约束；具体实现以对应当前事实文档和契约为依据。
+Leia antes de modificar as responsabilidades de processo de main/host/services, o isolamento de workspace, session/task, a fila de entrada, stream, snapshot ou a cadeia de controle remoto. Aqui ficam apenas as restrições entre módulos; a implementação concreta deve seguir o documento de fatos atuais correspondente e o contrato correspondente.
 
-## 进程归属
+## Propriedade dos processos
 
-- App 通过子进程 stdio 与 Agent 通信，协议为 `@zcode/protocol`。
-- Main 只负责窗口/native dialog、进程 fork、广播中转、日志接收，以及远控鉴权/配对/心跳、payload 透传和 host attachment 调度；session/task、stream、queue、snapshot 业务状态保留在业务 owner。
-- 每个 BrowserWindow 有且只有一个 window-scoped Local Host，通过 MessagePort 直连 renderer。同一窗口的多个本地 workspace tab 共用该 Host，服务按 workspaceKey 隔离；不要把 workspace service scope 变成独立 Host 进程。
-- Local Host 通过 `createLocalServices({ parentPort })` 承载 file/system/terminal/setting/credential/broadcast，并按 workspaceKey 管理本地 Agent CLI。
-- SSH/WSL/Docker/Server 工作区由同一 Local Host 的 `RemoteConnectionRegistry` 创建或复用连接，作为逻辑 tab/session 打开；不创建独立 Desktop Remote Host，broadcast 仍属桌面本地行为。
-- 手机 `/remote` 通过 shared-host attachment 连接桌面已有 local host 或 remote workspace session host。为手机另建独立 runtime、local host 或 SSH/WSL/Docker session 属于架构变化，需先沟通、更新架构文档并完成桌面/手机回归。
-- 外部 relay 仅承担鉴权、配对、心跳和 `rpc-frame`/app payload 透传，不持有业务状态。
+- O App se comunica com o Agent pelo stdio de subprocessos, com o protocolo `@zcode/protocol`.
+- O Main é responsável apenas por janela/dialog nativo, fork de processo, retransmissão de broadcast, recebimento de logs e também pela autenticação/pareamento/heartbeat do controle remoto, repasse de payload e agendamento de attachments do host; os estados de negócio de session/task, stream, queue e snapshot permanecem no owner de negócio.
+- Cada BrowserWindow tem exatamente um Local Host de escopo de janela, conectado ao renderer diretamente por MessagePort. Várias tabs de workspace local da mesma janela compartilham esse Host, e os serviços são isolados por workspaceKey; não transforme o escopo de serviço de workspace em um processo Host independente.
+- O Local Host hospeda file/system/terminal/setting/credential/broadcast por `createLocalServices({ parentPort })` e gerencia o Agent CLI local por workspaceKey.
+- Workspaces SSH/WSL/Docker/Server têm a conexão criada ou reutilizada pelo `RemoteConnectionRegistry` do mesmo Local Host, abertos como tab/session lógicos; não se cria um Desktop Remote Host separado, e o broadcast continua sendo comportamento local do desktop.
+- O `/remote` do celular se conecta, via shared-host attachment, ao local host já existente no desktop ou ao remote workspace session host. Criar um runtime, local host ou sessão SSH/WSL/Docker independente para o celular é uma mudança de arquitetura: é preciso comunicar antes, atualizar a documentação de arquitetura e concluir a regressão desktop/celular.
+- O relay externo tem apenas autenticação, pareamento, heartbeat e repasse de payload `rpc-frame`/app, sem manter estado de negócio.
 
-## 并发启动与释放
+## Inicialização concorrente e liberação
 
-同一 `workspaceKey` 的模型执行启动由 Service 中同一个在途 Promise 承担，覆盖 Provider
-readiness 读取、只读 runtime 复用/启动和模型执行能力提升。并发的 warmup、草稿预热与首次
-发送共享该结果；不能把另一个调用成功后移除等待记录误判成 workspace 已释放。
-真实 `disposeWorkspace` 仍取消旧等待 identity，旧 continuation 不得复活 runtime；重新打开
-同一路径使用新 identity。Provider 未就绪时不启动，后续 ready 事件仍可重试。
-ready 事件若与旧 readiness 读取交错，先等待旧尝试收口，再确认 waiting identity 并读取新状态，
-不能让新事件复用旧的未就绪结果后消失。
+A inicialização da execução de modelo para o mesmo `workspaceKey` é coberta por uma única Promise em andamento dentro do Service, abrangendo a leitura de readiness do Provider, a reuso/inicialização do runtime somente-leitura e a elevação da capacidade de execução de modelo. Warmup, pré-aquecimento de rascunho e primeiro envio concorrentes compartilham esse resultado; não se pode interpretar a remoção do registro de espera por conta de outra chamada bem-sucedida como workspace já liberado.
+Um `disposeWorkspace` real ainda cancela a identity de espera antiga, e uma continuation antiga não pode ressuscitar o runtime; reabrir o mesmo caminho usa uma nova identity. Quando o Provider não está pronto, nada é iniciado, e os eventos ready posteriores ainda permitem nova tentativa.
+Se um evento ready se entrelaça com uma leitura de readiness antiga, primeiro aguarde o fechamento da tentativa antiga, depois confirme a identity em espera e leia o novo estado; um evento novo não pode reaproveitar um resultado antigo de não-prontidão e simplesmente desaparecer.
 
 ```text
 warmup / createSession / sendText → workspace startup Promise → ready → 各自命令
@@ -28,19 +24,18 @@ warmup / createSession / sendText → workspace startup Promise → ready → �
                             disposeWorkspace → cancelled → 旧调用失败
 ```
 
-此状态只控制 runtime 启动，不接管 CLI CommandInbox；桌面 continuous 与手机 replayable
-继续使用各自可信 clientMode、原有 owner/lease 和同一个 shared-host runtime。
+Este estado controla apenas a inicialização do runtime e não assume o CLI CommandInbox; o continuous do desktop e o replayable do celular continuam usando seus respectivos clientMode confiáveis, os owners/leases originais e o mesmo runtime de shared-host.
 
-## 工作区身份
+## Identidade do workspace
 
-- `workspaceIdentity` 是身份/隔离，`workspacePath` 是真实文件路径。所有身份判断统一使用 `workspaceKey = workspaceIdentity?.trim() || workspacePath`。
-- 身份语义包括 tab 去重、session 绑定、缓存/队列/持久化 key、跨进程请求关联、工作区配置目录隔离和远程历史匹配。
-- 文件读写、命令 cwd、Git 操作、路径展示和用户路径输入继续用 `workspacePath`。
-- 远程工作区必须传递 `workspaceIdentity`；构造/解析复用统一工具，如 `buildRemoteWorkspaceIdentity`，不在业务代码中手写拼接规则。
-- 本地继续允许不传 identity，走 path fallback，不新增本地 identity 格式。工作区隔离接口支持可选 identity，保持旧调用兼容。
-- 远控链路贯穿 `workspaceIdentity` 和 `remoteSessionId`；bridge、snapshot、queue、owner command、缓存/去重 key 不能只按 path 匹配。
+- `workspaceIdentity` é identidade/isolamento, e `workspacePath` é o caminho real de arquivo. Toda decisão de identidade usa `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
+- A semântica de identidade inclui deduplicação de tab, vínculo de session, chaves de cache/fila/persistência, correlação de requisições entre processos, isolamento de diretórios de configuração do workspace e correspondência de histórico remoto.
+- Leitura e escrita de arquivos, cwd de comandos, operações Git, exibição de caminhos e entrada de caminho do usuário continuam usando `workspacePath`.
+- Workspaces remotos devem passar `workspaceIdentity`; construção/parsing reutilizam utilitários unificados, como `buildRemoteWorkspaceIdentity`, e as regras de concatenação não são escritas à mão no código de negócio.
+- O local continua permitindo não passar identity, usando o fallback por path, sem criar um novo formato de identity local. A interface de isolamento de workspace suporta identity opcional, mantendo compatibilidade com chamadas antigas.
+- A cadeia de controle remoto atravessa `workspaceIdentity` e `remoteSessionId`; bridge, snapshot, queue, owner command e chaves de cache/deduplicação não podem casar apenas por path.
 
-## 输入与实时消息
+## Entrada e mensagens em tempo real
 
 ```text
 桌面 desktop-continuous ─ direct continuous 实时链路 ─┐
@@ -52,20 +47,20 @@ warmup / createSession / sendText → workspace startup Promise → ready → �
 Renderer：未提交草稿 + pending optimistic overlay
 ```
 
-- 桌面默认 direct continuous；手机远控默认 replayable。桌面不拼接手机的运行态恢复消息，手机不绕过 replayable gap/snapshot 恢复。
-- 修改 `getTaskSnapshot`、dynamic task event、stream mirror、runtime snapshot、queued prompt、task command、permission/elicitation、stop generation 或重连恢复时，显式传递/核对 `clientMode`、`deliveryKind`。
-- 已提交的 busy/running 输入统一由 CLI/runtime `CommandInbox` 接收，FIFO 以 CLI 串行 admission 顺序为准。Host 的 owner/lease 仅路由，不重新保存第二份 accepted input queue；command 保留可信 attachment 注入的 clientMode。
-- owner/lease/owner command 仍负责运行中 task 单 owner、跨 host 路由、阻塞请求响应、stale run 防护。不能仅因 shared-host 主路径存在就删除判断；变更需证明 remote workspace、bot/proxy、跨 host fallback 的依赖均已处理。
+- O desktop usa direct continuous por padrão; o controle remoto do celular usa replayable por padrão. O desktop não concatena as mensagens de recuperação de estado de execução do celular, e o celular não contorna a recuperação por replayable gap/snapshot.
+- Ao modificar `getTaskSnapshot`, eventos dinâmicos de task, stream mirror, snapshot de runtime, queued prompt, command de task, permission/elicitation, stop generation ou recuperação de reconexão, passe/verifique explicitamente `clientMode` e `deliveryKind`.
+- Entradas busy/running já submetidas são recebidas uniformemente pelo `CommandInbox` da CLI/runtime, e o FIFO segue a ordem de admission serial da CLI. O owner/lease do Host apenas roteia e não guarda uma segunda fila de entradas aceitas; o command preserva o clientMode injetado pelo attachment confiável.
+- owner/lease/owner command continuam responsáveis por um único owner de task em execução, roteamento entre hosts, resposta a requisições bloqueantes e proteção contra runs obsoletos. Não remova essas verificações só porque o caminho principal de shared-host existe; qualquer mudança precisa provar que as dependências de remote workspace, bot/proxy e fallback entre hosts foram tratadas.
 
-修改上述远控/实时行为前，按问题读取以下当前事实文档；历史 plan/spec 仅作背景：
+Antes de alterar os comportamentos de controle remoto/tempo real acima, leia os seguintes documentos de fatos atuais conforme o problema; plans/specs históricos servem apenas como contexto:
 
-- [远控架构](../web-remote-control/web-remote-control-architecture.md)：attachment、进程职责与远程工作区。
-- [实时同步](../web-remote-control/task-realtime-sync.md)：continuous/replayable、snapshot、gap 和重连。
-- [输入队列](../web-remote-control-task-command-queue.md)：CommandInbox、admission 与跨端 command 路由。
+- [Arquitetura de controle remoto](../web-remote-control/web-remote-control-architecture.md): attachment, responsabilidades de processo e workspace remoto.
+- [Sincronização em tempo real](../web-remote-control/task-realtime-sync.md): continuous/replayable, snapshot, gap e reconexão.
+- [Fila de entrada](../web-remote-control-task-command-queue.md): CommandInbox, admission e roteamento de commands entre dispositivos.
 
-## 运行时证据
+## Evidências de runtime
 
-- RPC 通道使用 [LoggingChannelServer / LoggingChannelClient](../../packages/rpc/src/logging-middleware.ts) 记录频道、命令和耗时；优先利用已有日志定位调用链。
-- Agent session 轨迹在 `~/.zcode/cli/rollout` 或 `~/.zcode/cli/debug`，CLI 日志在 `~/.zcode/cli/log`。
-- 界面复现优先使用 agent-browser；失败时可直接 CDP 调试，开发默认端口为 9229，连接前核实实际监听端口。
-- 验证分别覆盖受影响的桌面本地和手机远控路径，记录 owner、事件顺序、identity 和 delivery 边界证据；必要环境缺失按根 AGENTS.md 的阻塞规则处理。
+- O canal RPC usa [LoggingChannelServer / LoggingChannelClient](../../packages/rpc/src/logging-middleware.ts) para registrar canal, comando e duração; aproveite os logs existentes para localizar a cadeia de chamadas.
+- O rastro de sessão do Agent fica em `~/.zcode/cli/rollout` ou `~/.zcode/cli/debug`, e os logs da CLI em `~/.zcode/cli/log`.
+- Para reprodução de interface, prefira o agent-browser; em caso de falha, depure diretamente por CDP, lembrando que a porta padrão de desenvolvimento é a 9229 e que a porta efetivamente em escuta deve ser verificada antes de conectar.
+- A validação cobre separadamente os caminhos afetados de desktop local e de controle remoto do celular, registrando evidências de owner, ordem de eventos, identity e limites de delivery; ambientes ausentes necessários seguem as regras de bloqueio do AGENTS.md raiz.

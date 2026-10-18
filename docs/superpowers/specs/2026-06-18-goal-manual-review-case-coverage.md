@@ -1,37 +1,58 @@
-# Goal Manual Review Case Coverage
+# Cobertura de casos de revisão manual de goal
 
-## 背景
+## Contexto
 
-Goal 相关 e2e 已覆盖一部分自动断言，但还有若干状态组合缺少可自动运行的人工验收入口。当前需求不是把这些组合全部做成强断言 e2e，而是先让用例能自动跑到可观察状态，并把 UI、队列、网络和运行态证据落到 artifact，供人工逐项验收。
+Os e2e de goal já cobrem parte das asserções automáticas, mas ainda há várias combinações de
+estado sem um ponto de entrada de aceitação manual que possa rodar automaticamente. A necessidade
+atual não é transformar todas essas combinações em asserções e2e fortes, mas primeiro fazer os
+casos rodarem automaticamente até um estado observável e registrar evidências de UI, fila, rede e
+estado de execução em artifacts, para a aceitação manual item a item.
 
-## 范围
+## Escopo
 
-本次补齐非异常路径的 manual-review case：
+Esta rodada completa os manual-review cases dos caminhos não excepcionais:
 
-- completed 无 goal 时设置 goal：观察 UI target、网络请求、运行态和持久化线索。
-- completed 已有 goal 时更新 goal：观察目标替换是否只保留当前目标。
-- running 无 goal / 已有 goal 时发送 `/goal`：观察只入队、不立即发请求，后续消费时更新目标。
-- goal continuation 被 stop：观察 completed/interrupted 语义、无 paused、queue 保留且默认不自动消费。
-- goal verification 阶段：观察 UI 不出现独立 validating 禁止态，并采集 compact/fork/edit 控件状态。
-- queue 中多个 goal、普通文本、`/compact` 混合：观察顺序、goal kind、编辑、删除、重排和“立即引导”消费。
-- manual / auto compact 与 queued goal 组合：观察成功、stop、失败未触发时的当前状态；失败路径不强制通过断言。
-- fork/edit/session 切换组合：观察 goal running 时控件禁用、完成后控件恢复、编辑旧 query 后目标语义、session 切换后 goal/queue/模型不串。
+- completed sem goal, definindo goal: observar o target na UI, requisições de rede, estado de
+  execução e pistas de persistência.
+- completed já com goal, atualizando o goal: observar se a troca de objetivo mantém apenas o
+  objetivo atual.
+- running sem goal / já com goal, enviando `/goal`: observar que apenas entra na fila, sem
+  requisição imediata, e que o objetivo é atualizado no consumo posterior.
+- goal continuation interrompido por stop: observar a semântica completed/interrupted, a ausência de
+  paused, a fila preservada e o consumo automático desativado por padrão.
+- fase de goal verification: observar que a UI não exibe um estado de prohibiting validating
+  independente e coletar o estado dos controles compact/fork/edit.
+- múltiplos goals na fila, texto comum e `/compact` misturados: observar ordem, goal kind, edição,
+  exclusão, reordenação e o consumo por "conduzir imediatamente".
+- combinação de compact manual / automático com goal na fila: observar o estado atual em caso de
+  sucesso, stop e falha não disparada; o caminho de falha não exige asserção obrigatória.
+- combinações de fork/edit/troca de session: observar que os controles ficam desabilitados com
+  goal running, são restaurados após a conclusão, a semântica do objetivo após editar uma query
+  antiga e que goal/fila/modelo não se misturam após trocar de session.
 
-本次明确不覆盖异常路径：429、503、SSE 中断、sidecar 失败、断网、磁盘满。
+Esta rodada explicitamente não cobre caminhos excepcionais: 429, 503, interrupção de SSE, falha do
+sidecar, perda de rede, disco cheio.
 
-## 实现策略
+## Estratégia de implementação
 
-- 扩展 `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-goal-run-cases.test.ts`。
-- 保持 `ZCODE_E2E_MANUAL_REVIEW=1` 与 capture 模式入口，继续生成每个 step 的 screenshot、chat root、queue、messages、tool blocks、network summary。
-- 对不稳定或需要真实失败注入的场景采用“observe but do not fail”策略：等待短窗口，若未观察到目标状态，则把未观察到的状态写入 artifact，case 继续运行。
-- 增强 manual review summary 的请求摘要，展示最近模型请求是否包含 `/goal`、goal marker 和 compact sentinel，辅助人工判断协议层是否把 `/goal` 当普通 user message 透传。
+- Estender `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-goal-run-cases.test.ts`.
+- Manter a entrada com `ZCODE_E2E_MANUAL_REVIEW=1` e o modo de capture, continuando a gerar para
+  cada step o screenshot, chat root, queue, messages, tool blocks e network summary.
+- Para cenários instáveis ou que exigem injeção real de falha, adotar a estratégia "observe but do
+  not fail": aguardar uma janela curta e, se o estado alvo não for observado, registrar o estado não
+  observado no artifact e continuar a execução do caso.
+- Aprimorar o resumo de requisições do manual review summary para mostrar se a requisição mais
+  recente ao modelo contém `/goal`, goal marker e compact sentinel, ajudando na judgment manual
+  sobre se a camada de protocolo repassou `/goal` como uma user message comum.
 
-## 验收方式
+## Forma de aceitação
 
-运行 manual-review spec 后，人工查看 `manual-review/goal-run-cases/<case>/summary.md`：
+Após rodar a spec de manual-review, verificar manualmente
+`manual-review/goal-run-cases/<case>/summary.md`:
 
-- `chat.targetObjective` / `chat.targetStatus` 是否符合当前 case。
-- `queue` 的 `kind` 与顺序是否符合预期。
-- `network.recentModelRequests` 中 goal 请求是否符合协议预期。
-- `messages` 是否隐藏 goal continuation/system reminder。
-- `details` 中控件状态、store 快照、compact marker 是否符合产品定义。
+- Se `chat.targetObjective` / `chat.targetStatus` correspondem ao case atual.
+- Se o `kind` e a ordem da `queue` estão conforme o esperado.
+- Se as goal requests em `network.recentModelRequests` correspondem ao protocolo esperado.
+- Se `messages` oculta goal continuation / system reminder.
+- Se o estado dos controles, o snapshot do store e o compact marker em `details` correspondem à
+  definição de produto.

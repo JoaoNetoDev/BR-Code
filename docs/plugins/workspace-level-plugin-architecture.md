@@ -1,39 +1,36 @@
-# Workspace-level Plugin Architecture
+# Arquitetura de Plugins em Nível de Workspace
 
-> Status: Accepted architecture; V1 implementation and local pending E2E evidence recorded; mobile remains focused integration only and formal admission is pending
+> Status: arquitetura aceita; implementação V1 e evidência E2E local pendente registradas; o mobile permanece apenas como integração focada e a admissão formal está pendente
 > Date: 2026-08-19
-> Decision: 采用 User/Workspace 两级配置形态；不做 Local scope，并采用 ZCode 已确认的开放 Plugin 安全策略
-> Target: Desktop local、SSH/WSL/Docker workspace Agent Host、mobile `/remote` shared-host attachment
+> Decision: adotada a forma de configuração em dois níveis User/Workspace; sem escopo Local, e com a política de segurança aberta de Plugins já confirmada pelo ZCode
+> Target: Desktop local, Agent Host de workspace SSH/WSL/Docker, shared-host attachment mobile `/remote`
 
-## 1. Final decision
+## 1. Decisão final
 
-Workspace-level Plugin 的含义是：Plugin 的启用状态和运行时 options 可以由当前 Workspace 的项目配置决定。配置 scope 与 Skill、Command、Hook 保持一致，只支持两级：
+O significado de Plugin em nível de Workspace é: o estado de habilitação e as options de runtime de um Plugin podem ser determinados pela configuração de projeto do Workspace atual. O escopo de configuração é consistente com Skill, Command e Hook, e suporta apenas dois níveis:
 
 ```text
 User       ~/.zcode/cli/config.json
 Workspace  <workspace>/.zcode/config.json
 ```
 
-不实现以下内容：
+Não se implementa o seguinte:
 
-- `<workspace>/.zcode/config.local.json`；
-- Host 外部 `plugins/assignments/workspaces/<hash>.json`；
-- Workspace 独立 package/cache/data；
-- 打开项目时自动安装 Plugin；
-- resident App 热插拔；
-- Plugin MCP 的独立 approval；
-- Plugin 域的 Workspace trust gate。
+- `<workspace>/.zcode/config.local.json`;
+- `plugins/assignments/workspaces/<hash>.json` fora do Host;
+- package/cache/data independentes por Workspace;
+- instalação automática de Plugin ao abrir o projeto;
+- hot-plug no App residente;
+- approval separado para MCP de Plugin;
+- Workspace trust gate no domínio de Plugin.
 
-Workspace 配置可以被 Git 跟踪。`plugins.options`、credential 和 secret 按产品决策允许由项目仓库注入，但 UI、日志、diagnostic、provider capture 和 mobile replayable artifact 必须脱敏。
+A configuração de Workspace pode ser rastreada pelo Git. `plugins.options`, credenciais e secrets podem, por decisão de produto, ser injetados pelo repositório do projeto, mas a UI, os logs, o diagnóstico, a captura de provider e os artefatos mobile replayable precisam ser sanitizados.
 
-Plugin Marketplace 不属于配置 scope：市场只负责目标 Host 的 User package lifecycle，
-不展示 User/Workspace selector，也不直接编辑 Plugin enabled/options。安装、更新、卸载和
-Marketplace cache 均属于 Host User inventory；新安装默认在 User config 中启用。User 与
-Workspace 的 enabled/options 统一在 Settings > Plugins 的“已安装”配置视图中编辑。
+O Plugin Marketplace não faz parte do escopo de configuração: o mercado cuida apenas do ciclo de vida de packages do User no Host alvo, não exibe um seletor User/Workspace e não edita diretamente enabled/options de Plugin. Instalação, atualização, desinstalação e cache do Marketplace pertencem ao inventário de User do Host; uma instalação nova vem habilitada por padrão na config de User. O enabled/options de User e de Workspace são editados de forma unificada na visão de configuração "instalados" em Settings > Plugins.
 
-## 2. Scope and precedence
+## 2. Escopo e precedência
 
-### 2.1 Enabled state
+### 2.1 Estado de habilitação
 
 ```text
 workspace.plugins.enabledPlugins[pluginId]
@@ -41,11 +38,11 @@ workspace.plugins.enabledPlugins[pluginId]
         ?? plugin manifest defaultEnabled
 ```
 
-缺少 key 表示继承；显式 `false` 是有效覆盖，不能使用“缺省等于 false”的实现来代替。
+A ausência de uma key significa herança; um `false` explícito é uma sobrescrita válida, e não se pode substituir isso por uma implementação do tipo "ausente equivale a false".
 
 ### 2.2 Options
 
-options 按 Plugin ID 和 option key 深度合并：
+As options são mescladas profundamente por ID de Plugin e por option key:
 
 ```ts
 effectiveOptions[pluginId] = {
@@ -54,7 +51,7 @@ effectiveOptions[pluginId] = {
 };
 ```
 
-示例：
+Exemplo:
 
 ```json
 {
@@ -72,29 +69,27 @@ effectiveOptions[pluginId] = {
 }
 ```
 
-Workspace 配置只覆盖自己声明的字段，其余字段继续继承 User 配置。
+A configuração de Workspace sobrescreve apenas os campos que ela declara; os demais campos continuam herdando da configuração de User.
 
-## 3. Persistence ownership
+## 3. Propriedade da persistência
 
-### 3.1 Workspace config
+### 3.1 Config de Workspace
 
-权威文件：
+Arquivo autoritativo:
 
 ```text
 <workspace>/.zcode/config.json
 ```
 
-支持的 Plugin 配置包括：
+A configuração de Plugin suportada inclui:
 
-- `plugins.enabledPlugins`：项目启用/禁用哪些 Plugin；
-- `plugins.options`：项目共享的普通 option、credential、secret；
-- `plugins.dirs`：项目内 Plugin root 或项目相对 Plugin 路径，受路径和 manifest schema 校验。
+- `plugins.enabledPlugins`: quais Plugins o projeto habilita/desabilita;
+- `plugins.options`: option comum, credencial e secret compartilhados pelo projeto;
+- `plugins.dirs`: raiz de Plugin dentro do projeto ou caminho de Plugin relativo ao projeto, sujeitos à validação de caminho e de schema de manifest.
 
-Workspace 配置不保存 package bytes、安装完成态、Marketplace cache、Plugin data 或 Host 用户级安装记录。
-敏感 option 的空输入表示保留当前值；用户显式清除时只删除当前 scope 的指定 option key，
-不会重置该 Plugin 的 enablement 或其他 options。
+A configuração de Workspace não guarda bytes de package, estado de conclusão de instalação, cache do Marketplace, dados de Plugin nem registros de instalação de nível de usuário do Host. Uma entrada vazia em uma option sensível significa manter o valor atual; quando o usuário limpa explicitamente, apenas a option key indicada do escopo atual é removida, sem resetar a habilitação daquele Plugin nem as outras options.
 
-### 3.2 User/Host state
+### 3.2 Estado de User/Host
 
 ```text
 ~/.zcode/cli/config.json
@@ -111,11 +106,11 @@ Workspace 配置不保存 package bytes、安装完成态、Marketplace cache、
   data/{pluginId}/
 ```
 
-Plugin package、安装、更新、卸载、缓存和 data 仍是目标 Agent Host 上的 User/Host 状态。Workspace 配置引用缺失 package 时只保留声明并显示 `missing`，不自动下载或安装。
+O package de Plugin, a instalação, a atualização, a desinstalação, o cache e os dados continuam sendo estado de User/Host no Agent Host alvo. Quando a configuração de Workspace referencia um package ausente, apenas a declaração é mantida e `missing` é exibido, sem download ou instalação automática.
 
-## 4. Runtime loading
+## 4. Carregamento em runtime
 
-设置页面不直接加载 Plugin。Agent 在创建 Workspace 对应的 App/Session 时读取并解析：
+A página de configurações não carrega Plugins diretamente. O Agent lê e resolve ao criar o App/Session correspondente ao Workspace:
 
 ```text
 打开 Workspace / 创建新 Session
@@ -149,9 +144,9 @@ Plugin package、安装、更新、卸载、缓存和 data 仍是目标 Agent Ho
 创建当前 Session runtime
 ```
 
-Plugin 的 Hook、Skill、Command、Agent 和 MCP 使用同一份 effective Plugin registry。运行时不需要知道配置来自 User 还是 Workspace；scope 只影响配置读取、写回和来源展示。
+Hook, Skill, Command, Agent e MCP de um Plugin usam o mesmo registry efetivo de Plugins. Em runtime não é preciso saber se a configuração veio de User ou de Workspace; o escopo afeta apenas a leitura, a escrita de volta e a exibição da origem.
 
-### 4.1 Session activation boundary
+### 4.1 Limite de ativação de Session
 
 ```text
 保存配置
@@ -163,24 +158,24 @@ Plugin 的 Hook、Skill、Command、Agent 和 MCP 使用同一份 effective Plug
    +-- cold resume 使用最新 effective config
 ```
 
-V1 不热插拔 resident App，不因 Settings 保存强制重启正在运行的任务。
+O V1 não faz hot-plug no App residente e não reinicia tarefas em execução por causa de um salvamento nos Settings.
 
 ### 4.2 Plugin MCP
 
-Plugin MCP 在 Plugin registry 注册后直接进入 runtime：
+O Plugin MCP entra diretamente no runtime após o registro no registry de Plugins:
 
-- 不需要 Workspace trust；
-- 不需要 Plugin MCP approval；
-- 仍做 manifest、配置、路径和协议 schema 校验；
-- `${user_config.KEY}` 可在 env/header/clientSecret 等 sensitive sink 中展开；
-- sensitive 值不允许展开到 command、args、URL 等非敏感字段；
-- 运行时错误只返回脱敏后的诊断信息。
+- não precisa de Workspace trust;
+- não precisa de approval de Plugin MCP;
+- ainda faz validação de manifest, de configuração, de caminho e de schema de protocolo;
+- `${user_config.KEY}` pode ser expandido em sinks sensíveis como env/header/clientSecret;
+- valores sensíveis não podem ser expandidos em campos não sensíveis como command, args e URL;
+- erros em runtime retornam apenas informações de diagnóstico sanitizadas.
 
-这只是 Plugin 域的例外，不改变顶层 project MCP、Hook、Agent 等非 Plugin 配置的既有安全合同。
+Isso é apenas uma exceção no domínio de Plugin e não altera o contrato de segurança já existente de configurações não-Plugin como MCP de projeto de topo, Hook e Agent.
 
-## 5. Settings control plane
+## 5. Plano de controle dos Settings
 
-设置页复用 Skill/Command/Hook 的 scope 交互：
+A página de configurações reutiliza a interação de escopo de Skill/Command/Hook:
 
 ```text
 Settings > Plugins
@@ -189,9 +184,9 @@ Scope: [User | Workspace]
 Workspace: [local workspace / remote workspace]
 ```
 
-选择 Workspace 后，所有读取和写回都绑定被选择的 Workspace target。
+Após selecionar um Workspace, todas as leituras e escritas ficam vinculadas ao alvo Workspace selecionado.
 
-Plugin Marketplace 是独立主视图，不提供 scope selector：
+O Plugin Marketplace é uma visão principal separada e não oferece seletor de escopo:
 
 ```text
 Settings / Plugins / Workspace A
@@ -206,11 +201,9 @@ Settings / Plugins / Workspace A
   | row is visible as effective enabled, source=User
 ```
 
-从非 Settings 入口打开 Marketplace 时，返回目标固定为 User 已安装列表。Marketplace 的
-source 只来自 User/Host 配置；Workspace 不支持 Marketplace 声明、添加或刷新，当前 Workspace
-只作为窗口/Agent 的执行上下文，不会改变市场的安装或配置 scope。
+Ao abrir o Marketplace a partir de uma entrada que não seja Settings, o alvo de retorno é fixado na lista de instalados do User. A source do Marketplace vem apenas da configuração de User/Host; o Workspace não suporta declaração, adição ou atualização do Marketplace, e o Workspace atual serve somente como contexto de execução da janela/do Agent, sem alterar a instalação ou o escopo de configuração do mercado.
 
-插件详情区分三类状态：
+Os detalhes do plugin distinguem três categorias de estado:
 
 ```text
 Package: Installed v1.2.0 / Missing
@@ -218,7 +211,7 @@ Enabled: On / Off / Inherited
 Source: User / Workspace
 ```
 
-### 5.1 Enable/disable
+### 5.1 Habilitar/desabilitar
 
 ```text
 User scope:
@@ -228,11 +221,11 @@ Workspace scope:
   patch <workspace>/.zcode/config.json#plugins.enabledPlugins[id]
 ```
 
-Workspace 页面提供“恢复 User 配置”，行为是删除 Workspace 中的 key，而不是写入第三种 sentinel。
+A página de Workspace oferece "restaurar a configuração do User", cujo comportamento é remover a key do Workspace, em vez de gravar um terceiro tipo de sentinel.
 
-### 5.1.1 Scope list semantics
+### 5.1.1 Semântica das listas de escopo
 
-设置页的 User / Workspace 列表表示配置视图，不是互斥的资源归属：
+As listas de User/Workspace da página de configurações representam visões de configuração, e não uma atribuição de recursos mutuamente exclusiva:
 
 ```text
 Host available Plugin set
@@ -247,31 +240,25 @@ Workspace view
   = User + Workspace merged effective projection
 ```
 
-同一个 Host 已安装 Plugin 可以同时出现在 User 和 Workspace 页面。User 页面编辑 User
-enabled/options；Workspace 页面展示该 Workspace 的 effective 状态和来源：
+Um mesmo Plugin instalado no Host pode aparecer simultaneamente nas páginas de User e de Workspace. A página de User edita enabled/options de User; a página de Workspace exibe o estado efetivo e a origem daquele Workspace:
 
-- Workspace 有显式 key：来源为 Workspace；
-- Workspace 无 key、User 有显式 key：来源为 User inheritance；
-- 两层都无 key：来源为 manifest default。
+- o Workspace tem key explícita: a origem é Workspace;
+- o Workspace não tem key e o User tem key explícita: a origem é herança de User;
+- nenhuma das camadas tem key: a origem é o manifest default.
 
-Workspace toggle 写入当前 Workspace 的显式 `true`/`false`；“恢复继承”只删除 Workspace
-override。Workspace options 显示 effective 值与来源，但写回只修改 Workspace。User 页面必须
-读取不含项目覆盖的 User/default 投影，不能把 Workspace override 当成 User 值。
+O toggle de Workspace grava um `true`/`false` explícito no Workspace atual; "restaurar herança" apenas remove a sobrescrita do Workspace. As options de Workspace exibem o valor efetivo e a origem, mas a escrita de volta altera somente o Workspace. A página de User precisa ler a projeção de User/default sem as sobrescritas do projeto e não pode tratar a sobrescrita de Workspace como um valor de User.
 
-Plugin 贡献的 MCP、Skill、Command、Hook 按所选 target 的实际 effective enablement 展示：
-从 User 继承后生效的能力必须出现在 Workspace 视图，已禁用 Plugin 的能力不得仅因 package
-存在而出现。
+MCP, Skill, Command e Hook contributions de um Plugin são exibidos conforme o enablement efetivo real do target selecionado: capacidades que passaram a valer por herança de User precisam aparecer na visão de Workspace, e as capacidades de um Plugin desabilitado não podem aparecer apenas porque o package existe.
 
-`installed_plugins.json` 始终是 Host User inventory。其 legacy `scope` 不具备
-`workspacePath` / `workspaceIdentity`，不参与 Workspace 隔离或配置来源判断。
+`installed_plugins.json` é sempre o inventário de User do Host. O `scope` legado dele não possui `workspacePath` / `workspaceIdentity` e não participa do isolamento por Workspace nem da determinação da origem da configuração.
 
 ### 5.2 Options
 
-options 表单写入当前选定 scope。`sensitive: true` 使用掩码输入，但允许保存到 User 或 Workspace 配置；不能用 trust 或 approval 阻止保存。
+O formulário de options grava no escopo atualmente selecionado. `sensitive: true` usa entrada mascarada, mas permite salvar na config de User ou de Workspace; não se pode bloquear o salvamento com trust ou approval.
 
-### 5.3 Package actions
+### 5.3 Ações de package
 
-安装、更新、卸载与配置写入保持独立：
+Instalação, atualização, desinstalação e escrita de configuração permanecem independentes:
 
 ```text
 Workspace enable succeeds + package missing
@@ -283,9 +270,9 @@ Marketplace install succeeds
   -> Workspace config 不被 Marketplace 修改
 ```
 
-不做跨文件伪原子事务，也不因为一边失败回滚另一边已经成功的合法用户操作。
+Não se faz uma transação pseudo-atômica entre arquivos, nem se reverte uma ação legítima de usuário que já teve sucesso do outro lado porque a outra parte falhou.
 
-## 6. Remote and mobile boundaries
+## 6. Limites remotos e mobile
 
 ```text
 Renderer
@@ -300,32 +287,32 @@ one window-scoped Local Host
           +--> SSH / WSL / Docker / Server Agent Host
 ```
 
-文件读写使用执行语义：
+A leitura e escrita de arquivos usa a semântica de execução:
 
 ```text
 <target workspacePath>/.zcode/config.json
 ```
 
-缓存、Session、异步请求和状态隔离使用：
+Cache, Session, requisições assíncronas e isolamento de estado usam:
 
 ```ts
 workspaceKey = workspaceIdentity?.trim() || workspacePath;
 ```
 
-Remote workspace 必须携带 `workspaceIdentity` 和 `remoteSessionId`。不能因为两个目标的 `workspacePath` 相同就复用错误的 Plugin 状态。
+Um workspace remoto precisa carregar `workspaceIdentity` e `remoteSessionId`. Não se pode reutilizar um estado de Plugin errado só porque dois alvos têm o mesmo `workspacePath`.
 
-手机 `/remote` 只 attach 到现有 shared Host，不创建独立 Plugin runtime、配置副本或安装状态。桌面保持 `desktop-continuous`，手机保持 `web-remote-replayable`，Plugin 配置不能改变两种交付语义。
+O `/remote` do celular apenas faz attach a um shared Host existente e não cria runtime de Plugin, cópia de configuração nem estado de instalação independentes. O desktop permanece `desktop-continuous`, o celular permanece `web-remote-replayable`, e a configuração de Plugin não pode alterar essas duas semânticas de entrega.
 
-## 7. Service and protocol contract
+## 7. Contrato de serviço e protocolo
 
-UI 不直接写文件，保持：
+A UI não escreve arquivos diretamente, preservando:
 
 ```text
 UI -> PluginManagementStore -> IPluginManagementService
    -> ZCode Protocol -> Agent config loader/runtime
 ```
 
-接口显式携带 scope 和 Workspace 上下文：
+As interfaces carregam explicitamente o escopo e o contexto de Workspace:
 
 ```ts
 type PluginScope = "user" | "workspace";
@@ -339,7 +326,7 @@ configurePlugin({
 });
 ```
 
-`setPluginEnabled`、Marketplace mutation、overview/list 也必须遵守相同的 target resolution。overview 需要返回最终值和来源：
+`setPluginEnabled`, as mutações do Marketplace e overview/list também devem obedecer à mesma resolução de target. O overview precisa devolver o valor final e a origem:
 
 ```ts
 {
@@ -351,52 +338,49 @@ configurePlugin({
 }
 ```
 
-Settings 的 overview/list 请求增加可选 `configScope`：
+As requisições de overview/list dos Settings recebem um `configScope` opcional:
 
 ```ts
 type PluginConfigScopeView = "user" | "workspace";
 ```
 
-- `user`：忽略 project Plugin config，返回 User + manifest default 投影；
-- `workspace`：返回 User + Workspace merged effective 投影；
-- 缺省：保持既有 effective 行为，兼容旧调用方。
+- `user`: ignora a config de Plugin do projeto e retorna a projeção de User + manifest default;
+- `workspace`: retorna a projeção efetiva mesclada de User + Workspace;
+- ausente: mantém o comportamento efetivo já existente, compatível com chamadores antigos.
 
-当配置中声明的 Plugin 在目标 Host 无法发现 package 时，`plugins/list` 仍返回该配置行，
-并以可选 `packageStatus: "missing"` 标识；缺省表示 package 可用。missing 行不进入已安装
-inventory，不投影 MCP/Skill/Command 等能力，但仍允许写 enabled override、恢复继承，并可跳转
-Marketplace 执行显式安装。
+Quando um Plugin declarado na configuração não tem package descobrível no Host alvo, `plugins/list` ainda retorna essa linha de configuração, identificada por `packageStatus: "missing"` opcional; a ausência significa que o package está disponível. Linhas missing não entram no inventário de instalados, não projetam capacidades como MCP/Skill/Command, mas ainda permitem gravar uma sobrescrita de enabled, restaurar a herança e navegar até o Marketplace para executar uma instalação explícita.
 
-UI 异步结果和缓存必须同时绑定
-`(workspaceIdentity?.trim() || workspacePath, configScope)`。
+Resultados assíncronos e caches da UI precisam estar vinculados simultaneamente a
+`(workspaceIdentity?.trim() || workspacePath, configScope)`.
 
-## 8. E2E contract
+## 8. Contrato E2E
 
-每个 feature 必须有独立的 setup、action、assertion 和 evidence，不能仅通过一条长路径顺带声称覆盖。正式用例见：
+Cada feature precisa ter setup, action, assertion e evidence próprios; não é aceitável alegar cobertura apenas de forma incidental em um caminho longo. Os casos oficiais estão em:
 
 - [Plugin Management Lifecycle Case Catalog](../plugin-management-lifecycle-case-catalog.md)
 - [Plugin Management Lifecycle E2E Coverage Matrix](../testing/plugin-management-lifecycle-e2e-coverage-matrix.md)
 
-Workspace-level E2E feature 分组如下：
+Os grupos de features E2E de nível Workspace são:
 
-| Feature                         | E2E case  | 必须证明                                                                                                                |
+| Feature                         | E2E case  | O que deve provar                                                                                                                |
 | ------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------- |
-| User/Workspace scope UI         | `WPL-001` | 两级配置视图共享 Host 候选；User 不受项目覆盖污染；Workspace inheritance/override 与 A/B 隔离                           |
-| enabled 状态优先级              | `WPL-002` | Workspace 显式 true/false 覆盖 User，缺 key 继承                                                                        |
-| options 深合并                  | `WPL-003` | 按 Plugin/key 合并，未覆盖 User option 保留                                                                             |
-| sensitive/secret                | `WPL-004` | Workspace 可保存并运行；UI/log/provider/mobile artifact 不泄露原值                                                   |
-| Plugin 全组件直达 runtime       | `WPL-005` | Hook/Skill/Command/Agent/MCP 无 trust/approval 即进入新 Session                                                         |
-| 缺包行为                        | `WPL-006` | 只显示 missing，不自动安装；显式安装后才可运行                                                                          |
-| 配置与包生命周期分离            | `WPL-007` | enable/disable、install/uninstall 互不错误回滚                                                                          |
-| resident/cold resume            | `WPL-008` | resident App 冻结，新 Session/cold resume 读取新配置                                                                    |
-| Global Marketplace install      | `WPL-009` | 只有 User Marketplace 可添加/刷新；声明本身不触发下载；市场安装写 User inventory/config，不写 Workspace enabled/options |
-| Remote target isolation         | `WPL-010` | 相同 path、不同 identity 不串配置和 runtime                                                                             |
-| Remote missing/explicit install | `WPL-011` | 连接不复制本机 package；显式 Sync/Install 只物化 remote Host                                                            |
-| Mobile shared-host              | `WPL-012` | `/remote` 使用现有 Host，不复制 Plugin runtime/store                                                                    |
-| builtin Workspace disable       | `WPL-013` | 只改 enabledPlugins，不删除 builtin asset/user data                                                                     |
-| project Plugin root/MCP         | `WPL-014` | 合法项目 Plugin root 直接激活；非法 manifest/path fail closed                                                           |
-| Marketplace/installed roundtrip | `WPL-015` | 从 User 已安装进入全局市场；市场无 scope/config；安装写 User；返回 User，再切 Workspace 做配置                          |
+| User/Workspace scope UI         | `WPL-001` | As duas visões de configuração compartilham os candidatos do Host; User não é contaminada por sobrescritas do projeto; herança/sobrescrita de Workspace e isolamento A/B                           |
+| precedência do estado enabled              | `WPL-002` | Um true/false explícito do Workspace sobrescreve o User; key ausente é herdada                                                                        |
+| deep merge de options                  | `WPL-003` | Mesclagem por Plugin/key; options de User não cobertas são preservadas                                                                             |
+| sensitive/secret                | `WPL-004` | O Workspace pode salvar e executar; UI/log/provider/artefato mobile não expõem o valor original                                                   |
+| Plugin inteiro chegando direto ao runtime       | `WPL-005` | Hook/Skill/Command/Agent/MCP entram na nova Session sem trust/approval                                                         |
+| comportamento com package ausente                        | `WPL-006` | Mostra apenas missing, não instala automaticamente; só pode executar após instalação explícita                                                                          |
+| separação entre ciclo de vida de config e de package            | `WPL-007` | enable/disable e install/uninstall não se reverterem incorretamente um ao outro                                                                          |
+| resident/cold resume            | `WPL-008` | O App residente congela; nova Session/cold resume lê a nova configuração                                                                    |
+| instalação via Marketplace global      | `WPL-009` | Apenas o Marketplace de User pode adicionar/atualizar; a declaração em si não dispara download; instalação do mercado grava inventário/config de User, não enabled/options do Workspace |
+| isolamento de target remoto         | `WPL-010` | Mesmo path, identity diferente não mistura configuração nem runtime                                                                             |
+| instalação explícita em remoto/missing | `WPL-011` | A conexão não copia packages da máquina local; Sync/Install explícito apenas materializa o remote Host                                                            |
+| shared-host mobile              | `WPL-012` | `/remote` usa o Host existente e não copia runtime/store de Plugin                                                                    |
+| desabilitar builtin no Workspace       | `WPL-013` | Altera apenas enabledPlugins, sem apagar asset builtin nem dados de usuário                                                                     |
+| raiz de Plugin de projeto/MCP         | `WPL-014` | Uma raiz de Plugin de projeto válida é ativada diretamente; manifest/path inválidos falham de forma fechada                                                           |
+| roundtrip Marketplace/instalado | `WPL-015` | Partir de instalados do User para o mercado global; o mercado não tem escopo/config; a instalação grava em User; retorno ao User e depois troca para Workspace para configurar                          |
 
-E2E 证据分层：
+A evidência E2E é estratificada:
 
 ```text
 UI scope/source state
@@ -407,82 +391,74 @@ UI scope/source state
   + no-secret and no-trust/approval evidence
 ```
 
-当前证据状态不是“全部完成”：`WPL-001` 至 `WPL-011`、`WPL-013`、`WPL-014`、`WPL-015`
-已有独立 pending spec，并在本地 macOS 上取得 targeted/replay pass。2026-08-31 使用隔离 SSH
-目标完成远程验证：`WPL-010` run `desktop-e2e-20260831-060023-004` 证明相同 path、不同
-workspace identity 的配置、catalog 与 runtime 不串；`WPL-011` run
-`desktop-e2e-20260831-054511-469` 证明连接不复制本机 package，显式 Sync 后才在 remote Host
-物化并进入新 Session runtime。`WPL-012` 只有 shared-host focused integration test 和显式
-external bridge 字段投影的源码证据，不是手机端到端 E2E。所有 pending case 仍未完成人工审核、
-promotion、Docker admission 和三平台 CI。`WPL-005` 当前只用 Skill+MCP 代表性 fixture 证明
-直达 runtime，Command、Agent 和 Hook 的逐组件闭环仍待补充。
+O estado atual das evidências não é "tudo concluído": `WPL-001` a `WPL-011`, `WPL-013`, `WPL-014` e `WPL-015` já têm specs pendentes independentes e obtiveram targeted/replay pass em macOS local. Em 2026-08-31 a verificação remota foi concluída usando um alvo SSH isolado: o run `WPL-010` `desktop-e2e-20260831-060023-004` prova que configurações, catálogo e runtime com o mesmo path e workspace identity diferentes não se misturam; o run `WPL-011` `desktop-e2e-20260831-054511-469` prova que a conexão não copia o package da máquina local e que só após um Sync explícito ele é materializado no remote Host e entra no runtime de uma nova Session. `WPL-012` tem apenas um teste de integração focado de shared-host e evidência de código da projeção explícita de campos de external bridge; não é um E2E de ponta a ponta no celular. Todos os casos pendentes ainda não concluíram revisão manual, promoção, Docker admission e CI nas três plataformas. `WPL-005` hoje prova a chegada direta ao runtime apenas com o fixture representativo Skill+MCP; o ciclo fechado componente a componente de Command, Agent e Hook ainda precisa ser complementado.
 
-## 9. Implementation slices
+## 9. Fatias de implementação
 
-### Slice A: config foundation
+### Fatia A: base de configuração
 
-- User/Workspace config contract；
-- Workspace config discovery；
-- `enabledPlugins` 和 `options` deep merge；
-- sensitive option 持久化放开与输出脱敏；
-- User Marketplace source、Host inventory 与 Workspace 配置视图的边界。
+- contrato de config de User/Workspace;
+- descoberta da config de Workspace;
+- deep merge de `enabledPlugins` e `options`;
+- liberação da persistência de option sensível e sanitização na saída;
+- limites entre a source do Marketplace de User, o inventário do Host e a visão de configuração de Workspace.
 
-### Slice B: runtime resolution
+### Fatia B: resolução em runtime
 
-- startup、`mcp/list`、Settings overview 使用同一 effective resolver；
-- installed/builtin/Workspace Plugin candidate discovery；
-- Hook/Skill/Command/Agent/MCP 同源注册；
-- resident freeze、新 Session、cold resume 回归。
+- startup, `mcp/list` e overview dos Settings usando o mesmo resolvedor efetivo;
+- descoberta de candidatos de Plugin installed/builtin/Workspace;
+- registro de Hook/Skill/Command/Agent/MCP a partir da mesma fonte;
+- regressão de freeze do resident, nova Session e cold resume.
 
-### Slice C: Settings control plane
+### Fatia C: plano de controle dos Settings
 
-- User/Workspace config selector；
-- Marketplace scope-free package lifecycle；
-- Marketplace returnScopeKey 回到来源已安装列表；
-- enable/disable/reset inheritance；
-- sensitive options 掩码和保存；
-- missing package/install CTA；
-- package/config 独立错误状态；
-- remote target stale-result guard。
+- seletor de config de User/Workspace;
+- ciclo de vida de package sem escopo no Marketplace;
+- retorno do Marketplace com returnScopeKey à lista de instalados de origem;
+- enable/disable/reset de herança;
+- máscara e salvamento de options sensíveis;
+- CTA de package ausente/instalação;
+- estados de erro independentes de package/config;
+- guarda contra resultado obsoleto em target remoto.
 
-### Slice D: remote/mobile and rollout
+### Fatia D: remoto/mobile e rollout
 
-- RemoteConnectionRegistry 目标路由；
-- remote Host package/config evidence；
-- mobile shared-host focused integration evidence；
-- macOS/Linux/Windows targeted E2E。
+- roteamento de alvos do RemoteConnectionRegistry;
+- evidência de package/config no remote Host;
+- evidência de integração focado de shared-host no mobile;
+- E2E direcionado em macOS/Linux/Windows.
 
-## 10. Acceptance gates
+## 10. Gates de aceitação
 
-1. Plugin 页面存在 User/Workspace selector，行为与 Skill/Command scope 一致。
-2. Workspace 配置写入 `<workspace>/.zcode/config.json`，不创建 Local 文件。
-3. Workspace `enabledPlugins` 对新 Session 生效，缺包不自动安装。
-4. Workspace options 按 option key 覆盖 User；普通、credential、secret 均可生效。
-5. sensitive 值允许持久化，但 UI、日志、diagnostic、provider capture、mobile replay 不泄露。
-6. Plugin Hook/Skill/Command/Agent/MCP 无 Workspace trust 和独立 MCP approval 即进入新 runtime。
-7. package 生命周期不会修改项目声明；配置失败不会错误回滚已成功的 package 操作。
-8. remote 按目标 workspacePath 读文件，按 workspaceIdentity 隔离状态。
-9. mobile 复用 shared Host，不创建独立 Plugin runtime/store。
-10. resident App 不热变；新 Session/cold resume 使用最新配置。
-11. 当前 targeted pass 的 WPL case 具备独立 E2E setup/action/assertion/evidence；pending、review、fixture、Docker 和多平台门禁仍是后续晋级条件。
-12. 只有 `WPL-001` 至 `WPL-015` 全部完成对应实现、独立 E2E、人工审核和平台门禁，才能宣称完整 feature complete；本 V1 commit 不做该声明。
-13. 当前提交本身必须通过 `pnpm typecheck`、`pnpm lint`、E2E typecheck 和已实现 WPL 的 targeted E2E。
-14. Marketplace 不显示 scope、enable 或 options 控件；安装固定写 Host User inventory/User enablement，返回动作恢复来源配置视图。
+1. A página de Plugins tem um seletor User/Workspace cujo comportamento é consistente com o escopo de Skill/Command.
+2. A configuração de Workspace é gravada em `<workspace>/.zcode/config.json`, sem criar arquivo Local.
+3. O `enabledPlugins` do Workspace vale para a nova Session e package ausente não instala automaticamente.
+4. As options do Workspace sobrescrevem as de User por option key; comuns, credenciais e secrets podem valer.
+5. Valores sensíveis podem ser persistidos, mas UI, logs, diagnóstico, captura de provider e replay mobile não os expõem.
+6. Hook/Skill/Command/Agent/MCP de Plugin entram no novo runtime sem Workspace trust e sem approval separado de MCP.
+7. O ciclo de vida de package não modifica declarações do projeto; falha de configuração não reverte indevidamente uma operação de package bem-sucedida.
+8. O remoto lê arquivos pelo `workspacePath` do alvo e isola o estado pelo `workspaceIdentity`.
+9. O mobile reutiliza o shared Host e não cria runtime/store de Plugin independentes.
+10. O App residente não muda a quente; nova Session/cold resume usa a configuração mais recente.
+11. Os casos WPL com targeted pass atual possuem setup/action/assertion/evidence E2E independentes; pending, review, fixture, Docker e as gates de múltiplas plataformas continuam sendo condições posteriores de promoção.
+12. Só é possível declarar o feature completamente concluído quando `WPL-001` a `WPL-015` tiverem concluído as implementações, o E2E independente, a revisão manual e as gates de plataforma correspondentes; este commit V1 não faz essa declaração.
+13. O próprio commit atual precisa passar por `pnpm typecheck`, `pnpm lint`, typecheck de E2E e o E2E direcionado dos WPL já implementados.
+14. O Marketplace não exibe controles de escopo, enable ou options; a instalação grava sempre no inventário de User do Host e no enablement de User, e a ação de retorno restaura a visão de configuração de origem.
 
-## 11. Out of scope
+## 11. Fora de escopo
 
-- Workspace 外部 assignment store；
-- Local scope 和 `config.local.json`；
-- Workspace 独立 package/cache/data；
-- 打开 repo 自动安装 package；
-- resident App 热插拔；
-- 同 Host 同 Plugin ID 多版本并存；
-- Marketplace 内编辑 User/Workspace enabled/options；
-- relay/main 持有 Plugin 业务状态；
-- 根据 workspacePath 猜测 remote identity；
-- 修改非 Plugin project hooks/MCP/subagent trust/approval 合同。
+- store de assignment externo ao Workspace;
+- escopo Local e `config.local.json`;
+- package/cache/data independentes por Workspace;
+- instalação automática de package ao abrir o repo;
+- hot-plug no App residente;
+- coexistência de múltiplas versões do mesmo Plugin ID no mesmo Host;
+- edição de enabled/options de User/Workspace dentro do Marketplace;
+- relay/main mantendo estado de negócio de Plugin;
+- adivinhar a identidade remota a partir do workspacePath;
+- alterar os contratos de trust/approval de project hooks/MCP/subagent não-Plugin.
 
-## 12. Security posture
+## 12. Postura de segurança
 
 ```text
 clone/open repository
@@ -495,7 +471,7 @@ Workspace Plugin config loads without Workspace trust
         +--> Plugin MCP starts without separate approval
 ```
 
-这是明确的 Plugin 域例外。tracked `.zcode/config.json` 可能包含明文 secret，也可能改变 Plugin runtime 参数或启动 Plugin MCP；产品不阻止该行为，只保留 schema/path/protocol validation 和输出脱敏。
+Esta é uma exceção explícita no domínio de Plugin. Um `.zcode/config.json` rastreado pode conter secrets em texto claro e também pode alterar parâmetros do runtime de Plugin ou iniciar o Plugin MCP; o produto não bloqueia esse comportamento e mantém apenas a validação de schema/caminho/protocolo e a sanitização da saída.
 
 | Boundary                               | Decision                                            |
 | -------------------------------------- | --------------------------------------------------- |
@@ -506,19 +482,16 @@ Workspace Plugin config loads without Workspace trust
 | sensitive value persistence            | User/Workspace 均可明文保存                         |
 | sensitive value output                 | UI/log/diagnostic/provider/mobile artifact 必须脱敏 |
 
-## 13. Evidence and source boundary
+## 13. Evidência e fronteira da fonte
 
-当前实现和验证边界包括：
+Os limites atuais de implementação e verificação incluem:
 
-- 项目配置由现有 `.zcode/config.json` discovery 链加载；
-- Plugin startup、`mcp/list` 和 Settings overview 必须统一到同一 effective resolver；
-- Plugin package/installed record 当前是目标 Host 用户级；
-- `workspaceKey = workspaceIdentity?.trim() || workspacePath` 是状态隔离合同；
-- `sensitive` option 的 User/Workspace 持久化阻断已移除，输出仍按脱敏合同处理；
-- Marketplace source 只保存在 User/Host 层；Workspace config 不声明、不添加、不刷新 Marketplace，
-  只有显式 User Marketplace refresh/install 才物化目标 Host 的 cache/package 状态；
-- local、dual-SSH remote 和生命周期 pending E2E 已有本地证据；mobile 目前只证明 shared-host
-  attachment 不复制 Plugin state，尚未完成真实手机 `/remote` E2E。
+- a configuração de projeto é carregada pela cadeia de descoberta `.zcode/config.json` já existente;
+- o startup de Plugin, o `mcp/list` e o overview dos Settings precisam unificar no mesmo resolvedor efetivo;
+- o package/registro de Plugin instalado é hoje de nível de usuário do Host alvo;
+- `workspaceKey = workspaceIdentity?.trim() || workspacePath` é o contrato de isolamento de estado;
+- o bloqueio de persistência da option `sensitive` em User/Workspace foi removido, e a saída continua sendo tratada pelo contrato de sanitização;
+- a source do Marketplace é guardada apenas na camada de User/Host; a config de Workspace não declara, não adiciona e não atualiza o Marketplace, e apenas um refresh/install explícito do Marketplace de User materializa o estado de cache/package do Host alvo;
+- já há evidência local para local, SSH remoto duplo e E2E de ciclo de vida pendente; o mobile até agora apenas prova que o shared-host attachment não copia o estado de Plugin, e o E2E real de `/remote` no celular ainda não foi concluído.
 
-实现时不能只修改 Settings UI；必须同时修改 config loader、Plugin discovery、Session startup、protocol/service contract 和 E2E fixture/coverage。
-
+Na implementação não se pode modificar apenas a UI de Settings; é preciso modificar simultaneamente o config loader, a descoberta de Plugins, o startup de Session, o contrato de protocolo/serviço e os fixtures/coverage de E2E.

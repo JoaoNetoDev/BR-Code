@@ -1,65 +1,62 @@
-# 工具变更链路
+# Cadeia de Mudança de Ferramentas
 
-## Subagent 上下文配置刷新
+## Refresh da Configuração de Contexto do Subagent
 
-Settings/外部写盘 → Host 原生 watcher → 逐文件读取及共享纯解析 → 内存 snapshot →
-session 初始化/父 turn 的同一 RPC → definitions → listing / Agent / SendMessage / plugin-reference。
-配置读取失败 snapshot 标记内置回退；RPC 断连/取消仍结束父轮，保留输入且无 provider 请求。
-后台更新期间使用旧完整 snapshot；running child 不刷新，terminal resume 使用父轮定义并保留
-身份历史。Host 诊断按文件更新记录，CLI 不重复解析。工具 schema/执行/历史与缓存标记不变。
-删除专用广播，不扩展插件热更新、独立 CLI/远程来源或 continuous/replayable 语义。
-详见 `docs/subagent-runtime-refresh.md`。
+Settings/escrita externa em disco → watcher nativo do Host → leitura arquivo a arquivo e parsing compartilhado puro → snapshot em memória →
+session init/a mesma RPC do turno pai → definitions → listing / Agent / SendMessage / plugin-reference.
+Falha de leitura de configuração: o snapshot marca fallback embutido; desconexão/cancelamento de RPC ainda encerra o turno pai, preservando a entrada e sem requisição ao provider.
+Durante atualizações em segundo plano usa-se o snapshot completo antigo; child em execução não é atualizado, e o resume terminal usa as definições do turno pai preservando
+o histórico de identidade. O diagnóstico do Host registra por arquivo; a CLI não faz parsing duplicado. Schema/execução/histórico da ferramenta e marcadores de cache permanecem inalterados.
+Remove-se a difusão dedicada; não se estende para hot update de plugin, fontes CLI/remotas independentes nem semântica continuous/replayable.
+Veja os detalhes em `docs/subagent-runtime-refresh.md`.
 
-SHR09/SHR10 仅补测：真实 Settings 单字段保存 → 下一父轮 spawn/terminal resume → provider
-及既有模型变更持久化；running SendMessage 只投递，不刷新 child。时序控制留在测试端，
-不增加生产 marker、测试 RPC 或测试状态分支。
+SHR09/SHR10 apenas acrescentam testes: salvamento real de campo único em Settings → spawn do próximo turno pai/resume terminal → persistência do provider
+e das mudanças de modelo existentes; SendMessage em execução apenas entrega, sem atualizar o child. O controle de tempo fica no lado de testes,
+sem adicionar marcadores de produção, RPC de teste ou ramos de estado de teste.
 
-SHR10 Desktop、SHR11-SHR15 继续仅补测试：真实 Host/CLI stdio 的测试代理负责读取故障与
-PID/session 观察；provider fixture 负责重试及跨轮窗口。Core 通过既有加载器、模型端口和
-取消信号验证 Guide/Stop；child 原始 model-io 按 subagent 来源导出并逐请求核对工具历史。
-生产源码、协议、依赖不变，完成前比对全部生产源码和依赖文件校验值。
+SHR10 Desktop, SHR11-SHR15 continuam apenas com complemento de testes: o proxy de teste do Host/CLI stdio real é responsável pela leitura de falhas e
+pela observação de PID/session; o fixture de provider é responsável por retry e pela janela entre turnos. O Core valida Guide/Stop pelo loader existente, porta de modelo e
+sinal de cancelamento; o model-io bruto do child é exportado por origem de subagent e o histórico de ferramentas é conferido requisição a requisição.
+Código-fonte de produção, protocolo e dependências inalterados; comparar os checksums de todo o código-fonte de produção e dos arquivos de dependência antes de concluir.
+Problema de cache do child encontrado em SHR15 já foi corrigido: a saída de sistema foi dividida em dois blocos, prefixo de CLI e corpo, cada um mantendo um
+marcador, reserving orçamento para o breakpoint no fim da conversa. O prefixo principal da CLI não recebe mais marcador próprio; corpo e TTL inalterados.
+Regressões de histórico completo, continuidade de trajectory e breakpoint de cache passaram; veja `docs/subagent-runtime-refresh.md`.
 
-SHR15 发现的 child 缓存问题已修复：system 输出合并为 CLI prefix 和正文两个块，各保留一个
-标记，为对话末尾 breakpoint 留出额度。Main CLI prefix 不再单独标记；正文与 TTL 不变。
-完整历史、trajectory 连续及缓存断点回归已通过，见 `docs/subagent-runtime-refresh.md`。
+Regressão de cache SHR08: cacheControl da mensagem de ferramenta do Core → parte tool-result do providerOptions no Adapter → o AI SDK mescla as tool messages → tool_result.cache_control correspondente no Anthropic. O marcador acompanha o bloco de resultado original,
+evitando que o SDK descarte o providerOptions das mensagens seguintes ao mesclar; schema da ferramenta, corpo e contrato de estado permanecem inalterados.
 
-SHR08 缓存回归：Core tool message 的 cacheControl → Adapter tool-result part providerOptions
-→ AI SDK 合并 tool messages → Anthropic 对应 tool_result.cache_control。标记跟随原结果块，
-避免 SDK 合并时丢弃后续 message providerOptions；工具 schema、正文和状态合同不变。
+2026-09-15 Telemetria de recursos de comandos Bash lentos: após o spawn do adaptador de execução, amostragem por PGID a cada 15 segundos, com relatório imediato ao Host/main
+na raiz ao sair ou na liquidação do stop por meio da notificação independente `process/toolExecResource`; foreground e background compartilham o mesmo amostrador, no máximo 20 amostras,
+no Windows apenas o contexto final é obtido. Schema da ferramenta, permissões, saída, timeout, V4 e projeção continuous/replayable inalterados.
+Os testes cobrem PRT-010/011/012, a classificação de saída do adaptador de execução e a consistência com Bash. Veja os detalhes em `docs/monitoring/process-resource-telemetry.md`.
 
-2026-09-15 Bash 慢命令资源遥测：执行适配器 spawn 后每 15 秒按 PGID 采样，根退出或 stop 结算时
-通过独立 `process/toolExecResource` 通知交 Host / main 即时上报；前后台共用同一采样器，最多 20 次，
-Windows 只取结束上下文。工具 schema、权限、输出、超时、V4 与 continuous/replayable 投影不变。
-测试覆盖 PRT-010/011/012、执行适配器退出分类与 Bash 一致性。详见 `docs/monitoring/process-resource-telemetry.md`。
+Correções de 2026-09-15 na revisão: a notificação de recursos na conclusão do Bash ganhou um `completionToken` aleatório opcional, gerado pela CLI no owner de recurso de comando único,
+encaminhado como está por services/Host, e having deduplicado pelo main com um conjunto recente limitado antes de projetar a allowlist ARMS. O mesmo fato de conclusão é reportado uma única vez entre conexões
+e entre Hosts de janelas diferentes; métricas idênticas de comandos diferentes ainda são reportadas separadamente. O identificador não contém comando, caminho ou informação de session/task,
+não entra no ARMS, nos logs ou em nenhuma linha V4; quando o CLI antigo não traz o campo, o comportamento original do evento é preservado. Saída da ferramenta, permissões e cadência de execução inalteradas.
 
-2026-09-15 复审修复：Bash 完成资源通知增加可选随机 `completionToken`，CLI 在单命令资源 owner
-生成，services / Host 原样转发，main 以有界近期集合去重后投影 ARMS 白名单。同一完成事实跨连接、
-跨 window Host 只上报一次；不同命令指标相同仍分别上报。标识不含命令、路径或 session/task 信息，
-不进入 ARMS、日志或任何 V4 行；旧 CLI 缺字段时保留原事件行为。工具输出、权限与执行节拍不变。
+## Todo151: estado independente do Plan
 
-## Todo151：Plan 独立状态
+As Portas de Enter/ExitPlanMode, o Schema de retorno, o handler, a verificação de permissão, a rejeição/feedback, o reminder existente e a
+projeção de configuração adotam juntos um planEnabled independente. A permissão de Runtime não muda pela entrada/aprovação do Plan; yolo não pode contornar
+restrições de planejamento nem aprovação de plano. O rascunho só é atualizado de forma síncrona pela conversão da ferramenta associada a esta chamada, sem ser sobrescrito continuamente por um snapshot geral.
+Os resultados históricos da ferramenta permanecem legíveis; não se modifica o corpo do prompt do modelo nem se adicionam eventos visíveis de entrada/saída.
+O plano de salvamento e compatibilidade está em `docs/plan-mode-independent-state.md`; a correção de fidelidade do Queue pertence à mesma cadeia de commits.
 
-Enter/ExitPlanMode 的 Port、返回 Schema、handler、权限校验、拒绝／反馈、已有 reminder 与
-配置投影一起采用独立 planEnabled。Runtime 权限不因 Plan 进入／批准而改变；yolo 不能绕过
-规划限制或计划审批。草稿只通过关联本次工具转换的同步更新，不被一般快照持续覆盖。
-历史工具结果保持可读，不修改模型提示正文，不新增进入／退出的可见事件。
-保存与兼容方案见 `docs/plan-mode-independent-state.md`；Queue 保真修复属于同一提交链路。
+2026-09-08 Bash shutdown: o close do adapter mantém vivo o encerramento assíncrono da árvore de processos existente; a regressão do Node independente cobre a limpeza dos Posteriores antes da conclusão. A saída normal da raiz, os eventos de ferramenta e o limite continuous/replayable permanecem inalterados; veja `docs/bash-background-parity.md`.
 
-2026-09-08 Bash shutdown：adapter close 为既有异步杀树收尾保活，独立 Node 回归覆盖退出前
-完成后代清理。正常根退出、工具事件与 continuous/replayable 边界不变，见 `docs/bash-background-parity.md`。
+2026-09-08 Bash 进度调度: interval compartilhado por processo Node/ciclo de polling interno, com assinatura independente por tarefa e leitura de cauda; liberado quando a última assinatura sai. Mantém-se o watchdog de 5 GiB por tarefa; protocolo/exibição inalterados; os testes cobrem compartilhamento, handover, leitura concorrente e resultado atrasado, com reverificação do BG14 no Desktop.
 
-2026-09-08 Bash 进度调度：按 Node 进程/内部轮询周期共用 interval，任务独立订阅与尾读；最后一个订阅退出时释放。保留逐任务 5 GiB watchdog，协议/展示不变；测试覆盖共享、移交、并发读与迟到结果，Desktop BG14 复验。
+2026-09-08 Desktop: o estado final do Bash transmite cabeçalho limitado, flag de truncamento e caminho do arquivo preservado por meio do display estrito `bash_output`; a interface mostra aviso de saída parcial e entrada de arquivo, ocultando linhas/bytes no estado de execução. Conteúdo do Provider e TUI inalterados; aceitação em `docs/bash-background-parity.md`.
 
-2026-09-08 Desktop：Bash 终态通过严格 `bash_output` display 传递有界头部、截断标志与保留文件路径；界面显示部分输出提示和文件入口，运行态隐藏行数/字节数。Provider 内容和 TUI 不变，验收见 `docs/bash-background-parity.md`。
+## Saída direta de arquivo do Bash
 
-## Bash 直接文件输出
+2026-09-07 complemento: na liquidação por cancelamento de saída grande do Bash há corte do arquivo em 64 MiB, e o modelo recebe um resumo do cabeçalho e o caminho da saída completa.
+A leitura de cauda limitada produz pré-visualização de 5/100 linhas e estimativa de linhas, entrando na projeção de linha de ferramenta V4 da CLI pelo contrato opcional `outputPreview`;
+limpeza de pré-visualização em estado final/segundo plano, sem reutilizar o campo `progress` replayable-only. Os testes cobrem arquivo completo e eventos de progresso. Em 2026-09-08, conforme pedido final do usuário, mantém-se a renderização no Desktop e a verificação BG14; o TUI não muda.
 
-2026-09-07 补齐：Bash 大输出取消结算时 64 MiB 文件裁剪，模型收到头部摘要和完整输出路径。
-有界尾读产生 5/100 行预览和估算行数，经可选 `outputPreview` 契约进入 CLI 的 V4 工具行投影；
-终态/后台清理预览，不复用 replayable-only `progress` 字段。测试覆盖完整文件与进度事件。2026-09-08 按用户最终要求保留 Desktop 渲染与 BG14 验证，TUI 不改。
-
-普通 Bash 输出与生命周期的具体合同见
-`docs/bash-background-parity.md`。输出文件 flags 按宿主平台选择，不按 shell 方言选择。
+O contrato concreto de saída e ciclo de vida do Bash comum está em
+`docs/bash-background-parity.md`. As flags do arquivo de saída são escolhidas pela plataforma hospedeira, não pelo dialeto do shell.
 
 ```text
 Bash schema / permission / handler
@@ -71,27 +68,27 @@ Bash schema / permission / handler
   -> 原有 runtime queue / V4 投影
 ```
 
-前后台使用同一文件、同一进程；每 5 秒检查 5 GiB 软阈值，根进程 exit 即结算。
-后台后代可能在终态后继续写，不能再将终态描述为文件稳定。通用 argv/Hook 的 pipe
-与硬截断合同不变。Bash 不再发逐 chunk stdout/stderr 事件，复用 progress/result 协议；
-desktop continuous 与 web remote replayable 的交付边界不变。
+Foreground e background usam o mesmo arquivo e o mesmo processo; a cada 5 segundos verifica-se o limite suave de 5 GiB, e a liquidação ocorre no exit do processo raiz.
+Processos descendentes em segundo plano podem continuar escrevendo após o estado final, portanto o estado final não pode mais ser descrito como arquivo estável. Os contratos de pipe
+e truncamento rígido do argv/Hook genérico permanecem inalterados. O Bash não emite mais eventos de stdout/stderr por chunk; reutiliza o protocolo progress/result;
+a fronteira de entrega continuous do desktop e replayable do web remote permanece inalterada.
 
-## 工具历史声明顺序
+## Ordem de Declaração no Histórico de Ferramentas
 
-同一 assistant 的工具声明顺序可以不同于提前执行时的首次落盘顺序。现有 ToolPart
-写入携带 runtime 生成的可选 `declarationIndex`。回退和断流恢复继续新建 part，沿用
-同一 callID 和声明序号；模型 history hydration 在同一 assistant 内按 callID 选最后
-新建的 part，再在序号完整时恢复 calls/results 声明顺序。缺少序号时保留所选记录原序。
-原始 parts、UI 和文件读取状态恢复不做调用合并或声明排序。
-模型流回调、工具调度及落盘时机保持不变。
-详细契约见 [工具历史顺序修复方案](./tool-history-order-repair-proposal.md)。
+A ordem de declaração das ferramentas do mesmo assistant pode diferir da primeira gravação quando a execução é antecipada. O ToolPart existente
+é gravado carregando o `declarationIndex` opcional gerado pelo runtime. Rollback e recuperação de stream interrompido continuam criando um novo part, mantendo
+o mesmo callID e número de declaração; a hydration de histórico do modelo escolhe, dentro do mesmo assistant, o último part criado para cada callID e só então
+restaura a ordem de declaração de calls/results quando a sequência está completa. Sem o número, mantém-se a ordem original dos registros selecionados.
+A restauração dos parts originais, da UI e do estado de leitura de arquivos não faz merge de chamadas nem ordenação de declarações.
+Os callbacks de stream do modelo, o despacho de ferramentas e o momento da gravação permanecem inalterados.
+Veja o contrato detalhado em [Proposta de correção da ordem do histórico de ferramentas](./tool-history-order-repair-proposal.md).
 
 ```text
 声明 Bash(0) -> Read(1) -> 原有落盘 Read(1), Bash(0)
                        -> hydration calls/results Bash(0), Read(1)
 ```
 
-## Read PDF 的 Runtime 依赖注入
+## Injeção de Dependências de Runtime no Read de PDF
 
 ```text
 宿主创建/注入 PdfDocumentPort
@@ -102,32 +99,31 @@ desktop continuous 与 web remote replayable 的交付边界不变。
   -> Read(无 pages): getPageCount -> 超过 10 页时拒绝整份读取
 ```
 
-`PdfDocumentPort` 由宿主提供，Core 只透传既有端口，不创建第二套 PDF adapter，也不依赖旧模型连接端口。
-2026-09-02 的合并 `bd4dc05bcb` 在删除 `modelConnectionPort` 的冲突处理中遗漏了相邻的 PDF 端口注入，
-导致工具 schema 仍公开 `pages`，但分页读取返回配置缺失，整份读取跳过页数检查。
+`PdfDocumentPort` é fornecido pelo host; o Core apenas repassa a porta existente, não cria um segundo adaptador de PDF nem depende da antiga porta de conexão de modelo.
+O merge `bd4dc05bcb` de 2026-09-02, ao resolver o conflito que removeu `modelConnectionPort`, esqueceu a injeção da porta de PDF adjacente,
+fazendo com que o schema da ferramenta ainda exponha `pages`, mas a leitura paginada retorne configuração ausente e a leitura integral pule a checagem de páginas.
+A restauração da fiação deve preservar ao mesmo tempo o resultado paginado bem-sucedido e a proteção de contagem de páginas da leitura nativa; permissões, timeout, cancelamento, schema da ferramenta e classificação de erros permanecem inalterados.
+Tarefa principal e subtarefa compartilham esta fronteira de montagem do executor; Desktop, Web/controle remoto por celular usam o CLI Runtime já existente do host, sem alterar
+a cadeia de entrega continuous/replayable. Caminhos multiplataforma e comandos externos de PDF continuam sob responsabilidade do adaptador existente.
 
-恢复接线必须同时保留分页成功结果与原生读取的页数保护；权限、超时、取消、工具 schema 和错误分类不变。
-主任务与子任务共用此执行器装配边界；桌面、Web/手机远控均使用宿主已有的 CLI Runtime，不改变
-continuous/replayable 交付链路。跨平台路径与 PDF 外部命令仍由现有 adapter 负责。
+`runtime-read-pdf.test.ts` valida tarefa principal e subtarefa pelo ciclo completo de ferramentas do Runtime: a chamada paginada injeta o adaptador e
+a próxima requisição do modelo recebe as imagens ordenadas por página; sem `pages` e acima de 10 páginas retorna erro de ferramenta sem ler o binário do PDF.
+O teste não pode apenas construir o ToolExecutor diretamente, senão não descobre dependências perdidas na montagem do Runtime.
 
-`runtime-read-pdf.test.ts` 通过完整 Runtime 工具循环验证主任务和子任务：分页调用注入的 adapter，
-下一次模型请求收到按页序排列的图片；无 `pages` 且超过 10 页时返回工具错误，且不读取 PDF 二进制。
-测试不能只直接构造 ToolExecutor，否则无法发现 Runtime 装配时漏传依赖。
+## Leitura Sob Demanda de Anexos do Histórico de Tópicos (em validação de integração local/stdio/WebSocket)
 
-## 话题历史附件按需读取（本地／stdio／WebSocket 接入验证中）
+Reutiliza a estratégia `topic` do `ReadSessionContext`, passando o `messageId` arquivado e o índice do recurso por um seletor de anexo opcional.
+A entrada do modelo não contém botId, chatId, workspace, versão de autorização ou URL de download.
+A session atual deve ser consistente com o contexto da ferramenta; a origem da entrada e a versão de autorização são resolvidas a partir do registro de entrada confiável da tarefa atual.
 
-复用 `ReadSessionContext` 的 `topic` 策略，通过可选附件选择器传入已归档的
-`messageId` 与资源序号。模型输入不包含 botId、chatId、workspace、授权版本或下载地址。
-当前 session 必须与工具上下文一致；输入来源和授权版本从当前任务的可信入站记录解析。
+O seletor de anexo da ferramenta é `attachment: { inputId?, messageId, index? }`; quando o índice de histórico textual carrega inputId, só pode resolver o snapshot correspondente que a tarefa já recebeu. Quando a chamada antiga omite, segue a entrada confiável mais recente. O inputId preenchido pelo modelo serve apenas para seleção e não concede autorização.
 
-工具选择器为 `attachment: { inputId?, messageId, index? }`；文本历史索引携带 inputId 时，只能解析该任务已接收的对应快照。旧调用省略时沿用最新可信输入。模型填写的 inputId 只做选择，不提供授权。
-
-附件选择器仅允许用于 `strategy=topic`。
-真实模型验证发现当前任务 ID 不在模型上下文内；话题策略省略 sessionId 或传 `current` 时，
-由工具上下文解析当前任务。其他策略仍要求明确 sessionId，不允许跨话题读取。
-可信来源优先读取 `conversationInputIntent`，兼容旧 `inputIntent`；canonical 字段存在但无效时
-不能借旧字段恢复权限。只有正常用户输入可提供来源；缺少入队授权版本时明确拒绝附件读取。
-Host 返回寄存引用及名称／MIME／字节数，Agent 校验实际字节数后写 session binary artifact。
+O seletor de anexo só é permitido com `strategy=topic`.
+A validação com modelo real mostrou que o ID da tarefa atual não está no contexto do modelo; quando a estratégia de tópico omite sessionId ou passa `current`,
+o contexto da ferramenta resolve a tarefa atual. Outras estratégias continuam exigindo sessionId explícito e não permitem leitura entre tópicos.
+Fontes confiáveis preferem `conversationInputIntent`, com compatibilidade com o antigo `inputIntent`; quando o campo canônico existe mas é inválido,
+não se pode recuperar permissão pelo campo antigo. Somente entrada normal de usuário pode fornecer origem; sem a versão de autorização enfileirada a leitura de anexo é explicitamente recusada.
+O Host retorna referência depositada e nome/MIME/tamanho em bytes, e o Agent valida os bytes reais antes de gravar o binary artifact da session.
 
 ```text
 ReadSessionContext(topic, attachment reference)
@@ -140,38 +136,40 @@ ReadSessionContext(topic, attachment reference)
   -> bounded tool result (name/type/size/reference/path)
 ```
 
-App/Agent 方法及双向参数使用 `packages/shared/src/zcode-protocol/index.ts` 的运行时
-schema；旧 Host/standalone CLI 能力缺失须明确失败，不回退到任意 URL 下载。Host 连接边界
-注入 workspaceIdentity 与 remoteSessionId，不接受模型覆盖；远程 runtime 的请求必须经现有
-连接回到拥有机器人凭据的 Host，不能另建运行时或在远端读取本地凭据。
+Os métodos App/Agent e os parâmetros bidirecionais usam o schema de runtime de `packages/shared/src/zcode-protocol/index.ts`;
+Host antigo/CLI standalone sem essa capacidade deve falhar explicitamente, sem recuar para download de URL arbitrária. A fronteira de conexão do Host
+injeta workspaceIdentity e remoteSessionId, sem aceitar sobrescrita do modelo; requisições do runtime remoto devem voltar pela conexão existente ao Host que possui as credenciais do bot,
+sem criar outro runtime nem ler credenciais locais no lado remoto.
 
-stdio 的受控进程测试复现：CLI 先预热再绑定 logical session 时，反向资源请求永久捕获首次
-wireClient 参数，丢失 remoteSessionId。每次读取开始时从同一个 CLI 的当前可信入口固定路由，
-下载、上传与最终授权检查共用这一份快照，不能在异步步骤中重新挑选工作区或运行时。
+O teste controlado de processo stdio reproduz: quando o CLI faz o prewarm antes de vincular a session lógica, a requisição inversa de recurso captura para sempre o wireClient do primeiro uso,
+perdendo o remoteSessionId. No início de cada leitura, o roteamento é fixado a partir da entrada confiável atual do mesmo CLI;
+download, upload e verificação final de autorização compartilham esse snapshot, sem reselecionar workspace ou runtime em passos assíncronos.
 
-附件 bytes 复用现有分块上传和校验，不放进单个反向响应。Agent 从自己 session 的 artifact
-读取完整资源，复用 binary artifact 写入及 session 生命周期清理，文件后缀必须安全规范化。
-取消传播到下载/传输/落盘；失败不提供半成品路径。下载不能批准权限、改变策略或创建输入队列。
-只读工具权限仍检查当前 task/source 边界，trace、结果预算、事件和 V4 投影沿用工具执行链。
+Os bytes do anexo reutilizam o upload em chunks existente e a verificação, sem entrar em uma única resposta inversa. O Agent lê o recurso completo do artifact de sua própria session,
+reutilizando a escrita de binary artifact e a limpeza do ciclo de vida da session; o sufixo do arquivo deve ser normalizado com segurança.
+O cancelamento é propagado para download/transmissão/gravação; em caso de falha não é oferecido caminho parcial. O download não aprova permissões, não altera políticas nem cria filas de entrada.
+A permissão de ferramenta somente leitura continua verificando a fronteira task/source atual; trace, orçamento de resultado, eventos e projeção V4 seguem a cadeia de execução da ferramenta.
 
-测试依次覆盖工具 schema、可信来源解析、Host 反向请求、远端路由、分块失败与取消、runtime
-artifact 落地、真实模型按文件内部值回答及原话题投递。Host 下载单测或原生 API 下载成功不代表
-这条端到端工具链已完成。
+Os testes cobrem em sequência o schema da ferramenta, a resolução da fonte confiável, a requisição inversa do Host, o roteamento remoto, falha de chunk e cancelamento,
+a gravação do artifact de runtime, a resposta real do modelo com base no valor interno do arquivo e a entrega no tópico de origem. Sucesso do teste unitário de download do Host
+ou de download pela API nativa não significa que esta cadeia E2E de ferramenta está completa.
 
 ### 真实回查连接关闭（2026-09-08）
 
-13:57 实测调用已选中正确历史附件，但 Host 立即关闭协议并终止 CLI。新增附件 port 将
-Core TraceContext 原样放入严格的协议 trace，携带 sessionId、turnId、attributes 等非协议字段。
-跨端反向读取和取消必须复用 protocolTraceFromTraceContext 映射，只传 traceId、spanId 和 parentId；
-任务／输入身份继续放在严格请求参数中。测试必须用实际 zcodeProtocolMessageSchema 校验完整
-读／取消帧，不能仅断言 requestClient 被调用。
+### Fechamento da Conexão na Verificação Real de Tópico (2026-09-08)
 
-取消与断连同时发生时，requestClient 可能在返回 Promise 前同步抛错。取消通知属于尽力通知，
-不能从 AbortSignal listener 抛出未捕获异常；原始读取仍按取消或断连失败，不补执行、不重连。
+Às 13:57, a chamada real selecionou o anexo de histórico correto, mas o Host fechou imediatamente o protocolo e encerrou a CLI. O novo port de anexo colocava o
+TraceContext do Core no trace estrito do protocolo como está, carregando sessionId, turnId, attributes e outros campos fora do protocolo.
+A leitura inversa entre pontas e o cancelamento devem reutilizar o mapeamento protocolTraceFromTraceContext, passando apenas traceId, spanId e parentId;
+a identidade de tarefa/entrada continua nos parâmetros estritos da requisição. Os testes devem validar o frame completo de leitura/cancelamento com o zcodeProtocolMessageSchema real,
+e não apenas afirmar que requestClient foi chamado.
 
-## CronDelete 删除语义
+Quando cancelamento e desconexão ocorrem ao mesmo tempo, requestClient pode lançar o erro sincronamente antes de retornar a Promise. A notificação de cancelamento é de
+melhor esforço e não pode lançar exceções não capturadas a partir do listener do AbortSignal; a leitura original continua falhando por cancelamento ou desconexão, sem execução adicional nem reconexão.
 
-CronDelete 的删除范围必须限定为当前 workspace，且删除结果必须反映数据库实际影响行数。
+## Semântica de Exclusão do CronDelete
+
+O escopo de exclusão do CronDelete deve ficar limitado ao workspace atual, e o resultado da exclusão deve refletir o número real de linhas afetadas no banco.
 
 ```text
 CronDelete(id)
@@ -183,13 +181,13 @@ CronDelete(id)
   -> Tool result
 ```
 
-删除不存在的 ID、已删除的 ID 或不属于当前 workspace 的 ID，不能返回成功。调用方需要得到明确的未找到结果，避免模型在 CronList 后反复重试同一个删除请求。
+Excluir um ID inexistente, já excluído ou pertencente a outro workspace não pode retornar sucesso. O chamador precisa de um resultado explícito de não encontrado, evitando que o modelo repita indefinidamente a mesma exclusão após o CronList.
 
-## 远程 workspace 的 Cron 工具策略
+## Política das Ferramentas Cron em Workspace Remoto
 
-SSH、WSL、Docker 和 Server workspace 使用 `remote:*` workspace identity。此类 session 在创建或恢复时将 CronCreate、CronList、CronUpdate、CronDelete 加入 session 级 denylist，避免远程 Agent 暴露无法由远程调度边界可靠承载的定时任务能力。本地 workspace 不继承该限制。
+Workspaces SSH, WSL, Docker e Server usam a identidade de workspace `remote:*`. Tais sessions, ao serem criadas ou restauradas, adicionam CronCreate, CronList, CronUpdate e CronDelete à denylist de nível de session, evitando que um Agent remoto exponha capacidades de agendamento que a fronteira de agendamento remota não consegue suportar de forma confiável. Workspaces locais não herdam essa restrição.
 
-## Todo103：Off-Peak 工具与标准执行边界
+## Todo103: ferramenta Off-Peak e fronteira de execução padrão
 
 ```text
 Host 本地能力（服务装配 + workspace 类型，不联网）-> Off-Peak policy/创建参数 -> App OffPeakPort -> 工具注册
@@ -198,21 +196,20 @@ idle turn attribution -> turn denylist + activeOffPeakTaskId -> 拒绝递归 Cre
 当前 modelExecution + sharedContextRefs -> Core admission -> 完成时清理 turn attribution
 ```
 
-3.12.2 移除注册阶段灰度读取，保留本地支持边界、调用准入与绑定请求；CLI 冷恢复/创建通过当前异步 App 工厂装配，不恢复旧
-workspace catalog、临时 overlay、turnRuntimeModel 或模型还原。idle execution 仍携带精确
-ModelSelection/requestAuth，不能改 Session 持久选择。退出/拒绝/排队分支都要清理当前 turn
-的 activeOffPeakTaskId；允许 Cron turn 创建闲时任务，禁止将 OffPeakCreate 并入 Cron 写工具常量。
+A 3.12.2 remove a leitura de grey release na fase de registro, mantendo a fronteira de suporte local, a admissão de chamada e a requisição de vínculo; a restauração/criação fria da CLI é montada pela fábrica assíncrona atual do App, sem restaurar o
+catálogo antigo de workspace, overlay temporário, turnRuntimeModel ou restauração de modelo. A execução ociosa continua carregando o ModelSelection/requestAuth preciso, sem alterar a seleção persistida da Session. Os ramos de saída/rejeição/fila devem limpar o activeOffPeakTaskId
+do turno atual; é permitido que um turno Cron crie tarefas ociosas, mas é proibido incorporar OffPeakCreate às constantes das ferramentas de escrita do Cron.
 
-## 显式 Subagent 模型选择（Todo99）
+## Seleção Explícita de Modelo do Subagent (Todo99)
 
 ```text
 profile 原 Selection -> Worker 公共 Selection Facade（同一已应用账号/Registry 快照）
   -> 临时有效 Selection -> child Runtime -> ModelFactory 精确校验 -> 模型请求
 ```
 
-解析通过宿主注入的只读端口复用；不改工具参数、结果与 profile 持久化。无同模型时不回退父模型；档位失效不补默认。隐式继承和内部执行 override 不重解释。端口透传子 Runtime / workflow，独立终端 CLI 未注入时保持原行为。完整契约与验证见 `docs/working-memory/provider-refactor/steps/todo-99-worker-account-selection-repair.md`。
+A resolução reutiliza a porta somente-leitura injetada pelo host; não altera parâmetros de ferramenta, resultado nem persistência do profile. Sem o mesmo modelo não há fallback para o modelo pai; tier inválido não recebe um padrão. Herança implícita e override de execução interna não são reinterprepretados. A porta é repassada ao Runtime filho / workflow, e a CLI de terminal independente mantém o comportamento original quando não recebe injeção. Veja o contrato completo e a verificação em `docs/working-memory/provider-refactor/steps/todo-99-worker-account-selection-repair.md`.
 
-## 闲时轮禁止 SendMessage / Workflow（D52）
+## Proibição de SendMessage / Workflow em Turno Ocioso (D52)
 
 ```text
 Host 闲时派发 -> prompt-turn.ts / server-operations.ts turn denylist（+SendMessage,+Workflow）
@@ -221,13 +218,14 @@ Host 闲时派发 -> prompt-turn.ts / server-operations.ts turn denylist（+Send
   -> recoverable PermissionDenied（提示改用前台 Agent）-> 模型改走 Agent 工具（带 subagentModelOverride）
 ```
 
-原因：SendMessage 续跑终态子 Agent 与 Workflow 派生脚本子会话都在闲时轮 `modelExecution` 之外重建
-模型，回落父会话常驻选择并计入用户 Coding Plan（ZCT-2099408932463325184）。三处 denylist 常量必须同值；
-`isOffPeakCreateRestrictedTurn` 的 denylist 兜底只认 OffPeakCreate 哨兵。工具 schema、权限、超时不变；
-automation 轮与普通轮不受影响。测试：`core/tests/off-peak-tool.test.ts`、
-`bootstrap/tests/offpeak-prompt-turn-disallowlist.test.ts`、`bootstrap/tests/v4-native-commands.test.ts`。
-#### 2026-09-08 原生验证发现的入口校验问题
+Motivo: SendMessage, ao retomar subagentes filhos em estado terminal, e Workflow, ao derivar sub-sessões de script, reconstroem o modelo fora do `modelExecution` do turno ocioso,
+caindo de volta na seleção residente da sessão pai e sendo contabilizados no Coding Plan do usuário (ZCT-2099408932463325184). As três constantes de denylist devem ter o mesmo valor;
+o fallback de denylist de `isOffPeakCreateRestrictedTurn` reconhece apenas o sentinela OffPeakCreate. Schema da ferramenta, permissões e timeout inalterados;
+turnos de automation e turnos comuns não são afetados. Testes: `core/tests/off-peak-tool.test.ts`,
+`bootstrap/tests/offpeak-prompt-turn-disallowlist.test.ts`, `bootstrap/tests/v4-native-commands.test.ts`.
 
-话题原文回查与历史附件选择均以 `conversationInputIntent` 为权威来源。仅当该字段不存在时兼容 `inputIntent`；权威字段存在但无有效话题记录时，不得从同条消息的旧字段恢复记录。相同消息上两个字段冲突时只采纳权威记录，正文与 synthetic 背景仍不能注入来源身份。
+#### 2026-09-08 Problemas de validação de entrada descobertos pela validação nativa
 
-真实模型显式传入 `sessionId: current` 时，工具 executor 的 JSON Schema 校验将正则字符串与字面量的联合转换为 `oneOf`，而最小校验器未应用正则，因此两个分支同时匹配，错误拒绝调用。当前话题选择器应使用单个字符串模式表达 `current | sess_*`，在 executor 入参校验与 handler 运行时解析两层验证；非话题策略仍要求明确任务 ID。不能仅直接调用 handler 的单测宣称真实工具入口可用。
+A verificação do texto original do tópico e a seleção de anexo de histórico têm `conversationInputIntent` como fonte autoritativa. A compatibilidade com `inputIntent` só vale quando esse campo não existe; quando o campo autoritativo existe mas não há registro de tópico válido, não se pode recuperar o registro pelo campo antigo da mesma mensagem. Em caso de conflito entre os dois campos na mesma mensagem, apenas o registro autoritativo é adotado, e o corpo e o fundo sintético continuam não podendo injetar identidade de origem.
+
+Quando o modelo real passa explicitamente `sessionId: current`, a validação de JSON Schema do executor da ferramenta converte a união entre string regex e literal em `oneOf`, e o validador mínimo não aplica a regex, fazendo com que os dois ramos casem simultaneamente e a chamada seja recusada por engano. O seletor do tópico atual deve expressar `current | sess_*` como um único padrão de string, validado em duas camadas: na validação de argumentos do executor e na resolução de runtime do handler; estratégias que não são de tópico continuam exigindo ID de tarefa explícito. Não se pode declarar a entrada real da ferramenta disponível apenas com base em testes unitários que chamam o handler diretamente.

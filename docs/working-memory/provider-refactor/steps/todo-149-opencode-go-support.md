@@ -1,152 +1,154 @@
-# Todo149：OpenCode Go 预设与请求配置支持
+# Todo149: suporte a presets e configuração de requisição do OpenCode Go
 
-状态：代码与离线验证完成，待原生界面／线上 Go 实测（2026-09-14）；未发布或修改用户配置。
+Status: código e verificação offline concluídos, aguardando interface nativa / teste real do Go em produção (2026-09-14); nada publicado nem configuração de usuário alterada.
 
-## 目标与已知问题
+## Objetivo e problemas conhecidos
 
-通过现有 Provider 配置体系支持 OpenCode Go，同时覆盖预设创建与手动填写 Go 地址的供应商。
-不新增 Access 类型、配置 Schema、专用 Runtime 或数据库迁移。
+Suportar o OpenCode Go através do sistema de configuração de Provider existente, cobrindo tanto a criação por preset quanto o preenchimento manual do endereço Go por parte do fornecedor.
+Sem novos tipos de Access, Schema de configuração, Runtime dedicado ou migração de banco de dados.
 
-2026-09-14 Air 实例：`new-provider / glm-5.3` 在连接测试中正确使用
-`https://opencode.ai/zen/go/v1`、Chat Completions，但返回 HTTP 400，明确拒绝
-`enable_thinking`、`reasoning`。当时缓存 revision 25 没有对应的 GLM Chat／Go 站点映射，
-落到同时生成 `thinking`、`enable_thinking`、`reasoning_effort`、`reasoning` 的通用映射。
-请求 ID：`2546e69c-330c-4653-9b70-c57088425cf7`。
-此证据只证明两个字段被拒绝，不证明删除后其他参数、响应与工具调用必然兼容。
+Instância Air em 2026-09-14: `new-provider / glm-5.3` usou corretamente
+`https://opencode.ai/zen/go/v1` e Chat Completions no teste de conexão, mas retornou HTTP 400,
+rejeitando explicitamente `enable_thinking` e `reasoning`. Na época, o revision 25 em cache não tinha
+o mapeamento de site GLM Chat/Go correspondente, caindo no mapeamento genérico que gera simultaneamente
+`thinking`, `enable_thinking`, `reasoning_effort` e `reasoning`.
+ID da requisição: `2546e69c-330c-4653-9b70-c57088425cf7`.
+Esta evidência apenas prova que dois campos foram rejeitados; não prova que os demais parâmetros, a
+resposta e as chamadas de ferramentas sejam necessariamente compatíveis após a remoção.
 
-## 实施要求
+## Requisitos de implementação
 
-### 1. 三个预设模板
+### 1. Três modelos de preset
 
-在“添加供应商”的“其他”分组中与 Zen 相邻，复用现有 OpenCode 深浅主题图标及创建流程：
+No grupo "Outros" de "Adicionar provedor", adjacente ao Zen, reutilizando os ícones existentes do OpenCode para tema claro e escuro e o fluxo de criação:
 
-| Template ID | 名称 | API 类型 | 官方接入表中的主要系列 |
+| Template ID | Nome | Tipo de API | Principais famílias na tabela oficial de integração |
 | --- | --- | --- | --- |
 | `opencode-go-chat` | OpenCode Go (Chat) | `openai-chat-completions` | GLM、Kimi、DeepSeek、MiMo、LongCat、Hy |
 | `opencode-go-messages` | OpenCode Go (Anthropic) | `anthropic-messages` | MiniMax、Qwen |
 | `opencode-go-responses` | OpenCode Go (Responses) | `openai-responses` | GPT、Grok、Muse |
 
-- 共同 Base URL：`https://opencode.ai/zen/go/v1`；Access 使用 `api-key`。
-- 获取 API Key 仅一个入口：`https://opencode.ai/auth`。
-- 保留服务端原始 Model ID，不添加 `opencode-go/` 之类的客户端命名空间前缀。
-- 模型按 Go 官方协议分组，不复制 Zen 全量清单，尤其不能把 Go 的 MiniMax 放入 Chat 模板。
-- 不改已有 Zen 模板、已创建供应商的 ID、Key、个人配置和历史 Selection。
+- Base URL comum: `https://opencode.ai/zen/go/v1`; Access usa `api-key`.
+- Apenas um ponto de entrada para obter a API Key: `https://opencode.ai/auth`.
+- Preservar o Model ID original do servidor, sem adicionar prefixo de namespace do cliente como `opencode-go/`.
+- Modelos agrupados conforme o protocolo oficial do Go, sem copiar a lista completa do Zen; em especial, não colocar o MiniMax do Go no template Chat.
+- Não alterar templates Zen existentes, IDs de provedores já criados, Keys, configurações pessoais nem histórico de Selection.
 
-### 2. 统一配置匹配，覆盖自建供应商
+### 2. Correspondência unificada de configuração, cobrindo provedores próprios
 
 ```text
-Go 模板创建 ─────┐
-                ├─> 地址 + API 类型 + Model ID 的 Built-in 规则
-手动填写 Go URL ─┘                    |
-                                     v
-                          现有个人覆盖 / 手动模式
-                                     |
-                                     v
-                          Registry -> Model -> 请求
+Criação por template Go ─────┐
+                            ├─> Regra Built-in de endereço + tipo de API + Model ID
+Preenchimento manual da URL Go ─┘                    |
+                                                 v
+                                      Override pessoal existente / modo manual
+                                                 |
+                                                 v
+                                      Registry -> Model -> requisição
 ```
 
-- Go 差异放在 `providerSiteRules`，按 Go 完整 Base URL、API 类型和模型范围声明；
-  沿用现有 URL 规范化，覆盖末尾斜杠，不误匹配 Zen、相似域名或其他路径。
-- 相同 Provider API 与模型、无个人覆盖时，模板创建和手动创建应解析出相同的执行参数。
-  Template 专属规则仅承担成员默认启停等模板事实，不把协议兼容修复藏在其中。
-- 已有准确的公共模型/API 规则直接复用；Go 差异通过站点规则覆盖。
-  修复必须替换错误的推理映射表达式，不能只是向原有错误映射追加字段。
-- 用户个人映射和关闭智能配置后的手动模式继续遵守当前优先级；不偷偷清除旧覆盖。
-  因此新配置能修复继承推荐的自建供应商，不承诺覆盖用户已经固化的错误手动配置。
-- Runtime 只消费解析结果；不按 Provider 名称猜协议，不在请求失败后自动切换协议、模型或 Zen 地址。
-- 不在连接测试中专门删字段，正式聊天及其他模型消费入口必须使用相同配置规则。
+- As diferenças do Go ficam em `providerSiteRules`, declaradas pelo Base URL completo do Go, tipo de API e escopo de modelos;
+  reutilizando a normalização de URL existente, cobrindo barra final, sem falsos positivos em Zen, domínios semelhantes ou outros caminhos.
+- Com a mesma API de Provider e modelo, sem overrides pessoais, a criação por template e a criação manual devem resolver os mesmos parâmetros de execução.
+  Regras exclusivas de Template cobrem apenas fatos do template como ativação padrão de membros; correções de compatibilidade de protocolo não ficam escondidas ali.
+- Regras públicas precisas de modelos/API já existentes são reutilizadas diretamente; as diferenças do Go são cobertas por regras de site.
+  A correção precisa substituir a expressão incorreta de mapeamento de raciocínio, e não apenas acrescentar campos ao mapeamento errado original.
+- Mapeamentos pessoais do usuário e o modo manual após desativar a configuração inteligente continuam respeitando a prioridade atual; não limpar sobreposições antigas às escondidas.
+  Portanto, a nova configuração corrige provedores próprios que herdaram recomendações, sem prometer sobrescrever configurações manuais erradas que o usuário já consolidou.
+- O Runtime apenas consome o resultado resolvido; não adivinhar o protocolo pelo nome do Provider, nem trocar automaticamente de protocolo, modelo ou endereço Zen após uma falha de requisição.
+- Não remover campos especificamente no teste de conexão; o chat formal e os demais pontos de entrada de consumo de modelos devem usar as mesmas regras de configuração.
 
-### 3. 模型目录及参数核对
+### 3. Verificação do catálogo de modelos e dos parâmetros
 
-- 优先解决已复现的 GLM-5.3，并覆盖 GLM-5.3-Flash；核实 Go 接受的准确字段后补映射。
-- 按“模型系列 × API 类型”核对上下文、最大输出、输入能力、工具调用、推理档位和参数映射。
-  MiniMax／Qwen 的 Messages 参数不能直接假定与 Claude 或 OpenRouter 完全一致。
-- 模型成员以实施时 Go 官方端点表与目录交叉核对；公开 `/models` 只给出 ID 等基础字段，
-  不能据此推导能力、账号权益或请求已成功。只出现在目录、协议/能力无法确认的型号暂缓加入。
-- 初始建议默认启用已核实的主力型号；历史、实验型号默认关闭。实施时记录具体清单和依据。
-  Muse Contributor 涉及训练数据与地域条款，建议先默认关闭，不作为默认推荐模型。
-- 不把智谱 Coding Plan 的搜索、图片/视频桥接等站点能力移植到 Go。
-- 本轮不重做全局通用推理映射，不扩大到 `none/disabled` 标准统一。
+- Priorizar a solução do GLM-5.3 já reproduzido e cobrir o GLM-5.3-Flash; verificar os campos exatos aceitos pelo Go e completar o mapeamento.
+- Verificar contexto, saída máxima, capacidades de entrada, chamadas de ferramentas, níveis de raciocínio e mapeamento de parâmetros por "família de modelo × tipo de API".
+  Os parâmetros Messages de MiniMax/Qwen não podem ser assumidos como idênticos aos de Claude ou OpenRouter.
+- Os membros de modelo devem ser cruzados com a tabela oficial de endpoints do Go e o catálogo no momento da implementação; o endpoint público `/models` fornece apenas campos básicos como ID,
+  não permitindo deduzir capacidades, direitos da conta ou sucesso da requisição. Modelos que aparecem apenas no catálogo, com protocolo/capacidade inconfirmável, ficam adiadas.
+- A sugestão inicial habilita por padrão as versões principais já verificadas; versões antigas e experimentais vêm desabilitadas por padrão. Registrar a lista concreta e suas evidências na implementação.
+  O Muse Contributor envolve dados de treinamento e termos regionais; recomenda-se deixá-lo desabilitado por padrão, sem usá-lo como modelo recomendado.
+- Não portar para o Go capacidades de site do Coding Plan da Zhipu, como busca e pontes de imagem/vídeo.
+- Nesta rodada, não refazer o mapeamento global genérico de raciocínio nem ampliar para a unificação do padrão `none/disabled`.
 
-### 4. 请求头与配置交付
+### 4. Cabeçalhos de requisição e entrega da configuração
 
-- 复用公共 `User-Agent: ZCode/<版本>`、版本头及原生会话头；验证实际请求，不伪装其他客户端。
-  官方已说明 Go 识别 ZCode 原生会话头，`x-opencode-session` 不是本轮必需新增项。
-- 普通 API Key 鉴权，不进入智谱 Sig，不增加 OAuth／套餐账号／额度查询体系。
-- 只编辑生产 Built-in，通过 `pnpm provider:config:sync-test` 同步生成测试配置；
-  Go URL 两个环境相同。按既有规则更新 revision，验证最终配置含模板与站点规则。
-- 不自动发布远端配置或修改 Air 用户配置；实机修复和测试使用明确授权的配置与隔离场景。
+- Reutilizar o `User-Agent: ZCode/<versão>` público, os cabeçalhos de versão e os cabeçalhos de sessão nativos; verificar a requisição real, sem se passar por outro cliente.
+  O oficial já informou que o Go reconhece os cabeçalhos de sessão nativos do ZCode; `x-opencode-session` não é uma adição obrigatória nesta rodada.
+- Autenticação por API Key comum, sem entrar no Sig da Zhipu, sem adicionar OAuth / contas de plano / consulta de cota.
+- Editar apenas o Built-in de produção, gerando a configuração de teste via `pnpm provider:config:sync-test`;
+  a URL do Go é a mesma nos dois ambientes. Atualizar o revision pelas regras existentes e verificar se a configuração final contém os templates e as regras de site.
+- Não publicar automaticamente configuração remota nem modificar a configuração do usuário no Air; correções e testes reais usam configurações explicitamente autorizadas e cenários isolados.
 
-## 影响面与边界
+## Superfície de impacto e limites
 
-| 入口 | 共享改动 | 保持原状的状态与提交边界 |
+| Entrada | Mudança compartilhada | Estado preservado e limite de submissão |
 | --- | --- | --- |
-| 添加供应商、模型设置 | Template 列表、推荐模型配置 | 页面草稿经 Settings Service 保存 Personal；不物化未编辑的推荐字段 |
-| 连接测试 | Registry 解析与正式 Adapter 请求参数 | 既有提示词、预算、流式完成判断；不修改会话模型选择 |
-| 聊天、自动化、Subagent、Wiki 等 | Registry 候选和 Model 请求配置 | 各入口的默认、继承、校验、提交和持久化各自独立 |
-| 远程工作区及手机 | 既有配置交付后的同一执行规则 | 不新增同步链路；桌面 continuous 与手机 replayable 边界不变 |
+| Adicionar provedor, configurações de modelo | Lista de Templates, configuração de modelos recomendados | Rascunhos da página são salvos como Personal pelo Settings Service; campos recomendados não editados não são materializados |
+| Teste de conexão | Resolução do Registry e parâmetros de requisição do Adapter formal | Prompts, orçamento e 판단 de conclusão em streaming existentes; a seleção de modelo da sessão não é modificada |
+| Chat, automação, Subagent, Wiki etc. | Candidatos do Registry e configuração de requisição do Model | Padrões, herança, validação, submissão e persistência de cada entrada permanecem independentes |
+| Workspace remoto e celular | Mesmas regras de execução após a entrega da configuração existente | Nenhuma nova cadeia de sincronização; os limites desktop continuous e celular replayable permanecem inalterados |
 
-必查：Built-in、规则解析优先级、Settings 创建与连接测试、正式请求体与请求头。
-回归关注：共享模型候选、辅助调用、Zen 和其他供应商不误命中、生产/测试配置一致性。
-无需改变：Provider/Model Schema、持久化格式、账号身份、会话恢复、执行中 Model 冻结语义。
+Obrigatório verificar: Built-in, prioridade de resolução de regras, criação em Settings e teste de conexão, corpo e cabeçalhos da requisição formal.
+Foco de regressão: candidatos de modelo compartilhados, chamadas auxiliares, ausência de falsos positivos em Zen e outros provedores, consistência entre configuração de produção e de teste.
+Não precisa mudar: Schema de Provider/Model, formato de persistência, identidade da conta, retomada de sessão, semântica de congelamento de Model em execução.
 
-只读影响核对起点：`ProviderTemplatePicker`、`ProviderSettingsFacade`、`ModelConfigRules.resolve`、
-`providerSettingsConnectivity`、`AiSdkModelExecution.captureModelSnapshot`、`testModelConnectivity`。
-本次 codegraph 工具不可用，未执行深度 2 调用图扫描；以上为源码及当前日志证据，不等同完整测试覆盖。
-图谱漂移候选：部分 Provider 启停、模板分组描述与当前代码/近期裁决不一致，不据此扩大本次任务。
-建议图谱增量：在现有 Provider Templates / Registry 能力下补 Go 别名及站点配置证据，不新增状态 owner。
+Ponto de partida da verificação de impacto somente-leitura: `ProviderTemplatePicker`, `ProviderSettingsFacade`, `ModelConfigRules.resolve`,
+`providerSettingsConnectivity`, `AiSdkModelExecution.captureModelSnapshot`, `testModelConnectivity`.
+A ferramenta codegraph não estava disponível desta vez; não foi executada varredura de grafo de chamadas em profundidade 2; o acima é evidência do código-fonte e dos logs atuais, o que não equivale a cobertura completa de testes.
+Candidatos a desvio do grafo: a ativação de alguns Providers, as descrições de agrupamento de templates e o código atual / decisões recentes divergem; não ampliar o escopo desta tarefa por causa disso.
+Sugestão de incremento do grafo: acrescentar aliases do Go e evidências de configuração de site sob as capacidades existentes de Provider Templates / Registry, sem criar novo dono de estado.
 
-## 执行与验收
+## Execução e aceitação
 
-先更新相关配置规范及测试场景，再补测试、实现；按协议/模型系列成组验证，最后统一复审。
-不因某个型号未确认阻塞其他型号，不把局部连接成功写成全部模型功能通过。
+Atualizar primeiro as especificações de configuração relevantes e os cenários de teste, depois completar os testes e a implementação; validar em grupos por protocolo / família de modelo e, por fim, fazer uma revisão unificada.
+Não bloquear outros modelos por causa de um modelo não confirmado; não registrar conexão parcial bem-sucedida como se todos os modelos tivessem passado.
 
-- [x] 三个模板、单一 Key 链接、图标与准确成员列表完成；记录默认启停及能力来源。
-- [x] 配置测试：模板/手动创建结果一致，URL 规范化及负向匹配正确，个人覆盖/手动模式保留。
-- [x] 正式 SDK 请求体断言：实际 URL/API、推理映射、输出预算、鉴权、版本/会话头正确；
-      GLM 不再发送被拒绝字段。每种不同映射覆盖公开档位，不只测最低档。
-- [ ] UI E2E 覆盖模板创建、填 Key、模型列表/选择及连接反馈；复用现有布局并检查主题、窄屏。
-- [ ] 实机复测 Air GLM-5.3 自建供应商问题，再按三种协议与不同推理映射选代表模型验证
-      连接、聊天和工具调用；记录版本、Builtin revision、结果与 request ID，不记录 Key。
-- [ ] 定向覆盖辅助模型调用，不改系统提示词；若服务端限制或权限不足，明确标记未测/阻塞。
-- [x] 集中执行相关单测、typecheck、lint、配置同步检查及配置产物构建；复审跨端/远程配置消费边界。
-- [x] 代码双向复审：Go 规则已接入；Zen、其他域名、用户覆盖与现有 Provider 架构未回退。线上行为仍需上述实测。
+- [x] Três templates, link único de Key, ícone e lista precisa de membros concluídos; defaults de ativação e origem das capacidades registrados.
+- [x] Testes de configuração: resultado idêntico entre criação por template e manual, normalização de URL e correspondência negativa corretas, override pessoal / modo manual preservados.
+- [x] Asserções do corpo de requisição do SDK oficial: URL / API reais, mapeamento de raciocínio, orçamento de saída, autenticação e cabeçalhos de versão / sessão corretos;
+      GLM não envia mais campos rejeitados. Cada mapeamento distinto cobre os níveis públicos, não apenas o mais baixo.
+- [ ] E2E de UI cobrindo criação por template, preenchimento da Key, lista / seleção de modelos e feedback de conexão; reutilizar o layout existente e verificar tema e tela estreita.
+- [ ] Reteste real do problema do provedor próprio GLM-5.3 no Air, depois escolher modelos representativos conforme os três protocolos e os distintos mapeamentos de raciocínio para verificar
+      conexão, chat e chamadas de ferramentas; registrar versão, revision do Builtin, resultado e request ID, sem registrar Keys.
+- [ ] Cobrir direcionadamente chamadas de modelos auxiliares, sem alterar prompts de sistema; se houver restrição do servidor ou permissão insuficiente, marcar claramente como não testado / bloqueado.
+- [x] Executar centralmente os testes unitários relevantes, typecheck, lint, verificação de sincronização de configuração e build dos artefatos de configuração; revisar os limites de consumo de configuração entre plataformas / remota.
+- [x] Revisão de código bidirecional: as regras do Go foram integradas; Zen, outros domínios, overrides do usuário e a arquitetura de Provider existente não regrediram. O comportamento em produção ainda exige os testes reais acima.
 
-## 待核实项与停止边界
+## Itens a verificar e limites de parada
 
-技术待核实：各系列 Go 原生映射、能力值、输出预算限制，以及初始默认启用的具体清单。
-这不阻塞先补 GLM 已知问题与模板基础；未知型号不猜配置。
-若必须新增 SDK 适配、扩大通用映射变更或改变用户覆盖语义，先说明具体证据与新增范围，另行裁决。
-### 本次实现裁决
+Verificações técnicas pendentes: mapeamentos nativos por família no Go, valores de capacidade, limites de orçamento de saída e a lista concreta habilitada por padrão inicialmente.
+Isso não bloqueia corrigir primeiro o problema conhecido de GLM e a base dos templates; não adivinhar configuração para modelos desconhecidos.
+Se for necessário adicionar adaptação de SDK, ampliar mudanças no mapeamento genérico ou alterar a semântica de override do usuário, apresentar primeiro as evidências específicas e o novo escopo, para decisão separada.
+### Decisões desta implementação
 
-- 按 Go 官方端点表与 models.dev 的 `opencode-go` 元数据交叉确认 25 个型号；LongCat-2.0 的请求开关尚未确认，Muse Contributor 两款涉及额外数据条款，本次不预置。目录中未列明协议的旧别名也不加入。
-- Chat：GLM-5.3/Flash/5.2、DeepSeek V4 系列、Kimi K3、Hy 使用 Go 声明的 effort 值域与单独 `reasoning_effort`；不发送通用四组混合参数。GLM-5.1、Kimi K2.6/K2.7 Code、MiMo 使用服务端固有思考模式（单个 enabled、空参数映射），不假装提供未确认的关闭选项。
-- Messages：MiniMax M3 使用 adaptive/disabled；M2.7/M2.5 固有思考模式、不注入 Claude effort。Qwen 复用已有模型/API 映射（enabled/disabled，3.8 同时携带 output_config.effort），不增加 Claude 必需但 Qwen 可选的固定 thinking budget。
-- Responses：GPT 5.6 Luna、Grok 4.6 使用 reasoning.effort。容量/模态/档位的 Go 差异全部放站点规则；未声明的 Schema 输出不由模型名推断开启。
-- 默认启用当前主力：GLM-5.3/Flash、Kimi K3/K2.7 Code、DeepSeek V4.1 Flash/V4 Pro、MiMo V2.5/Pro、MiniMax M3、Qwen3.8 Max/Flash、GPT 5.6 Luna、Grok4.6。其余旧型号与实验/preview 默认关闭，可手动开启。
-- UI E2E 接受场景 G149-01：真实添加菜单显示三个 Go 模板；逐个创建后验证协议、地址、模型成员与唯一 Key 入口，隔离假 Key 保存后回读。网络协议及响应由 SDK 离线测试覆盖，不在 E2E 用假 Key 访问 Go。既有连接按钮交互继续由 C91-04 覆盖，不重复改其未提交测试。
-- 依据：[models.dev 模型元数据](https://models.dev/api.json)、[原厂兼容 Messages 参数](https://www.alibabacloud.com/help/en/model-studio/anthropic-api-messages)。公开配置不等于线上全型号实测，分别记录。
+- Cruzamento confirmado de 25 modelos entre a tabela oficial de endpoints do Go e os metadados `opencode-go` do models.dev; o switch de requisição do LongCat-2.0 ainda não foi confirmado, e as duas versões do Muse Contributor envolvem termos de dados adicionais, portanto não são pré-instaladas nesta rodada. Alias antigos sem protocolo declarado no catálogo também não são adicionados.
+- Chat: GLM-5.3/Flash/5.2, DeepSeek V4, Kimi K3 e Hy usam a faixa de valores de effort declarada pelo Go e o `reasoning_effort` separado; não enviam os quatro conjuntos mistos de parâmetros genéricos. GLM-5.1, Kimi K2.6/K2.7 Code e MiMo usam o modo de pensamento intrínseco do servidor (um único enabled, mapeamento de parâmetros vazio), sem simular opções de desligamento não confirmadas.
+- Messages: MiniMax M3 usa adaptive/disabled; M2.7/M2.5 usam o modo de pensamento intrínseco, sem injetar Claude effort. Qwen reutiliza o mapeamento de modelos/API existente (enabled/disabled, 3.8 também carrega output_config.effort), sem adicionar o thinking budget fixo que é obrigatório para o Claude mas opcional para o Qwen.
+- Responses: GPT 5.6 Luna e Grok 4.6 usam reasoning.effort. Todas as diferenças do Go em capacidade/modalidade/níveis ficam nas regras de site; Schema de saída não declarado não é inferido como ativo a partir do nome do modelo.
+- Habilitados por padrão como principais atuais: GLM-5.3/Flash, Kimi K3/K2.7 Code, DeepSeek V4.1 Flash/V4 Pro, MiMo V2.5/Pro, MiniMax M3, Qwen3.8 Max/Flash, GPT 5.6 Luna, Grok4.6. Os demais modelos antigos e experimentais/preview vêm desabilitados por padrão, podendo ser habilitados manualmente.
+- Cenário de aceitação de E2E de UI G149-01: o menu real de adição exibe os três templates Go; após criar cada um, verificar protocolo, endereço, membros de modelo e o ponto de entrada único de Key, com Key falsa isolada salva e relida. Protocolo de rede e resposta são cobertos por testes offline do SDK, sem acessar o Go com Key falsa no E2E. A interação existente do botão de conexão continua coberta por C91-04, sem repetir a alteração de seu teste não submetido.
+- Fontes: [metadados de modelos do models.dev](https://models.dev/api.json), [parâmetros Messages compatíveis do fabricante](https://www.alibabacloud.com/help/en/model-studio/anthropic-api-messages). Configuração pública não equivale a teste real de todos os modelos em produção; registrar separadamente.
 
-## 实施证据与复审（2026-09-14）
+## Evidências de implementação e revisão (2026-09-14)
 
-- Built-in revision 27：Chat 15、Messages 8、Responses 2，共 25 个型号；13 个默认开启，12 个旧型号／实验型号默认关闭。启用成员排在停用成员前，生产／测试由现有生成脚本保持同步。
-- 产品修改只有 Built-in 配置。Go 兼容性由 URL + API + model 的现有 Resolver 解析，个人覆盖仍最后生效；没有新增 Runtime、Schema、账号逻辑、自动重试或协议切换。
-- Header 复审发现当前基线已通过 `3b67992023` 提供 Go 的 `x-opencode-session`；本次保留并实测该字段与原生 `x-session-id` 一致，不删除既有能力，不重复新增 Header 路径。版本头、UA、API Key 和无 Sig 断言通过。
-- 先红后绿：配置用例初始 13 项失败，正式 SDK 用例初始 8 项失败；分别抓到缺少模板、错误四组参数、错误公开值域、Go 容量差异与 MiniMax 混入 Claude effort。
-- 配置相关 5 个文件 **56/56** 通过；Adapter Go／新模型／公共 Header 3 个文件 **81/81** 通过；配置构建与同步脚本 **20/20** 通过。合计 157 项（不重复累计后续重跑）。Go 新增 30 项，SDK 参数按公开档位与 1/4096 Token 预算枚举，并覆盖三协议正文／工具意图／用量解码。响应是离线合成数据，不是 Go 线上成功证明。
-- `pnpm typecheck`、Adapter `tsc --noEmit`、`pnpm --filter @zcode/desktop typecheck:e2e` 通过；根 `pnpm lint` 0 error／42 个既有 warning；新增文件格式检查通过。架构门禁 0 baseline／0 new violation。
-- 生产／测试配置实际经 `stageBuiltinProviderConfig` 分别输出，均为 revision 27／3 模板／25 型号，产物 `/tmp/opencode-go-build-kYChiD/zcode-builtin.json`（后一次为 test）。环境选择与实际 tsup 嵌入由上述 20 项构建测试覆盖；没有重打整个桌面安装包。
-- 语义差分复审：移除本次 Go 三个模板、25 条站点规则和25条模板成员默认规则、还原 revision 后，整份配置与 HEAD 深度相等。没有修改 Zen、普通 API 或全局混合兜底。
-- G149-01 已写入 `packages/desktop/test/e2e/settings/manual-review/pending/provider-opencode-go.test.ts`，通过 E2E 类型检查。当前 Linux 无 DISPLAY、Xvfb 或 Docker，未运行原生 Electron 用例；深浅主题／窄屏、Air 真机连接／聊天／工具调用及辅助调用均保留未测，未远程部署或覆盖 Air 配置。
-- 本次不包含工作区既有 Todo144 未提交改动，不推送、不发布在线 Built-in；Air 不会因本地提交自动获得新规则。
+- Built-in revision 27: Chat 15, Messages 8, Responses 2, totalizando 25 modelos; 13 habilitados por padrão, 12 modelos antigos / experimentais desabilitados por padrão. Membros habilitados são listados antes dos desabilitados; produção / teste permanecem sincronizados pelo script de geração existente.
+- A única alteração de produto é a configuração Built-in. A compatibilidade do Go é resolvida pelo Resolver existente por URL + API + model, e o override pessoal continua prevalecendo por último; não houve novo Runtime, Schema, lógica de conta, retentativa automática ou troca de protocolo.
+- A revisão de cabeçalhos mostrou que o baseline atual já fornece `x-opencode-session` para o Go via `3b67992023`; esta rodada mantém e testa esse campo em conformidade com o `x-session-id` nativo, sem remover capacidade existente nem duplicar caminho de cabeçalho. Cabeçalho de versão, UA, API Key e asserções de ausência de Sig passaram.
+- Primeiro vermelho, depois verde: os casos de configuração falharam inicialmente em 13 itens; os casos do SDK oficial falharam inicialmente em 8 itens; capturaram respectivamente a falta de templates, os quatro conjuntos de parâmetros incorretos, a faixa de valores públicos errada, diferenças de capacidade do Go e o MiniMax misturado com Claude effort.
+- 5 arquivos de configuração: **56/56** passaram; 3 arquivos de Adapter (Go / novos modelos / cabeçalhos públicos): **81/81** passaram; build de configuração e scripts de sincronização: **20/20** passaram. Total de 157 itens (sem dupla contagem de reexecuções posteriores). Go adicionou 30 itens; os parâmetros do SDK foram enumerados pelos níveis públicos e pelo orçamento de 1/4096 Token, cobrindo corpo / intenção de ferramenta / decodificação de uso dos três protocolos. A resposta é dado sintético offline, não prova de sucesso real do Go em produção.
+- `pnpm typecheck`, `tsc --noEmit` do Adapter e `pnpm --filter @zcode/desktop typecheck:e2e` passaram; `pnpm lint` raiz com 0 error / 42 warnings existentes; verificação de formatação dos arquivos novos passou. Portão de arquitetura: 0 baseline / 0 nova violação.
+- As configurações de produção / teste foram de fato emitidas separadamente por `stageBuiltinProviderConfig`, ambas com revision 27 / 3 templates / 25 modelos, artefato `/tmp/opencode-go-build-kYChiD/zcode-builtin.json` (o último é o de test). A escolha de ambiente e o embedding real via tsup são cobertos pelos 20 testes de build acima; o pacote de instalação do desktop não foi reconstruído.
+- Revisão por diff semântico: removendo os três templates Go, as 25 regras de site e as 25 regras padrão de membros de template desta rodada e restaurando o revision, a configuração inteira fica profundamente igual ao HEAD. Nada foi alterado no Zen, na API comum ou no fallback misto global.
+- G149-01 foi escrito em `packages/desktop/test/e2e/settings/manual-review/pending/provider-opencode-go.test.ts` e passou na verificação de tipos do E2E. O Linux atual não tem DISPLAY, Xvfb nem Docker; os casos nativos do Electron não foram executados; tema claro / escuro, tela estreita, conexão / chat / chamada de ferramenta reais no Air e chamadas auxiliares permanecem não testados; nada foi implantado remotamente nem a configuração do Air foi sobrescrita.
+- Esta rodada não inclui as alterações não submetidas do Todo144 já existentes no workspace; nada é enviado nem publicado online como Built-in; o Air não recebe automaticamente as novas regras por causa de um commit local.
 
-## 资料（2026-09-14 调研，实施时复核）
+## Materiais (pesquisa de 2026-09-14, revisados na implementação)
 
-2026-09-15 推送门禁补充：历史 Todo95 Map 等价测试只校验原基线，不把 Go 新站点 Map
-当成原基线新增项。仅对 Go 精确站点匹配规则分离范围；其完整模型成员、公开档位和请求参数
-继续由 `opencode-go.test.ts` 与 `opencode-go-wire.test.ts` 验证，不更新历史基线快照或改产品配置。
+Complemento ao portão de push de 2026-09-15: os testes de equivalência do mapa histórico do Todo95 validam apenas o baseline original e não tratam o novo mapa de sites do Go
+como item novo do baseline original. O escopo foi separado apenas para as regras de correspondência exatas de site do Go; seus membros de modelo completos, níveis públicos e parâmetros de requisição
+continuam verificados por `opencode-go.test.ts` e `opencode-go-wire.test.ts`, sem atualizar snapshots do baseline histórico nem alterar a configuração do produto.
 
-- [Go 接入、协议、客户端兼容与隐私](https://opencode.ai/docs/go/)
-- [Go 公开模型目录](https://opencode.ai/zen/go/v1/models)
-- 当前规范：`docs/working-memory/provider-refactor/design/registry/settings.md`、
-  `docs/working-memory/provider-refactor/design/registry/request-compatibility-and-access-protocols.md`。
+- [Integração, protocolo, compatibilidade de cliente e privacidade do Go](https://opencode.ai/docs/go/)
+- [Catálogo público de modelos do Go](https://opencode.ai/zen/go/v1/models)
+- Especificações atuais: `docs/working-memory/provider-refactor/design/registry/settings.md`,
+  `docs/working-memory/provider-refactor/design/registry/request-compatibility-and-access-protocols.md`.

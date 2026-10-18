@@ -1,37 +1,37 @@
-# Sidebar Zoom Menu
+# Menu de Zoom da Sidebar
 
-## 背景
+## Contexto
 
-桌面端已经通过 View 菜单和 `Cmd/Ctrl + +/-/0` 支持页面缩放，内部档位为 `[-3, 5]`，每档倍率是 `1.1 ^ level`。侧边栏头像菜单之前移除过旧的 `zcode-zoom-level` localStorage 偏好；后来恢复的轻量菜单只复用当前窗口系统缩放命令，导致用户通过菜单或快捷键调整后，下次重启又回到默认大小。
+O desktop já suporta zoom de página pelo menu View e por `Cmd/Ctrl + +/-/0`, com níveis internos em `[-3, 5]`, onde o multiplicador de cada nível é `1.1 ^ level`. O menu de avatar da sidebar já removeu antes a preferência antiga `zcode-zoom-level` no localStorage; depois, o menu leve restaurado apenas reaproveitava os comandos de zoom do sistema da janela atual, o que fazia com que, após o usuário ajustar pelo menu ou atalho, o próximo reinício voltasse ao tamanho padrão.
 
-## 目标
+## Objetivo
 
-- 在桌面端侧边栏头像菜单中展示 `Interface zoom` 二级菜单，展开后包含 `Zoom In`、`Zoom Out`、`Actual Size` 三个命令。
-- 菜单项执行现有 `DesktopCommandIds.ZoomIn` / `ZoomOut` / `ResetZoom`，并把成功后的桌面缩放档位保存为 `AppSettings.desktopZoomLevel`。
-- 主窗口创建时在 main 进程读取已保存档位并先应用到 `BrowserWindow.webContents`，让首屏、macOS 红绿灯位置和 Windows 标题栏控制区使用同一个缩放事实源。
-- 菜单禁用态与 View 菜单一致：最大 `+5` 档禁用 `Zoom In`，最小 `-3` 档禁用 `Zoom Out`，默认档禁用 `Actual Size`。
-- renderer 通过 platform 能力读取并订阅当前桌面缩放档位，确保快捷键或顶部菜单触发后 sidebar 菜单状态也能同步。
+- Exibir no menu de avatar da sidebar do desktop o submenu `Interface zoom`, que ao ser expandido contém os três comandos `Zoom In`, `Zoom Out`, `Actual Size`.
+- Os itens do menu executam os existentes `DesktopCommandIds.ZoomIn` / `ZoomOut` / `ResetZoom` e salvam o nível de zoom do desktop, após o sucesso, como `AppSettings.desktopZoomLevel`.
+- Na criação da janela principal, ler o nível salvo no main process e aplicá-lo primeiro em `BrowserWindow.webContents`, para que a primeira tela, a posição dos semáforo-macOS e a área de controles da barra de título do Windows usem a mesma fonte de verdade do zoom.
+- O estado desabilitado do menu fica consistente com o menu View: no nível máximo `+5` o `Zoom In` fica desabilitado, no mínimo `-3` o `Zoom Out` fica desabilitado, e no nível padrão o `Actual Size` fica desabilitado.
+- O renderer lê e assina o nível de zoom do desktop atual pela capacidade de plataforma, garantindo que o estado do menu da sidebar também seja sincronizado quando o atalho ou o menu superior forem acionados.
 
-## 非目标
+## Fora de escopo
 
-- 不改变 Web / 手机端浏览器自身缩放能力。
-- 不改变 Web 远控 replayable 恢复链路，也不向远控链路增加 zoom 状态。
-- 不恢复旧的设置页 Interface zoom 偏好或 `zcode-zoom-level` localStorage 读写。
-- 不把手机 Web 远控的 replayable 恢复语义扩散到桌面端 continuous 主链路；缩放偏好只影响桌面端 BrowserWindow。
+- Não altera a capacidade de zoom do próprio navegador em Web / celular.
+- Não altera a cadeia de restauração replayable do controle remoto Web, nem adiciona estado de zoom à cadeia de controle remoto.
+- Não restaura a preferência antiga da página de configurações Interface zoom nem a leitura/escrita de `zcode-zoom-level` no localStorage.
+- Não espalha a semântica de restauração replayable do controle remoto Web no celular para a cadeia principal continuous do desktop; a preferência de zoom afeta somente o BrowserWindow do desktop.
 
-## 实现
+## Implementação
 
-- `packages/shared/src/platform.ts` 定义 `DesktopZoomState` 和 `IPlatformService` 的桌面缩放读取/订阅能力。
-- `packages/shared/src/channels.ts` 增加 `GetDesktopZoomLevel` 与 `DesktopZoomLevelChanged` 平台频道。
-- `packages/shared/src/protocol.ts` 与 `packages/shared/src/validationAppSettings.ts` 增加 `desktopZoomLevel`，允许旧配置缺省并按 `[-3, 5]` 接收持久化档位。
-- desktop main 在缩放命令成功后向对应窗口发送最新档位，写入 `setting.json`，并继续刷新原生 View 菜单禁用态。
-- desktop main 启动读取 `AppSettings.desktopZoomLevel`，创建窗口时通过 `initialDesktopZoomLevel` 传入窗口创建流程。
-- desktop preload 缓存最新档位，提供 `getDesktopZoomLevel` / `onDesktopZoomLevelChanged`。
-- `WorkspaceSidebarFooter` 仅在 `isDesktop` 时显示 `Interface zoom` 二级菜单，并复用现有 View 菜单命令文案；头像菜单恢复原有显示偏好顺序：`Language`、`App theme`、`Interface zoom`。
-- 桌面系统 View 菜单的可见缩放项顺序与 sidebar 二级菜单保持一致：`Zoom In`、`Zoom Out`、`Actual Size`。
+- `packages/shared/src/platform.ts` define `DesktopZoomState` e a capacidade de leitura/assinatura do zoom do desktop em `IPlatformService`.
+- `packages/shared/src/channels.ts` acrescenta os canais de plataforma `GetDesktopZoomLevel` e `DesktopZoomLevelChanged`.
+- `packages/shared/src/protocol.ts` e `packages/shared/src/validationAppSettings.ts` acrescentam `desktopZoomLevel`, permitindo configuração antiga sem o campo e aceitando o nível persistido na faixa `[-3, 5]`.
+- O main do desktop envia o nível mais recente para a janela correspondente após o sucesso dos comandos de zoom, grava em `setting.json` e continua atualizando o estado desabilitado do menu View nativo.
+- O main do desktop lê `AppSettings.desktopZoomLevel` na inicialização e passa o valor para o fluxo de criação da janela via `initialDesktopZoomLevel`.
+- O preload do desktop mantém em cache o nível mais recente e fornece `getDesktopZoomLevel` / `onDesktopZoomLevelChanged`.
+- `WorkspaceSidebarFooter` exibe o submenu `Interface zoom` somente quando `isDesktop` e reaproveita os textos de comando já existentes do menu View; o menu de avatar recupera a ordem original de exibição das preferências: `Language`, `App theme`, `Interface zoom`.
+- A ordem dos itens de zoom visíveis no menu View nativo do sistema do desktop é mantida consistente com o submenu da sidebar: `Zoom In`, `Zoom Out`, `Actual Size`.
 
-## 验证
+## Verificação
 
-- 单元测试覆盖缩放命令成功后写入 `desktopZoomLevel`，以及窗口创建时先应用持久化缩放。
+- Testes unitários cobrindo a gravação de `desktopZoomLevel` após o sucesso dos comandos de zoom e a aplicação do zoom persistido antes da criação da janela.
 - `pnpm typecheck`
 - `pnpm lint`

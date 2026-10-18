@@ -1,30 +1,33 @@
-# Session 首次打开 ARMS 埋点
+# Telemetria ARMS da primeira abertura de Session
 
-## 目标
+## Objetivo
 
-记录桌面端 Renderer 从 pane acquire 一个已有 session，到首个权威 snapshot 完成渲染并可以输入之间的关键耗时，区分 Renderer、Window Host、CLI runtime 和历史 session 恢复阶段。当前实现把 pane acquire 作为 Renderer 可观测起点；用户原始鼠标事件尚未进入这条统一链路。
+Registrar os principais tempos gastos entre o Renderer de desktop adquirir um pane de uma session
+existente e o primeiro snapshot autoritativo concluir a renderização e já permitir entrada,
+separando as etapas de Renderer, Window Host, runtime do CLI e restauração de session histórica. A
+implementação atual usa a aquisição do pane como ponto inicial observável do Renderer; o evento de
+mouse original do usuário ainda não entra nesta cadeia unificada.
 
-本方案只增加两条 ARMS Custom Event：
+Esta solução adiciona apenas dois Custom Events do ARMS:
 
-- `perf_ui_session_open_start`：逻辑打开开始时上报一次，作为没有 result（崩溃、协议断开、永久卡住）样本的分母。
-- `perf_ui_session_open_result`：成功、失败或超时结束时上报一次，`value` 为 `total_ms`。
+- `perf_ui_session_open_start`: reportado uma vez no início lógico da abertura, servindo como denominador para amostras sem result (crash, desconexão de protocolo, travamento permanente).
+- `perf_ui_session_open_result`: reportado uma vez ao encerrar com sucesso, falha ou timeout, com `value` igual a `total_ms`.
 
-不为每个阶段单独发送 ARMS 事件。阶段耗时在各进程本地用 monotonic clock 计算，通过 `v4/conversation/subscribe` 的 ACK 携带 CLI/Host timing；Renderer 在 result 事件中汇总。
+Não é enviado um evento ARMS separado por etapa. A duração de cada etapa é calculada localmente em
+cada processo com monotonic clock, e o timing de CLI/Host é carregado pelo ACK de
+`v4/conversation/subscribe`; o Renderer consolida tudo no evento de result.
 
-## 产品边界
+## Limite de produto
 
-- 仅 Desktop `desktop-continuous` 安装真实 ARMS reporter；Web/mobile `web-remote-replayable` 不发送 ARMS。
-- 只衡量已经存在的 session 被用户导航、恢复或分屏打开的过程。空草稿首发创建 session、草稿预热
-  session 提升，以及 pending `createSession` 恢复成功都属于“新建 Task”，不得发送
-  `perf_ui_session_open_start/result`。新建 Task 离开当前 pane 后再次被显式打开时，才按已有
-  session 进入本指标。
-- 只测一次用户逻辑打开，不把 subscribe retry、same-sub recovery 或 ACK 前后的重复帧当成新的打开。
-- `open_kind` 区分 `cold`、`warm`、`keep_warm`：只有创建新 projection store 并发起本次 subscribe 的 `cold` 打开携带 Host/CLI/Renderer 首帧阶段 timing；`warm` 与 `keep_warm` 复用已有 projection store 时仍记录本次 `total_ms` 与 paint timing，但不得复用上一次 subscribe 的阶段耗时。
-- session 内容、workspace path/identity、prompt、工具输入输出、MCP server 名称和 Skill 正文不得进入 ARMS。
-- `MCP` 启动是 runtime 并行工作，不把 MCP 连接耗时加到 session 首屏总耗时；MCP 首次模型请求等待另有既有模型请求观测。
-- `content_settled`（历史补拉、计划目录、懒加载资源完成）不是本指标终点；本指标终点是当前 store 已进入 `live`、目标 session 的首个 snapshot 已 paint 且 Composer 可交互。重连中的残留 snapshot 不能单独结束本次打开。
+- Apenas a instalação Desktop `desktop-continuous` instala o reporter ARMS real; Web/mobile `web-remote-replayable` não enviam ARMS.
+- Só se mede o processo de um usuário navegar para, restaurar ou abrir em tela dividida uma session que já existe. A criação de session a partir de um rascunho vazio na primeira exibição, a promoção de uma session pré-aquecida a partir de rascunho e a recuperação bem-sucedida de um `createSession` pendente pertencem a "Nova Task" e não devem enviar `perf_ui_session_open_start/result`. Uma Nova Task só entra nesta métrica quando, após sair do pane atual, for aberta explicitamente de novo como session existente.
+- Mede-se apenas uma abertura lógica do usuário; retry de subscribe, recuperação de mesma sub ou quadros repetidos antes e depois do ACK não contam como nova abertura.
+- `open_kind` distingue `cold`, `warm` e `keep_warm`: somente a abertura `cold`, que cria um novo projection store e inicia este subscribe, carrega o timing de etapa de primeiro quadro de Host/CLI/Renderer; `warm` e `keep_warm`, ao reutilizar um projection store existente, continuam registrando o `total_ms` e o timing de paint desta vez, mas não podem reutilizar a duração de etapa do subscribe anterior.
+- Conteúdo de session, workspace path/identity, prompt, entrada e saída de ferramentas, nome de MCP server e corpo de Skill não podem entrar no ARMS.
+- A inicialização de `MCP` é trabalho paralelo do runtime e seu tempo de conexão não é somado ao total de primeira renderização da session; a espera pela primeira requisição ao modelo para MCP já tem uma observação de requisição de modelo existente.
+- `content_settled` (busca de histórico, diretório de planos, recursos lazy-load concluídos) não é o fim desta métrica; o fim é o store atual já ter entrado em `live`, o primeiro snapshot da session de destino já ter sido pintado e o Composer já ser interativo. Um snapshot residual durante reconexão não pode encerrar sozinho esta abertura.
 
-## 时间边界
+## Limite temporal
 
 ```text
 R0 pane acquire
@@ -39,69 +42,76 @@ R0 pane acquire
 R8 interactive_ready
 ```
 
-`total_ms = R8 - R0`。跨进程不直接相减不同进程的绝对时间；Host/CLI 各自计算 duration，Renderer 计算从 pane acquire 开始的可感知耗时。
+`total_ms = R8 - R0`. Entre processos não se subtraem diretamente tempos absolutos de processos
+diferentes; Host e CLI calculam cada um a própria duration e o Renderer calcula o tempo perceptível desde a
+aquisição do pane.
 
-## ARMS 事件
+## Eventos ARMS
 
 ### `perf_ui_session_open_start`
 
-`group=ui_perf`，`value=1`。properties：
+`group=ui_perf`, `value=1`. Properties:
 
-| 字段              | 取值                                            |
-| ----------------- | ----------------------------------------------- |
-| `session_open_id` | 本次逻辑打开的不透明关联 ID                     |
-| `session_id`      | 当前 session ID，沿用现有 talk/session 关联策略 |
-| `open_trigger`    | sidebar/search/deeplink/reload 等低基数桶       |
-| `open_kind`       | `cold` / `warm` / `keep_warm`                   |
-| `client_mode`     | `desktop-continuous`                            |
+| Campo             | Valor                                                  |
+| ----------------- | ------------------------------------------------------ |
+| `session_open_id` | ID de correlação opaco desta abertura lógica            |
+| `session_id`      | ID da session atual, seguindo a estratégia de correlação talk/session existente |
+| `open_trigger`    | buckets de baixa cardinalidade como sidebar/search/deeplink/reload |
+| `open_kind`       | `cold` / `warm` / `keep_warm`                         |
+| `client_mode`     | `desktop-continuous`                                  |
 
 ### `perf_ui_session_open_result`
 
-`group=ui_perf`，`value=total_ms`。除 start 事件字段外，properties 允许：
+`group=ui_perf`, `value=total_ms`. Além dos campos do evento de start, as properties permitem:
 
-| 字段                                                | 含义                                                                                                       |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `status`                                            | `success` / `failed` / `timeout`                                                                           |
-| `error_phase` / `error_code`                        | 失败阶段和结构化 reason code                                                                               |
-| `total_ms`                                          | pane acquire → interactive_ready                                                                           |
-| `renderer_prepare_ms`                               | click → subscribe 发起                                                                                     |
-| `host_prepare_ms`                                   | Host 收到请求 → CLI subscribe 请求发出                                                                     |
-| `provider_registry_sync_ms`                         | 历史字段名；当前记录 Host 等待本 Environment Provider Registry readiness 的耗时，不表示跨 Environment 同步 |
-| `task_meta_read_ms`                                 | Host 读取 session/task 元数据的耗时                                                                        |
-| `cli_request_ms`                                    | Host 发起 CLI subscribe 请求 → 收到 CLI ACK                                                                |
-| `cli_bootstrap_ms`                                  | 新 CLI 进程启动 → Protocol ready；复用进程为空                                                             |
-| `cli_session_restore_ms`                            | CLI 接收 conversation subscribe → initial projection ready                                                 |
-| `initial_frame_encode_ms`                           | CLI 构建首帧 wire projection → physical wire 编码完成                                                      |
-| `initial_frame_transport_ms`                        | initial frame ready → Renderer 完整收到                                                                    |
-| `renderer_snapshot_apply_ms`                        | frame 收到 → ProjectionStore apply 完成                                                                    |
-| `react_render_ms`                                   | snapshot apply → React commit                                                                              |
-| `paint_to_interactive_ms`                           | React commit → paint 后主线程 yield                                                                        |
-| `cli_process_state`                                 | `spawned` / `reused`                                                                                       |
-| `session_runtime_state`                             | `cold` / `warm`                                                                                            |
-| `attempt_count`                                     | subscribe/retry 次数                                                                                       |
-| `persisted_message_count`                           | 历史消息数量，只有数量不含正文                                                                             |
-| `snapshot_row_count`                                | 首屏 projection row 数量                                                                                   |
-| `snapshot_bytes`                                    | 首帧大小                                                                                                   |
-| `plugin_count` / `skill_count` / `mcp_server_count` | 低基数数量                                                                                                 |
+| Campo                                                | Significado                                                                                |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `status`                                            | `success` / `failed` / `timeout`                                                          |
+| `error_phase` / `error_code`                        | etapa da falha e reason code estruturado                                                  |
+| `total_ms`                                          | pane acquire → interactive_ready                                                           |
+| `renderer_prepare_ms`                               | click → início do subscribe                                                                |
+| `host_prepare_ms`                                   | Host recebe a requisição → requisição de subscribe do CLI é enviada                        |
+| `provider_registry_sync_ms`                         | nome de campo histórico; hoje registra o tempo que o Host espera a prontidão do Environment Provider Registry desta instância, e não representa sincronização entre Environments |
+| `task_meta_read_ms`                                 | tempo que o Host leva para ler os metadados de session/task                                |
+| `cli_request_ms`                                    | Host inicia a requisição de subscribe do CLI → recebe o ACK do CLI                          |
+| `cli_bootstrap_ms`                                  | início de um novo processo do CLI → Protocol ready; processo reutilizado fica vazio         |
+| `cli_session_restore_ms`                            | CLI recebe conversation subscribe → initial projection ready                               |
+| `initial_frame_encode_ms`                           | CLI constrói a wire projection do primeiro quadro → codificação física do wire concluída   |
+| `initial_frame_transport_ms`                        | initial frame ready → Renderer recebe por completo                                        |
+| `renderer_snapshot_apply_ms`                        | quadro recebido → apply do ProjectionStore concluído                                      |
+| `react_render_ms`                                   | snapshot apply → React commit                                                               |
+| `paint_to_interactive_ms`                           | React commit → yield da main thread após o paint                                          |
+| `cli_process_state`                                 | `spawned` / `reused`                                                                       |
+| `session_runtime_state`                             | `cold` / `warm`                                                                            |
+| `attempt_count`                                     | número de subscribe/retry                                                                   |
+| `persisted_message_count`                           | quantidade de mensagens do histórico, apenas o número sem o corpo                          |
+| `snapshot_row_count`                                | quantidade de projection rows na primeira renderização                                   |
+| `snapshot_bytes`                                    | tamanho do primeiro quadro                                                                 |
+| `plugin_count` / `skill_count` / `mcp_server_count` | contagens de baixa cardinalidade                                                          |
 
-这些阶段存在并行关系，不要求 properties 中的阶段简单相加等于 `total_ms`；看板以 `total_ms` 为主，以阶段字段归因。
+Essas etapas têm relações de paralelismo e não se exige que a simples soma das etapas nas
+properties seja igual a `total_ms`; o dashboard usa `total_ms` como principal métrica e os campos de
+etapa para atribuição.
 
-## CLI/Host 内部 timing
+## Timing interno de CLI/Host
 
-`openTiming` 只允许出现在 `v4/conversation/subscribe` ACK，不进入 sessions-index、workspace-config、resync 或 conversation snapshot：
+`openTiming` só pode aparecer no ACK de `v4/conversation/subscribe` e não entra em sessions-index,
+workspace-config, resync nem conversation snapshot:
 
-- Host：`hostPrepareMs`、`providerRegistrySyncMs`、`taskMetaReadMs`、`cliRequestMs`；这些 timing 现在全部映射到最终 ARMS result 的 snake_case 字段。
-- CLI：`cliBootstrapMs`（新进程）、`cliSessionRestoreMs`、`initialFrameEncodeMs`；这些 timing 现在全部映射到最终 ARMS result 的 snake_case 字段。
-- Renderer：`rendererPrepareMs`、`initialFrameTransportMs`、`rendererSnapshotApplyMs` 由 Renderer 本地 monotonic clock 计算，`reactRenderMs` 用 snapshot apply 到 React commit 的时间计算，再映射到 ARMS result。
-- CLI 同时返回 `sessionRuntimeState` 和 `snapshotRowCount`；`cliProcessState` 由 Host 根据 runtime 是否复用补齐。
-- `plugin/skill/memory/history` 的更细阶段不逐条发 ARMS；如果线上核心阶段异常，再通过已有 CLI/Host debug/trace 做第二层诊断，避免把每个 session 放大成多条事件。
+- Host: `hostPrepareMs`, `providerRegistrySyncMs`, `taskMetaReadMs`, `cliRequestMs`; hoje todos esses timings são mapeados para os campos snake_case do ARMS result final.
+- CLI: `cliBootstrapMs` (novo processo), `cliSessionRestoreMs`, `initialFrameEncodeMs`; hoje todos esses timings são mapeados para os campos snake_case do ARMS result final.
+- Renderer: `rendererPrepareMs`, `initialFrameTransportMs` e `rendererSnapshotApplyMs` são calculados pelo monotonic clock local do Renderer, `reactRenderMs` usa o tempo de snapshot apply até o React commit e então é mapeado para o ARMS result.
+- O CLI também devolve `sessionRuntimeState` e `snapshotRowCount`; o `cliProcessState` é preenchido pelo Host conforme o runtime ter sido reutilizado ou não.
+- Etapas mais detalhadas de `plugin/skill/memory/history` não são enviadas uma a uma ao ARMS; se alguma etapa central apresentar anomalia em produção, o diagnóstico de segunda camada é feito pelo debug/trace existente de CLI/Host, evitando transformar cada session em vários eventos.
 
-Skill discovery 可以读取各个 `SKILL.md` 解析 metadata，但不会在 session open 阶段加载 Skill 正文到模型上下文。MCP 连接可以在 runtime 构造后并行启动，首个模型 turn 才等待工具注册。
+O Skill discovery pode ler cada `SKILL.md` para obter metadata, mas não carrega o corpo do Skill no
+contexto do modelo durante a etapa de session open. A conexão MCP pode iniciar em paralelo após o
+runtime ser construído, e apenas o primeiro model turn espera pelo registro de ferramentas.
 
-## 去重、失败和采样
+## Deduplicação, falhas e amostragem
 
-- `session_open_id` 在 Renderer 生成并贯穿本次逻辑打开；retry/recovery 复用同一 ID。
-- start/result 事件都由 ARMS 观测旁路 fire-and-forget，不阻塞 UI 或 protocol。
-- 桌面端 start/result 100% 上报；不新增逐阶段事件，不在 stream/delta 级别上报。
-- 超过 session-open watchdog 的调用上报 `status=timeout`；进程崩溃、窗口销毁导致没有 result 时，可用 start/result 缺口估计未完成样本。
-- 详细 `plugin/skill/memory/history/projection` 子阶段只进入现有 CLI/Host 结构化 debug/trace，不作为高频 ARMS 事件。
+- `session_open_id` é gerado no Renderer e atravessa esta abertura lógica; retry/recovery reutilizam o mesmo ID.
+- Os eventos de start/result são disparados pelo sidecar de observação do ARMS de forma fire-and-forget, sem bloquear a UI ou o protocol.
+- No desktop, start/result têm 100% de upload; nenhum evento por etapa é adicionado e nada é reportado em nível de stream/delta.
+- Chamadas que ultrapassam o watchdog de session-open reportam `status=timeout`; quando não há result por crash de processo ou destruição da janela, a lacuna entre start/result permite estimar as amostras não concluídas.
+- Subetapas detalhadas de `plugin/skill/memory/history/projection` entram apenas no debug/trace estruturado existente de CLI/Host, e não como eventos ARMS de alta frequência.

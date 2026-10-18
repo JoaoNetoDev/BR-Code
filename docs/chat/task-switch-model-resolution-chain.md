@@ -1,59 +1,52 @@
-# Task 切换后的当前模型判定链路
+# Cadeia de resolução do modelo atual após a troca de task
 
-更新日期：2026-07-17
+Data de atualização: 2026-07-17
 
-V4 中 task/session 切换是 pane 绑定和 topic 订阅切换。当前模型不再由 renderer 从 task meta、消息历史和
-workspace 默认值多级猜测；`ConversationSnapshot.config` 是已绑定 session 的唯一展示权威。
+No V4, a troca de task/session é a troca do vínculo de pane e da assinatura de topic. O modelo
+atual não é mais adivinhado pelo renderer em vários níveis a partir da meta da task, do
+histórico de mensagens e dos valores padrão do workspace; `ConversationSnapshot.config` é a
+única autoridade de exibição da session já vinculada.
 
-## 切换与订阅
+## Troca e assinatura
 
 ```text
-侧栏 sessions-index summary
-  -> pane 绑定 sessionId
+resumo sessions-index da barra lateral
+  -> pane vinculado ao sessionId
   -> subscribe conversation/<sessionId>
-  -> initial snapshot（或 replayable recovery snapshot）
-  -> ConversationProjectionStore 原子替换
-  -> SessionPane / V4ComposerToolbar 读取 snapshot.config
+  -> initial snapshot (ou replayable recovery snapshot)
+  -> substituição atômica no ConversationProjectionStore
+  -> SessionPane / V4ComposerToolbar leem snapshot.config
 ```
 
-- `sessions-index` 只提供列表摘要、phase、轻量 interaction 计数等，不提供完整 conversation config。
-- conversation snapshot 包含 rows、phase、config、inputRouting、actions 和 control；UI 不从旧 session 的
-  store 缓存拼出新 session 首帧。
-- snapshot 按 subscription/generation/seq 校验。gap 触发 recovery；恢复期间迟到 online 帧不能覆盖新
-  snapshot。
-- desktop 使用 online continuous 帧，手机远控使用 replayable recovery；两者终态 snapshot 相同。
+- `sessions-index` só fornece o resumo da lista, a phase e contagens leves de interaction, e não o conversation config completo.
+- O conversation snapshot contém rows, phase, config, inputRouting, actions e control; a UI não monta o primeiro frame da nova session a partir do cache de store da session antiga.
+- O snapshot é validado por subscription/generation/seq. Um gap dispara recovery; durante a recuperação, um frame online atrasado não pode sobrescrever o novo snapshot.
+- O desktop usa frames online continuous; o controle remoto do celular usa replayable recovery; o snapshot de estado final é o mesmo nos dois casos.
 
-## 模型显示与恢复
+## Exibição e recuperação do modelo
 
-snapshot 到达前 toolbar 处于未就绪状态，不用 workspace 默认模型冒充历史 session 模型。到达后：
+Antes de o snapshot chegar, a toolbar fica em estado não pronto e não usa o modelo padrão do workspace para se passar pelo modelo histórico da session. Depois que ele chega:
 
-1. `snapshot.config.provider/model/thought` 决定当前展示。
-2. workspace `configOptions` 只提供可选目录和 provider 元数据。
-3. UI 不根据模型是否“仍可见”写回 session；entitlement loading、菜单过滤与排序只影响目录展示。
-4. 如果当前模型已被 Agent workspace registry 删除，Agent 在 idle 或下一 turn admission 的安全边界按
-   `default → last-used → catalog first` 选择 fallback，并用 `ModelSelected` 原子投影模型、实际 thought
-   和 thoughtLevels。
-5. snapshot 到达前后都不允许 renderer 发送菜单首项作为自动切换；用户显式选择只走一次
-   `switchModelConfig`，由 revision/CAS 与 Agent projection 收口。
+1. `snapshot.config.provider/model/thought` determina a exibição atual.
+2. O `configOptions` do workspace só fornece o catálogo selecionável e os metadados de provider.
+3. A UI não grava de volta na session com base em o modelo "ainda estar visível"; entitlement loading, filtro de menu e ordenação afetam apenas a exibição do catálogo.
+4. Se o modelo atual tiver sido removido pelo Agent workspace registry, o Agent escolhe o fallback no limite seguro do idle ou da admissão do próximo turno, conforme `default → last-used → catalog first`, e projeta atomicamente modelo, thought efetivo e thoughtLevels via `ModelSelected`.
+5. Antes e depois de o snapshot chegar, não é permitido que o renderer envie o primeiro item do menu como troca automática; a escolha explícita do usuário passa apenas uma vez por `switchModelConfig`, fechada por revision/CAS e pela projection do Agent.
 
-冷恢复时 CLI 由持久 message/part/session facts 重建 projection 和 runtime config。`rowId`、renderer
-store 和 sessions-index summary 都不是模型持久权威。
+Na recuperação a frio, o CLI reconstrói a projection e o runtime config a partir dos fatos persistidos de message/part/session. `rowId`, o store do renderer e o summary do sessions-index não são autoridades persistentes de modelo.
 
-## Workspace 与 session 的隔离
+## Isolamento entre workspace e session
 
-- 已存在 session：模型来自该 session runtime/projection。
-- draft pane：模型来自草稿种子和 workspace default，直到 createSession 建立 session 权威。
-- 切换 session 不把草稿 workspace 默认值写入历史 session。
-- workspace 身份使用 `workspaceIdentity?.trim() || workspacePath`；远程恢复还必须保持
-  `remoteSessionId`，禁止只按路径复用订阅、缓存或 provider registry。
+- Session já existente: o modelo vem do runtime/projection dessa session.
+- draft pane: o modelo vem da semente do rascunho e do default do workspace, até que createSession estabeleça a autoridade da session.
+- Trocar de session não grava o default de workspace do rascunho na session histórica.
+- A identidade do workspace usa `workspaceIdentity?.trim() || workspacePath`; a recuperação remota também precisa manter `remoteSessionId`, e é proibido reutilizar assinatura, cache ou provider registry apenas por caminho.
 
-## 再次打开的差异
+## Diferenças ao reabrir
 
-再次打开可能命中本地 projection store 的 UI 缓存，从而更快显示，但订阅仍必须用 initial/recovery
-snapshot 校准。CLI record 是否仍在内存只影响恢复成本，不改变模型来源；runtime epoch 变化后必须重新订阅，
-不能把旧 projection 当作权威继续发送。
+Ao reabrir, é possível atingir o cache de UI do projection store local, exibindo mais rápido, mas a assinatura ainda precisa ser calibrada com o snapshot initial/recovery. Se o record da CLI ainda estiver em memória, isso afeta apenas o custo da recuperação, não a origem do modelo; após uma mudança de runtime epoch é preciso assinar novamente, e a projection antiga não pode ser tratada como autoridade para continuar enviando.
 
-## 当前代码入口
+## Pontos de entrada no código atual
 
 - `packages/ui/src/v4/SessionPane.tsx`
 - `packages/ui/src/v4/conversationProjectionStore.ts`

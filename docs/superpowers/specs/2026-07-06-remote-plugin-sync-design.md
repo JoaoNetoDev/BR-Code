@@ -1,71 +1,71 @@
-# SSH 远端 Plugin 同步设计
+# Design de sincronização de Plugin remoto via SSH
 
-## 修订记录
+## Registro de revisões
 
-- 2026-07-06：V1 支持用户级 inline plugin，通过 archive 复制目录到 SSH 远端。
-- 2026-07-07：补充已安装 marketplace plugin 同步。该能力通过远端重装同名 marketplace plugin 实现，不复制 cache，不做隐式 fallback。
-- 2026-07-07：明确 builtin plugin 不做手动同步。远端应通过 ZCode Agent resource 原生携带官方插件资产；远端资源包构建与部署校验必须覆盖 `packages/*-plugin`。
-- 2026-07-08：补充本地 `file` / `directory` / `settings` marketplace source 的 SSH 同步方案。该能力镜像 marketplace source 到远端后仍由远端执行 marketplace install，不复制本机 cache。
-- 2026-07-08：补充同步过程可视化 UX：同步期间保留插件 card，逐项展示进度、hover 日志和单项 stop；stop 会先让 UI 停止等待当前插件并继续后续插件，若当前步骤是带 operationId 的 marketplace add/install，则进一步向远端发协议级取消请求。
-- 2026-07-08：补充协议级单项取消：远程同步弹窗为 marketplace add/install 生成一次性 operationId，stop 时只取消该 operationId 对应的远端 plugin 管理操作；未传 operationId 的本地插件设置页安装、市场添加和其它 ZCode Protocol 请求保持原行为。
-- 2026-07-08：补充 `plugins.options` 的安全子集同步：只同步本机已显式配置、非敏感、非 file/directory 且远端 schema 兼容的 primitive options；写入远端前与远端已有 options merge，不做全量覆盖。
-- 2026-07-10：补充 builtin plugin 远端资源归档的跨平台权限约束：本地下载上传和开发态上传生成 tar 时，目录条目统一使用 POSIX `0755`，不得透传 Windows `stat.mode` 中缺少执行位的伪 POSIX 权限；检测到旧 builtin 资产不可达时，部署需先恢复产品目录的 owner `rwX`，再执行替换。
-- 2026-07-09：补充 `browser` 官方插件资产边界：它是默认启用的内容型官方插件，但除 `skills` 外还携带 `docs/` runtime 文档资源，远端/桌面打包白名单必须一并覆盖。
-- 2026-07-23：统一远程同步入口中的技术名词大小写：中文使用 `同步 Skill` / `同步 MCP` / `同步 Plugin`，英文使用 `Sync Skill` / `Sync MCP` / `Sync Plugin`。
+- 2026-07-06: a V1 suporta o plugin inline de nível de usuário, copiando o diretório para o remoto via SSH através de um archive.
+- 2026-07-07: added a sincronização de plugin de marketplace já instalado. Essa capacidade é implementada reinstalando na remoto o plugin de mesmo nome do marketplace, sem copiar cache e sem fallback implícito.
+- 2026-07-07:明确了 que plugin builtin não é sincronizado manualmente. O remoto deve携带 os assets de plugins oficiais de forma nativa pelo ZCode Agent resource; a construção do pacote de recursos remoto e a verificação de deployment precisam cobrir `packages/*-plugin`.
+- 2026-07-08: added o plano de sincronização por SSH de source de marketplace local `file` / `directory` / `settings`. Essa capacidade espelha a source do marketplace para o remoto e ainda deixa a instalação do marketplace rodar no remoto, sem copiar o cache local.
+- 2026-07-08: added a UX de visualização do processo de sincronização: durante a sincronização os cards de plugin são mantidos, com progresso por item, log no hover e stop por item; o stop primeiro faz a UI parar de esperar o plugin atual e seguir para os próximos plugins e, se o passo atual for um marketplace add/install com operationId, envia ainda um pedido de cancelamento de protocolo para o remoto.
+- 2026-07-08: added o cancelamento por item no nível de protocolo: o diálogo de sincronização remota gera um operationId único para marketplace add/install e, no stop, cancela apenas a operação remota de gestão de plugin correspondente a esse operationId; a página de configurações de plugins local que instala, a adição de marketplace e os demais pedidos do ZCode Protocol sem operationId mantêm o comportamento original.
+- 2026-07-08: added a sincronização do subconjunto seguro de `plugins.options`: apenas primitive options explicitamente configurados na máquina local, não sensíveis, não file/directory e com schema remoto compatível são sincronizados; antes de escrever no remoto, eles são mesclados com as options já existentes no remoto, sem sobrescrita total.
+- 2026-07-10: added as restrições de permissão multiplataforma do arquivamento de recursos de plugin builtin remotos: no download/upload local e no upload de dev, ao gerar o tar as entradas de diretório usam POSIX `0755` de forma unificada, sem propagar a pseudo permissão POSIX do `stat.mode` do Windows que não tem bit de execução; ao detectar assets builtin antigos inacessíveis, o deployment precisa restaurar primeiro o owner `rwX` do diretório do produto e só então fazer a substituição.
+- 2026-07-09: added o limite de assets do plugin oficial `browser`: ele é um plugin oficial de conteúdo habilitado por padrão, mas além de `skills` também carrega recursos de documentação de runtime em `docs/`; a whitelist de empacotamento remoto/desktop precisa cobri-lo igualmente.
+- 2026-07-23: unificada a capitalização dos termos técnicos nas entradas de sincronização remota: em chinês `同步 Skill` / `同步 MCP` / `同步 Plugin`, em inglês `Sync Skill` / `Sync MCP` / `Sync Plugin`.
 
-## 背景
+## Contexto
 
-当前 SSH 远端已经支持用户级 Skill 和用户级 MCP 同步。Skill 同步复制本机用户 skill 目录到远端 `~/.zcode/skills`，MCP 同步把本机用户 MCP 配置导入远端 `~/.zcode/cli/config.json`。两者都遵循显式、单向、不覆盖的同步模型。
+O remoto SSH já suporta a sincronização de Skill e MCP de nível de usuário. A sincronização de Skill copia o diretório de skills do usuário da máquina local para `~/.zcode/skills` no remoto, e a sincronização de MCP importa a configuração de MCP do usuário da máquina local para `~/.zcode/cli/config.json` no remoto. Ambas seguem um modelo de sincronização explícito, unidirecional e sem sobrescrita.
 
-Plugin 比 Skill/MCP 更复杂：它不是单一资源，而是插件目录、`plugins.dirs`、enabled/options、marketplace cache、installed records、builtin suppression、plugin data、skills/commands/hooks/MCP 运行时投影的组合。因此 SSH 同步必须分类型处理，避免把本机运行状态误当作可移植配置。
+Plugin é mais complexo que Skill/MCP: não é um recurso único, e sim uma composição de diretório de plugin, `plugins.dirs`, enabled/options, cache do marketplace, installed records, supressão de builtin, dados do plugin e projeções de runtime de skills/commands/hooks/MCP. Portanto a sincronização por SSH precisa tratar por tipo, evitando tomar o estado de execução da máquina local por configuração portátil.
 
-## 当前支持范围
+## Escopo suportado atualmente
 
-### 用户级 inline plugin
+### Plugin inline de nível de usuário
 
-- 来源：本机用户级 `~/.zcode/cli/config.json` 中 `plugins.dirs` 指向的 inline plugin。
-- manifest：支持 `.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`。
-- plugin id：统一按 `<manifest.name>@inline` 生成。
-- 同步方式：本机 `pluginSyncService` 导出 archive，SSH 远端 `pluginSyncService` 导入到 `~/.zcode/plugins/<plugin-dir>`。
-- 配置写入：导入成功后把远端绝对路径追加到远端 `~/.zcode/cli/config.json` 的 `plugins.dirs`。
-- enabled 状态：如果本机 `plugins.enabledPlugins[pluginId]` 是 boolean，则同步到远端用户配置。
-- options 状态：如果本机存在 `plugins.options[pluginId]`，只同步 manifest `userConfig` 中声明的非 sensitive、非 `file` / `directory` primitive 配置；远端导入后重新读取远端 plugin schema，只有远端同 key、同类型兼容时才通过 `plugins/configure` 写入，并与远端已有 options merge。
-- 冲突策略：远端已有同 plugin id 或目标目录已存在时跳过，不覆盖。
-- components 展示：根据 manifest 或目录识别 `skills`、`commands`、`hooks`、`mcp`。
+- Origem: plugin inline apontado por `plugins.dirs` em `~/.zcode/cli/config.json` de nível de usuário da máquina local.
+- Manifest: suporta `.zcode-plugin/plugin.json`, `.claude-plugin/plugin.json` e `.codex-plugin/plugin.json`.
+- Plugin id: gerado uniformemente como `<manifest.name>@inline`.
+- Forma de sincronização: o `pluginSyncService` local exporta um archive, e o `pluginSyncService` do remoto via SSH importa para `~/.zcode/plugins/<plugin-dir>`.
+- Escrita de configuração: após a importação bem-sucedida, o caminho absoluto remoto é acrescentado ao `plugins.dirs` do `~/.zcode/cli/config.json` remoto.
+- Estado enabled: se `plugins.enabledPlugins[pluginId]` local for boolean, ele é sincronizado para a configuração de usuário remota.
+- Estado de options: se `plugins.options[pluginId]` existir localmente, sincroniza-se apenas a configuração primitive não sensitive e não `file` / `directory` declarada no manifest `userConfig`; após a importação remota, o schema do plugin remoto é relido e a escrita via `plugins/configure` só acontece quando o remoto tem a mesma key e um tipo compatível, mesclando com as options já existentes no remoto.
+- Política de conflito: quando já existe o mesmo plugin id ou o diretório alvo no remoto, pula-se sem sobrescrever.
+- Exibição de components: identificar `skills`, `commands`, `hooks` e `mcp` a partir do manifest ou do diretório.
 
-### 已安装 marketplace plugin
+### Plugin de marketplace já instalado
 
-- 来源：本机 Agent 返回的 `getPluginsOverview().installedPlugins`，即已经安装并有 installed record 的 marketplace plugin。
-- plugin id：使用已安装记录中的 `<plugin-name>@<marketplace>`。
-- scope：支持 `user` 和 `workspace` scope，远端安装时沿用本机 scope。
-- 同步方式：不复制本机 cache；在远端调用 `installPlugin({ marketplace, pluginName, scope })`，由远端 marketplace resolver 重新安装同名 plugin。
-- marketplace source：如果远端缺少同名 marketplace，且本机 marketplace source 可序列化为 `github`、`git` 或 `url`，先在远端调用 `addPluginMarketplace`，再安装 plugin。
-- 本地 marketplace source：如果远端缺少同名 marketplace，且本机 marketplace source 是 `file`、`directory` 或可完整导出的 `settings`，先把选中 plugin 及同 marketplace 依赖闭包需要的 source mirror 到远端 `~/.zcode/plugins/marketplace-sources/<marketplace-id>-<hash>`，再用该远端目录调用 `addPluginMarketplace`，最后执行安装。
-- enabled 状态：远端安装成功后调用 `setPluginEnabled`，对齐本机 enabled 状态。
-- options 状态：远端安装成功后重新读取远端 plugin schema，按与 inline 相同的安全子集规则同步 `plugins.options[pluginId]`；不传 sensitive、路径类或远端 schema 不兼容的 key。
-- 冲突策略：远端已存在同 plugin id 时认为已安装，不重复安装、不覆盖、不升级。
+- Origem: `getPluginsOverview().installedPlugins` retornado pelo Agent local, ou seja, plugins de marketplace já instalados e com installed record.
+- Plugin id: usa o `<plugin-name>@<marketplace>` do registro instalado.
+- Scope: suporta scope `user` e `workspace`, e a instalação remota mantém o scope local.
+- Forma de sincronização: não copia o cache local; chama `installPlugin({ marketplace, pluginName, scope })` no remoto, deixando o marketplace resolver remoto reinstalar o plugin de mesmo nome.
+- Source do marketplace: se o remoto não tiver o marketplace de mesmo nome e a source do marketplace local puder ser serializada como `github`, `git` ou `url`, chama primeiro `addPluginMarketplace` no remoto e só então instala o plugin.
+- Source de marketplace local: se o remoto não tiver o marketplace de mesmo nome e a source do marketplace local for `file`, `directory` ou um `settings` exportável por completo, espelha primeiro para o remoto, em `~/.zcode/plugins/marketplace-sources/<marketplace-id>-<hash>`, as sources necessárias ao plugin selecionado e ao closure de dependências do mesmo marketplace; depois usa esse diretório remoto para chamar `addPluginMarketplace` e, por fim, executa a instalação.
+- Estado enabled: após a instalação remota bem-sucedida, chama `setPluginEnabled`, alinhando o estado enabled local.
+- Estado de options: após a instalação remota bem-sucedida, relê o schema do plugin remoto e sincroniza `plugins.options[pluginId]` pelas mesmas regras de subconjunto seguro do inline; keys sensitive, de caminho ou incompatíveis com o schema remoto não são enviadas.
+- Política de conflito: quando o mesmo plugin id já existe no remoto, considera-se instalado, sem reinstalar, sobrescrever ou atualizar.
 
-### builtin / official plugin
+### Plugin builtin / oficial
 
-- 来源：ZCode 随包内置的 official plugin，当前包括 `android-emulator`、`browser`、`document-skills`、`ios-simulator`、`restore-legacy-sessions`、`skill-creator`、`zcode-guide`。
-- plugin id：统一为 `<name>@zcode-plugins-official`。
-- 同步策略：不通过插件同步弹窗手动复制。builtin plugin 是产品原生能力，SSH 远端必须随远端 ZCode Agent resource 部署。
-- 远端资源布局：`glm/<platform>/packages/<plugin-package>` 打进远端资源包，部署到 `~/.zcode/server/agents/glm/packages/<plugin-package>`。
-- seed 过程：远端 agent 启动时复用现有 official plugin filesystem seed，把这些资源物化到远端 `~/.zcode/plugins/cache/zcode-plugins-official/<name>/<version>`。
-- 资源白名单：官方插件的 `.zcode-plugin`、`skills`、`commands`、`hooks`、`.mcp.json` 和 `docs` 都属于可 seed 资源。`browser` 没有 MCP runtime，但 `runtimeFeatures.browserDocumentationRoot` 指向 `docs/`，缺失时 `agent.browsers.documentation()` 会退化。
-- 部署校验：远端已有 `zcode.cjs` 和 wrapper 但缺 `packages/*-plugin/.zcode-plugin/plugin.json` 时，不能跳过 ZCode Agent 部署，必须刷新 `glm` 组件并补齐 packages。
-- 归档权限：本地下载上传和开发态上传会在桌面侧重新生成 tar；目录条目必须使用跨平台稳定的 `0755`，不能直接使用本地 `stat.mode`。Windows 只实现有限的读写权限语义，直接透传会把目录写成不含执行位的 mode，远端解包后无法遍历或删除。
-- 损坏迁移：旧版本已经生成的 `0644` packages 会让新版本在解包前的 `rm -rf` 继续失败。部署检测到 builtin manifest 不可达且 packages 根存在时，必须先对该产品自有目录执行 owner `rwX` 修复，再刷新资源；不得递归修改用户 plugin 目录。
-- 手动同步边界：不新增“手动同步 builtin plugin”入口，避免把 builtin 误导入为 inline plugin 或让每台远端都依赖用户手动修复。
+- Origem: official plugin embutido no pacote do ZCode, atualmente incluindo `android-emulator`, `browser`, `document-skills`, `ios-simulator`, `restore-legacy-sessions`, `skill-creator` e `zcode-guide`.
+- Plugin id: uniformemente `<name>@zcode-plugins-official`.
+- Estratégia de sincronização: não copiar manualmente pelo diálogo de sincronização de plugins. Plugin builtin é uma capacidade nativa do produto, e o remoto SSH precisa recebê-la junto do ZCode Agent resource remoto.
+- Layout de recursos remoto: `glm/<platform>/packages/<plugin-package>` entra no pacote de recursos remoto e é implantado em `~/.zcode/server/agents/glm/packages/<plugin-package>`.
+- Processo de seed: quando o agent remoto inicia, ele reutiliza o seed de filesystem de official plugin existente para materializar esses recursos em `~/.zcode/plugins/cache/zcode-plugins-official/<name>/<version>` no remoto.
+- Whitelist de recursos: `.zcode-plugin`, `skills`, `commands`, `hooks`, `.mcp.json` e `docs` dos plugins oficiais são todos recursos seedáveis. `browser` não tem runtime de MCP, mas `runtimeFeatures.browserDocumentationRoot` aponta para `docs/` e, quando ausente, `agent.browsers.documentation()` degrada.
+- Verificação de deployment: quando o remoto já tem `zcode.cjs` e o wrapper mas falta `packages/*-plugin/.zcode-plugin/plugin.json`, não se pode pular o deployment do ZCode Agent; é preciso atualizar o componente `glm` e completar os packages.
+- Permissões de arquivamento: o download/upload local e o upload de dev regeraram o tar no lado desktop; as entradas de diretório precisam usar `0755` estável entre plataformas e não podem usar direto o `stat.mode` local. O Windows só implementa semântica limitada de permissão de leitura/escrita, e propagar direto gravaria diretórios com mode sem bit de execução, o que impossibilita travessiar ou apagar no remoto depois da extração.
+- Migração de corrupção: packages `0644` gerados por versões antigas fazem o `rm -rf` pré-extração continuar falhando na nova versão. Quando o deployment detecta o manifest builtin inacessível e a raiz de packages existe, precisa primeiro aplicar a correção de owner `rwX` nos diretórios próprios do produto e só então atualizar os recursos; não pode modificar recursivamente o diretório de plugins do usuário.
+- Limite de sincronização manual: não adicionar uma entrada de "sincronizar plugin builtin manualmente", evitando trazer o builtin como se fosse um plugin inline ou obrigar cada remoto a depender de um reparo manual do usuário.
 
-### 同步后的运行时投影刷新
+### Atualização das projeções de runtime após a sincronização
 
-- plugin 同步完成后刷新远端 plugin management store，确保设置页立即看到最新安装状态。
-- 刷新远端 workspace 的 shared skill store，并 invalidate deferred draft session，确保 `$` 技能列表和后续会话准备能看到新 plugin skills。
-- 直接调用远端 `commandsService.list` 并写回当前远端 workspace 的 `zcodeSessionStore.slashCommands`，确保输入框 `/` 菜单不依赖切换会话或打开命令设置页才能看到新 plugin commands。
-- 重新加载远端 MCP store 的用户目录来源，确保 plugin 贡献的 MCP 相关状态在 UI 中刷新。
+- Após a sincronização de plugins, o plugin management store remoto é atualizado para que a página de configurações veja imediatamente o estado de instalação mais recente.
+- O shared skill store do workspace remoto é atualizado e a deferred draft session é invalidada, garantindo que a lista de skills `$` e a preparação das sessões seguintes enxerguem as novas plugin skills.
+- Chamar diretamente o `commandsService.list` remoto e gravar de volta no `zcodeSessionStore.slashCommands` do workspace remoto atual, garantindo que o menu `/` da caixa de entrada veja as novas plugin commands sem precisar trocar de sessão ou abrir a página de configurações de comandos.
+- Recarregar as origens de diretório de usuário do MCP store remoto, para que o estado relacionado aos MCPs contribuídos por plugins seja atualizado na UI.
 
-## 数据流
+## Fluxo de dados
 
 ```text
 inline:
@@ -102,122 +102,122 @@ SSH deploy
   -> ~/.zcode/plugins/cache/zcode-plugins-official/<name>/<version>
 ```
 
-UI 始终用 base services 做本机枚举和导出，用当前 workspace services 做远端状态检查和导入。远端 workspace 的 service collection 必须把 `pluginSyncService` 和 `zcodeAgentService` 透传为远端服务，避免导入或安装写回本机。
+A UI sempre usa os services base para a enumeração e a exportação locais e os services do workspace atual para checagem de estado e importação remotos. A coleção de services do workspace remoto precisa repassar `pluginSyncService` e `zcodeAgentService` como services remotos, evitando que a importação ou a instalação escrevam de volta na máquina local.
 
-## 安全与冲突策略
+## Política de segurança e de conflito
 
-- archive 路径必须是安全相对路径，禁止绝对路径、`..`、反斜杠、Windows drive、空路径。
-- archive 只接受目录和普通文件，拒绝 symlink、device、socket 等特殊文件。
-- 导入前和导入后都校验插件目录内存在合法 manifest。
-- inline 候选目录名从 plugin 根目录 basename 规范化得到；冲突时跳过，不改远端已有目录。
-- inline 远端判重同时检查目标目录、远端 `plugins.dirs` 里已注册的 inline plugin id。
-- marketplace 远端判重按 installed plugin id；同 id 已存在时不重装。
-- archive 设大小上限，避免把远端 host 内存或磁盘撑爆。
-- marketplace 同步依赖远端网络、远端 marketplace source 和远端 resolver。失败时暴露错误，不从本机 cache 隐式 fallback。
-- `plugins.options` 只同步本机已保存的 portable primitive 值，不把 manifest default 当作用户配置同步；写入时用远端现有 configuredOptions 做 merge，避免 `plugins/configure` 的替换语义删掉远端已有 key。
-- `sensitive`、`file`、`directory` options 默认不自动同步。它们需要 credential store 或路径映射能力，当前只在 UI 中提示需要远端手动配置。
-- 本地 marketplace source mirror 只包含选中 plugin 和同 marketplace 依赖闭包需要的 source 目录；拒绝 symlink、绝对 archive path、`..`、Windows drive 和特殊文件。
-- `settings` source 只有在 manifest entry 是网络 source，或 entry 明确指向可读取的本地 directory source 时才能 mirror；无法从 synthetic manifest 还原 source root 的相对路径不做 cache fallback。
-- 远端已有同名 marketplace 时不替换 source；后续由独立 reconcile 流程处理 source hash / manifest hash 差异。
+- O caminho no archive precisa ser um caminho relativo seguro; caminhos absolutos, `..`, barra invertida, drive do Windows e caminho vazio são proibidos.
+- O archive aceita apenas diretórios e arquivos comuns e rejeita arquivos especiais como symlink, device e socket.
+- Antes e depois da importação, valida que existe um manifest válido dentro do diretório do plugin.
+- O nome de diretório dos candidatos inline é normalizado a partir do basename da raiz do plugin; em caso de conflito, pula-se sem alterar o diretório existente no remoto.
+- A deduplicação inline no remoto verifica simultaneamente o diretório alvo e os plugin ids inline já registrados em `plugins.dirs` no remoto.
+- A deduplicação de marketplace no remoto é pelo installed plugin id; com o mesmo id já existente, não reinstala.
+- O archive tem um limite de tamanho, evitando sobrecarregar memória ou disco do host remoto.
+- A sincronização de marketplace depende da rede, da source do marketplace e do resolver remotos. Em caso de falha, o erro é exposto e não há fallback implícito para o cache local.
+- `plugins.options` sincroniza apenas valores primitive portáveis já salvos localmente, sem tratar o default do manifest como configuração do usuário; na escrita, faz merge com as configuredOptions já existentes no remoto, evitando que a semântica de substituição do `plugins/configure` apague keys já existentes no remoto.
+- Options `sensitive`, `file` e `directory` não são sincronizadas automaticamente por padrão. Elas exigem credential store ou mapeamento de caminhos e, por enquanto, só mostram na UI que precisam de configuração manual no remoto.
+- O mirror de source de marketplace local contém apenas os diretórios de source necessários ao plugin selecionado e ao closure de dependências do mesmo marketplace; symlink, caminho absoluto no archive, `..`, drive do Windows e arquivos especiais são rejeitados.
+- Uma source `settings` só pode ser espelhada quando a entrada do manifest é uma source de rede, ou quando a entrada aponta explicitamente para uma source de diretório local legível; um caminho relativo de source root que não possa ser restaurado a partir do manifest sintético não faz fallback de cache.
+- Quando já existe um marketplace de mesmo nome no remoto, a source não é substituída; diferenças posteriores de source hash / manifest hash são tratadas por um processo de reconcile separado.
 
-## 当前不支持或不保证的边界
+## Limites atuais não suportados ou não garantidos
 
-| 边界 | 当前状态 | 例子 | 是否应该支持 | 后续实现方向 |
+| Limite | Estado atual | Exemplo | Deveria suportar | Direção de implementação futura |
 | --- | --- | --- | --- | --- |
-| marketplace cache fallback / 直接复制 `installed_plugins.json` | 未实现，且当前设计刻意不做 | 本机 `canva@claude-plugins-official` cache 里有已下载代码，但远端网络不可用。当前会安装失败，不会把本机 cache 打包过去 | 默认不应该支持。cache 可能包含本机生成物、绝对路径、旧 resolver 产物或平台相关文件，复制后不一定等价于远端安装 | 如确实需要离线模式，做显式“离线镜像同步”：用户选择后才复制 cache，校验 manifest/source/sha/版本，写远端 installed record，并标明不等价于 marketplace reinstall |
-| `plugins.options` 全量同步 | 已支持安全子集；不支持 sensitive、`file`、`directory`、远端 schema 缺失/不兼容的 key，也不把 default 当作用户配置同步 | 本机 `region="cn"` 会同步；`token` 标记 sensitive 或 `workspaceDir="/Users/dev/project"` 不会自动同步 | 需要继续支持路径映射和 credential store，但不能默认全量复制 | 后续增加 options diff 详情、路径映射确认和 credential store 写入；当前只做非敏感 primitive merge |
-| plugin `data/` | 未实现 | 插件在本机 `data/` 里保存索引、session cache、token、临时文件；远端运行时应该重新生成 | 大多数场景不应该支持 | 仅给有明确迁移语义的插件提供 opt-in 数据迁移；由插件声明可迁移文件和版本，主程序只负责执行受控导入 |
-| builtin / restorable builtin / suppressed builtin 状态 | 资产随远端 resource 原生部署；用户状态同步未实现 | 本机禁用了 `android-emulator@zcode-plugins-official`，但远端是 Linux，没有同样的 iOS/Android 运行环境；同步禁用状态可能隐藏远端可用工具 | 资产必须支持；启停/suppressed 状态可选支持，不应混入普通 plugin 同步 | 当前先修远端资源包构建与部署校验。后续如要同步状态，单独做“内置插件启停状态同步”；只在远端存在同 id、同来源且兼容时写 enabled/suppressed 状态 |
-| 未安装 marketplace 候选 plugin | 未实现 | Discover 页能看到 `formatter@team-market`，但本机没有安装。当前同步弹窗不会把它列为候选 | 通常不需要。同步语义是“把本机已使用的 plugin 带到远端”，不是批量安装市场候选 | 若要支持，应做 marketplace source 同步或远端 Discover 安装入口，而不是放进“本地 plugin 同步” |
-| marketplace 版本完全一致 | 实现不完整，只保证同 marketplace + 同 plugin name 安装成功并返回同 plugin id | 本机是 `demo@team-market` 1.0.0；远端 marketplace 已更新到 1.1.0。当前远端可能装到 1.1.0 | 需要支持，尤其是复现实验环境时 | 协议增加 version/source lock/sha 参数；本机候选携带 installed record 的 source/sha；远端按 lock 安装，安装后校验 version/source/sha，不一致则失败 |
-| `file` / `directory` / `settings` marketplace source 自动带到远端 | 已支持 source mirror；不保证替换远端已有同名 marketplace，也不保证所有 synthetic `settings` source 都能还原本地 source root | 本机 marketplace 指向 `/Users/dev/plugins/marketplace.json`；远端没有这个路径。同步时把所选 plugin 的 source mirror 到远端，再让远端 install | 需要支持，但不能猜远端路径 | 已采用显式 source mirror：只打包所选 plugin 和同 marketplace 依赖闭包；远端已有同名 marketplace 时不替换，`settings` 中无法定位 source root 的本地相对 source 仍失败，不从 cache fallback |
-| 跨 marketplace dependency 的 source mirror | 未实现 | `hello-world@hello-market` 依赖 `shared@base-market`；当前只会 mirror `hello-market` 内的依赖闭包，遇到跨市场依赖会失败 | 需要支持，但要单独设计多个 marketplace 的同步顺序和冲突策略 | 扩展 source mirror 计划，递归枚举依赖 marketplace，逐个检查远端是否已有、是否需要 mirror，并在 UI 展示将同步的 marketplace 列表 |
-| stop 的全链路强制中止 | 不保证；当前只对带 operationId 的 marketplace add/install 做协议级取消，inline archive export/import 和 `setPluginEnabled` 不是强制 abort | 用户在 git clone 很慢时点 stop，若远端 agent 已进入 cancellable add/install，会发送 `plugins/cancelOperation`；如果当前步骤是本地导出或远端写 enabled，则只能尽快停止等待/跳过后续等待 | 需要保持当前粒度，避免影响本地插件设置页和普通 plugin 管理 RPC | 后续如要增强，给 plugin sync service 的 archive export/import 也加 operationId/AbortSignal；但必须保证仅远程同步入口传入 operationId |
-| hover 同步日志等价于远端 shell/stdout 日志 | 不保证；当前日志展示同步步骤、RPC 方法、operationId、错误诊断和 stop/cancel 结果，不保证透出 resolver 内部 git/fetch/copy 的完整 stdout/stderr | 用户看到 `RPC plugins/install code-review@claude-plugins-official (...)`，但看不到 agent 内部实际执行的完整 `git clone` stdout | 应该支持更完整的诊断，但不能把高频底层日志默认刷进 UI | 后续可给 plugin protocol 增加 operation progress event；只在用户打开日志时订阅或限流展示，避免生产日志和 UI 状态过载 |
-| 远端已有同 id plugin 的更新/覆盖 | 未实现，当前按已存在跳过 | 本机 `canva@claude-plugins-official` 是 1.0.0，远端已有 0.9.0。当前不会自动升级 | 应该支持为后续独立模式 | 增加 compare/reconcile 模式：展示版本、source、enabled 差异；用户选择跳过、重装、升级或覆盖 |
+| Fallback de cache do marketplace / cópia direta de `installed_plugins.json` | Não implementado, e o design atual deliberadamente não faz isso | O cache local de `canva@claude-plugins-official` tem código já baixado, mas a rede remota está indisponível. Atualmente a instalação falha, e o cache local não é empacotado para o remoto | Por padrão não deveria suportar. O cache pode conter artefatos gerados localmente, caminhos absolutos, produtos de resolver antigos ou arquivos dependentes de plataforma, e a cópia não é necessariamente equivalente a uma instalação remota | Se o modo offline for realmente necessário, fazer uma "sincronização de espelho offline" explícita: o cache só é copiado após escolha do usuário, com verificação de manifest/source/sha/versão, gravando o installed record remoto e deixando claro que não equivale a um marketplace reinstall |
+| Sincronização total de `plugins.options` | Já suporta o subconjunto seguro; não suporta sensitive, `file`, `directory`, keys ausentes/incompatíveis com o schema remoto, nem trata default como configuração do usuário | O `region="cn"` local é sincronizado; `token` marcado como sensitive ou `workspaceDir="/Users/dev/project"` não é sincronizado automaticamente | Precisa continuar suportando mapeamento de caminhos e credential store, mas não pode copiar tudo por padrão | Adicionar depois detalhes de diff de options, confirmação de mapeamento de caminhos e escrita em credential store; por enquanto fazer apenas merge de primitive não sensível |
+| `data/` do plugin | Não implementado | O plugin salva índices, cache de sessão, tokens e arquivos temporários em `data/` local; o runtime remoto deveria regenerar | Na maioria dos cenários não deveria suportar | Oferecer migração de dados opt-in apenas para plugins com semântica de migração clara; o plugin declara os arquivos e a versão migráveis e o programa principal apenas executa uma importação controlada |
+| Estado de builtin / builtin restaurável / builtin suprimido | Os assets são implantados nativamente junto do recurso remoto; a sincronização de estado do usuário não está implementada | O `android-emulator@zcode-plugins-official` está desabilitado localmente, mas o remoto é Linux e não tem o mesmo ambiente iOS/Android; sincronizar o estado desabilitado pode esconder ferramentas disponíveis no remoto | Os assets precisam ser suportados; o estado de habilitação/supressão é opcional e não deve se misturar à sincronização de plugin comum | Primeiro corrigir a construção do pacote de recursos remoto e a verificação de deployment. Se for sincronizar o estado depois, fazer uma "sincronização do estado de habilitação de plugins integrados" separada; escrever enabled/suppressed apenas quando o remoto tiver o mesmo id, a mesma origem e compatibilidade |
+| Plugin de marketplace candidato não instalado | Não implementado | A página de Discover mostra `formatter@team-market`, mas não está instalado localmente. O diálogo de sincronização atual não o lista como candidato | Geralmente não é necessário. A semântica de sincronização é "levar ao remoto os plugins já usados localmente", não instalar em lote candidatos de marketplace | Se for suportado, fazer sincronização de source do marketplace ou uma entrada de instalação remota via Discover, em vez de colocar isso na "sincronização de plugins locais" |
+| Versão de marketplace totalmente idêntica | Implementação incompleta; só garante que o mesmo marketplace + mesmo nome de plugin instale com sucesso e retorne o mesmo plugin id | O local é `demo@team-market` 1.0.0; o marketplace remoto já foi atualizado para 1.1.0. Atualmente o remoto pode instalar 1.1.0 | Precisa ser suportado, especialmente para reproduzir ambientes de experimento | Adicionar parâmetros version/source lock/sha ao protocolo; o candidato local carrega o source/sha do installed record; o remoto instala pelo lock e verifica version/source/sha depois da instalação, falhando se não bater |
+| Source de marketplace `file` / `directory` / `settings` levada automaticamente ao remoto | Já suporta source mirror; não garante substituir um marketplace de mesmo nome existente no remoto nem garante que todo source `settings` sintético consiga restaurar a source root local | O marketplace local aponta para `/Users/dev/plugins/marketplace.json`, que não existe no remoto. Na sincronização, a source do plugin selecionado é espelhada para o remoto e o install é feito no remoto | Precisa ser suportado, mas não se pode adivinhar caminho remoto | Já foi adotado o source mirror explícito: apenas o plugin selecionado e o closure de dependências do mesmo marketplace são empacotados; quando já existe um marketplace de mesmo nome no remoto, ele não é substituído, e uma source local relativa em `settings` que não consiga localizar a source root continua falhando, sem fallback de cache |
+| Source mirror de dependency entre marketplaces | Não implementado | `hello-world@hello-market` depende de `shared@base-market`; hoje só o closure de dependências dentro do `hello-market` é espelhado e uma dependência entre marketplaces falha | Precisa ser suportado, mas exige um design separado para a ordem de sincronização e a política de conflito de vários marketplaces | Estender o plano de source mirror, enumerando recursivamente os marketplaces de dependência, verificando um a um se o remoto já os tem e se precisam ser espelhados, e mostrando na UI a lista de marketplaces que serão sincronizados |
+| Interrupção forçada de ponta a ponta no stop | Não garantida; hoje só há cancelamento de protocolo para marketplace add/install com operationId, e o archive export/import inline e o `setPluginEnabled` não são abort forçado | Se o usuário clica em stop durante um git clone muito lento e o agent remoto já entrou em um add/install cancelável, é enviado `plugins/cancelOperation`; se o passo atual for a exportação local ou a escrita remota de enabled, só é possível parar de esperar/pular as esperas seguintes o quanto antes | Manter a granularidade atual, para não afetar a página de configurações de plugins local nem os RPCs comuns de gestão de plugin | Para reforçar depois, adicionar operationId/AbortSignal também ao archive export/import do plugin sync service; é obrigatório garantir que apenas a entrada de sincronização remota passe operationId |
+| Log de sync no hover equivale ao log de shell/stdout remoto | Não garantido; hoje o log mostra as etapas de sincronização, métodos RPC, operationId, diagnósticos de erro e resultados de stop/cancel, sem garantir o stdout/stderr completo do git/fetch/copy interno do resolver | O usuário vê `RPC plugins/install code-review@claude-plugins-official (...)`, mas não vê o stdout completo do `git clone` executado de fato pelo agent | Deveria suportar um diagnóstico mais completo, mas sem despejar logs de baixo nível de alta frequência na UI por padrão | Adicionar depois um evento de progresso de operação ao protocolo de plugin; assinar ou limitar a exibição apenas quando o usuário abrir o log, evitando sobrecarregar o log de produção e o estado da UI |
+| Atualização/sobrescrita de plugin de mesmo id já existente no remoto | Não implementado; hoje pula por já existir | O `canva@claude-plugins-official` local é 1.0.0 e o remoto já tem 0.9.0. Não há upgrade automático | Deveria ser suportado como um modo independente futuro | Adicionar um modo compare/reconcile: exibir diferenças de versão, source e enabled; o usuário escolhe pular, reinstalar, atualizar ou sobrescrever |
 
-## 后续结论摘要
+## Resumo das conclusões seguintes
 
-当前已经实现的是“把本机已经能用的 plugin 显式带到 SSH 远端”：inline plugin 通过目录 archive 复制，已安装 marketplace plugin 通过远端重装同名插件实现。这两条路径都只处理远端缺失项，默认不覆盖远端已有插件。
+O que já está implementado é "levar explicitamente ao remoto SSH os plugins que já funcionam localmente": o plugin inline por cópia do diretório em archive, e o plugin de marketplace já instalado por reinstalação do plugin de mesmo nome no remoto. Os dois caminhos tratam apenas do que falta no remoto e, por padrão, não sobrescrevem plugins já existentes no remoto.
 
-需要继续补齐但不能简单全量复制的是 `plugins.options` 的路径/secret 子集、marketplace 版本锁定、跨 marketplace dependency、远端已有插件/marketplace 的差异处理，以及更完整的远端操作日志。它们不是完全没价值，而是当前实现还不够完整：直接同步会遇到 secret 泄露、本机路径不可用、远端安装版本漂移、跨市场 source 顺序不明确、日志过载或覆盖远端已有状态的问题，所以后续应该做成可预览、可选择、可校验的 reconcile / progress 流程。
+O que precisa ser completado, mas não pode ser simplesmente copiado em bloco total, é o subconjunto de caminhos/secrets de `plugins.options`, o lock de versão do marketplace, dependencies entre marketplaces, o tratamento de diferenças de plugins/marketplaces já existentes no remoto e o log mais completo de operações remotas. Esses itens não são sem valor nenhum; é que a implementação atual ainda não está completa: uma sincronização direta esbarraria em vazamento de secret, caminhos locais indisponíveis, drift de versão na instalação remota, ordem de source entre marketplaces indefinida, sobrecarga de logs ou sobrescrita do estado já existente no remoto. Por isso o passo seguinte deve ser um fluxo de reconcile / progress com pré-visualização, escolha e validação.
 
-默认不建议支持的是隐式 cache fallback、直接复制 `installed_plugins.json` 和普通 plugin `data/`。这些内容看起来能让远端“离线可用”，但不保证等价于远端重装：cache 可能带有本机生成物、平台差异、旧 resolver 产物或绝对路径，`data/` 还可能包含 token、索引和临时状态。若未来确实需要离线能力，应作为单独的“离线镜像同步”模式显式暴露，并在 UI 中说明它不等价于 marketplace reinstall。
+O que não é recomendado por padrão é o fallback implícito de cache, a cópia direta de `installed_plugins.json` e o `data/` comum de plugin. Esses contenidos parecem tornar o remoto "utilizável offline", mas não garantem equivalência a uma reinstalação remota: o cache pode trazer artefatos gerados localmente, diferenças de plataforma, produtos de resolver antigos ou caminhos absolutos, e o `data/` ainda pode conter tokens, índices e estados temporários. Se no futuro for realmente necessária a capacidade offline, ela deve ser exposta explicitamente como um modo separado de "sincronização de espelho offline", deixando claro na UI que ela não equivale a um marketplace reinstall.
 
-不应混入当前 plugin 同步主流程的是未安装 marketplace 候选和 builtin/suppressed builtin 状态。未安装候选更像远端 Discover 安装或 marketplace source 同步；builtin 状态则和远端操作系统、内置插件可用性相关，应单独做兼容性判断后再同步启停状态。
+O que não deve se misturar ao fluxo principal de sincronização de plugins são candidatos de marketplace não instalados e o estado de builtin/suppressed builtin. Candidatos não instalados parecem mais com instalação remota via Discover ou sincronização de source do marketplace; o estado de builtin se relaciona ao sistema operacional remoto e à disponibilidade dos plugins integrados e deve passar por um julgamento de compatibilidade antes de sincronizar o estado de habilitação.
 
-对于 builtin plugin，最新结论是：资产缺失属于远端资源包构建/部署问题，不属于用户手动同步问题。远端理论上应原生支持 builtin plugin；如果远端插件页显示 0 个内置插件，根因应优先检查 `~/.zcode/server/agents/glm/packages/*-plugin` 是否随 `zcode.cjs` 一起部署。手动同步 builtin 会把产品原生能力变成用户补救步骤，还容易把官方插件误导入成 inline 插件，因此当前不做。
+Para plugins builtin, a conclusão mais recente é: a falta de assets é um problema de construção/deploy do pacote de recursos remoto, não um problema de sincronização manual pelo usuário. Em teoria o remoto deveria suportar plugins builtin nativamente; se a página de plugins remota mostrar 0 plugins integrados, a causa raiz deve ser verificada primeiro em `~/.zcode/server/agents/glm/packages/*-plugin`, checking se foi implantado junto com o `zcode.cjs`. A sincronização manual de builtin transformaria uma capacidade nativa do produto em um passo de remendo do usuário e ainda poderia importar um plugin oficial por engano como plugin inline; por isso não é feita.
 
-## UI 行为
+## Comportamento da UI
 
-- 只在 SSH remote workspace 暴露 plugin 同步入口；WSL/Docker/本地不新增入口。
-- 插件设置页和 Skill/MCP 设置页保持同一类 SSH 目标提示条、右上角同步入口和弹窗样式。
-- workspace 菜单、任务菜单与设置页中的远程同步入口统一使用 `Skill`、`MCP`、`Plugin` 的首字母大写技术名词，不因入口位置或语言不同退回小写。
-- 弹窗展示本机可同步的 inline plugin 和已安装 marketplace plugin、来源路径、版本、components、远端是否已存在。
-- 弹窗对已配置 options 显示概要：会尝试自动同步的本地 portable primitive 配置数量，以及因 sensitive、路径类型或本地 schema 缺失需要远端手动配置的数量；远端 schema 缺失或不兼容在同步日志中提示并跳过。
-- 弹窗默认展示远端已存在项，方便确认远端状态；默认只勾选远端缺失项，远端已存在项不可选、不重装。
-- 展示 hooks/MCP 风险提醒：同步后 plugin 内的 hooks/MCP 会在 SSH 主机环境执行。
-- 点击“同步已选项”后不再切换成单独的全局 loading 卡片；弹窗保留本次选中的 plugin card，并在对应 card 右侧展示 queued / syncing / synced / failed / stopped 状态。
-- 当前正在同步的 card 内展示 loading 状态；loading 图标打开可滚动日志浮层，展示该 plugin 的同步步骤日志，包括导出、导入、添加 marketplace、安装、写 enabled 状态、operationId、失败或停止原因；该日志不是远端 resolver 内部 shell/stdout 的完整转发。
-- 同步过程中每个未完成 plugin 都有单项 stop 按钮。点击 stop 后该 plugin 标记为 stopped，结果页记录“已停止”，同步队列继续处理后续 plugin。
-- 对 marketplace add/install，stop 会额外调用远端 `cancelPluginOperation(operationId)`。Agent server 收到后 abort 对应 operation 的 `AbortSignal`，adapter 需要把 signal 传给 git clone / fetch / 本地复制等可取消步骤。取消失败或远端版本不支持取消时，UI 仍按 stopped 继续后续 plugin，并在日志中记录降级原因。
-- stop 不取消未传 operationId 的普通插件管理操作，也不强制 abort inline archive export/import 或 `setPluginEnabled`；不影响本地 workspace 插件设置页原有 install / add marketplace / update 流程。
-- 同步成功后如存在可同步 options，调用远端 `plugins/configure` 写入 merge 后的 options；该步骤只对远程同步入口生效，不改变本地插件设置页的保存语义。
-- 同步完成后刷新远端 plugin store、shared skill store、commands store、当前 workspace 的 slashCommands，以及 MCP store 相关状态。
+- A entrada de sincronização de plugins só é exposta em workspace remoto SSH; WSL/Docker/local não recebem nova entrada.
+- A página de configurações de plugins e a de Skill/MCP mantêm o mesmo tipo de barra de dica de alvo SSH, a entrada de sincronização no canto superior direito e o estilo do diálogo.
+- As entradas de sincronização remota no menu de workspace, no menu de tarefas e na página de configurações usam uniformemente os termos técnicos capitalizados `Skill`, `MCP` e `Plugin`, sem voltar a minúsculas por causa da posição da entrada ou do idioma.
+- O diálogo exibe os plugins inline e de marketplace instalados que podem ser sincronizados a partir da máquina local, o caminho de origem, a versão, os components e se já existem no remoto.
+- Para options já configuradas, o diálogo mostra um resumo: a quantidade de configurações primitive portáveis locais que será tentada sincronizar automaticamente e a quantidade que precisa de configuração manual no remoto por ser sensitive, de tipo de caminho ou por schema local ausente; schema remoto ausente ou incompatível é indicado no log de sincronização e pulado.
+- Por padrão o diálogo exibe os itens que já existem no remoto, facilitando confirmar o estado remoto; por padrão apenas os itens ausentes no remoto vêm marcados, e os itens que já existem no remoto não são selecionáveis, não são reinstalados.
+- Mostra um lembrete de risco de hooks/MCP: depois da sincronização, os hooks/MCPs dentro do plugin serão executados no ambiente do host SSH.
+- Depois de clicar em "sincionar os itens selecionados", a UI não troca mais para um cartão separado de loading global; o diálogo mantém os plugin cards selecionados nesta rodada e exibe à direita do card correspondente os estados queued / syncing / synced / failed / stopped.
+- O card que está sincronizando mostra o estado de loading; o ícone de loading abre um overlay de log rolável com o log das etapas de sincronização daquele plugin, incluindo exportação, importação, adição de marketplace, instalação, escrita do estado enabled, operationId e o motivo da falha ou do stop; esse log não é um encaminhamento completo do shell/stdout interno do resolver remoto.
+- Durante a sincronização, cada plugin incompleto tem um botão de stop por item. Ao clicar em stop, o plugin é marcado como stopped, a página de resultado registra "interrompido" e a fila de sincronização continua processando os próximos plugins.
+- Para marketplace add/install, o stop chama adicionalmente o `cancelPluginOperation(operationId)` remoto. Ao receber, o agent server aborta o `AbortSignal` da operation correspondente, e o adapter precisa passar o signal para passos canceláveis como git clone / fetch / cópia local. Se o cancelamento falhar ou a versão remota não suportar cancelamento, a UI continua para os próximos plugins como stopped e registra no log o motivo da degradação.
+- O stop não cancela operações comuns de gestão de plugin sem operationId, não faz abort forçado do archive export/import inline nem do `setPluginEnabled`, e não afeta o fluxo original de install / add marketplace / update da página de configurações de plugins do workspace local.
+- Depois de uma sincronização bem-sucedida, se houver options sincronizáveis, o `plugins/configure` remoto é chamado para gravar as options já mescladas; esse passo só vale para a entrada de sincronização remota e não altera a semântica de salvamento da página de configurações de plugins local.
+- Depois da sincronização, o plugin store, o shared skill store, o commands store, os slashCommands do workspace atual e o estado relacionado ao MCP store remotos são atualizados.
 
-## 状态边界
+## Limites de estado
 
-- 本机 inline 服务只读本机用户配置和 plugin 目录，不修改本机 config/cache/data。
-- 远端 inline 导入只写远端用户 plugin 根和远端用户 config。
-- marketplace 同步只通过远端 Agent plugin 协议安装，不直接写远端 marketplace cache 或 `installed_plugins.json`。对本地 `file` / `directory` / `settings` marketplace source，只写远端 source mirror 目录，再通过远端 `addPluginMarketplace` 和 `installPlugin` 完成安装。
-- builtin plugin 资产由远端 resource 构建与部署负责，不由 plugin sync service 写入远端用户 plugin 目录。
-- identity/isolation 继续遵守 `workspaceIdentity?.trim() || workspacePath`；执行路径仍使用 `workspacePath`。
-- desktop continuous 与 mobile replayable 不因该功能改变。手机 `/remote` 仍通过 shared-host attachment 使用已有远端 host service，不创建独立 runtime。
+- O serviço inline local lê somente a configuração de usuário e os diretórios de plugin locais, sem modificar config/cache/data locais.
+- A importação inline remota escreve somente na raiz de plugins do usuário remoto e na config de usuário remota.
+- A sincronização de marketplace instala somente pelo protocolo de plugin do Agent remoto e não escreve diretamente no cache do marketplace remoto nem no `installed_plugins.json`. Para sources de marketplace locais `file` / `directory` / `settings`, escreve-se somente o diretório de source espelhado remoto, e a instalação é concluída pelo `addPluginMarketplace` e `installPlugin` remotos.
+- Os assets de plugin builtin são de responsabilidade da construção e do deploy dos recursos remotos e não são escritos pelo plugin sync service no diretório de plugins do usuário remoto.
+- Identity/isolation continua obedecendo a `workspaceIdentity?.trim() || workspacePath`; o caminho de execução continua usando `workspacePath`.
+- desktop continuous e mobile replayable não mudam por causa desta funcionalidade. O `/remote` do celular continua usando o remote host service existente via shared-host attachment, sem criar um runtime independente.
 
-## 接受用例
+## Casos de aceitação
 
-| ID | 场景 | 断言 |
+| ID | Cenário | Asserção |
 | --- | --- | --- |
-| RPS-INLINE-01 | 本机 `plugins.dirs` 有合法 inline plugin，远端缺失 | 导入到远端 `~/.zcode/plugins/<dir>`，远端 config 追加路径 |
-| RPS-INLINE-02 | 远端已有同 inline plugin id | 返回 skipped，不覆盖目录，不重复写 config |
-| RPS-INLINE-03 | 远端目标目录存在 | 返回 skipped，不覆盖目录 |
-| RPS-INLINE-04 | 本机 inline plugin 含 symlink | 导出失败，避免把任意宿主路径打包进远端 |
-| RPS-INLINE-05 | 本机 inline plugin 有 boolean enabled override | 远端 config 同步同一 enabled 状态 |
-| RPS-MKT-01 | 本机已安装 marketplace plugin，远端缺失且 marketplace 已存在 | 远端调用 `installPlugin` 安装同名 plugin，并调用 `setPluginEnabled` |
-| RPS-MKT-02 | 本机已安装 marketplace plugin，远端缺 marketplace，source 是 `github`/`git`/`url` | 远端先 `addPluginMarketplace`，再安装 plugin |
-| RPS-MKT-03 | 远端已有同 marketplace plugin id | 候选显示为已存在，不默认选中，不重装 |
-| RPS-MKT-04 | 远端 marketplace 安装失败 | 候选结果显示 failed 和远端 install diagnostics，不复制本机 cache fallback |
-| RPS-MKT-05 | 本机 marketplace plugin enabled=false | 远端安装成功后写入同一 disabled 状态 |
-| RPS-MKT-06 | 本机已安装 marketplace plugin，远端缺 marketplace，source 是 `directory` 且插件 source 是本地目录 | 本机导出选中 plugin 和同 marketplace 依赖 source，远端导入 source mirror，用远端目录 add marketplace 后安装 |
-| RPS-MKT-07 | 本机 marketplace source 是 `file` | 同步 marketplace JSON 及其相对 plugin source 目录，远端 install 不依赖本机路径 |
-| RPS-MKT-08 | 本机 marketplace source 是 `settings` 且 entry 是网络 source | 导出规范化 marketplace JSON，远端通过该 JSON add marketplace 后安装 |
-| RPS-MKT-09 | 本机 marketplace source 是 `settings` 但 entry 是无法定位的本地相对 source | 同步该 plugin 失败并显示 source root 无法还原，不复制 cache fallback |
-| RPS-OPT-01 | 本机 plugin 保存了非敏感 primitive options | 远端 plugin 导入/安装成功后，读取远端 schema，merge 远端已有 options，再调用 `plugins/configure` 写入这些 key |
-| RPS-OPT-02 | 本机 plugin 保存了 sensitive、file 或 directory options | 默认不自动同步这些 key，结果日志提示需要远端手动配置 |
-| RPS-OPT-03 | 远端 plugin schema 缺少同名 option 或类型不兼容 | 不写该 key，避免把本机旧 schema 的配置塞进远端 config |
-| RPS-OPT-04 | 远端已有其它 options | 同步本机 portable key 时保留远端已有 key，不因 `plugins/configure` 的替换语义删除远端配置 |
-| RPS-UX-01 | 同步多个 plugin，其中一个远端安装很慢 | 弹窗保留 plugin 列表，只有当前 plugin card 显示 loading，hover loading 可看到该项同步日志 |
-| RPS-UX-02 | 同步过程中点击某个 plugin 的 stop | 该 plugin 结果变为 stopped，队列继续后续 plugin；若当前步骤是 marketplace add/install，则发送对应 operationId 的远端取消请求 |
-| RPS-UX-03 | 同步完成页展示失败项 | 右侧结果状态使用紧凑状态徽标，不使用高窄按钮状容器 |
-| RPS-UX-04 | 同步日志较长 | 日志浮层可滚动，不使用非交互 tooltip 承载长日志 |
-| RPS-BUILTIN-01 | 生产远端资源包构建 | `glm/<platform>` 同时包含 `zcode.cjs` 和 `packages/*-plugin/.zcode-plugin/plugin.json` |
-| RPS-BUILTIN-02 | 远端已有同版本 `zcode.cjs` 但缺 builtin packages | 部署不能跳过 ZCode Agent；必须补齐 `~/.zcode/server/agents/glm/packages/*-plugin` |
-| RPS-BUILTIN-03 | 开发态 SSH 部署本地 `zcode.cjs` | 同步上传本地官方插件 packages，远端 `plugins list` 能发现 `source:"official"` 插件 |
-| RPS-BUILTIN-04 | Windows / macOS / Linux 桌面侧为 SSH 本地上传重打 builtin packages tar | tar 中所有目录条目均为 `0755`；远端解包后 `rm -rf ~/.zcode/server/agents/glm/packages` 可正常更新资源 |
-| RPS-BUILTIN-05 | 远端遗留不可遍历的 `~/.zcode/server/agents/glm/packages`，builtin manifest 检查失败 | 部署先执行 owner `rwX` 修复，再进入正常 packages 刷新，用户无需手工 chmod |
+| RPS-INLINE-01 | O `plugins.dirs` local tem um plugin inline válido e o remoto não tem | Importa para `~/.zcode/plugins/<dir>` no remoto e acrescenta o caminho na config remota |
+| RPS-INLINE-02 | O remoto já tem o mesmo plugin id inline | Retorna skipped, não sobrescreve o diretório e não regrava a config |
+| RPS-INLINE-03 | O diretório alvo remoto já existe | Retorna skipped, não sobrescreve o diretório |
+| RPS-INLINE-04 | O plugin inline local contém symlink | A exportação falha, evitando empacotar caminhos arbitrários do host para o remoto |
+| RPS-INLINE-05 | O plugin inline local tem um override enabled boolean | A config remota recebe o mesmo estado enabled |
+| RPS-MKT-01 | Plugin de marketplace instalado localmente, ausente no remoto e com marketplace já existente | O remoto chama `installPlugin` para instalar o plugin de mesmo nome e chama `setPluginEnabled` |
+| RPS-MKT-02 | Plugin de marketplace instalado localmente, sem marketplace no remoto e com source `github`/`git`/`url` | O remoto faz `addPluginMarketplace` primeiro e só então instala o plugin |
+| RPS-MKT-03 | O remoto já tem o mesmo plugin id de marketplace | O candidato aparece como já existente, não vem marcado por padrão e não é reinstalado |
+| RPS-MKT-04 | A instalação do marketplace remoto falha | O resultado do candidato mostra failed e os diagnósticos de install remotos, sem fallback de cache local |
+| RPS-MKT-05 | O plugin de marketplace local está com enabled=false | Após a instalação remota bem-sucedida, o mesmo estado disabled é escrito |
+| RPS-MKT-06 | Plugin de marketplace instalado localmente, sem marketplace no remoto, com source `directory` e plugin source em diretório local | O local exporta o plugin selecionado e as sources de dependência do mesmo marketplace, o remoto importa o source mirror, faz add do marketplace com o diretório remoto e instala |
+| RPS-MKT-07 | A source do marketplace local é `file` | Sincroniza o JSON do marketplace e os diretórios de source relativos dos plugins, e o install remoto não depende de caminhos locais |
+| RPS-MKT-08 | A source do marketplace local é `settings` e a entry é uma source de rede | Exporta o JSON do marketplace normalizado e o remoto faz add do marketplace por esse JSON antes de instalar |
+| RPS-MKT-09 | A source do marketplace local é `settings` mas a entry é uma source relativa local que não pode ser localizada | A sincronização desse plugin falha mostrando que a source root não pôde ser restaurada, sem fallback de cache |
+| RPS-OPT-01 | O plugin local salvou options primitive não sensíveis | Após a importação/instalação remota bem-sucedida, lê o schema remoto, faz merge com as options já existentes e chama `plugins/configure` para gravar essas keys |
+| RPS-OPT-02 | O plugin local salvou options sensitive, file ou directory | Essas keys não são sincronizadas por padrão e o log de resultado indica a necessidade de configuração manual no remoto |
+| RPS-OPT-03 | O schema do plugin remoto não tem a option de mesmo nome ou o tipo é incompatível | A key não é escrita, evitando colocar a configuração de um schema local antigo na config remota |
+| RPS-OPT-04 | O remoto já tem outras options | Ao sincronizar as keys portáveis locais, as keys já existentes no remoto são preservadas e não são apagadas pela semântica de substituição de `plugins/configure` |
+| RPS-UX-01 | Sincronizar vários plugins, sendo que a instalação remota de um deles é muito lenta | O diálogo mantém a lista de plugins, apenas o card do plugin atual mostra loading e o hover no loading mostra o log de sincronização daquele item |
+| RPS-UX-02 | Clicar em stop em um plugin durante a sincronização | O resultado desse plugin vira stopped e a fila segue para os próximos plugins; se o passo atual for marketplace add/install, é enviado o pedido remoto de cancelamento do operationId correspondente |
+| RPS-UX-03 | A página de conclusão da sincronização mostra os itens com falha | O estado do resultado à direita usa um badge de status compacto, e não um container estreito e alto em forma de botão |
+| RPS-UX-04 | O log de sincronização é longo | O overlay de log é rolável e não usa um tooltip não interativo para carregar log longo |
+| RPS-BUILTIN-01 | Construção do pacote de recursos remoto de produção | `glm/<platform>` contém ao mesmo tempo `zcode.cjs` e `packages/*-plugin/.zcode-plugin/plugin.json` |
+| RPS-BUILTIN-02 | O remoto já tem o `zcode.cjs` da mesma versão, mas faltam os builtin packages | O deployment não pode pular o ZCode Agent; é preciso completar `~/.zcode/server/agents/glm/packages/*-plugin` |
+| RPS-BUILTIN-03 | Deployment SSH de dev do `zcode.cjs` local | O sync envia os packages de plugins oficiais locais e o `plugins list` remoto consegue descobrir plugins com `source:"official"` |
+| RPS-BUILTIN-04 | O lado desktop Windows / macOS / Linux regera o tar dos builtin packages para o upload local via SSH | Todas as entradas de diretório no tar são `0755`; depois da extração no remoto, `rm -rf ~/.zcode/server/agents/glm/packages` consegue atualizar os recursos normalmente |
+| RPS-BUILTIN-05 | O remoto ficou com `~/.zcode/server/agents/glm/packages` não travessável e a checagem do manifest builtin falha | O deployment faz primeiro a correção de owner `rwX` e só então entra na atualização normal dos packages, sem exigir chmod manual do usuário |
 
-## 测试计划
+## Plano de testes
 
-- `packages/services/test/pluginSyncService.test.ts` 覆盖 inline 候选枚举、导出导入、冲突跳过、安全路径和 enabled 状态。
-- `packages/services/test/pluginSyncService.test.ts` 覆盖 marketplace source archive 的 `directory`、`file`、`settings` 导出导入、本地依赖闭包、无法还原 source root 的失败路径。
-- `packages/ui/test/remotePluginSyncDialog.test.ts` 覆盖 inline/marketplace 行构造、默认选择、远端已存在过滤、marketplace source 序列化和结果渲染。
-- `packages/ui/test/remotePluginSyncDialog.test.ts` 覆盖非网络 marketplace source 缺失时先 source mirror、再 `addPluginMarketplace(remotePath)`、再安装。
-- `packages/ui/test/remotePluginSyncDialog.test.ts` 覆盖逐项同步进度、单项 stop 后继续后续 plugin、stopped 结果和同步日志事件。
-- `packages/ui/test/remotePluginSyncDialog.test.ts` 覆盖 options 安全子集同步、schema 不兼容跳过、与远端已有 options merge。
-- `packages/ui/test/remotePluginSyncRefresh.test.ts` 覆盖同步后即使命令设置页未加载，也会刷新当前远端 workspace 的 `slashCommands`。
-- `packages/ui/test/remoteSyncActions.test.ts` 覆盖 SSH-only plugin 同步入口和 dialog 注入。
-- `packages/desktop/test/*remote*Services.test.ts` 覆盖 remote service collection 使用远端 `pluginSyncService` 和远端 Agent plugin 协议。
-- `packages/server/test/remoteDeploy.test.ts` 覆盖 remote bundle marker 包含 `plugin-sync`。
-- `packages/server/test/remoteDeploy.test.ts` 覆盖 ZCode Agent 部署安装 builtin `packages` 目录，以及远端缺 builtin packages 时不会跳过部署。
-- `packages/desktop/test/runtime-asset-scripts.test.ts` 覆盖 remote asset 构建脚本把 official plugin packages stage 到 `glm/<platform>/packages`。
-- 手工验证：SSH 到 macOS/Linux 远端，分别同步 inline plugin、Claude 官方 marketplace plugin、自定义 github/git/url marketplace plugin，检查远端 `installed_plugins.json`、`config.json.plugins.enabledPlugins` 和 plugin cache。
+- `packages/services/test/pluginSyncService.test.ts` cobre a enumeração de candidatos inline, exportação/importação, pulo de conflito, caminhos seguros e estado enabled.
+- `packages/services/test/pluginSyncService.test.ts` cobre a exportação/importação de archive de source de marketplace `directory`, `file` e `settings`, o closure de dependências local e os caminhos de falha de source root não restaurável.
+- `packages/ui/test/remotePluginSyncDialog.test.ts` cobre a construção das linhas inline/marketplace, a seleção padrão, o filtro de itens já existentes no remoto, a serialização de source do marketplace e a renderização do resultado.
+- `packages/ui/test/remotePluginSyncDialog.test.ts` cobre source de marketplace não rede ausente: primeiro o source mirror, depois `addPluginMarketplace(remotePath)` e só então a instalação.
+- `packages/ui/test/remotePluginSyncDialog.test.ts` cobre o progresso de sincronização por item, o stop por item seguido do início dos próximos plugins, o resultado stopped e os eventos do log de sincronização.
+- `packages/ui/test/remotePluginSyncDialog.test.ts` cobre a sincronização do subconjunto seguro de options, o pulo por schema incompatível e o merge com as options já existentes no remoto.
+- `packages/ui/test/remotePluginRefresh.test.ts` cobre a atualização dos `slashCommands` do workspace remoto atual após a sincronização, mesmo sem a página de configurações de comandos carregada.
+- `packages/ui/test/remoteSyncActions.test.ts` cobre a entrada de sincronização de plugins exclusiva de SSH e a injeção do diálogo.
+- `packages/desktop/test/*remote*Services.test.ts` cobre o uso, pela coleção de services remotos, do `pluginSyncService` remoto e do protocolo de plugin do Agent remoto.
+- `packages/server/test/remoteDeploy.test.ts` cobre o marker `plugin-sync` no remote bundle.
+- `packages/server/test/remoteDeploy.test.ts` cobre a instalação, no deployment do ZCode Agent, do diretório de `packages` builtin, além de o fato de o deploy não ser pulado quando faltam builtin packages no remoto.
+- `packages/desktop/test/runtime-asset-scripts.test.ts` cobre o script de build de assets remotos fazer stage dos packages de plugins oficiais em `glm/<platform>/packages`.
+- Verificação manual: conectar por SSH em remotos macOS/Linux e sincronizar, respectivamente, um plugin inline, um plugin de marketplace oficial do Claude e um plugin de marketplace customizado via github/git/url, conferindo o `installed_plugins.json`, o `config.json.plugins.enabledPlugins` e o cache de plugins no remoto.

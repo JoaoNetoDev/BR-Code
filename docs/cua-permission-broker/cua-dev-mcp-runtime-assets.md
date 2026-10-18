@@ -1,11 +1,8 @@
-# CUA Dev node_repl SDK Runtime 资产闭环
+# Ciclo de vida dos assets de runtime do SDK node_repl no CUA Dev
 
-## 目标
+## Objetivo
 
-CUA 不再有独立 MCP launcher。桌面 Dev 只需播种 CUA SDK、Skill 和按需 docs，复用
-Browser Use 与 Computer Use 共用的 shared `node_repl` MCP（只有 `js` 一个工具）。
-原生 Helper、frame registry、kill switch、input hold 和 `possibly_sent` 仍由 shared-host
-`CuaControlPort` 持有；手机端只能 attachment 到已有 host。
+O CUA não possui mais um launcher MCP independente. O Dev desktop precisa apenas semear o SDK do CUA, a Skill e a documentação sob demanda, reutilizando o MCP shared `node_repl` compartilhado entre Browser Use e Computer Use (com apenas a ferramenta `js`). O Helper nativo, o frame registry, o kill switch, o input hold e o `possibly_sent` continuam sendo mantidos pela `CuaControlPort` do shared-host; o celular só pode se conectar como attachment a um host já existente.
 
 ```text
 pnpm dev:desktop
@@ -21,41 +18,37 @@ pnpm dev:desktop
                               -> CuaControlPort -> BrokerClient -> Helper
 ```
 
-没有 broker/权限时 SDK 返回明确 unavailable；不会在 relay、手机端或每个 session 另起
-Helper/CUA runtime。桌面使用 `desktop-continuous`，手机使用 `web-remote-replayable`。
+Sem broker/permissão a SDK retorna unavailable de forma explícita; não se cria Helper/CUA runtime adicional no relay, no celular ou em cada session. O desktop usa `desktop-continuous` e o celular usa `web-remote-replayable`.
 
-## 资产与状态边界
+## Limites de assets e estado
 
-| 事实 | 权威 owner | 产物/校验 |
+| Fato | Owner autoritativo | Artefato/verificação |
 | --- | --- | --- |
 | CUA SDK | `@zcode/zcode-cua-plugin` | `scripts/computer-use-client.mjs` + `scripts/check-sdk.mjs` |
-| CUA 文档与 Skill | producer plugin | `docs/computer-use.md`、`skills/computer-use/SKILL.md` |
-| node_repl MCP | `@zcode/browser-use-plugin` | `dist/mcp/server.js` + `scripts/computer-use-client.mjs`（shared host runtime） |
-| CUA runtime/session/frame | shared-host `CuaControlPort` | `createComputerUseRuntime()`；按 `workspaceKey`/`remoteSessionId`/`sessionId` 隔离 |
-| native capability | CUA Helper + TCC | broker token、frame freshness、kill switch、input cleanup |
+| Documentação e Skill do CUA | plugin producer | `docs/computer-use.md`, `skills/computer-use/SKILL.md` |
+| node_repl MCP | `@zcode/browser-use-plugin` | `dist/mcp/server.js` + `scripts/computer-use-client.mjs` (shared host runtime) |
+| CUA runtime/session/frame | `CuaControlPort` do shared-host | `createComputerUseRuntime()`; isolado por `workspaceKey`/`remoteSessionId`/`sessionId` |
+| native capability | CUA Helper + TCC | broker token, frame freshness, kill switch, input cleanup |
 
-## 必须保持的约束
+## Restrições que precisam ser mantidas
 
-- 新会话的模型工具投影只有 `mcp__node_repl__js`；旧 `mcp__computer-use__*` 配置和已删除的
-  `js_reset` / `js_add_node_module_dir` 在 bootstrap 中丢弃，历史 transcript 仅只读回放。
-- 每次 `js` Worker 都重新 bootstrap SDK，但不会销毁 shared-host CUA runtime 或 frame state。
-- node_repl bridge 请求必须带 `workspaceIdentity`、`workspacePath`、`workspaceKey`、
-  `sessionId`、`remoteSessionId`、`turnId`、`traceId`、`clientMode`、`deliveryKind`；subagent
-  在 bridge 入口 fail closed。
-- broker 凭据只注入可信 shared node_repl；plugin host 不再接受旧的 CUA argv socket 入口。
+- A projeção de ferramentas de modelo de uma nova sessão tem apenas `mcp__node_repl__js`; as configurações antigas de `mcp__computer-use__*` e o `js_reset` / `js_add_node_module_dir` já removidos são descartados no bootstrap, e o transcript histórico é apenas uma reprodução somente leitura.
+- Cada Worker de `js` faz bootstrap da SDK novamente, mas não destrói o runtime CUA do shared-host nem o state de frames.
+- As requisições do bridge node_repl precisam carregar `workspaceIdentity`, `workspacePath`, `workspaceKey`, `sessionId`, `remoteSessionId`, `turnId`, `traceId`, `clientMode` e `deliveryKind`; o subagent falha fechado na entrada do bridge.
+- Credenciais de broker são injetadas apenas no shared node_repl confiável; o plugin host não aceita mais a entrada antiga de socket argv do CUA.
 
-## 验收用例
+## Casos de aceitação
 
-| Case | 验证 |
+| Case | Verificação |
 | --- | --- |
-| SDK 30 方法契约 | producer manifest/schema 与 SDK 方法 union 一一对应 |
-| Worker 重建 | 多次 `node_repl js` 调用可重新 bootstrap，CUA runtime/session 状态保持 |
-| 图片结果 | SDK 将 CUA image block 送入通用 `nodeRepl.emitImage`，不把 base64 变成文本 |
-| 无 broker/权限 | 返回 unavailable/permission error，不启动独立 MCP/Helper |
-| 远程边界 | desktop continuous 与 web remote replayable 共享 attachment，不把 CUA 状态放进 relay/snapshot |
-| 历史记录 | 旧 `mcp__computer-use__*` 可查看但不能重新执行或重新注入 |
+| Contrato de 30 métodos da SDK | o manifest/schema do producer corresponde um a um à união de métodos da SDK |
+| Reconstrução do Worker | múltiplas chamadas `node_repl js` podem refazer o bootstrap, mantendo o estado de runtime/session do CUA |
+| Resultado de imagem | a SDK envia o bloco de imagem do CUA para o `nodeRepl.emitImage` genérico, sem transformar base64 em texto |
+| Sem broker/permissão | retorna unavailable/permission error, sem iniciar MCP/Helper independente |
+| Limite remoto | desktop continuous e web remote replayable compartilham o attachment, sem colocar o estado do CUA em relay/snapshot |
+| Histórico | o antigo `mcp__computer-use__*` pode ser visualizado, mas não reexecutado nem reinjetado |
 
-## 相关实现
+## Implementações relacionadas
 
 - `apps/zcode-cli/packages/browser-use-plugin/src/cua-bridge.ts`
 - `apps/zcode-cli/packages/browser-use-plugin/src/mcp/cua-broker.ts`

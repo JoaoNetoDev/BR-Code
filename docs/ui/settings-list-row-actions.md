@@ -1,13 +1,13 @@
-# 设置列表项操作按钮
+# Botões de ação dos itens da lista de configurações
 
-## 交互规范
+## Especificação de interação
 
-- 设置列表每一项右侧的纯图标操作统一使用 `Button variant="ghost" size="icon-md"`（28px）。
-- 编辑、删除等同组图标按钮使用 `gap-1`（4px）。
-- Switch、授权等独立控件与图标按钮组使用 `gap-2`（8px）。
-- 只有一个操作时不额外制造占位间距；Memory 行尾导航箭头不是操作按钮，不套用按钮尺寸。
+- As ações apenas com ícone à direita de cada item da lista de configurações usam uniformemente `Button variant="ghost" size="icon-md"` (28px).
+- Botões de ícone do mesmo grupo, como editar e excluir, usam `gap-1` (4px).
+- Controles independentes, como Switch e autorização, usam `gap-2` (8px) em relação ao grupo de botões de ícone.
+- Quando há apenas uma ação, não se cria espaçamento extra de preenchimento; a seta de navegação no fim da linha de Memory não é um botão de ação e não recebe o tamanho de botão.
 
-## 当前覆盖
+## Cobertura atual
 
-- 命令、钩子、子智能体、MCP 列表项的编辑与删除。
-- 插件商店列表项的更多菜单。
+- Edição e exclusão dos itens das listas de comandos, hooks, subagentes e MCP.
+- Menu "mais" dos itens da loja de plugins.

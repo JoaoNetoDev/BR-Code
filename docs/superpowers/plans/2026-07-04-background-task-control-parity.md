@@ -1,102 +1,128 @@
-# Background Task Control Implementation Plan
+# Plano de implementação do controle de background tasks
 
-> Status: implemented and archived. This file records the final scope, phase outcomes, verification commands, and intentionally deferred capabilities for future work.
+> Status: implementado e arquivado. Este arquivo registra o escopo final, os resultados por fase, os
+> comandos de verificação e as capacidades deliberadamente adiadas para trabalho futuro.
 
-## Goal
+## Objetivo
 
-为已经进入 background 的 `local_bash` 和 `local_agent` 提供用户可触发的 stop/cancel 控制能力，并实现 provider-visible `TaskStop` tool。实现必须复用现有 `RuntimeTaskRegistry`、background notification、runtime command queue、session projection 和 `session/cancelBackgroundTask` 链路，不新增第二套 background manager、poller、wake 或 UI stop path。
+Oferecer controle de stop/cancel acionável pelo usuário para `local_bash` e `local_agent` que já
+entraram em background, e implementar a tool `TaskStop` visível ao provider. A implementação precisa
+reaproveitar o `RuntimeTaskRegistry`, a notificação de background, a fila de comandos do runtime, a
+projeção de session e a cadeia `session/cancelBackgroundTask` já existentes, sem criar um segundo
+background manager, poller, wake ou caminho de stop na UI.
 
-## Final Architecture
+## Arquitetura final
 
-- Runtime 内有 registry-first background task stop dispatcher。
-- `TaskStop` tool 和 UI/session cancel 共用同一个 dispatcher。
-- `local_bash` stop 分发到 `ExecutionPort.cancelBackgroundTask(taskId)`。
-- `local_agent` stop 分发到 `SubagentPort.stopTask(taskId)`。
-- `TaskStop.command` 语义：`local_bash` 使用实际命令，`local_agent` 使用短 `description`；完整 subagent `prompt` 不得进入 stop result。
-- terminal 状态继续走 registry terminal update -> task notification -> runtime command queue。
-- UI 只保留 SummaryPanel 这一处 background task control surface。
-- `AgentToolCallBlock` 只负责 background Agent 详情展示，不复制 stop 请求逻辑。
-- stop RPC ACK 只表示 runtime 接收了停止请求；UI stop pending 会等 background task control 状态不再 active 后再释放。
+- há no Runtime um dispatcher de stop de background task com registry-first;
+- a tool `TaskStop` e o cancel por UI/session compartilham o mesmo dispatcher;
+- o stop de `local_bash` é despachado para `ExecutionPort.cancelBackgroundTask(taskId)`;
+- o stop de `local_agent` é despachado para `SubagentPort.stopTask(taskId)`;
+- semântica de `TaskStop.command`: `local_bash` usa o comando real, `local_agent` usa a `description`
+  curta; o `prompt` completo do subagent não pode entrar no resultado do stop;
+- o estado terminal continua passando por registry terminal update -> task notification -> runtime
+  command queue;
+- a UI mantém apenas o SummaryPanel como superfície de controle de background task;
+- o `AgentToolCallBlock` é responsável apenas por exibir os detalhes do Agent em background e não
+  duplica a lógica de requisição de stop;
+- o ACK de stop via RPC indica apenas que o runtime recebeu a requisição de parada; o stop pendente na
+  UI só é liberado quando o estado de controle da background task deixa de estar active.
 
-## Code Anchors
+## Âncoras de código
 
-- `TaskStop` contract: `apps/zcode-cli/packages/contracts/src/tools/task-stop.ts`
-- `TaskStop` model-facing handler: `apps/zcode-cli/packages/core/src/tool/handlers/task-stop.ts`
-- Runtime background stop dispatch: `apps/zcode-cli/packages/core/src/runtime/methods/background.ts`
-- UI/session cancel protocol: `session/cancelBackgroundTask` in `packages/shared/src/zcode-protocol/index.ts`
-- Bash task stop: `apps/zcode-cli/packages/adapters/src/exec/node-execution-adapter-lifecycle.ts`
-- Agent task stop: `apps/zcode-cli/packages/core/src/subagent/runner.ts`
+- contrato de `TaskStop`: `apps/zcode-cli/packages/contracts/src/tools/task-stop.ts`
+- handler de `TaskStop` voltado ao model: `apps/zcode-cli/packages/core/src/tool/handlers/task-stop.ts`
+- dispatch de stop de background no Runtime: `apps/zcode-cli/packages/core/src/runtime/methods/background.ts`
+- protocolo de cancel por UI/session: `session/cancelBackgroundTask` em `packages/shared/src/zcode-protocol/index.ts`
+- stop de task Bash: `apps/zcode-cli/packages/adapters/src/exec/node-execution-adapter-lifecycle.ts`
+- stop de task Agent: `apps/zcode-cli/packages/core/src/subagent/runner.ts`
 
-## Completed Phases
+## Fases concluídas
 
-### Phase 0 - Spec and Baseline Guard
+### Fase 0 - Spec e guarda de baseline
 
-- [x] Fixed scope to already-background `local_bash` / `local_agent` stop control plus provider-visible `TaskStop`.
-- [x] Kept foreground-to-background controls, `TaskOutput`, and non-shared task types out of this round.
-- [x] Recorded code anchors and current ZCode starting points.
+- [x] Escopo fixado no controle de stop de `local_bash` / `local_agent` já em background, mais a
+  `TaskStop` visível ao provider.
+- [x] Controles foreground-to-background, `TaskOutput` e tipos de task não compartilhados ficaram fora
+  desta rodada.
+- [x] Âncoras de código e pontos de partida atuais do ZCode registrados.
 
-### Phase 1 - Runtime Stop Dispatcher
+### Fase 1 - Dispatcher de stop do Runtime
 
-- [x] Added registry-first runtime background task stop dispatch.
-- [x] Preserved idempotent UI/session behavior for missing or already-terminal tasks.
-- [x] Added strict/tool behavior for `TaskStop` validation errors.
-- [x] Kept dispatcher free of new queue, poller, timer, or provider-visible notification generation.
+- [x] Adicionado dispatch de stop de background task no runtime com registry-first.
+- [x] Preservado o comportamento idempotente de UI/session para tasks ausentes ou já terminais.
+- [x] Adicionado comportamento estrito de tool para erros de validação de `TaskStop`.
+- [x] O dispatcher permanece livre de novas filas, pollers, timers ou geração de notificação visível
+  ao provider.
 
-### Phase 2 - Subagent Stop Handler
+### Fase 2 - Handler de stop do subagent
 
-- [x] Added `SubagentPort.stopTask()` for running background `local_agent`.
-- [x] Background Agent stop uses the saved lifecycle controller and writes terminal state through the same background completion path.
-- [x] Stop does not mutate UI projection as the source of truth.
-- [x] Existing launch/run/start/backgroundTask/sendMessage behavior remains owned by the subagent runtime.
+- [x] Adicionado `SubagentPort.stopTask()` para `local_agent` em execução em background.
+- [x] O stop do Agent em background usa o controller de ciclo de vida salvo e grava o estado terminal
+  pelo mesmo caminho de conclusão de background.
+- [x] O stop não usa a projeção da UI como fonte de verdade.
+- [x] O comportamento existente de launch/run/start/backgroundTask/sendMessage continua pertencendo ao
+  runtime de subagent.
 
-### Phase 3 - Terminal Idempotency and Notification Ordering
+### Fase 3 - Idempotência terminal e ordem de notificação
 
-- [x] Stop and natural completion are terminal-idempotent for Bash and Agent.
-- [x] `notified` is only marked after notification enqueue succeeds.
-- [x] Background terminal order remains registry terminal update -> enqueue notification -> async event/projection.
-- [x] Goal defer continues to read `RuntimeTaskRegistry` running background tasks rather than UI projection.
+- [x] Stop e conclusão natural são terminal-idempotentes para Bash e Agent.
+- [x] `notified` só é marcado depois que o enqueue da notificação tem sucesso.
+- [x] A ordem terminal de background continua sendo registry terminal update -> enqueue notification ->
+  event/projeção assíncrona.
+- [x] O defer do goal continua lendo as background tasks em execução de `RuntimeTaskRegistry` em vez
+  da projeção da UI.
 
-### Phase 4 - Provider-visible TaskStop Tool
+### Fase 4 - Tool TaskStop visível ao provider
 
-- [x] Added `TaskStop` contract and handler.
-- [x] Input supports `task_id` and deprecated `shell_id` alias.
-- [x] Validation returns distinct errors for missing id, not found task, and not-running task.
-- [x] Result is JSON-compatible and does not expose internal snapshots/projections.
-- [x] Result `command` 对 `local_agent` 取 runtime task 的短 `description`，成功消息括号内复用同一值，不暴露完整 `prompt`。
-- [x] `KillShell` / `KillBash` aliases are supported through runtime lookup without becoming provider-visible tools.
-- [x] Default child runtimes can expose `TaskStop` for runtime-local background tasks; custom profiles still use existing allow/disallow filtering.
+- [x] Adicionados o contrato e o handler de `TaskStop`.
+- [x] A entrada aceita `task_id` e o alias obsoleto `shell_id`.
+- [x] A validação retorna erros distintos para id ausente, task não encontrada e task não em execução.
+- [x] O resultado é compatível com JSON e não expõe snapshots/projeções internas.
+- [x] O campo `command` do resultado usa a `description` curta da runtime task para `local_agent`, e a
+  mensagem de sucesso reutiliza o mesmo valor entre parênteses, sem expor o `prompt` completo.
+- [x] Os aliases `KillShell` / `KillBash` são suportados via lookup no runtime, sem se tornarem tools
+  visíveis ao provider.
+- [x] Runtimes filhos padrão podem expor `TaskStop` para background tasks locais ao runtime; perfis
+  customizados continuam usando o filtro existente de allow/disallow.
 
-### Phase 5 - Protocol and UI Control Surface
+### Fase 5 - Protocolo e superfície de controle da UI
 
-- [x] Kept `session/cancelBackgroundTask` protocol name to avoid protocol churn.
-- [x] Added generic background task control item model for Bash and Agent.
-- [x] Removed the duplicated long-running background task panel surface.
-- [x] SummaryPanel is now the single background task control surface.
-- [x] Bash and Agent tasks share the same stop button behavior and protocol call.
-- [x] Stop button is disabled per task while stop is pending.
-- [x] Stop pending is cleared only after the task is no longer active, not immediately after stop RPC ACK.
-- [x] Snapshot/replay cache keys preserve `workspaceIdentity` / `workspacePath` semantics.
+- [x] O nome de protocolo `session/cancelBackgroundTask` foi mantido para evitar churn de protocolo.
+- [x] Adicionado um modelo de item de controle genérico de background task para Bash e Agent.
+- [x] Removida a superfície duplicada de painel de background task de longa duração.
+- [x] O SummaryPanel agora é a única superfície de controle de background task.
+- [x] Tasks Bash e Agent compartilham o mesmo comportamento de botão de stop e a mesma chamada de
+  protocolo.
+- [x] O botão de stop fica desabilitado por task enquanto o stop está pendente.
+- [x] O stop pendente só é limpo depois que a task deixa de estar active, e não imediatamente após o
+  ACK do RPC de stop.
+- [x] As chaves de cache de snapshot/replay preservam a semântica de `workspaceIdentity` /
+  `workspacePath`.
 
-### Phase 6 - E2E Coverage
+### Fase 6 - Cobertura E2E
 
-- [x] Updated conversation-session case catalog and coverage matrix for background control cases.
-- [x] Promoted E2E coverage for background Bash UI stop.
-- [x] Promoted E2E coverage for background Agent UI stop.
-- [x] Promoted E2E coverage for `TaskStop` Agent path.
-- [x] Background Agent natural completion display regression is covered by promoted background E2E.
-- [x] Stop/control E2E cases use explicit setup, action, and assertion.
+- [x] Catálogo de casos de conversation-session e matriz de cobertura atualizados para os casos de
+  controle de background.
+- [x] Cobertura E2E promovida para o stop de UI de Bash em background.
+- [x] Cobertura E2E promovida para o stop de UI de Agent em background.
+- [x] Cobertura E2E promovida para o caminho de `TaskStop` em Agent.
+- [x] A regressão de exibição de conclusão natural do Agent em background está coberta pelo E2E de
+  background promovido.
+- [x] Casos E2E de stop/controle usam setup, ação e asserção explícitos.
 
-### Phase 7 - Regression Gate
+### Fase 7 - Gate de regressão
 
-- [x] Ran focused core, UI, shared, service, and E2E replay validation during implementation.
-- [x] Ran `pnpm typecheck`.
-- [x] Ran `pnpm lint`.
-- [x] Ran `git diff --check`.
-- [x] Reviewed provider-visible changes and kept background notification XML shape unchanged for this scope.
+- [x] Validação de replay E2E e testes focados de core, UI, shared e services executados durante a
+  implementação.
+- [x] `pnpm typecheck` executado.
+- [x] `pnpm lint` executado.
+- [x] `git diff --check` executado.
+- [x] Mudanças visíveis ao provider revisadas e a forma XML da notificação de background mantida
+  inalterada neste escopo.
 
-## Validation Record
+## Registro de validação
 
-Commands run during implementation and cleanup:
+Comandos executados durante a implementação e a limpeza:
 
 ```bash
 pnpm exec oxfmt --check apps/zcode-cli/packages/core/src/tool/executor/impl.ts apps/zcode-cli/packages/core/tests/task-stop-tool.test.ts apps/zcode-cli/packages/core/tests/tool-contracts.test.ts packages/desktop/test/e2e/conversation-session/conversation-session-background.test.ts
@@ -112,24 +138,28 @@ pnpm lint
 git diff --check
 ```
 
-## Intentional Deferred Scope
+## Escopo deliberadamente adiado
 
-These are known adjacent capabilities, but they were intentionally not implemented in this plan:
+Estas são capacidades adjacentes conhecidas, mas que foram deliberadamente não implementadas neste
+plano:
 
-- Deferred: SDK/control `background_tasks` foreground-to-background command.
-- Deferred: Ctrl+B or keyboard-triggered foreground-to-background conversion.
-- Deferred: `TaskOutput` / output retrieval.
-- Deferred: single output-file convergence for Bash notifications.
-- Deferred: manual controls for monitor/workflow unless product scope expands.
-- Deferred: mobile Web replayable E2E promotion for this specific control surface; implementation preserves `workspaceIdentity` / `workspacePath` boundaries, but mobile replayable promotion remains a separate validation item.
+- Adiado: comando foreground-to-background `background_tasks` de SDK/controle.
+- Adiado: conversão foreground-to-background por Ctrl+B ou gatilho de teclado.
+- Adiado: `TaskOutput` / recuperação de output.
+- Adiado: convergência para um único arquivo de output nas notificações de Bash.
+- Adiado: controles manuais para monitor/workflow, a menos que o escopo de produto seja ampliado.
+- Adiado: promoção de E2E de replayable do mobile para esta superfície de controle específica; a
+  implementação preserva as fronteiras de `workspaceIdentity` / `workspacePath`, mas a promoção de
+  replayable do mobile continua sendo um item de validação separado.
 
-## Final Self-Review
+## Auto-revisão final
 
-- [x] Changed behavior traces back to the spec scope above or current ZCode behavior.
-- [x] No generic background manager was added.
-- [x] `local_bash` and `local_agent` stop through one runtime dispatcher.
-- [x] Stop lifecycle is registry-first rather than projection-first.
-- [x] Completed/stopped background tasks still wake main through task notification.
-- [x] Race cases are covered by focused tests instead of timers.
-- [x] UI changes are limited to the existing background task control surface.
-- [x] No automatic commit was made by this plan.
+- [x] Todo comportamento alterado rastreia até o escopo do spec acima ou o comportamento atual do
+  ZCode.
+- [x] Nenhum background manager genérico foi adicionado.
+- [x] `local_bash` e `local_agent` param por um único dispatcher de runtime.
+- [x] O ciclo de vida de stop é registry-first, e não projection-first.
+- [x] Background tasks concluídas/paradas continuam acordando o main pela task notification.
+- [x] Casos de corrida são cobertos por testes focados em vez de timers.
+- [x] As mudanças de UI se limitam à superfície de controle de background task já existente.
+- [x] Este plano não fez nenhum commit automático.

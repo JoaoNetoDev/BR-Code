@@ -1,50 +1,50 @@
-# 我的反馈返回按钮设计
+# Design do Botão de Voltar em "Meus Feedbacks"
 
-## 背景
+## Contexto
 
-反馈中心包含“提交反馈”和“我的反馈”两个视图。当前“我的反馈”页面右下角有“新建反馈”按钮，可以切回提交反馈页，但页面 header 区没有符合用户预期的返回按钮。用户从提交页进入“我的反馈”后，会优先在标题附近寻找返回入口。
+O centro de feedback contém as views "Enviar feedback" e "Meus feedbacks". Atualmente, a página "Meus feedbacks" tem um botão "Novo feedback" no canto inferior direito, que permite voltar à página de envio, mas a área de header da página não tem um botão de voltar que corresponda à expectativa do usuário. Depois de entrar em "Meus feedbacks" a partir da página de envio, o usuário procura primeiro a entrada de retorno perto do título.
 
-## 目标
+## Objetivo
 
-- 在“我的反馈”页面 header 标题左侧增加返回按钮。
-- 按钮只在反馈中心当前 tab 为 `tickets` 时展示。
-- 点击返回按钮后切回 `submit` tab，也就是“提交反馈”页面。
-- 返回不关闭弹窗，不清空提交页已有草稿状态。
-- 保留右上角关闭按钮和右下角“新建反馈”按钮现有行为。
-- 支持中英文 aria-label，兼容桌面端、Web 端和手机 Web 小屏布局。
+- Adicionar um botão de voltar à esquerda do título no header da página "Meus feedbacks".
+- O botão só é exibido quando o tab atual do centro de feedback for `tickets`.
+- Ao clicar no botão de voltar, voltar ao tab `submit`, ou seja, a página "Enviar feedback".
+- O retorno não fecha o diálogo nem limpa o estado de rascunho já existente na página de envio.
+- Manter o comportamento atual do botão de fechar no canto superior direito e do botão "Novo feedback" no canto inferior direito.
+- Suportar aria-label em chinês e inglês, compatível com desktop, Web e layout de tela pequena do Web no celular.
 
-## 非目标
+## Não objetivos
 
-- 不重构反馈中心 tab 状态管理。
-- 不改变工单列表加载、刷新、复制 ID、选中高亮或提交流程。
-- 不新增反馈页面导航历史栈；返回按钮固定表示从“我的反馈”返回“提交反馈”。
+- Não refatorar o gerenciamento de estado dos tabs do centro de feedback.
+- Não alterar o carregamento, a atualização, a cópia de ID, o destaque de seleção da lista de tickets ou o fluxo de envio.
+- Não adicionar pilha de histórico de navegação das páginas de feedback; o botão de voltar representa sempre a volta de "Meus feedbacks" para "Enviar feedback".
 
-## 设计
+## Design
 
-`packages/ui/src/feedback/FeedbackCenter.tsx` 继续作为反馈中心 Dialog 的 tab 控制层。Header 内部将标题区域拆成左侧标题组和右侧关闭按钮：
+`packages/ui/src/feedback/FeedbackCenter.tsx` continua sendo a camada de controle de tabs do Dialog do centro de feedback. Dentro do Header, a área do título é dividida em um grupo de título à esquerda e o botão de fechar à direita:
 
-- 当 `tab === "tickets"` 时，在标题文本前渲染一个 `Button variant="ghost" size="icon-md"`。
-- 按钮图标使用 `lucide-react` 的 `ArrowLeft`，符合现有图标体系。
-- 点击按钮执行 `setTab("submit")`。
-- aria-label 使用新增文案：
-  - `feedback.center.backToSubmit`: 中文“返回提交反馈”，英文“Back to submit feedback”。
-- Header 保持 `min-w-0`，标题继续 `truncate`，防止英文长文案或窄屏时和关闭按钮重叠。
+- Quando `tab === "tickets"`, renderizar um `Button variant="ghost" size="icon-md"` antes do texto do título.
+- O ícone do botão usa o `ArrowLeft` do `lucide-react`, conforme o sistema de ícones existente.
+- Clicar no botão executa `setTab("submit")`.
+- O aria-label usa um novo texto:
+  - `feedback.center.backToSubmit`: em chinês "返回提交反馈", em inglês "Back to submit feedback".
+- O Header mantém `min-w-0` e o título continua com `truncate`, evitando sobreposição com o botão de fechar em textos longos em inglês ou em telas estreitas.
 
-视觉上按钮是低强调的 ghost icon button，和现有关闭按钮形成清晰层级：左侧返回只切换页面，右侧关闭退出弹窗。
+Visualmente, o botão é um icon button ghost de baixa ênfase, formando uma hierarquia clara com o botão de fechar existente: o retorno à esquerda apenas troca de página, o fechar à direita sai do diálogo.
 
-## 测试
+## Testes
 
-- 更新 `packages/ui/test/feedbackCenter.test.ts`：
-  - 打开 tickets tab 时，静态渲染包含返回按钮 aria-label、`feedback.center.ticketsTitle`，并保留关闭按钮。
-  - submit tab 时不渲染返回按钮。
-  - 从源码或渲染断言确认返回按钮触发 `setTab("submit")` 的切换路径。
-- 执行：
+- Atualizar `packages/ui/test/feedbackCenter.test.ts`:
+  - Ao abrir o tab tickets, a renderização estática contém o aria-label do botão de voltar, `feedback.center.ticketsTitle`, e mantém o botão de fechar.
+  - No tab submit, o botão de voltar não é renderizado.
+  - Confirmar pelo código-fonte ou por asserção de renderização que o botão de voltar dispara o caminho de troca `setTab("submit")`.
+- Executar:
   - `pnpm exec vitest run packages/ui/test/feedbackCenter.test.ts`
   - `pnpm typecheck`
   - `pnpm lint`
 
-## 风险与兼容
+## Riscos e compatibilidade
 
-- 本改动只触碰 UI header，不改服务层、反馈工单接口或远控状态。
-- 小屏上标题和按钮在同一行，依赖 flex + `min-w-0` 保持可压缩；关闭按钮仍固定在右侧。
-- 如果用户通过右下角“新建反馈”返回 submit，行为不变。
+- A mudança toca apenas o header de UI, sem alterar a camada de serviço, a interface de tickets de feedback ou o estado do controle remoto.
+- Em telas pequenas, título e botão ficam na mesma linha, dependendo de flex + `min-w-0` para permanecerem comprimíveis; o botão de fechar continua fixo à direita.
+- Se o usuário voltar ao submit pelo botão "Novo feedback" no canto inferior direito, o comportamento permanece igual.

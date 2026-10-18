@@ -1,29 +1,29 @@
-# Task Snapshot 按需加载（首期）
+# Carregamento Sob Demanda do Snapshot de Task (primeira fase)
 
-## 背景
+## Contexto
 
-手机远程控制首次打开历史任务时，`getTaskSnapshot` 之前会返回整份 `messages`，在历史较长时会带来明显首屏等待（传输、JSON 解析、渲染均受影响）。
+Na primeira vez em que o controle remoto por celular abre uma task histórica, `getTaskSnapshot` retornava antes o conjunto completo de `messages`, o que gerava uma espera perceptível na primeira renderização quando o histórico é longo (transporte, parsing de JSON e renderização são todos afetados).
 
-## 本次改动
+## Mudanças desta entrega
 
-- `IZCodeTaskService.getTaskSnapshot` 支持可选参数：`messageLimit?: number`
-- 服务端在 ZCode task snapshot 组装时对 `messages` 做尾部裁剪：
-  - 不传 `messageLimit`：保持现有全量行为
-  - `messageLimit <= 0`：返回空消息数组
-  - `messageLimit > 0`：返回最近 `messageLimit` 条消息
+- `IZCodeTaskService.getTaskSnapshot` passa a aceitar um parâmetro opcional: `messageLimit?: number`
+- No servidor, ao montar o snapshot de task do ZCode, é feito um recorte de cauda em `messages`:
+  - sem `messageLimit`: mantém o comportamento completo atual
+  - `messageLimit <= 0`: retorna um array de mensagens vazio
+  - `messageLimit > 0`: retorna as `messageLimit` mensagens mais recentes
 
-## 客户端启用策略（首期）
+## Estratégia de ativação no cliente (primeira fase)
 
-- 仅 Web 远程控制场景启用：`messageLimit = 100`
-- 桌面端与非远控场景默认不传该参数，行为不变
+- Habilitado apenas no cenário de controle remoto Web: `messageLimit = 100`
+- No desktop e em cenários sem controle remoto, o parâmetro não é enviado por padrão; o comportamento permanece inalterado
 
-## 兼容性
+## Compatibilidade
 
-- 新参数为可选字段，不影响现有调用方
-- 旧调用方无需修改即可继续工作
+- O novo parâmetro é um campo opcional e não afeta os chamadores existentes
+- Chamadores antigos continuam funcionando sem qualquer alteração
 
-## 后续建议
+## Sugestões para as próximas etapas
 
-- 为历史消息增加分页接口（cursor/beforeId）
-- UI 聊天列表增加“加载更早消息”入口
-- 逐步将桌面端切换到按需加载（灰度）
+- Adicionar uma interface de paginação para mensagens antigas (cursor/beforeId)
+- Adicionar uma entrada "carregar mensagens anteriores" na lista de chat da UI
+- Migrar gradualmente o desktop para o carregamento sob demanda (gray release)

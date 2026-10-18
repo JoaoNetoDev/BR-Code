@@ -1,29 +1,29 @@
 # System Zoom Shortcuts
 
-## 背景
+## Contexto
 
-桌面端之前移除了 ZCode 自定义界面缩放设置，避免历史 `localStorage` 缩放倍率继续影响首屏。移除后，应用菜单也不再包含 Electron 原生页面缩放 role，导致系统常用的 `Cmd/Ctrl + +/-/0` 快捷键无法缩放当前窗口内容。
+O desktop havia removido as configurações de zoom de interface customizadas do ZCode para que os fatores de zoom históricos do `localStorage` continuassem afetando a primeira tela. Depois da remoção, o menu do aplicativo também deixou de conter o role de zoom de página nativo do Electron, o que impossibilitava que os atalhos de sistema mais usados, `Cmd/Ctrl + +/-/0`, redimensionassem o conteúdo da janela atual.
 
-## 目标
+## Objetivos
 
-- 恢复桌面端系统级页面缩放快捷键。
-- 使用桌面命令承接 `Cmd/Ctrl + 0/+/-`，并限制当前窗口页面缩放等级在缩小 `-3` 档、放大 `+5` 档之间。
-- macOS 每次缩放后同步调整左上角红黄绿原生按钮纵向位置，并通知 renderer 反向调整顶部浮层左侧安全区；红绿灯宽度本身不随页面缩放变化，横向位置暂时保持系统初始值。
-- 仅作用于桌面端当前窗口的页面缩放，不重新引入 UI 设置页、账户菜单入口、持久化缩放等级或专用 platform API。
+- Restaurar os atalhos de zoom de página em nível de sistema no desktop.
+- Usar comandos de desktop para receber `Cmd/Ctrl + 0/+/-` e limitar o nível de zoom de página da janela atual entre `-3` níveis de redução e `+5` níveis de ampliação.
+- No macOS, ajustar sincronamente a posição vertical dos botões nativos vermelho/amarelo/verde no canto superior esquerdo após cada zoom e avisar o renderer para ajustar inversamente a área segura esquerda da camada superior flutuante; a largura dos três botões não muda com o zoom da página e a posição horizontal permanece temporariamente no valor inicial do sistema.
+- Afetar apenas o zoom de página da janela atual do desktop, sem reintroduzir a página de configurações de UI, o item no menu de conta, o nível de zoom persistido nem uma API de plataforma dedicada.
 
-## 非目标
+## Fora de escopo
 
-- 不恢复旧的三档界面缩放偏好。
-- 不读写历史 `zcode-zoom-level`。
-- 不改变 Web / 手机远控链路；手机端仍使用浏览器自身缩放能力和现有 replayable 恢复边界。
+- Não restaurar a antiga preferência de zoom de interface em três níveis.
+- Não ler nem gravar o `zcode-zoom-level` histórico.
+- Não alterar a cadeia Web / controle remoto do celular; o celular continua usando a capacidade de zoom do próprio navegador e os limites de restauração replayable existentes.
 
-## 实现
+## Implementação
 
-- `packages/shared/src/desktopMenu.ts` 增加 View 菜单的 Actual Size、Zoom In、Zoom Out 桌面菜单文案。
-- `packages/desktop/src/main/desktopApplicationMenu.ts` 在 View 菜单中添加 `CmdOrCtrl+0`、`CmdOrCtrl+Plus`、`CmdOrCtrl+-` accelerator，并保留隐藏的 `CmdOrCtrl+=` zoom-in 兜底以兼容不同键盘布局。
-- View 菜单的 Actual Size、Zoom In、Zoom Out 按当前聚焦窗口 zoom 档位设置禁用态：默认大小时禁用 Actual Size，最大 `+5` 档禁用 Zoom In，最小 `-3` 档禁用 Zoom Out；隐藏的 `CmdOrCtrl+=` 兜底项和 Zoom In 使用同一禁用态。
-- `packages/desktop/src/main/desktopCommandHandlers.ts` 统一处理 `ResetZoom`、`ZoomIn`、`ZoomOut`，读取当前 `zoomFactor` 换算为内部档位，调用 `webContents.setZoomFactor(1.1 ^ level)` 并把缩放等级夹在 `[-3, 5]`。
-- 每次执行缩放命令后刷新应用菜单；主窗口重新聚焦时也刷新菜单，避免系统菜单保留旧禁用状态。
-- `packages/desktop/src/main/desktopWindowButtonPosition.ts` 复用 macOS 初始红绿灯位置 `{ x: 24, y: 25 }`，横向 `x` 暂时保持 `24`，纵向 `y` 按统一 zoom factor `1.1 ^ level` 计算位移并乘以 `1.5` 的视觉跟随增益，再设置 `setWindowButtonPosition`；顶部浮层按 `96 / zoomFactor` 接收 `leftPaddingPx`。Windows 不调整原生按钮坐标，但会把 `titleBarOverlay.height` 按 `48 * zoomFactor` 同步到当前缩放档位，让右上角最小化/最大化/关闭按钮继续跟随缩放；renderer 以 Window Controls Overlay 的 `titlebar-area-*` CSS 几何作为右侧安全区事实源，并保留 `136 / zoomFactor` 作为环境变量不可用时的 fallback。自绘 caption 按钮宽度由真实安全区除以三个原生按钮派生，避免缩放或 DPI 差异让下拉按钮进入最小化按钮区域。Linux 暂不补偿原生按钮区。
-- `packages/desktop/src/main/desktopWindowChrome.ts` 在窗口创建后立即读取当前 `zoomFactor` 并同步 macOS 红绿灯位置；`packages/desktop/src/preload/index.ts` 在 React 接管 root 前同步读取 `webFrame.getZoomFactor()`，一边缓存顶部浮层安全区给 `RootStartupLoading` 首次渲染使用，一边通过 `WindowControlsOverlayReady` 通知 main 提前重置红绿灯位置，避免等进入 App 页面后才调整。
-- 通过 `packages/desktop/test/desktopApplicationMenu.test.ts` 验证 View 菜单把快捷键转发到受控桌面命令，通过 `packages/desktop/test/desktopCommandHandlers.test.ts` 验证缩放上下界。
+- `packages/shared/src/desktopMenu.ts` ganha os textos de menu do desktop Actual Size, Zoom In e Zoom Out do menu View (View > Actual Size / Zoom In / Zoom Out).
+- `packages/desktop/src/main/desktopApplicationMenu.ts` adiciona os accelerators `CmdOrCtrl+0`, `CmdOrCtrl+Plus` e `CmdOrCtrl+-` ao menu View e mantém um item oculto de fallback `CmdOrCtrl+=` para zoom in, a fim de compatibilizar diferentes layouts de teclado.
+- Actual Size, Zoom In e Zoom Out do menu View têm seu estado de desabilitado definido conforme o nível de zoom da janela em foco: no tamanho padrão, Actual Size fica desabilitado; no máximo `+5`, Zoom In fica desabilitado; no mínimo `-3`, Zoom Out fica desabilitado. O item oculto de fallback `CmdOrCtrl+=` usa o mesmo estado de desabilitado de Zoom In.
+- `packages/desktop/src/main/desktopCommandHandlers.ts` trata `ResetZoom`, `ZoomIn` e `ZoomOut` de forma unificada, lendo o `zoomFactor` atual e convertendo-o para o nível interno, chamando `webContents.setZoomFactor(1.1 ^ level)` e restringindo o nível de zoom ao intervalo `[-3, 5]`.
+- O menu do aplicativo é atualizado após cada execução de um comando de zoom; o menu também é atualizado quando a janela principal recebe foco novamente, evitando que o menu do sistema mantenha estados de desabilitado antigos.
+- `packages/desktop/src/main/desktopWindowButtonPosition.ts` reutiliza a posição inicial dos três botões do macOS `{ x: 24, y: 25 }`; o `x` horizontal permanece temporariamente em `24`, e o `y` vertical é calculado pelo deslocamento do zoom factor unificado `1.1 ^ level` multiplicado pelo ganho visual de acompanhamento de `1.5`, antes de aplicar `setWindowButtonPosition`; a camada superior flutuante recebe `leftPaddingPx` como `96 / zoomFactor`. O Windows não ajusta as coordenadas dos botões nativos, mas sincroniza `titleBarOverlay.height` como `48 * zoomFactor` para o nível de zoom atual, fazendo com que os botões minimizar/maximizar/fechar no canto superior direito continuem acompanhando o zoom; o renderer usa a geometria CSS `titlebar-area-*` do Window Controls Overlay como fonte de verdade da área segura direita e mantém `136 / zoomFactor` como fallback quando as variáveis de ambiente não estão disponíveis. A largura dos botões do caption desenhado manualmente é derivada da área segura real dividida pelos três botões nativos, evitando que diferenças de zoom ou de DPI façam o botão de dropdown entrar na área do botão minimizar. O Linux ainda não compensa a área dos botões nativos.
+- `packages/desktop/src/main/desktopWindowChrome.ts` lê o `zoomFactor` atual imediatamente após a criação da janela e sincroniza a posição dos três botões do macOS; `packages/desktop/src/preload/index.ts` lê `webFrame.getZoomFactor()` de forma síncrona antes de o React assumir o root,ao mesmo tempo, armazena em cache a área segura da camada superior flutuante para o primeiro render de `RootStartupLoading` e, ao mesmo tempo, notifica o main via `WindowControlsOverlayReady` para redefinir cedo a posição dos três botões, evitando esperar a entrada na página do App para fazer o ajuste.
+- `packages/desktop/test/desktopApplicationMenu.test.ts` verifica que o menu View encaminha os atalhos para os comandos de desktop controlados, e `packages/desktop/test/desktopCommandHandlers.test.ts` verifica os limites superior e inferior do zoom.

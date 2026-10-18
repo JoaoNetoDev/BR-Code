@@ -1,83 +1,73 @@
-# MCP OAuth 两阶段连接规格（v4）
+# Especificação de Conexão OAuth MCP em Duas Fases (v4)
 
-> 状态：设计定稿，分 PR1-PR3 实施。
-> 日期：2026-08-14。
-> 修订：2026-08-24，补齐运行期 tool caller 预算、共享恢复所有权与异常收敛。
-> 基线：`exa-oauth-analysis` / `bfc91c54a9`。
-> 生产 SDK：`@modelcontextprotocol/client@2.0.0`（`apps/zcode-cli/packages/adapters/package.json:105`）。
-> 仓库同时存在 `@modelcontextprotocol/sdk@1.29.0`，本规格与实现只使用 `client@2.0.0`。
-> 根因分析：`docs/analysis/exa-oauth-reauth-analysis.md`。
-> 前置规格：`docs/mcp-oauth-client-auth.md`（配置、凭据完整性、设置页边界）。
+> Status: design final, implementado em PR1-PR3.
+> Data: 2026-08-14.
+> Revisão: 2026-08-24, complementando o orçamento do tool caller em tempo de execução, a propriedade compartilhada da recuperação e a convergência de exceções.
+> Baseline: `exa-oauth-analysis` / `bfc91c54a9`.
+> SDK de produção: `@modelcontextprotocol/client@2.0.0` (`apps/zcode-cli/packages/adapters/package.json:105`).
+> O repositório também contém `@modelcontextprotocol/sdk@1.29.0`; esta especificação e a implementação usam apenas `client@2.0.0`.
+> Análise de causa raiz: `docs/analysis/exa-oauth-reauth-analysis.md`.
+> Especificação prévia: `docs/mcp-oauth-client-auth.md` (configuração, integridade de credenciais, limites da página de configurações).
 
-## 1. 问题与目标
+## 1. Problema e objetivos
 
-### 1.1 两个已定案根因
+### 1.1 Duas causas raiz já decididas
 
-| 根因                  | 机制                                                                                                                                                                                                                                                                            | 现场证据                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **R1 refresh 竞态**   | 多个 CLI 进程共享 `~/.zcode/v2/credentials.json`。`withFileLock` 只覆盖凭据读写，不覆盖网络 token exchange。access token 过期时各进程并发用同一 refresh token 刷新，撞授权服务器 rotation reuse-detection，整个 token family 被撤销；SDK 随后 invalidate tokens，退化为重新授权 | 8-12 `08:54:49Z` 连接成功，`09:00:13Z` 已进入交互授权         |
-| **R2 二次授权死循环** | DCR 注册的 client 把 `redirect_uris` 锁死在注册当时的随机回调端口；回调服务器每次 `listen(0)` 换端口。redirect_uri 失配时授权服务器按 RFC 6749 §4.1.2.1 禁止回跳，就地渲染错误页；回调永不到达，重试永不自愈                                                                    | client 注册端口 `54735`，后续授权使用 `58670`/`58676`/`61820` |
+| Causa raiz                | Mecanismo                                                                                                                                                                                                                                                                         | Evidência de campo                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **R1 corrida no refresh** | Múltiplos processos CLI compartilham `~/.zcode/v2/credentials.json`. O `withFileLock` cobre apenas leitura/escrita de credenciais, não a troca de token de rede. Quando o access token expira, cada processo renova concurrentemente usando o mesmo refresh token, aciona a detecção de reuso por rotação do servidor de autorização e todo o token family é revogado; o SDK então invalida os tokens, degradando para reautorização          | Conexão bem-sucedida às 8-12 `08:54:49Z`, `09:00:13Z` já entrava na autorização interativa |
+| **R2 laço de reautorização** | O client registrado por DCR fixa `redirect_uris` na porta aleatória de callback no momento do registro; o servidor de callback troca de porta a cada `listen(0)`. Em caso de divergência do redirect_uri o servidor de autorização, por RFC 6749 §4.1.2.1, proíbe o retorno e renderiza uma página de erro no local; o callback nunca chega, a retentativa nunca se auto-cura                                          | Porta de registro do client `54735`, autorizações seguintes usam `58670`/`58676`/`61820`    |
 
-R2 的放大因素：设置页 lease 与 session lease 各建独立 OAuth 事务，产生多个 client、多个 state、多个授权 URL；session 启动预算 15 秒被错误实现为「授权事务只能活 15 秒」。
+Fator de amplificação de R2: o lease da página de configurações e o lease da sessão criam transações OAuth independentes, gerando múltiplos clients, múltiplos states e múltiplas URLs de autorização; o orçamento de 15 segundos do início da sessão foi implementado incorretamente como "a transação de autorização só pode viver 15 segundos".
 
-### 1.2 设计原则
+### 1.2 Princípios de design
 
-1. 被动连接零 listener、零 discovery、零 DCR。
-2. 只有交互式授权才建 listener；跨进程单飞；DCR client 事务内存化。
-3. 所有 refresh（主动与 reactive）汇入一把跨进程文件锁。
-4. 确定性 OAuth 错误按 generation CAS 失效；非确定性错误才 fail-soft。
-5. caller 等待预算与授权事务寿命分离：15 秒是 caller 的等待预算，授权事务全局寿命 300 秒。
-6. 运行期（`callTool`）与建连期使用同一套 Phase 2 → Phase 1 编排，不允许只在 startup 路径自愈。
-7. 共享恢复由 adapter/session 生命周期持有；任一 tool caller 的 timeout 或取消只能结束自己的 waiter，
-   不能取消共享授权。恢复 Promise 必须是 total operation，最终把 record 收敛到 connected 或 failed。
+1. Conexão passiva: zero listener, zero discovery, zero DCR.
+2. Somente autorização interativa cria listener; single-flight entre processos; transação de client DCR mantida em memória.
+3. Todos os refreshs (proativos e reativos) convergem para uma única trava de arquivo entre processos.
+4. Erros OAuth determinísticos invalidam por CAS de generation; apenas erros não determinísticos usam fail-soft.
+5. O orçamento de espera do caller é separado da duração da transação de autorização: 15 segundos é o orçamento de espera do caller, a duração global da transação de autorização é de 300 segundos.
+6. Tempo de execução (`callTool`) e período de conexão usam o mesmo conjunto de orquestração Phase 2 → Phase 1; não é permitido auto-cura apenas no caminho de startup.
+7. A recuperação compartilhada é mantida pelo ciclo de vida do adapter/sessão; o timeout ou cancelamento de qualquer tool caller só pode encerrar o próprio waiter,
+   não cancelar a autorização compartilhada. A Promise de recuperação deve ser uma operação total, convergindo o record para connected ou failed.
 
-### 1.3 现状缺陷：被动连接也会开 listener
+### 1.3 Defeito atual: conexão passiva também abre listener
 
-`resolveAuthorizationCodeOAuthConfig()` 对任何没有 `Authorization` header 的 HTTP/SSE MCP 都返回
-`{ type: "authorization_code" }`（`mcp/index.ts:1012-1025`）。`createTransport()` 随后无条件创建 OAuth
-session，而 `createMcpAuthorizationCodeOAuthSession()` 在返回前就 `listen(0)`
-（`mcp/oauth.ts:67-80`、`auth/localhost-callback.ts:69-83`）。
+`resolveAuthorizationCodeOAuthConfig()` retorna `{ type: "authorization_code" }` para qualquer MCP HTTP/SSE sem header `Authorization` (`mcp/index.ts:1012-1025`). Em seguida `createTransport()` cria incondicionalmente uma sessão OAuth, e `createMcpAuthorizationCodeOAuthSession()` já executa `listen(0)` antes de retornar (`mcp/oauth.ts:67-80`, `auth/localhost-callback.ts:69-83`).
 
-结果：**每个 HTTP MCP 每次连接都占用一个随机端口的 HTTP listener，即使凭据完全有效、根本不需要授权。**
-这既是 R2 的端口来源，也是 Phase 1 必须先解决的资源问题。
+Resultado: **todo MCP HTTP ocupa um HTTP listener em porta aleatória a cada conexão, mesmo que as credenciais estejam completamente válidas e nenhuma autorização seja necessária.**
+Isso é tanto a origem das portas de R2 quanto o problema de recursos que a Phase 1 precisa resolver primeiro.
 
-## 2. 总体架构
+## 2. Arquitetura geral
 
 ```mermaid
 flowchart TD
-    A[connectServer] --> B{HTTP/SSE 且未配置<br/>Authorization header}
-    B -- 否 --> Z[stdio / 静态 header<br/>不涉及 OAuth]
-    B -- 是 --> C["Phase 1: 纯 AuthProvider<br/>零 listener / 零 discovery / 零 DCR"]
+    A[connectServer] --> B{HTTP/SSE e sem<br/>Authorization header configurado}
+    B -- não --> Z[stdio / header estático<br/>sem OAuth envolvido]
+    B -- sim --> C["Phase 1: apenas AuthProvider<br/>zero listener / zero discovery / zero DCR"]
     C --> D[client.connect]
-    D -- 成功 --> E[connected]
-    D -- 认证类错误 --> F{分类}
-    F -- interactiveRequired<br/>第二次 401<br/>InsufficientScope --> G["Phase 2: 交互授权编排"]
-    F -- 临时刷新失败 / 其他 --> H[failConnection<br/>保留凭据]
-    G -- leader 授权成功 --> I[销毁 Phase 2<br/>client/transport/listener]
+    D -- sucesso --> E[connected]
+    D -- erro de autenticação --> F{classificação}
+    F -- interactiveRequired<br/>segundo 401<br/>InsufficientScope --> G["Phase 2: orquestração de autorização interativa"]
+    F -- falha temporária de refresh / outros --> H[failConnection<br/>preserva credenciais]
+    G -- líder autoriza com sucesso --> I[destrói client/transport/listener<br/>da Phase 2]
     I --> C
-    G -- follower 观察到<br/>generation 变化 --> C
-    G -- caller 预算到点 --> J[返回 snapshot<br/>后台事务继续存活]
-    J -.->|generation 变化后<br/>后台重连| C
+    G -- follower observa<br/>mudança de generation --> C
+    G -- orçamento do caller esgotado --> J[retorna snapshot<br/>transação em background segue viva]
+    J -.->|reconexão em background<br/>após mudança de generation| C
     E --> K[callTool]
-    K -- 401 / 第二次 401 / 403 --> F
+    K -- 401 / segundo 401 / 403 --> F
 ```
 
-两阶段的硬边界：
+Limites rígidos entre as duas fases:
 
-- Phase 1 的 provider **只有** `token()` 与 `onUnauthorized()`。它不是 `OAuthClientProvider`，因此
-  transport 的 `_oauthProvider` 保持为空（`client/dist/index.mjs:4977-4980` 的 `isOAuthClientProvider`
-  分支），SDK 的 `auth()` / discovery / DCR 完全不参与。
-- Phase 2 **不创建任何 MCP transport**。它直接调用 SDK 导出的 `auth(provider, options)` 驱动
-  discovery → DCR → authorize → code exchange。因此「Phase 2 的已认证 transport 会带着
-  `_oauthProvider` 活到运行期、401 时走 SDK 的 `handleOAuthUnauthorized()` → `auth()` 绕过 refresh 锁」
-  （`index.mjs:245-276`）这个隐患从结构上不存在：没有 transport 可以被误留。授权成功后调用方直接用
-  Phase 1 的纯 AuthProvider 重新建连。
-- Phase 1 用于探测的 transport 在进入 Phase 2 前一定被关闭：negotiation 失败时 SDK 已经
-  `transport.close()`（`index.mjs:3283-3287`），spent transport 不可复用。
+- O provider da Phase 1 tem **somente** `token()` e `onUnauthorized()`. Ele não é um `OAuthClientProvider`, portanto `_oauthProvider` do transport permanece vazio (branch `isOAuthClientProvider` em `client/dist/index.mjs:4977-4980`), e `auth()` / discovery / DCR do SDK não participam de forma alguma.
+- A Phase 2 **não cria nenhum transport MCP**. Ela chama diretamente a função `auth(provider, options)` exportada pelo SDK para conduzir discovery → DCR → authorize → code exchange. Portanto o risco de "o transport autenticado da Phase 2 sobreviver até o tempo de execução com `_oauthProvider` e, em um 401, seguir `handleOAuthUnauthorized()` → `auth()` do SDK contornando a trava de refresh" (`index.mjs:245-276`) não existe estruturalmente: não há transport que possa sobrar por engano. Após a autorização bem-sucedida, o chamador reconecta diretamente usando o AuthProvider puro da Phase 1.
+- O transport usado para sondagem na Phase 1 é sempre fechado antes da entrada na Phase 2: quando a negociação falha, o SDK já executou `transport.close()` (`index.mjs:3283-3287`); um transport consumido não pode ser reutilizado.
 
-## 3. Phase 1：运行期纯 AuthProvider
+## 3. Phase 1: AuthProvider puro em tempo de execução
 
-### 3.1 provider 形态
+### 3.1 Forma do provider
 
 ```ts
 {
@@ -87,7 +77,7 @@ flowchart TD
     if (!isNearExpiry(pair)) return pair.tokens.access_token;
     return await refreshUnderLock(pair, { reactive: false });
   },
-  async onUnauthorized() {                               // transport 之后自动重试一次
+  async onUnauthorized() {                               // nova tentativa automática pelo transport depois
     const pair = await loadCanonical();
     if (!pair?.tokens?.refresh_token) throw interactiveRequired();
     await refreshUnderLock(pair, { reactive: true });
@@ -95,119 +85,93 @@ flowchart TD
 }
 ```
 
-SDK 契约（`index.d.mts:186-201`）：`onUnauthorized()` 返回 `Promise<void>`，返回值被忽略；它的职责是
-「让下一次 `token()` 返回可用 token」。因此 `refreshUnderLock` 必须把结果发布到 canonical 并让
-provider 的下一次读取绕过缓存。
+Contrato do SDK (`index.d.mts:186-201`): `onUnauthorized()` retorna `Promise<void>`, e o valor de retorno é ignorado; sua responsabilidade é "fazer com que a próxima chamada a `token()` retorne um token utilizável". Portanto `refreshUnderLock` precisa publicar o resultado no canonical e fazer com que a próxima leitura do provider contorne o cache.
 
-401 座位语义（`index.mjs:4848-4866`、`5103-5120`、`5340-5358`）：
+Semântica do assento de 401 (`index.mjs:4848-4866`, `5103-5120`, `5340-5358`):
 
-- `onUnauthorized` 每个请求最多被调用一次（`!isAuthRetry`）。
-- 它抛出的错误经 `markAuthSeamEscape()` 原样冒泡，identity 保留。
-- 重试仍 401 时抛 `SdkHttpError(SdkErrorCode.ClientHttpAuthentication, "Server returned 401 after re-authentication")`。
+- `onUnauthorized` é chamado no máximo uma vez por requisição (`!isAuthRetry`).
+- O erro que ele lança se propaga como está através de `markAuthSeamEscape()`, preservando a identidade.
+- Se a nova tentativa ainda resultar em 401, lança `SdkHttpError(SdkErrorCode.ClientHttpAuthentication, "Server returned 401 after re-authentication")`.
 
-### 3.2 canonical 凭据结构
+### 3.2 Estrutura de credenciais canonical
 
 ```ts
 interface McpOAuthCanonicalCredentials {
   client_information: OAuthClientInformationMixed;
-  expires_at?: number; // 新增：epoch ms，由 obtained_at + expires_in 推导
-  generation?: string; // 新增：每次 publication 唯一的 128-bit 随机 id
-  issuer?: string; // 新增：仅存字段，本次不参与 keyPrefix 键控
-  obtained_at?: number; // 新增：epoch ms
-  published_by: string; // 保留：事务 id，仅用于诊断
+  expires_at?: number; // novo: epoch ms, derivado de obtained_at + expires_in
+  generation?: string; // novo: id aleatório de 128 bits, único por publicação
+  issuer?: string; // novo: apenas armazenado, não participa da chave por keyPrefix nesta rodada
+  obtained_at?: number; // novo: epoch ms
+  published_by: string; // mantido: id de transação, apenas para diagnóstico
   tokens: OAuthTokens;
-  version: 1 | 2; // 不 bump
+  version: 1 | 2; // sem bump
 }
 ```
 
-**新增字段全部可选，且不 bump version。** 追加可选字段对旧 reader 向后兼容（忽略未知字段即可）；
-bump version 反而会让未升级的 CLI/desktop 把新记录当未知版本整体忽略、退回 legacy 镜像，丢掉
-canonical pair 保证——而「未知版本必须保留原值」正是现有约束。
+**Todos os campos novos são opcionais e não há bump de version.** Acrescentar campos opcionais é retrocompatível com leitores antigos (basta ignorar campos desconhecidos); por outro lado, bumpar a version faria com que CLIs/desktops não atualizados passassem a ignorar inteiramente os novos registros como versão desconhecida, voltando ao espelho legacy e perdendo a garantia do par canonical — e "versão desconhecida deve preservar o valor original" é justamente uma restrição existente.
 
-`generation` 必须是每次发布都变化的随机 id，**不能复用 `published_by`**：`published_by` 是 state 派生的
-事务 id，同一事务的多次 refresh 不会改变它（`oauth.ts:223-228`），无法承担 CAS 与 follower 观察的职责。
-随机 id 同时消除 ABA。迁移期旧记录（无 `generation`）以 canonical 原始 JSON 的稳定 hash 作为
-baseline generation。
+`generation` deve ser um id aleatório que muda a cada publicação e **não pode reutilizar `published_by`**: `published_by` é um id de transação derivado do state, e múltiplos refreshs da mesma transação não o alteram (`oauth.ts:223-228`), portanto ele não pode assumir o papel de CAS nem de observação pelo follower. Um id aleatório também elimina o ABA. Durante a migração, registros antigos (sem `generation`) usam como generation baseline o hash estável do JSON original do canonical.
 
-`OAuthTokens` 只有 `expires_in`，没有获取时间，所以 `obtained_at` 必须由我们记录，否则跨进程无法计算真实
-过期点。临期判断沿用 30 秒 skew。
+`OAuthTokens` tem apenas `expires_in`, sem horário de obtenção, então `obtained_at` precisa ser registrado por nós; caso contrário o ponto real de expiração não pode ser calculado entre processos. A verificação de nearing expiration mantém o skew de 30 segundos.
 
 ### 3.3 refreshUnderLock
 
 ```mermaid
 flowchart TD
-    A["refreshUnderLock(pair, reactive)"] --> B["withFileLock(refresh 锁文件)"]
-    B --> C[锁内重读 canonical: cur]
+    A["refreshUnderLock(pair, reactive)"] --> B["withFileLock(arquivo de trava de refresh)"]
+    B --> C[releitura do canonical dentro da trava: cur]
     C --> D{cur.generation<br/>!= pair.generation}
-    D -- 是 --> E{cur.tokens 存在}
-    E -- 是 --> F["合并: 返回 cur 的 access_token<br/>零二次网络请求"]
-    E -- 否 --> G["winner 已清 token<br/>throw interactiveRequired"]
-    D -- 否 --> H["resolveAsMetadata()"]
-    H --> I{discovery record<br/>存在且未过期<br/>且 issuer 一致}
-    I -- 是 --> K[使用缓存]
-    I -- 否 --> J["discoverOAuthServerInfo() 一次<br/>写回带时间戳的 record"]
-    J -- 失败 --> L{reactive}
+    D -- sim --> E{cur.tokens existe}
+    E -- sim --> F["mesclagem: retorna o access_token de cur<br/>zero requisições de rede adicionais"]
+    E -- não --> G["vencedor já limpou o token<br/>lança interactiveRequired"]
+    D -- não --> H["resolveAsMetadata()"]
+    H --> I{discovery record<br/>existe e não expirou<br/>e o issuer é consistente}
+    I -- sim --> K[usa cache]
+    I -- não --> J["discoverOAuthServerInfo() uma vez<br/>grava o record com timestamp"]
+    J -- falha --> L{reactive}
     K --> M["refreshAuthorization(asUrl, {metadata,<br/>clientInformation, refreshToken, resource})"]
     J --> M
-    M -- 成功 --> N["publishCanonical<br/>新 generation / obtained_at / expires_at<br/>client 不动"]
-    M -- invalid_grant --> O["CAS 清 tokens(expected=cur.generation)<br/>throw interactiveRequired"]
-    M -- invalid_client --> P{静态配置 clientId}
-    P -- 是 --> Q["throw 配置错误<br/>不进 Phase 2"]
-    P -- 否 --> R["CAS 清 client+tokens 整对<br/>throw interactiveRequired"]
-    M -- 网络 / 5xx --> L
-    L -- 否 proactive --> S["fail-soft: 返回现有 access_token"]
-    L -- 是 reactive --> T["throw temporaryRefreshFailure<br/>保留凭据, 不进 Phase 2"]
+    M -- sucesso --> N["publishCanonical<br/>novo generation / obtained_at / expires_at<br/>client inalterado"]
+    M -- invalid_grant --> O["CAS limpa tokens(expected=cur.generation)<br/>lança interactiveRequired"]
+    M -- invalid_client --> P{clientId de configuração estática}
+    P -- sim --> Q["lança erro de configuração<br/>não entra na Phase 2"]
+    P -- não --> R["CAS limpa o par client+tokens inteiro<br/>lança interactiveRequired"]
+    M -- rede / 5xx --> L
+    L -- não proactive --> S["fail-soft: retorna o access_token atual"]
+    L -- é reactive --> T["lança temporaryRefreshFailure<br/>preserva credenciais, não entra na Phase 2"]
 ```
 
-关键约束：
+Restrições-chave:
 
-- **锁文件独立于 credentials 文件。** 锁内会调用 `publishCanonical()`，后者自身用
-  `withFileLock(credentials.json)`。两个不同路径的锁不会自重入死锁。
-- **锁文件 basename 只含 hash 与连字符。** `keyPrefix` 形如 `mcp:oauth:<hash>`，冒号在 Windows
-  文件名中非法，必须转写为 `mcp-oauth-<hash>.refresh`，与 credentials 同目录。
-- **锁的获取预算必须覆盖网络预算。** `withFileLock` 默认 `lockMaxWaitMs` 是 8 秒
-  （`privateFilePersistence.ts:9`），而 discovery + refresh 两次网络请求可能超过 8 秒，因此显式传
-  45 秒。waiter 超时后**先重读 canonical**：换代且有 token 就直接使用，否则报
-  `temporaryRefreshFailure`（等锁失败不是 grant 失效）。
-- **fail-soft 边界按 proactive/reactive 区分。** proactive（`token()` 临期路径）网络失败可以返回现值：
-  token 还没被资源服务器拒绝。reactive（`onUnauthorized()`）网络失败**不能**返回现值，那个 token 刚被
-  拒绝，返回它必然产生第二次 401 并抛 `ClientHttpAuthentication`，还会把临时 AS 故障误判成需要交互授权。
-  reactive 网络失败抛独立的 `temporaryRefreshFailure`，编排层保留凭据、不进 Phase 2。
-- **generation 变化但 winner 无 token** 不是成功。不能返回 `undefined` 当成「没有凭据」，必须
-  join / 进入 Phase 2。
-- **没有 refresh token 时不虚构刷新。** `token()` 直接返回现有 access token 撑到 401，由
-  `onUnauthorized()` 统一判定为需要交互授权。
+- **O arquivo de trava é independente do arquivo de credenciais.** Dentro da trava é chamado `publishCanonical()`, que por sua vez usa `withFileLock(credentials.json)`. Travas de caminhos diferentes não geram deadlock por reentrância.
+- **O basename do arquivo de trava contém apenas hash e hifens.** `keyPrefix` tem a forma `mcp:oauth:<hash>`, e dois-pontos são ilegais em nomes de arquivo no Windows; deve ser transcrito como `mcp-oauth-<hash>.refresh`, no mesmo diretório das credenciais.
+- **O orçamento de aquisição da trava deve cobrir o orçamento de rede.** O `lockMaxWaitMs` padrão de `withFileLock` é 8 segundos (`privateFilePersistence.ts:9`), enquanto as duas requisições de rede (discovery + refresh) podem exceder 8 segundos; portanto passamos explicitamente 45 segundos. Após o timeout do waiter, **primeiro relemos o canonical**: se houve troca de geração e há token, usamos diretamente; caso contrário reportamos `temporaryRefreshFailure` (falha ao obter a trava não é invalidação de grant).
+- **O limite fail-soft distingue proactive/reactive.** Em proactive (caminho de expiração iminente em `token()`), a falha de rede pode retornar o valor atual: o token ainda não foi rejeitado pelo servidor de recursos. Em reactive (`onUnauthorized()`), a falha de rede **não** pode retornar o valor atual, pois esse token acabou de ser rejeitado; retorná-lo necessariamente produziria um segundo 401 e lançaria `ClientHttpAuthentication`, além de interpretar erroneamente uma falha temporária do AS como necessidade de autorização interativa. A falha de rede reativa lança um `temporaryRefreshFailure` independente, e a camada de orquestração preserva as credenciais e não entra na Phase 2.
+- **Mudança de generation sem token do vencedor não é sucesso.** Não se pode retornar `undefined` como se fosse "sem credenciais"; é preciso fazer join / entrar na Phase 2.
+- **Não se inventa refresh quando não há refresh token.** `token()` retorna diretamente o access token existente até o 401, e `onUnauthorized()` unicamente passa a exigir autorização interativa.
 
 ### 3.4 resolveAsMetadata
 
-返回三元组，Phase 1 与 Phase 2 共用同一份 discovery record：
+Retorna uma tripla; Phase 1 e Phase 2 compartilham o mesmo discovery record:
 
 ```ts
 interface ResolvedAsMetadata {
   authorizationServerUrl: string;
   metadata?: AuthorizationServerMetadata;
-  resource?: URL; // 经 selectResourceURL 校验
+  resource?: URL; // validado por selectResourceURL
 }
 ```
 
-- discovery record 带 `fetched_at`，TTL 24 小时；过期或 `issuer` 与 canonical `issuer` 不一致时重发现。
-  **时间戳存在一个独立 key（`discovery_state_fetched_at`），不包裹 `discovery_state` 本身**：后者的值形态
-  必须继续是裸 `OAuthDiscoveryState`，换成 `{fetched_at, state}` 包裹结构会让未升级的 reader 读到一个不含
-  `authorizationServerUrl` 的对象，静默失去 discovery 缓存。缺时间戳视为过期，重新发现一次后自愈。
-- `resource` 必须求出并传给 `refreshAuthorization()`（RFC 8707）。SDK 自己的 refresh 会传经校验的
-  resource（`index.mjs:690-697`），我们绕开 `auth()` 后必须自己补上，否则受众绑定丢失。
-- Phase 2 的 interactive provider 的 `discoveryState()` 读取同一 record，避免 Phase 1 刷新了 metadata
-  而 Phase 2 仍用无 TTL 的旧缓存（现状 `oauth.ts:288-294` 直接返回缓存，无 TTL）。
-- Phase 2 在事务内还保留一份内存副本：SEP-2352 要求 code exchange 那一腿能读回 authorize 腿记录的
-  issuer，否则 SDK 抛 `AuthorizationServerMismatchError`（`index.mjs:682-687`）。共享记录可能被别的进程
-  改写或恰好过期，内存副本保证同一事务内的 issuer 绑定稳定。
+- O discovery record tem `fetched_at`, com TTL de 24 horas; ao expirar ou quando o `issuer` diverge do `issuer` do canonical, uma nova descoberta é feita. **O timestamp fica em uma chave separada (`discovery_state_fetched_at`) e não envolve o próprio `discovery_state`**: a forma do valor deste último deve continuar sendo um `OAuthDiscoveryState` puro; mudar para uma estrutura embrulhada `{fetched_at, state}` faria com que leitores não atualizados lessem um objeto sem `authorizationServerUrl` e perdessem silenciosamente o cache de discovery. A ausência de timestamp é tratada como expiração, e uma nova descoberta se auto-cura.
+- O `resource` precisa ser resolvido e passado a `refreshAuthorization()` (RFC 8707). O refresh do próprio SDK passa o resource validado (`index.mjs:690-697`); como contornamos `auth()`, precisamos fornecer por conta própria, caso contrário a vinculação ao audiência se perde.
+- O `discoveryState()` do provider interativo da Phase 2 lê o mesmo record, evitando que a Phase 1 tenha atualizado o metadata e a Phase 2 ainda use um cache antigo sem TTL (o estado atual `oauth.ts:288-294` retorna o cache diretamente, sem TTL).
+- A Phase 2 também mantém uma cópia em memória dentro da transação: a SEP-2352 exige que a perna de code exchange consiga reler o issuer registrado na perna de authorize, caso contrário o SDK lança `AuthorizationServerMismatchError` (`index.mjs:682-687`). O record compartilhado pode ser reescrito por outro processo ou estar simplesmente expirado; a cópia em memória garante que a vinculação de issuer dentro da mesma transação seja estável.
 
-### 3.5 凭据失效必须是 generation 条件事务
+### 3.5 Invalidação de credenciais deve ser uma transação condicional por generation
 
-现有 `deleteIfValues()` 是逐 key 比较、逐 key 删除（`shared-credentials.ts:104-121`）：canonical 匹配失败
-时 legacy 镜像仍可能被删掉，反之亦然，无法表达「canonical 匹配才整体失效」。
+O `deleteIfValues()` existente compara chave a chave e apaga chave a chave (`shared-credentials.ts:104-121`): quando o canonical não casa, o espelho legacy ainda pode ser apagado, e vice-versa, o que não permite expressar "só invalida o conjunto inteiro se o canonical casar".
 
-因此在共享凭据 store 增加条件事务：
+Por isso adicionamos uma transação condicional ao store de credenciais compartilhado:
 
 ```ts
 deleteManyIfValue(
@@ -217,358 +181,279 @@ deleteManyIfValue(
 ): Promise<boolean>;
 ```
 
-语义：在一次凭据文件 RMW 临界区内，`guardKey` 当前值与 `expectedGuardValue` 相等才删除
-`keysToDelete` 全部 key，否则一个都不删并返回 `false`。OAuth 侧的调用把 canonical key 作为
-`guardKey`、**发起方读到的 canonical 原始 JSON** 作为期望值（原始值即 generation 的载体，比单独
-比较 generation 字段更严格），删除集合为：
+Semântica: dentro de uma única região crítica de RMW do arquivo de credenciais, todas as `keysToDelete` só são apagadas se o valor atual de `guardKey` for igual a `expectedGuardValue`; caso contrário nenhuma é apagada e `false` é retornado. A chamada do lado OAuth usa a chave canonical como `guardKey` e o **JSON original do canonical lido pelo solicitante** como valor esperado (o valor original é o portador da generation, sendo mais estrito do que comparar apenas o campo generation), com o seguinte conjunto de remoção:
 
-- `invalid_grant` → canonical + legacy tokens（保留 legacy client 作为重新授权种子）；
-- `invalid_client` → canonical + legacy tokens + legacy client（整对丢弃）。
+- `invalid_grant` → canonical + tokens legacy (preservando o client legacy como semente para reautorização);
+- `invalid_client` → canonical + tokens legacy + client legacy (descartar o par inteiro).
 
-stale 事务因此不可能删除 winner 的 canonical 或其任何一半镜像。
+Assim, uma transação obsoleta nunca pode apagar o canonical do vencedor nem qualquer metade espelhada dele.
 
-### 3.6 兼容规则只能有一份实现
+### 3.6 As regras de compatibilidade devem ter uma única implementação
 
-canonical 与 legacy 镜像的交错兼容分支（哪种变化能被证明属于同一次授权）抽成纯函数
-`deriveCredentialPair({canonicalRaw, legacyClientRaw, legacyTokensRaw})`，`loadCredentialPair()` 是它的
-「读一次 + 派生」包装。
+Os ramos de compatibilidade entre o canonical e o espelho legacy (qual mudança pode ser provada como pertencente à mesma autorização) são extraídos para a função pura `deriveCredentialPair({canonicalRaw, legacyClientRaw, legacyTokensRaw})`; `loadCredentialPair()` é o wrapper "ler uma vez + derivar".
 
-保留下来的旧 `authorization_code` provider 也委托同一个纯函数，用自己已经读到的快照派生：
-两处各写一遍这套分支必然发散，而重复读凭据文件又会让每次 provider 读取放大一倍 I/O。该 provider
-在运行期已不被使用，仅作为兼容规则的测试面保留，随 legacy 镜像窗口一起移除。
+O provider antigo `authorization_code` que permanece também delega à mesma função pura, derivando a partir do próprio snapshot que já leu: escrever essa lógica duas vezes inevitavelmente a faria divergir, e reler o arquivo de credenciais duplicaria o I/O de cada leitura do provider. Esse provider não é mais usado em tempo de execução e permanece apenas como superfície de teste das regras de compatibilidade, sendo removido junto com a janela do espelho legacy.
 
-## 4. Phase 2：交互授权编排
+## 4. Phase 2: orquestração da autorização interativa
 
-### 4.1 时序
+### 4.1 Sequência
 
 ```mermaid
 sequenceDiagram
-    participant S as Session lease
-    participant T as Settings lease
-    participant L as authz lease
-    participant C as canonical 凭据
-    participant B as 浏览器 / AS
+    participant S as Lease da sessão
+    participant T as Lease das configurações
+    participant L as Lease de autorização
+    participant C as Credenciais canonical
+    participant B as Navegador / AS
 
-    S->>C: 读 baseline generation G0
+    S->>C: lê a generation baseline G0
     S->>L: tryAcquire(attemptId=A)
-    L-->>S: 抢到 → leader
-    T->>C: 读 baseline generation G0
+    L-->>S: adquiriu → líder
+    T->>C: lê a generation baseline G0
     T->>L: tryAcquire(attemptId=B)
-    L-->>T: 未抢到 → follower
+    L-->>T: não adquiriu → follower
 
-    S->>C: 锁内重读；generation 仍是 G0 才继续
-    S->>S: listen(0) 建 listener
-    S->>B: fresh DCR（redirect_uri = 当前存活 listener）
-    B-->>S: 新 client_id（只写事务内存）
-    S->>C: publish pending{attemptId=A, url, state, G0, expiresAt}
-    T->>C: 读 pending(A) → 投影同一授权 URL 到自己的状态
-    S->>B: 打开授权 URL（用户操作触发）
-    B-->>S: callback code（state 校验）
+    S->>C: releitura dentro da trava; continua só se generation ainda for G0
+    S->>S: listen(0) cria o listener
+    S->>B: DCR novo (redirect_uri = listener vivo atual)
+    B-->>S: novo client_id (escrito só na memória da transação)
+    S->>C: publica pending{attemptId=A, url, state, G0, expiresAt}
+    T->>C: lê pending(A) → projeta a mesma URL de autorização no próprio estado
+    S->>B: abre a URL de autorização (disparado pelo usuário)
+    B-->>S: callback code (validação de state)
     S->>B: finishAuth → token exchange
     B-->>S: tokens
-    S->>C: fenced publish canonical generation=G1
+    S->>C: publicação com fencing do canonical generation=G1
     S->>C: CAS delete pending(A)
-    S->>L: release lease
-    S->>S: 销毁 Phase 2 client/transport/listener → Phase 1 重连
-    T->>C: 轮询发现 generation G1 != G0 且有 token
-    T->>T: Phase 1 重连
+    S->>L: libera o lease
+    S->>S: destrói client/transport/listener da Phase 2 → reconexão pela Phase 1
+    T->>C: polling detecta generation G1 != G0 e há token
+    T->>T: reconexão pela Phase 1
 ```
 
-### 4.2 leader / follower 契约
+### 4.2 Contrato líder / follower
 
 ```text
-G0 = 当前 canonical generation（baseline）
-tryAcquire(authz lease, attemptId)
- ├─ 未抢到 → follower
- │    读 pending：attemptId 有效且未过期 → 展示同一授权 URL
- │    轮询 canonical：generation != G0 且 tokens 存在 → 回 Phase 1 重连
- │    caller 预算（session 15s / 设置页 300s）到点 → 报「授权正在另一处进行」并返回 snapshot
- │                                                  后台共享任务继续观察，不终止 leader
- └─ 抢到 → leader
-      锁内重读：generation != G0（等待期间别人已完成）→ 放锁收工，回 Phase 1
-      listen(0) 随机端口（放弃端口复用：listener 在连接期长期存活，复用必撞）
-      interactive OAuthClientProvider（全新 state，scope = 编排层算好的 unionScope）
-        clientInformation()      静态配置 clientId → 返回；否则 undefined
-                                 → SDK 必然用当前存活 listener 的 URL 重新 DCR
-                                 → redirect_uri 失配从根上消除
-        saveClientInformation()  只写事务内存，不落盘
-        tokens()                 undefined（不触发 refresh）
-        saveTokens()             锁内 saveMany 原子发布 canonical + legacy 镜像
-        discoveryState()         读共享 discovery record（含 TTL）
-      publish pending{attemptId, authorizationUrl, state, baselineGeneration, expiresAt}
-      等回调至全局 TTL 300s
-      放弃时 AbortController 真取消 listener / fetch / finishAuth
-      finally：等待所有 in-flight promise settle → CAS delete pending → 放锁
-               → 关 listener → 销毁 transport → 回 Phase 1 重连
+G0 = generation canonical atual (baseline)
+tryAcquire(lease de autorização, attemptId)
+ ├─ não adquiriu → follower
+ │    lê pending: attemptId válido e não expirado → exibe a mesma URL de autorização
+ │    faz polling do canonical: generation != G0 e tokens existem → volta à reconexão da Phase 1
+ │    orçamento do caller (sessão 15s / configurações 300s) esgotado → reporta "a autorização está em andamento em outro lugar" e retorna o snapshot
+ │                                                  a tarefa compartilhada em background continua observando e não termina o líder
+ └─ adquiriu → líder
+      releitura dentro da trava: generation != G0 (outro já concluiu durante a espera) → libera a trava e encerra, volta à Phase 1
+      listen(0) em porta aleatória (abandona o reuso de porta: o listener vive por muito tempo durante a conexão, e o reuso necessariamente colide)
+      OAuthClientProvider interativo (state novo, scope = unionScope calculado pela camada de orquestração)
+        clientInformation()      clientId de configuração estática → retorna; caso contrário undefined
+                                 → o SDK necessariamente refaz o DCR com a URL do listener vivo atual
+                                 → a divergência de redirect_uri é eliminada na raiz
+        saveClientInformation()  escreve só na memória da transação, não em disco
+        tokens()                 undefined (não dispara refresh)
+        saveTokens()             publica atomicamente canonical + espelho legacy com saveMany dentro da trava
+        discoveryState()         lê o discovery record compartilhado (com TTL)
+      publica pending{attemptId, authorizationUrl, state, baselineGeneration, expiresAt}
+      aguarda o callback até o TTL global de 300s
+      ao desistir, o AbortController realmente cancela listener / fetch / finishAuth
+      finally: aguarda todas as promises in-flight assentarem → CAS delete pending → libera a trava
+               → fecha o listener → destrói o transport → volta à reconexão da Phase 1
 ```
 
-### 4.3 为什么用独立授权锁而不是 marker
+### 4.3 Por que uma trava de autorização dedicada em vez de um marker
 
-`withFileLock` 的 `maxWaitMs` 只限制获取，不限制持有（`privateFilePersistence.ts:51-75`）；活 PID 的锁不会
-被 stale 回收（`atomicFileLock.ts:69-87`）；`67666ea256` 修的是 waiter 超时后误 cleanup，与长时持锁无关。
-**锁本身即 fencing**：迟到的 leader 放锁后其 attempt 已失去发布权。
+O `maxWaitMs` do `withFileLock` limita apenas a aquisição, não a posse (`privateFilePersistence.ts:51-75`); a trava de um PID vivo não é recuperada como stale (`atomicFileLock.ts:69-87`); o commit `67666ea256` corrigiu o cleanup incorreto após timeout do waiter, o que não tem relação com|longa posse da trava. **A própria trava é o fencing**: quando um líder atrasado libera a trava, sua tentativa já perdeu o direito de publicar.
 
-### 4.4 tryAcquire 必须是专用实现
+### 4.4 tryAcquire precisa ser uma implementação dedicada
 
-不能直接用 `withFileLock(..., { lockMaxWaitMs: 0 })`，有两个独立原因：
+Não se pode usar diretamente `withFileLock(..., { lockMaxWaitMs: 0 })`, por dois motivos independentes:
 
-1. **死锁无法回收。** `acquireFileLock` 在竞争时先判断 `elapsed >= maxWaitMs` 再尝试回收 abandoned lock
-   （`atomicFileLock.ts:238-253`）。零等待直接超时，永远不执行 owner-dead 检查；持锁进程崩溃后，
-   授权功能永久不可用。因此 tryAcquire 用一个**短但非零**的预算（250ms，重试间隔 25ms），保证失败前
-   至少执行一次 owner-dead 回收检查，同时把 follower 的额外延迟限制在人机流程无感的量级。
-2. **`withFileLock` 的进程内 FIFO 会阻塞 follower。** 它按 filePath 排队（`privateFilePersistence.ts:58-64`），
-   排队发生在获取锁之前，同进程的第二个 caller 会等到第一个释放（最长 300 秒）而不是立即成为
-   follower。所以 tryAcquire 直接调用 `acquireFileLock`，绕开该队列。
+1. **Deadlock não recuperável.** `acquireFileLock`, em caso de competição, verifica primeiro `elapsed >= maxWaitMs` e só depois tenta recuperar um lock abandonado (`atomicFileLock.ts:238-253`). Com espera zero ele dá timeout imediatamente e nunca executa a verificação de owner morto; após o travamento do processo que detém a trava, a autorização ficaria permanentemente indisponível. Por isso tryAcquire usa um orçamento **curto mas não nulo** (250 ms, com intervalo de retentativa de 25 ms), garantindo ao menos uma execução da verificação de recuperação de owner morto antes de falhar, e ao mesmo tempo limitando a latência adicional do follower a uma faixa imperceptível no fluxo humano.
+2. **A FIFO in-processo do `withFileLock` bloquearia o follower.** Ela faz fila por filePath (`privateFilePersistence.ts:58-64`), e a fila ocorre antes da aquisição da trava, então um segundo caller do mesmo processo esperaria até o primeiro liberar (até 300 segundos) em vez de se tornar follower imediatamente. Por isso tryAcquire chama `acquireFileLock` diretamente, contornando essa fila.
 
-**不需要额外的进程内注册表。** 互斥由 `mkdir` 提供，这是文件系统级语义，与进程无关：同进程的第二个
-caller 一样收到 `EEXIST`，随后读到的 owner PID 是本进程自己且存活，因此不会误回收，正确降级为
-follower。锁路径 basename 同样只含 hash 与连字符（`mcp-oauth-<hash>.authz`）。
+**Não é necessário um registro in-processo adicional.** A exclusão mútua é fornecida por `mkdir`, uma semântica de sistema de arquivos independente de processo: um segundo caller do mesmo processo também recebe `EEXIST` e, em seguida, lê um owner PID que é o próprio processo e está vivo, portanto não há recuperação indevida e a degradação correta para follower acontece. O basename do caminho da trava também contém apenas hash e hifens (`mcp-oauth-<hash>.authz`).
 
-### 4.5 pending 键必须与 attempt 绑定
+### 4.5 A chave pending deve estar vinculada à tentativa
 
-pending 至少包含 `attemptId`、`baselineGeneration`、`authorizationUrl`、`state`、`expiresAt`。删除必须是
-按 `attemptId` 的 CAS，否则旧 leader 的 `finally` 会删掉新 leader 刚发布的 pending，follower 随即失去
-授权 URL。TTL 只用于展示过期判断，**不能**作为锁所有权依据。
+O pending contém no mínimo `attemptId`, `baselineGeneration`, `authorizationUrl`, `state` e `expiresAt`. A remoção precisa ser um CAS por `attemptId`; caso contrário o `finally` de um líder antigo apagaria o pending recém-publicado pelo novo líder, e o follower perderia imediatamente a URL de autorização. O TTL serve apenas para decidir expiração na exibição e **não pode** servir como base de propriedade da trava.
 
-### 4.6 取消必须等待 in-flight settle
+### 4.6 O cancelamento precisa aguardar o assentamento das promises in-flight
 
-`AbortController.abort()` 之后立即进入 `finally` 放锁是不够的：token response 可能已经返回，旧事务的
-code exchange / `saveTokens()` 仍在进行中。现有 callback promise 既不接受 signal，关闭 listener 也不会
-reject 它（`localhost-callback.ts:24-30`、`83-90`）；现有 `withTimeout` 只忽略迟到结果、不取消底层操作
-（`mcp/timeout.ts:1-53`），不能用它承担取消职责。
+Entrar no `finally` e liberar a trava logo após `AbortController.abort()` não é suficiente: a resposta de token pode já ter retornado, e o code exchange / `saveTokens()` da transação antiga ainda está em andamento. A promise de callback existente não aceita signal, e fechar o listener também não a rejeita (`localhost-callback.ts:24-30`, `83-90`); o `withTimeout` existente apenas ignora resultados atrasados e não cancela a operação subjacente (`mcp/timeout.ts:1-53`), portanto não pode assumir a responsabilidade de cancelamento.
 
-**实现方式是结构性的，而不是加一个 in-flight 追踪器：只有「等人点授权」这一段设超时，code exchange
-一律 `await` 到 settle，不与超时竞速。**
+**A implementação é estrutural, e não consiste em adicionar um rastreador de in-flight: somente o trecho "esperar o usuário autorizar" tem timeout; o code exchange é sempre `await` até assentar, sem competir com o timeout.**
 
 ```text
-auth(provider, {...})                     ← 不设超时（构造 URL + DCR，本地/有界网络）
-withTimeout(waitForCallback(), 300s)      ← 唯一的超时点：等人
-auth(provider, {authorizationCode})       ← 不设超时，await 到 settle
-finally: 关 listener → CAS 删 pending → 放锁
+auth(provider, {...})                     ← sem timeout (construção da URL + DCR, rede local/acotada)
+withTimeout(waitForCallback(), 300s)      ← o único ponto de timeout: esperar o usuário
+auth(provider, {authorizationCode})       ← sem timeout, await até assentar
+finally: fecha o listener → CAS delete pending → libera a trava
 ```
 
-超时只可能发生在「还没拿到 code」的时刻，此时 token exchange 根本没开始，不存在能抢在放锁后发布的
-in-flight 请求，fencing 天然闭合。代价是：回调在 299.9s 到达、交换耗时 5s 时会略微超出 300s 仍持锁——
-这比丢弃一个有效 code 更正确。
+O timeout só pode ocorrer no momento em que o code ainda não foi obtido, quando o token exchange nem começou; não existe requisição in-flight capaz de publicar após a liberação da trava, e o fencing se fecha de forma natural. O custo é: quando o callback chega em 299,9 s e o exchange leva 5 s, a trava permanece retida ligeiramente além dos 300 s — isso é mais correto do que descartar um code válido.
 
-### 4.7 PR2 独立落地需要过渡 seam
+### 4.7 A implantação independente do PR2 exige uma seam de transição
 
-PR2 落地时 Phase 1 仍是现有完整 provider，而现有 provider 在 transport 创建前就 `listen(0)`，并允许 SDK
-自己走 DCR / redirect（`oauth.ts:67-103`）；adapter 只在失败后才检查 `hasPendingAuthorization()`
-（`index.ts:570-599`）。若不加 seam，PR2 单独部署仍会打开「旧 client + 新 redirect_uri」的授权 URL，
-R2 未修复。
+Na implantação do PR2 a Phase 1 ainda é o provider completo atual, e o provider atual já faz `listen(0)` antes da criação do transport e permite que o SDK siga sozinho o DCR / redirect (`oauth.ts:67-103`); o adapter só verifica `hasPendingAuthorization()` depois de uma falha (`index.ts:570-599`). Sem a seam, o PR2 implantado sozinho ainda abriria uma URL de autorização com "client antigo + novo redirect_uri", e R2 não seria corrigido.
 
-seam 契约（两处，缺一不可）：
+Contrato da seam (dois pontos, ambos obrigatórios):
 
-1. `redirectToAuthorization()` **不再**把授权 URL 投影为 pending 状态、也不打开浏览器，而是抛出
-   `interactiveRequired()`，由编排层转入新的 Phase 2 事务。
-2. `clientInformation()` 在既无静态配置 clientId、又无已存 client 时同样抛
-   `interactiveRequired(reason: "no_credentials")`，**而不是返回 `undefined`**。返回 `undefined` 会让 SDK
-   立刻自行做一次动态注册，而 DCR 归属已经整体移交 Phase 2；那次注册永远不会被使用，只会在授权服务器
-   上留下垃圾 client。没有 client 也就没有 refresh token，本来就只能交互授权，所以直接抛是正确的。
+1. `redirectToAuthorization()` **não** projeta mais a URL de autorização como estado pending nem abre o navegador; em vez disso lança `interactiveRequired()`, e a camada de orquestração transiciona para a nova transação da Phase 2.
+2. `clientInformation()`, quando não há clientId de configuração estática nem client armazenado, também lança `interactiveRequired(reason: "no_credentials")`, **em vez de retornar `undefined`**. Retornar `undefined` faria o SDK executar imediatamente um registro dinâmico próprio, mas a titularidade do DCR já foi transferida por completo para a Phase 2; esse registro nunca seria usado e só deixaria clients lixo no servidor de autorização. Sem client não há refresh token, portanto só a autorização interativa é possível — lançar diretamente é o correto.
 
-旧 provider 在 PR2 阶段只保留 `token()` / refresh 语义，交互授权的唯一出口是 Phase 2。
+Na fase do PR2 o provider antigo mantém apenas a semântica `token()` / refresh, e a única saída para autorização interativa é a Phase 2.
 
-## 5. 错误分类与运行期恢复
+## 5. Classificação de erros e recuperação em tempo de execução
 
-### 5.1 认证错误分类表
+### 5.1 Tabela de classificação de erros de autenticação
 
-| 错误                                                         | 来源                                             | 编排层动作                                                              |
-| ------------------------------------------------------------ | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| `interactiveRequired`（我们的稳定 code + `Symbol.for` 品牌） | Phase 1 provider                                 | 进入 Phase 2                                                            |
-| `SdkHttpError{code: ClientHttpAuthentication}`               | 重试后仍 401（`index.mjs:4862`、`5117`、`5354`） | 进入 Phase 2                                                            |
-| `UnauthorizedError`                                          | 无 `onUnauthorized` 的防御路径                   | 进入 Phase 2                                                            |
-| `InsufficientScopeError{requiredScope}`                      | Streamable HTTP 403（`index.mjs:5010`）          | 算 unionScope 后进入 Phase 2                                            |
-| `temporaryRefreshFailure`                                    | reactive refresh 的网络 / 5xx                    | 保留凭据，failConnection，**不**进 Phase 2                              |
-| 静态 clientId 的 `invalid_client`                            | Phase 1 refresh                                  | 报配置错误，**不**进 Phase 2（Phase 2 会复用同一静态 client，必然循环） |
+| Erro                                                                            | Origem                                              | Ação da camada de orquestração                                                       |
+| ------------------------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `interactiveRequired` (nosso code estável + marca `Symbol.for`)                   | Provider da Phase 1                                 | Entra na Phase 2                                                                       |
+| `SdkHttpError{code: ClientHttpAuthentication}`                                  | Ainda 401 após nova tentativa (`index.mjs:4862`, `5117`, `5354`) | Entra na Phase 2                                                    |
+| `UnauthorizedError`                                                             | Caminho defensivo sem `onUnauthorized`              | Entra na Phase 2                                                                       |
+| `InsufficientScopeError{requiredScope}`                                         | 403 em Streamable HTTP (`index.mjs:5010`)           | Calcula o unionScope e depois entra na Phase 2                                        |
+| `temporaryRefreshFailure`                                                       | Rede / 5xx no refresh reativo                       | Preserva credenciais, failConnection, **não** entra na Phase 2                        |
+| `invalid_client` com clientId estático                                          | Refresh da Phase 1                                  | Reporta erro de configuração, **não** entra na Phase 2 (a Phase 2 reutilizaria o mesmo client estático, gerando ciclo) |
 
-`interactiveRequired` 用稳定 code + `Symbol.for` 品牌识别，不依赖 `instanceof`，以抗 bundle 重复加载。
-SDK 的 `markAuthSeamEscape()` 是 identity-preserving 的（`index.mjs:2270-2277`），不会替换错误对象。
-编排层必须在 `failConnection()`（`index.ts:570` 附近）**之前**完成分类。
+`interactiveRequired` é identificado por code estável + marca `Symbol.for`, sem depender de `instanceof`, para resistir a carregamento duplicado de bundle. O `markAuthSeamEscape()` do SDK preserva a identidade (`index.mjs:2270-2277`) e não substitui o objeto de erro. A camada de orquestração precisa completar a classificação **antes** de `failConnection()` (perto de `index.ts:570`).
 
-### 5.2 403 unionScope 公式
+### 5.2 Fórmula de unionScope do 403
 
-SDK 自己的算法是三项并集（`index.mjs:5021-5024`，`computeScopeUnion` 已导出）：
+O algoritmo do próprio SDK é a união de três itens (`index.mjs:5021-5024`, `computeScopeUnion` já é exportado):
 
 ```text
-unionScope = 历史请求 scope ∪ token.scope ∪ challenge.scope
+unionScope = scope das requisições históricas ∪ token.scope ∪ challenge.scope
 ```
 
-不是「`token.scope ∪ requiredScope`」两项。原因是 token response 的 `scope` 本身允许缺失，只靠 token
-的 scope 会丢掉配置里声明过、服务器未回显的 scope。
+Não é a união de dois itens "`token.scope ∪ requiredScope`". A razão é que o próprio `scope` da resposta de token pode estar ausente, e depender apenas do scope do token perderia scopes declarados na configuração que o servidor não ecoou.
 
-编排层捕获 challenge 后：重读最新 canonical → 计算
-`config/effective_requested_scope ∪ token.scope ∪ requiredScope` → 把最终 scope **和**
-`resourceMetadataUrl` 一并传入 Phase 2 → Phase 2 不再基于旧 snapshot 二次计算。DCR 的
-`clientMetadata.scope` 与 authorize 请求都使用这个最终 scope，否则 403 无限循环。
+Após capturar o challenge, a camada de orquestração: relê o canonical mais recente → calcula `config/effective_requested_scope ∪ token.scope ∪ requiredScope` → passa o scope final **junto com** o `resourceMetadataUrl` para a Phase 2 → a Phase 2 não calcula mais nada com base no snapshot antigo. Tanto o `clientMetadata.scope` do DCR quanto a requisição de authorize usam esse scope final; caso contrário haveria um ciclo infinito de 403.
 
-### 5.3 SSE 的 403 不支持 step-up（已知限制）
+### 5.3 O 403 de SSE não suporta step-up (limitação conhecida)
 
-typed step-up 只由 Streamable HTTP 实现。旧 SSE transport 对 POST 403 抛普通 HTTP `Error`
-（`index.mjs:4867-4869`），不产生 `InsufficientScopeError`，拿不到 `requiredScope`。
+O step-up tipado só é implementado pelo Streamable HTTP. O transport SSE antigo lança um `Error` HTTP comum em POST 403 (`index.mjs:4867-4869`), não produzindo `InsufficientScopeError` e não permitindo obter o `requiredScope`.
 
-本次不为 SSE 补 step-up。SSE 的 403 按不可分类错误处理：`failConnection` 并保留凭据，**不**进入 Phase 2。
-理由是无法计算 unionScope 的授权重试必然以同一 scope 再次 403，形成循环。
+Esta rodada não adiciona step-up para SSE. O 403 de SSE é tratado como erro não classificável: `failConnection` preservando as credenciais e **sem** entrar na Phase 2. A razão é que uma retentativa de autorização sem conseguir calcular o unionScope necessariamenteTOMARÁ 403 de novo com o mesmo scope, formando um ciclo.
 
-### 5.4 运行期恢复
+### 5.4 Recuperação em tempo de execução
 
-`callTool()` 目前只对裸 `"Not connected"` 重连重试一次（`index.ts:307-328`），认证类错误原样冒泡。
-连接建立后 token 过期、被撤销或 scope 不足时，用户看到的是裸错误，且不会自愈。
+`callTool()` hoje só refaz a conexão, com uma única retentativa, para a string crua "Not connected" (`index.ts:307-328`); erros de autenticação se propagam como estão. Quando o token expira, é revogado ou o scope é insuficiente após a conexão estabelecida, o usuário vê um erro cru e não há auto-cura.
 
-运行期恢复仍保持「原 tool call 最多重试一次」，但不能由触发错误的 caller 内联持有 Phase 2。
-第一次认证错误必须原子创建或复用 server record 上的共享恢复任务：
+A recuperação em tempo de execução mantém a regra de "a chamada de ferramenta original retenta no máximo uma vez", mas a Phase 2 não pode ser mantida inline pelo caller que disparou o erro. O primeiro erro de autenticação precisa criar atomicamente — ou reaproveitar — uma tarefa de recuperação compartilhada no record do servidor:
 
 ```mermaid
 flowchart TD
-    A["callTool: 建立单一 deadline"] --> B["等待已有 record.connecting<br/>只消费剩余 caller 预算"]
-    B --> C["第一次 tools/call<br/>只消费剩余预算"]
-    C -- Not connected --> D[共享 Phase 1 重连]
-    C -- 5.1 表中需进 Phase 2 的错误 --> E{已有共享 recovery?}
-    C -- temporaryRefreshFailure / 其他 --> F[原样冒泡]
-    E -- 是 --> G[复用 record.connecting]
-    E -- 否 --> H["generation++ / adapter-owned AbortController<br/>record.status = connecting"]
-    H --> I[Phase 2 编排]
-    I -- authorized / already-authorized --> J[同 generation 下 Phase 1 重连]
+    A["callTool: estabelece um único deadline"] --> B["aguarda o record.connecting existente<br/>consome apenas o orçamento restante do caller"]
+    B --> C["primeiro tools/call<br/>consome apenas o orçamento restante"]
+    C -- Not connected --> D[reconexão compartilhada pela Phase 1]
+    C -- erros da tabela 5.1 que exigem Phase 2 --> E{já existe recovery compartilhado?}
+    C -- temporaryRefreshFailure / outros --> F[propaga como está]
+    E -- sim --> G[reaproveita record.connecting]
+    E -- não --> H["generation++ / AbortController pertencente ao adapter<br/>record.status = connecting"]
+    H --> I[orquestração da Phase 2]
+    I -- authorized / already-authorized --> J[reconexão pela Phase 1 na mesma generation]
     I -- pending / failed / throw --> K["failConnection<br/>oauth_authorization_failed"]
     J --> L[record = connected]
     K --> M[record = failed]
     D --> G
-    G --> N{"caller deadline / signal race"}
+    G --> N{"deadline do caller / corrida com signal"}
     L --> N
     M --> N
-    N -- caller 到点 --> O["只结束当前 waiter<br/>后台 recovery 继续"]
-    N -- connected 且仍有预算 --> P[原 tool call 最多安全重试一次]
+    N -- caller esgotou --> O["encerra apenas o waiter atual<br/>o recovery em background continua"]
+    N -- connected e ainda com orçamento --> P[a chamada de ferramenta original retenta com segurança no máximo uma vez]
 ```
 
-共享任务完整拥有「Phase 2 → Phase 1 重连」，并存入 `record.connecting`。同 adapter 的并发 caller
-只复用这一个 Promise；跨 adapter/process 仍由 authz lease 单飞。任务使用 adapter-owned
-`AbortController`，只允许显式 `disconnectServer`、adapter/session `close` 或 generation 换代取消。
-不能把 `McpCallToolOptions.signal` 传给 Phase 2，否则 core tool executor 到点 abort 时会关闭 callback
-listener，使浏览器中仍在进行的授权失效。
+A tarefa compartilhada possui por completo a sequência "Phase 2 → reconexão pela Phase 1" e é armazenada em `record.connecting`. Callers concorrentes do mesmo adapter reutilizam essa única Promise; entre adapters/processos, o lease de autorização continua garantindo single-flight. A tarefa usa um `AbortController` pertencente ao adapter, e só pode ser cancelada por um `disconnectServer` explícito, pelo `close` do adapter/sessão ou pela troca de generation. Não se deve passar `McpCallToolOptions.signal` para a Phase 2, pois o executor de ferramentas do core, ao estourar o tempo e fazer abort, fecharia o listener de callback e invalidaria a autorização ainda em curso no navegador.
 
-`callTool()` 在入口建立一次 deadline。等待已有 connecting、第一次请求、等待共享恢复、重连以及
-最终重试都只能消费剩余预算；不能让每个阶段重新获得完整 `timeoutMs`。caller 到点后返回
-`McpTimeoutError`/取消错误，但共享恢复继续观察 canonical generation，并在授权完成后主动把 record
-重连到 connected。运行期工具已经在 core 注册，因此后续调用可直接复用恢复后的连接。
+`callTool()` estabelece um deadline uma única vez na entrada. Espera por um connecting existente, a primeira requisição, a espera pela recuperação compartilhada, a reconexão e a retentativa final só podem consumir o orçamento restante; cada fase não pode receber novamente um `timeoutMs` completo. Quando o caller esgota o tempo, ele retorna `McpTimeoutError`/erro de cancelamento, mas a recuperação compartilhada continua observando a generation canonical e, após a autorização ser concluída, reconecta o record para connected por conta própria. A ferramenta já está registrada no core, portanto as chamadas seguintes podem reutilizar diretamente a conexão recuperada.
 
-共享恢复内部不能通过现有 `connectServer()` 递归重连：`connectServer()` 会先 `closeRecord()`，
-从而 abort 当前 record 上的 recovery controller，形成自取消。实现应在同一个 generation/controller
-下直接进入 Phase 1，或抽出不执行 `closeRecord()` 的内部状态转换函数。
+A recuperação compartilhada não pode reconectar recursivamente pelo `connectServer()` existente: `connectServer()` chama primeiro `closeRecord()`, o que abortaria o recovery controller do record atual, produzindo um auto-cancelamento. A implementação deve entrar diretamente na Phase 1 dentro da mesma generation/controller, ou extrair uma função interna de transição de estado que não execute `closeRecord()`.
 
-### 5.5 Phase 2 异常必须收敛
+### 5.5 As exceções da Phase 2 precisam convergir
 
-`runInteractiveOAuthAuthorization()` 的公开结果已经包含 `{status: "failed", error}`，因此生产编排
-必须把以下异常统一归一为 failed outcome，而不是让 Promise reject：
+O resultado público de `runInteractiveOAuthAuthorization()` já contém `{status: "failed", error}`, portanto a orquestração de produção precisa normalizar as seguintes exceções em um resultado failed, em vez de deixar a Promise rejeitar:
 
-- canonical/legacy credential 读取损坏、EACCES 或 EPERM；
-- authz lease 获取异常；
-- step-up scope 计算时的 credential 读取异常；
-- follower 投影 `onAuthorizationRequired` 时宿主 callback reject；
-- resource metadata URL 转换及 discovery/DCR 等其他交互编排异常。
+- leitura de credenciais canonical/legacy corrompida, EACCES ou EPERM;
+- exceção na obtenção do lease de autorização;
+- exceção na leitura de credenciais durante o cálculo de scope do step-up;
+- rejeição pelo callback do宿主 quando o follower projeta `onAuthorizationRequired`;
+- conversão da URL de resource metadata e outras exceções da orquestração interativa, como discovery/DCR.
 
-建连与运行期共享恢复拿到 failed outcome 后都必须调用
-`failConnection({failureKind: "oauth_authorization_failed"})`。成功时 connected record 替换
-connecting record；失败时 failed record 替换 connecting record。禁止保留 rejected
-`record.connecting`，也不使用 `Promise.allSettled` 掩盖未收敛的单 server 状态。
+Tanto a conexão quanto a recuperação compartilhada em tempo de execução, ao receberem um resultado failed, precisam chamar `failConnection({failureKind: "oauth_authorization_failed"})`. Em caso de sucesso, o record connected substitui o record connecting; em caso de falha, o record failed substitui o record connecting. É proibido manter um `record.connecting` rejeitado, e também não se deve usar `Promise.allSettled` para esconder um estado de servidor único que não convergiu.
 
-底层 lease release 当前是 best-effort，文件删除异常已在锁实现内吞掉；它不是本次缺陷触发点。
-即便后续锁实现改变，cleanup 失败也不得覆盖已经确定的授权 outcome。
+A liberação do lease no nível inferior é atualmente best-effort, e as exceções de remoção de arquivo já são engolidas dentro da implementação da trava; ela não é o gatilho do defeito desta rodada. Mesmo que a implementação da trava mude no futuro, uma falha de cleanup não pode sobrescrever um outcome de autorização já determinado.
 
-### 5.6 settings / session 双 lease 的 pending 投影
+### 5.6 Projeção do pending no duplo lease settings / session
 
-settings adapter 与 session adapter 是独立 lease（`zcode-protocol-entrypoint.ts:115-133`），
-`connectionKey` 对非 workspace-isolated server 使用 `leaseId`（`pool.ts:317-328`）。因此 session 成为
-leader 时，settings follower 必须从共享 pending 键读取并把授权 URL 投影到自己的状态；现有状态更新只
-发生在当前 adapter 自己的 `onAuthorizationRequired` 回调里（`index.ts:770-785`），跨 lease 不可见。
+O adapter de configurações e o adapter de sessão são leases independentes (`zcode-protocol-entrypoint.ts:115-133`), e `connectionKey` usa `leaseId` para servidores que não são isolados por workspace (`pool.ts:317-328`). Portanto, quando a sessão se torna líder, o follower de configurações precisa ler a chave pending compartilhada e projetar a URL de autorização no próprio estado; as atualizações de estado atuais acontecem apenas no callback `onAuthorizationRequired` do próprio adapter atual (`index.ts:770-785`) e são invisíveis entre leases.
 
-## 6. PR 序列（顺序不可颠倒）
+## 6. Sequência de PRs (a ordem não pode ser invertida)
 
-| PR      | 内容                                                                                                                                                                                                                                     | 修复                  |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| **PR1** | `localhost-callback`：state 不匹配回 400 但**不** reject 自己的 callback promise；匹配 state 且带 `error=access_denied` 立即 settle 失败。`oauth.ts` 的 `invalidateCredentials` 各分支、授权 / 刷新事件补 warn 级日志（不含 token 明文） | 可观测性 + 回调健壮性 |
-| **PR2** | 独立授权锁（专用 tryAcquire + 进程内注册表）+ fresh DCR 事务内存化 + 锁内原子发布 + attempt 绑定的 `pending_authorization` 共享键 + caller 预算与事务寿命分离 + 真 abort + **旧 provider → Phase 2 过渡 seam**                           | **R2**                |
-| **PR3** | Phase 1 换纯 AuthProvider + `refreshUnderLock` + `generation` 与 `deleteManyIfValue` CAS + `obtained_at`/`expires_at` 迁移 + discovery TTL/issuer/resource + 403 unionScope 传递 + Phase2→1 交接 + 运行期 `callTool` 恢复                | **R1**                |
+| PR      | Conteúdo                                                                                                                                                                                                                                                                                       | Corrige                 |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| **PR1** | `localhost-callback`: state divergente retorna 400 mas **não** rejeita a própria promise de callback; state correspondente com `error=access_denied` assenta imediatamente como falha. Logs de nível warn nos vários ramos de `invalidateCredentials` de `oauth.ts` e nos eventos de autorização / refresh (sem texto puro de token) | Observabilidade + robustez do callback |
+| **PR2** | Trava de autorização dedicada (tryAcquire dedicado + registro in-processo) + transação de DCR novo mantida em memória + publicação atômica dentro da trava + chave compartilhada `pending_authorization` vinculada à tentativa + separação do orçamento do caller e da duração da transação + abort real + **seam de transição do provider antigo para a Phase 2**                                           | **R2**                  |
+| **PR3** | Phase 1 passa a AuthProvider puro + `refreshUnderLock` + `generation` e CAS `deleteManyIfValue` + migração de `obtained_at`/`expires_at` + TTL/issuer/resource de discovery + passagem do unionScope do 403 + handover Phase2→1 + recuperação de `callTool` em tempo de execução                                                                    | **R1**                  |
 
-PR3 必须在 PR2 之后：Phase 1 换纯 AuthProvider 后 SDK 不再自发交互授权，PR2 未就位则用户无法授权。
+O PR3 precisa vir depois do PR2: depois que a Phase 1 passa a usar um AuthProvider puro, o SDK não inicia mais autorização interativa por conta própria, e sem o PR2 em posição o usuário não consegue autorizar.
 
-## 7. 迁移
+## 7. Migração
 
-| 现存状态                                      | 行为                                                                                                                                                                                                             |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v3 canonical（有 `generation`/`obtained_at`） | 正常路径                                                                                                                                                                                                         |
-| v1/v2 canonical，有 refresh token             | 视为临期，进锁尝试**恰好一次**刷新（锁内重读防多进程重复触发）。成功 → 发布 v3；`invalid_grant` → CAS 清 tokens 进 Phase 2（旧 family 本就已死，正是 exa 现场）；临时失败 → 保留旧 pair 按 reactive 临时错误处理 |
-| v1/v2 canonical，无 refresh token             | 不虚构 refresh，继续使用 access token 直到 401，再进 Phase 2                                                                                                                                                     |
-| 未知更高 version                              | 保留原值并回退，禁止当损坏数据删除（沿用现有约束）                                                                                                                                                               |
+| Estado existente                             | Comportamento                                                                                                                                                                                                                     |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| canonical v3 (com `generation`/`obtained_at`) | Caminho normal                                                                                                                                                                                                                      |
+| canonical v1/v2, com refresh token           | Tratado como perto da expiração, entra na trava e tenta **exatamente uma** refresh (releitura dentro da trava evita disparos duplicados por múltiplos processos). Sucesso → publica v3; `invalid_grant` → CAS limpa os tokens e entra na Phase 2 (a família antiga já estava morta; é exatamente o caso de campo do exa); falha temporária → mantém o par antigo e trata como erro reativo temporário |
+| canonical v1/v2, sem refresh token           | Não inventa refresh; continua usando o access token até o 401 e então entra na Phase 2                                                                                                                                              |
+| version desconhecida mais alta               | Preserva o valor original e recua; proibido apagar como dados corrompidos (mantém a restrição existente)                                                                                                                            |
 
-让所有升级用户直接进 Phase 2 会造成不必要的授权打扰，不采用。
+Levar todos os usuários atualizados diretamente para a Phase 2 causaria um incomodo de autorização desnecessário; por isso não é adotado.
 
-## 8. 验证矩阵
+## 8. Matriz de verificação
 
-现有 19 条 OAuth e2e 断言全部保留。现有 e2e 从 `@modelcontextprotocol/sdk@1.29` 直连 import，需切到生产
-包 `@modelcontextprotocol/client@2.0.0`。新增：
+Todas as 19 asserções e2e OAuth existentes são mantidas. O e2e existente importa diretamente de `@modelcontextprotocol/sdk@1.29` e precisa passar para o pacote de produção `@modelcontextprotocol/client@2.0.0`. Novos casos:
 
 ### PR1
 
-1. 错误 state 的请求先到、正确 state 的请求后到 → 授权仍成功（错误请求不得 poison callback promise）。
-2. 匹配 state 且带 `error=access_denied` → 立即失败，不等到超时。
+1. A requisição com state incorreto chega primeiro e a requisição com state correto chega depois → a autorização ainda tem sucesso (a requisição errada não pode envenenar a promise de callback).
+2. State correspondente com `error=access_denied` → falha imediata, sem esperar o timeout.
 
 ### PR2
 
-3. 两个真实子进程争 leader → 恰好一个 listener、一次 DCR、一个授权 URL。
-4. A 超时、B 接管：断言 A 的 `finishAuth`/`saveTokens` 完全 settle 后才放锁，且 A 迟到的 `saveTokens`
-   必须失败（fencing），A 永不覆盖 B。
-5. 授权锁死亡回收：零等待竞争下 dead owner 可回收；旧 attempt 的 `finally` 不得删除新 attempt 的
-   pending；锁路径在 Windows 合法（basename 无冒号）。
-6. **过渡 seam**：仍使用旧完整 provider 时，首次 / 失效授权被 seam 转进 fresh Phase 2，旧 redirect URL
-   不得被打开。
-7. `ServerError`/403 路径下旧 canonical 仍在时，leader 不得把旧 token 当作新 generation。
-8. settings/session 双 lease：session 先成为 leader，settings follower 看到同一 pending URL；
-   session 15 秒预算结束不终止 300 秒共享授权；leader 完成后两个 adapter 都能回 Phase 1。
+3. Dois subprocessos reais disputam a liderança → exatamente um listener, um DCR, uma URL de autorização.
+4. A esgota o tempo e B assume: asserção de que o `finishAuth`/`saveTokens` de A assentou completamente antes de liberar a trava, e que o `saveTokens` atrasado de A necessariamente falha (fencing); A nunca sobrescreve B.
+5. Recuperação de morte da trava de autorização: sob competição de espera zero, um owner morto pode ser recuperado; o `finally` da tentativa antiga não pode apagar o pending da nova tentativa; o caminho da trava é legal no Windows (basename sem dois-pontos).
+6. **Seam de transição**: ainda usando o provider completo antigo, a primeira autorização / a autorização inválida é transicionada pela seam para uma nova Phase 2, e a URL de redirect antiga não pode ser aberta.
+7. No caminho `ServerError`/403 com o canonical antigo ainda presente, o líder não pode tratar o token antigo como uma nova generation.
+8. Duplo lease settings/sessão: a sessão se torna líder primeiro e o follower de configurações vê a mesma URL pending; o orçamento de 15 segundos da sessão não encerra a autorização compartilhada de 300 segundos; após o líder concluir, ambos os adapters voltam à Phase 1.
 
 ### PR3
 
-9. 首次无凭据连接：断言零 discovery、零 DCR、零 listener。
-10. rotation 严格服务器 + barrier 双进程：仅一次 refresh 请求（参考 `22ba5d86c4` 的
-    `mcp-oauth-proactive-refresh.test.ts` 思路；文件布局已分叉，不可 cherry-pick）。该测试上再加
-    expired discovery 单飞与 reactive 网络失败两个分支。
-11. `invalid_client`：断言 client + tokens 整对失效；静态 clientId 的 `invalid_client` 报配置错误而非进
-    Phase 2。
-12. 旧 canonical 无时间字段 → 恰好一次刷新尝试，不反复。
-13. generation/CAS：refresh、授权、失效并发时每次 publication 换 generation；stale `invalid_client`
-    不得删除 winner 的 canonical 或 legacy 镜像。
-14. 运行期恢复：已连接后 `callTool()` 分别触发 401、第二次 401、403 → 完成 Phase 2、销毁 interactive
-    transport、Phase 1 重连，原 tool call 最多安全重试一次。
-15. scope/resource：token response 不含 `scope`、challenge 增加新 scope → 断言新请求保留配置 / 历史
-    scope，并传递 challenge 的 `resourceMetadataUrl`。SSE 403 断言「明确不支持 step-up」。
-16. `callTool()` 等待 startup connecting 时，caller timeout/abort 立即结束当前 waiter，后台 connection
-    与 callback listener 继续存活。
-17. tool caller 在运行期触发 Phase 2 后超时，随后用户完成浏览器授权 → 无需原 caller 存活，
-    record 最终自动进入 connected。
-18. 两个并发 tool caller 只创建一个 adapter-owned recovery；任一 caller 取消不影响另一 caller 或
-    callback listener。
-19. credential load、lease EACCES/EPERM、follower callback reject 等 Phase 2 编排异常 → record
-    进入 `failed/oauth_authorization_failed`，后续同配置连接可以重新尝试，不复用 rejected Promise。
-20. 单一 deadline：第一次调用、恢复等待和最终重试总耗时不超过 caller 预算；授权成功后原 tool call
-    最多重试一次。
+9. Primeira conexão sem credenciais: asserção de zero discovery, zero DCR e zero listener.
+10. Servidor com rotação estrita + barreira com dois processos: apenas uma requisição de refresh (ver a abordagem de `22ba5d86c4` em `mcp-oauth-proactive-refresh.test.ts`; o layout do arquivo já divergiu, portanto não é possível fazer cherry-pick). Sobre esse teste, adicionar os dois ramos de discovery expirado com single-flight e de falha de rede reativa.
+11. `invalid_client`: asserção de que o par client + tokens inteiro foi invalidado; `invalid_client` com clientId estático reporta erro de configuração em vez de entrar na Phase 2.
+12. Canonical antigo sem campos de tempo → exatamente uma tentativa de refresh, sem repetição.
+13. generation/CAS: com refresh, autorização e invalidação concorrentes, cada publicação troca a generation; um `invalid_client` obsoleto não pode apagar o canonical do vencedor nem o espelho legacy.
+14. Recuperação em tempo de execução: após estar conectado, `callTool()` dispara respectivamente 401, segundo 401 e 403 → conclui a Phase 2, destrói o transport interativo, reconecta pela Phase 1, e a chamada de ferramenta original retenta com segurança no máximo uma vez.
+15. scope/resource: resposta de token sem `scope` e challenge com um novo scope → asserção de que a nova requisição preserva o scope de configuração/histórico e transmite o `resourceMetadataUrl` do challenge. Para SSE 403, asserção de "step-up explicitamente não suportado".
+16. Quando `callTool()` espera um connecting de startup, o timeout/abort do caller encerra imediatamente o waiter atual, e a conexão em background junto com o listener de callback continuam vivos.
+17. Depois que o tool caller dispara a Phase 2 em tempo de execução e esgota o tempo, quando o usuário conclui a autorização no navegador, o record entra automaticamente em connected sem precisar que o caller original sobreviva.
+18. Dois tool callers concorrentes criam apenas um recovery pertencente ao adapter; o cancelamento de qualquer caller não afeta o outro caller nem o listener de callback.
+19. Exceções da orquestração da Phase 2, como credential load, EACCES/EPERM no lease e rejeição do callback do follower → o record entra em `failed/oauth_authorization_failed`, e uma conexão posterior com a mesma configuração pode tentar de novo, sem reutilizar a Promise rejeitada.
+20. Deadline único: a primeira chamada, a espera pela recuperação e a retentativa final não excedem no total o orçamento do caller; após a autorização bem-sucedida, a chamada de ferramenta original retenta no máximo uma vez.
 
-## 9. 已知限制（本次不修）
+## 9. Limitações conhecidas (não corrigidas nesta rodada)
 
-- `issuer` 只作为 canonical 字段留存，不参与 `keyPrefix` 键控。同一凭据 key
-  （`serverName + serverUrl + scope + redirectPath`）下切换授权服务器时，仍按现有五维 key 复用凭据。
-- 远程 SSH / 容器场景下 localhost callback 跨 host 不可达。这是既有问题，两阶段设计不改变它。
-- SSE transport 的 403 不支持 step-up（见 5.3）。
-- 授权 URL 仍由用户在设置页显式点击打开，默认不自动拉起系统浏览器。
-- **迟到授权不会向运行中的 session 注入工具。** caller 预算到点后授权事务继续存活并会写入凭据，但
-  `registerMcpTools` 只在 `startMcpStartup` 调用一次（`core/src/runtime/methods/mcp.ts:105`）。leader 成功后，
-  已在运行的 session 不会自动出现该 MCP 的工具；设置页按现有 pending/follow-up 轮询窗口会显示为已连接，
-  session 侧需要下一次连接或刷新。把工具注册做成可在会话中途重放属于 core runtime 的改造，不在本次范围。
-- PR2 窗口内 Phase 1 仍是旧 provider，因此每次连接仍会为 HTTP/SSE MCP 建一个 callback listener
-  （见 1.3）。这个资源开销在 PR3 换成纯 AuthProvider 后消失。
+- O `issuer` é mantido apenas como campo do canonical e não participa da chave por `keyPrefix`. Ao trocar de servidor de autorização sob a mesma chave de credenciais (`serverName + serverUrl + scope + redirectPath`), as credenciais ainda são reutilizadas conforme a chave de cinco dimensões existente.
+- Em cenários de SSH remoto / contêiner, o callback de localhost é inalcançável entre hosts. Esse é um problema pré-existente e o design em duas fases não o altera.
+- O 403 do transport SSE não suporta step-up (ver 5.3).
+- A URL de autorização continua sendo aberta explicitamente pelo usuário na página de configurações; por padrão o navegador do sistema não é aberto automaticamente.
+- **Uma autorização tardia não injeta ferramentas em uma sessão já em execução.** Depois que o orçamento do caller esgota, a transação de autorização continua viva e grava as credenciais, mas `registerMcpTools` só é chamado uma vez, em `startMcpStartup` (`core/src/runtime/methods/mcp.ts:105`). Após o sucesso do líder, a sessão já em execução não passa a ter automaticamente as ferramentas daquele MCP; pela janela de polling de pending/follow-up existente, a página de configurações exibe o servidor como conectado, e o lado da sessão precisa de uma nova conexão ou de um refresh. Tornar o registro de ferramentas reprocessável no meio da sessão é uma alteração do core runtime e está fora do escopo desta rodada.
+- Durante a janela do PR2 a Phase 1 ainda é o provider antigo, portanto cada conexão ainda cria um callback listener para MCP HTTP/SSE (ver 1.3). Esse custo de recursos desaparece no PR3, com a troca pelo AuthProvider puro.
 
-## 10. 规范依据
+## 10. Fundamentos normativos
 
-- MCP Authorization：https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
-- RFC 6749 §4.1.2.1（redirect_uri 失配时禁止回跳）
-- RFC 8252（loopback native client 的端口例外；本设计不依赖服务端实现该例外）
-- RFC 8707（Resource Indicators）
-- RFC 9728（OAuth Protected Resource Metadata）
+- MCP Authorization: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+- RFC 6749 §4.1.2.1 (proibição de retorno em caso de divergência de redirect_uri)
+- RFC 8252 (exceção de porta para clients nativos em loopback; este design não depende de o servidor implementar essa exceção)
+- RFC 8707 (Resource Indicators)
+- RFC 9728 (OAuth Protected Resource Metadata)

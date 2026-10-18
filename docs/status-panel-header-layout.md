@@ -1,20 +1,20 @@
-# Status Panel Header Layout
+# Layout do Cabeçalho do Painel de Status
 
-## 目的
+## Objetivo
 
-Status 面板的 Git、Goal、Progress、Run 区块标题需要保持一致的信息顺序，避免同一面板内出现一部分状态信息靠右、一部分状态信息跟随标题的混合布局。
+Os blocos de título Git, Goal, Progress e Run do painel Status precisam manter uma ordem de informação consistente, evitando no mesmo painel uma mistura em que parte das informações de status fica à direita e parte acompanha o título.
 
-## 规则
+## Regras
 
-- 区块标题行的顺序为：标题、展开/收起箭头、状态内容。
-- Git、Progress、Run 的折叠态状态内容必须紧跟箭头后显示，不再使用 `ml-auto` 推到最右侧。
-- Goal 的暂停/恢复操作是当前目标的即时动作，显示在耗时和 tokens 指标之前。
-- 展开态 Status 面板在右上角提供一个绝对定位的面板收起按钮，用于切换到 mini 状态。
-- 右上角面板收起按钮存在时，区块标题行需要预留右侧空间，避免标题、箭头或状态内容与按钮重叠。
-- Mini 胶囊展示运行中的后台任务时，只显示任务类型图标和运行中任务数量，不显示已运行时长或计时器；展开态 Run 区块及任务明细继续显示耗时。
+- A ordem da linha de título do bloco é: título, seta de expandir/recolher, conteúdo de status.
+- O conteúdo de status no estado recolhido de Git, Progress e Run deve ser exibido logo após a seta, sem usar mais `ml-auto` para empurrá-lo até a extremidade direita.
+- A ação de pausar/retomar do Goal é uma ação imediata do objetivo atual e é exibida antes das métricas de tempo decorrido e de tokens.
+- O painel Status no estado expandido oferece, no canto superior direito, um botão de recolhimento do painel com posicionamento absoluto, usado para alternar para o estado mini.
+- Quando o botão de recolhimento do painel no canto superior direito existe, a linha de título do bloco precisa reservar espaço à direita, evitando que o título, a seta ou o conteúdo de status sobreponham o botão.
+- Quando o cápsula mini exibe tarefas em segundo plano em execução, mostra apenas o ícone do tipo de tarefa e a quantidade de tarefas em execução, sem mostrar o tempo decorrido nem o cronômetro; o bloco Run no estado expandido e os detalhes das tarefas continuam exibindo o tempo decorrido.
 
-## 兼容性
+## Compatibilidade
 
-- 该布局不改变 status 面板的数据来源，只改变标题行的信息排列。
-- Mini 状态仍使用原有胶囊行展开入口。
-- 文案继续使用现有 i18n key，不新增语言资源。
+- Esse layout não altera a origem dos dados do painel status, apenas a disposição das informações na linha de título.
+- O estado mini continua usando o ponto de entrada existente de expansão pela linha de cápsula.
+- Os textos continuam usando as i18n keys existentes, sem adicionar novos recursos de idioma.

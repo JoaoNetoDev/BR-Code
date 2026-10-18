@@ -1,31 +1,31 @@
-# ZCode 发版通知卡片
+# Cartão de Notificação de Lançamento do ZCode
 
-## 目标
+## Objetivo
 
-正式版本发布后，`release:notify:feishu` 使用 Zara 向配置的飞书群发送 Card 2.0 更新说明。卡片内容来自 infra 编辑后的共享目录 `macos-arm64/latest.yml.releaseNotes`，同时在移动端和桌面端保持清晰、克制的信息层级。
+Após a publicação de uma versão oficial, `release:notify:feishu` usa o Zara para enviar ao grupo Feishu configurado um Cartão 2.0 com as notas de atualização. O conteúdo do cartão vem do diretório compartilhado `macos-arm64/latest.yml.releaseNotes`, editado pela infra, mantendo ao mesmo tempo uma hierarquia de informação clara e contida no mobile e no desktop.
 
-## 信息结构
+## Estrutura de informação
 
-- Header：版本号、正式发布状态和通知图标，使用蓝色主题。
-- 摘要块：仅展示“本次更新已发布”和新功能/问题修复数量，不展示 CI、发布人或内部地址。
-- Changelog：只展示非空分区；“新功能”优先展开，纯修复版本直接展开“问题修复”，未知标题归入“其他更新”并保留完整条目。
-- 链接：底部只保留官网与文档两个跳转按钮，不产生服务端回调。
+- Header: número da versão, status de publicação oficial e ícone de notificação, com tema azul.
+- Bloco de resumo: exibe apenas "esta atualização já foi publicada" e a quantidade de novos recursos / correções de problemas; não exibe CI, publicador nem endereços internos.
+- Changelog: exibe apenas seções não vazias; "Novos recursos" tem prioridade de expansão, versões só de correções expandem diretamente "Correções de problemas" e títulos desconhecidos vão para "Outras atualizações", mantendo os itens completos.
+- Links: apenas dois botões no rodapé, para o site oficial e a documentação, sem gerar callback no servidor.
 
-## 视觉与兼容性
+## Visual e compatibilidade
 
-- 使用 Card 2.0 `schema: "2.0"` 和 `default` 宽度。
-- 主色限定为蓝、白、灰；不使用渐变、大图、庆祝 emoji 或高饱和装饰。
-- 通过容器内边距、浅色背景和折叠分区控制长文密度，不使用大标题堆叠。
-- 飞书会话预览必须包含版本号；卡片允许转发，不支持旧客户端的情况由飞书自身降级展示。
+- Usa Card 2.0 `schema: "2.0"` e largura `default`.
+- As cores principais se limitam a azul, branco e cinza; sem gradientes, imagens grandes, emojis de comemoração ou decoração altamente saturada.
+- A densidade do texto longo é controlada por padding interno do contêiner, fundo claro e seções colapsáveis, sem empilhar títulos grandes.
+- O preview da conversa no Feishu precisa conter o número da versão; o cartão pode ser reencaminhado e, para clientes antigos sem suporte, o próprio Feishu faz o degrade na exibição.
 
-## 发送边界
+## Limites de envio
 
-- 测试 tag、sandbox release 和 `ZCODE_ENV=test` 不发送正式通知。
-- 只有稳定版发布成功后，手动执行 `release:notify:feishu` 才发送。
-- Tag pipeline 自动使用 `CI_COMMIT_TAG` 作为版本；`CI_RELEASE_BRANCH=1` 的非 Tag 演练必须显式提供 `ZARA_RELEASE_NOTIFY_VERSION`，否则通知 Job 在调用 Zara 前失败。
-- 默认接收范围覆盖 5 个已确认的 ZCode 用户、内部与平台内测群；通过逗号分隔的 `ZARA_RELEASE_NOTIFY_RECEIVE_ID` 统一维护，新增群时同步更新 CI 回归断言。
-- 正式通知读取 `${ZCODE_CI_SHARED_ROOT}/${TARGET_OUTPUT_DIR}/macos-arm64/latest.yml` 的 `releaseNotes`；清单缺失、版本与通知版本不一致或日志为空时直接失败，不回退仓库 `CHANGELOG.md`。
-- 每个接收方独立发送并使用“版本 + 接收方”派生的稳定 Feishu `uuid`；单群失败不阻止后续群，最终错误会给出失败清单。超过飞书一小时去重窗口后，只能通过 `ZARA_RELEASE_NOTIFY_RETRY_RECEIVE_ID` 精确补发失败群。
-- 发送前会移除 Markdown 链接目标和裸露内网 URL，并拒绝超过 24 KiB 安全预算的卡片，为飞书 30 KiB 请求上限预留序列化余量。
-- dry-run 只输出卡片 JSON，不调用飞书 API。
-- Zara/Feishu 失败日志只保留状态码、错误码和最多 500 字符的脱敏摘要，不记录完整第三方响应。
+- Tags de teste, sandbox release e `ZCODE_ENV=test` não enviam notificação oficial.
+- Só após a publicação bem-sucedida de uma versão estável, a execução manual de `release:notify:feishu` envia.
+- O pipeline de tag usa automaticamente `CI_COMMIT_TAG` como versão; um ensaio sem Tag com `CI_RELEASE_BRANCH=1` precisa fornecer explicitamente `ZARA_RELEASE_NOTIFY_VERSION`, caso contrário o Job de notificação falha antes de chamar o Zara.
+- O escopo padrão de recebimento cobre 5 usuários confirmados do ZCode e os grupos internos e de beta da plataforma; é mantido de forma unificada em `ZARA_RELEASE_NOTIFY_RECEIVE_ID` separado por vírgulas, e ao adicionar um grupo a asserção de regressão do CI deve ser atualizada junto.
+- A notificação oficial lê o `releaseNotes` de `${ZCODE_CI_SHARED_ROOT}/${TARGET_OUTPUT_DIR}/macos-arm64/latest.yml`; se o manifesto estiver ausente, se a versão for diferente da versão da notificação ou se o log estiver vazio, a execução falha diretamente, sem recorrer ao `CHANGELOG.md` do repositório.
+- Cada destinatário recebe o envio de forma independente, com um `uuid` de Feishu estável derivado de "versão + destinatário"; a falha de um grupo não impede os grupos seguintes, e o erro final apresenta a lista de falhas. Depois de passar a janela de deduplicação de uma hora do Feishu, só é possível reenviar com precisão aos grupos que falharam usando `ZARA_RELEASE_NOTIFY_RETRY_RECEIVE_ID`.
+- Antes do envio, são removidos os alvos de links Markdown e URLs internas em texto puro, e cartões que excedem o orçamento de segurança de 24 KiB são rejeitados, deixando margem de serialização para o limite de requisição de 30 KiB do Feishu.
+- O dry-run apenas imprime o JSON do cartão, sem chamar a API do Feishu.
+- Logs de falha de Zara/Feishu mantêm apenas status code, error code e um resumo mascarado de no máximo 500 caracteres, sem registrar a resposta completa do terceiro.

@@ -1,42 +1,42 @@
-# dep-refs：变量级 export 引用查询脚本
+# dep-refs: script de consulta de referências de export em nível de variável
 
-## 背景
+## Contexto
 
-正在做大型重构，需要删大量代码。现有工具的缺口：
+Está em andamento uma refatoração grande e é preciso apagar bastante código. As lacunas das ferramentas atuais:
 
-- `scripts/dependency-graph.mjs`（已有，460 行）只到 **文件级**，无法回答"`createBotSession` 这个具体 export 被谁用了"
-- `pnpm knip` 能列出**完全没人用**的 export，但不告诉**还在用的 export 被谁用**，所以无法支撑"我要改/删 X，谁会受影响"这种判断
-- `grep` 找名字会被同名变量、注释、字符串污染，不准
+- `scripts/dependency-graph.mjs` (já existente, 460 linhas) chega apenas ao **nível de arquivo**, sem conseguir responder "quem usa exatamente este export `createBotSession`"
+- `pnpm knip` lista os exports que **ninguém usa**, mas não informa **quem usa os exports que ainda estão em uso**, então não sustenta o julgamento "vou alterar/apagar X, o que é afetado"
+- `grep` por nome é contaminado por variáveis homônimas, comentários e strings, ficando impreciso
 
-需要一个 CLI：给一个 export symbol，精确列出所有引用位置（基于 TS LanguageService，不是文本匹配）。
+É preciso uma CLI que, dado um export symbol, liste com precisão todas as posições de referência (baseado em TS LanguageService, não em correspondência textual).
 
-## 目标 / 非目标
+## Objetivos / não objetivos
 
-**目标：**
-- 给 `<file>:<exportName>`，列出所有引用位置（含文件、行、列、代码片段）
-- 列某文件的所有 export（删文件前的清单）
-- JSON 输出，让 agent 能用 Read/jq 消费
-- 区分普通引用和 re-export
+**Objetivos:**
+- Dado `<file>:<exportName>`, listar todas as posições de referência (com arquivo, linha, coluna e trecho de código)
+- Listar todos os exports de um arquivo (inventário antes de apagar o arquivo)
+- Saída JSON, para que o agent possa consumir com Read/jq
+- Distinguir referências comuns de re-exports
 
-**非目标：**
-- 不取代 `dependency-graph.mjs`（文件级）和 `knip`（unused 检测）
-- 不处理 dynamic `import()` 或字符串引用
-- 不做全量预生成图（按需查询足矣）
+**Não objetivos:**
+- Não substituir `dependency-graph.mjs` (nível de arquivo) nem `knip` (detecção de unused)
+- Não tratar `import()` dinâmico nem referências por string
+- Não gerar o grafo completo antecipadamente (consulta sob demanda já basta)
 
-## 设计
+## Design
 
-### 新增文件 & 命令
+### Novo arquivo e comando
 
-新文件 `scripts/dep-refs.mjs`（预估 ~200 行，基于 `ts-morph`）。不修改 `dependency-graph.mjs`。
+Novo arquivo `scripts/dep-refs.mjs` (~200 linhas estimadas, baseado em `ts-morph`). `dependency-graph.mjs` não é modificado.
 
-`package.json` 新增 script：
+Novo script em `package.json`:
 ```json
 "dep:refs": "node scripts/dep-refs.mjs"
 ```
 
-新依赖：`pnpm add -D ts-morph`
+Nova dependência: `pnpm add -D ts-morph`
 
-### CLI 形态
+### Forma da CLI
 
 ```bash
 # 查 export 的所有引用（核心用法）
@@ -53,9 +53,9 @@ pnpm dep:refs --list-exports <file> --json
 pnpm dep:refs <file>:<exportName> --scope packages/services
 ```
 
-### 输出（人读）
+### Saída (para leitura humana)
 
-查询单个 symbol：
+Consulta de um único symbol:
 
 ```
 createBotSession  (function, exported at packages/services/src/bots/botsService.ts:12)
@@ -75,7 +75,7 @@ Re-exports (1):
 Note: static analysis only. Dynamic import() and string-based usage not detected.
 ```
 
-零引用时：
+Com zero referências:
 
 ```
 oldHelper  (function, exported at .../botsService.ts:87)
@@ -83,7 +83,7 @@ oldHelper  (function, exported at .../botsService.ts:87)
 References (0). Safe to delete (no static references and no re-exports).
 ```
 
-`--list-exports`：
+`--list-exports`:
 
 ```
 packages/services/src/bots/botsService.ts
@@ -95,7 +95,7 @@ Exports (4):
   closeBotSession    function    line 87
 ```
 
-### JSON 输出 schema
+### Schema da saída JSON
 
 ```json
 {
@@ -115,7 +115,7 @@ Exports (4):
 }
 ```
 
-`--list-exports --json`：
+`--list-exports --json`:
 
 ```json
 {
@@ -127,68 +127,68 @@ Exports (4):
 }
 ```
 
-### 扫描范围
+### Escopo de varredura
 
-默认加载所有 workspace 源码 + 测试：
+Por padrão, carrega todo o código-fonte dos workspaces e os testes:
 - `packages/*/src/**/*.{ts,tsx,mts,cts}`
 - `packages/*/test/**/*.{ts,tsx}`
 - `apps/*/src/**/*.{ts,tsx,mts,cts}`
 - `harness/**/*.{ts,tsx}`
 
-（test 必须扫，否则"被测试引用"的 export 会被误判为 unused）
+(test precisa ser varrido, senão um export "referenciado por testes" seria julgado incorretamente como unused)
 
-`--scope <glob>` 覆盖默认范围，例如 `--scope packages/services` 只加载该包，启动会快很多。
+`--scope <glob>` sobrescreve o escopo padrão; por exemplo, `--scope packages/services` carrega apenas esse pacote, o que torna a inicialização muito mais rápida.
 
-### 关键实现要点（ts-morph API）
+### Pontos-chave de implementação (API do ts-morph)
 
-| 步骤 | API |
+| Passo | API |
 |---|---|
-| 创建 Project | `new Project({ tsConfigFilePath: 'tsconfig.base.json', skipAddingFilesFromTsConfig: true })` |
-| 显式加载源文件 | `project.addSourceFilesAtPaths(globs)` |
-| 找指定 export | `sourceFile.getExportedDeclarations().get(name)` → `Declaration[]`（同名多重载会返回多个） |
-| 找引用 | 对每个 declaration 拿到一个 `Identifier`（`getNameNode()` 或类似），调用 `identifier.findReferences()` |
-| 区分 re-export | 遍历每个引用节点，向上找父节点：在 `ExportDeclaration` / `ExportSpecifier` 下 → 归入 reExports；否则 references |
-| 跳过 declaration 自身 | 引用结果里会包含 declaration 位置，按 file+line 过滤掉 |
-| 列 exports | `sourceFile.getExportedDeclarations()` 遍历整个 Map |
-| kind 推断 | declaration 的 `getKindName()`：`FunctionDeclaration` → function、`VariableDeclaration` → const、`TypeAliasDeclaration` → type、`InterfaceDeclaration` → interface、`ClassDeclaration` → class |
+| Criar o Project | `new Project({ tsConfigFilePath: 'tsconfig.base.json', skipAddingFilesFromTsConfig: true })` |
+| Carregar explicitamente os source files | `project.addSourceFilesAtPaths(globs)` |
+| Encontrar o export indicado | `sourceFile.getExportedDeclarations().get(name)` → `Declaration[]` (sobrescritas com o mesmo nome retornam vários) |
+| Encontrar referências | Para cada declaration, obter um `Identifier` (`getNameNode()` ou equivalente) e chamar `identifier.findReferences()` |
+| Distinguir re-export | Percorrer cada nó de referência e subir aos pais: se estiver sob `ExportDeclaration` / `ExportSpecifier` → entra em reExports; caso contrário entra em references |
+| Pular a própria declaration | O resultado das referências inclui a posição da declaration; filtrar por file+line |
+| Listar exports | Percorrer o Map inteiro de `sourceFile.getExportedDeclarations()` |
+| Inferir kind | `getKindName()` da declaration: `FunctionDeclaration` → function, `VariableDeclaration` → const, `TypeAliasDeclaration` → type, `InterfaceDeclaration` → interface, `ClassDeclaration` → class |
 
-### 边界处理
+### Tratamento de casos limite
 
-| 情况 | 行为 |
+| Situação | Comportamento |
 |---|---|
-| `export *` | ✅ getExportedDeclarations 自动穿透 |
-| `import { foo as bar }` 别名 | ✅ findReferences 跟踪 alias |
-| type-only import vs value import | ✅ 全找到 |
-| 多重 re-export 链 (a → b → c) | ✅ findReferences 穿透 |
-| 同名重载（多个 declaration） | 合并所有 declaration 的引用，去重 |
-| 文件不存在 / symbol 不存在 | 退出码 1，stderr 给清晰错误 |
-| dynamic `import()` 字符串路径 | ❌ 不检测，输出 notes 提示 |
-| 命令行未提供 symbol | 提示用 `--list-exports` 先看 |
+| `export *` | ✅ getExportedDeclarations atravessa automaticamente |
+| Alias em `import { foo as bar }` | ✅ findReferences acompanha o alias |
+| import type-only vs import de valor | ✅ ambos são encontrados |
+| Cadeia de múltiplos re-exports (a → b → c) | ✅ findReferences atravessa |
+| Sobrecargas homônimas (várias declarations) | Mescla as referências de todas as declarations, removendo duplicatas |
+| Arquivo inexistente / symbol inexistente | Código de saída 1, com erro claro no stderr |
+| Caminho em string de `import()` dinâmico | ❌ não detectado; a saída mostra um aviso em notes |
+| Symbol não informado na linha de comando | Sugere usar `--list-exports` primeiro |
 
-### 性能
+### Desempenho
 
-ts-morph 加载整个 monorepo 约 10-30 秒（一次查询的固定开销）。后续查询若加 `--scope` 缩小到单个包，秒级。
+O ts-morph leva cerca de 10-30 segundos para carregar o monorepo inteiro (custo fixo de uma consulta). Consultas seguintes que usam `--scope` para reduzir a um único pacote ficam na casa dos segundos.
 
-不做缓存（实现复杂度不值，knip 已经覆盖"批量"场景）。
+Não há cache (a complexidade de implementação não compensa; o knip já cobre o cenário de "lote").
 
-### 与现有工具的协作
+### Colaboração com as ferramentas existentes
 
-推荐流程（写进 script 注释 / `dep:refs --help`）：
+Fluxo recomendado (escrito no comentário do script / em `dep:refs --help`):
 
-1. `pnpm knip` → 拿到 unused exports 列表（瞬秒）
-2. 对存疑的 export 用 `pnpm dep:refs file:name` 看具体引用者
-3. 决定能删 / 要先改调用方
+1. `pnpm knip` → obter a lista de exports unused (instantâneo)
+2. Para exports suspeitos, usar `pnpm dep:refs file:name` para ver os referenciadores concretos
+3. Decidir o que pode ser apagado / o que exige alterar antes os chamadores
 
-## 失败模式
+## Modos de falha
 
-- **ts-morph 加载报错（tsconfig 配置问题）**：直接退出，把错误原样打到 stderr，不强行容错
-- **findReferences 返回空但 declaration 找到了**：正常情况（零引用），按"safe to delete"提示
-- **symbol 名拼错**：提示 `--list-exports` 列出该文件的所有 export 供参考
+- **ts-morph falha ao carregar (problema de configuração do tsconfig)**: sair imediatamente, jogando o erro como está no stderr, sem forçar tolerância a falha
+- **findReferences retorna vazio mas a declaration foi encontrada**: situação normal (zero referências), com a dica de "safe to delete"
+- **Nome do symbol digitado errado**: sugerir `--list-exports` para listar todos os exports daquele arquivo como referência
 
-## 测试
+## Testes
 
-- 手动测试为主：
-  - 对一个已知有引用的 export 跑，比对引用数和 grep 大致一致
-  - 对一个 knip 报告为 unused 的 export 跑，应返回 `References (0)`
-  - `--list-exports` 跑 `packages/services/src/bots/botsService.ts`，肉眼比对
-- 不写自动化测试：脚本依赖整个 monorepo 编译状态，单测成本高于收益。
+- Predominantemente teste manual:
+  - Rodar em um export conhecido como referenciado e comparar a contagem de referências com um grep de forma aproximada
+  - Rodar em um export reportado como unused pelo knip; deve retornar `References (0)`
+  - Rodar `--list-exports` em `packages/services/src/bots/botsService.ts` e comparar visualmente
+- Não se escreve teste automatizado: o script depende do estado de compilação de todo o monorepo, e o custo de testes unitários é maior que o benefício.

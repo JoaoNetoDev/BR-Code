@@ -1,24 +1,24 @@
-# OAuth 登录失败文案与失败态交互
+# Texto de falha de login OAuth e interação no estado de falha
 
-## 背景
+## Contexto
 
-OAuth 登录失败时，底层服务可能返回 provider、网络、token exchange 或业务账号状态的具体错误。登录入口面向用户只需要给出可重试的明确反馈，不应把底层错误原文直接展示在登录页。
+Quando o login OAuth falha, o serviço subjacente pode devolver erros específicos de provider, de rede, de token exchange ou do estado da conta de negócio. A entrada de login voltada ao usuário precisa apenas dar um feedback claro e retentável, sem exibir o texto do erro subjacente diretamente na página de login.
 
-## 规则
+## Regras
 
-- 登录入口展示的 OAuth 失败文案统一为：`登录失败，请重试`。
-- Root 层 OAuth 回调失败、登录入口发起 OAuth 失败都使用同一份共享文案。
-- 具体错误原因只写入 UI logger，不进入 `oauthError` store 或 `useOAuth` 的可见 `error` 状态。
+- O texto de falha de OAuth exibido na entrada de login é uniformemente: `登录失败，请重试` ("Falha no login, tente novamente").
+- Falhas de callback OAuth na camada Root e falhas ao iniciar o OAuth pela entrada de login usam o mesmo texto compartilhado.
+- A causa específica do erro é gravada apenas no UI logger e não entra no store `oauthError` nem no estado visível `error` de `useOAuth`.
 
-## 失败态交互（2026-09-07 起）
+## Interação no estado de falha (desde 2026-09-07)
 
-- 失败态 UI 为三件套：warning Alert + 「重新登录」（default，沿用最近失败渠道重试）+ 「取消」（outline，样式与等待态取消一致）。
-- 失败期间渠道按钮列表不渲染（渲染条件 `status === "idle" && !oauthError`）。此前 Root 层 `oauthError` 触发的失败会把本地状态 reset 回 idle，导致失败块与渠道按钮同屏、状态纠缠；三个失败入口（init 失败 / 轮询失败 / deep link 回调失败）统一为同一视觉。
-- 「取消」对齐等待态取消语义：结束本次失败流程回到渠道列表，登录入口不关闭；用户换渠道走「取消 → 渠道列表」，原渠道重试走「重新登录」。此前失败态只有沿原渠道的「重新登录」，容易反复失败且无换渠道出口。
-- 新登录发起前（`startTrackedLogin`）统一清掉 store 残留 `oauthError`，避免失败提示与新流程的等待态同屏（如失败后关闭登录入口、再从设置页自动续接登录）。
-- 重试、切换登录方式（API key）等其余交互保持不变。
+- A UI de estado de falha é um trio: Alert de warning + 「重新登录」 ("Entrar novamente", default, reaproveitando o canal da falha mais recente para retry) + 「取消」 ("Cancelar", outline, com o mesmo estilo do cancelamento do estado de espera).
+- Durante a falha, a lista de botões de canal não é renderizada (condição de renderização `status === "idle" && !oauthError`). Anteriormente, a falha disparada pelo `oauthError` na camada Root fazia reset do estado local para idle, fazendo o bloco de falha e os botões de canal aparecerem na mesma tela, com estados misturados; as três entradas de falha (falha de init / falha de polling / falha de callback por deep link) passam a ter a mesma aparência visual.
+- 「取消」 se alinha à semântica de cancelamento do estado de espera: encerra este fluxo de falha e volta à lista de canais, sem fechar a entrada de login; para trocar de canal o usuário usa 「取消 → lista de canais」, e para repetir o canal original usa 「重新登录」. Anteriormente o estado de falha só tinha 「重新登录」 pelo canal original, o que facilitava falhas repetidas e não oferecia saída para trocar de canal.
+- Antes de iniciar um novo login (`startTrackedLogin`), o `oauthError` residual do store é removido de forma unificada, evitando que a mensagem de falha e o estado de espera do novo fluxo apareçam na mesma tela (como ao fechar a entrada de login após uma falha e depois retomar o login automaticamente a partir da página de configurações).
+- Retry, troca de forma de login (API key) e as demais interações permanecem inalteradas.
 
-## 兼容性
+## Compatibilidade
 
-- 桌面端和 Web 端共用 `packages/ui` 登录入口，因此文案收敛在 UI 层完成。
-- 不修改 OAuth 协议、host process、relay、session/task realtime 链路，不影响 desktop `continuous` 或 mobile remote `replayable` 语义。
+- Desktop e Web compartilham a entrada de login em `packages/ui`, portanto a convergência do texto acontece na camada de UI.
+- Não modifica o protocolo OAuth, o host process, o relay nem as cadeias realtime de session/task, e não afeta a semântica de desktop `continuous` nem de mobile remote `replayable`.

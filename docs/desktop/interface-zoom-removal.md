@@ -1,29 +1,29 @@
-# Interface Zoom Removal
+# Remoção do Zoom de Interface
 
-## 背景
+## Contexto
 
-ZCode 曾提供三档界面缩放：偏小、正常、偏大。入口包括桌面 View 菜单快捷键、设置页和侧边栏账户菜单，并通过 `localStorage` 与 Electron `webFrame` / `webContents` 持久化当前窗口缩放。
+O ZCode já ofereceu três níveis de zoom de interface: menor, normal e maior. Os pontos de entrada incluíam atalhos do menu View do desktop, a página de configurações e o menu de conta da barra lateral, com o zoom da janela atual persistido por meio de `localStorage` e do `webFrame` / `webContents` do Electron.
 
-## 目标
+## Objetivos
 
-- 删除用户可见的界面缩放功能。
-- 删除启动时恢复 `zcode-zoom-level` 的逻辑，避免历史倍率继续影响首屏。
-- 删除桌面 View 菜单中的 Actual Size / Zoom In / Zoom Out 和对应快捷键。
-- 删除 UI 设置页与账户菜单中的界面缩放入口。
-- 删除 platform/preload/web fallback 中专门服务界面缩放的 API。
+- Remover a funcionalidade de zoom de interface visível ao usuário.
+- Remover a lógica de restauração de `zcode-zoom-level` na inicialização, evitando que fatores históricos continuem afetando a primeira tela.
+- Remover Actual Size / Zoom In / Zoom Out do menu View do desktop e seus atalhos correspondentes.
+- Remover o ponto de entrada de zoom de interface na página de configurações da UI e no menu de conta da barra lateral.
+- Remover as APIs em platform/preload/web fallback dedicadas ao zoom de interface.
 
-## 非目标
+## Não objetivos
 
-- 不删除 macOS 系统窗口绿色按钮的 zoom/maximize/fullscreen 行为。
-- 不删除业务画布、图谱、PDF、文档或动画类组件中自身语义的 zoom。
-- 不主动迁移或清理用户机器上历史 `localStorage` 的 `zcode-zoom-level` 键；代码不再读取它后自然失效。
+- Não remover o comportamento de zoom/maximize/fullscreen dos botões verdes de janela do sistema macOS.
+- Não remover o zoom com semântica própria em componentes como canvas de negócio, grafo, PDF, documentos ou animações.
+- Não migrar nem limpar ativamente a chave `zcode-zoom-level` de `localStorage` histórico na máquina do usuário; depois que o código deixa de lê-la, ela deixa de ter efeito naturalmente.
 
-## 影响面
+## Superfície de Impacto
 
-- Desktop 端：应用菜单不再注册界面缩放快捷键，主进程不再处理 `resetZoom` / `zoomIn` / `zoomOut` 桌面命令。
-- Web/手机端：原本只是 no-op fallback，删除后不改变远控链路。
-- UI 层：设置页和侧边栏账户菜单不再展示界面缩放。
+- Desktop: o menu do aplicativo não registra mais atalhos de zoom de interface, e o processo main não processa mais os comandos de desktop `resetZoom` / `zoomIn` / `zoomOut`.
+- Web/celular: eram apenas fallbacks no-op, e a remoção não altera o caminho de controle remoto.
+- Camada de UI: a página de configurações e o menu de conta da barra lateral não exibem mais o zoom de interface.
 
-## 后续补充
+## Complemento posterior
 
-- `docs/desktop/system-zoom-shortcuts.md` 恢复了受控系统页面缩放快捷键。它只提供 `Cmd/Ctrl + +/-/0` 的当前窗口缩放能力，并限制默认大小上下 5 档，不恢复旧的持久化界面缩放设置或 UI 入口。
+- `docs/desktop/system-zoom-shortcuts.md` restaurou os atalhos de zoom controlados das páginas do sistema. Ele oferece apenas o zoom da janela atual com `Cmd/Ctrl + +/-/0`, limitado a 5 níveis acima e abaixo do tamanho padrão, sem restaurar as configurações de zoom de interface persistidas antigas nem os pontos de entrada na UI.

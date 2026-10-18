@@ -1,33 +1,30 @@
-# Context Window Usage State（当前事实）
+# Context Window Usage State (fato atual)
 
-Context usage 的 conversation 事实源是 V4 `ConversationSnapshot.usage`，不是 renderer 的 legacy `taskRuntime`。
+A fonte de verdade de conversation para o context usage é o V4 `ConversationSnapshot.usage`, e não o `taskRuntime` legado do renderer.
 
 ```text
 CLI usage events -> ProductProjection.usage -> snapshot/delta
   -> SessionDataLayer -> composer toolbar / status UI
 ```
 
-`V4ComposerToolbar` 读取 `snapshot.usage.contextWindow` 展示使用量。UI 不本地累加 token，也不从旧 task stream 拼 usage；恢复后以 snapshot 覆盖。
+`V4ComposerToolbar` lê `snapshot.usage.contextWindow` para exibir o uso. A UI não soma tokens localmente nem monta o usage a partir do antigo task stream; após a restauração, o snapshot sobrescreve.
 
-## compact 后冷恢复
+## Restauração a frio após compact
 
-Todo123：冷恢复按 `runtime.getSessionModelSelection() ?? record.restoredModelSelection`
-的明确身份只读查询 Registry，不要求思考档位完整、不创建执行 Model，也不写回选择。
-同一次历史加载取得一次容量，并把匹配的 usage seed 随加载结果交付投影；不另设缓存。
-未知容量在内部 seed 的 maxTokens 中为 null，协议仍使用整个 contextWindow=null。
-已用 token 保留；容量恢复后可以重新展示，不能回退 200,000。真实使用量事件和恢复期间
-的新事件优先于旧种子；同模型 ModelSelected 可以更新上限但不重算用量。
+Todo123: a restauração a frio consulta o Registry em modo somente leitura usando a identidade explícita de `runtime.getSessionModelSelection() ?? record.restoredModelSelection`, sem exigir que o nível de raciocínio esteja completo, sem criar um Model de execução e sem gravar a seleção de volta.
+A mesma carga de histórico obtém a capacidade uma única vez e entrega o usage seed correspondente à projeção junto com o resultado da carga; não há cache separado.
+A capacidade desconhecida é null no maxTokens do seed interno, e o protocolo continua usando contextWindow=null inteiro.
+Os tokens já usados são preservados; depois que a capacidade é restaurada, o valor pode ser exibido novamente, mas não pode regredir para 200.000. Eventos reais de uso e novos eventos durante a restauração têm prioridade sobre o seed antigo; um ModelSelected do mesmo modelo pode atualizar o limite sem recalcular o uso.
 
 ```text
-恢复身份 -> Registry 元数据（一次） -> 历史事件 + usage seed
+identidade de restauração -> metadados do Registry (uma vez) -> eventos de histórico + usage seed
                                            |
-                                      补回 live 事件
+                                  repõe eventos live
                                            |
-                      continuous / replayable 各自原有投递路径
+                      cada caminho de entrega original de continuous / replayable
 ```
 
-冷恢复时 runtime projection 可能还没有 usage，首帧必须从 active-branch 持久消息恢复
-最近一次水位，不能越过 compact summary 回退到压缩前的 assistant：
+Na restauração a frio, a projeção do runtime ainda pode não ter usage; o primeiro frame precisa restaurar, a partir das mensagens persistidas do active-branch, a marca de água mais recente, sem voltar além do compact summary até o assistant anterior à compactação:
 
 ```text
 active branch tail
@@ -38,30 +35,21 @@ active branch tail
                                       cold snapshot usage
 ```
 
-runtime `contextUsed > 0` 时仍优先使用 runtime；只有冷恢复 fallback 才倒序选择上述水位。
-只有持久化 user compact summary 上带有效 token 的 boundary 才作为新水位；旧 assistant
-boundary 或不完整历史继续沿用既有 assistant tokens fallback。boundary 水位不携带压缩前
-请求的 cache，与热态 `CompactCompleted` 一致。
+Quando o runtime tem `contextUsed > 0`, o runtime continua sendo priorizado; somente o fallback da restauração a frio escolhe a marca de água acima em ordem reversa.
+Apenas o boundary de um user compact summary persistido com tokens válidos se torna a nova marca de água; boundaries de assistant antigos ou histórico incompleto continuam usando o fallback existente de assistant tokens. A marca de água do boundary não carrega o cache da requisição anterior à compactação, de forma consistente com o `CompactCompleted` em estado quente.
 
-## Provider registry 热更新
+## Atualização a quente do provider registry
 
-设置页修改当前模型的 `contextWindow` 后，provider registry 应将新容量同时应用到已有
-session 的 runtime 和 V4 conversation 投影。投影更新只替换
-`snapshot.usage.contextWindow.maxTokens`，保留已有 `usedTokens`；不得等待下一次
-`ModelComplete` 再校准。
+Depois que a página de configurações altera o `contextWindow` do modelo atual, o provider registry deve aplicar a nova capacidade tanto ao runtime das sessions existentes quanto à projeção da conversation V4. A atualização da projeção substitui apenas `snapshot.usage.contextWindow.maxTokens`, preservando o `usedTokens` já existente; não deve esperar o próximo `ModelComplete` para recalibrar.
 
-当 registry 清除当前模型的显式 `contextWindow` 时，runtime 使用 `undefined` 表达未知容量，
-`ModelSelected.contextWindow` 使用 `null` 表达“显式清除”。V4 conversation 投影收到
-`null` 后必须将 `snapshot.usage.contextWindow` 清为 `null`；字段缺失只用于兼容旧事件，
-不得解释为清除。容量未知期间，后续 `ModelComplete` 继续累计 token，但不得用
-`maxTokens: 0` 重建窗口对象；投影内部保留最新 context 用量，以便容量恢复时重新发布。
+Quando o registry limpa o `contextWindow` explícito do modelo atual, o runtime usa `undefined` para expressar capacidade desconhecida, e `ModelSelected.contextWindow` usa `null` para expressar "limpeza explícita". Após receber `null`, a projeção da conversation V4 deve limpar `snapshot.usage.contextWindow` para `null`; a ausência do campo existe apenas para compatibilidade com eventos antigos e não pode ser interpretada como limpeza. Enquanto a capacidade é desconhecida, os `ModelComplete` seguintes continuam acumulando tokens, mas não podem reconstruir o objeto da janela com `maxTokens: 0`; a projeção mantém internamente o uso de context mais recente, para poder republicar quando a capacidade for restaurada.
 
 ```text
 provider registry(contextWindow changed)
   -> active session runtime.updateConfig
   -> ModelSelected(same model + new contextWindow | null)
   -> ProductProjection.usage.contextWindow.maxTokens | null
-  -> desktop-continuous / web-remote-replayable 各按原投递边界发布
+  -> desktop-continuous / web-remote-replayable publicam cada um no seu limite de entrega original
 ```
 
-这是同一模型的能力元数据热更新，不产生模型切换 marker，也不重算已使用 token。
+Trata-se de uma atualização a quente de metadados de capacidade do mesmo modelo: não gera marker de troca de modelo nem recalcula os tokens já usados.

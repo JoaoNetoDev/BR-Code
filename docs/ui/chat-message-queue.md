@@ -1,8 +1,8 @@
-# Chat Message Queue（当前事实）
+# Chat Message Queue (fatos atuais)
 
-聊天队列的唯一事实源是每个 workspace CLI 的 runtime command queue，并通过 `ConversationSnapshot.queue` 投影给所有客户端。renderer 不维护 accepted queue，也不存在桌面 renderer queue 与手机 host queue 两套产品顺序。
+A única fonte de verdade da fila de chat é a runtime command queue da CLI de cada workspace, projetada para todos os clientes por meio de `ConversationSnapshot.queue`. O renderer não mantém uma accepted queue, e não existem duas ordens de produto concorrentes entre a queue do renderer desktop e a queue do host mobile.
 
-## 状态链路
+## Cadeia de Estado
 
 ```text
 desktop / mobile input
@@ -14,21 +14,21 @@ desktop / mobile input
   -> queue UI
 ```
 
-running 时，普通 `sendText` 与 `sendGoalCommand` 都由 CLI admission 决定是否入队。held queue 下的新输入必须带用户对现有队列的处置选择，不能由 UI 猜测清空或保留。
+Quando em running, tanto `sendText` quanto `sendGoalCommand` comuns têm a entrada na fila decidida pela admission da CLI. Uma nova entrada sob uma held queue precisa trazer a escolha do usuário sobre o destino da fila existente, e a UI não pode adivinhar se deve limpar ou manter.
 
-## 操作
+## Operações
 
-| 用户动作 | V4 command         | 权威结果                         |
-| -------- | ------------------ | -------------------------------- |
-| 删除     | `deleteQueueItem`  | projection 移除 queue item       |
-| 撤回编辑 | `deleteQueueItem`  | projection 移除后，仅发起端恢复 composer 草稿 |
-| 立即发送 | `sendQueuedNow`    | CLI 按 stop barrier/优先规则消费 |
-| 排序     | `reorderQueueItem` | projection 返回新顺序            |
-| 自动续跑 | `setAutoDrain`     | snapshot 更新 auto-drain 状态    |
+| Ação do usuário | V4 command         | Resultado autoritativo          |
+| --------------- | ------------------ | ------------------------------- |
+| Excluir         | `deleteQueueItem`  | a projection remove o queue item |
+| Desfazer edição | `deleteQueueItem`  | após a remoção da projection, somente o originador restaura o rascunho do composer |
+| Enviar agora    | `sendQueuedNow`    | a CLI consome conforme stop barrier/regras de prioridade |
+| Reordenar       | `reorderQueueItem` | a projection retorna a nova ordem |
+| Continuação automática | `setAutoDrain` | o snapshot atualiza o estado de auto-drain |
 
-UI 可对点击做短暂 pending/disabled 反馈，但不能只改本地数组。刷新、切 pane、桌面与手机同时在线时，均以 snapshot/delta 为准。
+A UI pode fornecer um feedback breve de pending/disabled ao clique, mas não pode alterar apenas o array local. Em refresh, troca de pane e com desktop e mobile online ao mesmo tempo, a referência é sempre o snapshot/delta.
 
-第一方桌面、Web 与手机 UI 的“编辑”不是 queue 内原地改写，而是把完整输入意图撤回到发起操作的 composer：
+O "editar" no UI first-party de desktop, Web e mobile não é reescrita no lugar dentro da queue; em vez disso, ele recolhe a intenção completa de entrada de volta para o composer que originou a operação:
 
 ```text
 点击编辑(queueItem, baseRevision, sessionId, workspaceKey)
@@ -45,25 +45,25 @@ UI 可对点击做短暂 pending/disabled 反馈，但不能只改本地数组�
                         -> 用户修改后重发，产生新的 commandId / queueItemId
 ```
 
-`workspaceKey = workspaceIdentity?.trim() || workspacePath`。撤回请求绑定点击时的 session 与
-workspaceKey；ACK 返回前切换 task/workspace 不得把旧 payload 写进新 composer。重复 ACK 或重复
-restore request 必须幂等。目标已被消费或被另一端删除时，`deleteQueueItem` 返回可判别 `noop`，不得把
-旧 projection 重复恢复成本地草稿。
+`workspaceKey = workspaceIdentity?.trim() || workspacePath`. A solicitação de desfazer é vinculada à session e ao
+workspaceKey no momento do clique; trocar de task/workspace antes do ACK não pode escrever o payload antigo no novo composer. ACK repetido ou
+restore request repetido precisam ser idempotentes. Quando o alvo já foi consumido ou foi excluído por outra ponta, `deleteQueueItem` retorna um `noop` distinguível, e não pode
+restaurar a projection antiga como rascunho local.
 
-普通文本和 goal 可以撤回；goal 恢复为 `/goal ...`。`compact` 继续没有编辑入口。附件按 queue 中的
-原顺序、完整 `AttachmentRef` 恢复为 ready chip，标记为 session-owned reference；删除、追加和直接
-重发都不重复 upload/adopt，runtime restart 与清理逻辑也不得把它误判为尚未接管的 staged ref。
-图片没有本地 object URL 时显示文件名和类型图标，不新增缩略图下载协议。
+Texto comum e goal podem ser desfeitos; o goal é restaurado como `/goal ...`. `compact` continua sem entrada de edição. Anexos são restaurados na ordem original da queue, com o
+`AttachmentRef` completo, como chips prontos, marcados como referência pertencente à session; exclusão, acréscimo e reenvio direto não repetem upload/adopt, e a lógica de restart do runtime e de
+limpeza também não pode interpretá-los como staged ref ainda não adotado.
+Quando não há object URL local para uma imagem, são exibidos o nome do arquivo e o ícone de tipo, sem novo protocolo de download de thumbnails.
 
-发起端恢复的草稿保持 renderer-local，不写入 conversation snapshot、relay 或 main process；其他桌面
-或手机端只消费权威 queue removal。底层 `editQueueItem` 继续作为 V4 兼容能力保留，但第一方 UI 不再调用。
+O rascunho restaurado pelo originador permanece renderer-local, sem ser gravado no conversation snapshot, no relay ou no processo principal; outros desktops
+ou mobiles apenas consomem a remoção autoritativa da queue. O `editQueueItem` subjacente continua mantido como capacidade de compatibilidade do V4, mas o UI first-party não o chama mais.
 
-`compact` 队列项只显示 `/compact` 命令文本，不在文本前增加维护命令图标。它继续通过“立即执行”按钮和不可编辑行为与普通消息区分。
+Itens de fila `compact` mostram apenas o texto do comando `/compact`, sem ícone de comando de manutenção antes do texto. Eles continuam se distinguindo das mensagens comuns pelo botão "executar imediatamente" e pelo comportamento não editável.
 
-`guide` 是对 active turn 的引导语义，不作为普通 queue item 提供编辑、删除或立即发送。Stop 只停止当前执行；queue 是否 held/续跑由 CLI projection 明确表达。Goal 暂停、恢复和 queue drain 也由 CLI reducer/handler 统一裁决。
+`guide` é uma semântica de orientação do turn ativo, e não é oferecido como um queue item comum com edição, exclusão ou envio imediato. Stop apenas interrompe a execução atual; se a queue fica held ou segue em execução é algo que a projection da CLI expressa explicitamente. A pausa e a retomada do Goal, assim como o queue drain, também são decididas de forma unificada pelo reducer/handler da CLI.
 
-## 当前入口
+## Entradas Atuais
 
-- Schema：`packages/shared/src/zcode-protocol-v4/command.ts`、`snapshot.ts`
-- CLI handlers：`apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/queue.ts`
-- UI：`packages/ui/src/v4/SessionPane.tsx`
+- Schema: `packages/shared/src/zcode-protocol-v4/command.ts`, `snapshot.ts`
+- CLI handlers: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/queue.ts`
+- UI: `packages/ui/src/v4/SessionPane.tsx`

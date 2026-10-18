@@ -1,81 +1,70 @@
-# CUA 权限错误透传与恢复契约
+# Contrato de Passagem Direta e Recuperação de Erros de Permissão do CUA
 
-- 日期：2026-08-25
-- 状态：已实现，待 MR review
-- 关联：producer `zcode-cua` !576、consumer `z-code` !2315
+- Data: 2026-08-25
+- Status: implementado, aguardando MR review
+- Relacionado: producer `zcode-cua` !576, consumer `z-code` !2315
 
-## 决策
+## Decisões
 
-ZCode 不再消费或生成 `CUA_PERMISSION_REQUIRED`。CUA Helper/Broker 的失败作为普通 MCP
-tool error 进入模型和 ToolCallRow；模型读取准确错误后自行决定调用只读 `request_access`、重新激活
-应用或重新观察。普通错误本身仍无 UI 副作用；只有经过 official-CUA authority 校验的实时
-`request_access` 结构化权限快照可以触发独立的 Host 确认流程。
+O ZCode não consome mais nem gera `CUA_PERMISSION_REQUIRED`. As falhas do CUA Helper/Broker entram no modelo e no ToolCallRow como um MCP tool error comum; depois de ler o erro exato, o próprio modelo decide chamar o `request_access` somente leitura, reativar o aplicativo ou observar novamente. O erro comum em si não tem efeito colateral de UI; apenas um snapshot estruturado de permissão, do `request_access` ao vivo e validado pela official-CUA authority, pode disparar um processo de confirmação do Host separado.
 
-## 根因
+## Causa raiz
 
 ```text
 permission_denied
-  -> producer 猜成 macOS TCC
-  -> MCP structuredContent 展平成文本
+  -> producer adivinha como TCC do macOS
+  -> MCP structuredContent é achatado em texto
   -> Renderer includes("CUA_PERMISSION_REQUIRED")
-  -> 自动请求 Accessibility + Screen Recording
+  -> requisição automática de Accessibility + Screen Recording
 ```
 
-`permission_denied` 同时承载 TCC、foreground policy、Windows UIPI、Linux input、无效 native
-能力等不同失败。跨层继续细分和二次核对会引入新的状态机，却仍不能从通用错误码证明真实权限缺口。
-因此删除自动分类比继续收窄分类更可靠。
+`permission_denied` carrega simultaneamente falhas distintas de TCC, foreground policy, Windows UIPI, input do Linux e capacidade nativa inválida. Continuar refinando e reconferindo entre camadas introduziria novas máquinas de estado sem conseguir provar, a partir de um código de erro genérico, qual é a lacuna real de permissão.
+Por isso, remover a classificação automática é mais confiável do que continuar estreitando as classificações.
 
-## 新链路
+## Nova cadeia
 
 ```text
-Helper/Broker original error
+Erro original do Helper/Broker
         |
         v
-ordinary MCP error + original message + delivery evidence
+MCP error comum + mensagem original + evidência de entrega
         |
-        +--> ordinary ToolCallRow / continuous / cold replay
+        +--> ToolCallRow / continuous / cold replay comuns
         |
         v
-model chooses request_access / activate / re-observe / stop
+modelo escolhe request_access / activate / re-observe / stop
 
-official live request_access typed metadata
+metadata tipada de request_access oficial ao vivo
         |
         v
-desktop-continuous local Host rechecks fresh status
+Host local do desktop-continuous reconfirma o status atual
         |
         v
-ZCode confirmation -> existing permission onboarding
+Confirmação do ZCode -> permission onboarding já existente
 ```
 
-## 不变量
+## Invariantes
 
-- producer 不返回 `CUA_PERMISSION_REQUIRED`，consumer 不扫描该字符串。
-- Renderer 不因 tool error 自动打开确认框、系统设置或权限 onboarding。
-- 设置页和 Composer 状态入口保留。除此之外，本地 macOS `desktop-continuous` 的官方
-  `request_access` 实时结果在明确缺权时可以先弹 ZCode 确认框；用户确认前不得打开系统设置。
-- `request_access` 保持只读，不提示系统权限、不创建新 Helper。
-- `request_access` 的文本解析只服务 Tool Card 展示，不能成为行为触发器。触发必须来自
-  producer namespaced `_meta`、official authority 和严格 runtime schema。
-- `action_sent=true` 或 `request_delivery_state=possibly_sent` 时不得自动重放原动作。
-- `broker_unavailable` 继续使用 `CUA_NOT_READY`，因为它表达 transport readiness 和重试安全，
-  不属于权限推断。
-- desktop continuous 与 mobile replayable 展示相同普通失败事实；live permission observation
-  只存在于本地 desktop continuous，mobile 不接收该事件、不启动独立 Helper。
-- 历史 transcript 中的旧字符串只按普通文本展示，不能重新触发副作用。
-- 授权返回后只恢复 Helper 并刷新权限；不发送 task command、continuation 或自动重放工具。
+- O producer não retorna `CUA_PERMISSION_REQUIRED` e o consumer não faz busca por essa string.
+- O Renderer não abre automaticamente caixa de confirmação, configurações do sistema ou permission onboarding por causa de um tool error.
+- A página de configurações e as entradas de status do Composer são preservadas. Além disso, o resultado ao vivo do `request_access` oficial no macOS local `desktop-continuous` pode, quando a falta de permissão é explícita, exibir primeiro a caixa de confirmação do ZCode; as configurações do sistema não podem ser abertas antes da confirmação do usuário.
+- `request_access` permanece somente leitura, sem solicitar permissões do sistema e sem criar um novo Helper.
+- A análise de texto de `request_access` serve apenas à exibição no Tool Card e não pode se tornar um gatilho de comportamento. O disparo deve vir do `_meta` com namespace do producer, da official authority e de um runtime schema estrito.
+- Com `action_sent=true` ou `request_delivery_state=possibly_sent`, a ação original não pode ser reproduzida automaticamente.
+- `broker_unavailable` continua usando `CUA_NOT_READY`, porque ela expressa transport readiness e segurança de retry, e não pertence à inferência de permissões.
+- O continuous do desktop e o replayable do celular exibem o mesmo fato de falha comum; a observação de permissão ao vivo existe apenas no continuous do desktop local, e o celular não recebe esse evento nem inicia um Helper separado.
+- Strings antigas em transcripts históricos são exibidas apenas como texto comum e não podem disparar efeitos colaterais novamente.
+- Depois de a autorização retornar, apenas o Helper é restaurado e as permissões são atualizadas; nenhum task command, continuation ou replay automático de ferramenta é enviado.
 
-## 覆盖
+## Cobertura
 
-- producer unit + stdio MCP：TCC 形态和非 TCC `permission_denied` 均原样返回。
-- producer fault：`possibly_sent` 保留且 dispatch 不重复。
-- consumer unit：Root/ToolCallRow 不挂权限 gate，旧错误文本无副作用。
-- consumer live observation：只有 official `request_access` 合法 metadata 触发；第三方同名工具、
-  malformed metadata、snapshot/recovery/mobile/remote 均无副作用。
-- conversation replay：失败 ToolCallRow、后续 assistant 内容和 cold restore 一致。
-- package：相同 semver、不同 buildId 的新包会替换旧 Helper。
-- 真实模型：全部使用 Kimi K3，应用最终状态由独立 oracle 验证。
+- Unit do producer + stdio MCP: tanto a forma de TCC quanto `permission_denied` não-TCC são retornados como são.
+- Fault do producer: `possibly_sent` é preservado e o dispatch não é duplicado.
+- Unit do consumer: Root/ToolCallRow não têm gate de permissão e o texto do erro antigo não tem efeito colateral.
+- Observação ao vivo do consumer: apenas metadata legítima do `request_access` oficial dispara; ferramenta de terceiro com o mesmo nome, metadata malformada, snapshot/recovery/mobile/remote não têm efeito colateral.
+- Replay de conversa: ToolCallRow de falha, conteúdo posterior do assistant e cold restore são consistentes.
+- Package: um novo pacote com o mesmo semver e buildId diferente substitui o Helper antigo.
+- Modelo real: tudo usa Kimi K3, e o estado final da aplicação é verificado por um oracle independente.
 
-当前 deterministic replay artifact：
-`packages/desktop/.e2e-artifacts/desktop-e2e-20260824-194204-941`。该 artifact 证明包含历史
-`CUA_PERMISSION_REQUIRED` 文本的普通 MCP error 只生成一个失败工具行，live/cold restore
-一致且没有自动权限弹窗；它不替代 Kimi K3 真实模型门禁。
+Artefato determinístico de replay atual:
+`packages/desktop/.e2e-artifacts/desktop-e2e-20260824-194204-941`. Esse artefato prova que um MCP error comum contendo o texto histórico `CUA_PERMISSION_REQUIRED` gera apenas uma linha de ferramenta com falha, que live/cold restore é consistente e que não há pop-up automático de permissão; ele não substitui o gate de modelo real com Kimi K3.

@@ -1,174 +1,240 @@
-# Provider 重构上线收口总计划
+# Plano geral de fechamento de lançamento da refatoração de Provider
 
-> 状态：阶段 A 已完成；阶段 B 自动化实现完成，关键 E2E 等待人工门禁
+> Status: fase A concluída; implementação automatizada da fase B concluída, com os E2E críticos
+> aguardando o gate humano
 >
-> 最近更新：2026-08-25
+> Última atualização: 2026-08-25
 
-## 1. 计划定位
+## 1. Posicionamento do plano
 
-Provider 重构的目标架构和 Todo 00 至 Todo 10 已经完成。本计划不再设计另一套 Provider 架构，也不重新打开已经裁决的问题；它负责把当前大分支从“主体实现完成”推进到“可以作为 Release Candidate 验收”。
+A arquitetura alvo e os Todo 00 a Todo 10 da refatoração de Provider já foram concluídos. Este plano
+não desenha outra arquitetura de Provider nem reabre questões já decididas; ele é responsável por
+levar o branch atual grande de "implementação principal concluída" até "aceitável como Release
+Candidate".
 
-后续工作统一归为四类，并按以下顺序推进：
+Todo o trabalho restante é agrupado em quatro categorias, avançadas nesta ordem:
 
 ```text
-当前 Provider 重构分支
+Branch atual da refatoração de Provider
         |
         v
-A. 合并最新 staging
+A. Mesclar o staging mais recente
         |
-        | 形成唯一集成基线
+        | formar uma única baseline de integração
         v
-B. 补齐自动化测试与门禁
+B. Completar testes automatizados e gates
         |
-        | 机器能够持续证明关键链路正确
+        | a máquina passa a provar continuamente o correto das cadeias críticas
         v
-C. 完成真实环境与发布物验证
+C. Concluir a validação em ambiente real e dos artefatos de release
         |
-        | 证明构建产物、账号和升级路径真实可用
+        | provar que os artefatos de build, as contas e o caminho de upgrade são realmente utilizáveis
         v
-D. 完成工程与文档收尾
+D. Concluir o fechamento de engenharia e de documentação
         |
         v
 Provider Refactor Release Candidate
 ```
 
-每个阶段开始前再形成该阶段的详细计划、影响面和验证清单。本总计划只固定大方向、阶段边界和完成标准，避免尚未取得运行证据时提前写死具体修复方案。
+Cada fase gera antes de começar o plano detalhado, a superfície de impacto e a checklist de validação
+daquela fase. Este plano geral fixa apenas a direção, as fronteiras de fase e os critérios de
+conclusão, evitando fixar de antemão soluções de correção específicas quando ainda não há evidência de
+execução.
 
-## 2. 总体原则
+## 2. Princípios gerais
 
-1. **以最新 staging 的合并结果作为唯一验收基线。** 当前分支单独通过的结果不能替代最终合并树验证。
-2. **保留已经形成的单一 Provider/Model 架构。** 合并和修复不得重新引入旧 Provider Registry、Model Connection Port、ModelRef、Runtime capability map 或按具体模型硬编码的策略。
-3. **代码修复继续测试先行。** 新发现的回归先用单测或 E2E 固定场景，再修改生产代码。
-4. **自动化验证与真实验证分开。** 单测和类型检查证明静态契约；正式制品、真实账号和真实升级数据证明系统能够上线，二者不能互相替代。
-5. **失败必须有明确归属。** 关键测试失败只能被修复，或在最新 staging 上证明为既有基线并形成明确处理结论；不能因为偶发、历史存在或暂时难以复现而静默忽略。
-6. **逐阶段收口。** 前一阶段形成稳定结果和证据后再进入下一阶段，避免一边合并 staging、一边修改门禁、一边排查真实账号问题而失去可归因基线。
-7. **不扩大重构范围。** Remote Provisioning、普通任务队列、模型选择生命周期、`modelContextBudget.strategy` 和新的产品能力不属于本计划。
+1. **O resultado da mesclagem com o staging mais recente é a única baseline de aceitação.** Um
+   resultado que passa isoladamente no branch atual não substitui a verificação da árvore de merge
+   final.
+2. **Preservar a arquitetura única de Provider/Model já consolidada.** A mesclagem e as correções não
+   podem reintroduzir o antigo Provider Registry, o Model Connection Port, o ModelRef, o mapa de
+   capability de runtime ou políticas hardcoded por modelo específico.
+3. **As correções de código continuam com teste primeiro.** Regressões recém-descobertas são fixadas
+   primeiro com teste unitário ou E2E, e só então o código de produção é alterado.
+4. **Validação automática e validação real são separadas.** Testes unitários e checagem de tipos
+   provam contratos estáticos; artefatos formais, contas reais e dados reais de upgrade provam que o
+   sistema pode ir a produção. Um não substitui o outro.
+5. **Toda falha precisa ter atribuição clara.** Um teste crítico que falha só pode ser corrigido, ou
+   demonstrado como baseline existente no staging mais recente com uma conclusão explícita de
+   tratamento; não pode ser ignorado em silêncio por ser ocasional, historicamente existente ou
+   temporariamente difícil de reproduzir.
+6. **Fechamento fase a fase.** Só se entra na fase seguinte depois que a fase anterior produziu um
+   resultado e uma evidência estáveis, evitando perder uma baseline atribuível ao mesclar staging,
+   alterar gates e investigar problemas de conta real ao mesmo tempo.
+7. **Não ampliar o escopo da refatoração.** Remote Provisioning, filas de tarefas comuns, ciclo de
+   vida de seleção de modelo, `modelContextBudget.strategy` e novas capacidades de produto não fazem
+   parte deste plano.
 
-## 3. 阶段 A：合并最新 staging
+## 3. Fase A: mesclar o staging mais recente
 
-### 目标
+### Objetivo
 
-把最新 `origin/staging` 的产品改动和基础设施改动吸收到当前分支，形成后续所有测试与真实验证共同使用的集成基线。
+Absorver no branch atual as mudanças de produto e de infraestrutura do `origin/staging` mais recente,
+formando a baseline de integração usada por todas as validações posteriores.
 
-### 主要工作
+### Trabalho principal
 
-- 更新远端引用并确认双方提交差异。
-- 合并最新 staging。
-- 对文本冲突逐项按当前 Provider Design 解决，不以简单选择任一侧代替语义判断。
-- 复核自动合并但同时被双方修改的协议、鉴权、Session、Trajectory、Telemetry 和 UI 文件。
-- 重新扫描已经退役的 Provider/Model 抽象、旧 capability 投影和具体模型 hardcode，确认 staging 没有把旧链路带回生产代码。
-- 运行能够快速发现集成破坏的类型检查、定向单测和静态检查。
+- atualizar as referências remotas e confirmar a diferença de commits entre os dois lados;
+- mesclar o staging mais recente;
+- resolver conflitos de texto um a item conforme o Provider Design atual, sem substituir o julgamento
+  semântico pela escolha simples de um dos lados;
+- revisar arquivos de protocolo, autenticação, Session, Trajectory, Telemetry e UI que foram mesclados
+  automaticamente mas modificados pelos dois lados;
+- varrer novamente as abstrações de Provider/Model já aposentadas, as projeções antigas de
+  capability e os hardcodes por modelo específico, confirmando que o staging não trouxe as cadeias
+  antigas de volta para o código de produção;
+- executar checagem de tipos, testes unitários direcionados e checagens estáticas capazes de detectar
+  rapidamente quebras de integração.
 
-### 当前已知语义边界
+### Fronteiras semânticas conhecidas hoje
 
-- Host 到 Worker 只同步 Account Provider Config，不能恢复完整 Local Provider Registry 同步。
-- staging 新增的 cold-open telemetry 可以保留，但不能借此恢复已经删除的 `modelProviderService` UI 依赖。
-- staging 中新增的模型事实必须进入现有 Built-in Provider Config 或 Built-in Model Config Rules，不另建远程或运行时事实源。
+- do Host para o Worker só se sincroniza o Account Provider Config; não se restaura a sincronização
+  completa do Local Provider Registry;
+- a telemetry de cold-open nova do staging pode ser mantida, mas isso não autoriza restaurar as
+  dependências de UI do `modelProviderService` já removido;
+- todo fato de modelo novo do staging precisa entrar no Built-in Provider Config ou no Built-in Model
+  Config Rules existentes, sem criar outra fonte de verdade remota ou de runtime.
 
-### 完成标准
+### Critérios de conclusão
 
-- 最新 staging 已进入当前分支。
-- 所有冲突都按设计语义解决并有测试保护。
-- 合并工作区干净，快速门禁通过。
-- 旧抽象与具体模型 hardcode 仍保持归零。
+- o staging mais recente já está no branch atual;
+- todos os conflitos foram resolvidos pela semântica de design e têm proteção de teste;
+- o workspace de mesclagem está limpo e os gates rápidos passam;
+- as abstrações antigas e os hardcodes por modelo específico continuam zerados.
 
-## 4. 阶段 B：补齐自动化测试与门禁
+## 4. Fase B: completar testes automatizados e gates
 
-### 目标
+### Objetivo
 
-让自动化系统真正覆盖 Provider 重构的核心实现，并且能够阻止 Core、Adapter、Bootstrap 或物理 Built-in Config 回归进入发布流程。
+Fazer com que o sistema automatizado cubra de fato a implementação central da refatoração de Provider e
+consiga impedir que regressões em Core, Adapter, Bootstrap ou no Built-in Config físico entrem no
+fluxo de release.
 
-### 主要工作
+### Trabalho principal
 
-- 增加直接加载真实 `config/provider/zcode-builtin.json` 的永久测试，遍历验证 Provider 成员、Model Rule 解析和 Effective Model Config 完整性。
-- 使用真实 Built-in Config 证明 API Key、Account 与 Request Auth 三条路径能够经 Resolver、Registry、ModelFactory 进入 Adapter。
-- 审计普通请求、Compact、Memory、Subagent 与 Off-Peak 对同一 Active Model 的使用，只补确实缺失的测试断点。
-- 校验并在人工 review 通过后晋升 Provider 身份、Registry 冷启动、闲时子 Agent 与候选过滤四个关键 E2E。
-- 运行 Provider 重构相关包的定向 typecheck、测试与全量回归；环境问题单独记录，不扩展为全仓基础设施改造。
+- adicionar testes permanentes que carregam diretamente o `config/provider/zcode-builtin.json` real,
+  validando por varredura a composição de membros do Provider, a resolução das Model Rules e a
+  integridade do Effective Model Config;
+- usar o Built-in Config real para provar que os três caminhos de API Key, Account e Request Auth
+  chegam ao Adapter pelo Resolver, pelo Registry e pelo ModelFactory;
+- auditar o uso do mesmo Active Model por requisição comum, Compact, Memory, Subagent e Off-Peak,
+  preenchendo apenas os pontos de teste que realmente faltam;
+- validar e promover, após passar por review humano, os quatro E2E críticos: identidade de Provider,
+  cold start do Registry, subagent ocioso e filtro de candidatos;
+- rodar typecheck, testes direcionados e regressão completa dos pacotes relacionados à refatoração de
+  Provider; problemas de ambiente são registrados separadamente e não são ampliados para uma reforma
+  de infraestrutura de todo o repositório.
 
-### 完成标准
+### Critérios de conclusão
 
-- Provider 重构核心包的 typecheck 和关键测试可在支持的仓库环境中稳定执行。
-- 最新集成树上的关键套件全部通过。
-- 所有剩余失败都有可复现证据、明确归属和书面处理结论。
-- 物理 Built-in Config 的完整性由永久测试保护，不再依赖人工脚本审计。
+- o typecheck e os testes críticos dos pacotes centrais da refatoração de Provider podem ser executados
+  de forma estável em um ambiente de repositório suportado;
+- todas as suítes críticas passam na árvore de integração mais recente;
+- todas as falhas restantes têm evidência reproduzível, atribuição clara e conclusão de tratamento
+  escrita;
+- a integridade do Built-in Config físico é protegida por teste permanente e não depende mais de
+  auditoria manual por script.
 
-## 5. 阶段 C：完成真实环境与发布物验证
+## 5. Fase C: concluir a validação em ambiente real e dos artefatos de release
 
-### 目标
+### Objetivo
 
-证明真实发布物、真实账号、真实服务端和真实历史数据能够按新架构工作。
+Provar que o artefato de release real, as contas reais, o servidor real e os dados históricos reais
+funcionam conforme a nova arquitetura.
 
-### 验证链路
+### Cadeia de validação
 
 ```text
-源码与 Built-in Config
+Código-fonte e Built-in Config
         |
-        +--> Desktop 正式制品（macOS / Windows / Linux）
+        +--> Artefatos formais de Desktop (macOS / Windows / Linux)
         |
         +--> Standalone CLI / SEA
         |
         +--> Server / Remote bundle
         |
         v
-安装与冷启动
+Instalação e cold start
         |
         v
-真实 Provider / Account / Request Auth
+Provider / Account / Request Auth reais
         |
         v
-模型请求、错误处理、Usage 与历史数据升级
+Requisições de modelo, tratamento de erro, Usage e upgrade de dados históricos
 ```
 
-### 主要工作
+### Trabalho principal
 
-- 构建并安装 Desktop、Standalone CLI、Server 和 Remote 正式产物。
-- 验证所有产物都能定位并加载 `zcode-builtin.json`。
-- 使用真实 API Key Provider 验证配置、连通性检查和模型请求。
-- 使用真实 Start Plan、Individual、Team 与 Off-Peak 账号验证登录、刷新、退出、账号切换、动态 Request Auth 和服务端拒绝行为。
-- 验证普通请求、Compact、Memory、Subagent、闲时任务使用正确的 Provider、Model 和访问上下文。
-- 使用真实历史数据库验证 schema migration、历史 Usage 查询以及发布所需的回滚边界。
-- 执行 Provider 关键 Desktop/CLI E2E。
+- construir e instalar os artefatos formais de Desktop, Standalone CLI, Server e Remote;
+- verificar que todos os artefatos conseguem localizar e carregar o `zcode-builtin.json`;
+- usar um Provider de API Key real para verificar configuração, verificação de conectividade e
+  requisições de modelo;
+- usar contas reais de Start Plan, Individual, Team e Off-Peak para verificar login, refresh, logout,
+  troca de conta, Request Auth dinâmico e comportamento de rejeição pelo servidor;
+- verificar que requisição comum, Compact, Memory, Subagent e tarefas ociosas usam o Provider, o modelo
+  e o contexto de acesso corretos;
+- usar um banco de dados histórico real para verificar a migração de schema, a consulta de Usage
+  histórico e as fronteiras de rollback necessárias ao release;
+- executar os E2E críticos de Desktop/CLI de Provider.
 
-### 完成标准
+### Critérios de conclusão
 
-- 支持平台的正式产物均可安装、启动和执行模型请求。
-- API Key 与账号类型 Provider 的关键路径通过真实服务端验证。
-- 历史数据升级结果正确，发布与回滚边界明确。
-- 没有只能在单测 fixture 中成立、在真实部署中无法成立的 Provider 契约。
+- os artefatos formais das plataformas suportadas podem ser instalados, iniciados e executar requisições
+  de modelo;
+- os caminhos críticos de Provider dos tipos API Key e de conta passam na verificação com servidor
+  real;
+- o resultado do upgrade de dados históricos está correto e as fronteiras de release e rollback estão
+  claras;
+- não existe contrato de Provider que só valha em fixture de teste unitário e seja impossível em um
+  deploy real.
 
-## 6. 阶段 D：完成工程与文档收尾
+## 6. Fase D: concluir o fechamento de engenharia e de documentação
 
-### 目标
+### Objetivo
 
-删除不再具有真实职责的残留结构，使代码、Feature Graph、Design、实施记录和发布结论共同描述同一个已经落地的系统。
+Remover estruturas residuais que já não têm responsabilidade real, para que código, Feature Graph,
+Design, registros de implementação e conclusões de release descrevam todos o mesmo sistema já
+implantado.
 
-### 主要工作
+### Trabalho principal
 
-- 清理只包装 ModelFactory、却仍保留人造启动/销毁状态的 Runtime 外壳。
-- 清理 `official` 等已经退出 Provider Config 领域的命名残留。
-- 更新 Feature Graph 中已删除的符号、调用链和能力来源。
-- 将历史 review、roadmap 和 research 中已经失效的“当前事实”明确标成历史证据，避免与已完成状态冲突。
-- 修复格式、无用导出、过期注释和其他代码卫生问题。
-- 明确 legacy importer 的兼容版本窗口、退出条件和后续删除责任。
-- 汇总最终测试、真实验证、已知限制和发布风险，形成 Release Candidate 验收记录。
+- limpar cascas de Runtime que apenas encapsulam o ModelFactory e ainda mantêm estados artificiais
+  de inicialização/destruição;
+- limpar resíduos de nomenclatura como `official`, que já saíram do domínio de Provider Config;
+- atualizar no Feature Graph os símbolos removidos, as cadeias de chamada e as origens de capability;
+- marcar explicitamente como evidência histórica os "fatos atuais" que já caducaram em reviews,
+  roadmaps e pesquisas, evitando conflito com o estado concluído;
+- corrigir formatação, exports inúteis, comentários desatualizados e outros problemas de higiene de
+  código;
+- esclarecer a janela de versões de compatibilidade do legacy importer, sua condição de saída e a
+  responsabilidade pela remoção futura;
+- consolidar testes finais, validação real, limitações conhecidas e riscos de release, formando o
+  registro de aceitação do Release Candidate.
 
-### 完成标准
+### Critérios de conclusão
 
-- 生产代码中不存在第二套 Provider/Model 业务语义或仅为旧架构保留的生命周期。
-- Feature Graph 和当前 Design 与生产代码一致。
-- Legacy 边界均有明确存在理由和退出条件。
-- 最终提交通过完整发布门禁，工作区干净，发布证据可复核。
+- não existe no código de produção uma segunda semântica de negócio de Provider/Model nem ciclo de
+  vida mantido apenas pela arquitetura antiga;
+- o Feature Graph e o Design atual estão consistentes com o código de produção;
+- toda fronteira legacy tem um motivo de existência e uma condição de saída explícitos;
+- o commit final passa pelo gate completo de release, o workspace está limpo e as evidências de release
+  são revisáveis.
 
-## 7. 已确认不作为问题处理的事项
+## 7. Itens confirmados como não-problemas
 
-- 当前 Built-in Model Config 没有将 `support_pdf` 或 `support_audio` 设置为 `true`，这是已确认的配置事实，不是本计划的待裁决项。
-- legacy `modalities`、`supportsImages`、`supportsPdf`、`supportsVideo` 只允许存在于一次性 importer/reader 边界；只要不重新进入正式 Config、Registry 或 Runtime，就不作为生产双轨。
-- Remote Provisioning 与远程设置同步是独立产品能力，不属于本次 Provider Refactor 上线收口。
+- o Built-in Model Config atual não define `support_pdf` ou `support_audio` como `true`; esse é um fato
+  de configuração já confirmado e não um item pendente de decisão deste plano;
+- o legado `modalities`, `supportsImages`, `supportsPdf`, `supportsVideo` só pode existir nas
+  fronteiras de importer/reader de uso único; enquanto não voltar para a Config, o Registry ou o Runtime
+  formais, não conta como dualidade de produção;
+- Remote Provisioning e a sincronização de configurações remotas são capacidades de produto
+  independentes e não pertencem a este fechamento de lançamento da Provider Refactor.
 
-## 8. 下一步
+## 8. Próximos passos
 
-阶段 A 已按 [`01-staging-integration.md`](./01-staging-integration.md) 完成。阶段 B 的永久测试、Runtime
-覆盖审计和全量回归已按 [`02-provider-automation-proof.md`](./02-provider-automation-proof.md) 完成；四个关键
-E2E 的 fixture contract 已通过，但仍需人工 review，并在具备 Xvfb 或 Docker 的环境完成正式 replay 与
-Docker admission。该门禁完成前不伪装为正式覆盖，也不提前进入阶段 C。
+A fase A foi concluída conforme [`01-staging-integration.md`](./01-staging-integration.md). Os testes
+permanentes, a auditoria de cobertura do Runtime e a regressão completa da fase B foram concluídos
+conforme [`02-provider-automation-proof.md`](./02-provider-automation-proof.md); o fixture contract dos
+quatro E2E críticos passou, mas ainda precisa de review humano e da conclusão do replay formal e do
+Docker admission em um ambiente com Xvfb ou Docker. Antes de esse gate ser concluído não se faz passar
+por cobertura formal, e a fase C não é antecipada.

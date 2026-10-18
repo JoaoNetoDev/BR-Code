@@ -1,13 +1,13 @@
-# SSH 远端 Workspace 状态权威边界
+# Limite de Autoridade de Estado do Workspace Remoto SSH
 
-> 当前事实文档。旧的 Desktop Provider Registry 快照下发方案已经退出；历史方案与事故轨迹只在
-> working-memory、旧 plan/spec 和事故复盘中保留。
+> Documento de fatos atuais. O antigo esquema de envio de snapshots do Desktop Provider Registry foi descontinuado; planos e specs históricos e post-mortens só permanecem em
+> working-memory, e os rastros do incidente.
 
-## 核心结论
+## Conclusão principal
 
-Desktop-attached SSH/Docker/WSL 只描述一种连接和操作关系，不表示 Desktop Environment 延伸到远端。
-执行 Agent 所属的 Remote Environment 拥有 Provider Config、账号事实、Credential Store、Registry 和
-ModelFactory。
+SSH/Docker/WSL anexado ao Desktop descreve apenas uma relação de conexão e operação; não significa que o Desktop Environment se estenda ao ambiente remoto.
+O Remote Environment ao qual o agente de execução pertence possui o Provider Config, os fatos de conta, o Credential Store, o Registry e a
+ModelFactory.
 
 ```text
 Desktop Environment                     Remote Environment
@@ -27,38 +27,39 @@ Local Registry                          Remote Credential Store
                                       Remote model request
 ```
 
-Desktop 不向 Remote Worker 注入以下内容：
+O Desktop não injeta no Remote Worker os seguintes conteúdos:
 
-- 完整 Provider Registry 或其序列化快照；
-- Runtime Model 或 Provider/Model 静态配置快照；
-- Desktop Account Provider Config；
-- Desktop API Key、JWT、Team Runtime Key 或动态请求 Header。
+- O Registry completo de Providers ou seu snapshot serializado;
+- Modelos de Runtime ou snapshots de configuração estática de Provider/Model;
+- Account Provider Config do Desktop;
+- API Key, JWT, Team Runtime Key ou Headers dinâmicos de requisição do Desktop.
 
-旧 `workspace/updateProviderRegistry`、`ZCodeProviderRegistrySnapshot` 和
-`remoteWorkspaceProviderSync` 不再属于生产协议或运行链路。
+Os antigos `workspace/updateProviderRegistry`, `ZCodeProviderRegistrySnapshot` e
+`remoteWorkspaceProviderSync` não fazem mais parte do protocolo de produção nem do caminho de execução.
 
-## 状态归属
+## Atribuição de estado
 
-| 状态                                   | 权威位置                | Desktop-attached remote 的读取方式        |
+| Estado | Local autoritativo | Forma de leitura pelo remote anexado ao Desktop |
 | -------------------------------------- | ----------------------- | ----------------------------------------- |
-| Workspace 文件、Git、Terminal          | Remote Environment      | 远端 Service                              |
-| Task、Session、Agent execution         | Remote Environment      | 远端 Service                              |
-| Provider Settings View（远程 runtime） | Remote Environment      | 远端 `provider-settings` Facade           |
-| Desktop 模型配置页（app-global）       | Desktop Environment     | 本地 `IProviderSettingsService`           |
-| Model Selection View（远程 runtime）   | Remote Environment      | 远端 `model-selection` Facade             |
-| Provider Config / Registry             | Remote Environment      | 不跨 Environment 传输 Registry 对象或快照 |
-| Provider Credential / Request Auth     | Remote Environment      | 不从 Desktop Credential Store 注入        |
-| Desktop 主题、窗口和本地 UI 状态       | Desktop Environment     | 本地 Service                              |
-| Desktop continuous / Mobile replayable | 各自既有 delivery owner | 不受 Provider 边界改变                    |
+| Arquivos do Workspace, Git, Terminal | Remote Environment | Service remoto |
+| Task, Session, execução do Agent | Remote Environment | Service remoto |
+| Provider Settings View (runtime remoto) | Remote Environment | Facade remoto `provider-settings` |
+| Página de configuração de modelos do Desktop (app-global) | Desktop Environment | `IProviderSettingsService` local |
+| Model Selection View (runtime remoto) | Remote Environment | Facade remoto `model-selection` |
+| Provider Config / Registry | Remote Environment | Objetos ou snapshots de Registry não atravessam a fronteira entre Environments |
+| Provider Credential / Request Auth | Remote Environment | Não injetados a partir do Desktop Credential Store |
+| Tema, janela e estado de UI local do Desktop | Desktop Environment | Service local |
+| Desktop continuous / Mobile replayable | Seu respectivo owner de delivery já existente | Não afetado pela fronteira de Provider |
 
-Renderer 面对的 remote workspace ServiceCollection 可以混合本地 UI Service 与远端业务 Service，但
-混合只是 Facade 装配方式，不改变上表的事实所有权。远程 workspace 的 runtime、Session、模型执行
-仍必须使用目标 Environment 的 Provider Settings 和 Model Selection；Desktop 设置页的 app-global
-模型配置编辑是明确例外，只读写 Desktop Local Environment，不把编辑动作隐式路由到远端。
+A ServiceCollection de workspace remoto vista pelo Renderer pode misturar Services locais de UI com Services de negócio remotos, mas essa
+mistura é apenas uma forma de montagem de Facades e não altera a propriedade dos fatos da tabela acima. O runtime, a Session e a execução de modelos
+do workspace remoto ainda devem usar os Provider Settings e o Model Selection do Environment de destino; a edição da configuração de modelos
+app-global da página de configurações do Desktop é uma exceção explícita: ela lê e escreve somente o Desktop Local Environment e não roteia
+implicitamente a ação de edição para o remoto.
 
-## Environment 内部同步
+## Sincronização interna do Environment
 
-同一个 Environment 的 Host 与 Core Worker 各自持有 Registry 实例，并共享该 Environment 的配置事实：
+O Host e o Core Worker do mesmo Environment possuem suas próprias instâncias de Registry e compartilham os fatos de configuração daquele Environment:
 
 ```text
 Environment Provider Sources
@@ -74,14 +75,14 @@ Environment Provider Sources
      Settings/View       ModelFactory/Execution
 ```
 
-Host 可以通过 `provider/updateAccountConfig` 把本 Environment 的无 Secret Account Overlay 发送给自己的
-Core Worker。该协议只承载 `revision + basedOnZCodeBuiltinRevision + ProviderConfigMap`，不承载 API Key、
-JWT 或动态 Header。它是进程间一致性机制，不是 Desktop-to-remote Provider 同步。
+O Host pode enviar ao seu próprio Core Worker, via `provider/updateAccountConfig`, o Account Overlay sem Segredos deste Environment. Esse protocolo transporta
+apenas `revision + basedOnZCodeBuiltinRevision + ProviderConfigMap`, e não API Key, JWT ou Headers dinâmicos. É um mecanismo de consistência entre
+processos, e não sincronização de Provider do Desktop para o remoto.
 
-Host 与 Worker 的 Registry 都由 Source 变化后自行重建；Registry View 不跨进程共享。已经创建的 Active
-Model 保持创建时冻结的事实，新 View 只影响后续创建的 Model。
+Tanto o Registry do Host quanto o do Worker são reconstruídos por conta própria após mudanças nas Sources; a Registry View não é compartilhada entre
+processos. Modelos Ativos já criados mantêm os fatos congelados no momento da criação, e a nova View afeta apenas os Modelos criados depois.
 
-## 启动与恢复
+## Inicialização e recuperação
 
 ```text
 Remote Host 启动
@@ -101,17 +102,17 @@ Remote Worker 启动并读取同一 Environment 的 Sources
 Remote Worker Registry ready -> 创建 Session / Model
 ```
 
-远端 Provider Runtime 未就绪时，调用方等待目标 Environment 自己的 ready barrier。不得以 Desktop Registry
-快照作为 bootstrap、fallback 或重试材料。远端重连和 Worker 换代只重建远端自己的 Runtime，不触发本地
-Registry 重放。
+Quando o Provider Runtime remoto ainda não está pronto, o chamador aguarda a barrier de ready do próprio Environment de destino. É proibido usar
+snapshots do Registry do Desktop como bootstrap, fallback ou material de retentativa. Reconexões remotas e trocas de Worker apenas reconstroem o Runtime
+remoto e não disparam replay do Registry local.
 
-连接断开时，RPC 客户端仍必须 reject 所有 pending 请求并清理旧 generation；这是通用 transport 生命周期
-不变量，与已退出的 Provider 同步功能无关。
+Quando a conexão cai, o cliente RPC ainda precisa rejeitar todas as requisições pendentes e limpar a generation antiga; esse é um invariante de ciclo de
+vida de transporte, sem relação com a funcionalidade de sincronização de Provider já descontinuada.
 
-## 配置与凭据 Provisioning
+## Provisioning de Configuração e Credenciais
 
-把配置或凭据复制到另一 Environment 是独立 Provisioning 产品能力，不属于 remote workspace runtime
-attachment；当前实现与范围见 `docs/remote/provider-provisioning.md`：
+Copiar configuração ou credenciais para outro Environment é uma capacidade de produto independente de Provisioning e não pertence ao runtime attachment
+de workspace remoto; a implementação e o escopo atuais estão em `docs/remote/provider-provisioning.md`:
 
 ```text
 Source Environment Config / Credential
@@ -127,22 +128,22 @@ Target Sources publish change
 Target Registry rebuilds itself
 ```
 
-Provisioning 必须先写入目标 Environment 的正式 Store，再由目标 Registry 重建。它不能直接构造 Registry、
-Model、Runtime Header，也不能成为每次模型请求的在线依赖。远端设置编辑和远端登录同样应调用目标
-Environment 的正式 Service，而不是把 Desktop Credential Store 当成远端鉴权源。当前同步是显式
-Local → Remote；本地登出或删除不会撤销已经写入远端的凭据。
+O Provisioning precisa escrever primeiro no Store oficial do Environment de destino, e só então o Registry de destino se reconstrói. Ele não pode construir
+diretamente Registry, Model ou Runtime Headers, nem se tornar uma dependência online de cada requisição de modelo. Edição de configurações remotas e login
+remoto também devem chamar o Service oficial do Environment de destino, em vez de tratar o Desktop Credential Store como fonte de autenticação remota. A
+sincronização atual é explicitamente Local → Remote; um logout ou remoção local não revoga credenciais já gravadas no remoto.
 
-## 不变量
+## Invariantes
 
-- `workspaceIdentity` 表示身份隔离，`workspacePath` 只用于文件和命令执行。
-- Desktop remote attachment 不创建第二份 Agent Runtime 或第二份 accepted-input queue。
-- Desktop `desktop-continuous` 不拼接手机 replayable 恢复消息；手机
-  `web-remote-replayable` 不绕过 gap/snapshot 恢复。
-- Provider/Model 静态事实只来自目标 Environment 的 Config 和 Registry。
-- 动态请求凭据不进入 Account Provider Config、Registry View 或 Session 持久化。
-- 已退出的完整 Registry writer 不提供兼容 fallback。
+- `workspaceIdentity` representa isolamento de identidade; `workspacePath` é usado apenas para execução de arquivos e comandos.
+- O attachment remoto do Desktop não cria uma segunda Agent Runtime nem uma segunda fila de accepted-input.
+- O `desktop-continuous` do Desktop não concatena mensagens de recuperação do replayable do celular; o
+  `web-remote-replayable` do celular não contorna a recuperação por gap/snapshot.
+- Fatos estáticos de Provider/Model vêm somente do Config e do Registry do Environment de destino.
+- Credenciais dinâmicas de requisição não entram no Account Provider Config, na Registry View nem na persistência de Session.
+- O writer de Registry completo já descontinuado não oferece fallback de compatibilidade.
 
-## 相关当前设计
+## Designs atuais relacionados
 
 - `docs/working-memory/provider-refactor/design/environment/environment.md`
 - `docs/working-memory/provider-refactor/design/registry/runtime.md`

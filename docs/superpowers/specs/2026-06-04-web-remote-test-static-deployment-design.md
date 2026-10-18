@@ -1,8 +1,8 @@
-# Web Remote Test 静态资源部署设计
+# Design de deploy de recursos estáticos do Web Remote Test
 
-## 背景
+## Contexto
 
-当前手机远控页是 `packages/web` 的 Vite SPA。仓库已经有两条静态部署链路：
+A página atual de controle remoto do celular é uma SPA Vite em `packages/web`. O repositório já possui duas esteiras de deploy estático:
 
 ```text
 v2:
@@ -24,29 +24,29 @@ v3:
   -> /remote/v3
 ```
 
-新需求是在同一套远控 Web 代码上新增测试资源路径 `/remote/__test__`，并让发布脚本最终只更新
-`cgx-dev-k8s` 仓库中的 `zcode/frontend/deployment-remote-test.yaml`。
+O novo requisito é adicionar o caminho de recursos de teste `/remote/__test__` sobre o mesmo código Web de controle remoto, e fazer com que o script de publicação atualize, ao final, apenas
+`zcode/frontend/deployment-remote-test.yaml` no repositório `cgx-dev-k8s`.
 
-## 目标
+## Objetivos
 
-1. 新增 `/remote/__test__` 静态资源部署链路。
-2. `/remote/__test__` 使用独立构建脚本、Dockerfile、nginx 配置、镜像名和 k8s deployment 文件。
-3. 发布脚本最后只修改 `zcode/frontend/deployment-remote-test.yaml`。
-4. 保持 `/remote` 和 `/remote/v3` 现有链路不变。
-5. 不修改 desktop 默认二维码 URL；测试入口通过 `ZCODE_WEB_REMOTE_CONTROL_URL=https://zcode.z.ai/remote/__test__` 指定。
-6. 不修改 relay 协议、shared-host attachment、task stream、snapshot、queue 或 replayable 恢复语义。
+1. Adicionar uma esteira de deploy estático para `/remote/__test__`.
+2. `/remote/__test__` usa script de build próprio, Dockerfile, configuração de nginx, nome de imagem e arquivo de deployment k8s.
+3. O script de publicação altera ao final apenas `zcode/frontend/deployment-remote-test.yaml`.
+4. Manter inalteradas as esteiras existentes de `/remote` e `/remote/v3`.
+5. Não modificar a URL padrão do QR code do desktop; a entrada de teste é especificada por `ZCODE_WEB_REMOTE_CONTROL_URL=https://zcode.z.ai/remote/__test__`.
+6. Não modificar o protocolo de relay, shared-host attachment, task stream, snapshot, queue nem a semântica de recuperação de replayable.
 
-## 非目标
+## Não objetivos
 
-1. 不把 `/remote/__test__` 合并到 v2 或 v3 容器中做子路由复用。
-2. 不在 z-code 发布脚本里创建 k8s deployment、service 或 ingress。
-3. 不修改 `packages/desktop/src/main/index.ts` 的默认 `mobileRemoteControlUrl`。
-4. 不改变 `/web-remote` OAuth 兼容入口。
-5. 不新增独立 Agent runtime、local host、SSH/WSL/Docker session 或 relay 业务状态。
+1. Não mesclar `/remote/__test__` nos contêineres v2 ou v3 como subrota reutilizada.
+2. Não criar deployment, service ou ingress de k8s no script de publicação do z-code.
+3. Não modificar o `mobileRemoteControlUrl` padrão em `packages/desktop/src/main/index.ts`.
+4. Não alterar a entrada de compatibilidade OAuth de `/web-remote`.
+5. Não adicionar runtime de Agent separado, local host, sessão SSH/WSL/Docker ou estado de negócio de relay.
 
-## 推荐方案
+## Solução recomendada
 
-采用第三条并行静态部署链路：
+Adotar uma terceira esteira de deploy estático paralela:
 
 ```text
 test:
@@ -59,32 +59,29 @@ test:
   -> /remote/__test__
 ```
 
-该方案复用 v3 的隔离思路，发布 test 资源时不会覆盖 v2/v3 镜像，也不会误改
-`deployment-remote.yaml` 或 `deployment-remote-v3.yaml`。
+Essa solução reaproveita a ideia de isolamento da v3: ao publicar os recursos de teste, as imagens v2/v3 não são sobrescritas e `deployment-remote.yaml` ou `deployment-remote-v3.yaml` não são alterados indevidamente.
 
-## Web 构建
+## Build Web
 
-在根目录 `package.json` 新增脚本：
+Adicionar o script no `package.json` da raiz:
 
 ```json
 "build:web-remote-control:test": "pnpm --filter @zcode/web exec vite build --base=/remote/__test__/"
 ```
 
-`packages/web/dist` 仍是唯一输出目录。发布脚本在 Docker build 前执行 test build，因此不需要新增单独
-dist-test 目录。
+`packages/web/dist` continua sendo o único diretório de saída. Como o script de publicação executa o build de teste antes do docker build, não é necessário criar um diretório dist-test separado.
 
-`packages/shared/src/web-remote-control.ts` 中的 `resolveWebRemoteControlRoutePathFromBaseUrl()` 已经能把任意
-Vite base 规范化为 QR 入口路径：
+`resolveWebRemoteControlRoutePathFromBaseUrl()` em `packages/shared/src/web-remote-control.ts` já consegue normalizar qualquer base do Vite para o caminho de entrada do QR:
 
 ```text
 /remote/__test__/ -> /remote/__test__
 ```
 
-实现时只需要补单元测试，证明 test base 会被识别为远控 QR route。
+Na implementação basta adicionar testes unitários provando que a base de teste é reconhecida como rota de QR do controle remoto.
 
-## Nginx 配置
+## Configuração do Nginx
 
-新增 `nginx.web-remote-control-test.conf`，结构参考 v3 配置，核心路由为：
+Adicionar `nginx.web-remote-control-test.conf`, com estrutura baseada na configuração da v3; as rotas principais são:
 
 ```text
 /remote/__test__                  -> /index.html, no-cache
@@ -94,24 +91,23 @@ Vite base 规范化为 QR 入口路径：
 /                                  -> 302 /remote/__test__
 ```
 
-配置中不需要新增 `/web-remote` 路由。test 构建产物的 HTML 必须引用
-`/remote/__test__/assets/...`，生产网关只需要把 `/remote/__test__` 前缀转发到 test service。
+Não é preciso adicionar a rota `/web-remote` na configuração. O HTML gerado pelo build de teste deve referenciar `/remote/__test__/assets/...`, e o gateway de produção só precisa encaminhar o prefixo `/remote/__test__` para o service de teste.
 
-## Docker 镜像
+## Imagem Docker
 
-新增 `Dockerfile.web-remote-control-test`：
+Adicionar `Dockerfile.web-remote-control-test`:
 
-1. 基础镜像使用 `nginx:alpine`。
-2. 复制 `packages/web/dist` 到 `/usr/share/nginx/html`。
-3. 复制 `nginx.web-remote-control-test.conf` 到 `/etc/nginx/nginx.conf`。
-4. 暴露 80 端口。
-5. healthcheck 访问 `http://127.0.0.1/remote/__test__`。
+1. A imagem base usa `nginx:alpine`.
+2. Copia `packages/web/dist` para `/usr/share/nginx/html`.
+3. Copia `nginx.web-remote-control-test.conf` para `/etc/nginx/nginx.conf`.
+4. Expõe a porta 80.
+5. O healthcheck acessa `http://127.0.0.1/remote/__test__`.
 
-镜像内不安装 Node，不包含 `node_modules`、server、relay、desktop runtime 或远端 agent 资源。
+A imagem não instala Node e não contém `node_modules`, server, relay, runtime de desktop nem recursos de agente remoto.
 
-## 发布脚本
+## Script de publicação
 
-新增 `scripts/docker-build-and-push-web-remote-control-test.sh`，从 v3 脚本复制并收敛默认值：
+Adicionar `scripts/docker-build-and-push-web-remote-control-test.sh`, copiado do script da v3 e com os valores padrão reduzidos:
 
 ```text
 DOCKER_IMAGE_NAME=uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-test
@@ -122,7 +118,7 @@ MR title=chore: update zcode remote test image to <tag>
 build command=pnpm run build:web-remote-control:test
 ```
 
-脚本继续使用现有流程：
+O script continua usando o fluxo existente:
 
 ```text
 docker login
@@ -134,54 +130,53 @@ replace first image field in zcode/frontend/deployment-remote-test.yaml
 commit and push MR branch
 ```
 
-如果 `deployment-remote-test.yaml` 不存在，脚本直接失败并提示，避免 z-code 仓库越权生成 k8s 资源。
+Se `deployment-remote-test.yaml` não existir, o script falha imediatamente com uma mensagem, evitando que o repositório z-code gere recursos de k8s além da sua alçada.
 
-## Desktop 入口
+## Entrada no Desktop
 
-不修改 desktop 默认二维码 URL。当前默认仍由 `packages/desktop/src/main/index.ts` 指向生产远控路径。
+Não modificar a URL padrão do QR code do desktop. O padrão continua apontado por `packages/desktop/src/main/index.ts` para o caminho de produção do controle remoto.
 
-测试 `/remote/__test__` 时通过环境变量覆盖：
+Ao testar `/remote/__test__`, sobrescreva por variável de ambiente:
 
 ```bash
 ZCODE_WEB_REMOTE_CONTROL_URL=https://zcode.z.ai/remote/__test__ pnpm dev:desktop
 ```
 
-该方式保留线上默认行为，同时允许 test 部署独立回归。
+Essa abordagem preserva o comportamento padrão em produção e ao mesmo tempo permite uma regressão independente do deploy de teste.
 
-## k8s 配套要求
+## Requisitos complementares de k8s
 
-z-code 发布脚本只更新 deployment image。k8s 仓库需要提前准备：
+O script de publicação do z-code atualiza apenas a imagem do deployment. O repositório de k8s precisa preparar com antecedência:
 
 1. `zcode/frontend/deployment-remote-test.yaml`
-2. 指向 test deployment 的 service
-3. ingress 中 `/remote/__test__` 前缀指向 test service
-4. ingress 中 `/remote` 和 `/remote/v3` 前缀继续指向原服务
+2. Um service apontando para o deployment de teste
+3. No ingress, o prefixo `/remote/__test__` apontando para o service de teste
+4. No ingress, os prefixos `/remote` e `/remote/v3` continuando apontando para os serviços originais
 
-因为 `/remote/__test__` 是 `/remote` 的子路径，ingress 必须保证更具体的 test 前缀不会被旧 `/remote`
-前缀吞掉。
+Como `/remote/__test__` é um subcaminho de `/remote`, o ingress deve garantir que o prefixo mais específico de teste não seja engolido pelo prefixo antigo `/remote`.
 
-## 测试
+## Testes
 
-新增 smoke test：
+Adicionar um smoke test:
 
 ```bash
 bash scripts/test-web-remote-control-test-docker-build.sh
 ```
 
-验证项：
+Itens verificados:
 
-1. `pnpm run build:web-remote-control:test` 成功。
-2. `packages/web/dist/index.html` 存在。
-3. `packages/web/dist/assets` 存在。
-4. `packages/web/dist/material-icons` 存在。
-5. HTML 首个 script 资源路径以 `/remote/__test__/assets/` 开头。
-6. 容器内 `/remote/__test__` 返回 200。
-7. 容器内 `/remote/__test__/` 返回 301。
-8. `/remote/__test__/assets/<built-js>` 返回 200。
-9. `/remote/__test__/material-icons/typescript.svg` 返回 200。
-10. `/` 返回 302 到 `/remote/__test__`。
+1. `pnpm run build:web-remote-control:test` tem sucesso.
+2. `packages/web/dist/index.html` existe.
+3. `packages/web/dist/assets` existe.
+4. `packages/web/dist/material-icons` existe.
+5. O caminho do recurso do primeiro script no HTML começa com `/remote/__test__/assets/`.
+6. `/remote/__test__` dentro do contêiner retorna 200.
+7. `/remote/__test__/` dentro do contêiner retorna 301.
+8. `/remote/__test__/assets/<built-js>` retorna 200.
+9. `/remote/__test__/material-icons/typescript.svg` retorna 200.
+10. `/` retorna 302 para `/remote/__test__`.
 
-实现完成后执行：
+Após concluir a implementação, executar:
 
 ```bash
 pnpm run typecheck
@@ -191,24 +186,22 @@ bash scripts/test-web-remote-control-v3-docker-build.sh
 bash scripts/test-web-remote-control-test-docker-build.sh
 ```
 
-如果当前机器缺少 Docker，则至少执行 `pnpm run typecheck`、`pnpm run lint`、
-`pnpm run build:web-remote-control:test` 和相关单元测试，并在提交说明中列出 Docker smoke test 未验证。
+Se a máquina atual não tiver Docker, executar pelo menos `pnpm run typecheck`, `pnpm run lint`,
+`pnpm run build:web-remote-control:test` e os testes unitários relacionados, e listar na descrição do commit que o smoke test de Docker não foi verificado.
 
-## 风险与缓解
+## Riscos e mitigações
 
-1. `packages/web/dist` 是共享输出目录。缓解方式是发布脚本每次 docker build 前先执行对应版本 build。
-2. test 发布脚本误改 v2/v3 deployment。缓解方式是独立脚本默认固定
-   `zcode/frontend/deployment-remote-test.yaml`，并在测试中断言脚本文本。
-3. test 资源路径被旧 `/remote` ingress 吞掉。缓解方式是在 k8s 仓库配置更具体的
-   `/remote/__test__` 前缀。
-4. desktop 默认入口误切到 test。缓解方式是不改默认二维码 URL，只通过 `ZCODE_WEB_REMOTE_CONTROL_URL`
-   做测试覆盖。
-5. Web 入口识别漏掉 test base。缓解方式是为 `resolveWebRemoteControlRoutePathFromBaseUrl()` 增加
-   `/remote/__test__/` 单元测试。
+1. `packages/web/dist` é um diretório de saída compartilhado. A mitigação é o script de publicação executar o build da versão correspondente antes de cada docker build.
+2. O script de publicação de teste alterar indevidamente o deployment v2/v3. A mitigação é o script independente ter como padrão fixo
+   `zcode/frontend/deployment-remote-test.yaml`, com asserção sobre o texto do script no teste.
+3. O caminho de recursos de teste ser engolido pelo ingress antigo de `/remote`. A mitigação é configurar no repositório de k8s o prefixo mais específico
+   `/remote/__test__`.
+4. A entrada padrão do desktop ser trocada indevidamente para a de teste. A mitigação é não alterar a URL padrão do QR code e fazer a cobertura de teste apenas por `ZCODE_WEB_REMOTE_CONTROL_URL`.
+5. A entrada Web não reconhecer a base de teste. A mitigação é adicionar um teste unitário de `/remote/__test__/` para `resolveWebRemoteControlRoutePathFromBaseUrl()`.
 
-## 待实施文件
+## Arquivos a implementar
 
-预计实现改动：
+Alterações previstas na implementação:
 
 1. `package.json`
 2. `packages/shared/test/webRemoteControl.test.ts`
@@ -218,4 +211,3 @@ bash scripts/test-web-remote-control-test-docker-build.sh
 6. `scripts/docker-build-and-push-web-remote-control-test.sh`
 7. `scripts/test-web-remote-control-test-docker-build.sh`
 8. `docs/web-remote-control/web-remote-control-architecture.md`
-

@@ -1,47 +1,45 @@
-# 公开 GitHub 插件源无 Git 安装规格
+# Especificação de instalação sem Git de fontes de plugins públicas do GitHub
 
-## 状态
+## Status
 
-- 日期：2026-08-06
-- 基线：`origin/staging`
-- 决策：公开 GitHub HTTPS 来源优先使用 GitHub Archive；不在 Desktop 或 Agent 包内内置 Git。
+- Data: 2026-08-06
+- Baseline: `origin/staging`
+- Decisão: fontes públicas HTTPS do GitHub priorizam o GitHub Archive; o Git não é embutido no pacote do Desktop nem no do Agent.
 
-## 问题与根因
+## Problema e causa raiz
 
-当前 Marketplace 和插件 entry 的 `github`、`git`、legacy `url`、`git-subdir` 来源最终都会
-进入 `execFile("git", ...)`。这使插件管理能力隐式依赖运行 ZCode Agent 的主机已安装 Git：
+Hoje as origens `github`, `git`, o `url` legacy e `git-subdir` de Marketplace e de entradas de plugin acabam sempre em
+`execFile("git", ...)`. Isso faz com que a capacidade de gerenciamento de plugins dependa implicitamente de a máquina que executa o ZCode Agent já ter Git instalado:
 
-- Desktop 本地 workspace 依赖本机 Git；
-- standalone CLI 依赖 CLI 所在主机 Git；
-- SSH、WSL、Docker workspace 依赖远端 Agent Host 内的 Git，而不是 Desktop 内的 Git。
+- Workspace local do Desktop depende do Git da própria máquina;
+- A CLI standalone depende do Git da máquina onde a CLI roda;
+- Workspaces SSH, WSL e Docker dependem do Git dentro do Agent Host remoto, e não do Git do Desktop.
 
-已安装插件的启动发现、启停和会话注入只读取本地 installed cache，本身不需要 Git。问题属于
-“远端来源物化”边界的设计缺口，不应通过在 UI、Desktop main 或 relay 增加特殊分支解决。
+A descoberta de plugins instalados, o start/stop e a injeção de sessão leem apenas o installed cache local e, por si só, não precisam de Git. O problema é uma lacuna de design na fronteira de "materialização de origem remota" e não deve ser resolvido adicionando ramificações especiais na UI, no main do Desktop ou no relay.
 
-## 目标
+## Objetivos
 
-1. 所有可匿名读取的 `github.com` HTTPS Marketplace 和插件来源，在系统没有 Git 时仍可刷新、
-   校验、describe、安装和更新。
-2. GitHub Archive 与现有显式 ZIP 共用下载、限额、安全解压和代理能力，但不混淆两种完整性语义：
-   显式 ZIP 校验 `sha256`，GitHub Archive 绑定 Git `sha` / `commit` / `ref`。
-3. Marketplace snapshot 和 installed plugin cache 在失败、取消或进程异常前后始终保留一个完整、
-   可离线读取的旧版本。
-4. 批量刷新按 Marketplace 隔离失败；一个来源失败不能阻断其他来源，也不能删除上次成功快照。
-5. 私有仓库、SSH、非 GitHub Git 服务和确实需要 Git 高级语义的来源继续走系统 Git；无 Git 时返回
-   结构化、可操作的诊断。
-6. 同一 adapter 实现在 macOS、Windows、Linux，以及 Desktop local、standalone CLI、
-   SSH/WSL/Docker Agent Host 中生效。
+1. Todas as origens de Marketplace e de plugin em `github.com` HTTPS que podem ser lidas anonimamente continuam pudendo ser atualizadas,
+   verificadas, descritas, instaladas e atualizadas mesmo sem Git no sistema.
+2. O GitHub Archive compartilha download, limites, extração segura e capacidade de proxy com o ZIP explícito já existente, sem misturar as duas semânticas de integridade:
+   o ZIP explícito verifica `sha256` e o GitHub Archive se vincula ao `sha` / `commit` / `ref` do Git.
+3. O snapshot de Marketplace e o installed plugin cache mantêm sempre uma versão antiga completa e legível offline, antes e depois de falhas, cancelamentos ou abnormalidades de processo.
+4. A atualização em lote isola falhas por Marketplace; a falha de uma origem não pode bloquear as outras nem apagar o último snapshot bem-sucedido.
+5. Repositórios privados, SSH, serviços Git que não sejam o GitHub e origens que realmente precisem de semântica avançada do Git continuam passando pelo Git do sistema; sem Git, é retornado um
+   diagnóstico estruturado e acionável.
+6. A mesma implementação de adapter vale em macOS, Windows e Linux, e em Desktop local, CLI standalone e
+   Agent Host SSH/WSL/Docker.
 
-## 非目标
+## Não objetivos
 
-- 不内置或下载 Git 可执行文件，不引入 libgit2/isomorphic-git。
-- 不为私有 GitHub token/SSH key 新建凭据协议。
-- 不改变插件启用、Hook 信任、MCP、Skill、Subagent 或会话注入语义。
-- 不把插件业务状态下沉到 Desktop main、remote relay 或手机端。
-- 不实现跨多个 JSON/目录的一体化分布式事务；每个被替换的 target 使用同目录恢复标记与
-  确定性 backup，在下次状态加载或插件发现前恢复提交窗口。
+- Não embutir nem baixar o executável do Git, e não introduzir libgit2/isomorphic-git.
+- Não criar um novo protocolo de credenciais para token SSH/chave SSH de repositório privado.
+- Não mudar a semântica de ativação de plugin, confiança de Hook, MCP, Skill, Subagent ou injeção de sessão.
+- Não afundar o estado de negócio de plugins no main do Desktop, no remote relay ou no lado do celular.
+- Não implementar transação distribuída integrada sobre vários JSON/diretórios; cada target substituído usa um marcador de restauração no mesmo diretório e
+  um backup determinístico, restaurado antes do próximo carregamento de estado ou descoberta de plugins.
 
-## 目标链路
+## Cadeia alvo
 
 ```text
 Settings / CLI command
@@ -93,100 +91,100 @@ startup / discovery / enable / session injection
         +----------------------------> installed cache only (no HTTP, no Git)
 ```
 
-## 来源分类与 pin
+## Classificação da origem e pin
 
-### GitHub Archive 候选
+### Candidatos ao GitHub Archive
 
-以下来源在仓库 URL 可规范化为 `https://github.com/<owner>/<repo>[.git]`，且 Marketplace
-没有声明 `sparsePaths` 时优先使用 Archive：
+As origens abaixo usam Archive preferencialmente quando a URL do repositório pode ser normalizada para `https://github.com/<owner>/<repo>[.git]` e o Marketplace
+não declarou `sparsePaths`:
 
-- Marketplace `{source:"github", repo, ref?, path?}`；
-- Marketplace `{source:"git", url, ref?, path?}`；
-- plugin entry `{source:"github"}`、`{source:"git"}`、`{source:"url"}`、
-  `{source:"url", type:"git"}`、`{source:"git-subdir"}`。
+- Marketplace `{source:"github", repo, ref?, path?}`;
+- Marketplace `{source:"git", url, ref?, path?}`;
+- Entrada de plugin `{source:"github"}`, `{source:"git"}`, `{source:"url"}`,
+  `{source:"url", type:"git"}` e `{source:"git-subdir"}`.
 
-只接受 `github.com` / `www.github.com` 的 HTTPS URL 和 `owner/repo` shorthand。SSH、`git://`、
-带 userinfo 的 URL、其他 host 不进入 Archive 路由。仓库 URL 必须恰好解析出 owner 和 repo，拒绝
-额外的 tree/blob 页面路径。
+Somente URLs HTTPS de `github.com` / `www.github.com` e o shorthand `owner/repo` são aceitos. SSH, `git://`,
+URLs com userinfo e outros hosts não entram na rota Archive. A URL do repositório precisa resolver exatamente owner e repo, e caminhos extras de página tree/blob são
+rejeitados.
 
-Archive ref 选择顺序固定为：
+A ordem de escolha da ref do Archive é fixa:
 
 ```text
 source.sha || source.commit || source.ref || "HEAD"
 ```
 
-`sha` / `commit` 是 Git 对象身份；`ref` 和 `HEAD` 可能随远端变化。它们都不等于 ZIP 字节的
-SHA-256，不能写入或复用 `sha256` 字段。
+`sha` / `commit` são a identidade do objeto no Git; `ref` e `HEAD` podem mudar com o remoto. Nenhum deles equivale ao
+SHA-256 dos bytes do ZIP e não podem ser escritos nem reaproveitados no campo `sha256`.
 
-### 系统 Git 路由
+### Rota de Git do sistema
 
-以下来源保留系统 Git：
+As origens abaixo mantêm o Git do sistema:
 
-- SSH、非 GitHub host、带凭据或需要认证的 URL；
-- 声明 `sparsePaths` 的 Marketplace；Archive 尚未实现与 Git sparse checkout 等价的路径投影，
-  不能先下载整仓而破坏既有大仓库可用性；
-- Archive 返回 401、403 或 404，可能是私有仓库或不可匿名读取；
-- 解压后的目标路径确认依赖 submodule，或目标插件文件是 Git LFS pointer；
-- 无法安全、无歧义地规范化为 GitHub 仓库的 legacy source。
+- SSH, host que não é o GitHub, URLs com credenciais ou que exigem autenticação;
+- Marketplaces que declaram `sparsePaths`; o Archive ainda não implementa uma projeção de caminhos equivalente ao sparse checkout do Git, e não pode baixar o
+  repositório inteiro antes e thereby quebrar a usabilidade existente de repositórios grandes;
+- Archive devolvendo 401, 403 ou 404, o que pode significar repositório privado ou não legível anonimamente;
+- o caminho alvo após a extração depende de submódulo, ou o arquivo de plugin alvo é um ponteiro de Git LFS;
+- origens legacy que não podem ser normalizadas com segurança e sem ambiguidade em um repositório do GitHub.
 
-Archive 的超时、连接失败、5xx、限额或安全校验失败不自动改走 Git，以免把同一网络/恶意包错误
-重复执行成另一条不可预测路径。只有“需要 Git 语义/认证”的分类才 fallback。
+Timeout do Archive, falha de conexão, 5xx, limite de cota ou falha na verificação de segurança não mudam automaticamente para o Git, para não repetir a mesma rede ou o
+mesmo pacote malicioso em outro caminho imprevisível. Só as classificações que "precisam de semântica/autenticação do Git" fazem fallback.
 
-系统 Git 不存在时诊断码为 `plugin_git_unavailable`，消息必须说明：来源、为什么该来源需要 Git，
-以及在当前 Agent Host 安装 Git或改用公开 GitHub HTTPS/显式 ZIP 的恢复办法。
+Quando o Git do sistema não existe, o código de diagnóstico é `plugin_git_unavailable`, e a mensagem precisa explicar: a origem, por que essa origem precisa de Git,
+e a forma de recuperar, instalando o Git no Agent Host atual ou usando GitHub HTTPS público/ZIP explícito.
 
-## 下载与解压安全
+## Segurança de download e extração
 
-GitHub Archive 使用官方 `repos/{owner}/{repo}/zipball/{ref}` REST endpoint，并复用
-`zip-source.ts` 的底层 HTTP ZIP materializer：
+O GitHub Archive usa o endpoint REST oficial `repos/{owner}/{repo}/zipball/{ref}` e reaproveita o
+materializador HTTP ZIP de baixo nível de `zip-source.ts`:
 
-- 远端只允许 HTTPS；测试 fixture 仅允许 loopback HTTP；
-- 使用统一 proxy/CA/NO_PROXY 网络环境；
-- 最多 5 次重定向，跨 origin 不转发自定义 header；
-- 压缩包最大 100 MB、解压后最大 250 MB、最多 20,000 entries、单文件最大 50 MB；
-- 拒绝 zip-slip、绝对路径、符号链接和特殊文件；
-- GitHub Archive 自动剥离唯一顶层目录，再在其内解析插件或 Marketplace `path`；
-- `sparsePaths` 不进入 Archive 路由，继续由系统 Git sparse checkout 执行。
+- Somente HTTPS é permitido no remoto; fixtures de teste permitem apenas HTTP loopback;
+- Usa o ambiente de rede unificado de proxy/CA/NO_PROXY;
+- No máximo 5 redirecionamentos, sem encaminhar headers customizados entre origins;
+- Pacote de no máximo 100 MB, extração de no máximo 250 MB, no máximo 20.000 entradas e arquivo único de no máximo 50 MB;
+- Rejeita zip-slip, caminhos absolutos, symlinks e arquivos especiais;
+- O GitHub Archive remove automaticamente o único diretório de topo e resolve o plugin ou o `path` do Marketplace dentro dele;
+- `sparsePaths` não entra na rota Archive e continua sendo executado pelo sparse checkout do Git do sistema.
 
-显式 `{source:"url", type:"zip"}` 继续强制 `sha256`。GitHub Archive 不要求 archive SHA-256，
-但若 source 提供 commit pin，则下载 URL 必须绑定该 commit。
+O `{source:"url", type:"zip"}` explícito continua exigindo `sha256`. O GitHub Archive não exige SHA-256 do archive,
+mas, se a source fornecer um pin de commit, a URL de download precisa estar vinculada a esse commit.
 
-## 原子缓存激活
+## Ativação atômica do cache
 
-Marketplace snapshot 与 installed plugin cache 共用以下目录提交协议：
+O snapshot de Marketplace e o installed plugin cache compartilham o seguinte protocolo de commit por diretório:
 
 ```text
 prepare:  target parent/.<name>.stage-XXXXXX
-validate: stage 内 manifest、目标 path、版本和兼容检查通过
-intent:   写入 .<name>.transaction.json（owner + transactionId + authorityPath）
+validate: manifest, path alvo, versão e checagem de compatibilidade passam dentro do stage
+intent:   escreve .<name>.transaction.json（owner + transactionId + authorityPath）
 commit:   target -> .<name>.backup
           stage  -> target
-state:    known/installed JSON 记录同一 cacheTransactionId
-cleanup:  删除 backup 和 transaction marker
-rollback: 第二次 rename 失败时 backup -> target
-recovery: authority 含 transactionId 则保留 target，否则恢复 backup
+state:    known/installed JSON registra o mesmo cacheTransactionId
+cleanup:  apaga backup e marcador de transação
+rollback: quando o segundo rename falha, backup -> target
+recovery: se a authority tiver transactionId, mantém target; caso contrário, restaura o backup
 ```
 
-- staging 和 target 必须在同一父目录，保证 rename 不跨文件系统；
-- backup 名称确定，transaction marker 记录同目录 stage 名、进程 owner、transactionId 与权威状态
-  文件；恢复代码拒绝清理不匹配该 target 前缀的路径；
-- commit 前取消：删除 staging，旧 target 不变；
-- commit 开始后不再把取消当作失败，完成激活和状态记录，避免“新目录已生效但 installed record 未写”；
-- cleanup 失败只记录/附加诊断，不回滚已成功的新版本；
-- 普通读取发现 owner 仍存活时不执行恢复：权威状态尚未记录 transactionId 时读 backup，记录后读
-  target；因此 overview/runtime discovery 不会抢走 writer 的 rollback 资源，也不会看见跨代状态；
-- 进程退出后，恢复读取以 `known_marketplaces.json` / `installed_plugins.json` 中的同一
-  `cacheTransactionId` 为提交判据：存在则保留新 target，不存在则恢复旧 backup（首次安装则移除
-  尚未提交的新 target）；
-- JSON 状态文件在支持覆盖 rename 的平台直接执行同目录原子替换；Windows 目标已存在时使用同一
-  确定性 backup + 读取前恢复协议；
-- `known_marketplaces.json`、`installed_plugins.json`、Marketplace manifest 与 installed cache
-  的同步读取入口都会解析可读代际，因此活跃提交和进程退出窗口都不会被解释为来源或插件被删除；
-- Marketplace 刷新先完整加载、校验 source，再激活快照；任何下载/解析错误都不触碰旧快照。
+- Staging e target precisam estar no mesmo diretório pai, garantindo que o rename não cruze sistemas de arquivos;
+- O nome do backup é determinístico, e o marcador de transação registra o nome do stage no mesmo diretório, o owner do processo, o transactionId e o arquivo de estado
+  autoritativo; o código de restauração recusa limpar caminhos que não correspondam a esse prefixo de target;
+- Cancelamento antes do commit: apaga o staging e o target antigo permanece inalterado;
+- Depois que o commit começa, cancelamento não é mais tratado como falha, e a ativação e o registro de estado são concluídos, evitando "o novo diretório já está valendo, mas o
+  installed record não foi escrito";
+- Falha no cleanup apenas registra/acrescenta diagnóstico e não faz rollback da nova versão que já deu certo;
+- Quando uma leitura comum encontra o owner ainda vivo, não executa restauração: enquanto o estado autoritativo ainda não tiver registrado o transactionId, lê o backup; depois de
+  registrado, lê o target. Assim, o overview/runtime discovery não rouba os recursos de rollback do writer nem enxerga estado de gerações diferentes;
+- Após a saída do processo, a leitura de restauração usa o mesmo `cacheTransactionId` em `known_marketplaces.json` / `installed_plugins.json` como critério de commit: se existir,
+  mantém o novo target; se não existir, restaura o backup antigo (na primeira instalação, remove o novo target ainda não submetido);
+- O arquivo de estado JSON, em plataformas que suportam rename com sobrescrita, faz substituição atômica no mesmo diretório; no Windows, quando o target já existe, usa o mesmo
+  backup determinístico mais o protocolo de restauração antes da leitura;
+- Os pontos de entrada de leitura sincronizada de `known_marketplaces.json`, `installed_plugins.json`, do manifest de Marketplace e do installed cache
+  resolvem a geração legível, de modo que nem uma submissão ativa nem a janela de saída do processo são interpretadas como remoção de origem ou de plugin;
+- A atualização de Marketplace carrega e verifica a source por completo antes de ativar o snapshot; qualquer erro de download ou parsing não toca o snapshot antigo.
 
-## Marketplace 刷新状态
+## Estado de atualização do Marketplace
 
-`KnownMarketplaceRecord` 增加可选 `lastRefreshFailure`：
+`KnownMarketplaceRecord` ganha um `lastRefreshFailure` opcional:
 
 ```ts
 interface MarketplaceRefreshFailure {
@@ -196,55 +194,54 @@ interface MarketplaceRefreshFailure {
 }
 ```
 
-- 单市场刷新失败：保存 failure，保留原 `lastUpdated`、`pluginCount` 和 snapshot；
-- 批量刷新：继续刷新其他市场，返回成功 summaries 和失败 diagnostics；
-- 下次成功：清除 `lastRefreshFailure`，更新 `lastUpdated`；
-- `plugins/overview` 返回 failure，使 UI 重载/重启后仍能展示，而不是只保留一次 toast；
-- installed cache 与 Marketplace availability 分离，来源失败或移除不影响已安装插件运行。
+- Falha na atualização de um único marketplace: salva a failure e mantém `lastUpdated`, `pluginCount` e snapshot originais;
+- Atualização em lote: continua atualizando os outros marketplaces e retorna summaries de sucesso junto com diagnostics de falha;
+- Próximo sucesso: limpa `lastRefreshFailure` e atualiza `lastUpdated`;
+- `plugins/overview` retorna a failure, para que a UI ainda consiga exibi-la após reload ou restart, e não apenas em um toast passageiro;
+- O installed cache é separado da disponibilidade do Marketplace, de modo que a falha ou remoção de uma origem não afeta a execução de plugins já instalados.
 
-## 协议与 UI 行为
+## Protocolo e comportamento da UI
 
-- `zcodePluginMarketplaceSummarySchema` 增加可选 `refreshFailure`，不破坏旧 Agent payload；
-- `plugins/marketplace/update` 使用现有 optional `diagnostics` 返回部分失败；
-- UI 的 update operation 必须检查 error diagnostics，并在重新加载 overview 后保留 Marketplace 的
-  `refreshFailure`；部分失败返回 false、写入共用 store 错误态，并在 Marketplace source 行展示
-  message/failedAt；批量刷新即使部分失败也要展示已成功更新的来源；
-- 新旧两套 UI store 的 update 入口遵守相同的部分成功语义；legacy `usePlugins` 即使退役也不能
-  把 error diagnostic 报告为成功；
-- source materialization 错误在诊断生成边界统一移除 URL username/password，并清理嵌套网络
-  cause 中的 URL userinfo；持久化、日志、协议和 UI 不再各自处理敏感信息；
-- 新增诊断码：`plugin_git_unavailable`、`plugin_archive_fetch_failed`；其他 manifest/依赖错误继续使用
-  现有诊断码。
+- `zcodePluginMarketplaceSummarySchema` ganha um `refreshFailure` opcional, sem quebrar payloads antigos do Agent;
+- `plugins/marketplace/update` usa o `diagnostics` opcional já existente para retornar falhas parciais;
+- A operação de update da UI precisa checar os diagnostics de erro e, após recarregar o overview, preservar o `refreshFailure` do Marketplace;
+  uma falha parcial retorna false, escreve o estado de erro no store compartilhado e exibe message/failedAt na linha da source do
+  Marketplace; mesmo com falha parcial, a atualização em lote exibe as origens atualizadas com sucesso;
+- Os pontos de entrada de update dos dois stores de UI, antigo e novo, obedecem à mesma semântica de sucesso parcial; o `usePlugins` legacy, mesmo sendo aposentado, não pode
+  reportar um error diagnostic como sucesso;
+- Erros de materialização de origem removem de forma unificada username/password de URL na fronteira de geração de diagnóstico e limpam o userinfo de URL em causas de rede
+  aninhadas; persistência, logs, protocolo e UI deixam de tratar informações sensíveis por conta própria;
+- Novos códigos de diagnóstico: `plugin_git_unavailable` e `plugin_archive_fetch_failed`; outros erros de manifest/dependência continuam usando os
+  códigos de diagnóstico existentes.
 
-## 跨端与远程边界
+## Limites entre plataformas e remoto
 
-- 来源分类、下载、解压、Git fallback 和原子激活全部位于 zcode-cli adapter；
-- Desktop/Web/mobile 只经 typed plugin service 和当前 workspace Agent Host 调用；
-- remote workspace 继续使用 `workspaceIdentity` / `remoteSessionId` 选择权威 Agent，不创建独立 runtime；
-- remote plugin source archive sync 是另一条“本地已物化目录传远端”的路径，本功能不删除它；
-- 本次不改变 desktop `continuous` 与 mobile `replayable` session/task delivery。
+- A classificação da origem, o download, a extração, o fallback do Git e a ativação atômica ficam todos no adapter do zcode-cli;
+- Desktop/Web/mobile chamam apenas pelo plugin service tipado e pelo Agent Host do workspace atual;
+- O workspace remoto continua usando `workspaceIdentity` / `remoteSessionId` para escolher o Agent autoritativo e não cria um runtime independente;
+- O sync do archive de source de plugin remoto é outro caminho, "diretório já materializado localmente enviado ao remoto", e esta funcionalidade não o remove;
+- Esta rodada não muda a entrega de sessão/task `continuous` do desktop nem `replayable` do celular.
 
-## 验收与测试顺序
+## Ordem de aceitação e testes
 
-先写失败测试，再实现：
+Escreva primeiro os testes de falha e então implemente:
 
-1. loopback GitHub Archive fixture + PATH 无 Git：Marketplace add/update 和 plugin install 成功；
-2. `sha/commit > ref > HEAD` URL 选择与 plugin `path` / `git-subdir` 解析；
-3. 私有语义 fallback 在无 Git 时返回 `plugin_git_unavailable`；
-4. Archive 网络失败不误 fallback Git；
-5. 一个 Marketplace refresh 失败时另一个成功，旧 snapshot 和 failure 状态保留；
-6. 下一次成功清除 failure；
-7. 声明 `sparsePaths` 的公开 GitHub Marketplace 不发 Archive 请求，保留系统 Git sparse 路由；
-8. 插件子目录继承祖先 `.gitattributes` 的 LFS 规则时必须 fallback Git；
-9. 模拟活跃读取、未提交退出和已提交退出窗口，按 authority transaction generation 读取或恢复
-   state、Marketplace 与 installed cache；
-10. Marketplace 部分刷新失败仍 reload 成功来源，同时 store 返回 false、页面展示持久化失败；
-11. legacy 与当前 UI store 对 error diagnostic 都返回 false；
-12. 带 URL userinfo 的 Git 来源和嵌套 Archive cause 不把用户名/密码写进失败诊断；
-13. 安装复制/rename 注入失败时旧 cache 和 installed record 保留；
-14. 显式 ZIP 的 SHA-256、安全限额与路径防护回归；
-15. 启动 discovery 在 PATH 无 Git且网络不可用时仍加载已安装 cache；
-16. focused tests、`pnpm typecheck`、`pnpm lint`，再做真实公开 GitHub smoke。
+1. Fixture de GitHub Archive em loopback + PATH sem Git: add/update de Marketplace e instalação de plugin com sucesso;
+2. Escolha de URL `sha/commit > ref > HEAD` e resolução de `path` / `git-subdir` do plugin;
+3. Fallback de semântica privada retornando `plugin_git_unavailable` quando não há Git;
+4. Falha de rede do Archive não 导致 fallback indevido para o Git;
+5. Uma falha de refresh de Marketplace com a outra bem-sucedida, preservando o snapshot antigo e o estado de falha;
+6. O próximo sucesso limpa a falha;
+7. Marketplace público do GitHub que declara `sparsePaths` não emite requisição de Archive e mantém a rota sparse do Git do sistema;
+8. Fallback para o Git quando as regras de LFS do `.gitattributes` dos ancestrais forem herdadas pelo subdiretório do plugin;
+9. Simulando leitura ativa, saída não submetida e janela de saída submetida, ler ou restaurar state, Marketplace e installed cache conforme a geração de transação da authority;
+10. Falha parcial de refresh de Marketplace ainda recarrega as origens bem-sucedidas, enquanto o store retorna false e a página exibe a falha persistida;
+11. Store de UI legacy e atual retornam false para error diagnostic;
+12. Origem Git com userinfo de URL e cause de Archive aninhada não escrevem usuário/senha no diagnóstico de falha;
+13. Falha de cópia/rename injetada na instalação preserva o cache antigo e o installed record;
+14. Regressão do SHA-256, dos limites de segurança e da proteção de caminho do ZIP explícito;
+15. A discovery de startup ainda carrega o installed cache com PATH sem Git e rede indisponível;
+16. Testes focados, `pnpm typecheck`, `pnpm lint` e então um smoke real com GitHub público.
 
-对应生命周期 case：`PLM-LC-011 no-git-github-archive`、
-`PLM-LC-012 isolated-refresh-atomic-cache`。
+Cases de ciclo de vida correspondentes: `PLM-LC-011 no-git-github-archive`,
+`PLM-LC-012 isolated-refresh-atomic-cache`.

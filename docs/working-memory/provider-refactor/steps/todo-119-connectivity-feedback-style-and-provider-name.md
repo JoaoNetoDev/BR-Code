@@ -1,39 +1,39 @@
-# Todo119：连接测试恢复绿色成功反馈，使用供应商显示名称
+# Todo119: o teste de conexão volta a ter feedback verde de sucesso, usando o nome de exibição do provider
 
-> 状态：2026-09-11 实现、局部 review、单测及共享浏览器验证通过；整批最终验收与推送待执行，未做真实手机 shared-host / Pro 联调。
+> Status: implementado em 2026-09-11, com review parcial e aprovação de testes unitários e de verificação compartilhada no navegador; a aceitação final do lote e o push continuam pendentes, e não foi feita integração real com shared-host no celular / Pro.
 
-## 已确认根因
+## Causa raiz já confirmada
 
-- 成功横幅曾使用绿色文字、浅绿背景和绿色边框。`31231492a8` 将共享 Provider 反馈的成功样式改为中性色，只保留绿色勾图标；后续 `aa0d7970cd` 添加关闭 × 并未修改颜色。两个改动不能混为同一个原因。
-- `ProviderFormControls.tsx` 的连接测试在进行中、成功、返回失败和异常分支均直接传入 `provider: providerId`，没有使用供应商显示名称；不是缺失名称后的正常兜底。
+- O banner de sucesso usava texto verde, fundo verde claro e borda verde. `31231492a8` mudou o estilo de sucesso do feedback compartilhado de Provider para cores neutras, mantendo apenas o ícone de check verde; mais tarde `aa0d7970cd` adicionou o × de fechamento sem alterar as cores. As duas alterações não podem ser tratadas como a mesma causa.
+- `ProviderFormControls.tsx`, no teste de conexão, passa diretamente `provider: providerId` nos ramos de em andamento, sucesso, retorno de falha e exceção, sem usar o nome de exibição do provider; não se trata do fallback normal após a ausência de um nome.
 
-## 已裁决改动
+## Mudanças já decididas
 
-1. 连接测试成功恢复绿色反馈：绿色文字、浅绿色背景、绿色边框，复用项目语义色。保留关闭 ×、现有自动消失时长及重试测试能力。失败和进行中状态不借机重新设计。
-2. 所有连接测试提示统一使用已有供应商显示名称解析机制：名称优先，确实缺失时才回退 Provider ID。复用 `getProviderFormLabel` 及当前 View，不按账号类型另造名称表；重命名后再次测试应显示新名称。
-3. 显示名称只用于文案。请求参数、反馈去重 key、模型定位、配置保存及日志身份继续使用 Provider ID；模型 ID 保持原样。
-4. 复用共享反馈组件，不复制一套横幅。该组件也承载保存、删除等反馈，本项不得无意修改这些操作的既有样式；若需要区分成功表现，使用最小且明确的展示输入，不按文案或去重 key 猜测业务类型。
-5. 不修改测试 Prompt、签名、鉴权、模型解析、Provider 草稿提交与请求执行逻辑。不纳入尚未确认的其他横幅问题。
+1. O sucesso do teste de conexão volta ao feedback verde: texto verde, fundo verde claro e borda verde, reaproveitando as cores semânticas do projeto. Manter o × de fechamento, a duração atual de desaparecimento automático e a capacidade de reteste. Os estados de falha e em andamento não são redesenhados por essa oportunidade.
+2. Todos os avisos do teste de conexão passam a usar o mecanismo existente de resolução do nome de exibição do provider: o nome tem prioridade e, somente quando realmente ausente, há fallback para o Provider ID. Reutilizar `getProviderFormLabel` e a View atual, sem criar outra tabela de nomes por tipo de conta; após renomear, um novo teste deve mostrar o novo nome.
+3. O nome de exibição é usado apenas no texto. Os parâmetros de requisição, a key de dedup do feedback, a localização do modelo, o salvamento da configuração e a identidade nos logs continuam usando o Provider ID; o Model ID permanece como está.
+4. Reutilizar o componente de feedback compartilhado, sem copiar um conjunto de banners. Esse componente também hospeda o feedback de salvar e excluir, e este item não deve modificar sem querer os estilos existentes dessas operações; se for preciso distinguir a manifestação de sucesso, usar uma entrada de exibição mínima e explícita, sem adivinhar o tipo de operação pelo texto ou pela key de dedup.
+5. Não modificar o Prompt de teste, a assinatura, a autenticação, a resolução do modelo, a submissão do rascunho de Provider nem a lógica de execução da requisição. Não incluir outros problemas de banner ainda não confirmados.
 
 ```text
-点击连接测试
-  ├─ Provider ID / Model ID → 原有测试请求与反馈定位
-  └─ Provider 显示名称      → 进行中 / 成功 / 失败提示
-                                  └─ 成功：绿色反馈 + 关闭 ×
+clicar em teste de conexão
+  ├─ Provider ID / Model ID → requisição de teste e localização do feedback existentes
+  └─ nome de exibição do Provider → avisos de em andamento / sucesso / falha
+                                  └─ sucesso: feedback verde + × de fechamento
 ```
 
-## 验收与复审
+## Aceitação e revisão
 
-- [ ] 先补测试：成功横幅的语义色、勾图标与关闭按钮同时存在；失败／进行中反馈及自动消失、关闭行为保持正常。
-- [ ] 自定义名称、账号供应商名称、名称缺失回退、重命名后再次测试均正确；覆盖成功、返回失败与异常分支，请求仍携带原 ID。
-- [ ] 更新共享交互 E2E，兼顾桌面及手机 Web、中英文、明暗主题、长名称换行和关闭按钮可点击；不扩大为全产品回归。
-- [ ] 确认保存、删除等共享横幅未被连带改色；连接测试前保存配置的时序未改变。
-- [ ] 批量执行相关测试、typecheck、lint 和架构检查；完整 review 本 Todo 后记录验证证据及未测限制，再标记完成。
+- [ ] Cobrir primeiro com testes: cor semântica do banner de sucesso, ícone de check e botão de fechamento presentes simultaneamente; feedback de falha/em andamento e desaparecimento automático e comportamento de fechamento permanecem normais.
+- [ ] Nome personalizado, nome de provider da conta, fallback por nome ausente e novo teste após renomear estão corretos; cobrir os ramos de sucesso, retorno de falha e exceção, e a requisição ainda carrega o ID original.
+- [ ] Atualizar o E2E da interação compartilhada, contemplando desktop e Web no celular, português/inglês, tema claro/escuro, quebra de linha de nomes longos e botão de fechamento clicável; sem ampliar para uma regressão de produto inteiro.
+- [ ] Confirmar que os banners compartilhados de salvar/excluir não foram recoloridos junto; a ordem temporal de salvar a configuração antes do teste de conexão não mudou.
+- [ ] Executar em lote os testes relacionados, typecheck, lint e verificação de arquitetura; fazer o review completo deste Todo, registrar as evidências de verificação e as limitações não testadas e só então marcar como concluído.
 
-## 实施与 review
+## Implementação e review
 
-- 通过 getProviderFormLabel 将名称沿卡片→模型列表→测试行传入；四种结果文案使用该名称，去重 key、模型请求参数仍为原 ID。已有名称缺失兜底不变。
-- 共享反馈仅新增 successEmphasis 展示输入，连接测试成功明确打开；保存/删除仍为中性样式。关闭与定时器没有改写。
-- 五项失败测试先红；与 Todo124、Hook 和服务测试合跑 74 项通过，覆盖成功、返回错误、抛异常、名称回传后再测、空名称回退及实际请求身份。已有保存中性样式断言仍通过。
-- 4 项浏览器验证通过（共享账号/手动卡片，390中文浅色与1200英文深色），验证绿色类与实际非透明背景、名称、关闭动作和删除重试。真实手机/Pro 未测，不冒称全端已验收。
-- 根 typecheck、lint（0 errors / 41 warnings）、架构 0 violations 通过。逐项 review 无测试 Prompt/鉴权/签名/草稿时序修改；最终批次继续做交付复审。
+- O nome é passado por getProviderFormLabel do卡片 → lista de modelos → linha de teste; os quatro textos de resultado usam esse nome, enquanto a key de dedup e os parâmetros de requisição do modelo continuam sendo o ID original. O fallback existente por nome ausente não muda.
+- O feedback compartilhado ganha apenas a entrada de exibição successEmphasis, ligado explicitamente no sucesso do teste de conexão; salvar/excluir continuam com estilo neutro. O fechamento e o timer não foram reescritos.
+- Os cinco testes de falha ficaram vermelhos primeiro; rodados em conjunto com Todo124 e os testes de Hook e de serviço, 74 testes passaram, cobrindo sucesso, retorno de erro, exceção threw, novo teste após retorno do nome, fallback de nome vazio e a identidade real da requisição. A asserção existente de estilo neutro no salvamento continua passando.
+- 4 verificações no navegador passaram (conta compartilhada/cartão manual, 390 em português tema claro e 1200 em inglês tema escuro), verificando a classe verde e o fundo real não transparente, o nome, a ação de fechamento e o retry de exclusão. Celular real/Pro não foram testados; não se afirma aceitação em todas as plataformas.
+- typecheck raiz, lint (0 errors / 41 warnings) e arquitetura com 0 violações passaram. O review item a item não encontrou modificação de Prompt de teste/autenticação/assinatura/ordem do rascunho; o lote final continua fazendo a revisão de entrega.

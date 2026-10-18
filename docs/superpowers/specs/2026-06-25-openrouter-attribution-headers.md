@@ -1,29 +1,27 @@
 # OpenRouter Attribution Headers
 
-## 背景
+## Contexto
 
-ZCode 的模型请求和服务侧业务请求已经携带 `X-Title` 等来源 header。OpenRouter app attribution
-要求应用同时提供 OpenRouter 专用的 title 和 category 字段，以便请求通过 OpenRouter 或兼容网关时能被正确归因。
+As requisições de modelo do ZCode e as requisições de negócio do lado do serviço já carregam headers de origem como `X-Title`. A atribuição de apps do OpenRouter exige que o aplicativo forneça simultaneamente os campos title e category específicos do OpenRouter, para que as requisições sejam atribuídas corretamente quando passam pelo OpenRouter ou por um gateway compatível.
 
-## 目标
+## Objetivos
 
-- 保留现有 `X-Title`，不改变既有上游兼容行为。
-- OpenRouter provider 的默认来源 header 同时携带：
+- Preservar o `X-Title` existente, sem alterar o comportamento de compatibilidade atual com upstream.
+- O header de origem padrão do provider OpenRouter carrega simultaneamente:
   - `X-OpenRouter-Title: ZCode`
   - `X-OpenRouter-Categories: programming-app`
-- 判定统一复用 `@zcode/shared` 的 `isOpenRouterBaseUrl()`：解析 provider runtime `baseURL`，
-  要求协议为 `https:` 且 host 为 `openrouter.ai` 或其子域。
-- 覆盖模型连通性检查、Repo Wiki/Git 提交消息模型请求，以及 zcode-cli/bootstrap 生成的 provider headers。
+- A determination reutiliza de forma unificada `isOpenRouterBaseUrl()` de `@zcode/shared`: analisa o `baseURL` de runtime do provider e exige que o protocolo seja `https:` e que o host seja `openrouter.ai` ou um subdomínio dele.
+- Cobrir as verificações de conectividade de modelos, as requisições de modelo das mensagens de commit do Repo Wiki/Git, assim como os provider headers gerados por zcode-cli/bootstrap.
 
-## 非目标
+## Não objetivos
 
-- 不新增协议字段，不修改 `@zcode/protocol`。
-- 不改变用户显式覆盖 `X-Title` 的语义；用户覆盖旧字段时，OpenRouter provider 默认 attribution 字段仍保留。
-- 不给非 OpenRouter provider 或普通 ZCode 后端业务 API 请求添加 OpenRouter 专用 header。
-- 不修改生成产物或历史打包 bundle，源代码变更会在后续构建时进入产物。
+- Não adicionar novos campos de protocolo nem modificar `@zcode/protocol`.
+- Não alterar a semântica da sobrescrita explícita de `X-Title` pelo usuário; quando o usuário sobrescreve o campo antigo, os campos de atribuição padrão do provider OpenRouter permanecem.
+- Não adicionar headers específicos do OpenRouter a providers que não são OpenRouter nem a requisições de API de negócio comuns do backend do ZCode.
+- Não modificar artefatos gerados nem bundles empacotados anteriormente; as mudanças no código fonte entrarão nos artefatos em builds subsequentes.
 
-## 验证
+## Verificação
 
-- 更新 source header 和 bootstrap provider header 的单测期望。
-- 执行相关定向 vitest。
-- 按仓库要求执行 `pnpm typecheck` 和 `pnpm lint`。
+- Atualizar as expectativas dos testes unitários de source header e de bootstrap provider header.
+- Executar os vitests direcionados relevantes.
+- Executar `pnpm typecheck` e `pnpm lint` conforme exigido pelo repositório.

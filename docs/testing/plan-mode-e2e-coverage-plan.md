@@ -1,24 +1,24 @@
-# Plan Mode E2E Coverage Plan
+# Plano de cobertura E2E do Plan Mode
 
-## Scope
+## Escopo
 
-Plan mode 的端到端验收面是桌面本地 `desktop-continuous` 会话里的用户操作链路和 provider-visible request body，不把内部实现结构作为验收目标。当前 E2E 使用 synthetic DeepSeek replay fixture 固定模型工具调用，避免把真实模型是否选择工具混入产品语义断言。
+A superfície de aceitação ponta a ponta do plan mode é a cadeia de ações do usuário na sessão local `desktop-continuous` do desktop e o request body visível ao provider; a estrutura interna de implementação não é alvo de aceitação. Atualmente, o E2E usa uma synthetic DeepSeek replay fixture para fixar as chamadas de ferramenta do modelo, evitando misturar a questão de o modelo real escolher ou não ferramenta nas asserções de semântica de produto.
 
-## Existing Coverage
+## Cobertura existente
 
-- `conversation-session-tool-cross-product.test.ts` 已覆盖 `EnterPlanMode` 成功入工具块，以及非 plan mode 下 `ExitPlanMode` 快速失败的普通工具展示边界。
-- `conversation-session-plan-approval-feedback-user-message.test.ts` 覆盖 `ExitPlanMode` 被用户输入 custom feedback 拒绝后，feedback 作为真实 user message 进入下一次 provider 请求。
-- `conversation-session-plan-file-compact-continuity.test.ts` 覆盖 `ExitPlanMode` 审批通过后 plan 原文写入 `.zcode/plans`，并在手动 `/compact` 后通过 `plan_file_reference` 回到 provider-visible context。
+- `conversation-session-tool-cross-product.test.ts` já cobre o `EnterPlanMode` bem-sucedido gerando bloco de ferramenta, e a fronteira de exibição comum de ferramenta com falha rápida do `ExitPlanMode` fora do plan mode.
+- `conversation-session-plan-approval-feedback-user-message.test.ts` cobre o caso em que o `ExitPlanMode` é rejeitado por custom feedback digitado pelo usuário e esse feedback entra como uma user message real na próxima requisição ao provider.
+- `conversation-session-plan-file-compact-continuity.test.ts` cobre o caso em que, após a aprovação do `ExitPlanMode`, o texto do plan é gravado em `.zcode/plans` e, após um `/compact` manual, retorna ao contexto visível ao provider via `plan_file_reference`.
 
-## Added Coverage
+## Cobertura adicionada
 
-`conversation-session-plan-mode-capabilities.test.ts` 补齐两个 plan mode 能力边界：
+`conversation-session-plan-mode-capabilities.test.ts` completa duas fronteiras de capacidade do plan mode:
 
-1. `ExitPlanMode` 被用户无反馈拒绝时，当前 turn 必须停止，不应继续发带 `ExitPlanMode` tool_result 的 provider 请求；后续用户普通输入仍处于 plan mode，并在 provider-visible context 中带上 plan mode active reminder。
-2. plan mode 下同一条 assistant 回复里先调用写工具再调用只读工具时，写工具必须被 `mode.plan.nonReadOnly` 拒绝且不落盘，后续只读工具仍必须执行并把真实 tool_result 返回给模型。
+1. Quando o `ExitPlanMode` é rejeitado pelo usuário sem feedback, o turno atual deve parar, e não deve ser enviada uma requisição ao provider com o tool_result de `ExitPlanMode`; a entrada normal posterior do usuário continua em plan mode e leva, no contexto visível ao provider, o lembrete de plan mode ativo.
+2. Quando, no plan mode, a mesma resposta do assistant chama primeiro uma ferramenta de escrita e depois uma ferramenta somente leitura, a ferramenta de escrita deve ser rejeitada por `mode.plan.nonReadOnly` e não deve ir para disco; a ferramenta somente leitura subsequente ainda deve ser executada e devolver o tool_result real ao modelo.
 
-## Out Of Scope
+## Fora de escopo
 
-- 手机 `web-remote-replayable` 的 snapshot/gap 恢复不从本组推断。
-- 子 agent 内部触发 `ExitPlanMode` 的审批代理不从本组推断，归入 subagent human-in-the-loop delegate 后续组合。
-- plan file 保存失败是否阻断退出 plan mode 已由 core 单测覆盖；E2E 只覆盖用户批准后的正常文件连续性。
+- A restauração de snapshot/gap do `web-remote-replayable` no celular não é inferida deste conjunto.
+- O agente de aprovação que dispara `ExitPlanMode` internamente nos subagents não é inferido deste conjunto; entra na composição posterior de subagent human-in-the-loop delegate.
+- Se a falha ao salvar o plan file bloqueia a saída do plan mode já é coberto por testes unitários do core; o E2E cobre apenas a continuidade normal de arquivo após a aprovação do usuário.

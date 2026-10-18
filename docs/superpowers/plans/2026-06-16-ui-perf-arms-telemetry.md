@@ -1,57 +1,57 @@
-# 端侧 UI 性能 ARMS 上报 Implementation Plan
+# Plano de implementação de reporte de performance de UI no lado do cliente via ARMS
 
-> 状态（2026-07-15）：已实施，本文保留为历史实施计划。当前埋点契约以
-> `docs/monitoring/performance-monitoring.md`、`docs/monitoring/performance-telemetry-catalog.md`
-> 和 `packages/ui/src/lib/uiPerfArmsTelemetry.ts` 为准；下文 `useZCodeChat` 等接入路径是实施时轨迹。
+> Status (2026-07-15): implementado; este documento é mantido como plano histórico de implementação. O contrato de rastreamento vigente é o de
+> `docs/monitoring/performance-monitoring.md`, `docs/monitoring/performance-telemetry-catalog.md`
+> e `packages/ui/src/lib/uiPerfArmsTelemetry.ts`; os caminhos de integração como `useZCodeChat` abaixo são um registro do momento da implementação.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 Electron renderer(UI)侧新增四个性能埋点(首屏、首token、消息耗时、流式停顿),经现有 ARMS `sendCustom` 链路上报到 `group=ui_perf`。
+**Goal:** Adicionar quatro eventos de rastreamento de performance no renderer (UI) do Electron (primeira tela, primeiro token, duração da mensagem, pausa no streaming), reportados a `group=ui_perf` pelo encadeamento ARMS `sendCustom` já existente.
 
-**Architecture:** 新建模块级单例封装 `uiPerfArmsTelemetry.ts`(仿既有模块级 ARMS 业务埋点 helper),reporter 在 `Root.tsx` 注入。首token/耗时复用 `useZCodeChat` 已算好的 `completionTelemetry` 镜像双发,不动 `/report`;首屏在 `main.tsx` 监听 `zcode-react-startup-ready`;流式停顿的 per-task 计时状态封装在 telemetry 模块内,handler 仅一行调用。全采,失败吞错。
+**Architecture:** Criar um novo encapsulador singleton de escopo de módulo `uiPerfArmsTelemetry.ts` (a exemplo dos helpers de rastreamento de negócio ARMS de escopo de módulo que já existem), com o reporter injetado em `Root.tsx`. Primeiro token/duração reaproveitam o espelho de `completionTelemetry` já calculado em `useZCodeChat`, com double report, sem mexer no `/report`; a primeira tela é medida em `main.tsx` ouvindo `zcode-react-startup-ready`; o estado de temporização per-task da pausa de streaming fica encapsulado dentro do módulo de telemetria, e o handler faz apenas uma chamada de linha. Coleta total, falhas engolidas.
 
-**Tech Stack:** TypeScript, React, Vitest, `@zcode/shared` 的 `IPlatformService.reportArmsCustomEvent`。
+**Tech Stack:** TypeScript, React, Vitest, `IPlatformService.reportArmsCustomEvent` de `@zcode/shared`.
 
 ---
 
-## 设计依据(spec)
+## Base de design (spec)
 
 `docs/superpowers/specs/2026-06-16-ui-perf-arms-telemetry-design.md`
 
-## 关键事实(已核实)
+## Fatos-chave (verificados)
 
-- 上报 API:`platform.reportArmsCustomEvent({ name, group, value, properties })`,公共维度由 main handler(`desktopMainIpcRemote.ts:119`)自动补齐。
-- `ArmsCustomEventPayload`(`@zcode/shared`):`{ name: string; group: string; value?: number; properties?: Record<string, string | number | boolean | undefined> }`。
-- 镜像点:`packages/ui/src/hooks/useZCodeChat.ts:567-603` 的 `reportPromptCompletionTelemetry`,`completionTelemetry.eventExtraDetail` 已含 `time_to_first_token`、`duration_ms`、`status`、`model_name`;`completionTelemetry.taskId`、`completionTelemetry.messageId` 可用。
-- 首屏终点事件:`window` 上的 `"zcode-react-startup-ready"`(`main.tsx:221` 派发)。
-- chunk 到达点:`taskStreamEventHandlers.ts` 的 `agent_message_chunk`(行 ~821)与 `agent_thought_chunk`(行 ~927)case,均有局部变量 `taskId`。
-- 终态清理点:`taskStreamEventTerminalHandlers.ts` 的 `handleTaskCompleteEvent`(110)、`handleTaskErrorEvent`(340)。
-- 测试框架:Vitest(参考 `packages/ui/src/lib/*.test.ts`)。
+- API de reporte: `platform.reportArmsCustomEvent({ name, group, value, properties })`, com as dimensões comuns preenchidas automaticamente pelo handler do main (`desktopMainIpcRemote.ts:119`).
+- `ArmsCustomEventPayload` (`@zcode/shared`): `{ name: string; group: string; value?: number; properties?: Record<string, string | number | boolean | undefined> }`.
+- Ponto de espelho: `reportPromptCompletionTelemetry` em `packages/ui/src/hooks/useZCodeChat.ts:567-603`; `completionTelemetry.eventExtraDetail` já contém `time_to_first_token`, `duration_ms`, `status`, `model_name`; `completionTelemetry.taskId` e `completionTelemetry.messageId` estão disponíveis.
+- Evento de fim da primeira tela: `"zcode-react-startup-ready"` no `window` (despachado em `main.tsx:221`).
+- Ponto de chegada de chunk: os cases `agent_message_chunk` (linha ~821) e `agent_thought_chunk` (linha ~927) de `taskStreamEventHandlers.ts`, ambos com a variável local `taskId`.
+- Ponto de limpeza do estado final: `handleTaskCompleteEvent` (110) e `handleTaskErrorEvent` (340) de `taskStreamEventTerminalHandlers.ts`.
+- Framework de teste: Vitest (ver `packages/ui/src/lib/*.test.ts`).
 
-## 文件结构
+## Estrutura de arquivos
 
-| 文件 | 职责 |
+| Arquivo | Responsabilidade |
 |------|------|
-| `packages/ui/src/lib/uiPerfArmsTelemetry.ts` | **新建**:单例 reporter + 常量 + 4 个 report 函数 + 流式停顿 per-task 状态 |
-| `packages/ui/src/lib/uiPerfArmsTelemetry.test.ts` | **新建**:单测 |
-| `packages/ui/src/Root.tsx` | 注入/清理 reporter |
-| `packages/desktop/src/renderer/src/main.tsx` | 首屏起点+终点上报 |
-| `packages/ui/src/hooks/useZCodeChat.ts` | 镜像首token/耗时到 ARMS |
-| `packages/ui/src/hooks/taskStreamEventHandlers.ts` | chunk 到达调用停顿追踪 |
-| `packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | 终态清理停顿状态 |
-| `docs/monitoring/performance-monitoring.md` | 新增 ui_perf 一节 |
+| `packages/ui/src/lib/uiPerfArmsTelemetry.ts` | **Novo**: reporter singleton + constantes + 4 funções de report + estado de pausa de streaming per-task |
+| `packages/ui/src/lib/uiPerfArmsTelemetry.test.ts` | **Novo**: teste unitário |
+| `packages/ui/src/Root.tsx` | Injeta/limpa o reporter |
+| `packages/desktop/src/renderer/src/main.tsx` | Reporte do início + fim da primeira tela |
+| `packages/ui/src/hooks/useZCodeChat.ts` | Espelha primeiro token/duração para o ARMS |
+| `packages/ui/src/hooks/taskStreamEventHandlers.ts` | Chamada de rastreamento de pausa na chegada de chunks |
+| `packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | Limpeza do estado de pausa no estado final |
+| `docs/monitoring/performance-monitoring.md` | Nova seção de ui_perf |
 
 ---
 
-## Task 1: 新建 uiPerfArmsTelemetry 模块(reporter + 常量 + 首屏/首token/耗时上报)
+## Task 1: criar o módulo uiPerfArmsTelemetry (reporter + constantes + reporte de primeira tela/primeiro token/duração)
 
 **Files:**
 - Create: `packages/ui/src/lib/uiPerfArmsTelemetry.ts`
 - Test: `packages/ui/src/lib/uiPerfArmsTelemetry.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Step 1: escrever o teste que falha**
 
-创建 `packages/ui/src/lib/uiPerfArmsTelemetry.test.ts`:
+Crie `packages/ui/src/lib/uiPerfArmsTelemetry.test.ts`:
 
 ```typescript
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -133,14 +133,14 @@ describe("uiPerfArmsTelemetry", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: rodar o teste e confirmar a falha**
 
 Run: `pnpm --filter @zcode/ui exec vitest run src/lib/uiPerfArmsTelemetry.test.ts`
-Expected: FAIL — 模块不存在 / 导出未定义。
+Expected: FAIL — o módulo não existe / os exports não estão definidos.
 
-- [ ] **Step 3: 写实现**
+- [ ] **Step 3: escrever a implementação**
 
-创建 `packages/ui/src/lib/uiPerfArmsTelemetry.ts`:
+Crie `packages/ui/src/lib/uiPerfArmsTelemetry.ts`:
 
 ```typescript
 import type { ArmsCustomEventPayload, IPlatformService } from "@zcode/shared";
@@ -250,14 +250,14 @@ export function clearStreamStallTracking(taskId: string): void {
 }
 ```
 
-> 注:`properties` 里 `phase`/`model` 等为 `undefined` 时,main handler 的 `.filter(entry => entry[1] !== undefined)` 会自动剔除,无需在 UI 侧清理。
+> Nota: quando `phase`/`model` etc. são `undefined` em `properties`, o `.filter(entry => entry[1] !== undefined)` do handler do main já os remove automaticamente, sem necessidade de limpeza no lado da UI.
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: rodar o teste e confirmar a aprovação**
 
 Run: `pnpm --filter @zcode/ui exec vitest run src/lib/uiPerfArmsTelemetry.test.ts`
-Expected: PASS(5 个用例)。
+Expected: PASS (5 casos).
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: commitar**
 
 ```bash
 git add packages/ui/src/lib/uiPerfArmsTelemetry.ts packages/ui/src/lib/uiPerfArmsTelemetry.test.ts
@@ -266,14 +266,14 @@ git commit -m "feat(ui-perf): 新增 UI 性能 ARMS 上报封装模块"
 
 ---
 
-## Task 2: 流式停顿追踪单测
+## Task 2: teste unitário do rastreamento de pausa de streaming
 
 **Files:**
-- Test: `packages/ui/src/lib/uiPerfArmsTelemetry.test.ts`(追加)
+- Test: `packages/ui/src/lib/uiPerfArmsTelemetry.test.ts` (acréscimo)
 
-- [ ] **Step 1: 追加失败测试**
+- [ ] **Step 1: adicionar o teste que falha**
 
-在 `uiPerfArmsTelemetry.test.ts` 的 `describe` 内追加:
+Dentro do `describe` de `uiPerfArmsTelemetry.test.ts`, acrescente:
 
 ```typescript
 import {
@@ -322,12 +322,12 @@ describe("stream stall", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试**
+- [ ] **Step 2: rodar o teste**
 
 Run: `pnpm --filter @zcode/ui exec vitest run src/lib/uiPerfArmsTelemetry.test.ts`
-Expected: PASS(全部用例,含新增 4 个)。实现已在 Task 1 完成,本任务确认行为。
+Expected: PASS (todos os casos, incluindo os 4 novos). A implementação já foi feita na Task 1; esta tarefa confirma o comportamento.
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 3: commitar**
 
 ```bash
 git add packages/ui/src/lib/uiPerfArmsTelemetry.test.ts
@@ -336,22 +336,22 @@ git commit -m "test(ui-perf): 覆盖流式停顿追踪逻辑"
 
 ---
 
-## Task 3: 在 Root.tsx 注入 reporter
+## Task 3: injetar o reporter em Root.tsx
 
 **Files:**
-- Modify: `packages/ui/src/Root.tsx:73`(import)、`:150-157`(useEffect)
+- Modify: `packages/ui/src/Root.tsx:73` (import), `:150-157` (useEffect)
 
-- [ ] **Step 1: 加 import**
+- [ ] **Step 1: adicionar o import**
 
-在 `Root.tsx` 现有 ARMS reporter import(行 73 附近)下方新增:
+Abaixo do import existente do reporter ARMS em `Root.tsx` (próximo da linha 73), acrescente:
 
 ```typescript
 import { setUiPerfArmsReporter } from "@/lib/uiPerfArmsTelemetry.js";
 ```
 
-- [ ] **Step 2: 在现有 useEffect 注入/清理**
+- [ ] **Step 2: injetar/limpar no useEffect existente**
 
-将 `Root.tsx:150-157` 的 useEffect 改为:
+Altere o useEffect de `Root.tsx:150-157` para:
 
 ```typescript
   useEffect(() => {
@@ -365,12 +365,12 @@ import { setUiPerfArmsReporter } from "@/lib/uiPerfArmsTelemetry.js";
   }, [platform]);
 ```
 
-- [ ] **Step 3: 类型检查**
+- [ ] **Step 3: verificação de tipos**
 
 Run: `pnpm --filter @zcode/ui exec tsc --noEmit`
-Expected: 无新增错误。
+Expected: sem novos erros.
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 4: commitar**
 
 ```bash
 git add packages/ui/src/Root.tsx
@@ -379,22 +379,22 @@ git commit -m "feat(ui-perf): Root 注入 UI 性能 ARMS reporter"
 
 ---
 
-## Task 4: 镜像首token/消息耗时到 ARMS
+## Task 4: espelhar primeiro token/duração da mensagem para o ARMS
 
 **Files:**
-- Modify: `packages/ui/src/hooks/useZCodeChat.ts:16`(import 区)、`:589-600`(reportAppTelemetryEvent 之后)
+- Modify: `packages/ui/src/hooks/useZCodeChat.ts:16` (área de imports), `:589-600` (após reportAppTelemetryEvent)
 
-- [ ] **Step 1: 加 import**
+- [ ] **Step 1: adicionar o import**
 
-在 `useZCodeChat.ts` 的 `import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";`(行 16)下方新增:
+Abaixo de `import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";` em `useZCodeChat.ts` (linha 16), acrescente:
 
 ```typescript
 import { reportUiFirstToken, reportUiMessageComplete } from "@/lib/uiPerfArmsTelemetry.js";
 ```
 
-- [ ] **Step 2: 在镜像点追加 ARMS 上报**
+- [ ] **Step 2: acrescentar o reporte ARMS no ponto de espelho**
 
-在 `useZCodeChat.ts` 的 `reportPromptCompletionTelemetry` 内,现有 `await reportAppTelemetryEvent(...)`(行 589-600)调用**之后**、回调结束前,追加:
+Dentro de `reportPromptCompletionTelemetry` em `useZCodeChat.ts`, **depois** da chamada existente `await reportAppTelemetryEvent(...)` (linhas 589-600) e antes do fim do callback, acrescente:
 
 ```typescript
       // 镜像到 ARMS(group=ui_perf):不改动上面的 /report 链路,只额外双发。
@@ -419,19 +419,19 @@ import { reportUiFirstToken, reportUiMessageComplete } from "@/lib/uiPerfArmsTel
       }
 ```
 
-> `eventExtraDetail` 各字段为 `string`(见 `messageTelemetry.ts:634-650`),用 `Number()` 转回数值。`model_name`/`status` 已是 string。
+> Os campos de `eventExtraDetail` são `string` (ver `messageTelemetry.ts:634-650`) e são convertidos de volta para número com `Number()`. `model_name`/`status` já são string.
 
-- [ ] **Step 3: 类型检查**
+- [ ] **Step 3: verificação de tipos**
 
 Run: `pnpm --filter @zcode/ui exec tsc --noEmit`
-Expected: 无新增错误。
+Expected: sem novos erros.
 
-- [ ] **Step 4: 回归测试**
+- [ ] **Step 4: testes de regressão**
 
 Run: `pnpm --filter @zcode/ui exec vitest run src/lib`
-Expected: PASS(现有 messageTelemetry 等测试不受影响)。
+Expected: PASS (os testes existentes, como os de messageTelemetry, não são afetados).
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: commitar**
 
 ```bash
 git add packages/ui/src/hooks/useZCodeChat.ts
@@ -440,43 +440,43 @@ git commit -m "feat(ui-perf): 镜像首token/消息耗时到 ARMS"
 
 ---
 
-## Task 5: chunk 到达时追踪流式停顿
+## Task 5: rastrear a pausa de streaming na chegada de chunks
 
 **Files:**
-- Modify: `packages/ui/src/hooks/taskStreamEventHandlers.ts:12`(import 区附近)、`agent_message_chunk` case(~821)、`agent_thought_chunk` case(~927)
+- Modify: `packages/ui/src/hooks/taskStreamEventHandlers.ts:12` (perto da área de imports), case `agent_message_chunk` (~821), case `agent_thought_chunk` (~927)
 
-- [ ] **Step 1: 加 import**
+- [ ] **Step 1: adicionar o import**
 
-在 `taskStreamEventHandlers.ts` 顶部 import 区(`recordPromptFirstToken` 所在的 `messageTelemetry` import 附近)新增:
+Na área de imports do topo de `taskStreamEventHandlers.ts` (perto do import de `messageTelemetry`, onde fica `recordPromptFirstToken`), acrescente:
 
 ```typescript
 import { recordStreamChunkArrival } from "@/lib/uiPerfArmsTelemetry.js";
 ```
 
-- [ ] **Step 2: 在 agent_message_chunk case 调用**
+- [ ] **Step 2: chamar no case agent_message_chunk**
 
-在 `taskStreamEventHandlers.ts` 的 `case "agent_message_chunk":` 块内、已有 `recordPromptFirstToken(taskId);`(行 ~865)旁,追加:
-
-```typescript
-        recordStreamChunkArrival(taskId, { waitingTool: false });
-```
-
-- [ ] **Step 3: 在 agent_thought_chunk case 调用**
-
-在 `case "agent_thought_chunk":` 块(行 ~927)内,与 message_chunk 对称地追加同一行:
+Dentro do bloco `case "agent_message_chunk":` de `taskStreamEventHandlers.ts`, ao lado do `recordPromptFirstToken(taskId);` existente (linha ~865), acrescente:
 
 ```typescript
         recordStreamChunkArrival(taskId, { waitingTool: false });
 ```
 
-> 说明:正文/思考 chunk 到达即视为"流仍在推进"。`tool_call`/`tool_call_update` 期间没有正文 chunk 是预期行为;停顿事件的 `waiting_tool` 在本期固定为 `false`(纯 chunk 间隔),区分等工具的根因留待后续(spec 未来项)。本期先采到真实停顿分布。
+- [ ] **Step 3: chamar no case agent_thought_chunk**
 
-- [ ] **Step 4: 类型检查**
+Dentro do bloco `case "agent_thought_chunk":` (linha ~927), acrescente a mesma linha de forma simétrica ao message_chunk:
+
+```typescript
+        recordStreamChunkArrival(taskId, { waitingTool: false });
+```
+
+> Explicação: a chegada de um chunk de corpo/pensamento é vista como «o stream ainda está avançando». Não haver chunk de corpo durante `tool_call`/`tool_call_update` é o comportamento esperado; o `waiting_tool` do evento de pausa fica fixo em `false` nesta fase (apenas intervalo entre chunks), e distinguir a causa raiz de espera por ferramenta fica para depois (item futuro do spec). Nesta fase primeiro coletamos a distribuição real de pausas.
+
+- [ ] **Step 4: verificação de tipos**
 
 Run: `pnpm --filter @zcode/ui exec tsc --noEmit`
-Expected: 无新增错误。
+Expected: sem novos erros.
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: commitar**
 
 ```bash
 git add packages/ui/src/hooks/taskStreamEventHandlers.ts
@@ -485,43 +485,43 @@ git commit -m "feat(ui-perf): chunk 到达追踪流式停顿"
 
 ---
 
-## Task 6: 终态清理停顿追踪状态
+## Task 6: limpar o estado de rastreamento de pausas no estado final
 
 **Files:**
-- Modify: `packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts`(import 区 + `handleTaskCompleteEvent`:110 / `handleTaskErrorEvent`:340)
+- Modify: `packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` (área de imports + `handleTaskCompleteEvent`:110 / `handleTaskErrorEvent`:340)
 
-- [ ] **Step 1: 加 import**
+- [ ] **Step 1: adicionar o import**
 
-在 `taskStreamEventTerminalHandlers.ts` 顶部 import 区新增:
+Na área de imports do topo de `taskStreamEventTerminalHandlers.ts`, acrescente:
 
 ```typescript
 import { clearStreamStallTracking } from "@/lib/uiPerfArmsTelemetry.js";
 ```
 
-- [ ] **Step 2: 在 task_complete 清理**
+- [ ] **Step 2: limpar em task_complete**
 
-在 `handleTaskCompleteEvent` 内,已有 `reportPromptCompletionTelemetry(taskId, "success", promptFinishedAt, event.usage);`(行 251)之后追加:
-
-```typescript
-  clearStreamStallTracking(taskId);
-```
-
-- [ ] **Step 3: 在 task_error 清理**
-
-在 `handleTaskErrorEvent` 内,函数末尾(`reportPromptCompletionTelemetry(taskId, "fail", Date.now());` 行 469 之后)追加:
+Dentro de `handleTaskCompleteEvent`, depois do `reportPromptCompletionTelemetry(taskId, "success", promptFinishedAt, event.usage);` existente (linha 251), acrescente:
 
 ```typescript
   clearStreamStallTracking(taskId);
 ```
 
-> `user_interrupt` 分支(行 420)与 `fail` 共在 `handleTaskErrorEvent` 内,行 469 的清理覆盖正常错误路径;若 `user_interrupt` 提前 return,则在其 `return` 前也追加同一行 `clearStreamStallTracking(taskId);`。实现时确认 420 是否 return:若 return,则在 420 后补一行。
+- [ ] **Step 3: limpar em task_error**
 
-- [ ] **Step 4: 类型检查 + 回归**
+Dentro de `handleTaskErrorEvent`, no fim da função (depois de `reportPromptCompletionTelemetry(taskId, "fail", Date.now());`, linha 469), acrescente:
+
+```typescript
+  clearStreamStallTracking(taskId);
+```
+
+> O ramo `user_interrupt` (linha 420) compartilha `handleTaskErrorEvent` com `fail`, e a limpeza da linha 469 cobre o caminho de erro normal; se `user_interrupt` fizer return antecipado, acrescente a mesma linha `clearStreamStallTracking(taskId);` antes do `return`. Na implementação, confirme se a linha 420 retorna: se retornar, adicione uma linha após a 420.
+
+- [ ] **Step 4: verificação de tipos + regressão**
 
 Run: `pnpm --filter @zcode/ui exec tsc --noEmit && pnpm --filter @zcode/ui exec vitest run src/lib src/hooks`
-Expected: 无新增类型错误;测试 PASS。
+Expected: sem novos erros de tipo; testes PASS.
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: commitar**
 
 ```bash
 git add packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts
@@ -530,14 +530,14 @@ git commit -m "feat(ui-perf): 消息终态清理流式停顿追踪"
 
 ---
 
-## Task 7: 首屏耗时上报(main.tsx)
+## Task 7: reporte da duração da primeira tela (main.tsx)
 
 **Files:**
-- Modify: `packages/desktop/src/renderer/src/main.tsx`(模块顶部 + 模块尾部监听)
+- Modify: `packages/desktop/src/renderer/src/main.tsx` (topo e fim do módulo)
 
-- [ ] **Step 1: 模块顶部记起点**
+- [ ] **Step 1: registrar o início no topo do módulo**
 
-在 `main.tsx` import 区之后、模块顶层(任何同步初始化之前)新增:
+Após a área de imports de `main.tsx`, no nível do módulo (antes de qualquer inicialização síncrona), acrescente:
 
 ```typescript
 import { reportUiFirstScreen } from "@zcode/ui";
@@ -547,11 +547,11 @@ const uiFirstScreenStartedAt =
   typeof performance?.now === "function" ? performance.now() : Date.now();
 ```
 
-> 确认 `reportUiFirstScreen` 已从 `@zcode/ui` 包导出。若未导出,在 `packages/ui/src/index.ts`(或对应 barrel)补 `export { reportUiFirstScreen } from "./lib/uiPerfArmsTelemetry.js";`。实现时先 grep `packages/ui/src/index.ts` 确认导出方式。
+> Confirme que `reportUiFirstScreen` já é exportado pelo pacote `@zcode/ui`. Se não for, acrescente `export { reportUiFirstScreen } from "./lib/uiPerfArmsTelemetry.js";` em `packages/ui/src/index.ts` (ou no barrel correspondente). Na implementação, verifique primeiro com grep em `packages/ui/src/index.ts` como o export é feito.
 
-- [ ] **Step 2: 监听终点事件并上报**
+- [ ] **Step 2: ouvir o evento de fim e reportar**
 
-在 `main.tsx` 模块顶层(`StartupReadyNotifier` 定义附近、模块加载即执行的位置)新增一次性监听:
+No nível do módulo de `main.tsx` (perto da definição de `StartupReadyNotifier`, na posição executada no carregamento do módulo), acrescente uma escuta única:
 
 ```typescript
 // 首屏终点:React commit 后由 StartupReadyNotifier 派发。一次性监听,reporter 此时已在 Root mount 注入。
@@ -565,14 +565,14 @@ window.addEventListener(
 );
 ```
 
-- [ ] **Step 3: 确认导出 + 类型检查**
+- [ ] **Step 3: confirmar o export + verificação de tipos**
 
 Run: `grep -n "uiPerfArmsTelemetry\|reportUiFirstScreen" packages/ui/src/index.ts`
-若无输出,按 Step 1 注记补 barrel 导出。
+Se não houver saída, acrescente o export do barrel conforme a nota do Step 1.
 Run: `pnpm --filter @zcode/desktop exec tsc --noEmit`
-Expected: 无新增错误。
+Expected: sem novos erros.
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 4: commitar**
 
 ```bash
 git add packages/ui/src/index.ts packages/desktop/src/renderer/src/main.tsx
@@ -581,14 +581,14 @@ git commit -m "feat(ui-perf): 上报首屏可交互耗时"
 
 ---
 
-## Task 8: 更新监控文档
+## Task 8: atualizar a documentação de monitoramento
 
 **Files:**
 - Modify: `docs/monitoring/performance-monitoring.md`
 
-- [ ] **Step 1: 新增 ui_perf 一节**
+- [ ] **Step 1: acrescentar a seção de ui_perf**
 
-在 `performance-monitoring.md` 的 "P0 网络与通信指标" 之后、"ARMS 看板建议" 之前,插入:
+Em `performance-monitoring.md`, após «P0 网络与通信指标» e antes de «ARMS 看板建议», insira:
 
 ```markdown
 ## P0 端侧 UI 性能指标
@@ -613,15 +613,15 @@ renderer(UI)侧埋点,经 `reportArmsCustomEvent` → IPC → `armsRum.sendCusto
 常量(代码):`STREAM_STALL_REPORT_THRESHOLD_MS=3000`(`packages/ui/src/lib/uiPerfArmsTelemetry.ts`)。
 ```
 
-- [ ] **Step 2: 实现索引追加**
+- [ ] **Step 2: acrescentar ao índice de implementação**
 
-在文末 "实现索引" 表格追加一行:
+Ao final do documento, acrescente uma linha à tabela «实现索引»:
 
 ```markdown
 | P0 端侧 UI 性能上报 | `packages/ui/src/lib/uiPerfArmsTelemetry.ts` |
 ```
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 3: commitar**
 
 ```bash
 git add docs/monitoring/performance-monitoring.md
@@ -630,24 +630,24 @@ git commit -m "docs: 监控文档新增端侧 UI 性能指标"
 
 ---
 
-## Task 9: 全量验证
+## Task 9: verificação completa
 
-- [ ] **Step 1: 全包类型检查 + 测试**
+- [ ] **Step 1: verificação de tipos + testes em todos os pacotes**
 
 Run: `pnpm --filter @zcode/ui exec tsc --noEmit && pnpm --filter @zcode/desktop exec tsc --noEmit && pnpm --filter @zcode/ui exec vitest run`
-Expected: 无类型错误;全部测试 PASS。
+Expected: sem erros de tipo; todos os testes PASS.
 
-- [ ] **Step 2: 本地构建验证(开发包,`arms_env=local`)**
+- [ ] **Step 2: verificação de build local (pacote de desenvolvimento, `arms_env=local`)**
 
-参考 `docs/monitoring/performance-monitoring.md` 本地验证 checklist:
-- 启动应用 → main 日志 `[arms] beforeReport` 出现 `custom:perf_ui_first_screen`。
-- 发一条消息并完成 → 出现 `custom:perf_ui_first_token`、`custom:perf_ui_message_complete`。
-- 用慢模型或断点制造 >3s chunk 间隔 → 出现 `custom:perf_ui_stream_stall`,value 为真实间隔。
-- 回归:`/report` 的 `message_completion` 仍正常上报。
+Consulte o checklist de verificação local de `docs/monitoring/performance-monitoring.md`:
+- iniciar o aplicativo → no log do main, `[arms] beforeReport` mostra `custom:perf_ui_first_screen`.
+- enviar uma mensagem e concluí-la → aparecem `custom:perf_ui_first_token` e `custom:perf_ui_message_complete`.
+- usar um modelo lento ou um breakpoint para criar um intervalo de chunks >3s → aparece `custom:perf_ui_stream_stall`, com o value sendo o intervalo real.
+- regressão: o `message_completion` do `/report` continua sendo reportado normalmente.
 
-> 启动方式见用户记忆 `zcode-desktop-dev-startup.md`(pnpm 10.33.2 + ELECTRON_MIRROR 国内镜像)。
+> Veja a forma de inicialização na memória do usuário `zcode-desktop-dev-startup.md` (pnpm 10.33.2 + ELECTRON_MIRROR espelho doméstico).
 
-- [ ] **Step 3: 最终提交(若验证中有微调)**
+- [ ] **Step 3: commit final (se houve pequenos ajustes na verificação)**
 
 ```bash
 git add -A
@@ -656,8 +656,8 @@ git commit -m "chore(ui-perf): 端侧 UI 性能上报本地验证收尾"
 
 ---
 
-## Self-Review 检查结论
+## Conclusões da Self-Review
 
-- **Spec 覆盖**:四个事件(first_screen/first_token/message_complete/stream_stall)分别对应 Task 7/4/4/5;封装 Task 1;注入 Task 3;清理 Task 6;文档 Task 8;全采无开关已落实(无采样代码);失败吞错在 `emit()` 实现。✅
-- **占位符扫描**:无 TODO/TBD;每个改码步骤含完整代码。两处"实现时确认"(Task 6 user_interrupt return、Task 7 barrel 导出)是真实的代码事实核验点,已给出确认命令与兜底动作,非占位符。✅
-- **类型一致**:`setUiPerfArmsReporter`/`reportUiFirstScreen`/`reportUiFirstToken`/`reportUiMessageComplete`/`recordStreamChunkArrival`/`clearStreamStallTracking`/`UI_PERF_ARMS_GROUP`/`STREAM_STALL_REPORT_THRESHOLD_MS` 全程命名一致。✅
+- **Cobertura do spec**: os quatro eventos (first_screen/first_token/message_complete/stream_stall) correspondem às Task 7/4/4/5; encapsulamento na Task 1; injeção na Task 3; limpeza na Task 6; documentação na Task 8; coleta total sem interruptor já aplicada (sem código de amostragem); falha engolida em `emit()`. ✅
+- **Varredura de placeholders**: sem TODO/TBD; cada passo que altera código contém o código completo. Os dois pontos de «confirmar na implementação» (return de user_interrupt na Task 6, export do barrel na Task 7) são pontos reais de verificação de fato de código, com comando de confirmação e ação de fallback indicados, não placeholders. ✅
+- **Consistência de tipos**: `setUiPerfArmsReporter`/`reportUiFirstScreen`/`reportUiFirstToken`/`reportUiMessageComplete`/`recordStreamChunkArrival`/`clearStreamStallTracking`/`UI_PERF_ARMS_GROUP`/`STREAM_STALL_REPORT_THRESHOLD_MS` mantêm a mesma nomenclatura do início ao fim. ✅

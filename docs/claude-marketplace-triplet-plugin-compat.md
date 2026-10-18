@@ -1,30 +1,30 @@
-# Claude Marketplace 三件套插件兼容验证规格
+# Especificação de verificação de compatibilidade de plugins do Claude Marketplace (três recursos)
 
-## 背景
+## Contexto
 
-在 `docs/hooks-implementation-analysis.md` 之后，需要继续验证 Claude Code marketplace
-中同时包含 **skills、commands、MCP servers** 的插件，确认 ZCode 当前插件发现、安装、
-runtime projection 与下游 skill/command/MCP adapter 是否能完整兼容。
+Após `docs/hooks-implementation-analysis.md`, é necessário continuar verificando plugins do marketplace do
+Claude Code que contenham simultaneamente **skills, commands e MCP servers**, confirmando se a descoberta, instalação,
+runtime projection de plugins do ZCode e os adapters downstream de skill/command/MCP são totalmente compatíveis.
 
-本轮只验证低风险资源投影：不启动真实 MCP server、不执行 command、不运行 hook。
+Esta rodada verifica apenas a projeção de recursos de baixo risco: não inicia MCP servers reais, não executa commands e não roda hooks.
 
-## 样本来源
+## Origem das amostras
 
-样本来自本机 Claude CLI 已缓存的 `claude-plugins-official` marketplace manifest：
+As amostras vêm do marketplace manifest `claude-plugins-official` já em cache na Claude CLI local:
 
 ```text
 ~/.claude/plugins/marketplaces/claude-plugins-official/.claude-plugin/marketplace.json
 ```
 
-筛选方式：读取 marketplace entry 的 GitHub `tree`，确认插件根目录同时存在：
+Critério de seleção: ler o `tree` do GitHub da entry do marketplace e confirmar que o diretório raiz do plugin possui ao mesmo tempo:
 
 - `skills/*/SKILL.md`
 - `commands/*.md`
-- `.mcp.json` 或 manifest `mcpServers` 指向的 MCP 配置
+- a configuração de MCP apontada por `.mcp.json` ou por `mcpServers` no manifest
 
-固定 10 个样本如下：
+As 10 amostras fixadas são:
 
-| 插件 | source 形态 | skills | commands | MCP |
+| Plugin | Forma do source | skills | commands | MCP |
 | --- | --- | ---: | ---: | --- |
 | `appwrite` | repo root | 11 | 2 | `.mcp.json` |
 | `aws-agents-for-devsecops` | `git-subdir` | 13 | 9 | `.mcp.json` |
@@ -37,68 +37,66 @@ runtime projection 与下游 skill/command/MCP adapter 是否能完整兼容。
 | `legalzoom` | `git-subdir` | 1 | 1 | `.mcp.json` |
 | `logfire` | `git-subdir` | 3 | 4 | `.mcp.json` / `mcp.json` |
 
-候补样本：`mercadopago`、`nimble`、`notion`。
+Amostras reservas: `mercadopago`, `nimble`, `notion`.
 
-## 本地测试策略
+## Estratégia de teste local
 
-新增 adapter 层离线 fixture 测试，不依赖网络、不读取真实 marketplace cache：
+Adicionar testes offline de fixture na camada de adapter, sem depender de rede e sem ler o cache real do marketplace:
 
-1. 在临时目录构造一个 marketplace manifest，包含上述 10 个插件。
-2. 每个插件写入 `.claude-plugin/plugin.json`、`skills/`、`commands/`、`.mcp.json`。
-3. 通过 `addMarketplace()` + `installMarketplacePlugin()` 模拟 marketplace 安装。
-4. 通过 `createNodePluginAdapter().discoverPlugins()` 启用 10 个插件。
-5. 验证插件层输出：
-   - 10 个插件都 enabled。
-   - 每个插件都有 `skillRoots`、`commandRoots`、`mcpServers`。
-   - MCP server key 被命名空间化为 `plugin:<plugin-name>:<server-name>`。
-6. 继续调用下游 adapter 验证：
-   - `createNodeSkillAdapter().discoverSkills({ roots })` 能发现每个插件的 skill。
-   - `createNodeCustomCommandAdapter().discoverCommands({ roots })` 能发现每个插件的 command。
+1. Construir em um diretório temporário um marketplace manifest contendo os 10 plugins acima.
+2. Para cada plugin, escrever `.claude-plugin/plugin.json`, `skills/`, `commands/` e `.mcp.json`.
+3. Simular a instalação do marketplace via `addMarketplace()` + `installMarketplacePlugin()`.
+4. Habilitar os 10 plugins com `createNodePluginAdapter().discoverPlugins()`.
+5. Verificar a saída da camada de plugin:
+   - os 10 plugins estão enabled.
+   - cada plugin tem `skillRoots`, `commandRoots` e `mcpServers`.
+   - a key do MCP server é namespaced como `plugin:<plugin-name>:<server-name>`.
+6. Continuar chamando os adapters downstream para verificar:
+   - `createNodeSkillAdapter().discoverSkills({ roots })` descobre as skills de cada plugin.
+   - `createNodeCustomCommandAdapter().discoverCommands({ roots })` descobre os commands de cada plugin.
 
-## 兼容判据
+## Critérios de compatibilidade
 
-认为兼容：
+Considerado compatível:
 
-- `.claude-plugin/plugin.json` 可被读取。
-- 默认 `skills/` / `commands/` 目录可投影到 runtime roots。
-- manifest path 形式（例如 `skills: "./skills/"`、`commands: "./commands/"`、
-  `mcpServers: "./.mcp.json"`）可投影。
-- `.mcp.json` 可被读取并转换为 ZCode `McpServerConfig`。
-- MCP env 中 `${CLAUDE_PLUGIN_ROOT}`、`${CLAUDE_PLUGIN_DATA}`、`${ZCODE_PROJECT_DIR}`
-  等变量可替换。
+- `.claude-plugin/plugin.json` pode ser lido.
+- Os diretórios padrão `skills/` / `commands/` podem ser projetados para runtime roots.
+- A forma de path no manifest (por exemplo `skills: "./skills/"`, `commands: "./commands/"`,
+  `mcpServers: "./.mcp.json"`) pode ser projetada.
+- `.mcp.json` pode ser lido e convertido em `McpServerConfig` do ZCode.
+- Variáveis como `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}` e `${ZCODE_PROJECT_DIR}`
+  no env do MCP podem ser substituídas.
 
-认为不兼容或需单独诊断：
+Considerado incompatível ou que exige diagnóstico separado:
 
-- 只有根目录 `mcp.json` 且 manifest 未通过 `mcpServers` 指向时，ZCode 当前不会自动读取。
-- 真实 MCP server 是否能启动不在本轮测试范围内；本轮只验证配置投影。
+- Apenas um `mcp.json` na raiz, sem referência no manifest via `mcpServers`, não é lido automaticamente pelo ZCode hoje.
+- Se um MCP server real consegue iniciar está fora do escopo desta rodada de testes; aqui só se verifica a projeção de configuração.
 
-## skills 字段语义（已修复差一层目录问题）
+## Semântica do campo `skills` (problema de diretório extra já corrigido)
 
-Claude 插件规范里 manifest `skills` 的数组项指向「技能目录本身」（项内直接是
-`SKILL.md`，如 `./skills/engineering/tdd`）；字符串形式则指向「技能集合目录」
-（其下一层子目录各自是技能）。两类形态统一由共享扫描规则
-（`apps/zcode-cli/packages/adapters/src/skills/scan.ts`）处理：
+Na especificação de plugins do Claude, os itens do array `skills` do manifest apontam para «o próprio diretório da skill»
+(dentro do item está o `SKILL.md` diretamente, como `./skills/engineering/tdd`); a forma string aponta para «o diretório
+coleção de skills» (cujas subpastas de um nível são, cada uma, uma skill). As duas formas são tratadas de maneira unificada pelas regras compartilhadas de varredura
+(`apps/zcode-cli/packages/adapters/src/skills/scan.ts`):
 
-- 技能根自身含 `SKILL.md` 时，根自身就是一个技能（数组项语义，与桌面 services 侧
-  `skillDiscoveryWalk` 的 depth-0 产出一致）；
-- 再扫一层子目录（字符串形式/默认 `skills/` 目录的 ZCode 一层布局），子目录命中
-  需校验 `SKILL.md` 真实存在，分类目录（如 `skills/engineering/`）不会误计；
-- 声明根与默认根命中同一个 `SKILL.md` 时按文件路径去重，计数与发现结果不翻倍；
-- manifest 显式声明的 skills 路径扫描为 0 个技能时发 `plugin_skill_root_empty`
-  warning 诊断（声明路径写进 message；协议 wire schema 不携带 path 字段），插件
-  详情页「警告」区展示，不再静默。message 区分原因：`does not exist`（manifest
-  配错，只认 ENOENT/ENOTDIR）与 `does not contain any skills`（内容为空，含
-  链接被安全拒绝后扫描为空的情形）。
-- 信任边界：插件内容不可信，plugin-scope 扫描**一律不跟随符号链接**（含 Windows
-  junction）——根自身、子目录候选、`SKILL.md` 文件三个粒度全部拒绝链接，目录级
-  逃逸（`skills/evil-link -> ../../outside`）与文件级逃逸（`SKILL.md -> ~/.aws/
-  credentials`）同标准封堵；拒绝链接即无逃逸，不依赖判定链接指向（无跨盘符
-  `relative` 谓词，无平台分支）。组件枚举（`collectSkillComponents`）对插件根
-  无条件适用同一规则，不依赖 manifest 是否解析成功。词法防线（`resolveInside`
-  拒绝绝对路径与 `..` 穿越）继续生效。用户级技能根（`~/.zcode/skills` 的
-  symlink 导入是受支持功能）保持默认跟随，行为不变。
+- Quando a raiz da skill contém o próprio `SKILL.md`, a própria raiz é uma skill (semântica de item de array, consistente com a saída depth-0 do
+  `skillDiscoveryWalk` do lado de services do desktop);
+- Em seguida varre-se mais um nível de subdiretórios (forma string / layout de um nível do ZCode para o diretório padrão `skills/`), e os diretórios encontrados precisam
+  de `SKILL.md` realmente existente para contar, de modo que diretórios de classificação (como `skills/engineering/`) não sejam contados por engano;
+- Quando o root declarado e o root padrão atingem o mesmo `SKILL.md`, a deduplicação é feita por caminho de arquivo, e a contagem e os resultados de descoberta não dobram;
+- Quando os paths de skills declarados explicitamente no manifest são varridos e resultam em 0 skills, é emitido o diagnóstico de warning `plugin_skill_root_empty`
+  (o path declarado entra na message; o wire schema do protocolo não carrega campo path), exibido na área «Avisos» da página de detalhes do plugin, em vez de continuar em
+  silêncio. A message diferencia a causa: `does not exist` (manifest configurado errado, só aceita ENOENT/ENOTDIR) e `does not contain any skills` (conteúdo vazio, incluindo o
+  caso em que links foram recusados por segurança e a varredura terminou vazia).
+- Limite de confiança: o conteúdo de um plugin não é confiável, então a varredura em plugin-scope **nunca segue links simbólicos** (incluindo junction do
+  Windows) — recusa de link nas três granularidades: raiz própria, candidatos de subdiretório e o arquivo `SKILL.md`; escape em nível de diretório
+  (`skills/evil-link -> ../../outside`) e em nível de arquivo (`SKILL.md -> ~/.aws/
+  credentials`) são bloqueados com o mesmo padrão; recusar o link já elimina o escape, sem depender de decidir para onde o link aponta (sem predicado `relative` entre
+  unidades de disco, sem ramificação por plataforma). A enumeração de componentes (`collectSkillComponents`) aplica a mesma regra incondicionalmente à raiz do
+  plugin, sem depender de o manifest ter sido analisado com sucesso. A defesa lexical (`resolveInside`, que recusa caminhos absolutos e travessias com `..`) continua valendo. Roots de
+  skills em nível de usuário (a importação por symlink em `~/.zcode/skills` é um recurso suportado) mantém o comportamento padrão de seguir links, sem alterações.
 
-## 验证命令
+## Comandos de verificação
 
 ```bash
 pnpm --filter @zcode/adapters test plugins

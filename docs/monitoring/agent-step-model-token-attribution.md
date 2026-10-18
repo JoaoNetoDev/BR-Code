@@ -1,21 +1,24 @@
-# Agent Step 真实模型与 Token 归属
+# Atribuição de modelo real e de tokens ao Agent Step
 
-## 范围
+## Escopo
 
-本期只修正已有 message 生命周期内的 `agent_step`：
+Esta versão corrige apenas o `agent_step` dentro do ciclo de vida de messages já existente:
 
-- step 使用实际请求的 model/provider/hostname，不复用 message 最后一次请求覆盖后的共享字段。
-- Provider 的一次完整 request usage 只归属一条 step，保证 step token 可加总。
-- 前台 Subagent usage 聚合到对应的父 `Agent` 工具 step。
-- foreground Subagent 的 child `thought/text` 不直接生成 step；相关 step 来自 parent
-  session 的 Agent/tool mirror lifecycle。
-- background Subagent 的 child tool 继续逐条上报；另外在 child 终态上报一条 `Agent`
-  step，承载该 child 已完成模型请求的累计 usage，复用 foreground 的字段 builder。
-  不消费 child `thought/text` 生成 reasoning/generation。
-- 不新增 background child 独立的 `message_completion`。
-- main `message_completion` 增加 `agent_composition`：`main_only` 表示本轮没有消费任何
-  Subagent 结果，`main_plus_fg` 表示只有 foreground 结果，`main_plus_bg` 表示只有
-  background 结果，`main_plus_fg_bg` 表示两者都有。
+- o step usa o model/provider/hostname efetivamente solicitados, sem reutilizar os campos compartilhados sobrescritos
+  pelo último request da message.
+- O usage de um request completo do Provider pertence a um único step, garantindo que os tokens do step sejam
+  somáveis.
+- O usage de Subagent em primeiro plano é agregado no step da tool `Agent` do pai correspondente.
+- O `thought/text` do child em foreground não gera step diretamente; os steps relacionados vêm do ciclo de vida de
+  mirror de Agent/tool na session do pai.
+- As tools do child em background continuam sendo reportadas uma a uma; além disso, no estado terminal do child é
+  reportada uma step `Agent` que carrega o usage acumulado das requests de modelo concluídas daquele child, reutilizando
+  o construtor de campos do foreground.
+  Não se consome o `thought/text` do child para gerar reasoning/generation.
+- Não é adicionado um `message_completion` separado para o child em background.
+- O `message_completion` da main ganha `agent_composition`: `main_only` indica que nenhuma resultado de Subagent foi
+  consumido nesta rodada, `main_plus_fg` indica que só há resultados de foreground, `main_plus_bg` indica que só há
+  resultados de background, e `main_plus_fg_bg` indica que ambos existem.
 
 ```text
 用户 message M1
@@ -33,40 +36,45 @@
         `-- generation step  model=A, tokens=usage(R2)
 
 background child B
-  +-- child thought/text     -> 不直接生成 agent_step
+  +-- child thought/text     -> não gera agent_step diretamente
   +-- child tool lifecycle   -> tool_call step, model=B, tokens=0, agent_id=child
-  `-- 首个 terminal/stopped  -> Agent step, tokens=sum(已收到的 child requests)，无 usage 时默认 0
+  `-- primeiro terminal/stopped  -> Agent step, tokens=sum(child requests já recebidos), default 0 sem usage
 
 main wake round from background notification
   `-- main message_completion -> agent_composition=main_plus_bg
 ```
 
-## 归属规则
+## Regras de atribuição
 
-1. 同一请求产生的各 step 都冻结该请求的真实模型身份。
-2. 完整 request usage 只写入请求结束时最后一个模型输出 step。
-3. 同请求更早结束的 reasoning step 和纯工具执行 step 保持 token 为 `0`。
-4. 前台 child 的模型和累计 usage 随 request fact 增量写入父 `Agent` step；不能等
-   `SubagentStopped` 才首次回填。
-5. 镜像 child 工具保持独立 `tool_call_id` 和 token `0`；它与父 `Agent` step 使用相同
-   `agent_id`，且模型取 child 的真实请求模型。
-6. background child 的 usage 只归属它自己的 `Agent` step，不回填已结束父轮的 completion。
-   child tool 保持 token `0`，Agent step 在首个 child terminal 或 SubagentStopped 追加，
-   使用 child-local 下一 loop_index。
-   Agent step 的 tool_call_id 使用 `tool_subagent_<agentId>_<parentToolCallId>`；父会话中原有
-   Agent launch step 仍只描述启动动作。累计 usage 不是每个工具结束时的 so-far 快照。
-   活跃 child 收到上述任一终态时，即使没有 usage，也保留 Agent step 的状态、错误与已知模型；
-   token/request count 沿用 foreground 的默认 `0`，不伪造 requestId 或 usage scope。
-   对齐 foreground 异常收口时的已知 usage 快照，不重复汇总、不追补收口后才收到的 usage。
-7. background mirror 的 tool/permission fact 必须携带 `background=true`，进入 main prompt
-   telemetry 前过滤，避免同一 child tool 或 permission wait 重复计入 main。
-8. background child 的上报使用 parent session、`sourceCommandId`、`parentToolCallId` 和
-   `childSessionId` 建立归属；缺少必要归属字段时不猜测上报。
-9. `message_completion.agent_composition` 只描述当前 main turn 已消费的结果：foreground
-   child 在结果收口时置位；background notification 在独立 wake 被 dequeue，或在 active-loop
-   合法边界实际合流后置位。失败、取消仍保留已消费的事实；不能因 child 仅 spawned/stopped 就置位。
+1. Todos os steps gerados pela mesma request congelam a identidade real do modelo daquela request.
+2. O usage de uma request completa é escrito apenas no último step de saída de modelo no momento em que a request termina.
+3. O reasoning step encerrado mais cedo da mesma request e o step de execução puramente de ferramenta mantêm token `0`.
+4. O modelo e o usage acumulado do child em primeiro plano são escritos incrementalmente no step `Agent` do pai
+   conforme os request facts chegam; não se pode esperar `SubagentStopped` para fazer o primeiro preenchimento.
+5. A tool espelhada do child mantém `tool_call_id` próprio e token `0`; ela usa o mesmo `agent_id` do step `Agent` do
+   pai, e o modelo é o modelo real de request do child.
+6. O usage do child em background pertence apenas ao seu próprio step `Agent` e não é preenchido retroativamente no
+   completion de uma rodada do pai já encerrada.
+   A tool do child mantém token `0`; o step `Agent` é acrescentado no primeiro terminal do child ou em
+   SubagentStopped, usando o próximo loop_index local do child.
+   O tool_call_id do step `Agent` usa `tool_subagent_<agentId>_<parentToolCallId>`; o step de lançamento do Agent já
+   existente na sessão pai continua descrevendo apenas a ação de lançamento. O usage acumulado não é um snapshot
+   so-far a cada fim de ferramenta.
+   Quando um child ativo recebe qualquer um desses estados terminais, mesmo sem usage, o status, o erro e o modelo
+   conhecido do step `Agent` são preservados; token/request count seguem o default `0` do foreground, sem fabricar
+   requestId ou escopo de usage.
+   Isso alinha o snapshot de usage já conhecido no fechamento anormal do foreground, sem resumir em duplicidade e sem
+   complementar o usage recebido após o fechamento.
+7. Os fatos de tool/permission do background mirror devem carregar `background=true` e são filtrados antes do telemetry
+   do prompt da main, evitando que a mesma tool do child ou espera de permission seja contada duas vezes na main.
+8. O report do child em background usa parent session, `sourceCommandId`, `parentToolCallId` e `childSessionId` para
+   estabelecer a atribuição; quando faltam campos de atribuição necessários, o report não é inferido.
+9. `message_completion.agent_composition` descreve apenas os resultados já consumidos pelo main turn atual: o child em
+   foreground é marcado quando o resultado é fechado; a notificação de background é marcada quando é dequeued em um
+   wake independente, ou quando realmente conflui em um limite legal do active-loop. Falhas e cancelamentos preservam
+   os fatos já consumidos; não pode ser marcado só porque o child foi spawned/stopped.
 
-## 事实与归属链路
+## Cadeia de fatos e atribuição
 
 ```text
 model_request_started/completed + ModelComplete(usage)
@@ -74,9 +82,9 @@ model_request_started/completed + ModelComplete(usage)
           v
 normalizer: requestId + model identity + usage
           |
-          +-- main session  ------> 当前 model-output step
+          +-- main session  ------> step de saída de modelo atual
           |
-          `-- child session ------> childSessionId 累计
+          `-- child session ------> acumulado por childSessionId
                                       |
 SubagentSpawned(childSessionId, parentToolCallId, agentId)
                                       |
@@ -84,75 +92,82 @@ SubagentSpawned(childSessionId, parentToolCallId, agentId)
                                       `--> mirrored child tool
 ```
 
-权威字段来源：
+Fontes autoritativas dos campos:
 
-| 字段             | 事实源                                                                 |
-| ---------------- | ---------------------------------------------------------------------- |
-| `model_name`     | `ModelNetworkStatus.modelId`，沿用 `<provider>/<model>` 上报编码 |
-| `model_provider` | `ModelNetworkStatus.providerId`                                  |
-| `provider_name`  | `ModelNetworkStatus.baseURL` 经过 hostname 裁剪                        |
-| token usage      | 与该 completed request 相邻的 `ModelComplete.usage`                    |
-| child 归属       | `SubagentSpawned.childSessionId + parentToolCallId + agentId`          |
+| Campo            | Fonte do fato                                                                 |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `model_name`     | `ModelNetworkStatus.modelId`, mantendo a codificação de report `<provider>/<model>` |
+| `model_provider` | `ModelNetworkStatus.providerId`                                              |
+| `provider_name`  | `ModelNetworkStatus.baseURL` recortada para hostname                        |
+| token usage      | `ModelComplete.usage` adjacente àquela request concluída                     |
+| atribuição do child | `SubagentSpawned.childSessionId + parentToolCallId + agentId`              |
 
-`ModelComplete` 没有独立 requestId，因此 normalizer 只在同 session、同 `querySource` 内关联最近完成的
-request；无法关联时仍可用于 message completion 总量，但不得伪造 step 模型归属。
+`ModelComplete` não tem requestId próprio, então o normalizer só o associa à request concluída mais recente dentro da
+mesma session e no mesmo `querySource`; quando não é possível associar, ele ainda pode servir ao total de message
+completion, mas não pode fabricar a atribuição de modelo do step.
 
-## `agent_step` 字段
+## Campos de `agent_step`
 
-保留既有字段，并补齐：
+Manter os campos existentes e completar com:
 
-| 字段                       | 口径                                                                                                                 |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `model_request_id`         | usage 所属真实模型请求；非 token owner step 为空                                                                     |
-| `model_request_count`      | 当前 step 聚合的真实请求数；普通主 Agent request 为 `1`，subagent Agent step 可大于 `1`                              |
-| `token_usage_scope`        | 主 Agent 单请求为 `model_request`；前台/后台 child 生命周期聚合为 `subagent_requests`；否则为空                      |
-| `input_tokens`             | request usage input                                                                                                  |
-| `output_tokens`            | request usage output                                                                                                 |
-| `reasoning_tokens`         | request usage reasoning                                                                                              |
-| `cached_tokens`            | request usage cache read，保留旧字段名                                                                               |
-| `cache_write_input_tokens` | request usage cache write                                                                                            |
-| `total_tokens`             | request usage total                                                                                                  |
-| `agent_id`                 | Subagent 的稳定 agent 标识；父 `Agent` step、foreground mirror tool 和 background child tool 取自身 child 值         |
-| `agent_role`               | Subagent step 的来源角色：`foreground subagent` 或 `background subagent`；main agent step 不填                       |
-| `tool_call_id`             | foreground mirror 使用 Runtime 已生成的 scoped ID；background child 使用 `tool_subagent_<agentId>_<childToolCallId>` |
+| Campo                       | Semântica                                                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `model_request_id`         | a request real de modelo à qual o usage pertence; vazio em steps que não são donos de token                             |
+| `model_request_count`      | número de requests reais agregados pelo step atual; `1` para uma main Agent request comum, pode ser maior que `1` no step de Agent de subagent |
+| `token_usage_scope`        | `model_request` para uma request única do main Agent; `subagent_requests` para o agregado do ciclo de vida de child foreground/background; vazio caso contrário |
+| `input_tokens`             | input do request usage                                                                                                      |
+| `output_tokens`            | output do request usage                                                                                                     |
+| `reasoning_tokens`         | reasoning do request usage                                                                                                  |
+| `cached_tokens`            | cache read do request usage, mantendo o nome de campo antigo                                                                 |
+| `cache_write_input_tokens` | cache write do request usage                                                                                                |
+| `total_tokens`             | total do request usage                                                                                                      |
+| `agent_id`                 | identificador de agent estável do Subagent; o step `Agent` do pai, a tool mirror do foreground e a tool do child em background usam o próprio valor de child |
+| `agent_role`               | papel de origem do step de Subagent: `foreground subagent` ou `background subagent`; não é preenchido no step de agent da main |
+| `tool_call_id`             | o mirror do foreground usa o scoped ID já gerado pelo Runtime; o child em background usa `tool_subagent_<agentId>_<childToolCallId>` |
 
 ## `message_completion.agent_composition`
 
-该字段表示当前 main turn 的 Agent 组成：
+Este campo representa a composição de Agents do main turn atual:
 
-| 值                | 含义                                                                |
-| ----------------- | ------------------------------------------------------------------- |
-| `main_only`       | 没有 foreground 或 background Subagent 结果                         |
-| `main_plus_fg`    | 只有 foreground Subagent 结果                                       |
-| `main_plus_bg`    | 只有 background Subagent 结果，且 notification 已进入当前 main turn |
-| `main_plus_fg_bg` | foreground 与 background 结果都有                                   |
+| Valor             | Significado                                                                  |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `main_only`       | nenhum resultado de Subagent de foreground ou background                    |
+| `main_plus_fg`    | somente resultados de Subagent de foreground                                |
+| `main_plus_bg`    | somente resultados de Subagent de background, e a notificação já entrou no main turn atual |
+| `main_plus_fg_bg` | existem resultados de foreground e de background                             |
 
-background child 完成本身不置位该字段；其合成 notification 被 dequeue 并启动独立 main turn，
-或在当前 active-loop 被实际消费后，才计入对应轮次。Bash 通知不计为 Subagent 结果。
+A conclusão do child em background por si só não marca este campo; ele só passa a contar na rodada correspondente
+depois que sua notificação sintetizada é dequeued e inicia um main turn independente, ou depois de ser realmente
+consumida no active-loop atual. Notificações de Bash não contam como resultado de Subagent.
 
-Todo103 重接保留当前扁平请求模型事实与 ModelSelection 执行边界；统计不读取 Provider
-配置来猜模型，也不调用有效选择解析二次替换已执行模型。来源提交的 E2E artifact 仅是
-历史证据，不表示整合分支已经复验通过。
+A religação do Todo103 preserva o fato de modelo de request plano atual e a fronteira de execução do ModelSelection; a
+estatística não lê a configuração de Provider para adivinhar o modelo nem chama a resolução de seleção efetiva para
+substituir uma segunda vez um modelo já executado. O artefato de E2E submitted na origem é apenas evidência histórica e
+não indica que o branch de integração já foi reverificado.
 
-所有数值字段继续使用 string 编码。没有真实 usage 的 step 必须写 `0`，不能估算。
+Todos os campos numéricos continuam usando codificação em string. Um step sem usage real precisa escrever `0` e nunca
+estimar.
 
-## 时序与异常
+## Temporização e anomalias
 
-- request status、usage fact 和 step 均按 `eventId/requestId` 去重，重放不能重复累计。
-- 模型身份在 step 创建时冻结，后续主 Agent 或 child 请求不能覆盖历史 step。
-- 主模型直接返回 `tool_use` 且没有正文时，补一个零时长 generation step 承接主 request usage；
-  不得把主模型 usage 混入随后的工具 step。
+- request status, fato de usage e step são todos deduplicados por `eventId/requestId`, e a reprodução não pode acumular
+  em duplicidade.
+- A identidade do modelo é congelada na criação do step; requests posteriores do main Agent ou do child não podem
+  sobrescrever steps históricos.
+- Quando o modelo principal devolve `tool_use` diretamente e não há corpo, um step de generation de duração zero é
+  acrescentado para receber o usage da main request; o usage do modelo principal não pode ser misturado nos steps de
+  tool seguintes.
 
 ```text
 child request started(B) -> child usage -> parent Agent failed -> SubagentStopped
           |                    |
-          `-------- 增量回填 parent Agent(model=B, usage=child) -------->
+          `-------- preenchimento incremental do parent Agent(model=B, usage=child) -------->
 ```
 
-- foreground runner 的成功、失败、activity timeout 与 abort 都统一发出 `SubagentStopped`；
-  外层 `Agent` 工具另有 timeout。两种真实终态谁先到就用当前已知 child usage 收口，不能再增加
-  telemetry 自己的 grace timer。父 `turn.terminal` 到达后必须先上报剩余 `agent_step`，紧接着
-  上报 `message_completion`。
+- Sucesso, falha, activity timeout e abort do runner de foreground emitem uniformemente `SubagentStopped`; a tool externa
+  `Agent` tem um timeout próprio. Quando os dois estados terminais reais chegarem, o fechamento usa o usage de child já
+  conhecido, sem adicionar um novo grace timer do próprio telemetry. Depois que o `turn.terminal` do pai chega, é
+  obrigatório reportar primeiro os `agent_step` restantes e, em seguida, o `message_completion`.
 
 ```text
 SubagentStopped ─┐
@@ -160,10 +175,11 @@ SubagentStopped ─┐
 Agent timeout ───┘
 ```
 
-- `sendQueuedNow` 会先终止当前 turn，再用队列项原始 `sourceCommandId` 启动下一 turn。若前一
-  message 的 terminal 正等待前台 Subagent 收口，后一 message 的 `turn.started` 与后续 facts
-  必须按 command 暂存；前一 message 完成 `agent_step -> message_completion` 后才能激活后一
-  message。该屏障只存在于真实 deferred terminal 窗口，不能扩展成通用消息串行器。
+- `sendQueuedNow` encerra primeiro o turn atual e então inicia o próximo turn com o `sourceCommandId` original do item
+  da fila. Se o terminal da message anterior está aguardando o fechamento de um Subagent em primeiro plano, o
+  `turn.started` da message seguinte e os facts posteriores devem ser armazenados temporariamente por command; a message
+  seguinte só pode ser ativada depois que a anterior completa `agent_step -> message_completion`. Essa barreira existe
+  apenas na janela real de terminal diferido e não pode virar um serializador genérico de messages.
 
 ```text
 message A turn.terminal -> wait SubagentStopped -> A agent_step -> A message_completion
@@ -171,70 +187,92 @@ message A turn.terminal -> wait SubagentStopped -> A agent_step -> A message_com
 message B turn.started/facts ----+---- buffer ----------> activate/replay B
 ```
 
-- child 只要已经发出真实 `model_request_started`，父 Agent 工具 step 就使用 child model；即使请求
-  没有 usage 也不能回退到父 message 模型。失败或取消只保留终态前已完成请求的 usage，不估算。
-- `SubagentStopped` 后仍保留 child 关联到父 message 收口，以处理迟到的镜像工具终态。
-- renderer reload/recovery 不补造历史埋点，保持现有 live-only 边界。
-- desktop continuous 与 web remote replayable 共用无正文事实 schema；现有产品规则仍只允许可信
-  desktop continuous attachment 消费 workspace telemetry，恢复重放不补报。
-- background child 的 `model.request.status(started)` 冻结工具模型；`usage.delta` 按 requestId
-  去重后累计。`turn.terminal` / `SubagentStopped` 共用一次性 Agent 汇总结算，取首次收口时
-  已收到的 usage；没有 usage 时仍上报，token 默认 `0`。停止不等于 child 已退出，因此
-  stopped 收口后只保留已开始的工具及其权限等待状态，供迟到的工具终态逐条上报；全部工具
-  收口或 child terminal 到达后清理，不再以模型请求/usage 是否存在猜测清理时机。
-- 只消费已有 Runtime 事件：normalizer 保留既有 `SubagentStopped.error` 为 `errorMessage`。
-  不新增 Runtime 事件，不改变执行、取消、通知、main wake 或 foreground 行为；不增加 timer，
-  不补 child completion。异常收口后的晚到 usage 不计入已发出的汇总，不承诺完整尾部消耗。
+- Assim que o child emitiu um `model_request_started` real, o step da tool Agent do pai usa o modelo do child; mesmo que
+  a request não tenha usage, não é possível voltar ao modelo da message do pai. Falha ou cancelamento preserva apenas o
+  usage das requests concluídas antes do estado terminal, sem estimativas.
+- Após `SubagentStopped`, a associação do child com o fechamento da message do pai é mantida, para tratar estados
+  terminais de tools espelhadas que chegam atrasados.
+- reload/recuperação do renderer não fabrica eventos de telemetria históricos, mantendo o limite live-only atual.
+- desktop continuous e web remote replayable compartilham o schema de fatos sem corpo; as regras de produto atuais ainda
+  permitem que apenas um attachment desktop continuous confiável consuma o telemetry do workspace, e a reprodução de
+  recuperação não reporta fatos faltantes.
+- O `model.request.status(started)` do child em background congela o modelo da tool; o `usage.delta` é acumulado após
+  deduplicação por requestId. `turn.terminal` e `SubagentStopped` compartilham um fechamento de resumo Agent único, que
+  usa o usage recebido até o primeiro fechamento; sem usage, ele ainda reporta, com token default `0`. Parar não
+  significa que o child já saiu, portanto, após o fechamento por stopped, apenas as tools já iniciadas e seus estados de
+  espera por permissão são mantidos, para que os estados terminais atrasados sejam reportados um a um; a limpeza ocorre
+  quando todas as tools são fechadas ou quando o terminal do child chega, e não mais ao adivinhar o momento da limpeza
+  com base na existência de requests/usage de modelo.
+- Apenas eventos de Runtime existentes são consumidos: o normalizer mantém o `SubagentStopped.error` existente como
+  `errorMessage`.
+  Nenhum evento de Runtime novo é adicionado, e execução, cancelamento, notificação, main wake ou comportamento de
+  foreground não mudam; nenhum timer é acrescentado e nenhum completion de child é completado. O usage que chega tarde
+  após um fechamento anormal não é contado no resumo já emitido e não se promete consumo completo da cauda.
 
 ## Main turn ID
 
-普通用户 turn 和独立 background notification wake 共用 UUID v7 生成器。每个 wake batch
-生成自己的新 `inputId`，沿 `TurnStarted.inputId -> sourceCommandId -> message_id` 上报，
-同轮 step/completion 共用该值，不复用原始用户轮 ID。持久化 synthetic `msg_*` ID 保持原用途，
-不得再被 normalizer 用作 telemetry inputId。active-loop 消费不创建新轮或新 telemetry ID。
+Turns de usuário comuns e o wake de notificação de background independente compartilham o gerador de UUID v7. Cada wake
+batch gera seu próprio `inputId` novo, reportado ao longo de `TurnStarted.inputId -> sourceCommandId -> message_id`, e
+os steps/completion da mesma rodada compartilham esse valor sem reutilizar o ID da rodada original do usuário. Os IDs
+sintéticos `msg_*` persistidos mantêm sua função original e não podem mais ser usados pelo normalizer como telemetry
+inputId. O consumo no active-loop não cria uma nova rodada nem um novo ID de telemetry.
 
-## 验证
+## Verificação
 
-后台生命周期 E2E 的每个新草稿必须在提交前显式选择完全访问（yolo）；suite 开头一次设置
-不能代替后续草稿前置。BG13 的运行日志已证明默认 build 会使 child Bash 等审批，
-不能把权限等待误判为 notification 或统计丢失；产品审批逻辑不因此改变。
+Cada novo draft do E2E do ciclo de vida de background precisa selecionar explicitamente o acesso total (yolo) antes do
+commit; definir uma única vez no início da suite não substitui a pré-condição dos drafts seguintes. O log de execução do
+BG13 já provou que o build padrão faz o child Bash e afins passarem por aprovação, e não se pode interpretar a espera de
+permissão como notificação perdida ou perda de estatística; a lógica de aprovação do produto não muda por causa disso.
 
-至少覆盖：
+Cobrir no mínimo:
 
-1. 单请求 reasoning + generation：两条 step 都是请求真实模型，usage 只出现一次。
-2. 主模型 A → 前台 Subagent 模型 B → 主模型 A：三段 step 的模型和 token 不互相覆盖。
-3. 同一请求 usage 重复到达：只累计一次。
-4. 后台 Subagent：child thought/text 不产生 step；child tool lifecycle 产生与 foreground
-   mirror 相同格式的 tool step，token 为 `0`。child terminal 后的 Agent step 独占累计 usage，
-   同样带 child `agent_id` 与 `agent_role`；最终 HTTP 上报验证 request count、token 总量与顺序。
-5. provider hostname 只上报 hostname，不泄露 URL path/query/credentials。
-6. child 取消且父 `Agent` step 先失败：仍保留已完成 child usage 和真实模型。
-7. 镜像 WebFetch：与父 `Agent` step 的 `agent_id` 相同，模型为 child 模型，token 为 `0`。
-8. 活跃 background child 没有 usage 时，成功/失败/取消的 terminal 或 stopped 仍产生一条零
-   token 的 Agent step；与收到全零 usage 区分 request count/scope。覆盖仅 stopped、有无
-   usage、两种终态先后顺序、重复终态及 stopped 后迟到工具；汇总只报一次，错误原文保留，
-   不产生独立 `message_completion`，不追补迟到 usage，也不因清理丢失已开始工具的终态。
-9. background child 多个 tool step 的 `loop_index` 在 child 内递增，并行 child 独立从 `1` 开始。
-10. 普通 reasoning、generation、tool_call 与前台 `Agent` step 同处一条 message 时全部保留，
-    `agent_step_cnt` 与实际上报数量一致。
-11. `message_completion.duration_ms` 保持用户可见墙钟口径，即 `turn terminal - sendTime`，
-    天然覆盖本轮主 Agent、前台 Subagent、工具等待与最终生成。
-12. `message_completion.agent_composition` 只在 main completion 生成时计算，不改变
-    `agent_step` 数量或 background child 的独立上报。
-13. 前一 message 等待前台 Subagent 收口时点击队列“立即”：前一 message 使用自己的
-    `request_time`、真实墙钟 duration 与 step 计数先完成，随后后一 message 使用原始
-    `sourceCommandId` 独立上报 step 和 completion。
+1. reasoning + generation de uma única request: os dois steps têm o modelo real da request e o usage aparece apenas uma
+   vez.
+2. Modelo principal A → Subagent de primeiro plano com modelo B → modelo principal A: os modelos e tokens dos três
+   blocos de steps não se sobrescrevem.
+3. Usage da mesma request chegando repetido: é acumulado apenas uma vez.
+4. Subagent em background: o thought/text do child não gera step; o ciclo de vida de tools do child gera tool steps no
+   mesmo formato do mirror de foreground, com token `0`. O step `Agent` após o terminal do child possui o usage
+   acumulado de forma exclusiva, com o `agent_id` e o `agent_role` do child; o report HTTP final verifica a contagem de
+   requests, o total de tokens e a ordem.
+5. O hostname do provider reporta apenas o hostname, sem vazar path/query/credentials da URL.
+6. Child cancelado com o step `Agent` do pai falhando antes: o usage já concluído do child e o modelo real são
+   preservados.
+7. WebFetch espelhado: tem o mesmo `agent_id` do step `Agent` do pai, o modelo do child e token `0`.
+8. Child em background ativo sem usage: o terminal ou o stopped de sucesso/falha/cancelamento ainda produz um step Agent
+   de token zero; diferenciado de um usage totalmente zero received em request count/scope. Cobre apenas stopped, com e
+   sem usage, as duas ordens de estados terminais, estados terminais duplicados e tools que chegam atrasadas após o
+   stopped; o resumo é reportado apenas uma vez, o texto original do erro é preservado, nenhum `message_completion`
+   separado é produzido, o usage atrasado não é complementarizado e o término de tools já iniciadas não se perde na
+   limpeza.
+9. O `loop_index` de múltiplos tool steps do child em background incrementa dentro do child, e children paralelos começam
+   de forma independente em `1`.
+10. Reasoning, generation, tool_call comuns e o step `Agent` de primeiro plano permanecem todos na mesma message, e
+    `agent_step_cnt` corresponde à quantidade realmente reportada.
+11. `message_completion.duration_ms` mantém a semântica de relógio de parede visível ao usuário, isto é
+    `turn terminal - sendTime`, cobrindo naturalmente o main Agent da rodada, o Subagent de primeiro plano, a espera
+    por tools e a geração final.
+12. `message_completion.agent_composition` é calculado apenas na geração do main completion e não altera a quantidade de
+    `agent_step` nem o report independente do child em background.
+13. Ao clicar em "enviar agora" na fila enquanto a message anterior aguarda o fechamento do Subagent de primeiro plano: a
+    message anterior conclui primeiro com seu próprio `request_time`, sua duration real de relógio de parede e sua
+    contagem de steps; em seguida a message seguinte reporta steps e completion de forma independente usando o
+    `sourceCommandId` original.
 
-## 追记（2026-09-14）：第三种来源——动态工作流子代理
+## Retrospectiva (2026-09-14): a terceira origem — subagentes de workflow dinâmico
 
-规则见 `apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md`「Token telemetry for subagents」。与前两种来源的差异只有三点：
+As regras estão em `apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md`, em "Token telemetry for
+subagents". As diferenças em relação às duas primeiras origens são apenas três:
 
-- 登记事实不是 `subagent.lifecycle`，而是由父会话 `DynamicWorkflowRunProgress` 派生的
-  `workflow.lifecycle`（`actor-spawned` / `run-settled`）；归属键是 `runId + childSessionId`，
-  `message_id` 是 run 的 `run-launched.inputId`（不是任何一次 `Agent` 工具调用）。
-- 终态是 **run 结算**而不是子会话自己的 `turn.terminal`：一个子代理会话可承接多次 ask，每次 ask
-  是一个 turn；汇总 step 只在 `run-settled` 时对该 run 的每个子代理各发一条。
-- `agent_role = "workflow subagent"`，另带 `workflow_run_id` / `child_session_id` /
-  `workflow_tool_call_id`；`token_usage_scope` 仍复用 `subagent_requests`。
+- o fato de registro não é `subagent.lifecycle`, e sim o `workflow.lifecycle` derivado do
+  `DynamicWorkflowRunProgress` da sessão pai (`actor-spawned` / `run-settled`); a chave de atribuição é
+  `runId + childSessionId`, e o `message_id` é o `run-launched.inputId` do run (não o de nenhuma chamada da tool
+  `Agent`).
+- o estado terminal é a **execução do run** e não o próprio `turn.terminal` da subsessão: uma sessão de subagente pode
+  atender a vários asks, e cada ask é um turn; o step de resumo é emitido apenas em `run-settled`, uma vez para cada
+  subagente daquele run.
+- `agent_role = "workflow subagent"`, com `workflow_run_id` / `child_session_id` / `workflow_tool_call_id`
+  adicionais; o `token_usage_scope` continua reaproveitando `subagent_requests`.
 
-其余规则（工具 step token `0`、requestId 去重、终态后不补、live-only、无 usage 也报零值汇总）逐字沿用。
+As demais regras (token `0` nos steps de tool, deduplicação por requestId, nada de complemento após o estado terminal,
+live-only, e resumo com valores zero mesmo sem usage) são adotadas literalmente.

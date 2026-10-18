@@ -1,71 +1,71 @@
-# Task List SQLite Storage And Cache
+# Armazenamento e Cache da Lista de Tasks em SQLite
 
-> **当前状态**：本文描述 tasks-index SQLite 与侧栏列表缓存的当前边界；
-> conversation 正文状态仍由 V4 projection 提供。
+> **Estado atual**: este documento descreve o limite atual do SQLite `tasks-index` e do cache da lista da barra lateral;
+> o estado do corpo da conversa continua sendo fornecido pela projection V4.
 
-任务置顶和归档都不再写入 task meta。
+Fixar e arquivar tasks não gravam mais em task meta.
 
-> 说明：本文档早期描述过 `pinneds.json` / `archiveds.json` 方案。
-> 当前实现已经收敛到 `tasks-index.sqlite` 作为索引真相源，下面内容按现状更新。
+> Observação: versões anteriores deste documento descreviam a solução `pinneds.json` / `archiveds.json`.
+> A implementação atual convergiu para `tasks-index.sqlite` como fonte de verdade do índice; o conteúdo abaixo foi atualizado conforme a realidade atual.
 
-## 持久化规则
+## Regras de persistência
 
-- pin task 时：
-  - task 快照文件保持 `{taskId}.json`
-  - 更新 `~/.zcode/v2/tasks-index.sqlite` 中对应 task 的 `pinned` 状态
-- unpin task 时：
-  - task 快照文件保持 `{taskId}.json`
-  - 更新 `~/.zcode/v2/tasks-index.sqlite` 中对应 task 的 `pinned` 状态
-- archive task 时：
-  - task 快照文件保持 `{taskId}.json`
-  - 更新 `~/.zcode/v2/tasks-index.sqlite` 中对应 task 的 `archived` 状态
-  - 若之前已 pin，会同步把 sqlite 中 `pinned` 状态清掉
+- Ao fixar (pin) uma task:
+  - o arquivo de snapshot da task permanece `{taskId}.json`
+  - atualiza o estado `pinned` da task correspondente em `~/.zcode/v2/tasks-index.sqlite`
+- Ao desafixar (unpin) uma task:
+  - o arquivo de snapshot da task permanece `{taskId}.json`
+  - atualiza o estado `pinned` da task correspondente em `~/.zcode/v2/tasks-index.sqlite`
+- Ao arquivar uma task:
+  - o arquivo de snapshot da task permanece `{taskId}.json`
+  - atualiza o estado `archived` da task correspondente em `~/.zcode/v2/tasks-index.sqlite`
+  - se ela já estiver fixada, o estado `pinned` no sqlite também é limpo
 
-## 读取规则
+## Regras de leitura
 
-- 全局 pin 列表来自 `listTaskList({ kind: "pinned", workspaceScopes })`
-- 全局 timeline 列表来自 `listTaskList({ kind: "timeline", workspaceScopes })`
-- 全局 archived 列表来自 `listTaskList({ kind: "archived", workspaceScopes })`
-- workspace task 列表来自 `listWorkspaceTaskLists({ workspaceScopes })`
-- 以上查询都统一走 `tasks-index.sqlite`
-- sqlite 查询语义固定为：
-  - `pinned`：`pinned = 1 AND archived = 0`
-  - `archived`：`archived = 1`
-  - `timeline / workspace`：`pinned = 0 AND archived = 0`
-- pin 状态判断不再依赖旧本地 task 扫描，Header / Sidebar 都统一来自 sqlite 列表查询
-- task 快照路径统一为 `getTaskSessionFilePath(workspacePath, taskId)` 返回的 `{taskId}.json`
-- 启动迁移时会把历史 `_pinned.json` / `_archived.json` 直接改名回 `{taskId}.json`
+- a lista global de fixadas vem de `listTaskList({ kind: "pinned", workspaceScopes })`
+- a lista global de timeline vem de `listTaskList({ kind: "timeline", workspaceScopes })`
+- a lista global de arquivadas vem de `listTaskList({ kind: "archived", workspaceScopes })`
+- a lista de tasks por workspace vem de `listWorkspaceTaskLists({ workspaceScopes })`
+- todas as consultas acima passam uniformemente por `tasks-index.sqlite`
+- a semântica das consultas no sqlite é fixa:
+  - `pinned`: `pinned = 1 AND archived = 0`
+  - `archived`: `archived = 1`
+  - `timeline / workspace`: `pinned = 0 AND archived = 0`
+- a determinação do estado de fixação não depende mais da antiga varredura local de tasks; Header e Sidebar passam a vir uniformemente das consultas de lista no sqlite
+- o caminho do snapshot da task é uniformemente o `{taskId}.json` retornado por `getTaskSessionFilePath(workspacePath, taskId)`
+- na migração de inicialização, os arquivos históricos `_pinned.json` / `_archived.json` são renomeados de volta para `{taskId}.json`
 
-## 前端缓存规则
+## Regras de cache do frontend
 
-- Sidebar `pinned` 分区在加入或切换 workspace 时不渲染阻塞式“正在获取任务”占位：已有缓存任务直接展示并在后台刷新；workspace scope 新增时保留已有 scope 的任务，scope 删除时只过滤被删除 scope 的任务，禁止因全局 query key 切换发布空中间帧；只有原本就没有可展示任务时才暂时隐藏整个分区，查询完成后再按结果出现。
-- Pinned task row 的 hover 操作区提供文件树入口，打开该 task 所属 workspace 的文件树。入口不修改 SQLite pin membership；远端 task 必须匹配同一 `workspaceIdentity` 的已连接 tab，并携带其 `remoteSessionId`，禁止按相同 `workspacePath` 串到本地 workspace。
-- query cache key 由以下维度组成：
-  - 列表种类：`pinned / archived / timeline / workspace`
-  - 排序：`created / updated`
-  - 搜索词
-  - 当前可见条数（例如 workspace task 的 5 / 10 / 15）
-  - 当前参与查询的 `workspaceKey` 集合
-- `show more` 的缓存规则：
-  - workspace task 首屏显示 5 条，每次点击只把当前 workspace 的可见上限增加 5
-  - 新一档 limit 的 cache 尚未就绪时继续展示上一档快照，不清空任务行或切换成阻塞 loading
-  - 全部任务可见后隐藏入口；workspace 收起后分页进度回到 5，已有 cache 可以继续复用
-- `workspace task` 的 `show more` 只更新当前 `workspaceKey` 的 limit，不再把所有已打开 workspace 一起重查
-- 任务操作后的前端更新规则：
-  - `rename / read / unread`：直接 patch 当前 task 的 cache 元数据，不整栏失效
-  - `pin / unpin / archive / unarchive`：先局部 patch 受影响查询，再只对必要的折叠查询做后台补拉
-- 后台补拉只用于补齐“折叠列表有隐藏数据时，边界可能变化”的情况，避免整个 sidebar 一起刷新
+- A seção `pinned` da Sidebar não renderiza um placeholder bloqueante de "carregando tasks" ao adicionar ou trocar de workspace: tasks já em cache são exibidas direto e atualizadas em segundo plano; ao adicionar um novo workspace scope, as tasks dos scopes existentes são mantidas, e ao remover um scope, apenas as tasks do scope removido são filtradas — é proibido publicar um quadro intermediário vazio por causa da troca da query key global; a seção inteira só é ocultada temporariamente quando realmente não há tasks exibíveis, voltando a aparecer conforme o resultado da consulta.
+- A área de ações no hover da linha de uma task fixada oferece entrada para a árvore de arquivos, abrindo a árvore do workspace ao qual a task pertence. A entrada não altera a pertença de pin no SQLite; tasks remotas devem corresponder a uma tab conectada com o mesmo `workspaceIdentity` e carregar o seu `remoteSessionId` — é proibido fazer crosstalk com um workspace local pelo mesmo `workspacePath`.
+- A query cache key é composta pelas seguintes dimensões:
+  - tipo de lista: `pinned / archived / timeline / workspace`
+  - ordenação: `created / updated`
+  - termo de busca
+  - quantidade de itens visíveis no momento (por exemplo 5 / 10 / 15 para tasks de workspace)
+  - conjunto de `workspaceKey` atualmente participantes da consulta
+- Regras de cache do `show more`:
+  - as tasks de workspace mostram 5 na primeira tela, e cada clique aumenta em 5 apenas o limite visível do workspace atual
+  - enquanto o cache do novo limite ainda não estiver pronto, continua exibindo o snapshot do limite anterior, sem limpar as linhas de tasks nem trocar para loading bloqueante
+  - depois que todas as tasks estiverem visíveis, a entrada é ocultada; quando o workspace é recolhido, o progresso da paginação volta para 5 e o cache existente continua sendo reaproveitado
+- O `show more` das `workspace task` atualiza apenas o limite do `workspaceKey` atual, sem reconsultar todos os workspaces já abertos
+- Regras de atualização do frontend após operações em tasks:
+  - `rename / read / unread`: faz patch direto nos metadados de cache da task atual, sem invalidar a coluna inteira
+  - `pin / unpin / archive / unarchive`: primeiro faz patch local nas consultas afetadas e depois só busca em segundo plano as consultas colapsadas realmente necessárias
+- A busca em segundo plano serve apenas para cobrir o caso "a lista colapsada tem dados ocultos, então a fronteira pode mudar", evitando recarregar a sidebar inteira
 
-## 相关实现
+## Implementações relacionadas
 
-- 持久化：`packages/services/src/session/taskIndexRepo.ts`
-- 服务接口：`packages/services/src/session/zcodeTaskService.ts`
-- UI 全局列表：`packages/ui/src/hooks/useGlobalTaskList.ts`
-- UI workspace 分组列表：`packages/ui/src/hooks/useWorkspaceTaskLists.ts`
-- 前端 query cache：`packages/ui/src/store/taskQueryCacheStore.ts`
-- query key / descriptor：`packages/ui/src/lib/taskQueryCache.ts`
-- Sidebar pinned 区：`packages/ui/src/WorkspacePinnedTasksSection.tsx`
-- Sidebar timeline 区：`packages/ui/src/WorkspaceTimelineTasksSection.tsx`
-- Sidebar archived 区：`packages/ui/src/WorkspaceArchivedTasksFlatSection.tsx`
-- Workspace 分组 task 区：`packages/ui/src/WorkspaceSidebarItem.tsx`
-- Header 更多菜单：`packages/ui/src/WorkspaceHeaderSections.tsx`
+- Persistência: `packages/services/src/session/taskIndexRepo.ts`
+- Interface de serviço: `packages/services/src/session/zcodeTaskService.ts`
+- Listas globais da UI: `packages/ui/src/hooks/useGlobalTaskList.ts`
+- Listas agrupadas por workspace da UI: `packages/ui/src/hooks/useWorkspaceTaskLists.ts`
+- Query cache do frontend: `packages/ui/src/store/taskQueryCacheStore.ts`
+- Query key / descriptor: `packages/ui/src/lib/taskQueryCache.ts`
+- Seção pinned da Sidebar: `packages/ui/src/WorkspacePinnedTasksSection.tsx`
+- Seção timeline da Sidebar: `packages/ui/src/WorkspaceTimelineTasksSection.tsx`
+- Seção archived da Sidebar: `packages/ui/src/WorkspaceArchivedTasksFlatSection.tsx`
+- Seção de tasks do Workspace agrupado: `packages/ui/src/WorkspaceSidebarItem.tsx`
+- Menu "mais" do Header: `packages/ui/src/WorkspaceHeaderSections.tsx`

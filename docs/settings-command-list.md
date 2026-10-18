@@ -1,64 +1,63 @@
-# Settings command list
+# Lista de comandos em Configurações
 
-The Commands settings list shows user and plugin commands without exposing storage details or repeating plugin-management guidance in each group or row.
+A lista de comandos nas configurações exibe os comandos de usuário e de plugin sem expor detalhes de armazenamento nem repetir orientações de gerenciamento de plugins em cada grupo ou linha.
 
-- Rows display the command name, argument hint, description, relevant ownership metadata, and available controls. Workspace commands keep the Workspace label, while user commands do not repeat a User label; plugin commands keep the plugin-name label.
-- User command rows do not display their backing directory path.
-- Plugin command rows and the plugin group header do not display “Registered by a plugin. Edit it in the plugin.” The plugin group heading and plugin-name label already communicate ownership.
-- Item descriptions use `text-ui-sm text-foreground-subtle` as secondary copy.
-- Commands 的顶部搜索工具栏与 `Installed` 分组统一使用内容区显式的 `mt-6`（24px）；共享 Tabs 根节点不再额外提供 `gap-2`，避免搜索框到 New 按钮叠加成 32px。
-- Command rows use the same `Terminal` icon as the Commands settings entry. Plugin artwork takes
-  precedence when available; a missing or failed plugin image falls back to `Terminal`, not `Cable`.
-- Workspace scope and plugin ownership use the shared scope treatment: a `rounded-full border-border bg-surface text-ui-sm` Badge with a 14px Folder or Cable icon.
+- As linhas exibem o nome do comando, a dica de argumentos, a descrição, os metadados de propriedade relevantes e os controles disponíveis. Comandos de workspace mantêm o rótulo Workspace, enquanto comandos de usuário não repetem o rótulo User; comandos de plugin mantêm o rótulo com o nome do plugin.
+- As linhas de comando de usuário não exibem o caminho do diretório que as sustenta.
+- As linhas de comando de plugin e o cabeçalho do grupo de plugin não exibem «Registered by a plugin. Edit it in the plugin.». O título do grupo de plugin e o rótulo com o nome do plugin já comunicam a propriedade.
+- As descrições dos itens usam `text-ui-sm text-foreground-subtle` como texto secundário.
+- A barra de busca no topo de Commands e o agrupamento `Installed` unificam o uso do `mt-6` (24px) explícito da área de conteúdo; a raiz compartilhada das Tabs não fornece mais `gap-2`, evitando que a caixa de busca e o botão New somem 32px.
+- As linhas de comando usam o mesmo ícone `Terminal` da entrada de comandos nas configurações. A arte do plugin tem precedência quando disponível; uma imagem de plugin ausente ou com falha faz fallback para `Terminal`, não para `Cable`.
+- O escopo de workspace e a propriedade de plugin usam o tratamento de escopo compartilhado: um Badge `rounded-full border-border bg-surface text-ui-sm` com um ícone Folder ou Cable de 14px.
 
-## Command editor workspace scope
+## Escopo de workspace no editor de comando
 
-The Command editor uses the same concrete scope menu as Plugin MCP settings.
+O editor de comando usa o mesmo menu de escopo concreto das configurações de MCP de plugin.
 
-- A new Command defaults to User scope.
-- The Scope menu lists User plus every currently open Workspace tab in the window.
-- Workspace options are de-duplicated and selected by `workspaceIdentity?.trim() || workspacePath`; the actual command file path continues to use `workspacePath`.
-- Choosing a Workspace changes only the current Command draft and its save target. It does not activate that Workspace tab or change the parent Commands list.
-- Saving to another local or remote Workspace uses that Workspace's resolved Host service. Passing another path to the current Host is not a valid cross-Workspace save.
-- The current Commands list is refreshed only when the saved target is the Workspace represented by that list. A save to another Workspace must not append the new command to the current list projection.
-- Existing Commands keep a locked Scope. Editing must not move a Command between User and Workspace storage or between Workspaces.
-- If a selected Workspace closes while creating, the draft falls back to User. If the owner Workspace closes while editing, the editor exits instead of changing the locked target.
+- Um novo comando tem escopo User por padrão.
+- O menu de Scope lista User mais cada aba de Workspace atualmente aberta na janela.
+- As opções de Workspace são deduplicadas e selecionadas por `workspaceIdentity?.trim() || workspacePath`; o caminho real do arquivo de comando continua usando `workspacePath`.
+- Escolher um Workspace altera apenas o rascunho atual do comando e seu destino de salvamento. Não ativa aquela aba de Workspace nem altera a lista de Commands do pai.
+- Salvar em outro Workspace local ou remoto usa o serviço Host resolvido daquele Workspace. Passar outro caminho ao Host atual não é um salvamento cross-Workspace válido.
+- A lista atual de Commands é atualizada apenas quando o destino salvo é o Workspace representado por essa lista. Um salvamento em outro Workspace não pode anexar o novo comando à projeção da lista atual.
+- Commands existentes mantêm um Scope travado. A edição não pode mover um comando entre armazenamento de User e de Workspace, nem entre Workspaces.
+- Se um Workspace selecionado fechar durante a criação, o rascunho faz fallback para User. Se o Workspace proprietário fechar durante a edição, o editor sai em vez de mudar o destino travado.
 
 ```text
-Command form scope
+Escopo do formulário de comando
        |
-       +-- User ----------------------> current list Host -> user commands directory
+       +-- User ----------------------> Host da lista atual -> diretório de commands de usuário
        |
-       +-- Workspace key
+       +-- Chave de Workspace
               |
-              +-- resolve open tab metadata
+              +-- resolver metadados da aba aberta
               |      workspaceIdentity / remoteSessionId / remoteTarget
               |
-              +-- resolve target Host service
+              +-- resolver o serviço Host de destino
               |
-              +-- write workspacePath/.zcode/commands
+              +-- gravar em workspacePath/.zcode/commands
 ```
 
-## Impact brief
+## Resumo de impacto
 
-| Field | Decision |
+| Campo | Decisão |
 | --- | --- |
-| Change layers | Presentation, option source, draft default, commit effect, persistence |
-| UI surface | `CommandsSection` and `CommandForm` |
-| Shared UI | `PluginScopeMenu` |
-| Draft owner | Command form scope key |
-| Commit sink | The selected Workspace Host's `commandsService` |
-| Persistence | User or Workspace command directory; no format migration |
-| Mode boundary | Local and remote Workspace tabs share scope semantics, but resolve different Host services |
-| Out of scope | Command discovery order, slash-command runtime behavior, plugin command management, cross-window Workspace selection |
+| Camadas de mudança | Apresentação, origem das opções, padrão do rascunho, efeito do commit, persistência |
+| Superfície de UI | `CommandsSection` e `CommandForm` |
+| UI compartilhada | `PluginScopeMenu` |
+| Proprietário do rascunho | Chave de escopo do formulário de comando |
+| Destino do commit | `commandsService` do Host do Workspace selecionado |
+| Persistência | Diretório de comandos de User ou de Workspace; sem migração de formato |
+| Limite de modo | Abas de Workspace local e remoto compartilham a semântica de escopo, mas resolvem serviços Host diferentes |
+| Fora de escopo | Ordem de descoberta de comandos, comportamento de runtime dos slash commands, gerenciamento de comandos de plugin, seleção de Workspace entre janelas |
 
-## Accepted cases
+## Casos aceitos
 
-| Case | Setup | Action | Assertions |
+| Caso | Setup | Ação | Asserções |
 | --- | --- | --- | --- |
-| CMD-SCOPE-01 | Two open local Workspaces | Create and select Workspace B | B is shown by name; save writes B's path through the resolved target service; A's list is not polluted |
-| CMD-SCOPE-02 | Two remote Workspaces with the same path and different identities | Open the scope menu | Both identities remain distinct scope keys and route to their own remote sessions |
-| CMD-SCOPE-03 | New editor with a selected Workspace | Close the selected tab | Scope falls back to User without writing |
-| CMD-SCOPE-04 | Existing Workspace Command | Open edit form | Actual owner is displayed, Scope is disabled, and save cannot migrate storage |
-| CMD-SCOPE-05 | Existing Workspace Command owner closes | Close the owner tab | Editor exits and performs no write |
-| CMD-SCOPE-06 | User scope | Save a new Command | Save omits project `workspacePath` and refreshes the current list |
+| CMD-SCOPE-01 | Dois Workspaces locais abertos | Criar e selecionar o Workspace B | B é exibido pelo nome; o salvamento grava o caminho de B pelo serviço de destino resolvido; a lista de A não é contaminada |
+| CMD-SCOPE-02 | Dois Workspaces remotos com o mesmo caminho e identidades diferentes | Abrir o menu de escopo | Ambas as identidades permanecem como chaves de escopo distintas e são roteadas para suas próprias sessões remotas |
+| CMD-SCOPE-03 | Novo editor com um Workspace selecionado | Fechar a aba selecionada | O escopo faz fallback para User sem escrita |
+| CMD-SCOPE-04 | Command de Workspace existente | Abrir o formulário de edição | O proprietário real é exibido, o Scope fica desabilitado e o salvamento não pode migrar o armazenamento |
+| CMD-SCOPE-05 | O proprietário do Command de Workspace existente fecha | Fechar a aba do proprietário | O editor sai e não realiza nenhuma escrita |
+| CMD-SCOPE-06 | Escopo User | Salvar um novo Command | O salvamento omite o `workspacePath` do projeto e atualiza a lista atual |

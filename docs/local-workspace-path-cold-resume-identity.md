@@ -1,31 +1,31 @@
-# 本地工作区路径与冷恢复身份边界
+# Limite de identidade entre caminho de workspace local e recuperação a frio
 
-## 状态
+## Status
 
-- 类型：Bug 修复规格
-- 影响面：桌面端本地工作区、CLI session 持久化、V4 conversation 冷恢复
-- 不改变：远程 workspace identity、桌面 `desktop-continuous` 与手机 `web-remote-replayable` 的投递语义
+- Tipo: especificação de correção de bug
+- Superfície afetada: workspace local do desktop, persistência de session do CLI, recuperação a frio de conversation do V4
+- Não altera: a identidade do workspace remoto, nem as semânticas de entrega de `desktop-continuous` no desktop e `web-remote-replayable` no celular
 
-## 问题
+## Problema
 
-本地工作区允许不传 `workspaceIdentity`，身份 key 按既有规则取：
+O workspace local permite não passar `workspaceIdentity`, e a chave de identidade é obtida pelas regras já existentes:
 
 ```text
 workspaceKey = workspaceIdentity?.trim() || workspacePath
 ```
 
-用户从目录选择器得到的 `workspacePath` 可能保留末尾 `/`。该值用于 provider registry、tab、task index 等工作区身份状态；CLI 创建运行时时又通过 `path.resolve` 得到不带末尾 `/` 的执行目录，并把执行目录写回 session 的 `path` / `directory`。CLI 重启后，V4 冷恢复只根据 session 中的路径重建工作区引用，于是同一个本地目录出现两个精确 key：
+O `workspacePath` que o usuário obtém pelo seletor de diretórios pode manter a `/` final. Esse valor é usado no estado de identidade do workspace, como provider registry, tab e task index; ao criar o runtime, o CLI obtém novamente por `path.resolve` um diretório de execução sem a `/` final e grava o diretório de execução de volta no `path` / `directory` da session. Após reiniciar o CLI, a recuperação a frio do V4 reconstrói a referência do workspace apenas com base no caminho da session, de modo que o mesmo diretório local aparece com duas chaves exatas:
 
 ```text
 当前 attachment / provider registry   /home/user/project/
 session 冷恢复路径                    /home/user/project
 ```
 
-这不是 provider catalog 查找阶段的问题，而是工作区身份信息在运行时与持久化边界被执行路径覆盖。
+Não se trata de um problema na etapa de busca do provider catalog, mas sim de a informação de identidade do workspace ser sobrescrita pelo caminho de execução no limite entre runtime e persistência.
 
-## 语义边界
+## Limites semânticos
 
-`workspacePath` 与 `workingDirectory` 必须分开保存：
+`workspacePath` e `workingDirectory` precisam ser armazenados separadamente:
 
 ```text
 目录选择器 / 当前 attachment
@@ -45,13 +45,13 @@ session 冷恢复路径                    /home/user/project
                         +--> workingDirectory: /home/user/project（cwd / 文件 / Git）
 ```
 
-- `workspacePath`：保留调用方传入的实际路径表示，用于本地 workspace 身份恢复。
-- `workingDirectory`：可以规范化，只用于命令 cwd、文件读写和 Git 等执行语义。
-- 不全局规范化 `workspaceKey`，避免迁移或拆断现有 tab、task index、provider registry 等持久化 key。
+- `workspacePath`: preserva a representação real do caminho passado pelo chamador, usada na recuperação da identidade do workspace local.
+- `workingDirectory`: pode ser normalizado e é usado apenas para semânticas de execução como cwd de comandos, leitura/escrita de arquivos e Git.
+- Não normalizar `workspaceKey` globalmente, para evitar quebrar ou migrar chaves persistidas existentes, como tab, task index e provider registry.
 
-## V4 冷恢复
+## Recuperação a frio do V4
 
-conversation subscribe 已位于一个可信 workspace attachment 中，必须把当前 `workspace` 引用传给冷恢复：
+O subscribe de conversation já está dentro de um attachment de workspace confiável, então é preciso passar a referência `workspace` atual para a recuperação a frio:
 
 ```text
 desktop / web attachment
@@ -61,17 +61,17 @@ desktop / web attachment
   -> provider registry 按当前 workspaceKey 命中
 ```
 
-优先级：
+Prioridade:
 
-1. 当前 subscribe 携带的 `workspace`；
-2. 仅当调用方没有 workspace 上下文时，回退到已持久化 session 的 `path` / `directory`。
+1. o `workspace` carregado pelo subscribe atual;
+2. o `path` / `directory` da session já persistida, apenas quando o chamador não tem contexto de workspace.
 
-这样既能修复新建 session 的持久化信息，也能立即恢复旧版本已经写入无末尾 `/` 路径的历史 session。
+Assim é possível corrigir tanto a informação persistida de novas sessions quanto recuperar imediatamente as sessions históricas que versões antigas já gravaram sem a `/` final.
 
-## 验收场景
+## Cenários de aceitação
 
-1. 本地工作区路径带末尾 `/` 时，新 session 持久化保留该路径，运行时 cwd 仍为规范化路径。
-2. 历史 session 记录为无末尾 `/`，当前 attachment 为带末尾 `/` 时，冷恢复使用 attachment workspace，provider model 可用并可继续发消息。
-3. 没有当前 workspace 上下文的兼容调用仍可从 session 持久化路径恢复。
-4. 远程 workspace 继续完整携带 `workspaceIdentity` 与 `remoteSessionId`，不按 `workspacePath` 单独隔离。
-5. 桌面 continuous 与手机 replayable 只共享 workspace 引用透传，不改变 snapshot、gap、queue 或消息投递边界。
+1. Quando o caminho do workspace local tem `/` final, a nova session mantém esse caminho na persistência e o cwd do runtime continua sendo o caminho normalizado.
+2. Quando a session histórica está registrada sem a `/` final e o attachment atual tem a `/` final, a recuperação a frio usa o workspace do attachment, o provider model fica disponível e é possível continuar enviando mensagens.
+3. Chamadas compatíveis sem contexto de workspace atual ainda conseguem restaurar a partir do caminho persistido na session.
+4. O workspace remoto continua carregando por completo `workspaceIdentity` e `remoteSessionId`, sem isolamento isolado por `workspacePath`.
+5. O continuous do desktop e o replayable do celular apenas compartilham o repasse da referência de workspace, sem alterar os limites de snapshot, gap, queue ou entrega de mensagens.

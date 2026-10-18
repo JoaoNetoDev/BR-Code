@@ -1,51 +1,51 @@
-# 通用模式与编程模式（M1）
+# Modo Geral e Modo de Programação (M1)
 
-## 目标与范围
+## Objetivo e escopo
 
-通用模式减少非编程任务中的技术信息；编程模式保留完整的开发入口。本阶段只改变展示和入口，不改变模型、系统提示词、工具权限、Agent 执行能力或历史数据。M2 的产物展示与回复风格、M3 的文件管理器不在本次范围。
+O Modo Geral reduz as informações técnicas em tarefas que não são de programação; o Modo de Programação mantém a entrada completa de desenvolvimento. Esta etapa altera apenas a exibição e as entradas, sem mudar modelos, system prompts, permissões de ferramentas, capacidade de execução do Agent ou dados históricos. A exibição de artefatos e o estilo de resposta do M2, e o gerenciador de arquivos do M3, não estão no escopo desta vez.
 
-文件名统一打开文件内容不在本次范围：当前文件名在携带 patch 时仍打开单文件 Diff，否则打开文件；它不是工作区“审查”标签。不要把隐藏审查新建入口误写成禁用所有 Diff。
+Abrir o conteúdo do arquivo ao clicar em um nome de arquivo não está no escopo desta vez: quando o nome do arquivo carrega um patch, ele ainda abre o Diff de arquivo único; caso contrário, abre o arquivo. Não é a aba «Revisar» do workspace. Não escreva a entrada oculta de criação de revisão como se ela desabilitasse todos os Diffs.
 
-## 产品行为
+## Comportamento do produto
 
-设置页与头像菜单中的切换选项统一按“编程模式 → 通用模式”排列；未保存偏好时默认编程模式，已有用户选择继续保留。
+As opções de alternância na página de configurações e no menu do avatar são ordenadas uniformemente como «Modo de Programação → Modo Geral»; sem preferência salva, o padrão é o Modo de Programação, e a escolha já feita por usuários existentes é preservada.
 
-| 场景               | 通用模式                                                                     | 编程模式                         |
-| ------------------ | ---------------------------------------------------------------------------- | -------------------------------- |
-| 命令执行、执行分组 | 保留摘要、运行/失败状态；隐藏命令、输出、展开及原始错误悬浮提示              | 按原有规则展示和展开详情         |
-| 文件编辑、修改分组 | 保留文件摘要和文件入口；隐藏展开、内联 Diff、增删行数                        | 保留修改详情                     |
-| 对话状态、轮次变更 | 隐藏 Git 环境区和轮次变更汇总                                                | 保留 Git 与变更信息              |
-| 思考               | 保留原始思考内容，包括代码块；沿用原有折叠与展开行为                         | 保留原始展示文本                 |
-| 正式回复代码       | 固定换行，隐藏换行开关，保留复制                                             | 尊重并保留用户原有换行偏好       |
-| 自动上下文压缩     | 使用“优化对话”措辞                                                           | 保留上下文压缩措辞               |
-| 顶部外部打开方式   | 仅文件管理器                                                                 | 已安装的编辑器、终端及文件管理器 |
-| 审查、终端新建     | 隐藏启动卡片、新增菜单、命令面板和最近关闭中的相关入口；隐藏底部终端新建按钮 | 保留原入口                       |
-| 已打开的面板       | 审查、终端标签及底部终端继续显示、切换、使用和关闭，当前活动标签不变         | 同左                             |
+| Cenário                        | Modo Geral                                                                                  | Modo de Programação                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------- |
+| Execução de comandos, grupo de execução | mantém resumo e status em execução/falha; oculta comando, saída, expansão e tooltip de erro original | exibe e expande os detalhes conforme as regras originais |
+| Edição de arquivos, grupo de modificação | mantém o resumo do arquivo e a entrada do arquivo; oculta expansão, Diff inline e contagem de linhas adicionadas/removidas | mantém os detalhes da modificação |
+| Estado da conversa, mudança de rodada | oculta a área de ambiente Git e o resumo de mudanças da rodada | mantém as informações de Git e de mudanças |
+| Pensamento                     | mantém o conteúdo bruto do pensamento, incluindo blocos de código; mantém o comportamento original de colapso e expansão | mantém o texto de exibição original |
+| Código na resposta final        | quebras de linha fixas, oculta o toggle de quebra de linha, mantém a cópia                   | respeita e mantém a preferência original de quebra de linha do usuário |
+| Compressão automática de contexto | usa a formulação «Otimizar conversa»                                                       | mantém a formulação de compressão de contexto |
+| Formas de abertura externa na barra superior | apenas o gerenciador de arquivos                                                  | editores instalados, terminal e gerenciador de arquivos |
+| Revisão, criação de terminal    | oculta o cartão de inicialização, o menu de adicionar, o painel de comandos e as entradas relacionadas em «Fechados recentemente»; oculta o botão de criação de terminal na parte inferior | mantém as entradas originais |
+| Painéis já abertos              | revisão, abas de terminal e o terminal na parte inferior continuam sendo exibidos, alternados, usados e fechados; a aba ativa atual não muda | igual à esquerda |
 
-外部打开方式的模式过滤仅覆盖顶部“打开”按钮，并遵循既有 SSH/WSL/Docker 可用性限制。模式变化不覆盖已保存的外部应用偏好。回答里的文件链接右键菜单与左侧栏文件树右键菜单均保留完整的可用外部应用，不按通用/编程模式过滤。
+O filtro de modo das formas de abertura externa cobre apenas o botão «Abrir» da barra superior e respeita as limitações de disponibilidade já existentes de SSH/WSL/Docker. A mudança de modo não sobrescreve a preferência salva de aplicativo externo. O menu de contexto dos links de arquivo na resposta e o menu de contexto da árvore de arquivos da barra lateral mantêm a lista completa de aplicativos externos disponíveis, sem filtro por Modo Geral/Programação.
 
-Read/Search/Browser/MCP 等其他工具未统一简化。手动压缩措辞保持原状。切换模式不删除或改写原始工具结果、思考文本和代码换行设置。
+Outras ferramentas como Read/Search/Browser/MCP não foram simplificadas de forma unificada. A formulação da compressão manual permanece como era. Trocar de modo não apaga nem reescreve os resultados originais das ferramentas, os textos de pensamento ou a configuração de quebra de linha do código.
 
-## 状态归属与迁移
+## Propriedade do estado e migração
 
 ```text
-设置页 / 头像菜单
+Página de configurações / menu do avatar
     -> ZCodeStore.setInterfaceMode
         -> localStorage: zcode-interface-mode
-        -> state:interfaceMode 广播 -> 其他窗口 setter（抑制回声）
-        -> 共享 UI 的展示 / 新建入口
+        -> broadcast state:interfaceMode -> setters das outras janelas (eco suprimido)
+        -> exibição / entradas de criação da UI compartilhada
 
-useAppPanels / taskSidePaneMemory -> 已打开标签、选中项、折叠状态（模式不改写）
-Terminal / TerminalSession      -> 终端会话、PTY（模式不关闭）
-CLI/runtime -> 原始事件与任务状态（模式不参与）
+useAppPanels / taskSidePaneMemory -> abas abertas, item selecionado, estado de colapso (o modo não reescreve)
+Terminal / TerminalSession      -> sessões de terminal, PTY (o modo não fecha)
+CLI/runtime -> eventos originais e estado das tasks (o modo não participa)
 ```
 
-- 值为 `general` / `coding`。未设置或未知值默认 `coding`，旧 `concise` 迁移为 `general`，旧 `professional` 归一为 `coding`。
-- Desktop 与 Web 共用 UI；Desktop 的偏好通过现有广播同步，Web 可使用现有 no-op 广播。不会引入新的服务端偏好或任务配置。
-- workspace 身份仍使用 `workspaceIdentity?.trim() || workspacePath`。模式切换不改变远程连接、owner 或任务作用域。
-- Desktop continuous 与手机 Web replayable 链路保持原有边界，不新增恢复消息或 runtime 状态。
-- 独立 Dev 实例设置服务遵循显式 `ZCODE_DESKTOP_HOME_DIR`；未设置时保留 HOME / USERPROFILE / homedir 回退，避免外观操作写到其他实例。
+- Os valores são `general` / `coding`. Valor não definido ou desconhecido tem padrão `coding`; o antigo `concise` é migrado para `general` e o antigo `professional` é normalizado para `coding`.
+- Desktop e Web compartilham a UI; a preferência do Desktop é sincronizada pelo broadcast existente, e o Web pode usar o broadcast no-op existente. Nenhuma nova preferência de servidor ou configuração de task será introduzida.
+- A identidade do workspace continua usando `workspaceIdentity?.trim() || workspacePath`. A troca de modo não altera conexão remota, owner nem escopo de task.
+- As cadeias Desktop continuous e Web replayable do celular mantêm as fronteiras originais, sem novas mensagens de recuperação nem estado de runtime.
+- O serviço de configurações da instância Dev independente segue o `ZCODE_DESKTOP_HOME_DIR` explícito; quando não definido, mantém o fallback HOME / USERPROFILE / homedir, evitando que operações de aparência sejam escritas em outra instância.
 
-## 提交前覆盖
+## Cobertura antes do commit
 
-验收用例与覆盖状态见 [通用/编程模式验证](../testing/general-coding-mode-verification.md)。目前只声明实际执行过的验证；pending E2E 不等于已进入 CI 或 Docker suite。
+Os casos de aceitação e o status de cobertura estão em [Verificação do Modo Geral/Programação](../testing/general-coding-mode-verification.md). Atualmente apenas as verificações realmente executadas são declaradas; um E2E pending não significa entrada no CI ou na Docker suite.

@@ -1,24 +1,24 @@
-# Todo 49：手填按量 API 与 Coding Plan 凭据边界切换
+# Todo 49: troca da fronteira de credenciais entre API de pagamento por uso e Coding Plan digitados manualmente
 
-> 状态：已完成
+> Estado: concluído
 >
-> 日期：2026-08-31
+> Data: 2026-08-31
 >
-> 前置证据：[`todo-48-account-api-and-manual-api-key-boundary-cleanup.md`](./todo-48-account-api-and-manual-api-key-boundary-cleanup.md)
+> Evidência prévia: [`todo-48-account-api-and-manual-api-key-boundary-cleanup.md`](./todo-48-account-api-and-manual-api-key-boundary-cleanup.md)
 
-## 1. 目标
+## 1. Objetivo
 
-撤销 Provider 重构中没有 staging 产品依据的“Account API Provider”，恢复 staging 已有的产品语义：
+Reverter o “Account API Provider” introduzido no refactor de Provider sem base de produto em staging, restaurando a semântica de produto que já existia em staging:
 
 ```text
-Family 按量 API
+API de pagamento por uso da Family
 └─ zai-api / bigmodel-api
    ├─ access.type = api-key
    ├─ group = zai-family / bigmodel-family
-   ├─ Built-in enabled = true（固定加入 Family 配置）
-   ├─ 用户手填 API Key
-   ├─ Built-in 提供 Endpoint / API Schema / models
-   └─ Personal 保存 Key 和允许的 Overlay
+   ├─ Built-in enabled = true (fixo na configuração da Family)
+   ├─ usuário digita a API Key manualmente
+   ├─ Built-in fornece Endpoint / API Schema / models
+   └─ Personal guarda a Key e os Overlays permitidos
 
 Account Provider
 ├─ Start Plan
@@ -27,15 +27,14 @@ Account Provider
 └─ Off-Peak
 ```
 
-Coding Plan 为执行模型请求而自动取得项目 Key 的能力继续保留，但只属于 Coding Plan 的内部请求鉴权，不得再被解释为
-“账号按量 API”。
+A capacidade do Coding Plan de obter automaticamente a Key do projeto para executar requisições ao modelo continua existindo, mas pertence apenas à autenticação interna de requisições do Coding Plan e não pode mais ser interpretada como “API de conta com pagamento por uso”.
 
-## 2. 唯一凭据链
+## 2. Cadeia única de credenciais
 
-### 2.1 按量 API
+### 2.1 API de pagamento por uso
 
 ```text
-用户手填 Key
+Key digitada pelo usuário
       |
       v
 Personal Provider Config
@@ -44,184 +43,176 @@ Personal Provider Config
 Effective access.type = api-key
       |
       v
-ModelFactory / Adapter 直接使用该 Key
+ModelFactory / Adapter usa diretamente essa Key
 ```
 
-- Provider 身份固定为 `zai-api` / `bigmodel-api`；
-- 两者分别固定占据 `zai-family` / `bigmodel-family` 的“按量 API”槽位，不进入普通“添加供应商”候选；
-- Built-in `enabled=true`，不向用户提供 Provider 启停按钮；缺少 Key 只表示配置不完整、不可执行；
-- 不动态创建自定义 Provider；
-- 不复制 Built-in Endpoint、Schema 或模型成员到 Personal Config；
-- Family 连接选择可以继续使用 `kind: "api-key"`，但必须引用上述普通 API Provider；
-- 不进入 Account Overlay、Account Request Auth 或 Coding Plan entitlement 链。
+- A identidade de Provider é fixada em `zai-api` / `bigmodel-api`;
+- Ambas ocupam respectivamente o slot de “API de pagamento por uso” de `zai-family` / `bigmodel-family` e não entram como candidatas do fluxo comum “adicionar provedor”;
+- Built-in `enabled=true`, sem botão de ativação/desativação de Provider para o usuário; a ausência de Key significa apenas configuração incompleta e não executável;
+- Nenhum Provider customizado é criado dinamicamente;
+- Endpoint, Schema ou membros de modelo do Built-in não são copiados para o Personal Config;
+- A seleção de conexão da Family pode continuar usando `kind: "api-key"`, mas precisa referenciar o Provider de API comum acima;
+- Não entra nas cadeias de Account Overlay, Account Request Auth ou Coding Plan entitlement.
 
 ### 2.2 Coding Plan
 
 ```text
-当前登录账号
+conta atualmente autenticada
       |
       +--> Individual Coding Plan
-      |       `--> 根据个人 organization/project 查找或创建项目 Key
+      |       `--> procura ou cria a Key de projeto com base na organization/project pessoal
       |
       +--> Team Coding Plan
-      |       `--> 根据所选 organization/project 取得团队项目 Key
+      |       `--> obtém a Key de projeto da equipe com base na organization/project escolhida
       |
       +--> Start Plan
-      |       `--> 使用 Start Plan JWT
+      |       `--> usa o JWT do Start Plan
       |
       `--> Off-Peak
-              `--> 使用当前兼容 Coding Plan 连接的请求材料
+              `--> usa o material de requisição da conexão Coding Plan compatível atual
 ```
 
-- 用户不填写 Coding Plan 项目 Key；
-- 自动取得的 Key 不进入 Personal Provider Config；
-- Individual 继续从当前账号发现个人 organization/project，再查找或创建个人项目 Key；
-- Team 继续使用已经选择并校验的 `organizationId/projectId` 取得团队项目 Key；
-- 两路可以共享底层项目 Key API，但不能共享身份发现、缓存键或凭据 Owner；
-- 相关 Resolver 按真实职责命名，避免 `AccountProviderApiKeyResolver` 再次被误用于普通 `api-key` Provider；
-- 不增加策略对象或新的通用 Access 抽象，使用现有 `zhipu-account` Mode 分派即可。
+- O usuário não preenche a Key de projeto do Coding Plan;
+- A Key obtida automaticamente não entra no Personal Provider Config;
+- O Individual continua descobrindo a organization/project pessoal a partir da conta atual e então procura ou cria a Key de projeto pessoal;
+- O Team continua usando o `organizationId/projectId` já escolhido e validado para obter a Key de projeto da equipe;
+- Os dois caminhos podem compartilhar a API subjacente de Key de projeto, mas não podem compartilhar descoberta de identidade, chave de cache ou Owner da credencial;
+- Os Resolvers são nomeados pela responsabilidade real, evitando que `AccountProviderApiKeyResolver` volte a ser usado por engano em um Provider `api-key` comum;
+- Não é criado nenhum objeto de política nem uma nova abstração genérica de Access; basta usar o dispatch de Mode `zhipu-account` já existente.
 
-## 3. Config 与 Registry 修改
+## 3. Mudanças em Config e Registry
 
-1. 从 ZCode Built-in Config 删除：
-   - `account:zai-api-key`；
-   - `account:bigmodel-api-key`。
-2. 从 `ZhipuAccountMode` 删除 `api-key`；`zhipu-account` 只保留真实账号产品 Mode。
-3. 保留 `zai-api` / `bigmodel-api`，将其 group 分别从 `standard-builtin` 改为 `zai-family` / `bigmodel-family`，
-   并让它们成为各自 Family 唯一的按量 API Provider。
-4. 两个 Family 按量 API Provider 在 Built-in 中固定 `enabled=true`。Built-in 继续拥有固定 Endpoint、API Schema、
-   模型成员和默认顺序；Personal 只保存 Key 及允许的稀疏覆盖，不保存 Family Provider 排序，也不以
-   `enabled=false` 表达 Key 缺失。
-5. Family `kind=api-key` 选择解析到普通 API Provider；Account Resolver 不再枚举或投影 API Key Mode。
-6. Registry 中同一 Family 不得再出现两份 Endpoint、Schema、models 相同、只因 Access 类型不同而重复的按量 Provider。
-7. Personal Source 继续禁止真正的 `zhipu-account` Provider 覆盖 `access`；普通 `api-key` Provider 正常允许保存 Key。
+1. Remover do Built-in Config da ZCode:
+   - `account:zai-api-key`;
+   - `account:bigmodel-api-key`.
+2. Remover `api-key` de `ZhipuAccountMode`; `zhipu-account` passa a guardar apenas os Modes de produto de conta reais.
+3. Manter `zai-api` / `bigmodel-api`, mudando seus groups de `standard-builtin` para `zai-family` / `bigmodel-family`,
+   e fazendo deles o único Provider de API de pagamento por uso de cada Family.
+4. Os dois Providers de API de pagamento por uso das Families têm `enabled=true` fixo no Built-in. O Built-in continua possuindo Endpoint fixo, API Schema,
+   membros de modelo e ordem padrão; o Personal guarda apenas a Key e os overrides esparsos permitidos, não guarda a ordenação de Provider da Family nem expressa Key ausente com `enabled=false`.
+5. A seleção `kind=api-key` da Family resolve para o Provider de API comum; o Account Resolver não enumera mais API Key Mode nem o projeta.
+6. No Registry, a mesma Family não pode mais apresentar dois Providers de pagamento por uso duplicados, com Endpoint, Schema e models idênticos e apenas tipo de Access diferente.
+7. O Personal Source continua proibindo que um Provider `zhipu-account` real sobrescreva `access`; um Provider `api-key` comum pode normalmente guardar a Key.
 
-### 3.1 统一的 Settings 与 Registry 语义
+### 3.1 Semântica unificada de Settings e Registry
 
-三类 Provider 不建立三套“启用 UI”。Provider `enabled` 只表达是否加入当前配置；Account 套餐资格由
-`access.entitled` 表达。两者进入同一份 Effective Provider Config 后，由 Settings 与 Registry 并列消费：
+As três categorias de Provider não estabelecem três “UIs de ativação” distintas. O `enabled` do Provider expressa apenas se ele entra na configuração atual; a elegibilidade de pacote da conta é expressa por `access.entitled`. Depois de entrarem na mesma Effective Provider Config, Settings e Registry a consomem em par:
 
 ```text
 Effective Provider Config
 ├─ enabled
 ├─ visibility
-└─ access.entitled（仅 zhipu-account）
+└─ access.entitled（apenas zhipu-account）
         |
-        +--> Settings：enabled 决定普通 Built-in 位于主列表还是添加菜单
+        +--> Settings：enabled decide se um Built-in comum fica na lista principal ou no menu de adição
         |
         `--> Registry：enabled + access entitlement + complete + model enabled
 ```
 
-- 普通 Built-in 的 Built-in `enabled=false`，添加时由 Personal Overlay 明确写 `enabled=true`；Family 按量 API 与
-  Account Provider 的 Built-in `enabled=true`，固定属于 Family；
-- 缺少 API Key 或其他配置材料不改写 `enabled`；
-- Account Overlay 不再改写 Provider 顶层 `enabled`，只更新 `access.entitled`；
-- Provider 设置页不提供通用手动启停按钮。用户补齐相应访问材料后，由同一个 Resolver 自然使 Provider 进入 Registry。
+- Um Built-in comum com `enabled=false` no Built-in recebe `enabled=true` explicitamente via Personal Overlay no momento da adição; a API de pagamento por uso das Families e o Account Provider têm `enabled=true` no Built-in e pertencem fixamente à Family;
+- A ausência de API Key ou de outro material de configuração não reescreve `enabled`;
+- O Account Overlay não reescreve mais o `enabled` de topo do Provider, apenas atualiza `access.entitled`;
+- A página de settings do Provider não oferece um botão genérico de ativar/desativar manualmente. Depois que o usuário completa o material de acesso correspondente, o mesmo Resolver coloca o Provider no Registry de forma natural.
 
-## 4. Services 与 Runtime 修改
+## 4. Mudanças em Services e Runtime
 
-1. Account Provider Connection Resolver 删除 `mode=api-key` availability、账号身份检查和动态 Key 加载分支。
-2. Account Request Auth 删除 `planKind=api-key` 分支，只处理 Start、Individual、Team 与 Off-Peak 所需动态材料。
-3. 将当前过宽的 API Key Resolver 收窄为 Coding Plan 职责：
-   - Individual 使用个人项目 Key；
-   - Team 继续使用所选团队项目 Key；
-   - 普通按量 API 永远不调用它。
-4. Welcome 和 Provider Settings 保存的手填 Key只进入 `zai-api` / `bigmodel-api` Personal Overlay。
-5. 删除通过手填 Key恢复 Account Provider enabled 的旧 helper、保存分支和相反测试。
-6. 不改变 Start JWT、Team scope、Off-Peak 执行、官方版本请求安全校验或最终服务端授权语义。
-   删除 `zhipu-account/mode=api-key` 前后，`zai-api` / `bigmodel-api` 真实请求的 V4 行为必须保持等价；不得因为
-   删除错误 Provider 身份而静默删除已有签名，也不得把 V4 扩散给其他普通 `api-key` Provider。实施时先以现有
-   Adapter 行为和请求测试固定该边界，再将静态准入迁到正确的 Family 按量 API 身份。
+1. O Account Provider Connection Resolver remove a disponibilidade de `mode=api-key`, a verificação de identidade de conta e o ramo de carregamento dinâmico de Key.
+2. O Account Request Auth remove o ramo `planKind=api-key` e passa a tratar apenas o material dinâmico necessário para Start, Individual, Team e Off-Peak.
+3. Estreitar o Resolver de API Key hoje amplo para a responsabilidade de Coding Plan:
+   - Individual usa a Key de projeto pessoal;
+   - Team continua usando a Key do projeto de equipe escolhido;
+   - A API de pagamento por uso comum nunca o chama.
+4. A Key digitada manualmente e salva pelo Welcome e pelos Provider Settings só entra no Personal Overlay de `zai-api` / `bigmodel-api`.
+5. Remover o helper antigo que reativa um Account Provider a partir de uma Key digitada, os ramos de salvamento correspondentes e os testes contrários.
+6. Não alterar a semântica de segurança das requisições da versão oficial, do Start JWT, do escopo de Team, da execução de Off-Peak ou da autorização final do servidor.
+   Antes e depois de remover `zhipu-account/mode=api-key`, o comportamento V4 das requisições reais de `zai-api` / `bigmodel-api` precisa permanecer equivalente; não é permitido remover silenciosamente assinaturas existentes por causa da remoção de uma identidade de Provider errada, nem espalhar o V4 para outros Providers `api-key` comuns. Na implementação, primeiro fixar essa fronteira com o comportamento atual do Adapter e os testes de requisição, e só então migrar a admissão estática para a identidade correta de API de pagamento por uso da Family.
 
-## 5. UI 修改
+## 5. Mudanças na UI
 
-Provider 设置页只读取 Effective Provider Config 的 `access.type` 决定访问配置界面：
+A página de settings de Provider lê apenas o `access.type` da Effective Provider Config para decidir a interface de configuração de acesso:
 
 ```text
 access.type = api-key
-└─ 展示 API Key 输入、管理入口和普通 Provider 模型配置
+└─ mostra a entrada de API Key, a entrada de gerenciamento e a configuração de modelos do Provider comum
 
 access.type = zhipu-account
-└─ 展示账号连接、套餐、额度和相应产品状态
+└─ mostra a conexão da conta, o pacote, a cota e o estado de produto correspondente
 ```
 
-- 不新增 `hideApiKeySection`、`readOnlyEndpoints` 等重复表达 Access 的页面布尔参数；
-- Family 菜单中的 `kind=api-key` 用户文案统一为“按量 API”；
-- 选择“按量 API”后展示手填 Key 界面；
-- `zai-api` / `bigmodel-api` 不出现在“添加供应商”菜单；
-- Account Individual/Team 页面继续隐藏 Endpoint、API Schema 和账号凭据，但模型列表与模型配置保持可编辑；
-- Welcome 的 API Key 入口与设置页使用同一 Provider 身份和保存原语。
+- Não criar parâmetros booleanos de página duplicando a expressão de Access, como `hideApiKeySection` ou `readOnlyEndpoints`;
+- O texto de usuário para `kind=api-key` no menu da Family é unificado como “API de pagamento por uso”;
+- Após escolher “API de pagamento por uso”, mostrar a interface de Key digitada manualmente;
+- `zai-api` / `bigmodel-api` não aparecem no menu “adicionar provedor”;
+- As páginas de conta Individual/Team continuam ocultando Endpoint, API Schema e credenciais da conta, mas a lista de modelos e a configuração de modelos continuam editáveis;
+- A entrada de API Key do Welcome e a página de settings usam a mesma identidade de Provider e a mesma primitiva de salvamento.
 
-Model Config 的编辑权限不由 Personal Model Config Rule 决定。Rule 只是用户修改后的稀疏持久化结果：所有设置页允许
-编辑的 Built-in/Personal Model 都通过相同 Personal Rule 保存覆盖；模型成员能否改名或删除则由成员来源决定，
-Builtin Model ID 只读且不能删除。
+O direito de edição do Model Config não é determinado pela Personal Model Config Rule. A Rule é apenas o resultado de persistência esparsa depois de uma modificação do usuário: todos os modelos Built-in/Personal editáveis nas páginas de settings são salvos pelo mesmo Personal Rule como override; já a possibilidade de renomear ou remover um membro de modelo é determinada pela origem do membro, e um Builtin Model ID é somente leitura e não pode ser removido.
 
-## 6. 清理范围
+## 6. Escopo de limpeza
 
-- `account:zai-api-key` / `account:bigmodel-api-key` 常量、Fixture、迁移特例和测试；
-- `zhipu-account / mode=api-key` Schema、Protocol、Resolver、Runtime 与 Design 描述；
-- Account Provider 的手填 Key persistence；
-- `restoreFamilyApiKeyProviderForApiKeyMode` 及其调用方；
-- UI 中按 Family/Provider ID 猜测 Key 展示的条件；
-- 把 Coding Plan 项目 Key 错称为 Account API Key 的类名、注释和日志；
-- Todo 26、Provider Settings Design、Access Protocol Design、Feature Graph 中的错误结论。
+- Constantes, Fixtures, casos especiais de migração e testes de `account:zai-api-key` / `account:bigmodel-api-key`;
+- Schema, Protocol, Resolver, Runtime e descrições de design de `zhipu-account / mode=api-key`;
+- Persistência de Key digitada manualmente do Account Provider;
+- `restoreFamilyApiKeyProviderForApiKeyMode` e seus chamadores;
+- Condições na UI que adivinham a exibição da Key por Family/Provider ID;
+- Nomes de classe, comentários e logs que chamam a Key de projeto do Coding Plan de Account API Key;
+- Conclusões erradas no Todo 26, no Provider Settings Design, no Access Protocol Design e no Feature Graph.
 
-## 7. 测试计划
+## 7. Plano de testes
 
 ### Config / Provider
 
-- Built-in 只包含 `zai-api` / `bigmodel-api` 两个 Family 按量 Provider；
-- 两者使用对应 Family group、Built-in `enabled=true`，且不进入 `addableProviders`；
-- `ZhipuAccountMode` 拒绝 `api-key`；
-- 普通 API Provider Personal Key Overlay、JSON round-trip 和完整性校验；
-- Account Personal `access` 越权仍被拒绝；
-- 同一 Family 不存在重复按量 Provider。
+- O Built-in contém apenas os dois Providers de pagamento por uso de Family, `zai-api` / `bigmodel-api`;
+- Ambos usam o group da Family correspondente, `enabled=true` no Built-in e não entram em `addableProviders`;
+- `ZhipuAccountMode` rejeita `api-key`;
+- Personal Key Overlay de Provider de API comum, round-trip de JSON e validação de completude;
+- `access` de Personal da conta continua sendo rejeitado quando extrapola a permissão;
+- Não existe Provider de pagamento por uso duplicado na mesma Family.
 
 ### Services / Runtime
 
-- Family `kind=api-key` 精确选择普通 API Provider；
-- 手填 Key 原样进入 Active Model，不调用 Account Request Auth；
-- Individual Coding Plan 自动取得个人项目 Key；
-- Team Coding Plan 使用所选团队项目 Key；
-- Start 使用 JWT；Off-Peak 使用当前兼容套餐材料；
-- 未登录不影响已配置的手填按量 Provider；手填 Key 也不能伪造 Coding Plan 可用状态。
+- `kind=api-key` da Family seleciona com precisão o Provider de API comum;
+- A Key digitada manualmente vai direto ao Active Model, sem chamar o Account Request Auth;
+- O Individual Coding Plan obtém automaticamente a Key de projeto pessoal;
+- O Team Coding Plan usa a Key do projeto de equipe escolhido;
+- O Start usa JWT; o Off-Peak usa o material do pacote compatível atual;
+- Não estar autenticado não afeta um Provider de pagamento por uso já configurado; e uma Key digitada manualmente também não pode forjar um estado de disponibilidade do Coding Plan.
 
 ### UI / E2E
 
-- Welcome 输入 Z.ai/BigModel Key 后进入对应 Built-in API Provider；
-- Family“按量 API”显示手填 Key，保存后模型可选并能发送请求；
-- Key 为空时 Provider 仍可见且保持 enabled，但不进入 Registry；清空 Key 不自动停用 Provider；
-- Individual/Team/Start 不显示手填 Key；
-- Family 切换不会复制 Key、重复 Provider 或污染 Account Selection；
-- Desktop、Web 与手机远控的模型候选和选择身份一致。
+- Após digitar a Key da Z.ai/BigModel no Welcome, entra no Built-in API Provider correspondente;
+- A “API de pagamento por uso” da Family mostra a Key digitada manualmente e, depois de salva, o modelo fica selecionável e consegue enviar requisições;
+- Com a Key vazia o Provider continua visível e habilitado, mas não entra no Registry; limpar a Key não desativa o Provider automaticamente;
+- Individual/Team/Start não exibem a Key digitada manualmente;
+- Trocar de Family não copia Key, não duplica Provider e não polui o Account Selection;
+- Candidatos de modelo e identidade de seleção são consistentes entre Desktop, Web e controle remoto do celular.
 
-### 机械验证
+### Verificação mecânica
 
-- `rg` / `dep:refs` 证明被删除 Provider ID、Mode 和旧 helper 零残留；
-- 相关 Provider、Services、UI 单测；
-- 受影响 Desktop E2E；
-- `pnpm typecheck`；
-- `pnpm lint`；
-- 格式检查与 `git diff --check`。
+- `rg` / `dep:refs` provam resíduo zero dos IDs de Provider removidos, do Mode antigo e do helper antigo;
+- Testes unitários dos Providers, Services e UI afetados;
+- E2E de desktop afetados;
+- `pnpm typecheck`;
+- `pnpm lint`;
+- Verificação de formatação e `git diff --check`.
 
-## 8. 完成标准
+## 8. Critérios de conclusão
 
-- Family 按量 API 与 Account 套餐访问不再共享错误 Access 语义；
-- 手填 Key、Coding Plan 项目 Key、Team 项目 Key和 Start JWT 各有唯一 Owner 与唯一请求链；
-- Config、Registry、Runtime、UI 和文档中不存在 Account API Provider 幻象；
-- `zai-api` / `bigmodel-api` 固定归属 Family 且不进入普通添加供应商流程；
-- 没有为修复新增第二套 Access DTO、页面权限矩阵或凭据中心；
-- 测试、Review 和机械清理完成后提交 Conventional Commit。
+- A API de pagamento por uso da Family e o acesso a pacotes de conta não compartilham mais uma semântica de Access errada;
+- Key digitada manualmente, Key de projeto do Coding Plan, Key de projeto de Team e Start JWT têm cada um um Owner único e uma cadeia de requisição única;
+- Não existe a ilusão de um Account API Provider em Config, Registry, Runtime, UI e documentação;
+- `zai-api` / `bigmodel-api` ficam fixamente pertencendo à Family e não entram no fluxo comum de adicionar provedor;
+- Nenhum segundo conjunto de DTO de Access, matriz de permissões de página ou central de credenciais foi criado para corrigir isso;
+- Após a conclusão de testes, review e limpeza mecânica, submeter um Conventional Commit.
 
-## 9. 实施结果与验证
+## 9. Resultado da implementação e verificação
 
-- `account:zai-api-key`、`account:bigmodel-api-key` 及 `zhipu-account / mode=api-key` 已从 Built-in、Schema、
-  Protocol、Resolver、UI、Fixture 与模型规则中删除。
-- `zai-api`、`bigmodel-api` 成为两个 Family 唯一的“按量 API”配置；两者固定出现在 Family 设置入口，
-  使用 `access.type=api-key` 和 Personal API Key，不再进入普通“添加供应商”目录。
-- Account Start、Individual、Team、Off-Peak 只走账号访问材料；Account 页面根据 Effective
-  `access.type=zhipu-account` 隐藏 Endpoint、API Schema 与手填 Key，模型配置仍使用统一 Personal Model Rule。
-- Welcome API Key 与设置页共同使用真实 Family API Provider 身份；Coding Plan 项目 Key 的自动获取仍只属于
-  Coding Plan 请求期凭据链。
-- Built-in 完整性、Access Schema、Account/手填 Key Runtime、登录与设置页定向测试通过；机械扫描确认虚构
-  Provider ID、旧 Mode 和恢复 helper 在生产代码中零残留。
+- `account:zai-api-key`, `account:bigmodel-api-key` e `zhipu-account / mode=api-key` foram removidos do Built-in, do Schema,
+  do Protocol, do Resolver, da UI, dos Fixtures e das regras de modelo.
+- `zai-api` e `bigmodel-api` passaram a ser a única configuração de “API de pagamento por uso” das duas Families; ambos aparecem
+  de forma fixa na entrada de settings da Family, usam `access.type=api-key` e Personal API Key, e não entram mais no catálogo comum “adicionar provedor”.
+- Account Start, Individual, Team e Off-Peak usam somente material de acesso de conta; as páginas de Account ocultam Endpoint, API Schema e
+  Key digitada manualmente conforme o Effective `access.type=zhipu-account`, e a configuração de modelos segue usando a Personal Model Rule unificada.
+- A API Key do Welcome e a página de settings compartilham a identidade real do Family API Provider; a obtenção automática da Key de
+  projeto do Coding Plan continua pertencendo apenas à cadeia de credenciais da fase de requisição do Coding Plan.
+- Integridade do Built-in, Access Schema, Runtime de conta/Key manual e os testes direcionados de login e da página de settings passaram; a varredura mecânica confirma resíduo zero de IDs de Provider fictícios, do Mode antigo e do helper de restauração no código de produção.

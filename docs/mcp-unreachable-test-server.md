@@ -1,12 +1,12 @@
-# MCP 默认不可连接测试 Server
+# MCP: servidor de teste inacessível por padrão
 
-## 背景
+## Contexto
 
-MCP 设置页打开开关后，曾出现不可连接 server 初始显示为绿色，随后真实连接失败才变红的状态流转。为了稳定复现该问题，需要默认启用、但不会连通的 ZCode Agent MCP server，分别覆盖 HTTP 连接失败和 STDIO 进程启动失败。
+Após ligar o interruptor na página de configurações de MCP, houve casos em que um server inacessível aparecia inicialmente em verde e só ficava vermelho depois que a conexão real falhava. Para reproduzir o problema de forma estável, são necessários servidores MCP do ZCode Agent habilitados por padrão, mas que nunca conseguirão se conectar, cobrindo respectivamente falha de conexão HTTP e falha de inicialização de processo STDIO.
 
-## 配置位置
+## Local da configuração
 
-测试配置写入用户级 ZCode Agent MCP 配置：
+A configuração de teste é gravada na configuração de MCP do ZCode Agent em nível de usuário:
 
 ```json
 {
@@ -28,18 +28,18 @@ MCP 设置页打开开关后，曾出现不可连接 server 初始显示为绿�
 }
 ```
 
-说明：
+Explicação:
 
-- 不写 `enable: false`，保持默认启用，用于观察初始状态和连接失败后的状态变化。
-- HTTP 测试项使用 `127.0.0.1:9`，请求只落在本机回环地址，不访问外网。
-- STDIO 测试项使用不存在的命令名，预期触发进程启动失败。
-- 如果本机端口 9 被占用，需要把 HTTP 测试项换成另一个未监听的本机端口。
+- Não gravar `enable: false`, mantendo o padrão habilitado, para observar o estado inicial e a mudança de estado após a falha de conexão.
+- O item de teste HTTP usa `127.0.0.1:9`, de modo que a requisição só atinge o endereço de loopback local, sem acesso à rede externa.
+- O item de teste STDIO usa um nome de comando inexistente, com o objetivo de disparar uma falha de inicialização de processo.
+- Se a porta 9 estiver ocupada na máquina, troque o item de teste HTTP por outra porta local sem listener.
 
-## 预期验证
+## Verificação esperada
 
-1. 启动桌面端后打开 Settings -> MCP Servers。
-2. `zcode-unreachable-http-test` 和 `zcode-unreachable-stdio-test` 应出现在 ZCode Agent MCP 列表中。
-3. 打开任一 server 开关或刷新 MCP 状态时，不应长期保持绿色 connected。
-4. 真实连接完成后应展示 failed/error，并保留错误信息；STDIO 测试项的错误应指向命令无法启动或找不到。
+1. Depois de iniciar o desktop, abra Settings -> MCP Servers.
+2. `zcode-unreachable-http-test` e `zcode-unreachable-stdio-test` devem aparecer na lista de MCP do ZCode Agent.
+3. Ao ligar o interruptor de qualquer server ou atualizar o status do MCP, ele não deve permanecer verde como connected por muito tempo.
+4. Depois que a conexão real terminar, deve ser exibido failed/error, com a mensagem de erro preservada; o erro do item de teste STDIO deve apontar que o comando não pôde ser iniciado ou não foi encontrado.
 
-该配置只用于本地诊断，不应作为默认产品配置下发。
+Essa configuração serve apenas para diagnóstico local e não deve ser distribuída como configuração padrão de produto.

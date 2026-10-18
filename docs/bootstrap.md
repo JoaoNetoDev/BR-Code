@@ -1,8 +1,7 @@
-# Bootstrap 命令
+# Comando Bootstrap
 
-`pnpm bootstrap` 是默认本地初始化入口。它会先拉取 `apps/zcode-cli` submodule，再安装依赖、准备 desktop 本地 runtime 资源，并执行 bootstrap 构建；默认不准备 remote `mock-cdn` 资源。
+`pnpm bootstrap` é a entrada padrão de inicialização local. Ele primeiro obtém o submodule `apps/zcode-cli`, depois instala as dependências, prepara os recursos de runtime local do desktop e executa o build de bootstrap; por padrão não prepara os recursos remotos `mock-cdn`.
 
-`pnpm bootstrap:with-remote` 保留远程调试需要的完整初始化流程。它会先拉取 `apps/zcode-cli` submodule，再安装依赖、准备 desktop 本地 runtime 资源、准备 remote `mock-cdn` 资源，并执行 bootstrap 构建。
+`pnpm bootstrap:with-remote` mantém o fluxo completo de inicialização necessário para a depuração remota. Ele primeiro obtém o submodule `apps/zcode-cli`, depois instala as dependências, prepara os recursos de runtime local do desktop, prepara os recursos remotos `mock-cdn` e executa o build de bootstrap.
 
-如只需要单独准备 remote 资源，可以执行 `pnpm prepare:remote-assets`。
-
+Se for necessário apenas preparar os recursos remotos separadamente, execute `pnpm prepare:remote-assets`.

@@ -2,26 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move Bot runtime state and model cache to `bot-state.v2.json` and `bots-model-cache.v2.json`, migrating old files read-only and using `config.json` provider data as the model cache authority.
+**Objetivo:** Mover o estado de runtime do Bot e o cache de modelos para `bot-state.v2.json` e `bots-model-cache.v2.json`, migrando os arquivos antigos em modo somente-leitura e usando os dados de provider do `config.json` como autoridade do cache de modelos.
 
-**Architecture:** Keep file-name/version fallback in the repo layer, keep provider/model matching in pure migration helpers, and let `createBotsService` run one lazy storage migration before state/cache reads are trusted. Old files are never written by the new code path.
+**Arquitetura:** Manter o fallback de nome-de-arquivo/versão na camada de repo, manter o casamento de provider/modelo em helpers de migração puros, e deixar `createBotsService` executar uma única migração preguiçosa de storage antes que as leituras de estado/cache sejam consideradas confiáveis. Os arquivos antigos nunca são escritos pelo novo caminho de código.
 
-**Tech Stack:** TypeScript, Zod schemas, Vitest, existing `@zcode/shared` bot/model-provider types, service logger via `createServiceLogger`.
+**Stack técnico:** TypeScript, schemas Zod, Vitest, tipos existentes de bot/model-provider do `@zcode/shared`, logger de serviço via `createServiceLogger`.
 
 ---
 
-### Task 1: Add V2 File Names And Repo Metadata
+### Task 1: Adicionar nomes de arquivo V2 e metadados de repo
 
-**Files:**
-- Modify: `packages/services/src/bots/config.ts`
-- Modify: `packages/services/src/bots/repo.ts`
-- Modify: `packages/services/src/bots/modelCacheRepo.ts`
-- Test: `packages/services/test/botsRepo.test.ts`
-- Test: `packages/services/test/botsModelCacheRepo.test.ts`
+**Arquivos:**
+- Modificar: `packages/services/src/bots/config.ts`
+- Modificar: `packages/services/src/bots/repo.ts`
+- Modificar: `packages/services/src/bots/modelCacheRepo.ts`
+- Teste: `packages/services/test/botsRepo.test.ts`
+- Teste: `packages/services/test/botsModelCacheRepo.test.ts`
 
-- [ ] **Step 1: Write failing repo tests**
+- [ ] **Passo 1: Escrever testes de repo que falham**
 
-Add `packages/services/test/botsRepo.test.ts`:
+Adicione `packages/services/test/botsRepo.test.ts`:
 
 ```ts
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -97,7 +97,7 @@ describe("BotsRepo", () => {
 });
 ```
 
-Extend `packages/services/test/botsModelCacheRepo.test.ts` with a failing test:
+Estenda `packages/services/test/botsModelCacheRepo.test.ts` com um teste que falha:
 
 ```ts
   it("reads legacy bots-model-cache.json but writes bots-model-cache.v2.json", async () => {
@@ -134,19 +134,19 @@ Extend `packages/services/test/botsModelCacheRepo.test.ts` with a failing test:
   });
 ```
 
-- [ ] **Step 2: Run tests to confirm failure**
+- [ ] **Passo 2: Executar os testes para confirmar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm vitest run packages/services/test/botsRepo.test.ts packages/services/test/botsModelCacheRepo.test.ts
 ```
 
-Expected: tests fail because the repos still write old filenames and model cache version is still `1`.
+Esperado: os testes falham porque os repos ainda gravam os nomes de arquivo antigos e a versão do cache de modelos ainda é `1`.
 
-- [ ] **Step 3: Implement v2 file constants and repo read/write**
+- [ ] **Passo 3: Implementar as constantes de arquivo v2 e a leitura/gravação do repo**
 
-Update `packages/services/src/bots/config.ts`:
+Atualize `packages/services/src/bots/config.ts`:
 
 ```ts
 export const BOTS_CONFIG_FILE = "bot-config.json";
@@ -156,7 +156,7 @@ export const BOTS_LEGACY_MODEL_CACHE_FILE = "bots-model-cache.json";
 export const BOTS_MODEL_CACHE_FILE = "bots-model-cache.v2.json";
 ```
 
-Update `packages/services/src/bots/repo.ts` so `statePath()` points to `BOTS_STATE_FILE`, add `legacyStatePath()`, and make `readState()` parse v2 first, then legacy:
+Atualize `packages/services/src/bots/repo.ts` para que `statePath()` aponte para `BOTS_STATE_FILE`, adicione `legacyStatePath()` e faça `readState()` analisar o v2 primeiro e depois o legado:
 
 ```ts
   private statePath(): string {
@@ -180,7 +180,7 @@ Update `packages/services/src/bots/repo.ts` so `statePath()` points to `BOTS_STA
   }
 ```
 
-Update `packages/services/src/bots/modelCacheRepo.ts` with a v2 schema:
+Atualize `packages/services/src/bots/modelCacheRepo.ts` com um schema v2:
 
 ```ts
 const BOTS_MODEL_CACHE_VERSION = 2;
@@ -205,27 +205,27 @@ const botsModelCacheFileSchema = z
   .strict();
 ```
 
-Add a legacy schema that matches the current `version: 1` shape, normalize it to v2 in `read()`, and keep `write()` pointed only at `BOTS_MODEL_CACHE_FILE`.
+Adicione um schema legado que corresponda ao formato atual `version: 1`, normalize-o para v2 em `read()` e mantenha `write()` apontando apenas para `BOTS_MODEL_CACHE_FILE`.
 
-- [ ] **Step 4: Run repo tests**
+- [ ] **Passo 4: Executar os testes do repo**
 
-Run:
+Execute:
 
 ```bash
 pnpm vitest run packages/services/test/botsRepo.test.ts packages/services/test/botsModelCacheRepo.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-### Task 2: Add Pure Provider/Model Migration Helpers
+### Task 2: Adicionar helpers puros de migração de Provider/Model
 
-**Files:**
-- Create: `packages/services/src/bots/storageMigration.ts`
-- Test: `packages/services/test/botsStorageMigration.test.ts`
+**Arquivos:**
+- Criar: `packages/services/src/bots/storageMigration.ts`
+- Teste: `packages/services/test/botsStorageMigration.test.ts`
 
-- [ ] **Step 1: Write failing migration tests**
+- [ ] **Passo 1: Escrever testes de migração que falham**
 
-Create `packages/services/test/botsStorageMigration.test.ts` with cases for direct match, provider-name remap, ambiguous match, and secret stripping:
+Crie `packages/services/test/botsStorageMigration.test.ts` com casos para correspondência direta, remapeamento por nome de provider, correspondência ambígua e remoção de segredos:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -339,19 +339,19 @@ describe("bot storage migration", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to confirm failure**
+- [ ] **Passo 2: Executar os testes para confirmar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm vitest run packages/services/test/botsStorageMigration.test.ts
 ```
 
-Expected: FAIL because `storageMigration.ts` does not exist.
+Esperado: FAIL porque `storageMigration.ts` não existe.
 
-- [ ] **Step 3: Implement migration helpers**
+- [ ] **Passo 3: Implementar os helpers de migração**
 
-Create `packages/services/src/bots/storageMigration.ts` with:
+Crie `packages/services/src/bots/storageMigration.ts` com:
 
 ```ts
 import {
@@ -387,7 +387,7 @@ export function migrateBotsModelCacheToV2(params: {
 }
 ```
 
-Implement `migrateBotsStateToV2()` to preserve all bot state fields, normalize `draftOptions.provider`, and use a helper `migrateDraftModel()` with this order:
+Implemente `migrateBotsStateToV2()` preservando todos os campos de estado do bot, normalizando `draftOptions.provider` e usando um helper `migrateDraftModel()` com esta ordem:
 
 ```ts
 function migrateDraftModel(params: {
@@ -416,33 +416,34 @@ function migrateDraftModel(params: {
 }
 ```
 
-Include a Chinese comment near the ambiguous-match branch:
+Inclua um comentário perto do ramo de correspondência ambígua:
 
 ```ts
-// Bugfix: 旧 bot-state 里的 providerId 可能来自被迁移前的 provider 快照。
-// 多个新 provider 同时命中时不能猜测，否则会把 Bot 后续请求发到错误供应商。
+// Bugfix: o providerId no bot-state antigo pode vir de um snapshot de provider anterior à migração.
+// Quando vários providers novos casam ao mesmo tempo não é possível adivinhar, senão as requisições
+// subsequentes do Bot seriam enviadas ao fornecedor errado.
 ```
 
-- [ ] **Step 4: Run migration tests**
+- [ ] **Passo 4: Executar os testes de migração**
 
-Run:
+Execute:
 
 ```bash
 pnpm vitest run packages/services/test/botsStorageMigration.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-### Task 3: Wire Migration Into Bot Service Hydration
+### Task 3: Ligar a Migração à Hidratação do Serviço de Bot
 
-**Files:**
-- Modify: `packages/services/src/bots/botsService.ts`
-- Modify: `packages/services/test/botsService.fixtures.ts`
-- Test: `packages/services/test/botsService.config.test.ts`
+**Arquivos:**
+- Modificar: `packages/services/src/bots/botsService.ts`
+- Modificar: `packages/services/test/botsService.fixtures.ts`
+- Teste: `packages/services/test/botsService.config.test.ts`
 
-- [ ] **Step 1: Write failing service-level test**
+- [ ] **Passo 1: Escrever um teste de nível de serviço que falha**
 
-Add a test to `packages/services/test/botsService.config.test.ts` that creates a memory repo with legacy state, a memory cache with legacy provider snapshot, and a model provider service with the new provider id. The test should call `/model` and assert the provider list contains the new provider and the saved state model was remapped.
+Adicione um teste a `packages/services/test/botsService.config.test.ts` que cria um repo em memória com estado legado, um cache em memória com snapshot legado de provider e um serviço de model provider com o novo id de provider. O teste deve chamar `/model` e afirmar que a lista de providers contém o novo provider e que o modelo do estado salvo foi remapeado.
 
 ```ts
 it("migrates bot draft model to current config provider before /model", async () => {
@@ -504,19 +505,19 @@ it("migrates bot draft model to current config provider before /model", async ()
 });
 ```
 
-- [ ] **Step 2: Run focused test to confirm failure**
+- [ ] **Passo 2: Executar o teste focado para confirmar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm vitest run packages/services/test/botsService.config.test.ts -t "migrates bot draft model"
 ```
 
-Expected: FAIL because service hydration does not run storage migration yet.
+Esperado: FAIL porque a hidratação do serviço ainda não executa a migração de storage.
 
-- [ ] **Step 3: Add lazy migration gate in `createBotsService`**
+- [ ] **Passo 3: Adicionar o gate de migração preguiçosa em `createBotsService`**
 
-In `packages/services/src/bots/botsService.ts`, import migration helpers and add:
+Em `packages/services/src/bots/botsService.ts`, importe os helpers de migração e adicione:
 
 ```ts
 let botStorageMigrationPromise: Promise<void> | null = null;
@@ -546,45 +547,46 @@ async function ensureBotStorageMigrated(): Promise<void> {
 }
 ```
 
-Call `await ensureBotStorageMigrated()` at the start of `readContext()`, `writeContext()` does not need it because it only writes the already-normalized v2 state.
+Chame `await ensureBotStorageMigrated()` no início de `readContext()`; `writeContext()` não precisa disso, pois grava apenas o estado v2 já normalizado.
 
-Add a guard to prevent recursion if `refreshModelProviderConfigs()` already calls `ensureModelCacheHydrated()`.
+Adicione uma guarda para evitar recursão caso `refreshModelProviderConfigs()` já chame `ensureModelCacheHydrated()`.
 
-- [ ] **Step 4: Make model cache hydration use current providers on first migration**
+- [ ] **Passo 4: Fazer a hidratação do cache de modelos usar os providers atuais na primeira migração**
 
-In `ensureModelCacheHydrated()`, after reading cache, if the cache came from legacy/default or has no providers, call `deps.modelProviderService?.getAll()` once and persist `migrateBotsModelCacheToV2({ legacyCache, providers, nowMs })`. Keep failure behavior conservative: if provider service is unavailable or fails, seed existing cache and log `warn`.
+Em `ensureModelCacheHydrated()`, após ler o cache, se o cache veio do legado/padrão ou não tiver providers, chame `deps.modelProviderService?.getAll()` uma vez e persista `migrateBotsModelCacheToV2({ legacyCache, providers, nowMs })`. Mantenha o comportamento de falha conservador: se o serviço de provider estiver indisponível ou falhar, semear o cache existente e registrar `warn`.
 
-Include a Chinese comment:
+Inclua um comentário:
 
 ```ts
-// Bugfix: v2 cache 的 provider 快照必须来自 config.json 迁移后的 ModelProviderService。
-// 旧 bots-model-cache.json 只能辅助迁移，不能继续作为 /model 供应商事实源。
+// Bugfix: o snapshot de providers do cache v2 deve vir do ModelProviderService após a migração do config.json.
+// O bots-model-cache.json antigo só pode ajudar na migração; não pode continuar sendo a fonte de verdade
+// de fornecedores para o /model.
 ```
 
-- [ ] **Step 5: Run service-level test**
+- [ ] **Passo 5: Executar o teste de nível de serviço**
 
-Run:
+Execute:
 
 ```bash
 pnpm vitest run packages/services/test/botsService.config.test.ts -t "migrates bot draft model"
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-### Task 4: Update Existing Tests And Docs
+### Task 4: Atualizar Testes e Documentos Existentes
 
-**Files:**
-- Modify: `packages/services/test/botsService.fixtures.ts`
-- Modify: `packages/services/test/botsModelCacheRepo.test.ts`
-- Modify: `docs/bots.md`
+**Arquivos:**
+- Modificar: `packages/services/test/botsService.fixtures.ts`
+- Modificar: `packages/services/test/botsModelCacheRepo.test.ts`
+- Modificar: `docs/bots.md`
 
-- [ ] **Step 1: Update fixtures to v2 cache defaults**
+- [ ] **Passo 1: Atualizar as fixtures para padrões de cache v2**
 
-Make `createMemoryModelCacheRepo()` use `createDefaultBotsModelCache()` with `version: 2`, `updatedAt`, `providers`, and `workspaceConfigOptions`. Keep the helper API unchanged for existing tests.
+Faça `createMemoryModelCacheRepo()` usar `createDefaultBotsModelCache()` com `version: 2`, `updatedAt`, `providers` e `workspaceConfigOptions`. Mantenha a API do helper inalterada para os testes existentes.
 
-- [ ] **Step 2: Update existing cache repo test expectations**
+- [ ] **Passo 2: Atualizar as expectativas do teste existente do cache repo**
 
-Change the existing `persists model providers with apiFormat metadata` test to write the v2 shape:
+Mude o teste existente `persists model providers with apiFormat metadata` para gravar o formato v2:
 
 ```ts
 await repo.write({
@@ -615,55 +617,55 @@ await repo.write({
 });
 ```
 
-- [ ] **Step 3: Update `docs/bots.md` file list**
+- [ ] **Passo 3: Atualizar a lista de arquivos de `docs/bots.md`**
 
-Replace the state/cache bullet points with:
+Substitua os itens de estado/cache por:
 
 ```md
-- `bot-state.v2.json`: current runtime state keyed by bot id. It stores active workspace, draft/task mode, active task, pending permissions, Telegram offset, and update time.
-- `bots-model-cache.v2.json`: current model selection cache. Provider snapshots are derived from `config.json` through `modelProviderService.getAll()` and never store real API keys.
-- `bot-state.json` / `bots-model-cache.json`: legacy files. New versions read them only as migration input and never modify them.
+- `bot-state.v2.json`: estado de runtime atual indexado por bot id. Armazena o workspace ativo, o modo draft/task, a task ativa, permissões pendentes, o offset do Telegram e o horário de atualização.
+- `bots-model-cache.v2.json`: cache atual de seleção de modelos. Os snapshots de provider são derivados de `config.json` através de `modelProviderService.getAll()` e nunca armazenam API keys reais.
+- `bot-state.json` / `bots-model-cache.json`: arquivos legados. As novas versões os leem apenas como entrada de migração e nunca os modificam.
 ```
 
-- [ ] **Step 4: Run all focused bot tests touched by the change**
+- [ ] **Passo 4: Executar todos os testes de bot focados afetados pela mudança**
 
-Run:
+Execute:
 
 ```bash
 pnpm vitest run packages/services/test/botsRepo.test.ts packages/services/test/botsModelCacheRepo.test.ts packages/services/test/botsStorageMigration.test.ts packages/services/test/botsService.config.test.ts packages/services/test/botsModelSelectionHelpers.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-### Task 5: Full Verification And Commit
+### Task 5: Verificação Completa e Commit
 
-**Files:**
-- Verify all modified files
+**Arquivos:**
+- Verificar todos os arquivos modificados
 
-- [ ] **Step 1: Inspect git diff**
+- [ ] **Passo 1: Inspecionar o git diff**
 
-Run:
+Execute:
 
 ```bash
 git diff -- packages/services/src/bots packages/services/test docs/bots.md docs/superpowers/plans/2026-06-10-bot-state-cache-v2-migration.md
 ```
 
-Expected: diff only includes v2 migration, tests, and docs.
+Esperado: o diff inclui apenas a migração v2, os testes e a documentação.
 
-- [ ] **Step 2: Run required project checks**
+- [ ] **Passo 2: Executar as verificações obrigatórias do projeto**
 
-Run:
+Execute:
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-Expected: both PASS.
+Esperado: ambos PASS.
 
-- [ ] **Step 3: Commit implementation**
+- [ ] **Passo 3: Fazer o commit da implementação**
 
-Run:
+Execute:
 
 ```bash
 git status --short
@@ -671,4 +673,4 @@ git add packages/services/src/bots/config.ts packages/services/src/bots/repo.ts 
 git commit -m "fix: migrate bot state and model cache to v2 files"
 ```
 
-Expected: Conventional Commit created; `.turbo/` remains untracked and unstaged.
+Esperado: Conventional Commit criado; `.turbo/` permanece untracked e não staged.

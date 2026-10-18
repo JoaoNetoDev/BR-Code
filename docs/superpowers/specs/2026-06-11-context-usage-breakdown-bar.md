@@ -1,36 +1,60 @@
-# Context Usage Breakdown Bar
+# Barra de Breakdown de Uso de Contexto
 
-## 背景
+## Contexto
 
-Context usage 弹窗目前只展示总 used / size 和缓存命中率。Agent 已经能在 `context_usage_snapshot` 调试日志里按来源统计上下文字符量，但 UI 链路没有收到这些来源数据，用户无法在每轮请求后直观看到上下文主要由哪些内容组成。
+O popover de context usage hoje exibe apenas o total used / size e a taxa de acerto de cache. O
+Agent já consegue contabilizar os caracteres de contexto por origem nos logs de depuração de
+`context_usage_snapshot`, mas a cadeia de UI não recebe esses dados de origem, e o usuário não
+consegue ver de forma clara após cada requisição do que é composto principalmente o contexto.
 
-## 目标
+## Objetivo
 
-- 在 context usage 弹窗中复用 header 里的 context used 进度条，把已用部分按来源切分。
-- 比例使用各来源 `chars` 计算，只展示百分比，不展示具体字符数或 token 数。
-- 来源至少覆盖：Messages、System prompt、Other、Skills、Tool prompt、System tools、MCP tools；其中 Other 对应 agent 内部 `meta_user_context`，避免在 UI 暴露难理解的“meta user”概念。
-- 字段必须是 optional。旧 agent、旧快照或没有 breakdown 的请求继续只展示现有总量和缓存命中率。
-- 桌面端 `desktop-continuous` 与手机端 `web-remote-replayable` 只透传同一个 usage payload，不改变 snapshot、stream、queue、owner 或恢复语义。
+- Reutilizar no popover de context usage a barra de progresso de contexto usado do header,
+  dividindo a parte usada por origem.
+- As proporções são calculadas a partir de `chars` de cada origem, exibindo apenas porcentagens,
+  sem números de caracteres ou de tokens.
+- As origens cobrem pelo menos: Messages, System prompt, Other, Skills, Tool prompt, System
+  tools, MCP tools; Other corresponde ao `meta_user_context` interno do agent, evitando expor na
+  UI o conceito de "meta user", de difícil compreensão.
+- Os campos devem ser opcionais. Agents antigos, snapshots antigos ou requisições sem breakdown
+  continuam exibindo apenas o total atual e a taxa de acerto de cache.
+- O desktop `desktop-continuous` e o mobile `web-remote-replayable` apenas repassam o mesmo usage
+  payload, sem alterar a semântica de snapshot, stream, queue, owner ou recuperação.
 
-## 数据流
+## Fluxo de dados
 
-1. Agent runtime 在主模型请求前基于实际请求 options 生成 context usage snapshot。
-2. 从 snapshot 的 `categories` 中取 `{ source, chars }`，过滤非法或 0 值后作为 `contextUsageBreakdown` 放入 `ModelComplete` payload。
-3. App/service 兼容层把 `contextUsageBreakdown` 映射到旧 task stream 的 `usage_update.breakdown`。
-4. UI store、runtime snapshot 和 replay projection 保留该 optional 字段。
-5. `ChatContextUsage` 用 `breakdown[].chars / sum(chars)` 计算分段宽度和 legend 百分比，并按占比降序分配颜色：占比越高颜色越深。
-6. 终态或恢复 snapshot 如果只带 `used/size/cache` 而缺少 breakdown，且 `used/size` 与当前 live usage 一致，UI 必须保留 live `usage_update.breakdown`，避免 task_complete 后的 snapshot 对齐把比例条抹掉。
+1. O runtime do Agent gera o context usage snapshot antes da requisição ao modelo principal,
+   com base nas options reais da requisição.
+2. Do `categories` do snapshot, extrai `{ source, chars }`, filtrando valores inválidos ou 0, e
+   coloca o resultado como `contextUsageBreakdown` no payload de `ModelComplete`.
+3. A camada de compatibilidade App/service mapeia `contextUsageBreakdown` para
+   `usage_update.breakdown` do task stream antigo.
+4. A UI store, o snapshot de runtime e a projeção de replay preservam esse campo opcional.
+5. `ChatContextUsage` usa `breakdown[].chars / sum(chars)` para calcular a largura dos segmentos e
+   a porcentagem da legenda, e atribui cores em ordem decrescente de proporção: quanto maior a
+   proporção, mais escura a cor.
+6. Se um snapshot de estado terminal ou de recuperação trouxer apenas `used/size/cache` sem
+   breakdown e `used/size` for consistente com o usage live atual, a UI deve preservar o
+   `usage_update.breakdown` live, evitando que o alinhamento do snapshot após o task_complete
+   apague a barra de proporções.
 
-## UI 规则
+## Regras de UI
 
-- Header 里的 used progress 已用部分直接切分为来源分段，不在 body 里额外绘制第二条比例条。
-- 分段使用 context breakdown 专用蓝色阶 token，接近参考 UI 的低饱和蓝色分段，不复用全局 usage chart 的彩虹色板；颜色按当前排序分配，最大占比使用最深色。
-- legend 使用紧凑行布局，支持中英文和移动 Web 窄宽度，不展示 char/token 原始数量。
-- 没有 breakdown 或总字符数为 0 时，header 进度条回退为普通单色 used fill，不影响压缩按钮和缓存命中率。
-- cache hit rate 保持现有展示逻辑。
+- A parte usada do used progress no header é dividida diretamente em segmentos por origem, sem
+  desenhar uma segunda barra de proporções no body.
+- Os segmentos usam tokens da escala de azuis específica do context breakdown, próximos dos
+  segmentos de azul de baixa saturação da UI de referência, sem reutilizar a paleta arco-íris do
+  usage chart global; as cores são atribuídas conforme a ordenação atual, e a maior proporção usa
+  a cor mais escura.
+- A legenda usa layout de linha compacta, suportando chinês e inglês e larguras estreitas do Web
+  mobile, sem exibir as quantidades brutas de char/token.
+- Sem breakdown ou com total de caracteres igual a 0, a barra de progresso do header regride para
+  um used fill de cor única, sem afetar o botão de compactação nem a taxa de acerto de cache.
+- A taxa de acerto de cache mantém a lógica de exibição atual.
 
-## 非目标
+## Fora de escopo
 
-- 不修改 context window used / size 的 token 来源和计算方式。
-- 不把调试日志里的工具/技能明细全部暴露给 UI。
-- 不为桌面 busy queue 或手机 replayable queue 新增排序语义。
+- Não modificar a origem nem o cálculo de tokens do used / size da context window.
+- Não expor à UI todo o detalhe de ferramentas/skills dos logs de depuração.
+- Não introduzir semântica de ordenação para a busy queue do desktop ou para a queue replayable
+  do mobile.

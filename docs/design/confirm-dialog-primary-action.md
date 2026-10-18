@@ -1,18 +1,18 @@
-# 二次确认弹窗主按钮规范
+# Especificação do botão principal do diálogo de confirmação secundária
 
-## 背景
+## Contexto
 
-二次确认弹窗用于保护用户即将执行的操作。此前不同业务会把确认按钮渲染成 primary、warning 或 destructive，导致同样是“确认继续”的按钮在不同弹窗里颜色跳变。
+O diálogo de confirmação secundária protege a operação que o usuário está prestes a executar. Antes, negócios distintos renderizavam o botão de confirmação como primary, warning ou destructive, fazendo com que o mesmo botão de "confirmar e continuar" mudasse de cor entre diálogos.
 
-## 规范
+## Especificação
 
-- 二次确认弹窗的确认按钮统一使用主按钮样式。
-- 取消按钮继续使用次级按钮样式，保持操作层级清晰。
-- 删除、停止、离开、刷新失效链接等风险语义通过标题、描述和按钮文案表达，不再通过确认按钮颜色区分。
-- `ConfirmDialogRequest` 不提供按钮颜色或 variant 配置，调用方不得通过弹窗请求覆盖确认按钮样式。
-- 独立使用 `AlertDialogAction` 的确认弹窗也应保持确认按钮为主按钮，除非后续设计规范明确引入新的确认按钮语义层级。
+- O botão de confirmação do diálogo de confirmação secundária usa uniformemente o estilo de botão principal.
+- O botão de cancelar continua usando o estilo de botão secundário, mantendo clara a hierarquia das ações.
+- Semânticas de risco como excluir, parar, sair ou atualizar links inválidos são expressas pelo título, pela descrição e pelo texto do botão, e não mais pela cor do botão de confirmação.
+- `ConfirmDialogRequest` não oferece configuração de cor ou de variant do botão; o chamador não pode sobrescrever o estilo do botão de confirmação pela requisição do diálogo.
+- Diálogos de confirmação que usam `AlertDialogAction` de forma independente também devem manter o botão de confirmação como botão principal, a menos que uma especificação de design posterior introduza explicitamente um novo nível hierárquico semântico para o botão de confirmação.
 
-## 当前影响面
+## Superfície afetada atualmente
 
-- 全局 `ConfirmDialogHost` 的确认按钮。
-- 各业务自带确认弹窗使用的独立 `AlertDialogAction`。
+- O botão de confirmação do `ConfirmDialogHost` global.
+- Os `AlertDialogAction` independentes usados pelos diálogos de confirmação próprios de cada negócio.

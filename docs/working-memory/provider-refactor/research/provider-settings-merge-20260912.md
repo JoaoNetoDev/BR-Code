@@ -1,26 +1,26 @@
-# Provider Settings 本地分支整合（2026-09-12）
+# Integração do branch local de Provider Settings (2026-09-12)
 
-## 范围与裁决
+## Escopo e decisões
 
-- 当前分支基线：`5bf148568d`；来源 `provider-settings-todos` 固定为 `d3b8b937b1`。
-- 来源的独立三笔提交未在现有远端引用中发现。原分支被另一工作区使用，保持原样；在 `provider-settings-todos-renumbered` 副本整理后做真实 merge，不重写共享 staging 历史。
-- 来源 Todo133 → Todo137（Start Plan GLM-5.3 隐藏视觉标），Todo134 → Todo138（空模型草稿与推理兜底）。同步文件名、标题、索引、交叉引用和测试描述；当前分支原 Todo133～136 不变。
-- 三笔整理后提交分别为 `6f8505bf81`、`ee416e47ef`、`2c86f975a8`；对应来源 `1a6a9dcc76`、`284d6a2ba0`、`d3b8b937b1`。提交标题包含新编号，Source-Commit trailer 保留来源追踪；整理前后差异仅为编号及对应引用。
-- 正常保留来源已合入 staging 的 Composer recent mode 修复：Renderer 仅持有草稿与最近已接纳输入的偏好，不改变 CLI 队列、模型选择持久化权威或桌面 continuous／手机 replayable 边界。
+- Baseline do branch atual: `5bf148568d`; a origem `provider-settings-todos` está fixada em `d3b8b937b1`.
+- As três commits independentes da origem não foram encontradas nas referências remotas existentes. O branch original está em uso por outro workspace e foi mantido como está; o merge real foi feito após a reorganização na cópia `provider-settings-todos-renumbered`, sem reescrever o histórico compartilhado do staging.
+- Da origem, Todo133 → Todo137 (marcador visual oculto do Start Plan GLM-5.3) e Todo134 → Todo138 (modelo em branco e fallback de raciocínio). Nomes de arquivo, títulos, índices, referências cruzadas e descrições de testes foram sincronizados; os Todo133～136 originais do branch atual permanecem inalterados.
+- Após a reorganização, as três commits são `6f8505bf81`, `ee416e47ef` e `2c86f975a8`, correspondendo às de origem `1a6a9dcc76`, `284d6a2ba0` e `d3b8b937b1`. Os títulos das commits contêm a nova numeração e o trailer Source-Commit preserva o rastreamento da origem; a diferença antes e depois da reorganização é apenas de numeração e das referências correspondentes.
+- É preservada normalmente a correção do Composer recent mode da origem, já mesclada no staging: o Renderer mantém apenas a preferência de draft e da última entrada aceita, sem alterar a fila da CLI, a autoridade da persistência da seleção de modelo ou os limites desktop continuous / mobile replayable.
 
-## 合并交集
+## Interseção da mesclagem
 
-- 索引冲突：同时保留 135、136、137、138，顺手校正 135 的过时待实施状态。
-- Built-in：两端分别从 22 升到 23，但配置不同。合并结果必须升到 24；同时保留两个普通 API 的 Turbo 默认禁用，以及 Model 通用 disabled/enabled 与 API enabled → high 映射。无 schema 或数据迁移，也不发布线上配置。
-- 模型编辑器：保留当前分支的精简／高级布局、隐藏字段及个人覆盖机制，同时接入来源的空 ID 不预填推理档位。复审共用草稿入口和自动合并的浏览器 fixture／用例。
-- Header 修复保持；Todo136 仍待实施，本次不顺便扩大签名范围。
+- Conflito de índice: mantém-se 135, 136, 137 e 138 ao mesmo tempo, corrigindo de passagem o estado desatualizado de pendente para implementação do 135.
+- Built-in: as duas pontas subiram de 22 para 23, mas com configurações diferentes. O resultado da mesclagem precisa subir para 24; ao mesmo tempo, preserva-se a desativação padrão do Turbo para as duas APIs comuns, além do mapeamento genérico disabled/enabled de Model e enabled → high de API. Sem migração de schema ou de dados, e sem publicar configuração em produção.
+- Editor de modelos: mantém-se o layout simplificado/avançado do branch atual, os campos ocultos e o mecanismo de override pessoal, ao mesmo tempo que se incorpora da origem o nível de raciocínio não pré-preenchido quando o ID está vazio. Reavaliação do ponto de entrada de draft compartilhado e do fixture/caso de navegador com merge automático.
+- A correção do Header é mantida; o Todo136 continua pendente de implementação e o escopo da assinatura não é ampliado nesta rodada.
 
-## 验证
+## Verificação
 
-- 合并版相关 12 个 UI／Provider／桌面 helper 单测文件 284 项通过；Adapter 的新模型 wire 与 Header 合并测试 66 项通过，合计 350 项。日志：`/tmp/provider-settings-merge-tests.log`、`/tmp/provider-settings-merge-wire.log`。
-- 设置页浏览器整批 24 项通过：390/中文/浅色、1200/英文/深色，包含 Start 视觉标、空 ID 档位、恢复／取消、高级折叠、隐藏字段保存及个人覆盖。沿用隔离 transport 和本地 Chromium 运行库，无真实用户数据或模型请求；日志 `/tmp/provider-settings-merge-browser.log`。
-- 根 `pnpm typecheck`、desktop `typecheck:e2e` 通过；`pnpm lint` 0 错误、42 条既有警告；架构检查 0 违规。日志为 `/tmp/provider-settings-merge-{types,e2e-types,lint,architecture}.log`。
-- Composer recent mode 的 pending E2E fixture 校验通过，未晋级；本次未跑完整 Electron／手机 shared-host／Pro 联合实机。行为级单测已覆盖接纳后偏好、拒绝／迟到 ACK、历史与工作区隔离，不能据此宣称原生多端验收完成。
-- 三笔整理前后逐文件规范化对比通过：除编号和引用外内容一致；来源 staging 提交保持原历史。无未解决冲突、旧重号链接或删除模块的生产残留导入。
-- 双向复审：来源的 Start 视觉标、空草稿、API 映射与 Composer recent 均保留；当前分支的 Header 装配、Turbo 禁用、编辑布局和隐藏字段边界均保留。唯一额外产品文件调整是合并配置 revision 升到 24；未实施 Todo136。
-- 状态所有者仍为现有 UI Draft／Recent 与 Provider 配置解析链路，不新增同步、队列或跨层接口。合并相对当前基线约新增 1,320 行、删除 296 行（含文档与测试）；其中整理副本仅机械更号。不扩修无关既有问题，不自动推送。
+- Nos 12 arquivos de teste unitário de UI / Provider / helper de desktop relacionados à versão mesclada, 284 casos passaram; nos testes de merge do novo wire de modelo do Adapter e do Header, 66 casos passaram, totalizando 350. Logs: `/tmp/provider-settings-merge-tests.log`, `/tmp/provider-settings-merge-wire.log`.
+- Na página de configurações, a bateria completa de navegador passou com 24 casos: 390/chinês/claro e 1200/inglês/escuro, incluindo o marcador visual do Start, o nível com ID vazio, restaurar/cancelar, o colapso avançado, o salvamento de campos ocultos e o override pessoal. Usando transport isolado e a biblioteca de execução local do Chromium, sem dados reais de usuário nem requisições a modelos; log `/tmp/provider-settings-merge-browser.log`.
+- `pnpm typecheck` da raiz e `typecheck:e2e` do desktop passaram; `pnpm lint` com 0 erros e 42 avisos preexistentes; verificação de arquitetura com 0 violações. Logs em `/tmp/provider-settings-merge-{types,e2e-types,lint,architecture}.log`.
+- A validação do fixture E2E pendente do Composer recent mode passou, sem promoção; nesta rodada não foi executada a validação conjunta completa em aparelho real com Electron / shared-host do celular / Pro. Os testes unitários em nível de comportamento já cobrem a preferência após aceitação, rejeição/ACK tardio, o isolamento de histórico e workspace, e isso não autoriza afirmar que a aceitação nativa em múltiplas plataformas foi concluída.
+- A comparação normalizada arquivo a arquivo antes e depois da reorganização das três commits passou: o conteúdo é idêntico exceto pela numeração e pelas referências; as commits de staging da origem mantêm o histórico original. Não há conflitos não resolvidos, links com numeração antiga ou imports residuais de produção de módulos removidos.
+- Revisão nos dois sentidos: o marcador visual do Start, o draft vazio, o mapeamento de API e o Composer recent da origem foram preservados; a montagem do Header, a desativação do Turbo, o layout de edição e os limites de campos ocultos do branch atual foram preservados. A única alteração adicional em arquivo de produto é a revisão da configuração de merge subindo para 24; o Todo136 não foi implementado.
+- O dono do estado continua sendo a cadeia existente de UI Draft / Recent e de resolução de configuração de Provider, sem novos mecanismos de sincronização, filas ou interfaces entre camadas. Em relação ao baseline atual, a mesclagem adiciona cerca de 1.320 linhas e remove 296 linhas (incluindo documentação e testes); a cópia reorganizada é apenas uma renumeração mecânica. Não há ampliação de correções para problemas não relacionados nem push automático.

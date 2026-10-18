@@ -1,59 +1,69 @@
-# Todo 27：Provider Settings 体验与真实执行缺口收口
+# Todo 27: Encerramento das lacunas de experiência e de execução real das Provider Settings
 
-> 状态：已完成（自动化收口；macOS 实机复验待启动最新开发链）
+> Status: concluído (encerramento automatizado; a reverificação real em macOS aguarda a inicialização da mais recente cadeia de desenvolvimento)
 >
-> 日期：2026-08-27
+> Data: 2026-08-27
 >
-> 前置关系：Todo 26 完成智谱 `access.type + access.mode` 契约切换后，再处理本文中的 Runtime Headers
-> Schema 收口。其余 UI 与 Team Plan 状态切片可以独立实施。
+> Pré-requisitos: depois que o Todo 26 concluir a troca de contrato do `access.type + access.mode` da Zhipu, tratar o
+> encerramento do Schema de Runtime Headers descrito neste documento. Os demais recortes de UI e de estado do Team Plan
+> podem ser implementados de forma independente.
 
-## 1. 目标与边界
+## 1. Objetivo e escopo
 
-本文收口 Provider Refactor 首轮 macOS 实机体验后仍未完成、且已经裁决的问题：
+Este documento encerra os problemas que, após a primeira rodada de experiência real em macOS do Provider Refactor,
+continuavam pendentes e já foram decididos:
 
-1. 用统一视觉表达 Model Config 布尔叶子的 Effective 值与 Personal Overlay 来源；
-2. 删除所有单字段恢复入口，只保留始终可见的模型级“全部恢复默认”；
-3. 将保存成功和模型连接成功统一投影到窗口底部通知区；
-4. 修复 Team Plan 的状态误判与请求期 Account Access 协议不一致；
-5. 为以上行为补齐自动化证明和实机回归。
+1. Expressar com uma representação visual unificada o valor Efetivo das folhas booleanas do Model Config e a origem
+   do Personal Overlay;
+2. Remover todas as entradas de restauração de campo único, mantendo apenas a restauração de nível de modelo
+   "restaurar tudo para o padrão", sempre visível;
+3. Unificar o sucesso de salvamento e o sucesso de conexão do modelo na área de notificação do rodapé da janela;
+4. Corrigir o diagnóstico incorreto de estado do Team Plan e a inconsistência do protocolo de Account Access durante a
+   requisição;
+5. Completar a prova automatizada e a regressão real para todos esses comportamentos.
 
-本文不处理跨进程 Personal Config / Provider Registry 更新机制。该问题涉及 Host、Agent、文件 watcher、revision
-确认和执行前一致性，应在独立研究与 Todo 中完成，不得借连接测试增加临时轮询或 UI 兜底。
+Este documento não trata do mecanismo de atualização de Personal Config / Provider Registry entre processos. Esse problema
+envolve Host, Agent, file watcher, confirmação de revision e consistência antes da execução; deve ser concluído em uma
+pesquisa e em um Todo próprios, sem introduzir polling temporário ou fallbacks de UI no teste de conexão.
 
-以下体验问题已经完成，不再重复实施：
+Os seguintes problemas de experiência já foram resolvidos e não serão implementados novamente:
 
-- 历史重名不再阻断无关 Provider 保存；
-- 不完整 Provider 可以保存但不可执行；
-- Provider / Model 整行拖拽、拖拽回弹和 Dialog 穿透拖拽已经修复；
-- Provider 启停已经合并为一个状态按钮；
-- Context、Max Output 和 JSON 继承值使用 placeholder；
-- JSON 使用固定高度文本框，内容在文本框内滚动；
-- Model Dialog 和 Provider 双栏容器具有稳定高度与独立滚动；
-- 国内 Provider 在 Built-in Config 和新增菜单中优先展示。
+- nomes duplicados no histórico não bloqueiam mais o salvamento de Providers sem relação;
+- um Provider incompleto pode ser salvo, mas não executado;
+- arrastar linhas inteiras de Provider / Model, o retorno elástico do arrasto e o arrasto que atravessa o Dialog já foram
+  corrigidos;
+- ativar/desativar Provider foi fundido em um único botão de estado;
+- valores herdados de Context, Max Output e JSON usam placeholder;
+- o JSON usa uma caixa de texto de altura fixa, com o conteúdo rolando dentro da caixa;
+- o Model Dialog e o container de duas colunas do Provider têm altura estável e rolagem independente;
+- Providers nacionais aparecem em primeiro lugar no Built-in Config e no menu de adição.
 
-## 2. 布尔字段统一表达
+## 2. Expressão unificada dos campos booleanos
 
-### 2.1 两个正交事实
+### 2.1 Dois fatos ortogonais
 
-每个可编辑布尔叶子同时表达两个互不替代的事实：
+Cada folha booleana editável expressa dois fatos que não se substituem:
 
 ```text
 checked / unchecked
-└─ 当前 Effective Model Config 的布尔值
+└─ o valor booleano do Effective Model Config atual
 
-普通边框 / 高饱和边框
-└─ 当前值是继承结果 / 存在显式 Personal Overlay 叶子
+borda normal / borda de alta saturação
+└─ o valor atual é resultado de herança / existe uma folha explícita de Personal Overlay
 ```
 
-不得使用“默认”“已修改”等附加文字。Personal Overlay 只通过样式表达：存在显式 Personal 叶子时，外层选项框和
-内部 Checkbox 边框都使用更高饱和度；继承值使用普通边框。
+Não é permitido usar textos adicionais como "padrão" ou "modificado". O Personal Overlay é expresso apenas por
+estilo: quando existe uma folha Personal explícita, a caixa de opção externa e a borda do Checkbox interno usam uma
+saturação mais alta; valores herdados usam a borda normal.
 
-“已修改”由稀疏 Personal Model Config Rule 中是否存在该叶子决定，不通过 `personalValue !== inheritedValue`
-推断。用户显式写入一个与 Built-in 当前值相同的值，仍然是 Personal Overlay。
+"Modificado" é determinado pela existência da folha na Personal Model Config Rule esparsa, e não por inferência via
+`personalValue !== inheritedValue`. Quando o usuário grava explicitamente um valor igual ao valor atual do Built-in, isso
+continua sendo um Personal Overlay.
 
-### 2.2 组件范围
+### 2.2 Escopo dos componentes
 
-输入类型、输出类型与模型能力统一使用同一种布尔选项组件、尺寸、Checkbox 和状态样式：
+Tipo de entrada, tipo de saída e capacidades do modelo usam uniformemente o mesmo componente de opção booleana, tamanho,
+Checkbox e estilo de estado:
 
 ```text
 properties.input_format.support_*
@@ -65,35 +75,39 @@ properties.supportsMidConversationSystem
 requiresMfjsToolSchema
 ```
 
-锁定的 Text 只表达不可编辑：保留锁图标和普通继承样式，不用高饱和边框伪装成 Personal Overlay。
-PDF、Audio 继续隐藏且在编辑其他字段时无损保留。
+O Text bloqueado expressa apenas que não é editável: mantém o ícone de cadeado e o estilo normal de herança, sem usar
+borda de alta saturação para fingir um Personal Overlay.
+PDF e Audio continuam ocultos e são preservados sem perdas ao editar outros campos.
 
-## 3. 模型级“全部恢复默认”
+## 3. "Restaurar tudo para o padrão" em nível de modelo
 
-删除 Context、Max Output、输入格式、模型能力和其他单字段旁的小型恢复按钮。Model Dialog Footer 只保留一个
-“全部恢复默认”入口，并对 Built-in 成员和 Personal Provider 的模型始终展示：
+Remover os pequenos botões de restauração ao lado de campos individuais como Context, Max Output, formato de entrada,
+capacidades do modelo e outros. O Model Dialog Footer passa a ter apenas uma entrada "Restaurar tudo para o padrão",
+sempre exibida para modelos de membros Built-in e de Personal Provider:
 
 ```text
 ZCode Built-in Model Config Rules
                   |
                   v
-       Personal Model Config Rule（稀疏 Overlay）
+       Personal Model Config Rule (Overlay esparso)
                   |
                   v
         Effective Model Config
 ```
 
-Personal Provider 的模型同样先由 Built-in 通用 Model Config Rules 解析，再叠加 Personal Rule，因此同样有可恢复的
-继承基线。
+Os modelos de Personal Provider também são primeiro resolvidos pelas Built-in Model Config Rules genéricas e só então
+sobrepostos pela Personal Rule, portanto também possuem uma baseline herdada restaurável.
 
-按钮语义固定为：清空当前 `providerId + modelId` 的完整 Personal Model Config Overlay，重新展示 Built-in Rules
-解析出的 Effective 值；它不删除 Provider、模型成员、Model ID、模型顺序或 Provider 顺序。没有任何 Personal
-Overlay 时按钮保持显示但禁用；存在任一显式 Personal 叶子时启用。清空只修改弹窗草稿，仍由“保存”执行原子提交；
-取消不得提交。
+A semântica do botão é fixa: limpar o Personal Model Config Overlay completo do `providerId + modelId` atual e voltar a
+exibir os valores Efetivos resolvidos pelas Built-in Rules; ele não remove Provider, membros de modelo, Model ID, ordem
+dos modelos nem ordem dos Providers. Sem nenhum Personal Overlay o botão permanece visível, porém desabilitado; fica
+habilitado quando existe qualquer folha Personal explícita. A limpeza altera apenas o rascunho do diálogo, e o
+commit atômico continua sendo feito por "Salvar"; cancelar não deve fazer commit.
 
-## 4. 窗口级成功反馈
+## 4. Feedback de sucesso em nível de janela
 
-Provider/Model 保存和模型连接反馈统一进入应用窗口底部的通知层，而不是进入 Provider 内容区、模型列表或页面顶部：
+O feedback de salvamento de Provider/Model e de conexão de modelo entra uniformemente na camada de notificações do
+rodapé da janela do aplicativo, e não na área de conteúdo do Provider, na lista de modelos ou no topo da página:
 
 ```text
 Application viewport
@@ -102,192 +116,240 @@ Application viewport
 │         Provider Settings scroll area       │
 │                                             │
 │                         ┌─────────────────┐ │
-│                         │ 较早的成功消息  │ │
+│                         │ mensagem de     │ │
+│                         │ sucesso mais    │ │
+│                         │ antiga          │ │
 │                         ├─────────────────┤ │
-│                         │ 最新成功消息    │ │
+│                         │ mensagem de     │ │
+│                         │ sucesso mais    │ │
+│                         │ recente         │ │
 │                         └─────────────────┘ │
 └─────────────────────────────────────────────┘
 ```
 
-- 最新消息固定在最下方，多条不同消息向上堆叠；
-- 不显示 `dirty` 文案；同一保存目标的 saving、success、failure 使用同一稳定 key 原位替换；
-- saving 不自动消失，success 短暂停留，failure 延长停留并提供重试/关闭；
-- Provider 保存成功需要能识别对应 Provider；模型保存和模型连接消息必须显示 Model ID，同名模型必要时同时显示 Provider 名称或 Provider ID；
-- Provider 或模型数量变化、左右面板滚动均不得推动通知位置；
-- Toast 容器必须完全位于 viewport 内；顶部标题栏避让不得机械应用到底部容器。
+- a mensagem mais recente fica fixa na parte inferior, e mensagens diferentes se empilham para cima;
+- não exibir o texto `dirty`; saving, success e failure do mesmo alvo de salvamento usam a mesma chave estável e são
+  substituídos no lugar;
+- saving não desaparece sozinho, success permanece por pouco tempo e failure permanece por mais tempo, oferecendo
+  retry/fechar;
+- o sucesso de salvamento de Provider precisa permitir identificar o Provider correspondente; as mensagens de salvamento
+  de modelo e de conexão de modelo devem exibir o Model ID e, para modelos homônimos, mostrar também o nome ou o ID do
+  Provider;
+- mudanças na quantidade de Providers/modelos e a rolagem dos painéis esquerdo e direito não podem deslocar a posição
+  da notificação;
+- o container de Toast deve estar totalmente dentro do viewport; o desvio para o título do topo não deve ser aplicado
+  mecanicamente ao container do rodapé.
 
-通知组件必须复用现有窗口级反馈基础设施；若当前基础设施不支持堆叠与替换，应扩展同一个 store，不建立
-Provider Settings 私有的第二套 Toast 状态。
+O componente de notificação precisa reutilizar a infraestrutura existente de feedback em nível de janela; se a
+infraestrutura atual não suportar empilhamento e substituição, deve-se estender o mesmo store, sem criar um segundo
+conjunto privado de estado de Toast para Provider Settings.
 
-## 5. Team Plan 状态必须区分未知与不可用
+## 5. O estado do Team Plan deve distinguir desconhecido de indisponível
 
-当前 Team Plan 页面把以下两个事实合并成 `teamPlanUnavailable`：
+Atualmente a página do Team Plan funde os dois fatos a seguir em `teamPlanUnavailable`:
 
 ```text
-项目 API Key 被服务端明确判定 unavailable
+a API Key do projeto é explicitamente julgada unavailable pelo servidor
                          +
-Team quota 没有快照 / 正在请求 / 请求失败
+a quota do Team não tem snapshot / está em requisição / a requisição falhou
                          |
                          v
-               “团队套餐未分配”
+              "plano de equipe não alocado"
 ```
 
-这会把“尚未得到事实”误报成“服务端已经确认不可用”。更严重的是，状态卡又用该结果阻止后续 Usage entitlement
-刷新，形成自锁：初次没有 quota -> 显示未分配 -> 不再刷新 -> 永远未分配。
+Isso reporta incorretamente "ainda não temos o fato" como "o servidor já confirmou indisponibilidade". Pior: o cartão de
+status usa esse resultado para bloquear as atualizações seguintes de Usage entitlement, criando um auto-bloqueio: na
+primeira vez sem quota -> exibe não alocado -> não atualiza mais -> sempre não alocado.
 
-状态必须拆分：
+O estado precisa ser dividido:
 
 ```text
 checking / unknown / request-failed
-└─ 不得显示“团队套餐未分配”，不得阻止重试或刷新
+└─ não deve exibir "plano de equipe não alocado" e não deve impedir retry ou refresh
 
 explicit unavailable
-└─ 只有项目 API Key 或 quota 权威响应明确表示不可用时才显示“团队套餐未分配”
+└─ só exibe "plano de equipe não alocado" quando a resposta autoritativa da API Key do projeto ou da quota indica
+   explicitamente indisponibilidade
 
 available
-└─ 展示已连接/已购状态，并允许 Account Overlay 正常发布
+└─ exibe o estado conectado/comprado e permite que o Account Overlay seja publicado normalmente
 ```
 
-UI 不得因为 Team quota 成功而直接强制 Provider `enabled=true`，也不得自己拼 Account Overlay。Account Resolver 仍是
-Provider 可执行状态的唯一投影者；本切片只修复展示状态机和刷新门禁。
+A UI não deve forçar `enabled=true` no Provider só porque a Team quota teve sucesso, nem montar o Account Overlay por
+conta própria. O Account Resolver continua sendo o único projetor do estado executável do Provider; este recorte apenas
+corrige a máquina de estados de exibição e o gate de atualização.
 
-## 6. Runtime Headers 使用 Registry Access 的正式 Schema
+## 6. Runtime Headers usa o Schema oficial do Registry Access
 
-实机 Team Plan 请求失败的直接原因不是套餐不存在，而是 Agent 发出的 Runtime Headers 请求携带 Registry 中完整的
-`providerConfig.access`，App Protocol 却使用另一份手写的严格子集 Schema。两份 Schema 漂移后，Protocol 在模型请求发出前
-拒绝参数，最终只显示 `Model request failed`。
+A causa direta das falhas de requisição do Team Plan em máquina real não é o plano inexistente, mas o fato de a
+requisição de Runtime Headers enviada pelo Agent carregar o `providerConfig.access` completo do Registry, enquanto o
+App Protocol usa outro Schema escrito à mão com um subconjunto estrito. Depois que os dois Schemas divergiram, o
+Protocol rejeitou os parâmetros antes de a requisição do modelo ser enviada, e no final apenas apareceu
+`Model request failed`.
 
-Todo 26 完成后，Runtime Headers 请求中的 `accountAccess` 必须直接复用正式 Provider Registry Access Schema 对应的
-`zhipu-account` 分支，不再维护 `{ type, family, planKind }` 或其他手写投影：
+Depois do Todo 26, o `accountAccess` da requisição de Runtime Headers precisa reutilizar diretamente o ramo `zhipu-account`
+correspondente ao Schema oficial de Provider Registry Access, sem manter mais `{ type, family, planKind }` nem outras
+projeções escritas à mão:
 
 ```text
 Effective Provider Config.access
           |
-          | 同一正式 Schema / 同一序列化形状
+          | mesmo Schema oficial / mesma forma de serialização
           v
 Runtime Headers request.accountAccess
           |
           v
-Host 按 family + mode 取得请求期材料
+o Host obtém o material de período de requisição por family + mode
 ```
 
-本切片不得：
+Este recorte não deve:
 
-- 通过 `.passthrough()` 放宽 Protocol 来吞掉未知字段；
-- 在 Adapter、Protocol 和 UI 各维护一份 Access DTO；
-- 把安全校验材料、Ticket、JWT 或临时 Header 写回 Provider Config；
-- 依据 Provider ID、Model ID、Endpoint 或 pathname 推断 Access Mode。
+- afrouxar o Protocol com `.passthrough()` para engolir campos desconhecidos;
+- manter um DTO de Access em cada um dos lugares Adapter, Protocol e UI;
+- gravar de volta no Provider Config materiais de validação de segurança, Ticket, JWT ou Headers temporários;
+- inferir o Access Mode a partir do Provider ID, Model ID, Endpoint ou pathname.
 
-Runtime Headers 请求仍只携带定位和解释本次鉴权请求所需的静态 Access 事实；实际请求期 Secret 由 Host 响应返回并绑定
-到该次 Model Request。
+A requisição de Runtime Headers continua carregando apenas os fatos estáticos de Access necessários para localizar e
+explicar esta requisição de autenticação; o Secret real de período de requisição é devolvido pela resposta do Host e
+vinculado a aquela requisição de modelo.
 
-## 7. 实施顺序
+## 7. Ordem de implementação
 
 ```text
-Todo 26：Access Type/Mode 契约切换
+Todo 26: troca de contrato Access Type/Mode
                  |
                  v
-Runtime Headers Schema 复用正式 Access
+Runtime Headers Schema reutiliza o Access oficial
                  |
                  v
-Team Plan 真实请求回归
+regressão de requisição real do Team Plan
 
-布尔 Overlay 样式统一
+unificação do estilo do Overlay booleano
                  |
                  v
-模型级恢复默认
+restauração de padrão em nível de modelo
                  |
                  v
-窗口级成功反馈
+feedback de sucesso em nível de janela
 
-Team 状态机拆分可独立并行实施
+a divisão da máquina de estados do Team pode ser implementada em paralelo de forma independente
 ```
 
-每个切片先写失败测试，再最小修改生产代码。测试发现需要改变本文之外的 Config、Overlay、Registry 或模型选择语义时，
-暂停实施并请求裁决。
+Cada recorte começa com um teste que falha e depois faz a alteração mínima no código de produção. Se os testes
+revelarem que é preciso alterar a semântica de Config, Overlay, Registry ou de seleção de modelos além do que está
+neste documento, pare a implementação e peça uma decisão.
 
-## 8. 测试计划
+## 8. Plano de testes
 
-### 8.1 UI 与 Overlay
+### 8.1 UI e Overlay
 
-- 输入、输出和模型能力使用相同 Boolean option DOM 与视觉状态；
-- checked 只由 Effective 值决定，Personal 样式只由稀疏叶子存在决定；
-- 显式值等于继承值时仍显示 Personal 样式；
-- Text 锁定字段保持普通样式；PDF / Audio 无损保留；
-- 不存在任何单字段恢复按钮；
-- “全部恢复默认”对 Built-in 与 Personal 模型始终存在，无 Overlay 时禁用；
-- 全部恢复后清空完整 Personal Model Config Rule，取消不提交，保存后重新继承通用/具体 Built-in Rules。
-- 两个复杂 JSON 编辑区只使用固定高度输入框自身的边框，不增加外层边框、背景或内边距；MFJS 前显示“其他设置”分组标题。
+- entrada, saída e capacidades do modelo usam o mesmo DOM de Boolean option e o mesmo estado visual;
+- checked é determinado apenas pelo valor Efetivo, e o estilo Personal apenas pela existência de folhas esparsas;
+- quando o valor explícito é igual ao herdado, o estilo Personal continua sendo exibido;
+- campos de Text bloqueados mantêm o estilo normal; PDF / Audio são preservados sem perdas;
+- não existe nenhum botão de restauração de campo único;
+- "Restaurar tudo para o padrão" existe sempre para modelos Built-in e Personal, e fica desabilitado sem Overlay;
+- depois de restaurar tudo, a Personal Model Config Rule completa é limpa, cancelar não faz commit e, após salvar, a
+  herança das Rules Built-in genéricas/específicas é restaurada.
+- as duas áreas de edição de JSON complexas usam apenas a borda da própria caixa de altura fixa, sem borda externa,
+  fundo ou padding adicionais; o grupo "Outras configurações" é exibido antes do MFJS.
 
-### 8.2 保存与成功反馈
+### 8.2 Salvamento e feedback de sucesso
 
-- Provider/Model 保存和模型连接反馈显示在右侧 Provider 详情栏底部，不跟随内容滚动；
-- 不渲染 dirty；saving、success、failure 使用同一 key 替换，failure 停留更久并可重试/关闭；
-- 模型保存和模型连接消息包含 Model ID，同名模型包含 Provider 身份；
-- 多条不同消息向上堆叠，重复消息替换；
-- Provider 左右面板滚动、长模型列表和移动端布局不改变通知锚点；
-- 中英文、明暗主题和键盘关闭行为一致。
-- Provider 名称、Base URL 和 API Key 连续输入时共享闲时保存定时器，失焦立即 flush，不双重提交；
-- Model Metadata Dialog 仍由显式保存/取消控制，不被闲时保存破坏事务边界。
+- o feedback de salvamento de Provider/Model e de conexão de modelo é exibido na parte inferior da barra de detalhes do
+  Provider à direita e não acompanha a rolagem do conteúdo;
+- dirty não é renderizado; saving, success e failure usam a mesma chave e se substituem, failure permanece por mais tempo
+  e permite retry/fechar;
+- as mensagens de salvamento de modelo e de conexão de modelo contêm o Model ID, e modelos homônimos contêm a
+  identidade do Provider;
+- várias mensagens diferentes se empilham para cima e mensagens repetidas são substituídas;
+- a rolagem dos painéis esquerdo/direito do Provider, listas longas de modelos e o layout móvel não alteram a âncora da
+  notificação;
+- os temas claro/escuro, os idiomas zh/en e o comportamento de fechamento por teclado são consistentes.
+- Nome do Provider, Base URL e API Key compartilham um temporizador de salvamento ocioso durante a digitação contínua,
+  com flush imediato ao perder o foco e sem envio duplicado;
+- o Model Metadata Dialog continua sendo controlado por salvamento/cancelamento explícitos, sem que o salvamento ocioso
+  quebre a fronteira transacional.
 
 ### 8.3 Team Plan
 
-- quota 缺失、loading、请求失败均不显示“团队套餐未分配”，且允许刷新；
-- 权威 unavailable 才显示未分配；available 恢复正常状态；
-- 状态切换不会由 UI 直接修改 Provider enabled；
-- `zhipu-account/team-coding-plan` 的完整 Registry Access 能通过 Protocol 严格校验；
-- Start、Individual、Team、Off-Peak 的 Runtime Headers 参数均与 Todo 26 的 Mode 契约一致；
-- Team Plan 请求在模型网络调用前成功取得请求期材料；缺失材料时返回准确鉴权错误，而不是 Schema 错误。
+- quota ausente, loading e falha de requisição não exibem "plano de equipe não alocado" e permitem refresh;
+- somente unavailable autoritativo exibe não alocado; available restaura o estado normal;
+- a troca de estado não é feita pela UI modificando diretamente o enabled do Provider;
+- o Registry Access completo de `zhipu-account/team-coding-plan` passa pela validação estrita do Protocol;
+- os parâmetros de Runtime Headers de Start, Individual, Team e Off-Peak estão todos de acordo com o contrato de Mode do
+  Todo 26;
+- a requisição do Team Plan obtém com sucesso o material de período de requisição antes da chamada de rede do modelo;
+  quando o material está ausente, retorna um erro de autenticação preciso, e não um erro de Schema.
 
-### 8.4 回归边界
+### 8.4 Limites de regressão
 
-- 普通 `api-key` Provider 不进入 Runtime Headers 请求链；
-- Account Overlay、Start 账号模型约束和 Provider Registry 成员不被 UI 状态机修改；
-- Desktop local 与 Web Remote 继续由目标 Environment Host 提供请求期材料；
-- 已创建 Active Model 的冻结语义不变；
-- Provider / Model 拖拽、独立滚动、Dialog 遮罩和固定高度 JSON 编辑器不回退。
+- um Provider `api-key` comum não entra na cadeia de requisição de Runtime Headers;
+- o Account Overlay, as restrições de modelo da conta Start e os membros do Provider Registry não são modificados pela
+  máquina de estados da UI;
+- Desktop local e Web Remote continuam recebendo o material de período de requisição do Environment Host de destino;
+- a semântica de congelamento de Modelos Ativos já criados não muda;
+- arrastar de Provider / Model, rolagem independente, máscara do Dialog e editor de JSON de altura fixa não regridem.
 
-## 9. 完成标准
+## 9. Critérios de conclusão
 
-- Settings 中所有模型布尔配置具有统一外观并准确表达 Personal Overlay 来源；
-- 只存在一个始终可见的模型级恢复默认入口；
-- 保存和连接成功反馈稳定锚定右侧 Provider 详情栏底部，模型成功消息带身份；
-- Provider 文本输入同时支持闲时保存和失焦立即保存，不制造重复写入；
-- Team Plan 不再把未知或请求失败误报为未分配，也不会自我阻断刷新；
-- Team Plan 的 Runtime Headers 请求严格复用正式 Registry Access Schema，并能完成真实模型请求；
-- 定向单测、`pnpm typecheck`、`pnpm lint`、受影响 UI E2E 和 macOS 实机回归通过；
-- 不增加第二套 Model Config、Account Access、Registry、Toast 或连接状态事实。
+- todas as configurações booleanas de modelo em Settings têm aparência unificada e expressam com precisão a origem do
+  Personal Overlay;
+- existe apenas uma entrada sempre visível de restauração de padrão em nível de modelo;
+- o feedback de sucesso de salvamento e de conexão fica ancorado de forma estável na parte inferior da barra de detalhes
+  do Provider à direita, e as mensagens de sucesso de modelo carregam a identidade;
+- os campos de texto do Provider suportam simultaneamente salvamento ocioso e salvamento imediato ao perder o foco, sem
+  gerar escritas duplicadas;
+- o Team Plan não reporta mais desconhecido ou falha de requisição como não alocado, nem se autobloqueia na atualização;
+- a requisição de Runtime Headers do Team Plan reutiliza estritamente o Schema oficial de Registry Access e consegue
+  concluir uma requisição real de modelo;
+- testes unitários direcionados, `pnpm typecheck`, `pnpm lint`, E2E de UI afetados e regressão real em macOS passam;
+- não se cria um segundo conjunto de fatos sobre Model Config, Account Access, Registry, Toast ou estado de conexão.
 
-## 10. 实施结果
+## 10. Resultado da implementação
 
-- 输入/输出格式、能力字段和 MFJS 统一使用同一个 Boolean Model Option；Effective 值决定 checked，稀疏
-  Personal 叶子只通过高饱和外框与 Checkbox 边框表达，锁定 Text 不伪装成 Personal；
-- 删除所有单字段恢复入口；模型级“全部恢复默认”始终显示，无 Overlay 时禁用，提交时原子清空该模型完整
-  Personal Model Config，而不删除成员或身份；
-- Provider/Model 保存与模型连接收口到右侧 Provider 详情栏的底部横幅；同一对象的 saving、success、
-  failure 按 key 原位替换，不同对象向上堆叠，模型消息包含 Provider/Model 身份；不再显示 dirty，失败延长到八秒
-  并提供重试或关闭；
-- Provider 名称、Base URL 和 API Key 的文本草稿在停止输入 800ms 后自动保存，失焦/Enter/切换时立即
-  flush；同一 Provider 只有一个定时器且同草稿不重复提交，中文 IME 组词期间不触发闲时保存；
-- 两个复杂 JSON 编辑区去掉重复的外层边框、背景和内边距，只保留固定高度输入框；MFJS 开关归入“其他设置”分区；
-- Team Plan 状态机区分 loading、request error 与服务端明确 unavailable；详情页不再以“未分配”状态阻止
-  entitlement refresh，消除首次缺 quota 后永久自锁；
-- Runtime Headers 请求直接使用 `zcodeProviderAccountAccessSchema`。API Key、Start、Individual、Team、
-  Off-Peak 五种 Registry mode 均通过严格 Protocol 测试，旧 `planKind` 形状被拒绝；
-- 设置页、Usage 和登录恢复不再用动态 `zcodeAccountAccessSchema` 解析 Registry Access。UI 只传递
-  `{ type, family, mode }` 静态事实，Host 的 Account Request Auth Service 再根据当前连接解析动态
-  `planKind` 与 Team scope；Team usage source 由静态 `team-coding-plan` mode 与已订阅项目事实组合，
-  不把项目身份写回 Provider Config；
-- 模型选择分组与 Official MCP 凭证解析也已切到正式静态 Registry Access Schema。Official MCP 在
-  Host 调用边界解析当前动态连接，并把前后两次 Account Access 一并纳入一致性检查；同一 Family 同时
-  启用普通套餐和 Off-Peak 时，设置与 Usage 均按精确 Provider ID 解析，不再要求“Family 下唯一 Provider”；
-- Bugfix 03 的最大输出 Token 重复 JSON 入口同步删除，唯一数字入口按 inherited limit 确定性产生完整
-  `LimitOptionSpec`；
-- 新增 Personal Model 的 Config Rule 预览只作为 `inheritedConfig` 和输入 placeholder，不再回填为用户输入；
-  提交时 Built-in 通用规则提供的 context、输入输出格式与能力不会被误写成 Personal Overlay；
-- UI、Team Plan、Shared Protocol、Model Selection 和 Official MCP 定向测试通过；根 `pnpm typecheck`
-  与 `pnpm lint` 通过（lint 仅保留 34 条仓库既有 warning），本轮修改文件格式检查通过；
-- 全量 Unit 共 `12,463 passed / 25 skipped`；仅两个与本轮无关的 Server CLI ZIP 用例因当前宿主未安装
-  `zip` 可执行文件而在启动外部命令时 `ENOENT`，Provider/Model/Account/Settings 回归没有失败；
-- Linux Desktop E2E 已完成构建，但宿主缺少 `xvfb-run`，Electron 在进入用例断言前退出。该环境阻塞和
-  macOS 最新开发链实机复验不伪装为自动化通过，继续作为发布前真实验证项保留。
+- Formatos de entrada/saída, campos de capacidade e MFJS usam uniformemente o mesmo Boolean Model Option; o valor
+  Efetivo determina checked, e a folha Personal esparsa é expressada apenas pela moldura externa de alta saturação e
+  pela borda do Checkbox, com o Text bloqueado sem se passar por Personal;
+- Todas as entradas de restauração de campo único foram removidas; o "Restaurar tudo para o padrão" em nível de modelo é
+  sempre exibido, desabilitado sem Overlay, e no commit limpa atomicamente o Personal Model Config completo daquele
+  modelo sem remover membros nem identidade;
+- O salvamento de Provider/Model e a conexão de modelo foram concentrados na faixa inferior da barra de detalhes do
+  Provider à direita; saving, success e failure do mesmo objeto são substituídos no lugar por chave, objetos diferentes
+  se empilham para cima e as mensagens de modelo contêm a identidade de Provider/Model; dirty não é mais exibido, falha
+  é estendida para oito segundos e oferece retry ou fechar;
+- Os rascunhos de texto de Nome do Provider, Base URL e API Key são salvos automaticamente após 800ms sem digitação,
+  com flush imediato ao perder o foco, ao pressionar Enter ou na troca; há um único temporizador por Provider e nenhum
+  reenvio do mesmo rascunho, e o salvamento ocioso não dispara durante a composição do IME em chinês;
+- As duas áreas de edição de JSON complexas tiveram borda externa, fundo e padding duplicados removidos, mantendo apenas a
+  caixa de altura fixa; o switch MFJS foi movido para a seção "Outras configurações";
+- A máquina de estados do Team Plan diferencia loading, erro de requisição e unavailable explicitamente confirmado pelo
+  servidor; a página de detalhes não bloqueia mais o entitlement refresh com o estado "não alocado", eliminando o
+  autobloqueio permanente após a primeira ausência de quota;
+- A requisição de Runtime Headers usa diretamente `zcodeProviderAccountAccessSchema`. Os cinco Registry modes — API
+  Key, Start, Individual, Team e Off-Peak — passam pelos testes estritos do Protocol, e o formato antigo `planKind` é
+  rejeitado;
+- A página de configurações, o Usage e a restauração de login não usam mais o `zcodeAccountAccessSchema` dinâmico para
+  fazer o parse do Registry Access. A UI transmite apenas os fatos estáticos `{ type, family, mode }`, e o Account
+  Request Auth Service do Host resolve o `planKind` dinâmico e o escopo de Team com base na conexão atual; a Team usage
+  source é combinada do mode estático `team-coding-plan` com o fato de projeto inscrito, sem gravar a identidade do
+  projeto de volta no Provider Config;
+- O agrupamento de seleção de modelo e a resolução de credenciais do Official MCP também migraram para o Schema
+  oficial estático de Registry Access. O Official MCP resolve a conexão dinâmica atual no limite de chamada do Host e
+  inclui as duas Account Access (antes e depois) na verificação de consistência; quando o mesmo Family habilita plano
+  comum e Off-Peak simultaneamente, Settings e Usage resolvem pelo Provider ID exato e não exigem mais "Provider único
+  sob o Family";
+- A entrada duplicada de JSON de Token de saída máxima do Bugfix 03 também foi removida, e a única entrada numérica
+  produz deterministicamente um `LimitOptionSpec` completo a partir do limite herdado;
+- A pré-visualização da Config Rule de um novo Personal Model serve apenas como `inheritedConfig` e placeholder de
+  entrada, sem ser preenchida de volta como input do usuário; no commit, o context, os formatos de entrada/saída e as
+  capacidades fornecidos pelas regras Built-in genéricas não são gravados por engano como Personal Overlay;
+- Os testes direcionados de UI, Team Plan, Shared Protocol, Model Selection e Official MCP passaram; o `pnpm typecheck`
+  e o `pnpm lint` da raiz passaram (o lint mantém apenas 34 warnings já existentes no repositório), e a verificação de
+  formatação dos arquivos alterados nesta rodada passou;
+- A suíte Unit completa teve `12,463 passed / 25 skipped`; apenas dois casos do Server CLI ZIP, sem relação com esta
+  rodada, falharam com `ENOENT` ao iniciar um comando externo porque o executável `zip` não está instalado no host
+  atual; não houve falhas na regressão de Provider/Model/Account/Settings;
+- O Linux Desktop E2E concluiu a build, mas o host não tem `xvfb-run`, e o Electron saiu antes de entrar nas asserções
+  dos casos. Esse bloqueio de ambiente e a reverificação real em macOS na mais recente cadeia de desenvolvimento não são
+  falsificados como aprovação automatizada e continuam como itens de verificação real antes do lançamento.

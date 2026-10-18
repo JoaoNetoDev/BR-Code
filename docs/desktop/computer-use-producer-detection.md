@@ -1,33 +1,33 @@
-# Computer Use producer 检测
+# Detecção do producer de Computer Use
 
-## 规则
+## Regras
 
-Computer Use 的真实实现来自私有仓的 `@zcode/zcode-cua`（producer）。开源导出用 `packages/zcode-cua`
-占位包替换它，占位包在 `package.json` 声明 `zcodeCuaPlaceholder: true`，所有能力 fail-closed。
+A implementação real do Computer Use vem do `@zcode/zcode-cua` (producer) no repositório privado. A exportação open source
+o substitui pelo pacote placeholder `packages/zcode-cua`, que declara `zcodeCuaPlaceholder: true` em `package.json`, com
+todas as capacidades em fail-closed.
 
-开发、构建与打包中只服务于真实 Computer Use 的步骤，必须先检测到真实 producer 才执行；
-检测不到时跳过，不能让开源树的入口因为缺少私有产物而失败：
+Etapas de desenvolvimento, build e empacotamento que sirvam apenas ao Computer Use real só podem ser executadas depois de
+detectar o producer real; quando a detecção falha, a etapa deve ser pulada, para que as entradas da árvore open source não
+quebrem por falta dos artefatos privados:
 
-| 步骤                                                                   | 位置                                                  |
-| ---------------------------------------------------------------------- | ----------------------------------------------------- |
-| 开发启动构建 macOS Helper、注入 Helper 环境变量                        | `scripts/dev-desktop-env.mjs`                         |
-| 开发态暂存 Computer Use 插件的原生依赖（Sharp）                        | `scripts/stage-dev-cua-plugin-runtime.mjs`            |
-| Windows 运行时资源准备 `prepare:windows-cua-helper`                    | `packages/desktop/scripts/prepare-runtime-assets.mjs` |
-| 打包附带 macOS Helper、Windows Helper 资源，打包后的 Helper 校验与定稿 | `packages/desktop/electron-builder.config.js`         |
+| Etapa                                                                                     | Local                                                  |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Build de inicialização de desenvolvimento do Helper no macOS e injeção das variáveis de ambiente do Helper | `scripts/dev-desktop-env.mjs`                        |
+| Staging em desenvolvimento das dependências nativas (Sharp) do plugin de Computer Use     | `scripts/stage-dev-cua-plugin-runtime.mjs`            |
+| Preparação de recursos de runtime no Windows `prepare:windows-cua-helper`                   | `packages/desktop/scripts/prepare-runtime-assets.mjs` |
+| Empacotamento com recursos do Helper no macOS e Helper do Windows, verificação e finalização do Helper após o build | `packages/desktop/electron-builder.config.js`         |
 
-Sharp 的暂存与校验仍以“producer 是否声明 Sharp 依赖”为准（`isSharpRequiredByComputerUse`），
-与本检测一致：真实 producer 声明 Sharp，占位包不声明。
+O staging e a verificação do Sharp continuam baseados em "o producer declara a dependência Sharp"
+(`isSharpRequiredByComputerUse`), de forma consistente com esta detecção: o producer real declara Sharp, o pacote
+placeholder não declara.
 
-## 所有者与接口
+## Propriedade e interface
 
-- 唯一判定：`packages/desktop/scripts/computer-use-producer.mjs` 的 `readComputerUseProducer` /
-  `isRealComputerUseProducerInstalled`。从桌面包目录向上查找最近一次安装的 `@zcode/zcode-cua`，
-  读取清单的 `zcodeCuaPlaceholder` 字段。
-- 构建配置同步求值，判定只做一次小文件同步读取。
+- Única decisão: `readComputerUseProducer` / `isRealComputerUseProducerInstalled` em `packages/desktop/scripts/computer-use-producer.mjs`. Procura, subindo a partir do diretório do pacote do desktop, a instalação mais próxima de `@zcode/zcode-cua` e lê o campo `zcodeCuaPlaceholder` do manifesto.
+- A configuração de build faz a avaliação de forma síncrona, com uma única leitura síncrona de arquivo pequeno.
 
-## 验收
+## Aceitação
 
-1. 闭源（真实 producer）：上述步骤行为不变。
-2. 占位包：`pnpm dev:desktop` 的准备脚本可加载，开发态插件运行时暂存返回空，Windows 不准备 Helper，
-   打包不附带也不校验 Helper。
-3. 单测：`packages/desktop/test/placeholderProducerDetection.test.ts` 覆盖真实、占位、未安装三种情况与暂存跳过。
+1. Código fechado (producer real): o comportamento das etapas acima permanece inalterado.
+2. Pacote placeholder: os scripts de preparação de `pnpm dev:desktop` carregam, o staging do runtime do plugin em desenvolvimento retorna vazio, o Windows não prepara o Helper e o empacotamento não inclui nem verifica o Helper.
+3. Testes unitários: `packages/desktop/test/placeholderProducerDetection.test.ts` cobre os três casos (real, placeholder, não instalado) e o skip de staging.

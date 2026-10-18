@@ -1,12 +1,12 @@
-# OSS/CDN 多目标迁移
+# Migração Multi-alvo OSS/CDN
 
-## 背景
+## Contexto
 
-当前仓库版本已经是 `3.1.2`，因此 CDN/OSS 迁移桥接版从 `3.1.3` 开始。已安装的旧版本会固定读取包内 `app-update.yml` 写入的 generic stable feed，所以旧 CDN 的 stable feed 不能在桥接版前下线。
+A versão atual do repositório já é `3.1.2`, portanto a versão ponte da migração de CDN/OSS começa em `3.1.3`. Versões antigas já instaladas leem sempre o generic stable feed gravado no `app-update.yml` dentro do pacote, então o stable feed do CDN antigo não pode ser desativado antes da versão ponte.
 
-## CI 变量模型
+## Modelo de Variáveis no CI
 
-迁移切换只通过 CI 环境变量完成：
+A troca da migração é feita somente por variáveis de ambiente do CI:
 
 ```bash
 CDN_DOMAIN=cdn-zcode.z.ai,cdn.zcode-ai.com,cdn.codegeex.cn
@@ -15,21 +15,21 @@ OSS_PATH_PREFIX=zcode/electron/releases
 OSS_CONFIG_FILE=/etc/ossutil/new,/etc/ossutil/old-a,/etc/ossutil/old-b
 ```
 
-- `CDN_DOMAIN` 支持逗号分隔列表；第一项是打包写入客户端和 release API 使用的主域名。
-- `OSS_BUCKET` 支持逗号分隔列表；必须是单值，或与 `CDN_DOMAIN` 数量一致。
-- `OSS_PATH_PREFIX` 支持单值复用；如果配置多值，也必须与 `CDN_DOMAIN` 数量一致。
-- `OSS_CONFIG_FILE` 可选，支持单值复用，或与 `CDN_DOMAIN` 数量一致；配置后每组 OSS 上传都会用对应的 ossutil 配置文件，便于新旧 OSS 使用不同 AK/SK 和 region。
-- 数量不匹配时 CI 必须失败，避免写错 bucket 或路径。
+- `CDN_DOMAIN` aceita uma lista separada por vírgulas; o primeiro item é o domínio principal gravado no cliente no build e usado pela release API.
+- `OSS_BUCKET` aceita uma lista separada por vírgulas; precisa ser um único valor ou ter a mesma quantidade de `CDN_DOMAIN`.
+- `OSS_PATH_PREFIX` aceita reuso de valor único; se houver vários valores, também precisa ter a mesma quantidade de `CDN_DOMAIN`.
+- `OSS_CONFIG_FILE` é opcional, aceita reuso de valor único ou a mesma quantidade de `CDN_DOMAIN`; quando configurado, cada grupo de upload OSS usa o arquivo de configuração ossutil correspondente, o que facilita o uso de AK/SK e region diferentes entre OSS antigo e novo.
+- Quando as quantidades não batem, o CI precisa falhar, para evitar gravar no bucket ou caminho errados.
 
-## 版本流程
+## Fluxo de Versões
 
 ### 3.1.2
 
-已发布版本，不再修改。旧 CDN/OSS 继续保留 stable feed、安装包、blockmap、`manifest-*.json` 和 `components/**`。
+Versão já publicada, sem novas alterações. O CDN/OSS antigo continua mantendo o stable feed, os instaladores, o blockmap, o `manifest-*.json` e o `components/**`.
 
-### 3.1.3 桥接版
+### 3.1.3 versão ponte
 
-配置三组目标：
+Configura três grupos de alvos:
 
 ```bash
 CDN_DOMAIN=cdn-zcode.z.ai,cdn.zcode-ai.com,cdn.codegeex.cn
@@ -37,11 +37,11 @@ OSS_BUCKET=new-bucket,old-bucket-a,old-bucket-b
 OSS_CONFIG_FILE=/etc/ossutil/new,/etc/ossutil/old-a,/etc/ossutil/old-b
 ```
 
-CI 会把 `3.1.3` 的完整产物上传到三组 OSS/CDN，并在 publish 成功后覆盖三组 stable feed。旧 `3.1.2` 客户端继续从旧 feed 升级到 `3.1.3`；升级后的 `3.1.3` 客户端内置主域名 `cdn-zcode.z.ai`，后续走新 CDN。
+O CI envia os artefatos completos da `3.1.3` para os três grupos de OSS/CDN e, após o publish bem-sucedido, sobrescreve os três stable feeds. O cliente antigo `3.1.2` continua atualizando do feed antigo para a `3.1.3`; o cliente `3.1.3` já atualizado traz embutido o domínio principal `cdn-zcode.z.ai` e passa a usar o novo CDN.
 
-### 3.1.4 切新
+### 3.1.4 troca para o novo
 
-配置单组目标：
+Configura um único grupo de alvos:
 
 ```bash
 CDN_DOMAIN=cdn-zcode.z.ai
@@ -49,11 +49,11 @@ OSS_BUCKET=new-bucket
 OSS_CONFIG_FILE=/etc/ossutil/new
 ```
 
-从 `3.1.4` 开始只上传新 OSS/CDN。旧 CDN 保留 `3.1.3` stable feed 一段时间，兜底长期未启动的 `3.1.2` 用户。
+A partir da `3.1.4` só o novo OSS/CDN recebe upload. O CDN antigo mantém o stable feed da `3.1.3` por um período, como rede de segurança para usuários da `3.1.2` que não iniciam o app há muito tempo.
 
-## 每个目标上传内容
+## Conteúdo Enviado por Alvo
 
-每组 `{domain, bucket, pathPrefix}` 都必须有完整产物：
+Cada grupo `{domain, bucket, pathPrefix}` precisa ter os artefatos completos:
 
 ```text
 oss://<bucket>/<pathPrefix>/<version>/
@@ -68,11 +68,11 @@ oss://<bucket>/<pathPrefix>/update/<platform>/<arch>/
   *.blockmap
 ```
 
-版本化平台目录内的更新清单统一命名为 `latest.yml`，多语言日志放在 `releaseNotesByLocale`；当前发布链路不再覆盖旧版 stable feed。`manifest-*.json` 必须进入版本目录。
+O manifesto de atualização dentro dos diretórios de plataforma versionados é nomeado uniformemente `latest.yml`, e os logs multilíngue ficam em `releaseNotesByLocale`; o fluxo de publicação atual não sobrescreve mais o stable feed antigo. O `manifest-*.json` precisa entrar no diretório da versão.
 
-## 验证
+## Verificação
 
-- `ci*` 分支先验证三目标上传、预热和 publish。
-- 手工验证 `3.1.2 -> 3.1.3` 从旧 feed 升级。
-- 手工验证 `3.1.3 -> 3.1.4` 从新 feed 升级。
-- 验证 remote runtime 在三组 CDN 都能拉到 `manifest-*.json` 和 `components/**`。
+- Os branches `ci*` validam primeiro o upload para os três alvos, o preheat e o publish.
+- Validar manualmente a atualização `3.1.2 -> 3.1.3` a partir do feed antigo.
+- Validar manualmente a atualização `3.1.3 -> 3.1.4` a partir do novo feed.
+- Validar que o remote runtime consegue baixar o `manifest-*.json` e o `components/**` nos três CDNs.

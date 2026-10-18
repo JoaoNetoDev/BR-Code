@@ -1,34 +1,27 @@
-# 图片预览指针交互约束
+# Restrições de interação de ponteiro da prévia de imagem
 
-## 问题
+## Problema
 
-桌面端全屏图片预览使用模态 Dialog。Dialog 打开时会把页面根交互层设为
-`pointer-events: none`，Electron 顶部区域同时可能参与窗口拖拽命中；图片视口还会
-在拖拽时捕获 pointer。若预览没有显式恢复指针命中、退出拖拽区域，或拖拽结束后
-遗留 pointer capture，右上角下载、关闭等操作会出现鼠标 hover 和点击无反馈。
+A prévia de imagem em tela cheia no desktop usa um Dialog modal. Quando o Dialog é aberto, ele define a camada de interação da raiz da página como `pointer-events: none`, a região superior do Electron pode participar ao mesmo tempo do hit test de arraste da janela, e o viewport da imagem também captura o pointer durante o arraste. Se a prévia não restaurar explicitamente o hit de ponteiro, não sair da região de arraste, ou deixar pointer capture residual após o arraste, ações como download e fechar no canto superior direito exibirão hover e clique do mouse sem resposta.
 
-## 交互边界
+## Limites de interação
 
 ```text
-Electron 原生鼠标事件
+Eventos nativos de mouse do Electron
         │
         ▼
-图片预览 Dialog（pointer-events-auto + app-region:no-drag）
+Dialog de prévia de imagem (pointer-events-auto + app-region:no-drag)
         │
-        ├── 顶部操作按钮（不得被图片视口捕获）
-        ├── 上一张 / 下一张
-        ├── 图片拖拽与缩放（pointerup/cancel/lostcapture 时释放）
-        └── 底部缩放按钮
+        ├── Botões de ação superiores (não podem ser capturados pelo viewport da imagem)
+        ├── Imagem anterior / próxima
+        ├── Arraste e zoom da imagem (liberados em pointerup/cancel/lostcapture)
+        └── Botão de zoom inferior
 ```
 
-- 预览 Dialog 必须显式使用 `pointer-events-auto` 和 `[app-region:no-drag]`。
-- 所有可点击按钮必须保持既有 hover 视觉，不因交互修复改变样式。
-- 图片拖拽只由预览视口处理，不得覆盖浮层按钮的命中区域。
-- 图片视口在 `pointerup`、`pointercancel` 和 `lostpointercapture` 时必须清理拖拽状态；
-  重置预览时必须主动释放仍存在的 pointer capture。
-- 位于 Electron 标题栏范围内的右上角操作区必须统一声明 `[app-region:no-drag]`，
-  并同时包住下载和关闭按钮，避免两个相邻操作形成不连续的原生命中区域。
-- macOS desktop 使用 `titleBarStyle: hidden`，其原生标题栏命中不能只靠 CSS
-  `no-drag` 抵消；右上角操作区必须整体放到标题栏下方。Web、手机、Windows 和
-  Linux 使用各自布局，不继承 macOS 安全间距。
-- 桌面端和 Web 端共用这一交互边界；Electron 专用属性在 Web 端应无副作用。
+- O Dialog de prévia deve usar explicitamente `pointer-events-auto` e `[app-region:no-drag]`.
+- Todos os botões clicáveis devem manter o visual de hover existente, sem alteração de estilo por causa da correção de interação.
+- O arraste da imagem é tratado apenas pelo viewport da prévia e não pode sobrescrever a área de hit dos botões da camada flutuante.
+- O viewport da imagem deve limpar o estado de arraste em `pointerup`, `pointercancel` e `lostpointercapture`; ao redefinir a prévia, o pointer capture ainda existente deve ser liberado ativamente.
+- A área de ações no canto superior direito, dentro da faixa da barra de título do Electron, deve declarar uniformemente `[app-region:no-drag]` e envolver simultaneamente os botões de download e de fechar, evitando que duas ações adjacentes formem regiões nativas de hit descontinuas.
+- O desktop macOS usa `titleBarStyle: hidden`, e o hit da barra de título nativa não pode ser neutralizado apenas pelo `no-drag` de CSS; a área de ações no canto superior direito deve ser colocada inteiramente abaixo da barra de título. Web, celular, Windows e Linux usam seus respectivos layouts e não herdam as margens de segurança do macOS.
+- Desktop e Web compartilham este limite de interação; os atributos específicos do Electron devem ser sem efeito colateral na Web.

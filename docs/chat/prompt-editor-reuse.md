@@ -1,9 +1,9 @@
-# Prompt Editor 复用说明
+# Instruções de reutilização do Prompt Editor
 
-> **当前状态**：`ChatPromptEditor` 由 V4 主 composer 和 V4 用户消息编辑态共同复用。
+> **Estado atual**: `ChatPromptEditor` é reutilizado em conjunto pelo composer principal da V4 e pelo estado de edição de mensagens de usuário da V4.
 
-`ChatPromptEditor` 是聊天输入框的轻量共享编辑器，负责承载 `LexicalChatInput`、提交/取消按钮、可选快捷入口和 workspace file drop。主输入区和用户消息编辑态都通过它复用输入核心。
+`ChatPromptEditor` é o editor compartilhado leve da caixa de entrada do chat, responsável por hospedar `LexicalChatInput`, os botões de envio/cancelamento, a entrada rápida opcional e o workspace file drop. Tanto a área de entrada principal quanto o estado de edição de mensagens de usuário reaproveitam o núcleo de entrada por meio dele.
 
-主 `packages/ui/src/v4/ConversationComposer.tsx` 保留 session 级能力，例如 toolbar、prompt enhance、附件选择和停止生成；`ChatPromptEditor` 只处理通用编辑能力。用户消息 edit 由 `packages/ui/src/v4/ConversationRowView.tsx` 使用同一 editor inline 替换原气泡，只展示原文编辑、取消、提交、附件只读展示和 file mention 拖拽插入。
+O `packages/ui/src/v4/ConversationComposer.tsx` principal mantém as capacidades de nível de sessão, como toolbar, prompt enhance, seleção de anexos e interrupção da geração; `ChatPromptEditor` trata apenas das capacidades de edição comuns. A edição de mensagem de usuário, feita em `packages/ui/src/v4/ConversationRowView.tsx`, usa o mesmo editor inline para substituir o balão original, mostrando apenas a edição do texto original, cancelar, enviar, a exibição de anexos somente leitura e a inserção por arrastar do file mention.
 
-workspace file tree 拖拽追加 mention 的逻辑集中在 `workspaceFileComposer`，避免主 composer 和 edit composer 分别拼接 markdown，保证 `@file` mention 语义一致。
+A lógica de arrastar da árvore de arquivos do workspace para anexar mentions está centralizada em `workspaceFileComposer`, evitando que o composer principal e o composer de edição concatenem markdown separadamente e garantindo a consistência semântica da mention `@file`.

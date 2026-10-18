@@ -1,37 +1,82 @@
-# Provider 横幅裁切：Pro 运行时调查
+# Recorte do banner de Provider: investigação no runtime Pro
 
-> 2026-09-10。状态：未复现原图，根因未确认；不得标为已修复。本轮只诊断，未修改产品代码。
+> 2026-09-10. Status: a imagem original não foi reproduzida e a causa raiz não foi
+> confirmada; não marcar como corrigido. Esta rodada só diagnostica, sem modificar código de
+> produto.
 
-> 后续用户裁决：先忽略本项。保持调查记录，不继续实施或作为本轮其他 Todo 的完成前置；本轮待办汇总见 [Todo107](./todo-107-provider-settings-feedback-enablement-and-template-links.md)。
+> Decisão posterior do usuário: ignorar este item por enquanto. Manter o registro da
+> investigação, sem continuar a implementação nem usá-lo como pré-requisito de conclusão dos
+> demais Todos desta rodada; o resumo dos pendentes desta rodada está em
+> [Todo107](./todo-107-provider-settings-feedback-enablement-and-template-links.md).
 
-## 原始现象
+## Fenômeno original
 
-Air 的连接测试成功横幅下半部缺失，模型行仍可见；下方同时有另一型号的测试中横幅。原始附件：剪贴板截图 `d51e6f7f-bf4e-4753-bdbd-87056848d5b3.png`。
+O banner de sucesso do teste de conexão do Air estava com a metade inferior faltando, enquanto
+a linha do modelo continuava visível; abaixo havia ao mesmo tempo o banner de "testando" de
+outro modelo. Anexo original: captura de tela da área de transferência
+`d51e6f7f-bf4e-4753-bdbd-87056848d5b3.png`.
 
-## 实际调查
+## Investigação realizada
 
-- Pro 没有运行中的 ZCode，从已有开发构建启动 Electron 并连接 CDP。发现其构建较旧，不能作为 Air 同版本验证。
-- 从 Air 当前安装包只提取 renderer 资源，在 Pro 临时目录加载这份实际前端。未替换源码或原构建。Host 仍为 Pro 原构建，存在账号／配置 DTO 不一致，因此仅用于前端布局诊断，不代表完整应用同版本验收。
-- 两台 Electron 均为 41.0.3、macOS 均为 26.6.2；Air 为 M4，Pro 为 M5。Pro GPU 合成和 Metal 均开启。
-- 通过原有 `ProviderDetailFeedbackBoundary` 的 Context 注入临时 success / pending，不调用模型接口，不保存 Provider 配置；另设置模型行的临时 isTesting 状态以复现原图转圈动画。临时调整列表位置使模型行位于横幅下方。
-- 检查两条／三条提示、移除中间提示、窗口尺寸改变、滚动及模型行 transform。记录祖先 overflow、z-index、边界和合成层。
-- 两条提示实测高度各 44 CSS px，间距 8 px，整体 96 px；位于详情面板边界内，横幅 viewport 的 z-index 为 20。合成层理由包含 BackdropFilter，但这不是它导致故障的证据。
-- 连续 12 轮提示／滚动变化收到 68 个 screencast 帧，保存 12 个采样帧并人工抽查 0/3/6/9/11；未见原图下半截消失。各轮 DOM 横幅底部命中检查均未发现被模型行遮挡。
-- 系统 screencapture 在用户唤醒 Pro 后仍返回 `could not create image from display`；未修改屏幕录制权限或安全设置。CDP 截图／录帧可用，不能用它们替代未取得的系统屏幕证据。
+- O Pro não tinha um ZCode em execução; o Electron foi iniciado a partir de um build de
+  desenvolvimento já existente e conectado via CDP. Descobriu-se que o build é mais antigo e
+  não serve como validação de mesma versão do Air.
+- Do pacote instalado no Air foi extraído apenas o recurso de renderer, carregado no
+  diretório temporário do Pro para usar esse frontend real. Não se substituiu o código-fonte
+  nem o build original. O Host continuou sendo o build original do Pro; como há inconsistência
+  de DTO de conta/configuração, isso serve apenas para diagnóstico de layout do frontend e não
+  representa a aceitação do aplicativo completo na mesma versão.
+- Os dois Eletrons eram 41.0.3 e ambos os macOS eram 26.6.2; o Air é M4 e o Pro é M5. No Pro,
+  a composição por GPU e o Metal estavam ambos habilitados.
+- Por meio do Context da `ProviderDetailFeedbackBoundary` já existente foram injetados
+  success / pending temporários, sem chamar a interface de modelos e sem salvar a
+  configuração do Provider; também foi definido um estado isTesting temporário na linha do
+  modelo para reproduzir a animação de giro da imagem original. Ajustou-se temporariamente a
+  posição da lista para que a linha do modelo ficasse abaixo do banner.
+- Foram verificadas as exibições com dois / três avisos, a remoção do aviso do meio, a mudança
+  de tamanho da janela, o scroll e o transform da linha do modelo. Registrados o overflow dos
+  ancestrais, o z-index, os limites e as camadas de composição.
+- Com dois avisos, a altura medida foi de 44 CSS px cada e o espaçamento de 8 px, totalizando
+  96 px; ficava dentro dos limites do painel de detalhes, e o z-index do viewport do banner
+  era 20. O motivo da camada de composição inclui BackdropFilter, mas isso não é evidência de
+  que ele causou a falha.
+- Em 12 rodadas consecutivas de mudança de avisos/scroll foram recebidos 68 frames de
+  screencast, com 12 frames de amostra salvos e verificação manual de 0/3/6/9/11; não se
+  observou o desaparecimento da metade inferior da imagem original. Em todas as rodadas, os
+  testes de acerto na parte inferior dos banners do DOM não acharam oclusão pela linha do
+  modelo.
+- O screencapture do sistema continuou retornando `could not create image from display` mesmo
+  depois de o usuário acordar o Pro; as permissões de gravação de tela e as configurações de
+  segurança não foram modificadas. Capturas e gravação de frames via CDP funcionaram, mas não
+  podem substituir a evidência de tela do sistema que não foi obtida.
 
-## 结论与下一步
+## Conclusões e próximos passos
 
-本次复现条件下，未发现普通 CSS 层级或父容器 overflow 将横幅拦腰裁切。此结论不否认用户截图，也不能完全排除其他时序／设备条件下的布局问题。
+Nas condições de reprodução desta vez, não se encontrou camada de CSS comum nem overflow de
+contêiner pai que cortasse o banner ao meio. Essa conclusão não nega a captura de tela do
+usuário e também não exclui por completo problemas de layout em outras condições de
+temporização ou de dispositivo.
 
-“backdrop-filter 与 GPU 合成发生绘制异常”仍只是候选，尚无故障前后对照证明；禁止据此宣称根因或直接增加 z-index / 删除 blur 作为已验证修复。
+"backdrop-filter com falha de pintura na composição por GPU" continua sendo apenas uma
+hipótese, sem uma comparação antes/depois da falha que a comprove; é proibido alegar a causa raiz
+com base nisso ou aumentar o z-index / remover o blur como se fossem uma correção verificada.
 
-下一步应在 Air 真正复现时连接 CDP，同一时刻记录横幅 rect、合成层和屏幕图，再做仅影响内存样式的单变量对照（例如去掉 blur、禁用相关动画）。Air 当前无调试端口，重启前需与用户确认，不能擅自打断任务。
+O próximo passo deve ser conectar via CDP no Air quando a reprodução ocorrer de fato, registrando
+no mesmo instante o rect do banner, a camada de composição e a imagem de tela, para então fazer
+uma comparação de variável única que afete apenas estilos em memória (por exemplo, remover o
+blur ou desativar a animação relacionada). O Air não tem porta de depuração no momento; é
+preciso confirmar com o usuário antes de reiniciar, não se pode interromper a task por conta
+própria.
 
-## 临时证据
+## Evidências temporárias
 
-- 本机 `/tmp/pro-banner-stress-evidence.json`：每轮几何及命中结果。
-- 本机 `/tmp/pro-banner-frame-0.png` 至 `11.png`：采样帧。
-- 本机 `/tmp/pro-banner-row-spinner.png`：模型行与横幅同时转圈场景。
-- 本机 `/tmp/zcode-banner-stress.cjs`、`/tmp/zcode-pro-banner-cdp.cjs`：诊断脚本，不是正式测试或生产代码。
+- Na máquina local, `/tmp/pro-banner-stress-evidence.json`: geometria e resultados de acerto de
+  cada rodada.
+- Na máquina local, `/tmp/pro-banner-frame-0.png` a `11.png`: frames de amostra.
+- Na máquina local, `/tmp/pro-banner-row-spinner.png`: cenário com a linha do modelo e o banner
+  girando ao mesmo tempo.
+- Na máquina local, `/tmp/zcode-banner-stress.cjs` e `/tmp/zcode-pro-banner-cdp.cjs`: scripts de
+  diagnóstico, não são testes oficiais nem código de produção.
 
-以上为临时诊断文件，不是永久回归证据；实施修复时仍须留下可重复的正式用例。
+Acima estão arquivos temporários de diagnóstico, que não são evidência permanente de regressão;
+ao implementar a correção, ainda será preciso deixar casos oficiais reproduzíveis.

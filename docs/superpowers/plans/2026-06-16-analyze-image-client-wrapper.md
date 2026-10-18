@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 新增 ZCode client-side `AnalyzeImage` 工具，内部通过单独模型请求只带 provider-native `analyze_image` 工具，避免 provider 自发输出的 `analyze_image` transcript 被误当作普通 ZCode 工具执行。
+**Goal:** 新增工具 ZCode client-side `AnalyzeImage`，内部通过单独模型请求只带 provider-native `analyze_image` 工具，避免 provider 自发输出的 `analyze_image` transcript 被误当作普通 ZCode 工具执行。
 
 **Architecture:** 公开工具面只暴露 `AnalyzeImage`，不把 provider-native `analyze_image` 暴露到主 turn。`AnalyzeImage` handler 复用现有图片读取/压缩能力，把本地图片和用户问题发到 `querySource: "analyze_image_tool"` 的内部流式模型请求；adapter 只在这个内部请求的工具名为 `analyze_image` 时把函数工具投影成 provider-native `analyze_image`。主 turn 中未经请求的 `server_tool_use analyze_image` 仍按 provider anomaly 隔离，不进入 Bash 或任意本地工具调度。
 
@@ -456,7 +456,7 @@ it("exposes AnalyzeImage only for supported Anthropic-compatible hosts", () => {
 });
 ```
 
-Use the same local `createRuntime(...)` helper shape as the WebSearch tests in `apps/zcode-cli/packages/core/tests/websearch.test.ts`; keep `modelConnectionPort.resolveConnection()` returning the provided `baseURL` and `providerKind`.
+使用与 `apps/zcode-cli/packages/core/tests/websearch.test.ts` 中 WebSearch 测试相同的本地 `createRuntime(...)` helper 形态；保持 `modelConnectionPort.resolveConnection()` 返回所给的 `baseURL` 和 `providerKind`。
 
 - [ ] **Step 3: 运行测试确认失败**
 
@@ -726,7 +726,7 @@ const analyzeImageHandler: ToolHandler<AnalyzeImageInput, AnalyzeImageOutput> = 
 };
 ```
 
-Add the helper functions in the same file:
+在同一文件中补充 helper 函数：
 
 ```ts
 export const analyzeImageToolEntry: ToolEntry = {
@@ -842,7 +842,7 @@ Modify `apps/zcode-cli/packages/core/src/tool/handlers/index.ts`:
 import { analyzeImageToolEntry } from "./analyze-image.js";
 ```
 
-Add it near `webSearchToolEntry`:
+在 `webSearchToolEntry` 附近加入：
 
 ```ts
   webFetchToolEntry,
@@ -858,7 +858,7 @@ Modify `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`:
 import { supportsProviderNativeAnalyzeImage } from "../../tool/handlers/analyze-image-support.js";
 ```
 
-Replace the filter body with:
+将 filter 函数体替换为：
 
 ```ts
   return tools.filter((tool) => {
@@ -868,7 +868,7 @@ Replace the filter body with:
   });
 ```
 
-Add:
+新增：
 
 ```ts
 function shouldExposeAnalyzeImage(this: AgentRuntimeInternal): boolean {
@@ -891,7 +891,7 @@ Modify `apps/zcode-cli/packages/core/tests/main-tool-pool.test.ts` in the suppor
 expect(toolNames).toContain("AnalyzeImage");
 ```
 
-Add an unsupported provider assertion:
+新增一个不支持 provider 的断言：
 
 ```ts
 expect(
@@ -936,7 +936,7 @@ git commit -m "feat(zcode-cli): add AnalyzeImage client wrapper"
 
 - [ ] **Step 1: 写 tool-transform 失败测试**
 
-Add to `apps/zcode-cli/packages/adapters/tests/websearch.test.ts` or split a new `analyze-image.test.ts` in the same package:
+Add to `apps/zcode-cli/packages/adapters/tests/websearch.test.ts` ou criar um novo `analyze-image.test.ts` no mesmo pacote:
 
 ```ts
 function createInternalProviderNativeAnalyzeImageContract(): ModelToolContract {
@@ -1077,7 +1077,7 @@ import {
 } from "@zcode/contracts";
 ```
 
-Replace provider-native dispatch:
+替换 provider-native dispatch：
 
 ```ts
 function toAiSdkProviderNativeTool(
@@ -1095,7 +1095,7 @@ function toAiSdkProviderNativeTool(
 }
 ```
 
-Keep existing WebSearch logic in `toAiSdkProviderNativeWebSearchTool(...)` and add:
+保留 `toAiSdkProviderNativeWebSearchTool(...)` 中现有的 WebSearch 逻辑，并新增：
 
 ```ts
 function toAiSdkProviderNativeAnalyzeImageTool(
@@ -1133,7 +1133,7 @@ Modify `apps/zcode-cli/packages/adapters/src/model/anthropic-stream-compat.ts`:
 const PROVIDER_NATIVE_ANALYZE_IMAGE_TOOL_NAME = "analyze_image";
 ```
 
-Change `createAnthropicCompatFetch`:
+修改 `createAnthropicCompatFetch`：
 
 ```ts
 export function createAnthropicCompatFetch(baseFetch: ProviderFetch): ProviderFetch {
@@ -1145,7 +1145,7 @@ export function createAnthropicCompatFetch(baseFetch: ProviderFetch): ProviderFe
 }
 ```
 
-Add request rewrite helpers:
+新增 request rewrite helpers：
 
 ```ts
 function rewriteAnthropicAnalyzeImageRequest(init: RequestInit | undefined): RequestInit | undefined {
@@ -1184,13 +1184,13 @@ function rewriteAnthropicAnalyzeImageRequest(init: RequestInit | undefined): Req
 
 Modify `shouldEmitFrame(...)` in `apps/zcode-cli/packages/adapters/src/model/anthropic-stream-compat.ts`.
 
-Add `suppressedProviderToolUseIds` state to the transform and suppress `server_tool_use analyze_image` plus matching bare `tool_result` when it appears in provider output without being part of the side request. The initial implementation can key off the stream content only:
+在 transform 中新增 `suppressedProviderToolUseIds` 状态，用于抑制 `server_tool_use analyze_image` 以及 provider 输出中出现的、与之匹配的裸 `tool_result`（当它不是 side request 的一部分时）。初始实现可以仅依据 stream 内容判断：
 
 ```ts
 const suppressedProviderToolUseIds = new Set<string>();
 ```
 
-In `content_block_start` handling:
+在 `content_block_start` 处理中：
 
 ```ts
 const contentBlock = safeRecord(parsed.content_block);
@@ -1217,7 +1217,7 @@ if (
 }
 ```
 
-Keep the existing generic bare `tool_result` suppression after this specific branch. This preserves typed `web_search_tool_result` behavior.
+在这个特定分支之后，保留现有的通用裸 `tool_result` 抑制逻辑。这样可保留带类型的 `web_search_tool_result` 行为。
 
 - [ ] **Step 7: 增加 final request body 验证**
 
@@ -1228,7 +1228,7 @@ expect(capturedBody.tools).toEqual([{ type: "analyze_image", name: "analyze_imag
 expect(capturedBody.tools).not.toContainEqual(expect.objectContaining({ name: "AnalyzeImage" }));
 ```
 
-Add a second main-turn request body assertion:
+新增第二个主 turn 的 request body 断言：
 
 ```ts
 expect(JSON.stringify(capturedMainBody.tools)).toContain("AnalyzeImage");
@@ -1262,7 +1262,7 @@ git commit -m "feat(zcode-cli): route analyze image through provider-native side
 
 - [ ] **Step 1: 写未授权 transcript 隔离测试**
 
-Replace the current assertion in `filters assistant-side bare tool_result content blocks from Anthropic SSE` so it no longer expects `server_tool_use` to remain visible:
+替换 `filters assistant-side bare tool_result content blocks from Anthropic SSE` 中当前的断言，使其不再期望 `server_tool_use` 保持可见：
 
 ```ts
 expect(text).toContain("Output already summarized");
@@ -1274,7 +1274,7 @@ expect(text).not.toContain('"index":2');
 expect(text).not.toContain('"index":4');
 ```
 
-Add a malformed-input regression:
+新增一个输入损坏的回归测试：
 
 ```ts
 it("drops malformed provider-injected analyze_image input before tool input normalization", async () => {
@@ -1318,7 +1318,7 @@ Expected before implementation: fail，当前实现仍保留 `server_tool_use an
 
 - [ ] **Step 3: 完成 stream suppression**
 
-If Task 3 Step 6 did not already finish the suppression, finish it here. The final behavior must suppress all frames for the `server_tool_use analyze_image` block and matching `tool_result` block. Add a Chinese comment at the suppression point:
+如果 Task 3 Step 6 尚未完成 suppression，则在此处完成。最终行为必须抑制 `server_tool_use analyze_image` block 及其匹配的 `tool_result` block 的所有帧。在 suppression 位置添加一条中文注释：
 
 ```ts
 // 修复原因：部分 Anthropic-compatible provider 会在未请求 analyze_image 时返回
@@ -1328,7 +1328,7 @@ If Task 3 Step 6 did not already finish the suppression, finish it here. The fin
 
 - [ ] **Step 4: 增加 assembler 防线**
 
-Add an adapter-level guard in `streaming-tool-call-assembler.ts` so provider-executed `analyze_image` cannot become a ZCode-executable tool call even if a future provider response shape bypasses fetch-level frame suppression:
+在 `streaming-tool-call-assembler.ts` 中增加一层 adapter 级防护，使 provider 执行的 `analyze_image` 即使在未来某种 provider 响应形态绕过 fetch 层的帧抑制，也不会变成可被 ZCode 执行的工具调用：
 
 ```ts
 const UNAUTHORIZED_PROVIDER_TOOL_NAMES = new Set(["analyze_image"]);
@@ -1353,7 +1353,7 @@ private handleToolInputStart(
 }
 ```
 
-The side request does not rely on `tool_call` events from provider-native `analyze_image`; it consumes final text. Suppressing this provider-executed tool input in the assembler is therefore safe for both main turn anomaly output and the internal `AnalyzeImage` request.
+side request 并不依赖来自 provider-native `analyze_image` 的 `tool_call` 事件，它消费的是最终文本。因此在 assembler 中抑制这种 provider-executed tool input，对主 turn 的 anomaly 输出和内部 `AnalyzeImage` 请求都是安全的。
 
 - [ ] **Step 5: 运行 anomaly 测试确认通过**
 
@@ -1410,7 +1410,7 @@ PASS apps/zcode-cli/packages/adapters/tests/registry.test.ts
 PASS apps/zcode-cli/packages/adapters/tests/websearch.test.ts
 ```
 
-The `runner.test.ts` assertions must prove:
+`runner.test.ts` 的断言必须证明：
 
 ```ts
 expect(capturedAnalyzeImageSideRequest.tools).toEqual([
@@ -1441,17 +1441,17 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: both commands exit 0。If either command fails because of pre-existing unrelated files, capture the failing file list and run the narrower package-level command that covers the changed files before reporting the residual root-level failure.
+Expected: 两个命令都以 exit 0 结束。如果任一命令因无关的既存文件而失败，先记录失败文件列表，再运行覆盖改动文件的、更窄的 package 级命令，然后再报告残留的 root 级失败。
 
 - [ ] **Step 5: 用真实或 fake model-io 检查 request.body.tools**
 
-Run a local fake-fetch or model-io capture around a prompt that calls:
+围绕一个调用如下工具的 prompt 运行本地 fake-fetch 或 model-io capture：
 
 ```text
 请用 AnalyzeImage 分析 ./screen.png 中的文字
 ```
 
-Acceptance:
+验收：
 
 ```json
 {
@@ -1465,7 +1465,7 @@ Acceptance:
 }
 ```
 
-Do not treat a green object-level `ModelToolContract` test as sufficient without this final request-body check.
+不要在缺少这项最终 request-body 检查的情况下，把通过的 object-level `ModelToolContract` 测试视为充分。
 
 - [ ] **Step 6: Commit**
 

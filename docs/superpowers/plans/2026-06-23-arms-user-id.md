@@ -1,40 +1,40 @@
-# ARMS RUM user.id 注入登录账号 userId 实现计划
+# ARMS RUM user.id — plano de implementação para injetar o userId da conta conectada
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 把桌面端登录账号 `userId` 注入 ARMS RUM 的 `user.id`，未登录时回填 `device_mid`，并随登录/登出/切号动态同步。
+**Goal:** Injetar o `userId` da conta conectada do desktop no `user.id` do ARMS RUM, preencher `device_mid` quando não houver login e sincronizar dinamicamente em login/logout/troca de conta.
 
-**Architecture:** 新增一个职责单一的主进程模块 `armsUserIdentity.ts`，通过依赖注入（`loadUserId`、`deviceMid`、`setUser`）解析「当前应上报的 user.id」并带去重写入 `armsRum.setConfig("user", { id })`。在 `index.ts` 主进程接三个触发点：ARMS init 后首次、登录 IPC 回调旁路、窗口聚焦兜底。只改主进程一处即覆盖主+渲染（autoInject 下传 user.id）。
+**Architecture:** Adicionar um módulo de processo principal de responsabilidade única, `armsUserIdentity.ts`, que resolve «o user.id que deve ser reportado agora» por injeção de dependências (`loadUserId`, `deviceMid`, `setUser`) e grava com deduplicação em `armsRum.setConfig("user", { id })`. No processo principal de `index.ts` conectar três gatilhos: a primeira vez após o init do ARMS, um bypass no callback IPC de login e um fallback no foco da janela. Alterar apenas um ponto no processo principal já cobre principal + renderer (o autoInject propaga o user.id).
 
-**Tech Stack:** TypeScript、Electron 主进程、`@arms/rum-electron`、vitest。
+**Tech Stack:** TypeScript, processo principal do Electron, `@arms/rum-electron`, vitest.
 
-## Global Constraints
+## Restrições globais
 
-- ARMS SDK 仅在 electron 主进程 init；OAuth 登出 hook 在 fork 出的 host 子进程，主进程收不到其事件——动态同步只能靠主进程可达信号（init 后、登录 IPC、window focus）。
-- `armsRum.setConfig("user", { id })` 是运行时更新入口；`user.id` 经 autoInject 自动下传 renderer，**不改 renderer/web**。
-- 不改动 host 子进程、自研 telemetry core、三处 `setConfig("properties", { device_mid })`。
-- 根 `pnpm typecheck` 不覆盖 desktop main，需对 `packages/desktop` 单独 tsc 验证。
-- 单测里 `@arms/rum-electron` 已被 `vitest.config.ts` alias 到 `armsRumElectronStub`；但本模块通过注入 `setUser` 依赖测试，不直接依赖 SDK mock。
-- 复用现有变量：`index.ts:229` 的 `createTelemetryUserIdLoader(appTelemetryCredentialService)`、`index.ts:353` 的 `deviceMid`。
+- O SDK do ARMS só é inicializado no processo principal do electron; o hook de logout do OAuth roda no processo filho host derivado por fork, e o processo principal não recebe seus eventos — a sincronização dinâmica só pode depender de sinais alcançáveis no processo principal (após o init, o IPC de login e o window focus).
+- `armsRum.setConfig("user", { id })` é o ponto de entrada de atualização em runtime; o `user.id` é propagado automaticamente ao renderer pelo autoInject, **sem alterar renderer/web**.
+- Não alterar o processo filho host, o telemetry core próprio, nem os três pontos de `setConfig("properties", { device_mid })`.
+- O `pnpm typecheck` da raiz não cobre o desktop main; é preciso validar o `packages/desktop` separadamente com tsc.
+- Nos testes unitários, `@arms/rum-electron` já é apontado por `vitest.config.ts` para `armsRumElectronStub`; mas este módulo é testado injetando a dependência `setUser` e não depende diretamente do mock do SDK.
+- Reutilizar as variáveis existentes: `createTelemetryUserIdLoader(appTelemetryCredentialService)` em `index.ts:229` e `deviceMid` em `index.ts:353`.
 
 ---
 
-### Task 1: armsUserIdentity 模块 + 单测
+### Task 1: módulo armsUserIdentity + testes unitários
 
 **Files:**
 - Create: `packages/desktop/src/main/armsUserIdentity.ts`
 - Test: `packages/desktop/test/armsUserIdentity.test.ts`
 
 **Interfaces:**
-- Consumes: 无（纯依赖注入）。
+- Consumes: nenhum (injeção de dependência pura).
 - Produces:
   - `interface ArmsUserIdentitySyncDeps { loadUserId: () => Promise<string>; deviceMid: string; setUser: (user: { id: string }) => void; }`
   - `interface ArmsUserIdentitySync { refresh: () => Promise<void>; }`
   - `function createArmsUserIdentitySync(deps: ArmsUserIdentitySyncDeps): ArmsUserIdentitySync`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Escrever o teste que falha**
 
-创建 `packages/desktop/test/armsUserIdentity.test.ts`：
+Criar `packages/desktop/test/armsUserIdentity.test.ts`:
 
 ```typescript
 import { describe, expect, it, vi } from "vitest";
@@ -128,14 +128,14 @@ describe("armsUserIdentity", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Executar o teste para verificar que ele falha**
 
 Run: `pnpm vitest run packages/desktop/test/armsUserIdentity.test.ts`
-Expected: FAIL — 无法解析 `../src/main/armsUserIdentity.js` / `createArmsUserIdentitySync is not a function`。
+Expected: FAIL — não é possível resolver `../src/main/armsUserIdentity.js` / `createArmsUserIdentitySync is not a function`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Escrever a implementação mínima**
 
-创建 `packages/desktop/src/main/armsUserIdentity.ts`：
+Criar `packages/desktop/src/main/armsUserIdentity.ts`:
 
 ```typescript
 export interface ArmsUserIdentitySyncDeps {
@@ -188,10 +188,10 @@ export function createArmsUserIdentitySync(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Executar o teste para verificar que ele passa**
 
 Run: `pnpm vitest run packages/desktop/test/armsUserIdentity.test.ts`
-Expected: PASS（6 个用例全过）。
+Expected: PASS (os 6 casos passam).
 
 - [ ] **Step 5: Commit**
 
@@ -202,30 +202,30 @@ git commit -m "feat(desktop): armsUserIdentity 解析并去重写入 ARMS user.i
 
 ---
 
-### Task 2: index.ts 接线（首次 + focus 兜底）
+### Task 2: ligação em index.ts (primeira vez + fallback de foco)
 
 **Files:**
-- Modify: `packages/desktop/src/main/index.ts`（import 区；`deviceMid` 定义后构造 sync；`syncAppTelemetryInteractiveState` 内追加 refresh；`await armsInitPromise` 后首次 refresh）
+- Modify: `packages/desktop/src/main/index.ts` (área de import; construir o sync após a definição de `deviceMid`; acrescentar o refresh dentro de `syncAppTelemetryInteractiveState`; primeiro refresh após `await armsInitPromise`)
 
 **Interfaces:**
-- Consumes: Task 1 的 `createArmsUserIdentitySync`；现有 `createTelemetryUserIdLoader(appTelemetryCredentialService)`、`deviceMid`、`armsRum`（`appARMSBootstrap` 用的是 `@arms/rum-electron` 默认导出）。
-- Produces: 模块级 `armsUserIdentitySync`（供 Task 3 在 IPC 回调旁路调用）。
+- Consumes: o `createArmsUserIdentitySync` da Task 1; os já existentes `createTelemetryUserIdLoader(appTelemetryCredentialService)`, `deviceMid`, `armsRum` (`appARMSBootstrap` usa o export default de `@arms/rum-electron`).
+- Produces: `armsUserIdentitySync` em nível de módulo (para a Task 3 chamar no bypass do callback IPC).
 
-- [ ] **Step 1: 确认 armsRum 在 index.ts 的可用性**
+- [ ] **Step 1: Confirmar a disponibilidade de armsRum em index.ts**
 
 Run: `grep -nE "^import armsRum|from \"@arms/rum-electron\"" packages/desktop/src/main/index.ts`
-Expected: 若无输出，则 index.ts 尚未直接 import armsRum，需在 Step 2 添加 `import armsRum from "@arms/rum-electron";`（默认导出，与 `appARMSBootstrap.ts:1` 一致）。
+Expected: se não houver saída, index.ts ainda não importa armsRum diretamente; no Step 2 é preciso adicionar `import armsRum from "@arms/rum-electron";` (export default, igual a `appARMSBootstrap.ts:1`).
 
-- [ ] **Step 2: 添加 import 与构造 sync**
+- [ ] **Step 2: Adicionar o import e construir o sync**
 
-在 `packages/desktop/src/main/index.ts` 顶部 import 区添加（若 Step 1 显示已存在 armsRum import 则跳过该行）：
+Adicionar na área de import do topo de `packages/desktop/src/main/index.ts` (pular essa linha se o Step 1 já mostrar um import de armsRum):
 
 ```typescript
 import armsRum from "@arms/rum-electron";
 import { createArmsUserIdentitySync } from "./armsUserIdentity.js";
 ```
 
-在 `const deviceMid = createHash(...).slice(0, 32);`（约 `index.ts:353-356`）之后新增：
+Adicionar depois de `const deviceMid = createHash(...).slice(0, 32);` (aproximadamente `index.ts:353-356`):
 
 ```typescript
 const armsUserIdentitySync = createArmsUserIdentitySync({
@@ -235,9 +235,9 @@ const armsUserIdentitySync = createArmsUserIdentitySync({
 });
 ```
 
-- [ ] **Step 3: focus handler 内追加兜底刷新**
+- [ ] **Step 3: Acrescentar a atualização de fallback dentro do handler de foco**
 
-把 `syncAppTelemetryInteractiveState`（`index.ts:241-247`）改为：
+Alterar `syncAppTelemetryInteractiveState` (`index.ts:241-247`) para:
 
 ```typescript
 function syncAppTelemetryInteractiveState(): void {
@@ -251,9 +251,9 @@ function syncAppTelemetryInteractiveState(): void {
 }
 ```
 
-- [ ] **Step 4: ARMS init 后首次 refresh**
+- [ ] **Step 4: Primeiro refresh após o init do ARMS**
 
-在 `await armsInitPromise;`（`index.ts:1221`）之后、`configureDesktopStabilityTelemetry({` 之前新增：
+Adicionar depois de `await armsInitPromise;` (`index.ts:1221`) e antes de `configureDesktopStabilityTelemetry({`:
 
 ```typescript
   // ARMS init 完成后首次写入 user.id（通常未登录 → 落 device_mid）
@@ -263,8 +263,8 @@ function syncAppTelemetryInteractiveState(): void {
 - [ ] **Step 5: typecheck**
 
 Run: `cd packages/desktop && pnpm exec tsc -p tsconfig.main.json --noEmit`
-（若该 tsconfig 名不存在，先 `ls packages/desktop/tsconfig*.json` 选覆盖 `src/main` 的那个；desktop main 走 node 侧 tsconfig。）
-Expected: 无报错。
+(se esse nome de tsconfig não existir, rodar primeiro `ls packages/desktop/tsconfig*.json` e escolher o que cobre `src/main`; o desktop main usa o tsconfig do lado node.)
+Expected: sem erros.
 
 - [ ] **Step 6: Commit**
 
@@ -275,28 +275,28 @@ git commit -m "feat(desktop): ARMS init 后与窗口聚焦时同步 user.id"
 
 ---
 
-### Task 3: 登录回调即时刷新（IPC 旁路）
+### Task 3: atualização imediata no callback de login (bypass do IPC)
 
 **Files:**
-- Modify: `packages/desktop/src/main/desktopMainIpcRemote.ts`（`registerRemoteIpcHandlers` options 增加可选回调；`OAuthCallbackHandled` 监听内触发）
-- Modify: `packages/desktop/src/main/index.ts`（调用处传入回调）
+- Modify: `packages/desktop/src/main/desktopMainIpcRemote.ts` (adicionar callback opcional às options de `registerRemoteIpcHandlers`; disparar dentro do listener de `OAuthCallbackHandled`)
+- Modify: `packages/desktop/src/main/index.ts` (passar o callback no ponto de chamada)
 
 **Interfaces:**
-- Consumes: Task 2 的 `armsUserIdentitySync.refresh`。
-- Produces: `registerRemoteIpcHandlers` options 新增 `onOAuthCallbackHandledSideEffect?: () => void`。
+- Consumes: `armsUserIdentitySync.refresh` da Task 2.
+- Produces: nova option `onOAuthCallbackHandledSideEffect?: () => void` em `registerRemoteIpcHandlers`.
 
-- [ ] **Step 1: options 类型增加可选回调**
+- [ ] **Step 1: Adicionar o callback opcional ao tipo de options**
 
-在 `desktopMainIpcRemote.ts` 的 `registerRemoteIpcHandlers(options: { ... })` 类型中，`appTelemetryRuntime` 字段之后新增一行：
+No tipo de `registerRemoteIpcHandlers(options: { ... })` em `desktopMainIpcRemote.ts`, adicionar uma linha depois do campo `appTelemetryRuntime`:
 
 ```typescript
   /** OAuth 回调处理完成后的额外副作用（如刷新 ARMS user.id）；不影响既有 runtime 流程 */
   onOAuthCallbackHandledSideEffect?: () => void;
 ```
 
-- [ ] **Step 2: 监听内触发副作用**
+- [ ] **Step 2: Disparar o efeito colateral dentro do listener**
 
-把 `OAuthCallbackHandled` 监听（`desktopMainIpcRemote.ts:157-159`）改为：
+Alterar o listener de `OAuthCallbackHandled` (`desktopMainIpcRemote.ts:157-159`) para:
 
 ```typescript
   ipcMain.on(PlatformChannels.OAuthCallbackHandled, (event) => {
@@ -305,9 +305,9 @@ git commit -m "feat(desktop): ARMS init 后与窗口聚焦时同步 user.id"
   });
 ```
 
-- [ ] **Step 3: 调用处传入回调**
+- [ ] **Step 3: Passar o callback no ponto de chamada**
 
-在 `index.ts` 的 `registerRemoteIpcHandlers({ ... })` 调用（`index.ts:1199`）里，`appTelemetryRuntime,` 之后新增一行：
+Na chamada `registerRemoteIpcHandlers({ ... })` em `index.ts` (`index.ts:1199`), adicionar uma linha depois de `appTelemetryRuntime,`:
 
 ```typescript
     onOAuthCallbackHandledSideEffect: () => {
@@ -318,12 +318,12 @@ git commit -m "feat(desktop): ARMS init 后与窗口聚焦时同步 user.id"
 - [ ] **Step 4: typecheck**
 
 Run: `cd packages/desktop && pnpm exec tsc -p tsconfig.main.json --noEmit`
-Expected: 无报错。
+Expected: sem erros.
 
-- [ ] **Step 5: 跑既有 IPC/telemetry 相关测试确认未回归**
+- [ ] **Step 5: Rodar os testes existentes de IPC/telemetry para confirmar que não houve regressão**
 
 Run: `pnpm vitest run packages/desktop/test/armsUserIdentity.test.ts packages/desktop/test/desktopNetworkTelemetry.test.ts`
-Expected: PASS。
+Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -334,41 +334,41 @@ git commit -m "feat(desktop): 登录回调完成后即时刷新 ARMS user.id"
 
 ---
 
-### Task 4: 全量验证
+### Task 4: Verificação completa
 
-**Files:** 无改动（仅验证）。
+**Files:** sem alterações (apenas verificação).
 
-- [ ] **Step 1: 跑新模块单测**
+- [ ] **Step 1: Rodar os testes unitários do novo módulo**
 
 Run: `pnpm vitest run packages/desktop/test/armsUserIdentity.test.ts`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 2: desktop main typecheck**
+- [ ] **Step 2: typecheck do desktop main**
 
 Run: `cd packages/desktop && pnpm exec tsc -p tsconfig.main.json --noEmit`
-Expected: 无报错。
+Expected: sem erros.
 
-- [ ] **Step 3: 根 typecheck（确认未破坏共享类型）**
+- [ ] **Step 3: typecheck da raiz (confirmar que os tipos compartilhados não foram quebrados)**
 
 Run: `pnpm typecheck`
-Expected: 无报错。
+Expected: sem erros.
 
-- [ ] **Step 4:（可选）冒烟说明**
+- [ ] **Step 4: (Opcional) Nota de smoke test**
 
-dev 启动后，ARMS 后台对一个已登录会话应能看到 `user.id` = 账号 id；未登录会话为 `device_mid`。无自动化断言，记录为手动验证项。
+Após o start em dev, o backend do ARMS deve mostrar `user.id` = id da conta para uma sessão conectada; para uma sessão sem login, deve mostrar `device_mid`. Não há asserção automatizada; registrar como item de verificação manual.
 
 ---
 
 ## Self-Review
 
-**1. Spec coverage：**
-- 新模块 `armsUserIdentity.ts` + 去重 → Task 1 ✓
-- 三触发点（init 后 / focus 兜底 / 登录 IPC 旁路）→ Task 2（init+focus）、Task 3（IPC）✓
-- 未登录回填 device_mid、异常兜底 → Task 1 测试与实现 ✓
-- 只改主进程、不动 host/property/renderer/web → 改动文件仅 `armsUserIdentity.ts`/`index.ts`/`desktopMainIpcRemote.ts` ✓
-- 单测 5 项场景 → Task 1 覆盖（含并发末次生效，超出 spec 但符合实现的并发约束）✓
-- 验证（desktop 单独 tsc + vitest）→ Task 4 ✓
+**1. Cobertura do spec:**
+- Novo módulo `armsUserIdentity.ts` + deduplicação → Task 1 ✓
+- Três gatilhos (após o init / fallback de foco / bypass do IPC de login) → Task 2 (init+focus), Task 3 (IPC) ✓
+- Preenchimento com device_mid quando não há login e fallback de exceção → testes e implementação da Task 1 ✓
+- Alterar apenas o processo principal, sem tocar em host/property/renderer/web → arquivos alterados somente `armsUserIdentity.ts`/`index.ts`/`desktopMainIpcRemote.ts` ✓
+- 6 cenários de teste unitário → cobertos pela Task 1 (inclusive «última resolução vence» na concorrência, que vai além do spec mas corresponde à restrição de concorrência da implementação) ✓
+- Verificação (tsc separado do desktop + vitest) → Task 4 ✓
 
-**2. Placeholder scan：** 无 TBD/TODO；tsconfig 名给了 `ls` 回退确认步骤（Task 2 Step 5），非占位符而是显式分支。armsRum import 用 Step 1 grep 决定是否新增，非占位。
+**2. Varredura de placeholders:** nenhum TBD/TODO; o nome do tsconfig tem uma etapa de confirmação explícita com `ls` (Task 2 Step 5), que é um ramo explícito e não um placeholder. O import do armsRum é decidido pelo grep do Step 1, não é placeholder.
 
-**3. Type consistency：** `createArmsUserIdentitySync` / `ArmsUserIdentitySyncDeps`（`loadUserId`/`deviceMid`/`setUser`）/ `ArmsUserIdentitySync.refresh` 在 Task 1 定义，Task 2/3 一致引用；`onOAuthCallbackHandledSideEffect` 在 Task 3 Step 1 定义、Step 3 使用，名称一致。
+**3. Consistência de tipos:** `createArmsUserIdentitySync` / `ArmsUserIdentitySyncDeps` (`loadUserId`/`deviceMid`/`setUser`) / `ArmsUserIdentitySync.refresh` são definidos na Task 1 e referenciados de forma consistente nas Tasks 2/3; `onOAuthCallbackHandledSideEffect` é definido no Step 1 da Task 3 e usado no Step 3, com o mesmo nome.

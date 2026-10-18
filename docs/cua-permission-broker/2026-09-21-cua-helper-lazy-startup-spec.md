@@ -1,278 +1,306 @@
-# CUA Helper 懒启动规范（macOS / Windows）
+# Especificação de lazy start do CUA Helper (macOS / Windows)
 
-## 状态
+## Status
 
-- 状态：已实现（MR1/MR2 落地于 feat/cua-helper-lazy-startup + producer feat/win-lazy-fork@5bcdde06）；全部门禁绿（typecheck/lint/architecture/services 单测 3141）；darwin 实机 MC-1/2/3 与 Windows 全链路 MC-4~7/9 待实机验证
-- 日期：2026-09-21
-- 适用范围：Desktop Host（services）、Agent spawn/session 链路、zcode-cua SDK（producer）、
+- Status: implementado (MR1/MR2 entregues em feat/cua-helper-lazy-startup + producer feat/win-lazy-fork@5bcdde06); todos os portões verdes (typecheck/lint/architecture/testes unitários de services 3141); MC-1/2/3 reais no darwin e a cadeia completa MC-4~7/9 no Windows aguardam verificação em máquina real
+- Data: 2026-09-21
+- Escopo de aplicação: Desktop Host (services), cadeia de spawn/sessão do Agent, SDK zcode-cua (producer),
   Computer Use Helper
-- 平台：macOS 与 Windows；Linux 不在本规范范围
-- 前置：M7 已在 darwin 落地懒启动基线（spawn 恒注入稳定 socket、SDK 首次 CUA 调用自拉、
-  设置页按需拉起）。本规范收窄 darwin 残留路径，并把 Windows 移植到同一模型
-- 替代关系：本规范替代
-  [Helper lifecycle 隔离规范](./2026-09-02-helper-lifecycle-agent-runtime-isolation-spec.md)
-  中与 spawn env 相关的准入条款——即 §3.1 的「2026-09-10 spawn 快路」条目与 §3.3 中
-  「Agent spawn env 需要决定是否可以注入当前 broker tuple」的有界探针入口。该规范的其余
-  条款（fail-closed、进程身份校验、代际 fence、无周期探测、Helper 事件不得 dispose Agent）
-  继续完全有效
+- Plataformas: macOS e Windows; Linux está fora do escopo desta especificação
+- Pré-requisito: M7 já entregou no darwin a linha de base de lazy start (spawn sempre injeta socket estável, a
+  primeira chamada CUA do SDK se autolaça, a página de configurações sobe sob demanda). Esta especificação
+  estreita os caminhos residuais do darwin e leva o Windows para o mesmo modelo
+- Relação de substituição: esta especificação substitui as cláusulas de admissão relacionadas ao spawn
+  env da
+  [Especificação de isolamento do ciclo de vida do Helper](./2026-09-02-helper-lifecycle-agent-runtime-isolation-spec.md)
+  — isto é, a entrada «2026-09-10 spawn fast path» da §3.1 e a entrada de sonda limitada em §3.3 de
+  «o spawn env do Agent precisa decidir se pode injetar o tuple atual do broker». As demais cláusulas
+  daquela especificação (fail-closed, verificação de identidade de processo, fence de geração, ausência de
+  sondagem periódica, eventos do Helper não devem descartar o Agent) continuam totalmente válidas
 
-## 一、产品不变量
+## 1. Invariantes de produto
 
-**核心不变量：Agent-facing 凭据 =（传输路径， pluginAuthority）是纯数据。**
+**Invariante central: credencial voltada ao Agent = (caminho de transporte, pluginAuthority) é dado puro.**
+A cunhagem e a derivação têm zero IO; a injeção (spawn env, resolver, página de configurações) tem zero
+IO, zero espera e zero dependência de saúde. O start/stop e a saúde do Helper só afetam o resultado das
+chamadas de ferramentas CUA e a exibição na página de configurações, nunca a ordem de start do Host, do
+spawn do Agent ou da criação de sessão.
 
-铸造与推导零 IO；注入（spawn env、resolver、设置页）零 IO、零等待、零健康依赖。
-Helper 的启停与健康只影响 CUA 工具调用的结果与设置页展示，永不影响 Host 启动、
-Agent spawn、session create 的时序。
+Devem valer para sempre:
 
-必须永久成立：
+1. O start do processo Host não pode disparar instalação, start ou sondagem do Helper (a coleta de órfãos
+   acontece apenas com a criação preguiçosa do host pelo fluxo de autorização).
+2. A resolução do spawn env do Agent não pode conter nenhuma IO do Helper: sem `checkHealth`, sem
+   `waitForTransport`, sem acquire e sem corrida com deadline.
+3. Os únicos disparadores legítimos de start do Helper são três:
+   - o `ensureBrokerAvailable` do SDK na primeira chamada CUA do Agent (o único caminho de primeira
+     chamada);
+   - ações explícitas do usuário: `getStatus` da página de configurações e o fluxo de autorização de
+     permissões;
+   - ações de manutenção do Host: `restartAfterPermissionGrant` e outras entradas de restart do resolver.
+4. A auto-retirada por 300s de ociosidade no modo standalone é uma característica: sai quando ninguém usa,
+   não fica residente.
+5. A credencial injetada no spawn é constante durante todo o ciclo de vida do processo Host (nome de pipe
+   estável no Windows, socket estável no macOS); reiniciar ou trocar a geração do Helper não reemite
+   credenciais, e o Agent que já a possui não precisa de nenhuma ação de atualização.
 
-1. Host 进程启动不得触发 Helper 安装、启动或探测（孤儿收割仅随授权流的 host 懒创建执行）。
-2. Agent spawn env 解析不得包含任何 Helper IO：无 `checkHealth`、无 `waitForTransport`、
-   无 acquire、无 deadline race。
-3. Helper 的合法启动触发者只有三类：
-   - Agent 首次 CUA 调用的 SDK `ensureBrokerAvailable`（唯一的首调路径）；
-   - 用户显式动作：设置页 `getStatus` 拉起、权限授权流；
-   - Host 维护动作：`restartAfterPermissionGrant` 等 resolver 重启入口。
-4. standalone 模式 300s idle 自退是特性：无人使用即退出，不常驻。
-5. spawn 注入的凭据在 Host 进程生命周期内恒定（Windows 稳定 pipe 名、macOS 稳定 socket
-   推导）；Helper 重启或换代不换发凭据，已持有凭据的 Agent 无需任何更新动作。
+## 2. Problema atual (fatos de linha de base em 2026-09-21)
 
-## 二、当前问题（2026-09-21 基线事实）
+**darwin (M7 entregue, com resíduo)**:
 
-**darwin（M7 已落地，存在残留）**：
+- O spawn env já injeta sempre socket estável + authority cunhado no spawn (`node.ts:2184`); o resolver já
+  é pass-through apenas peek (`node.ts:2308`); a primeira chamada do SDK se autolaça com instalação e
+  refresh do bundled (producer `computer-use-runtime.ts:91`).
+- Bloqueio residual: logo após o fluxo de autorização ter criado um host gerenciado, o spawn passa por
+  `buildCuaProductHelperAgentEnv`, com `checkHealth(1000)` quente, sonda de recuperação de marker e
+  corrida reservada (`node.ts:1123`); no cenário de Helper pendurado isso consome 1s inteiro.
+- O caminho de aquecimento `warmHelperForBuiltInPlugin` conflita com a semântica de lazy start.
 
-- spawn env 已恒定注入稳定 socket + spawn 铸 authority（`node.ts:2184`）；resolver 已
-  peek-only pass-through（`node.ts:2308`）；SDK 首调自拉含安装与 bundled 刷新
-  （producer `computer-use-runtime.ts:91`）。
-- 残留阻塞：授权流刚建过托管 host 时，spawn 走 `buildCuaProductHelperAgentEnv` 的
-  warm `checkHealth(1000)` / marker 恢复探针 / 预留 race（`node.ts:1123`），挂死 Helper
-  场景吃满 1s。
-- `warmHelperForBuiltInPlugin` 预热路径与懒启动语义冲突。
+**win32 (ainda no modelo antigo)**:
 
-**win32（仍是旧模型）**：
+- spawn `await getOrCreateDefaultCuaProductHelper` (inclui IO de resolução de runtime) +
+  `waitForTransport(1000)` (`node.ts:1186/1193`).
+- O `ensureBrokerAvailable` do SDK é no-op no win32; o Helper só pode ser aberto pelo Host via fork
+  (`windowsCuaDevHelperHost.ts:308`; o nome do pipe já é cunhado pelo Host e passado via argv `--socket`).
+- O `getStatus` da página de configurações no win32 retorna diretamente "CUA permissions are only
+  available on macOS" (`node.ts:1900`), sem nenhum estado.
 
-- spawn `await getOrCreateDefaultCuaProductHelper`（含 runtime 解析 IO）+
-  `waitForTransport(1000)`（`node.ts:1186/1193`）。
-- SDK `ensureBrokerAvailable` 在 win32 为 no-op；Helper 只能由 Host fork
-  （`windowsCuaDevHelperHost.ts:308`，pipe 名本就由 Host mint 经 argv `--socket` 传递）。
-- 设置页 `getStatus` 在 win32 直接返回 "CUA permissions are only available on macOS"
-  （`node.ts:1900`），无任何状态。
+**Desperdício estrutural (confirmado pelas mudanças do M7 no darwin)**: a corrida de tolerância de 1s
+no spawn espera o startup completo (incluindo 750–1080ms de verificação de assinatura do bundle +
+Gatekeeper + saúde), mas o tuple que ela quer enviar já está disponível após o primeiro await de
+`start()` (bind provisório, nível de milissegundos); por mais tempo que se espere, a conclusão é a mesma.
 
-**结构性浪费（已被 M7 的 darwin 改动证实）**：spawn 侧 1s grace race 等待的是完整
-startup（含 750–1080ms bundle 验签 + Gatekeeper + 健康），而它要发的 tuple 在 `start()`
-首个 await（占位 bind，毫秒级）后即可用；无论等多久结论相同。
+## 3. Comportamento normativo
 
-## 三、规范性行为
+### 3.1 Cunhagem e injeção de credenciais (unificadas nas duas plataformas)
 
-### 3.1 凭据铸造与注入（两平台统一）
-
-| 平台 | 传输路径 | pluginAuthority |
+| Plataforma | Caminho de transporte | pluginAuthority |
 | --- | --- | --- |
-| darwin | `resolveBrokerSocketPath()` 稳定推导（ZCODE_HOME 派生），零 IO | spawn 时铸造（per-bootstrap config-provenance，保留现状） |
-| win32 | Host app 进程铸一次的稳定 pipe 名（含随机段；模块级 singleton；Host 重建复用同名；跨 app 运行必不相同） | 同 darwin |
+| darwin | Derivação estável por `resolveBrokerSocketPath()` (a partir de ZCODE_HOME), zero IO | Cunhado no spawn (config-provenance por bootstrap, mantém o status quo) |
+| win32 | Nome de pipe estável cunhado uma única vez pelo processo app do Host (com segmento aleatório; singleton de módulo; a reconstrução do Host reusa o mesmo nome; necessariamente diferente entre execuções do app) | Igual ao darwin |
 
-- spawn env 注入 = 纯查表，函数体内不得出现任何 `await` Helper 相关 IO。
-- win32 spawn env 额外注入 **fork recipe**（见 3.3）。
-- resolver 恒 pass-through（不 acquire、不改写凭据）；CUA MCP 凭据只经 agent 进程 env
-  流转，与 M7 darwin 对齐。
+- A injeção no spawn env é uma simples consulta de tabela; nenhum `await` de IO do Helper pode aparecer no
+  corpo da função.
+- O spawn env no win32 injeta também a **fork recipe** (ver 3.3).
+- O resolver é sempre pass-through (sem acquire e sem reescrever credenciais); as credenciais CUA MCP
+  fluem apenas pelo env do processo do agent, alinhadas ao M7 no darwin.
 
-### 3.2 Helper 启动时序
+### 3.2 Ordem de start do Helper
 
-图 1：macOS 冷启动 → spawn → 首次 CUA 调用（干净机器）
+Figura 1: cold start no macOS → spawn → primeira chamada CUA (máquina limpa)
 
 ```text
 Host                                Agent(SDK)                     Helper(standalone)
- │ app 启动（零 Helper IO）             │                                │
- ├─ resolveSpawnEnv ─────────────────► │ spawn，<5ms 返回                │
- │   env = { 稳定socket, authority }    │ （不连 socket、不探活）          │
- │                                     │ ── 非 CUA turn 正常跑 ──        │
- │                                     │ ══ 首次 CUA 工具调用 ══          │
- │                                     │  connect(稳定socket) ✗ ENOENT  │
- │                                     │  onUnavailable → ensure(5s冷却) │
- │                                     │   ① ensure-installed（首装）     │
- │                                     │   ② LS open standalone ───────►│ bind 稳定socket
- │                                     │                                 │ flock 单实例、无 launcherPid
- │                                     │                                 │ ⇒ 300s idle 自退启用
- │                                     │  ◄─ warmup-retry ───────────────┤ authenticate(签名门)
- │                                     │ ─── broker 调用 ───────────────►│
+ │ app inicia (zero Helper IO)            │                                │
+ ├─ resolveSpawnEnv ─────────────────► │ spawn, retorno em <5ms            │
+ │   env = { socket estável, authority } │ (não conecta socket, não sonda saúde) │
+ │                                     │ ── turno normal sem CUA ──        │
+ │                                     │ ══ primeira chamada CUA ══         │
+ │                                     │  connect(socket estável) ✗ ENOENT  │
+ │                                     │  onUnavailable → ensure(cooldown 5s)│
+ │                                     │   ① ensure-installed (1ª install)  │
+ │                                     │   ② LS open standalone ───────►│ bind socket estável
+ │                                     │                                 │ flock instância única, sem launcherPid
+ │                                     │                                 │ ⇒ auto-retirada por 300s de idle ativada
+ │                                     │  ◄─ warmup-retry ───────────────┤ authenticate (portão de assinatura)
+ │                                     │ ─── chamadas broker ─────────────►│
 ```
 
-图 2：Windows 冷启动 → spawn（零 IO）→ 首调自 fork
+Figura 2: cold start no Windows → spawn (zero IO) → autolaço na primeira chamada
 
 ```text
 Host                                Agent(SDK)                     Helper(forked node)
- │ app 启动：铸稳定 pipe 名（一次性）      │                                │
- ├─ resolveSpawnEnv ─────────────────► │ spawn，<5ms 返回                │
- │   env = { PIPE名, authority,          │ （零 acquire、零等待）           │
- │          RECIPE(见3.3) }             │                                │
- │                                     │ ══ 首次 CUA 工具调用 ══          │
- │                                     │  connect \\.\pipe\… ✗           │
- │                                     │  ensure(win32 分支) fork ──────►│ bind pipe(~300-500ms)
- │                                     │   (--socket 稳定名,              │ authenticate/peer 门
- │                                     │    --parent-pid hostPid)        │ native 初始化
- │                                     │  ◄─ warmup-retry(2s 窗) ───────┤
- │                                     │ ──── broker 调用 ──────────────►│
- │  并发首调：第二个 fork bind 失败退出，无害；两 Agent 连同一 Helper        │
+ │ app inicia: cunha nome de pipe estável (uma vez) │                                │
+ ├─ resolveSpawnEnv ─────────────────► │ spawn, retorno em <5ms            │
+ │   env = { NOME_PIPE, authority,       │ (zero acquire, zero espera)      │
+ │          RECIPE(ver 3.3) }           │                                │
+ │                                     │ ══ primeira chamada CUA ══         │
+ │                                     │  connect \\.\pipe\… ✗            │
+ │                                     │  ensure(branch win32) fork ──────►│ bind pipe (~300-500ms)
+ │                                     │   (--socket nome estável,          │ authenticate/portão peer
+ │                                     │    --parent-pid hostPid)           │ init native
+ │                                     │  ◄─ warmup-retry (janela 2s) ─────┤
+ │                                     │ ──── chamadas broker ────────────►│
+ │  Primeiras chamadas concorrentes: o segundo fork falha no bind e sai, inofensivo; os dois Agents conectam ao mesmo Helper │
 ```
 
-图 3：死亡/空闲后的恢复（两平台同构）
+Figura 3: recuperação após morte/idle (isomórfica nas duas plataformas)
 
 ```text
 Agent(SDK)                                    Helper
- │ ── (darwin) 300s 无连接 && 无 in-flight ──► idle_exit: exit(0)
- │ ── (任意平台) kill / 崩溃 ─────────────────► 消失
- │ ── 后续 CUA 调用 ──► connect ✗
- │   ensure（5s 冷却内只拉一次）
- │     darwin: LS open（flock stale 清理后重绑稳定 socket）
- │     win32:  fork（同一稳定 pipe 名 → 新实例独占 bind）
- │   ◄── warmup-retry 连上 ── 恢复；调用方凭据不变
+ │ ── (darwin) 300s sem conexão && sem in-flight ──► idle_exit: exit(0)
+ │ ── (qualquer plataforma) kill / crash ──────────► desaparece
+ │ ── chamadas CUA seguintes ──► connect ✗
+ │   ensure (dentro do cooldown de 5s só puxa uma vez)
+ │     darwin: LS open (limpeza de flock obsoleto e rebind no socket estável)
+ │     win32:  fork (mesmo nome de pipe estável → nova instância com bind exclusivo)
+ │   ◄── warmup-retry conecta ── recuperação; a credencial do chamador não muda
 ```
 
-图 4：Helper 生命周期状态机（触发者标注）
+Figura 4: máquina de estados do ciclo de vida do Helper (disparadores anotados)
 
 ```text
- [不存在] ──Agent 首调 ensure──► [启动中 bind+native] ──ready──► [服务中]
+ [inexistente] ──ensure na 1ª chamada do Agent──► [iniciando bind+native] ──ready──► [servindo]
     ▲                                │                            │
-    │                                │ 启动失败(peer 门/缺件)       │ 300s 无连接(darwin)
-    │                                ▼                            │ kill / 崩溃
+    │                                │ falha de start (portão peer / peça faltando)       │ 300s sem conexão (darwin)
+    │                                ▼                            │ kill / crash
     └────────────────────────────────┴────────────────────────────┘
- Host 启动 / spawn / session create / resolver 在任何转移边上都不出现（只读纯数据）。
+ Start do Host / spawn / criação de sessão / resolver não aparecem em nenhuma aresta de transição (apenas leem dados puros).
 ```
 
-图 5：设置页（用户显式 demand boundary）
+Figura 5: página de configurações (fronteira de demanda explícita do usuário)
 
 ```text
-用户                        Host(设置页/getStatus)              Helper
- │ 直接进电脑控制设置页          │                                 │
- │ ──────────────────────────► │ probe(300ms ping) ── ✗ ────────│（不存在）
- │  （页面 loading）            │ darwin: LS open standalone ────►│ bind
- │                             │ win32:  Host fork ─────────────►│ bind pipe
+Usuário                     Host(página de config/getStatus)        Helper
+ │ entra direto na página de controle do computador        │                                 │
+ │ ──────────────────────────► │ probe(ping 300ms) ── ✗ ────────│ (inexistente)
+ │  (página em loading)        │ darwin: LS open standalone ────►│ bind
+ │                             │ win32:  fork pelo Host ───────►│ bind pipe
  │                             │ poll ping(≤5s) ◄───────────────── ready
- │  ◄── permission_status 真值 │                                 │ idle 计时开始
- │  拉不起 → idle:true 降级文案（"首次使用 Computer Use 时会自动启动"）
+ │  ◄── permission_status real │                                 │ contagem de idle inicia
+ │  se não subir → idle:true com texto degradado ("O Computer Use será iniciado automaticamente no primeiro uso")
 ```
 
-### 3.3 win32 SDK fork 契约（producer 侧新增）
+### 3.3 Contrato de fork do SDK no win32 (novo no lado do producer)
 
-- `ensureStandaloneHelperLaunched` 增加 win32 分支：
-  `fork(recipe.entryPath, ["--socket", 稳定pipe名, "--parent-pid", recipe.hostPid],`
-  `{ env: { ELECTRON_RUN_AS_NODE: "1", [ADDON_ENV]: recipe.addonPath, …白名单 } })`。
-- recipe 经 spawn env 注入，键名定稿为 `ZCODE_CUA_WIN_HELPER_RECIPE`（值为 JSON：
-  `entryPath`、`command`、`root`、`addonPath`、`commandEnv`、`hostPid`；常量登记进
-  producer helperConstants，z-code 侧用同名字面量，两处一致属跨仓契约）。
-- `--parent-pid` 恒为 **hostPid**：Helper 生命周期挂 Host（watchdog 只认 Host pid），
-  不随 fork 方 Agent 退出；Agent 进程死亡后 Helper 存续，stdio control channel 断写
-  属可接受损耗（该 channel 仅作拉起方可观测性，见下）。
-- 单实例：named pipe 独占 bind。并发首调的第二个 fork 实例 bind 失败退出，无害，
-  双方连同一 Helper。
-- `transport_ready` control channel 归 fork 方（Agent）所有；Host 的 spawn、状态查询、
-  `restartHelper` 均不依赖它（Host 直接连 pipe 查询；重启用 Host 自己的 runtime 配方
-  重新 fork）。
-- peer 门现状（M8 fail-closed，缺 4 个 native peer 原语）不因本规范改变；本规范只改
-  生命周期时序，不触碰能力面。
+- `ensureStandaloneHelperLaunched` ganha um ramo win32:
+  `fork(recipe.entryPath, ["--socket", nome de pipe estável, "--parent-pid", recipe.hostPid],`
+  `{ env: { ELECTRON_RUN_AS_NODE: "1", [ADDON_ENV]: recipe.addonPath, …allowlist } })`.
+- A recipe é injetada pelo spawn env, com o nome de chave definitivamente
+  `ZCODE_CUA_WIN_HELPER_RECIPE` (o valor é JSON: `entryPath`, `command`, `root`, `addonPath`,
+  `commandEnv`, `hostPid`; a constante é registrada em producer helperConstants, e o lado z-code usa o
+  mesmo literal, e a consistência entre os dois pontos é um contrato entre repositórios).
+- `--parent-pid` é sempre o **hostPid**: o ciclo de vida do Helper fica preso ao Host (o watchdog só
+  reconhece o pid do Host) e não acompanha a saída do Agent que fez o fork; o Helper sobrevive à morte do
+  processo do Agent, e a quebra de escrita do stdio control channel é um prejuízo aceitável (esse channel
+  existe apenas para observabilidade de quem subiu o Helper, ver abaixo).
+- Instância única: o named pipe faz bind exclusivo. O segundo fork de chamadas concorrentes falha no bind
+  e sai, de forma inofensiva, e ambos se conectam ao mesmo Helper.
+- O control channel `transport_ready` pertence a quem fez o fork (o Agent); o spawn do Host, a consulta
+  de status e `restartHelper` não dependem dele (o Host conecta direto ao pipe para consultar; para
+  reiniciar, usa sua própria receita de runtime para fazer o fork novamente).
+- O status atual do portão peer (M8 fail-closed, faltando 4 primitivas nativas de peer) não é alterado por
+  esta especificação; ela só muda a ordem do ciclo de vida e não toca na superfície de capacidades.
 
-### 3.4 死亡与恢复
+### 3.4 Morte e recuperação
 
-- Helper 死亡或空闲退出后，恢复 = 下一次 CUA 调用的 ensure 再拉（同一路径/pipe 名，
-  凭据不变）；调用进行中死亡按 delivery-state 收口（`possibly_sent` 禁止自动重放）。
-- Host 侧不设周期探测（沿隔离规范 §3.3）；resolver 的 `checkHealth` + `restartHelper`
-  仅保留给授权后重启与权限维护入口。
+- Depois que o Helper morre ou sai por ociosidade, a recuperação é o ensure da próxima chamada CUA
+  puxando de novo (mesmo caminho/nome de pipe, credencial inalterada); uma morte durante uma chamada em
+  andamento é fechada conforme o delivery-state (`possibly_sent` proíbe replay automático).
+- Não há sondagem periódica do lado do Host (conforme a especificação de isolamento §3.3); o
+  `checkHealth` + `restartHelper` do resolver fica restrito ao restart pós-autorização e às entradas de
+  manutenção de permissões.
 
-### 3.5 设置页（两平台统一）
+### 3.5 Página de configurações (unificada nas duas plataformas)
 
-- `getStatus`：probe（300ms ping，不拉起）→ 无则拉起（darwin LS open / win32 Host
-  fork，Host 侧保留 runtime 解析能力即为此用）→ 就绪后 `permission_status` 真值查询。
-- 拉起失败 → `{ available:false, idle:true }` 与友好文案，不报错不打扰。
-- 拉起候选与安装 variant 同源（producer `standaloneHelperCandidatePaths`）：
-  stable/preview/dev 运行时各自只枚举本 variant 的安装根。**生产运行时不得枚举 dev
-  根**——dev 残留在场时静默选中未签名包会让设置页恒「拉起失败」且伪装成权限问题
-  （2026-09-22 ZCT-2102352739585175552）。dev 运行时额外兼容 `dev/` 根下装成稳定名的
-  一键 bundle（2026-09-10 修复意图保留）。候选缺失 → 按拉起失败路径走安装引导。
-- win32 删除 "only available on macOS" 短路（权限真值查询逻辑本身是平台无关的 broker
-  方法调用）。
+- `getStatus`: probe (ping de 300ms, sem subir) → se ausente, sobe (darwin LS open / fork do Host no
+  win32; a capacidade de resolução de runtime mantida no Host existe exatamente para isso) → depois de
+  pronto, consulta o valor real de `permission_status`.
+- Se não subir → `{ available:false, idle:true }` com texto amigável, sem erro e sem incomodar.
+- Os candidatos de subida têm a mesma origem dos variants de instalação (producer
+  `standaloneHelperCandidatePaths`): os runtimes stable/preview/dev enumeram apenas a raiz de instalação do
+  próprio variant. **O runtime de produção não pode enumerar a raiz dev** — quando um resíduo dev está
+  presente e um pacote não assinado é escolhido silenciosamente, a página de configurações fica sempre em
+  «falha ao subir» e se disfarça de problema de permissão (2026-09-22 ZCT-2102352739585175552). O runtime
+  dev mantém a compatibilidade adicional com o bundle de instalação única instalado sob o nome estável na
+  raiz `dev/` (intenção da correção de 2026-09-10 preservada). Candidatos ausentes → segue o caminho de
+  falha ao subir, com o guia de instalação.
+- No win32, remover o atalho "only available on macOS" (a lógica de consulta do valor real da permissão é,
+  em si, uma chamada de método do broker independente de plataforma).
 
-### 3.6 授权流并存窗口（darwin，保守取舍）
+### 3.6 Janela de coexistência do fluxo de autorização (darwin, escolha conservadora)
 
-- 授权流的托管 host 拉起 managed Helper（随机 socket、`launcherPid=Host`、无 idle 退）；
-  窗口内 spawn 仍恒注入稳定 socket；两个 Helper 短暂并存、互不干扰（不同 socket，
-  flock 不冲突）；host dispose 时收口 managed 实例。
-- 增强选项（未纳入本次）：mac 托管 host 改用稳定 socket 并 adopt 既有 standalone
-  实例，消除并存窗口。留待实测并存窗口产生实际困扰时再做。
+- O host gerenciado do fluxo de autorização sobe um Helper gerenciado (socket aleatório,
+  `launcherPid=Host`, sem saída por idle); dentro da janela o spawn continua injetando sempre o socket
+  estável; os dois Helpers coexistem por pouco tempo sem se atrapalhar (sockets diferentes, flock sem
+  conflito); no dispose do host a instância gerenciada é fechada.
+- Opção de melhoria (não incluída nesta rodada): o host gerenciado no mac passa a usar o socket estável e
+  a adotar a instância standalone existente, eliminando a janela de coexistência. Fica para fazer quando a
+  coexistência gerar dano real na medição.
 
-## 四、边界与状态 owner
+## 4. Fronteiras e donos de estado
 
-| 状态/事实 | 权威 owner | 说明 |
+| Estado/fato | Owner autoritativo | Descrição |
 | --- | --- | --- |
-| 稳定 pipe 名（win32） | Host 模块级 singleton | app 进程铸一次，Host 重建复用 |
-| 稳定 socket 路径（darwin） | `resolveBrokerSocketPath()` 纯推导 | 零状态 |
-| pluginAuthority | spawn 侧铸造 | config-provenance 语义，Helper 不校验它 |
-| Helper 进程生命周期 | launcher watchdog（认 hostPid）+ idle 计时（darwin standalone） | 无人使用即退出 |
-| Helper 健康 | 按需查询（调用重试、设置页、权限维护） | 无周期探测 |
-| spawn admission marker | 废弃（本规范） | resolver restart 内部的恢复代际仍保留，但不再被 spawn env 消费 |
+| Nome de pipe estável (win32) | Singleton de módulo do Host | Cunhado uma vez pelo processo app, reutilizado na reconstrução do Host |
+| Caminho de socket estável (darwin) | Derivação pura por `resolveBrokerSocketPath()` | Zero estado |
+| pluginAuthority | Cunhado no lado do spawn | Semântica de config-provenance; o Helper não o valida |
+| Ciclo de vida do processo Helper | Watchdog do launcher (reconhece hostPid) + contagem de idle (standalone no darwin) | Sai quando ninguém usa |
+| Saúde do Helper | Consulta sob demanda (retry da chamada, página de configurações, manutenção de permissões) | Sem sondagem periódica |
+| Marker de admissão do spawn | Obsoleto (esta especificação) | As gerações de recuperação internas do restart do resolver são mantidas, mas deixam de ser consumidas pelo spawn env |
 
-## 五、实现分阶段
+## 5. Implementação por fases
 
-### MR1（纯 services，darwin 收尾；本机全可验证）
+### MR1 (puramente services, fechamento do darwin; verificável localmente por completo)
 
-- spawn env 删除 peeked-host 分支：darwin 恒注入稳定 socket + authority，
-  `buildCuaProductHelperAgentEnv` 在 darwin 不再可达。
-- 测试：MC-1、MC-3；`cuaPermissionBrokerProductAgentEnv.test.ts` 相应调整。
+- Remover do spawn env o ramo de host-peeked: no darwin o spawn sempre injeta socket estável + authority,
+  e `buildCuaProductHelperAgentEnv` deixa de ser alcançável no darwin.
+- Testes: MC-1, MC-3; `cuaPermissionBrokerProductAgentEnv.test.ts` ajustado em conformidade.
 
-### MR2（producer + services，win32 移植 + 清理）
+### MR2 (producer + services, portabilidade para win32 e limpeza)
 
-- producer：`ensureStandaloneHelperLaunched` 增加 win32 fork 分支 + 单测；删除
-  `warmHelperForBuiltInPlugin` 预热路径（懒启动下「无候选即预热」与不变量 3 冲突）；
-  producer pin bump 用原子命令
-  `pnpm --filter @zcode/zcode-cua-plugin bump:producer`。
-- services：稳定 pipe 名 singleton；spawn env 注入 pipe 名 + authority + recipe（删除
-  win32 acquire / `waitForTransport`）；`getStatus` win32 对齐 3.5。
-- 清理（可并入本 MR 或单独 MR3）：删除 `buildCuaProductHelperAgentEnv` 尸体、
-  `CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS`、spawn 侧 admission marker 消费、
-  `cuaProductHelperWorkspaceRegistry.setEnabled` 的 spawn 调用点。
-- 测试：MC-4/5/6/7/8/9；Windows 实机验证缺口在 MR 如实标注。
+- producer: `ensureStandaloneHelperLaunched` ganha o ramo de fork win32 e teste unitário; remover o
+  caminho de aquecimento `warmHelperForBuiltInPlugin` (sob lazy start, «sem candidato, então aqueço»
+  conflita com o invariante 3); o bump de pin do producer usa o comando atômico
+  `pnpm --filter @zcode/zcode-cua-plugin bump:producer`.
+- services: singleton de nome de pipe estável; o spawn env injeta nome de pipe + authority + recipe
+  (removendo o acquire win32 / `waitForTransport`); `getStatus` no win32 alinhado à 3.5.
+- Limpeza (pode entrar neste MR ou em um MR3 separado): remover o cadáver de
+  `buildCuaProductHelperAgentEnv`, `CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS`, o consumo do marker de
+  admissão no spawn e o ponto de chamada de spawn de
+  `cuaProductHelperWorkspaceRegistry.setEnabled`.
+- Testes: MC-4/5/6/7/8/9; a lacuna de verificação em máquina real do Windows é anotada com honestidade no
+  MR.
 
-## 六、验证矩阵
+## 6. Matriz de verificação
 
-| Case | 平台 | 初始状态 | 事件 | 预期 |
+| Caso  | Plataforma | Estado inicial | Evento | Esperado |
 | --- | --- | --- | --- | --- |
-| MC-1 | darwin | 冷启 app | spawn env 解析 | 无 Helper IO（fake host 断言 start/checkHealth 未被调用），毫秒级 |
-| MC-2 | darwin | 干净机器 | 首次 CUA 调用 | SDK 安装+拉起后调用成功（M7 回归） |
-| MC-3 | darwin | 授权流刚结束（host 在） | spawn | 仍恒注入稳定 socket；不探针、不等 1s |
-| MC-4 | win32 | 冷启 app | spawn env 解析 | 零等待、零 acquire；env 含 pipe 名 + recipe |
-| MC-5 | win32 | 无 Helper | 首次 CUA 调用 | SDK fork → warmup 窗内连上 → 调用成功 |
-| MC-6 | win32 | Helper 被 kill | 下一次 CUA 调用 | 失败 retryable → ensure 再 fork（同名 pipe）→ 恢复 |
-| MC-7 | win32 | 双 Agent 并发首调 | 同时 ensure | pipe 单实例；第二 fork 失败无害；连同一 Helper |
-| MC-8 | 两平台 | Helper 已重启/换代 | spawn env 与既有 Agent 凭据 | 传输路径恒定（同 socket/pipe），Helper 换代不换发凭据；darwin authority 按 spawn 铸造、各 agent 可不同，属既有语义 |
-| MC-9 | win32 | 未开对话 | 直接进设置页 | probe → Host fork → 权限真值；失败则 idle:true 降级 |
+| MC-1 | darwin | app com cold start | resolução do spawn env | Nenhuma IO do Helper (host falso afirma que start/checkHealth não foram chamados), nível de milissegundos |
+| MC-2 | darwin | máquina limpa | primeira chamada CUA | Instalação + subida pelo SDK e chamada bem-sucedida (regressão do M7) |
+| MC-3 | darwin | fluxo de autorização recém-encerrado (host presente) | spawn | Ainda injeta sempre o socket estável; sem sonda e sem esperar 1s |
+| MC-4 | win32 | app com cold start | resolução do spawn env | Zero espera, zero acquire; env contém nome de pipe + recipe |
+| MC-5 | win32 | sem Helper | primeira chamada CUA | SDK faz fork → conecta dentro da janela de warmup → chamada bem-sucedida |
+| MC-6 | win32 | Helper é morto | próxima chamada CUA | Falha retryable → ensure faz fork de novo (mesmo nome de pipe) → recuperação |
+| MC-7 | win32 | dois Agents em primeira chamada concorrente | ensure simultâneo | Pipe de instância única; o segundo fork falha de forma inofensiva; conectam ao mesmo Helper |
+| MC-8 | ambas | Helper já reiniciado/trocado de geração | spawn env e credenciais de Agents existentes | Caminho de transporte constante (mesmo socket/pipe), trocar a geração do Helper não reemite credenciais; authority do darwin é cunhada por spawn e pode diferir por agent, o que é semântica existente |
+| MC-9 | win32 | sem conversa aberta | entrar direto na página de configurações | probe → fork pelo Host → valor real da permissão; em caso de falha, idle:true degradado |
 
-回归红线（沿隔离规范 §7，继续有效）：
+Linhas vermelhas de regressão (conforme a especificação de isolamento §7, ainda válidas):
 
-- Helper 生命周期日志中不得出现由 readiness/recovery 直接引起的 `workspace-dispose`；
-- 普通 Agent spawn / session create 的时序不包含 Helper IO；
-- 非 CUA 模块启动耗时不包含 Helper health budget。
+- O log do ciclo de vida do Helper não pode conter `workspace-dispose` causado diretamente por
+  readiness/recovery;
+- A ordem de um spawn / criação de sessão comum de Agent não inclui IO do Helper;
+- O tempo de start de módulos sem CUA não inclui budget de saúde do Helper.
 
-必要验证命令（按根 AGENTS.md）：`pnpm typecheck`、`pnpm lint`、
-`pnpm architecture:check --changed`、受影响单测；涉及 apps/zcode-cli 的改动另按
-[CLI 规则](../../apps/zcode-cli/AGENTS.md)验证；desktop CUA E2E 按现 case catalog 执行。
+Comandos de verificação necessários (conforme o AGENTS.md da raiz): `pnpm typecheck`, `pnpm lint`,
+`pnpm architecture:check --changed`, testes unitários afetados; mudanças que envolvem apps/zcode-cli
+seguem também as [regras da CLI](../../apps/zcode-cli/AGENTS.md); o E2E de CUA no desktop segue o case
+catalog atual.
 
-## 七、风险与未验证项
+## 7. Riscos e itens não verificados
 
-1. **Windows 实机缺口**：开发机为 macOS。MR2 的 fork 配方、pipe bind、transport_ready
-   行为只能以单测覆盖；实机验证待 Windows 同事接力，MR 中如实标注。
-2. **Windows M8 peer 门**：现状 CUA 在 win32 fail-closed。本规范不改变能力面，只改
-   生命周期时序；peer 门解除后本规范行为不变。
-3. **idle 自退副作用（darwin）**：无连接 300s 后 PiP / ghost cursor 随 Helper 关闭。
-   与 CLI 现状一致，属懒启动的自然语义。
-4. **授权流并存窗口（darwin）**：见 3.6；增强选项留待需要时。
-5. **agent 侧 ensure 与 managed Helper 的启动竞态（darwin 授权流窗口）**：不同 socket
-   的 flock 相互独立，最坏情况窗口内短暂双实例；授权流 host dispose 收口。
+1. **Lacuna de máquina real no Windows**: a máquina de desenvolvimento é macOS. A receita de fork do MR2,
+   o bind de pipe e o comportamento de `transport_ready` só podem ser cobertos por teste unitário; a
+   verificação em máquina real fica a cargo de um colega no Windows, e o MR anota isso com honestidade.
+2. **Portão peer do M8 no Windows**: hoje o CUA é fail-closed no win32. Esta especificação não muda a
+   superfície de capacidades, só a ordem do ciclo de vida; o comportamento aqui não muda depois que o
+   portão peer for liberado.
+3. **Efeito colateral da auto-retirada por idle (darwin)**: após 300s sem conexão, PiP e ghost cursor
+   fecham junto com o Helper. Consistente com o estado atual da CLI e é a semântica natural do lazy start.
+4. **Janela de coexistência do fluxo de autorização (darwin)**: ver 3.6; a opção de melhoria fica para
+   quando for necessária.
+5. **Corrida entre o ensure do lado do agent e o start do Helper gerenciado (janela do fluxo de autorização
+   no darwin)**: flocks de sockets diferentes são independentes entre si; no pior caso há uma breve
+   instância dupla dentro da janela; o dispose do host do fluxo de autorização fecha a instância.
 
-## 八、实施顺序
+## 8. Ordem de implementação
 
-1. 本规范确认（本文档）。
-2. MR1 实现并本机完成全部必要验证。
-3. MR2：先 producer（win32 fork 分支 + 单测）→ pin bump → services 侧接入 → 单测；
-   Windows 缺口标注。
-4. 按 [E2E 工作流](../../.agents/skills/e2e-case-lifecycle/SKILL.md)评估并更新
-   desktop CUA E2E case catalog。
-5. 完成后运行第六节验证命令；无法实机验证的平台在 MR 列出风险与待补证据。
+1. Confirmação desta especificação (este documento).
+2. Implementar o MR1 e concluir localmente todas as verificações necessárias.
+3. MR2: primeiro o producer (ramo de fork win32 + teste unitário) → bump de pin → integração do lado
+   services → teste unitário; anotar a lacuna do Windows.
+4. Avaliar e atualizar o case catalog de E2E de CUA no desktop conforme o
+   [fluxo de E2E](../../.agents/skills/e2e-case-lifecycle/SKILL.md).
+5. Ao final, rodar os comandos de verificação da seção 6; para plataformas sem verificação em máquina
+   real, listar no MR os riscos e as evidências ainda faltantes.

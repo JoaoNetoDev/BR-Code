@@ -1,30 +1,30 @@
-# Zai Themes
+# Temas Zai
 
-## 目标
+## Objetivo
 
-新增 `zai-light` 与 `zai-dark` 两套品牌主题，并由它们接管用户可见的 Light Theme / Dark Theme。
-默认 `light` / `dark` CSS 变量仍作为底层 fallback 保留，但主题菜单不再暴露原生 light / dark 入口。
+Adicionar os dois temas de marca `zai-light` e `zai-dark`, que passam a assumir o Light Theme / Dark Theme visível ao usuário.
+As variáveis CSS padrão `light` / `dark` são mantidas como fallback de baixo nível, mas o menu de temas não expõe mais as entradas nativas light / dark.
 
-## 实现
+## Implementação
 
-- `Theme` 枚举保留 `light` / `dark` 作为旧偏好兼容值，实际持久化与应用时会规范化到 `zai-light` / `zai-dark`。
-- `resolveTheme()` 将 `zai-light` 归入 light 分支，将 `zai-dark` 归入 dark 分支，继续复用标题栏、代码预览和移动端远控的明暗模式边界。
-- `system` 会按系统明暗偏好套用 `zai-light` 或 `zai-dark`，避免回落到默认 CSS 主题。
-- `styles.css` 中的 `.theme-zai-light` / `.theme-zai-dark` 使用 Zai semantic token 映射到项目现有 `--color-*` 语义变量，组件层不直接依赖 primitive 色阶。
-- 桌面、Web 首屏 bootstrap、进程监控页和手机远控主题菜单都使用 Zai 主题入口，避免首帧回退或入口不可选。
+- O enum `Theme` mantém `light` / `dark` como valores de compatibilidade para preferências antigas; na persistência e na aplicação eles são normalizados para `zai-light` / `zai-dark`.
+- `resolveTheme()` classifica `zai-light` no ramo light e `zai-dark` no ramo dark, continuando a reaproveitar os limites de modo claro/escuro da barra de título, da prévia de código e do controle remoto no celular.
+- `system` aplica `zai-light` ou `zai-dark` conforme a preferência de modo claro/escuro do sistema, evitando o fallback para o tema CSS padrão.
+- `.theme-zai-light` / `.theme-zai-dark` em `styles.css` mapeiam os tokens semânticos da Zai para as variáveis semânticas `--color-*` já existentes no projeto; a camada de componentes não depende diretamente das escalas primitivas de cor.
+- O desktop, o bootstrap da primeira tela do Web, a página de monitoramento de processos e o menu de temas do controle remoto no celular usam a entrada de temas Zai, evitando fallback no primeiro frame ou entrada não selecionável.
 
-## Token 映射
+## Mapeamento de tokens
 
 - `bg/page` -> `--color-background`
 - `bg/bg` -> `--color-card`、`--color-popover`、`--color-input`、`--color-input-focused`
 - `bg/surface` -> `--color-panel`
-- `bg/overlay` -> `--color-background-win-alt`，并以 60% 透明度派生 `--color-background-alt`
+- `bg/overlay` -> `--color-background-win-alt`, e deriva `--color-background-alt` com 60% de transparência
 - `text/primary` -> `--color-foreground`
 - `text/secondary` -> `--color-foreground-subtle`
 - `text/tertiary` -> `--color-foreground-subtlest`
 - `border/default` -> `--color-border`
 - `interactive/bg/primary/default` -> `--color-brand`、`--color-primary`
 - `border/strong` -> `--color-input-border-focused`
-- `accent/blue/default` -> 蓝色强调类辅助变量
+- `accent/blue/default` -> variáveis auxiliares de destaque azul
 
-Zai dark 的应用根前景色按当前 shell 参考类使用 `#ffffff`，而不是继续使用导出 token 中接近白色的 `#f8f8f8`。
+A cor de primeiro plano da raiz da aplicação do Zai dark usa `#ffffff`, conforme a classe de referência do shell atual, em vez de continuar usando o `#f8f8f8` próximo do branco nos tokens exportados.

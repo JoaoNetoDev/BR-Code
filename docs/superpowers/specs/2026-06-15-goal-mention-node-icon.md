@@ -1,16 +1,16 @@
-# Goal Mention Node Icon
+# Ícone do Nó de Menção de Goal
 
-## 背景
+## Contexto
 
-聊天输入框中的 `/goal` 结构化 command mention node 仍使用旧的靶心样式图标，而聊天发送后的 command chip、goal tool、goal verification 等位置已经使用 lucide `GoalIcon`。同一个 goal 语义在输入前后图标不一致。
+O nó de menção de command estruturada `/goal` na caixa de entrada do chat ainda usa o ícone antigo no estilo de alvo, enquanto locais como o command chip após o envio da mensagem no chat, a goal tool e a verificação de goal já usam o `GoalIcon` do lucide. A mesma semântica de goal fica com ícones inconsistentes antes e depois da entrada.
 
-## 目标
+## Objetivo
 
-- `/goal` command mention node 的图标改为 lucide `goal` 图标。
-- 仅替换 goal node 图标路径，不改变 command mention 的颜色、尺寸、文案和序列化 markdown。
-- `/compact` 和普通 slash command 的图标保持不变。
+- Trocar o ícone do command mention node de `/goal` pelo ícone `goal` do lucide.
+- Substituir apenas o caminho do ícone do nó de goal, sem alterar cor, tamanho, texto ou markdown serializado do command mention.
+- Manter inalterados os ícones de `/compact` e dos slash commands comuns.
 
-## 验收
+## Aceitação
 
-- `/goal` mention node 渲染的 SVG path 与 lucide `GoalIcon` 一致。
-- `pnpm typecheck` 与 `pnpm lint` 通过。
+- O SVG path renderizado pelo mention node de `/goal` é idêntico ao `GoalIcon` do lucide.
+- `pnpm typecheck` e `pnpm lint` passam.

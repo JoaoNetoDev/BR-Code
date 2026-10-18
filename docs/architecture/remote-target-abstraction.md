@@ -1,95 +1,93 @@
-# Remote Target 抽象
+# Abstração de Remote Target
 
-## 背景
+## Contexto
 
-远程链路的核心实现早已不是 SSH 专属：
+A implementação principal docaminho remoto já não é exclusiva de SSH:
 
-- `packages/server/src/remote/connect.ts` 只依赖 `IRemoteBackend`
-- deploy / stdio handshake / RPC proxy 都可以复用
+- `packages/server/src/remote/connect.ts` depende apenas de `IRemoteBackend`
+- deploy / stdio handshake / RPC proxy podem ser reutilizados
 
-真正把能力绑死在 SSH 上的，曾经是 desktop → main → host 这一层入口协议：
+O que realmente amarrava a capacidade ao SSH era, antes, a camada de entrada desktop → main → host:
 
-- 共享类型使用 `SSHConnectOptions`
-- 旧 remote Host init payload 使用 `sshOptions`
-- host 直接在入口分支里 new `SSHBackend`
+- O tipo compartilhado usava `SSHConnectOptions`
+- O payload antigo de init do remote Host usava `sshOptions`
+- O host criava `SSHBackend` diretamente no branch de entrada
 
-这会导致每新增一种 remote 形态（WSL、Docker），都要复制一套 `ConnectWSL` / `InitWSL` / `setupWSLConnection`。
+Isso fazia com que, a cada nova modalidade de remote (WSL, Docker), fosse necessário duplicar um conjunto de `ConnectWSL` / `InitWSL` / `setupWSLConnection`.
 
-## 本次改动
+## Mudanças desta rodada
 
-当前已经完成三步：
+Já foram concluídas três fases:
 
-- Phase 0：统一连接契约，不改 deploy / handshake 主流程
-- Phase 1：把 WSL / Docker backend 接到统一 target 上
-- Phase 2：把平台探测和统一 remote 连接 UI 接到 desktop / web 入口
+- Fase 0: unificar o contrato de conexão, sem alterar o fluxo principal de deploy / handshake
+- Fase 1: conectar os backends WSL / Docker ao target unificado
+- Fase 2: conectar a detecção de plataforma e a UI unificada de conexão remota às entradas desktop / web
 
-### 统一 target
+### Target unificado
 
-共享层新增 `RemoteTarget` discriminated union：
+A camada compartilhada passou a ter a discriminated union `RemoteTarget`:
 
 - `kind: "ssh"`
 - `kind: "wsl"`
 - `kind: "docker"`
 
-`IPlatformService.connectRemote()`、`PlatformChannels.ConnectRemote`、Main→Window Host 的
-`ConnectRemoteWorkspace` payload 都统一传 `target`。R1 后 Main 只薄转发该请求，Window Host 内的
-`RemoteConnectionRegistry` 持有连接复用和 logical session 生命周期。
+`IPlatformService.connectRemote()`, `PlatformChannels.ConnectRemote` e o payload `ConnectRemoteWorkspace` de Main→Window Host passam todos a enviar `target`. Depois do R1, Main apenas repassa a requisição de forma fina, e o `RemoteConnectionRegistry` dentro do Window Host hospeda a reutilização de conexão e o ciclo de vida da logical session.
 
-### backend 工厂
+### Fábrica de backend
 
-`packages/server/src/remote/create-backend.ts` 负责把 `RemoteTarget` 转成 `IRemoteBackend`：
+`packages/server/src/remote/create-backend.ts` é responsável por converter `RemoteTarget` em `IRemoteBackend`:
 
-- SSH：读取私钥后创建 `SSHBackend`
-- WSL：创建 `WSLBackend`
-- Docker：创建 `DockerBackend`
+- SSH: lê a chave privada e então cria `SSHBackend`
+- WSL: cria `WSLBackend`
+- Docker: cria `DockerBackend`
 
-这样 Window Host 的控制层不再关心具体 transport，只负责：
+Dessa forma a camada de controle do Window Host não se preocupa mais com o transport concreto, sendo responsável apenas por:
 
-1. 收到 `ConnectRemoteWorkspace { requestId, target }`
-2. 调 `createRemoteBackend(target)`
-3. 交给 `connectRemote()`
-4. 分配 `remoteSessionId` 并暴露严格校验 identity/path 的 scoped attachment
+1. Receber `ConnectRemoteWorkspace { requestId, target }`
+2. Chamar `createRemoteBackend(target)`
+3. Entregar para `connectRemote()`
+4. Alocar `remoteSessionId` e expor o scoped attachment com validação estrita de identity/path
 
-### 平台探测与统一 UI
+### Detecção de plataforma e UI unificada
 
-`IPlatformService` 新增三类宿主能力：
+`IPlatformService` ganhou três novas capacidades de host:
 
 - `isDockerAvailable()`
 - `listWSLDistros()`
 - `listDockerContainers()`
 
-Desktop 通过 main process 动态调用 `@zcode/server/remote` 的探测函数，Web 侧保持空实现。
+O Desktop chama dinamicamente as funções de detecção de `@zcode/server/remote` pelo main process, e o lado Web mantém implementações vazias.
 
-UI 入口不再继续拆 `SSHDialog` / `WSLDialog` / `DockerDialog`，而是统一成一个 remote 连接弹窗：
+A entrada de UI não continua mais separando `SSHDialog` / `WSLDialog` / `DockerDialog`, e sim foi unificada em um único diálogo de conexão remota:
 
-- 始终展示 SSH
-- 仅 Windows desktop 展示 WSL
-- 仅在本机 Docker daemon 可用时展示 Docker
+- SSH é sempre exibido
+- WSL é exibido apenas no desktop Windows
+- Docker é exibido apenas quando o Docker daemon local está disponível
 
-这样新增 transport 时，入口层只需要补：
+Assim, ao adicionar um novo transport, a camada de entrada precisa apenas complementar:
 
-1. shared target 类型
-2. backend factory 分支
-3. 平台探测能力
-4. 统一弹窗里的一个 mode
+1. o tipo target compartilhado
+2. o branch da fábrica de backend
+3. a capacidade de detecção de plataforma
+4. um mode no diálogo unificado
 
-## 结果
+## Resultado
 
-- SSH 现有路径继续可用
-- WSL 已能复用同一条 deploy / handshake / RPC 链路，不需要新增 host/main 协议
-- Docker 已能复用同一条 deploy / handshake / RPC 链路，不需要新增 host/main 协议
-- remote 入口命名不再和具体 transport 绑定
+- O caminho SSH existente continua funcionando
+- O WSL já reutiliza o o mesmo caminho de deploy / handshake / RPC, sem necessidade de novo protocolo host/main
+- O Docker já reutiliza o o mesmo caminho de deploy / handshake / RPC, sem necessidade de novo protocolo host/main
+- A nomenclatura da entrada remota não está mais atrelada a um transport concreto
 
-## 当前状态
+## Estado atual
 
-- `kind: "ssh"`：已可用
-- `kind: "wsl"`：已可用，优先通过 `\\wsl.localhost\` / `\\wsl$\` 走文件直拷；不可用时回退到 shell 流式上传
-- `kind: "docker"`：已可用，通过 `docker exec` + stdin 流式写入直连本机容器；上传文件由容器当前用户创建，避免后续替换时出现所有权不匹配
-- desktop UI：已可从统一 remote 弹窗选择 SSH / WSL / Docker
-- web UI：只保留 SSH；WSL / Docker 探测能力为空实现，不展示对应入口
+- `kind: "ssh"`: disponível
+- `kind: "wsl"`: disponível, com prioridade para cópia direta de arquivos via `\\wsl.localhost\` / `\\wsl$\`; quando indisponível, faz fallback para upload em streaming pelo shell
+- `kind: "docker"`: disponível, conectando direto ao container local via `docker exec` + escrita em streaming por stdin; os arquivos enviados são criados pelo usuário atual do container, evitando divergência de propriedade em substituições posteriores
+- UI do desktop: já é possível escolher SSH / WSL / Docker pelo diálogo remoto unificado
+- UI web: mantém apenas SSH; as capacidades de detecção de WSL / Docker são implementações vazias e as entradas correspondentes não são exibidas
 
-## 后续建议
+## Recomendações seguintes
 
-1. 保留并验证 “Docker via SSH” 不回归
-2. 给 remote 弹窗补充更细的 e2e 覆盖（WSL/Docker tab 切换、容器选择）
-3. 视需要补充更多 backend capability（例如 Docker all containers / WSL 默认 distro metadata）
+1. Preservar e validar que o “Docker via SSH” não regride
+2. Complementar a cobertura e2e mais detalhada para o diálogo remoto (troca de aba WSL/Docker, seleção de container)
+3. Adicionar mais backend capability conforme necessário (por exemplo, Docker all containers / WSL default distro metadata)

@@ -1,10 +1,10 @@
 # Welcome Screen Provider Region Tags
 
-Welcome Screen 的 OAuth provider 入口在未登录时同时展示 Z.AI 与 BigModel。为了帮助用户区分两个入口的服务区域，按钮文案后展示固定地域标签：
+Quando o usuário ainda não está autenticado, a entrada de providers OAuth da Welcome Screen exibe Z.AI e BigModel simultaneamente. Para ajudar o usuário a distinguir a região de serviço das duas entradas, um rótulo fixo de região é exibido após o texto do botão:
 
-- Z.AI：中文 `全球`，英文 `Global`
-- BigModel：中文 `中国`，英文 `CN`
+- Z.AI: `全球` em chinês, `Global` em inglês
+- BigModel: `中国` em chinês, `CN` em inglês
 
-标签文案必须走 `packages/ui/src/i18n/locales/*`，组件只保留 provider id 到 message id 的映射。标签只表达入口区域差异，不参与 OAuth provider 选择、排序、可用性或 provider family domain 判断。尺寸使用紧凑 pill：`h-5 px-2 text-ui-xs`。
+O texto dos rótulos deve vir de `packages/ui/src/i18n/locales/*`, mantendo no componente apenas o mapeamento de provider id para message id. Os rótulos expressam apenas a diferença de região da entrada e não participam da seleção, ordenação, disponibilidade dos OAuth providers nem da verificação de domínio do provider family. O tamanho usa um pill compacto: `h-5 px-2 text-ui-xs`.
 
-OAuth provider 按钮使用 `Button variant="default"`，背景来自 `bg-primary`。ZAI 主题下浅色为 `#000000`、深色为 `#ffffff`，文字分别使用 `text-primary-foreground`。地域标签作为按钮内部附属信息，不再使用 Coding Plan 的独立渐变徽标；样式应跟随按钮前景色，使用 `border-primary-foreground/30 text-primary-foreground/60`，保证浅色和深色主题里都只是弱强调。
+Os botões de OAuth provider usam `Button variant="default"`, com fundo vindo de `bg-primary`. No tema ZAI, a cor clara é `#000000` e a escura é `#ffffff`, e o texto usa `text-primary-foreground`. Os rótulos de região funcionam como informação anexa dentro do botão e não usam mais o emblema de gradiente independente do Coding Plan; o estilo deve acompanhar a cor de frente do botão, usando `border-primary-foreground/30 text-primary-foreground/60`, para garantir apenas uma ênfase fraca tanto no tema claro quanto no escuro.

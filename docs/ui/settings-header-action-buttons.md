@@ -1,22 +1,22 @@
-# Settings Header Action Buttons
+# Botões de Ação do Cabeçalho das Configurações
 
-## 背景
+## Contexto
 
-设置页的技能、命令、MCP 服务器等子页都会在说明文本右侧放置高频操作。为了减少不同设置页之间的视觉跳变，这些页头工具按钮需要统一成紧凑的图标按钮。
+As subpáginas de configurações de skills, comandos, servidores MCP e afins colocam ações de alto uso à direita do texto de descrição. Para reduzir as variações visuais entre as diferentes páginas de configurações, esses botões de ferramentas no cabeçalho precisam ser unificados em botões de ícone compactos.
 
-## 交互规范
+## Especificações de interação
 
-- 列表右上角的新增、导入、打开目录、同步、刷新和管理类纯图标操作使用 `Button variant="ghost" size="icon-md"`（28px）。
-- 按钮内只显示语义图标，文案通过 `ControlHintTooltip` 展示。
-- 按钮必须保留同一文案作为 `aria-label`，保证无障碍和国际化语义不丢失。
-- 图标尺寸使用 `size-3.5`，和技能页的新建、导入、刷新按钮保持一致。
-- 同一列表页头内相邻操作按钮统一使用 `gap-2`（8px）。
+- As operações somente de ícone no canto superior direito da lista — adicionar, importar, abrir diretório, sincronizar, atualizar e gerenciar — usam `Button variant="ghost" size="icon-md"` (28px).
+- O botão exibe apenas o ícone semântico; o texto é apresentado por `ControlHintTooltip`.
+- O botão precisa manter o mesmo texto como `aria-label`, garantindo que a semântica de acessibilidade e de internacionalização não se perca.
+- O tamanho do ícone usa `size-3.5`, mantendo consistência com os botões de novo, importar e atualizar da página de skills.
+- Botões de ação adjacentes no mesmo cabeçalho de lista usam uniformemente `gap-2` (8px).
 
-## 当前覆盖
+## Cobertura atual
 
-- 技能：新建技能、导入技能、刷新技能列表。
-- 记忆：刷新项目记忆列表。
-- 命令：新建命令、打开用户命令目录、刷新命令列表。
-- 模型设置：刷新模型供应商列表。
-- MCP 服务器：新建 MCP 服务器。
-- 插件、钩子、子智能体：对应列表右上角的纯图标操作。
+- Skills: nova skill, importar skill, atualizar a lista de skills.
+- Memórias: atualizar a lista de memórias do projeto.
+- Comandos: novo comando, abrir o diretório de comandos do usuário, atualizar a lista de comandos.
+- Configurações de modelo: atualizar a lista de fornecedores de modelo.
+- Servidores MCP: novo servidor MCP.
+- Plugins, hooks e subagentes: as operações somente de ícone no canto superior direito das listas correspondentes.
