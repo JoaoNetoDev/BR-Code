@@ -92,7 +92,7 @@ Dois fluxos precisam ser distinguidos: a entrada / modal de resgate ativo é sup
 
 **O Provider Start fica permanente. A discussão anterior de «ocultar o Provider quando não há plano» foi retirada.** Mantêm-se as regras de exibição de marca já decididas, o nome Start unificado e o ID real. Decisão complementar em 2026-09-17: os dois planos de experiência compartilham o ícone com a letra Z fornecido pelo usuário; planos pessoal / de equipe mantêm seus respectivos ícones de marca. Uma entrada permanente não significa ter sempre um modelo executável.
 
-O «编程套餐 / 未连接 / 配置暂不可用» da captura original misturava ausência de plano, falha de consulta e configuração ausente. Esta rodada corrige a classificação de estados, reutiliza componentes de página existentes e não refaz a página inteira.
+O «编程套餐／未连接／配置暂不可用» da captura original misturava ausência de plano, falha de consulta e configuração ausente. Esta rodada corrige a classificação de estados, reutiliza componentes de página existentes e não refaz a página inteira.
 
 | Situação                            | Exibição e ação finais                                  | Natureza original / nova                              |
 | ----------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
@@ -248,7 +248,7 @@ Portão de implementação: freshness do workspace, git status; typecheck, lint,
 
 ## 13. F09：Compartilhamento do saldo da recomendação, refresh sob demanda e validade
 
-**Confirmação**: em 2026-09-17 o usuário confirmou a solução e pediu que ela fosse registrada. Aqui «推荐弹窗» significa o diálogo «不了 / 切换套餐 / 不再提示» exibido antes da submissão / salvamento quando o mesmo modelo pago tem cota de um plano de experiência. Esta seção trata em conjunto do problema da recomendação usar um saldo antigo por muito tempo e do caso de continuar usando o saldo antigo da recomendação depois de trocar de conta na mesma marca.
+**Confirmação**: em 2026-09-17 o usuário confirmou a solução e pediu que ela fosse registrada. Aqui «推荐弹窗» significa o diálogo «不了／切换套餐／不再提示» exibido antes da submissão / salvamento quando o mesmo modelo pago tem cota de um plano de experiência. Esta seção trata em conjunto do problema da recomendação usar um saldo antigo por muito tempo e do caso de continuar usando o saldo antigo da recomendação depois de trocar de conta na mesma marca.
 
 **Situação atual**: `useStartPlanRecommendation` só habilita refreshOnMount; o branch initial de `useUsageEntitlement` usa validade infinita para o cache compartilhado. A recomendação e a página de configurações usam parâmetros / chaves de cache diferentes, e o refresh da página de configurações não atualiza a base da recomendação. O julgamento da validade do bucket de cota usa o momento da coleta do snapshot, sem contar o tempo decorrido antes da submissão. Sondas de Hook existentes reproduzem: ainda recomendar no dia seguinte, remontar sem consultar, saldo zero na página de configurações mas ainda recomendar, e ainda usar saldo positivo antigo após trocar de conta na mesma marca; essas são evidências do problema, não evidências de correção concluída.
 
