@@ -17,7 +17,7 @@ O App se comunica com o ZCode Protocol de `apps/zcode-cli` por stdio de subproce
 - Mensagens de controle de stop / cancel podem contornar handlers longos.
 - `session/compact` mantém a semântica de turno de session; o resultado continua passando pela timeline de compactação e pelo snapshot.
 - `prompt/enhance` mantém a semântica de ferramenta de rascunho do composer; o resultado passa por job notification independente e não é escrito na timeline da session.
-- O desktop continua usando o链路 continuous direto; o `/remote` do celular continua recuperando o estado pela fronteira de shared-host attachment e de session/task replayable.
+- O desktop continua usando a cadeia continuous direta; o `/remote` do celular continua recuperando o estado pela fronteira de shared-host attachment e de session/task replayable.
 
 ## Regras de Comunicação
 

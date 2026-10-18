@@ -1,32 +1,30 @@
-# OpenAI Responses Non-stream JSON Compatibility Implementation Plan
+# Plano de Implementação da Compatibilidade JSON Non-stream do OpenAI Responses
 
-> 2026-07-15 superseded note：本文记录当时的已完成实现过程；其中“compact 固定 non-stream”是
-> 历史基线，不再是当前 transport 合同。JSON compatibility 实现继续保留，并由
-> `2026-07-15-compact-stream-first-nonstream-fallback.md` 作为 HTTP fallback leg 复用。
+> Nota de supersessão 2026-07-15: este documento registra o processo de implementação já concluído na época; o item “compact fixo em non-stream” é a linha de base histórica e já não é o contrato de transport atual. A implementação de compatibilidade JSON continua mantida e é reutilizada como leg de HTTP fallback por `2026-07-15-compact-stream-first-nonstream-fallback.md`.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让第三方 OpenAI Responses provider 省略 message `id` 与 output_text `annotations` 的非流式 JSON 仍能完成 compact，同时保持主会话 SSE、compact 非流式和其他协议不变。
+**Objetivo:** permitir que um provider OpenAI Responses de terceiros, cujo JSON non-stream omite o `id` da message e as `annotations` de `output_text`, ainda conclua o compact, mantendo inalterados o SSE da sessão principal, o compact non-stream e os demais protocolos.
 
-**Architecture:** 在 adapter 中新增独立的 Responses JSON fetch 兼容器，并只组合到 `providerKind === "openai"` 的显式 `provider.responses` factory。兼容器只补两个已证实缺失字段；共享 business-error fetch、Chat Completions、Anthropic、Gateway 和 retry 生命周期保持不变。
+**Arquitetura:** adicionar no adapter um wrapper dedicado de fetch JSON para Responses e combiná-lo apenas na factory explícita `provider.responses` para `providerKind === "openai"`. O wrapper preenche somente os dois campos cuja ausência já foi comprovada; o fetch compartilhado de business-error, Chat Completions, Anthropic, Gateway e o ciclo de vida de retry permanecem inalterados.
 
-**Tech Stack:** TypeScript、Vitest、AI SDK `@ai-sdk/openai`、Node HTTP fake server、ZCode compact E2E harness。
+**Stack técnico:** TypeScript, Vitest, AI SDK `@ai-sdk/openai`, fake server HTTP em Node, harness de E2E de compact do ZCode.
 
-## Global Constraints
+## Restrições globais
 
-- 协议判据只使用 ZCode `providerKind === "openai"` 与 AI SDK `provider.responses` factory，不检查 URL、method、模型名、provider 名或 baseURL。
-- 只补 `message.id === undefined` 和 `output_text.annotations === undefined`；其他 schema 问题不在本次范围内。
-- 缺失 message ID 使用 Node `node:crypto.randomUUID()` 生成为 `msg_<UUIDv4>`；不新增 UUID 依赖或 collision resolver。
-- 不修改 compact 的非流式调用，不做 stream fallback，不增加请求、重试、model-io、遥测或协议事件。
-- `createProviderBusinessErrorFetch()` 继续只负责共享网络代理和业务错误识别。
-- 使用 fake API key 与本地 fake server；不调用真实 provider。
-- 生产代码严格遵循 RED → GREEN；先证明当前 AI SDK 在真实 adapter 链路失败。
+- O critério de protocolo usa apenas o `providerKind === "openai"` do ZCode e a factory `provider.responses` do AI SDK; não verificar URL, método, nome de modelo, nome de provider ou baseURL.
+- Preencher apenas `message.id === undefined` e `output_text.annotations === undefined`; outros problemas de schema estão fora do escopo desta vez.
+- Message ID ausente é gerado com o `node:crypto.randomUUID()` do Node no formato `msg_<UUIDv4>`; não adicionar dependência de UUID nem resolvedor de colisão.
+- Não modificar a chamada non-stream do compact, não fazer stream fallback, não adicionar requisições, retries, model-io, telemetria ou eventos de protocolo.
+- `createProviderBusinessErrorFetch()` continua responsável apenas pelo proxy de rede compartilhado e pela identificação de business errors.
+- Usar fake API key e fake server local; não chamar provider real.
+- Código de produção segue estritamente RED → GREEN; primeiro provar que o AI SDK atual falha na cadeia real do adapter.
 
 ---
 
-### Task 1: Adapter Responses 兼容层 TDD
+### Task 1: Camada de compatibilidade Responses do Adapter via TDD
 
-**Files:**
+**Arquivos:**
 
 - Create: `apps/zcode-cli/packages/adapters/tests/openai-responses-json-compat.test.ts`
 - Create: `apps/zcode-cli/packages/adapters/src/model/openai-responses-json-compat.ts`
@@ -34,13 +32,13 @@
 
 **Interfaces:**
 
-- Consumes: `ProviderFetch = typeof globalThis.fetch`、`AiSdkModelRegistry`、`AiSdkModelAdapter.generateText()`。
-- Produces: `createOpenAIResponsesJsonCompatFetch(baseFetch: ProviderFetch): ProviderFetch`。
-- Produces: `normalizeOpenAIResponsesJson(value: unknown): Record<string, unknown> | undefined`；`undefined` 表示 body 不变。
+- Consumes: `ProviderFetch = typeof globalThis.fetch`, `AiSdkModelRegistry`, `AiSdkModelAdapter.generateText()`.
+- Produces: `createOpenAIResponsesJsonCompatFetch(baseFetch: ProviderFetch): ProviderFetch`.
+- Produces: `normalizeOpenAIResponsesJson(value: unknown): Record<string, unknown> | undefined`; `undefined` indica body inalterado.
 
-- [x] **Step 1: 写真实 adapter 链路失败测试**
+- [x] **Step 1: escrever o teste de falha na cadeia real do adapter**
 
-先只新增集成测试，不引用尚未存在的兼容模块。本地 HTTP server 对 `/responses` 返回：
+Adicionar primeiro apenas o teste de integração, sem referenciar o módulo de compatibilidade que ainda não existe. O servidor HTTP local retorna o seguinte em `/responses`:
 
 ```ts
 {
@@ -62,7 +60,7 @@
 }
 ```
 
-测试通过下面的真实路径发起请求：
+O teste dispara a requisição pelo caminho real abaixo:
 
 ```ts
 const registry = new AiSdkModelRegistry({
@@ -90,7 +88,7 @@ expect(requests).toHaveLength(1);
 expect(requests[0]?.url).toBe("/responses");
 ```
 
-- [x] **Step 2: 运行 RED**
+- [x] **Step 2: rodar RED**
 
 Run:
 
@@ -98,11 +96,11 @@ Run:
 pnpm --dir apps/zcode-cli exec vitest run packages/adapters/tests/openai-responses-json-compat.test.ts
 ```
 
-Expected: FAIL with adapter `Model request failed.`；cause 为 `AI_APICallError: Invalid JSON response`，validation issues 指向 `output[0].id` 与 `output[0].content[0].annotations`。不得是 server、路径或 API key 错误。
+Expected: FAIL com adapter `Model request failed.`; cause sendo `AI_APICallError: Invalid JSON response`, com validation issues apontando para `output[0].id` e `output[0].content[0].annotations`. Não pode ser erro de server, de caminho ou de API key.
 
-- [x] **Step 3: 在同一测试文件补兼容器边界测试**
+- [x] **Step 3: acrescentar os testes de fronteira do wrapper no mesmo arquivo de teste**
 
-在 RED 已确认后，为目标接口增加以下断言：
+Depois que o RED estiver confirmado, adicionar as seguintes asserções para a interface alvo:
 
 ```ts
 expect(
@@ -121,9 +119,9 @@ expect(
 expect(normalizeOpenAIResponsesJson(validBody)).toBeUndefined();
 ```
 
-fetch 包装器还必须证明：合法 JSON、SSE、非 2xx、无效 JSON 返回原始 `Response` 实例；发生改写时保留 status、statusText 与普通 headers，并删除 `content-length`、`content-encoding`。
+O wrapper de fetch ainda precisa provar: JSON válido, SSE, não-2xx e JSON inválido retornam a instância `Response` original; quando há reescrita, preserva status, statusText e headers comuns, e remove `content-length` e `content-encoding`.
 
-- [x] **Step 4: 实现最小兼容器**
+- [x] **Step 4: implementar o wrapper mínimo**
 
 ```ts
 type ProviderFetch = typeof globalThis.fetch;
@@ -152,9 +150,9 @@ export function createOpenAIResponsesJsonCompatFetch(
 }
 ```
 
-归一化只遍历 `output` 中的 message item：顶层 `response.id` 是非空字符串时，使用 Node `node:crypto.randomUUID()` 为缺失的 message ID 补 `msg_<UUIDv4>`；output_text 缺失 annotations 时补 `[]`。使用浅复制，只为已确认的两个缺失字段建立兼容合同；其他 schema 问题不在本次范围内。
+A normalização percorre apenas os message items de `output`: quando o `response.id` de topo é uma string não vazia, preenche o message ID ausente com `msg_<UUIDv4>` via `node:crypto.randomUUID()` do Node; quando `output_text` está sem annotations, preenche com `[]`. Usar cópia rasa, estabelecendo contrato de compatibilidade apenas para os dois campos ausentes já confirmados; outros problemas de schema estão fora do escopo desta vez.
 
-- [x] **Step 5: 只在显式 Responses factory 组合**
+- [x] **Step 5: compor apenas na factory Responses explícita**
 
 ```ts
 case "openai": {
@@ -168,9 +166,9 @@ case "openai": {
 }
 ```
 
-其他 factory 分支不修改。测试补一个 OpenAI-compatible fake server 对照，断言仍请求 `/chat/completions` 并成功。
+Nenhum outro branch de factory é modificado. Adicionar ao teste um fake server OpenAI-compatible como controle, afirmando que ele ainda requisita `/chat/completions` e tem sucesso.
 
-- [x] **Step 6: 运行 GREEN 与 adapter 邻接回归**
+- [x] **Step 6: rodar GREEN e a regressão adjacente do adapter**
 
 Run:
 
@@ -182,11 +180,11 @@ pnpm --dir apps/zcode-cli --filter @zcode/adapters typecheck
 pnpm --dir apps/zcode-cli --filter @zcode/adapters lint
 ```
 
-Expected: 两个测试文件、adapter typecheck 和变更文件定向 lint 通过；包级 lint 若命中未改文件的既有基线，留到 Task 3 如实记录。
+Expected: os dois arquivos de teste, o typecheck do adapter e o lint direcionado aos arquivos alterados passam; se o lint de nível de pacote atingir falhas de linha de base em arquivos não alterados, registrar isso com fidelidade na Task 3.
 
-### Task 2: 记录 F08 补充证据并增加 fake Responses compact E2E
+### Task 2: registrar a evidência complementar de F08 e adicionar o E2E de compact com Responses fake
 
-**Files:**
+**Arquivos:**
 
 - Modify: `docs/conversation-session-case-catalog.md`
 - Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
@@ -200,23 +198,19 @@ Expected: 两个测试文件、adapter typecheck 和变更文件定向 lint 通�
 
 **Interfaces:**
 
-- Consumes: `startScriptedProvider()`、`writeProviderConfig()`、`createApp()`、`compactBoundaries()`。
-- Produces: fake case `openai-responses-compact`，作为现有 F08 的 provider 兼容补充证据。
-- Extends: scripted handler 可选返回 `{ bodyText: string, headers: Record<string, string>, status?: number }`；既有 `{ body, status? }` 保持兼容。
-- Produces: dry-run 保留既有顶层 `model/baseURL`，suite 结果保留既有顶层 `model`；单 case
-  可用 case-local model 覆盖顶层值，混合 suite 通过具体 case 的可选 `model` 表达例外。
+- Consumes: `startScriptedProvider()`, `writeProviderConfig()`, `createApp()`, `compactBoundaries()`.
+- Produces: fake case `openai-responses-compact`, como evidência complementar de compatibilidade de provider do F08 existente.
+- Extends: o handler scripted pode opcionalmente retornar `{ bodyText: string, headers: Record<string, string>, status?: number }`; o `{ body, status? }` existente continua compatível.
+- Produces: o dry-run mantém o `model/baseURL` de topo existente e o resultado do suite mantém o `model` de topo existente; um case individual pode sobrescrever o valor de topo com um model local ao case, e um suite misto expressa a exceção pelo `model` opcional do case específico.
 
-- [x] **Step 1: 更新已确认的 NL→E2E 边界**
+- [x] **Step 1: atualizar a fronteira NL→E2E já confirmada**
 
-Responses 缺字段是 F08 手动 compact success 的 provider 输入变体，不新增会话产品状态。catalog
-在 F08 分组下记录兼容边界，coverage matrix 的 F08 备注直接引用
-`apps/zcode-cli/e2e/compact-microcompact/case-openai-responses-compact.mjs` 作为补充证据。
-不得新增 F10、自动化缩写、产品统计或通用 coverage audit 规则；也不扩展 malformed JSON、
-manual/auto、remote 或 provider 名排列。
+Responses com campos ausentes é uma variante de entrada de provider do F08 (compact manual bem-sucedido), e não cria um novo estado de produto de sessão. O catalog registra a fronteira de compatibilidade sob o grupo F08, e a nota de F08 na coverage matrix referencia diretamente `apps/zcode-cli/e2e/compact-microcompact/case-openai-responses-compact.mjs` como evidência complementar.
+Não criar F10, abreviações automatizadas, estatísticas de produto ou regras genéricas de coverage audit; também não expandir JSON malformado, manual/auto, remote ou permutações de nome de provider.
 
-- [x] **Step 2: 让现有 fake server 支持原始 SSE**
+- [x] **Step 2: fazer o fake server existente suportar SSE cru**
 
-`scripted-provider.mjs` 按 handler 输出选择 body 与 headers：
+`scripted-provider.mjs` escolhe body e headers conforme a saída do handler:
 
 ```js
 const responseBody = scripted.bodyText ?? JSON.stringify(scripted.body);
@@ -226,11 +220,11 @@ response.writeHead(scripted.status ?? 200, responseHeaders);
 response.end(responseBody);
 ```
 
-capture 同样保存实际 responseBody/responseHeaders。既有 JSON handler 行为不得改变。
+O capture salva igualmente os responseBody/responseHeaders reais. O comportamento dos handlers JSON existentes não pode mudar.
 
-- [x] **Step 3: 允许 case-local Responses provider 配置**
+- [x] **Step 3: permitir configuração de provider Responses local ao case**
 
-`writeProviderConfig()` 使用：
+`writeProviderConfig()` passa a usar:
 
 ```js
 kind: input.kind ?? "openai-compatible",
@@ -241,11 +235,11 @@ options: {
 },
 ```
 
-既有 fake case 继续走默认 `openai-compatible`；新 case 显式传 `kind: "openai"` 与 `apiKey: "sk-e2e-fake"`。
+Os fake cases existentes continuam usando o default `openai-compatible`; o novo case passa explicitamente `kind: "openai"` e `apiKey: "sk-e2e-fake"`.
 
-- [x] **Step 4: 新增 main SSE + compact JSON 场景**
+- [x] **Step 4: adicionar o cenário main SSE + compact JSON**
 
-main turn 返回以下最小 Responses SSE，每个 frame 使用空行分隔：
+O turno principal retorna o seguinte SSE mínimo de Responses, com cada frame separado por linha em branco:
 
 ```text
 data: {"type":"response.created","response":{"id":"resp-main-1","created_at":1,"model":"gpt-5.5-e2e","service_tier":null}}
@@ -261,31 +255,31 @@ data: {"type":"response.completed","response":{"incomplete_details":null,"usage"
 data: [DONE]
 ```
 
-compact 非流式响应的 output text 固定为：
+O output text da resposta non-stream de compact é fixo como:
 
 ```text
 <analysis>compat e2e</analysis><summary>RESPONSES_COMPACT_SUMMARY_MARKER: compact succeeded.</summary>
 ```
 
-该响应只省略已确认的两个字段。case 断言：
+Essa resposta omite apenas os dois campos já confirmados. O case afirma:
 
-- 所有模型请求 pathname 都是 `/responses`，不存在 `/chat/completions`；
-- main request `stream === true` 且成功返回 setup marker；
-- compact request `stream !== true`，原始 capture response 确实缺两个字段；
-- 只有一个 compact provider 请求；
-- `CompactBoundary` 为 manual/standalone/user-requested；
-- compact `ModelComplete` content 含 summary marker，最终响应是 `Compacted`。
+- todos os pathnames das requisições de modelo são `/responses` e não existe `/chat/completions`;
+- a request principal tem `stream === true` e retorna com sucesso o setup marker;
+- a request de compact tem `stream !== true`, e o response capture original realmente está sem os dois campos;
+- há apenas uma requisição de compact ao provider;
+- `CompactBoundary` é manual/standalone/user-requested;
+- o `ModelComplete` do compact tem no content o summary marker, e a resposta final é `Compacted`.
 
-- [x] **Step 5: 注册 fake case 并更新运行说明**
+- [x] **Step 5: registrar o fake case e atualizar as instruções de execução**
 
-把 `openai-responses-compact` 加入 `CASE_NAMES`、`FAKE_CASE_NAMES` 和 `suite-cases.mjs`；README 增加：
+Adicionar `openai-responses-compact` a `CASE_NAMES`, `FAKE_CASE_NAMES` e `suite-cases.mjs`; o README ganha:
 
 ```bash
 pnpm --filter zcode-cli exec tsx ../../apps/zcode-cli/e2e/compact-microcompact/run.mjs \
   --case=openai-responses-compact
 ```
 
-- [x] **Step 6: 构建并运行定向 E2E**
+- [x] **Step 6: buildar e rodar o E2E direcionado**
 
 Run:
 
@@ -297,25 +291,25 @@ pnpm --filter zcode-cli exec tsx \
 pnpm audit:conversation-session-coverage
 ```
 
-Expected: case status `passed`，captured provider requests 同时证明 main SSE 与 compact non-stream；coverage audit 通过。
-coverage audit 必须保持原有 product/covered 统计，且生成文档保持 `0 stale, 0 missing`。
+Expected: case status `passed`, com as provider requests capturadas provando simultaneamente o main SSE e o compact non-stream; coverage audit aprovado.
+O coverage audit deve manter as estatísticas de product/covered já existentes, e o documento gerado deve continuar com `0 stale, 0 missing`.
 
-### Task 3: 全量验证与文档一致性
+### Task 3: verificação completa e consistência da documentação
 
-**Files:**
+**Arquivos:**
 
 - Modify: `docs/superpowers/specs/2026-07-11-openai-responses-nonstream-json-compat-design.md`
 - Create: `docs/superpowers/plans/2026-07-11-openai-responses-nonstream-json-compat.md`
-- Verify only: Task 1、Task 2 的生产代码与测试文件。
+- Verify only: os arquivos de código de produção e de teste das Tasks 1 e 2.
 
 **Interfaces:**
 
-- Consumes: 已通过的 adapter tests 和 `openai-responses-compact` fake E2E。
-- Produces: 与 typed factory 判据一致的 spec/plan 和静态门禁结果。
+- Consumes: os testes do adapter aprovados e o fake E2E `openai-responses-compact`.
+- Produces: spec/plan consistente com o critério da factory tipada e o resultado dos portões estáticos.
 
-- [x] **Step 1: 自查 spec/plan 不再使用 URL 判据**
+- [x] **Step 1: autoverificar que spec/plan não usam mais o critério de URL**
 
-Run（只检查生产实现；E2E 对实际 wire pathname 的断言不是协议判据）：
+Run (verifica apenas a implementação de produção; as asserções de E2E sobre o pathname real no wire não são critério de protocolo):
 
 ```bash
 if rg -n 'pathname|endsWith\(.*/responses|request\.method' \
@@ -324,9 +318,9 @@ if rg -n 'pathname|endsWith\(.*/responses|request\.method' \
 fi
 ```
 
-Expected: 无输出且退出码为 0，生产兼容器没有 URL/method guard。
+Expected: sem saída e código de saída 0; o wrapper de produção não tem guard de URL/método.
 
-- [x] **Step 2: 运行仓库要求的静态门禁**
+- [x] **Step 2: rodar os portões estáticos exigidos pelo repositório**
 
 Run:
 
@@ -338,18 +332,16 @@ pnpm lint
 git diff --check
 ```
 
-Expected: 所有命令退出码为 0；若存在与本改动无关的基线失败，保留完整输出并明确区分，不得宣称通过。
+Expected: todos os comandos com código de saída 0; se existirem falhas de linha de base não relacionadas a esta mudança, preservar a saída completa e distingui-las claramente, sem afirmar que passaram.
 
-执行结果：两套 typecheck、根仓库 lint、CLI build、变更文件定向 lint/语法/格式和
-`git diff --check` 通过；CLI 全量 lint 仍被未改文件的既有 `max-lines` 等规则失败阻塞，
-未在本任务中顺手清理。
+Resultado da execução: os dois typecheck, o lint do repositório raiz, o build da CLI, o lint/sintaxe/formatação direcionados aos arquivos alterados e `git diff --check` passaram; o lint completo da CLI continua bloqueado por falhas de linha de base em arquivos não alterados, como `max-lines`, que não foram limpas de passagem nesta tarefa.
 
-- [x] **Step 3: 审查最终 diff**
+- [x] **Step 3: revisar o diff final**
 
-确认：
+Confirmar:
 
-- shared `createProviderBusinessErrorFetch()` 没有 Responses 归一化代码；
-- `openai` 显式返回 `provider.responses`，其他 factory 未改；
-- 没有 URL/provider/model allowlist、stream fallback、额外 retry 或 model-io；
-- E2E 只作为 F08 的 provider 补充证据，不新增产品 case 或扩大 remote/auto/malformed JSON 覆盖声明；
-- 工作区没有无关改动。
+- o `createProviderBusinessErrorFetch()` compartilhado não tem código de normalização de Responses;
+- `openai` retorna explicitamente `provider.responses`, e nenhuma outra factory foi modificada;
+- não há allowlist de URL/provider/model, stream fallback, retry extra ou model-io;
+- o E2E serve apenas como evidência complementar de provider para o F08, sem criar novo case de produto nem ampliar a declaração de cobertura de remote/auto/malformed JSON;
+- o workspace não tem alterações não relacionadas.

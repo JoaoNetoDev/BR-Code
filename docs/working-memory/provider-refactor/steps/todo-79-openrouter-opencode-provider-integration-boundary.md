@@ -1,118 +1,102 @@
-# Todo 79：OpenRouter / OpenCode Provider 接入边界与现有基础
+# Todo 79：Fronteira de integração do Provider OpenRouter / OpenCode e a base existente
 
-> 状态：已完成（Builtin 模板首轮接入）
+> Status: concluído (primeira rodada de integração dos Builtin Templates)
 >
-> 日期：2026-09-04
+> Data: 2026-09-04
 >
-> 来源：从 Todo 22 的 OpenRouter/OpenCode Zen 章节迁移；Todo 22 继续承载 Azure、Volcano Ark、AWS Bedrock 等其他 Provider。
+> Origem: migrado da seção OpenRouter/OpenCode Zen do Todo 22; o Todo 22 continua sendo responsável pelos outros Providers, como Azure, Volcano Ark e AWS Bedrock.
 
-## 1. 当前已有基础
+## 1. Base já existente
 
 ### OpenRouter Model ID
 
-OpenRouter 的模型 ID 按普通字符串保存于结构化 `providerId + modelId` 中。含 `/` 或 `:free` 的 ID（例如 `vendor/model:free`）不应被拆成 Provider、slug 化或改写。现有 OpenRouter 冒号模型 E2E 已覆盖该保存和恢复边界。
+O Model ID do OpenRouter é salvo como string comum na estrutura `providerId + modelId`. IDs que contenham `/` ou `:free` (por exemplo `vendor/model:free`) não devem ser divididos em Provider, convertidos em slug nem reescritos. Os E2E existentes de modelos com dois-pontos do OpenRouter já cobrem essa fronteira de gravação e restauração.
 
 ### OpenRouter Attribution
 
-`packages/shared/src/openrouter-attribution.ts` 已按最终 `baseURL` 识别 OpenRouter：协议必须为 HTTPS，host 为 `openrouter.ai` 或其子域。命中后添加：
+`packages/shared/src/openrouter-attribution.ts` já identifica o OpenRouter pelo `baseURL` final: o protocolo precisa ser HTTPS e o host precisa ser `openrouter.ai` ou um subdomínio dele. Em caso de acerto, adiciona:
 
 ```text
 X-OpenRouter-Title: ZCode
 X-OpenRouter-Categories: programming-app
 ```
 
-该基础设施覆盖模型请求、连接测试、Repo Wiki/Git 提交请求和 bootstrap Provider headers；它不代表 OpenRouter 已完成 Built-in Template 接入。
+Essa infraestrutura cobre requisições de modelos, teste de conexão, requisições de commit do Repo Wiki/Git e os provider headers de bootstrap; isso não significa que o OpenRouter já concluiu a integração do Built-in Template.
 
 ### OpenCode Model ID
 
-`packages/shared/src/opencode-model-id.ts` 与 OpenRouter 无关。它只为 OpenCode Agent 的自定义模型生成稳定运行时 ID：
+`packages/shared/src/opencode-model-id.ts` não tem relação com o OpenRouter. Ele apenas gera IDs de runtime estáveis para modelos customizados do OpenCode Agent:
 
 ```text
 <provider-slug>-<provider-hash>/<modelName>
 ```
 
-用于避免不同自定义 Provider 的模型 ID 冲突。
+Usado para evitar colisões de Model ID entre modelos de Providers customizados diferentes.
 
-## 2. OpenRouter Built-in Template 首轮接入范围
+## 2. Escopo da primeira rodada de integração do Built-in Template do OpenRouter
 
-维护成员以 [`Builtin Provider 维护清单`](../design-v2/builtin-provider-inventory.md) 为准。OpenRouter 不是只接入少数代表模型，
-而是覆盖本表中各家普通 API Template 的全部维护模型：某个上游模型只要当前被 OpenRouter 提供，就纳入 OpenRouter Template；
-同一供应商的 Account Provider 不重复计算。每家至少一个重点模型默认启用，其余一般维护、默认关闭。OpenRouter 仍不复制自己的
-全量动态目录，未列入 ZCode 维护范围的模型继续由用户通过自定义 Provider 使用。
+Os membros mantidos seguem como referência o [`Inventário de manutenção de Builtin Providers`](../design-v2/builtin-provider-inventory.md). O OpenRouter não integra apenas alguns modelos representativos, e sim cobre todos os modelos mantidos dos Templates de API comum de cada fornecedor desta tabela: um modelo upstream, desde que atualmente seja oferecido pelo OpenRouter, passa a integrar o Template do OpenRouter; Account Providers do mesmo fornecedor não são contados em duplicidade. Cada fornecedor tem pelo menos um modelo principal habilitado por padrão, os demais são de manutenção geral e vêm desligados por padrão. O OpenRouter continua não copiando seu próprio catálogo dinâmico completo: modelos fora do escopo de manutenção do ZCode continuam disponíveis ao usuário por meio de Providers customizados.
 
-OpenRouter 的模型清单参照本表中各家上游 API Template 的维护模型。当前 OpenRouter 的一个实际命名示例是上游模型 ID
-`gpt-5.6-sol` 对应 `openai/gpt-5.6-sol`；这只是 OpenRouter 的模型成员和命名事实，不是所有聚合供应商的通用格式，也不是
-配置复用或运行时 ID 转换。OpenRouter 仍需为自己的模型成员
-维护独立的 Model/API/Site 配置，因为聚合站点可能改变协议字段、能力和参数映射。
+A lista de modelos do OpenRouter segue os modelos mantidos dos Templates de API upstream de cada fornecedor desta tabela. Um exemplo real de nomeação atual do OpenRouter é o Model ID upstream `gpt-5.6-sol` correspondendo a `openai/gpt-5.6-sol`; isso é apenas um fato sobre a associação e a nomeação de modelos do OpenRouter, não é um formato universal para todos os fornecedores agregadores, nem reutilização de configuração ou conversão de ID em runtime. O OpenRouter ainda precisa manter uma configuração própria de Model/API/Site para seus membros, porque um site agregador pode alterar campos de protocolo, capacidades e mapeamento de parâmetros.
 
-OpenRouter 同时提供 Chat Completions、Responses 和 Anthropic Messages 入口。按项目统一原则，官方模板统一采用
-Anthropic Messages 协议，模板显示名称为 `OpenRouter`。在没有明确资料指出某个维护模型不能使用 Anthropic Messages 的情况下，默认认为清单中的维护模型
-都支持该入口；本轮不为 Chat 或 Responses 另建 OpenRouter 模板，也不因缺少模型级协议说明而主动拆分。
+O OpenRouter oferece simultaneamente entradas Chat Completions, Responses e Anthropic Messages. Seguindo o princípio unificado do projeto, os templates oficiais adotam uniformemente o protocolo Anthropic Messages, e o nome de exibição do template é `OpenRouter`. Na ausência de material explícito indicando que um certo modelo mantido não pode usar Anthropic Messages, assume-se por padrão que todos os modelos mantidos da lista suportam essa entrada; nesta rodada não se cria um Template separado do OpenRouter para Chat ou Responses, nem se divide ativamente por falta de documentação de protocolo em nível de modelo.
 
-公开资料能确认入口存在，但不能直接给出完整的“模型只能使用哪一种 Schema”清单：Chat Completions 文档描述其可以使用
-OpenRouter 提供的模型，Anthropic Messages 文档列出 PDF、工具和 `output_config` 等 Anthropic 语义；Models API 提供模型的
-`supported_parameters`，另有按模型查询 endpoints 的接口。它们都不是一张可直接替代请求验证的模型到 Schema 矩阵。因此本轮采用
-明确的产品假设：清单模型统一进入 Anthropic 模板，不把“文档没有写明”解释成“不支持”。将来只有出现明确反证时，才另开
-后续 Todo 讨论其他 Schema 模板。
+O material público confirma a existência das entradas, mas não fornece diretamente uma lista completa de "qual Schema cada modelo pode usar": a documentação de Chat Completions descreve que ela pode usar modelos oferecidos pelo OpenRouter, a documentação de Anthropic Messages lista semânticas Anthropic como PDF, ferramentas e `output_config`; a Models API fornece `supported_parameters` dos modelos, e há ainda uma interface para consultar endpoints por modelo. Nenhuma delas é uma matriz de modelo para Schema que possa substituir diretamente a validação de requisições. Portanto esta rodada adota uma hipótese de produto explícita: os modelos da lista entram uniformemente no Template Anthropic, e "a documentação não diz" não é interpretado como "não suporta". Somente no futuro, quando surgir uma contradição explícita, um Todo posterior discutirá outros Templates de Schema.
 
-- 确认公开 API Schema、Endpoint、鉴权和推荐模型成员；
-- 保持含 `/`、`:free` 的 Model ID 在 ModelSelection、Registry、Runtime 和持久化中的原样语义；
-- 确认 Anthropic 入口的 reasoning、tool call、JSON Schema、web search、usage 和流式响应契约；
-- 将 OpenRouter 站点差异写入 Provider Site Config，不把聚合站点能力硬编码到 Model baseline；
-- 以代表性真实请求完成 Anthropic 模板和连接测试烟测；不以逐模型验证结果决定是否拆分模板。
+- Confirmar o Schema de API público, o Endpoint, a autenticação e os membros de modelos recomendados;
+- Manter a semântica original dos Model ID que contêm `/` e `:free` em ModelSelection, Registry, Runtime e persistência;
+- Confirmar os contratos de reasoning, tool call, JSON Schema, web search, usage e resposta em streaming da entrada Anthropic;
+- Escrever as diferenças do site OpenRouter na Provider Site Config, sem codificar as capacidades do site agregador no baseline do Model;
+- Concluir o smoke test do Template Anthropic e do teste de conexão com uma requisição real representativa; não decidir a divisão de templates com base em verificação modelo a modelo.
 
-## 3. OpenCode Zen Built-in Template 首轮接入范围
+## 3. Escopo da primeira rodada de integração do Built-in Template do OpenCode Zen
 
-这里的 OpenCode 指 OpenCode Zen API，不是 OpenCode Agent runtime。OpenCode Zen 也纳入 Builtin 维护清单，并覆盖官方模型表中
-仍有效的各家模型；不能因为已经有某个品牌的重点模型，就省略其他品牌。重点维护／一般维护级别沿用 Builtin Provider 维护清单的全局原则。官方表格显示同一 Zen Base URL 下同时存在：
+Aqui, OpenCode se refere à API OpenCode Zen, não ao runtime do OpenCode Agent. O OpenCode Zen também entra no inventário de manutenção Builtin e cobre os modelos de cada fornecedor que ainda são válidos na tabela oficial de modelos; não se pode omitir outras marcas só porque já existe um modelo principal de determinada marca. Os níveis de manutenção principal/geral seguem o princípio global do Inventário de manutenção de Builtin Providers. A tabela oficial mostra que, sob a mesma Zen Base URL, coexistem:
 
 ```text
-Responses              gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna / GPT 系列
-Anthropic Messages     claude-opus-5 / claude-sonnet-5 / qwen3.7-max 等
-OpenAI-compatible Chat kimi-k3 / deepseek-v4-* / minimax-m3 / glm-5.2 等
+Responses              gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna / série GPT
+Anthropic Messages     claude-opus-5 / claude-sonnet-5 / qwen3.7-max etc.
+OpenAI-compatible Chat kimi-k3 / deepseek-v4-* / minimax-m3 / glm-5.2 etc.
 ```
 
-当前 ProviderTemplate 的 API 配置是单值。按统一原则，能使用 Anthropic Messages 的 Zen 模型优先归入
-`opencode-zen-messages`；只支持 Responses 或 OpenAI-compatible Chat 的模型分别归入 `opencode-zen-responses` 或
-`opencode-zen-chat`。实现时不能把不同 Schema 的模型塞进一个固定模板，也不先发明临时的每模型 API 字段；如果后续发现
-必须共享一个站点壳，再单独提出类型设计。
-维护成员和默认启用策略以清单为准：每个进入清单的上游品牌至少一个模型默认启用；同一品牌的其他官方模型一般维护、默认关闭。
+Atualmente a configuração de API do ProviderTemplate é de valor único. Seguindo o princípio unificado, os modelos Zen que podem usar Anthropic Messages entram preferencialmente em `opencode-zen-messages`; modelos que suportam apenas Responses ou apenas OpenAI-compatible Chat entram respectivamente em `opencode-zen-responses` ou `opencode-zen-chat`. Na implementação não se pode enfiar modelos de Schemas diferentes em um único template fixo, nem inventar primeiro um campo de API temporário por modelo; se mais tarde se descobrir que é obrigatório compartilhar um mesmo shell de site, um design de tipos específico será proposto à parte.
+Os membros mantidos e a estratégia de habilitação padrão seguem o inventário: para cada marca upstream que entra no inventário, pelo menos um modelo vem habilitado por padrão; os demais modelos oficiais da mesma marca são de manutenção geral e vêm desligados por padrão.
 
-- 确认 OpenCode Zen 的 API Schema、Endpoint、鉴权和模型目录；
-- 将 OpenCode Agent 的运行时 ID 转换与 Provider Config 的 `modelId` 语义分开；
-- 确认 reasoning、tool call、JSON Schema、usage 和流式响应契约；
-- 完成 Built-in Template、Access、Model Config 和真实请求验证。
+- Confirmar o Schema de API, o Endpoint, a autenticação e o catálogo de modelos do OpenCode Zen;
+- Separar a conversão de ID em runtime do OpenCode Agent da semântica de `modelId` do Provider Config;
+- Confirmar os contratos de reasoning, tool call, JSON Schema, usage e resposta em streaming;
+- Concluir o Built-in Template, o Access, o Model Config e a validação com requisições reais.
 
-## 4. 边界与非目标
+## 4. Fronteiras e não objetivos
 
-- 当前只完成维护范围和接入边界登记，不把 OpenRouter 或 OpenCode Zen 伪装成已完成的 Built-in Provider；
-- 不把 OpenCode 的运行时 Model ID 转换复用于 OpenRouter；
-- 不因为存在 attribution header 就推断 OpenRouter 的模型能力；
-- 不在本 Todo 中处理 Google Gemini 原生 Schema、Azure、Volcano Ark 或 AWS Bedrock。
+- Atualmente só se registra o escopo de manutenção e a fronteira de integração, sem fingir que OpenRouter ou OpenCode Zen são Built-in Providers concluídos;
+- Não reutilizar a conversão de Model ID em runtime do OpenCode para o OpenRouter;
+- Não inferir as capacidades dos modelos do OpenRouter apenas porque existe attribution header;
+- Não tratar neste Todo o Schema nativo do Google Gemini, Azure, Volcano Ark ou AWS Bedrock.
 
-## 5. 与历史 Todo 的关系
+## 5. Relação com Todos anteriores
 
-- Todo 22 原有 OpenRouter/OpenCode Zen 章节迁移到本 Todo；Todo 22 继续保留其他 Provider 的独立接入规划。
-- Todo 76 的 Builtin Config 分层适用于本 Todo：Model baseline → Model + API Schema → Provider Site → Template Model → Provider Model → Personal Provider Instance。
+- As seções originais OpenRouter/OpenCode Zen do Todo 22 foram migradas para este Todo; o Todo 22 mantém o planejamento de integração independente dos outros Providers.
+- A estratificação de Builtin Config do Todo 76 se aplica a este Todo: Model baseline → Model + API Schema → Provider Site → Template Model → Provider Model → Personal Provider Instance.
 
-## 6. 资料依据
+## 6. Base de evidências
 
 - [OpenRouter Models](https://openrouter.ai/docs/guides/overview/models)
 - [OpenRouter Models API](https://openrouter.ai/docs/api/api-reference/models/get-models)
 - [OpenCode Zen](https://dev.opencode.ai/docs/zen)
 
-## 实施记录（2026-09-04）
+## Registro de implementação (2026-09-04)
 
-### 名称修正（2026-09-15）
+### Correção de nome (2026-09-15)
 
-- 按用户要求，OpenRouter 模板中英文名称统一为 `OpenRouter`，移除 `(Anthropic)` 后缀；模板卡片和提示沿用同一配置名称。
-- 生产配置是唯一编辑源，测试配置由现有同步脚本生成；不改变 `openrouter` 模板 ID、Anthropic Messages 协议、URL、模型与推理映射。
-- 已创建供应商的个人名称不迁移、不重命名；OpenCode 等其他模板名称保持不变。
-- 验证：新增名称断言先红 2 项，修改后 OpenRouter 契约单测 16 项通过；Pro 浏览器窄屏中文浅色／宽屏英文深色两例验证卡片和悬停提示均通过。根目录 typecheck、Desktop typecheck:e2e、配置同步检查通过，lint 0 错误（42 条既有警告）。浏览器 pending 不替代完整 Electron／手机远控验收。
-- 以下保留首轮实施的历史命名记录。
+- Por solicitação do usuário, o nome em inglês do template OpenRouter foi unificado como `OpenRouter`, removendo o sufixo `(Anthropic)`; os cartões do template e os tooltips seguem o mesmo nome de configuração.
+- A configuração de produção é a única fonte de edição, e a configuração de teste é gerada pelos scripts de sincronização existentes; não se alteram o ID de template `openrouter`, o protocolo Anthropic Messages, a URL, os modelos nem o mapeamento de inferência.
+- Nomes pessoais já criados para fornecedores não são migrados nem renomeados; outros nomes de template, como o do OpenCode, permanecem inalterados.
+- Verificação: as novas asserções de nome falharam primeiro em 2 casos; após a modificação, os testes unitários de contrato do OpenRouter passaram em 16 casos; a verificação do cartão e do tooltip passou nos dois casos do navegador Pro (tela estreita em tema claro em chinês / tela larga em tema escuro em inglês). O typecheck da raiz, o typecheck:e2e do Desktop e a verificação de sincronização de configuração passaram, com lint em 0 erros (42 avisos já existentes). O "pending" do navegador não substitui a aceitação completa por Electron/controle remoto de celular.
+- Abaixo ficam preservados os registros históricos de nomenclatura da primeira implementação.
 
-- 新增独立的 `openrouter` Template，固定使用 `OpenRouter (Anthropic)` 与 `https://openrouter.ai/api`；模型 ID 按聚合站点实际命名原样保存，不剥离供应商前缀，也不复用上游 Runtime 配置。
-- 新增 `opencode-zen-responses`、`opencode-zen-messages`、`opencode-zen-chat` 三个 Template，分别对应 Zen 的三种协议入口；同一站点不同协议不再混装在一个 ProviderTemplate 中。
-- OpenRouter 与 OpenCode 模型成员按维护清单登记，重点成员默认启用，其余一般维护、默认关闭；每条成员均有独立 `template-model` 记录和最小完整输出上限配置。
-- 新增 Builtin 完整性测试，确认聚合 Template 的独立 API 配置、模型成员和 Registry Provider 顺序；相关 Provider Node 测试通过，`pnpm typecheck` 与 `pnpm lint` 通过（0 error）。
-- 该接入没有改变 OpenCode Agent runtime 的 ID 转换，也没有把聚合站点的配置能力映射为上游 Provider 的复用规则。
+- Novo Template `openrouter` independente, fixado em `OpenRouter (Anthropic)` e `https://openrouter.ai/api`; os Model ID são salvos conforme a nomeação real do site agregador, sem remover o prefixo do fornecedor e sem reutilizar a configuração de Runtime do upstream.
+- Novos Templates `opencode-zen-responses`, `opencode-zen-messages` e `opencode-zen-chat`, correspondendo às três entradas de protocolo do Zen; protocols diferentes do mesmo site não ficam mais misturados em um único ProviderTemplate.
+- Os membros de modelo do OpenRouter e do OpenCode foram registrados conforme o inventário de manutenção: membros principais habilitados por padrão, os demais de manutenção geral e desligados por padrão; cada membro tem um registro `template-model` próprio e uma configuração mínima completa de limite de saída.
+- Novo teste de integridade Builtin, confirmando a configuração de API independente, os membros de modelo e a ordem de Providers no Registry dos Templates agregadores; os testes de Node dos Providers relacionados passaram, e `pnpm typecheck` e `pnpm lint` passaram (0 erros).
+- Esta integração não alterou a conversão de ID do runtime do OpenCode Agent nem mapeou as capacidades de configuração do site agregador como regras de reutilização de Provider upstream.

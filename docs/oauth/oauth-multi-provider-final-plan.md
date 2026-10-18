@@ -1,89 +1,89 @@
-# OAuth 多提供方最终改造方案（Final）
+# OAuth Multi-Provedor: Plano Final de Mudança (Final)
 
-文档状态：已按 2026-07-16 OAuth callback 收敛决策更新。当前 Desktop OAuth 只支持统一回调 `zcode://oauth/callback`，不再支持 provider-specific callback host。
+Status do documento: atualizado conforme a decisão de convergência do OAuth callback de 2026-07-16. O OAuth do Desktop atual suporta apenas o callback unificado `zcode://oauth/callback` e não suporta mais hosts de callback específicos de provider.
 
-关联文档：
+Documentos relacionados:
 
-- `docs/superpowers/specs/2026-03-31-bigmodel-oauth-login-design.md`（当前已上线的 BigModel 单提供方方案）
+- `docs/superpowers/specs/2026-03-31-bigmodel-oauth-login-design.md`（o plano de provider único BigModel já publicado hoje）
 
-## 0. 范围与边界
+## 0. Escopo e Fronteiras
 
-- 本方案本轮仅覆盖 **Desktop（Electron）**。
-- Web OAuth 不在本轮实施范围内，相关设计与实现延后。
+- Nesta rodada, este plano cobre apenas **Desktop (Electron)**.
+- O OAuth da Web não está no escopo de implementação desta rodada; o design e a implementação correspondentes ficam para depois.
 
-## 1. 背景
+## 1. Contexto
 
-当前分支已经完成 BigModel OAuth 登录闭环，可用性上满足“单一提供方登录”。
-但如果后续要接入更多 OAuth 提供方（例如 GitHub、Google、企业 SSO），现有实现在服务接口、deep link 路由、凭据存储命名空间、UI 模型上都仍偏向单提供方。
+O branch atual já concluiu o ciclo de login OAuth do BigModel e, em termos de usabilidade, atende ao «login de provider único».
+Mas, caso mais providers OAuth sejam integrados depois (por exemplo GitHub, Google, SSO corporativo), a implementação atual continua inclinada ao provider único tanto na interface de serviço, quanto no roteamento de deep link, no namespace de armazenamento de credenciais e no modelo de UI.
 
-本文档给出最终目标结构与分阶段落地路径，目标是在不破坏现有 BigModel 登录体验的前提下，把 OAuth 能力升级为“可插拔、多提供方、可持续演进”的架构。
+Este documento dá a estrutura objetivo final e o caminho de implantação por fases, com o objetivo de elevar o OAuth a uma arquitetura «plugável, multi-provider e sustentável ao longo do tempo», sem quebrar a experiência de login BigModel existente.
 
-## 2. 现状问题（基于当前代码）
+## 2. Problemas Atuais (com base no código atual)
 
-1. OAuth 配置与实现强绑定 BigModel 协议细节：`authCode` 参数、`tokenByAuthCode` 交换契约、特定用户信息字段。
-2. 历史 BigModel 单提供方阶段曾使用 provider-specific deep link；当前已收敛为统一 `zcode://oauth/callback`。
-3. `IOAuthService` 无 provider 维度，调用方无法表达“我要发起哪个提供方登录”。
-4. 凭据 key 未分 provider 命名空间，未来多提供方会互相覆盖 token 与用户信息。
-5. UI 文案与交互模型是“单按钮 BigModel 登录”，没有 provider 列表/策略扩展点。
-6. 目前没有明确并发登录策略（同窗口快速连续点击不同 provider 的行为未定义）。
+1. A configuração e a implementação do OAuth estão fortemente acopladas aos detalhes do protocolo BigModel: parâmetro `authCode`, contrato de troca `tokenByAuthCode`, campos específicos de user info.
+2. A fase histórica de provider único do BigModel usava um deep link específico do provider; hoje isso já foi convergido para o `zcode://oauth/callback` unificado.
+3. `IOAuthService` não tem dimensão de provider, então o chamador não consegue expressar «qual login de provider eu quero iniciar».
+4. As keys de credencial não têm namespace por provider, e com vários providers no futuro o token e o user info vão se sobrescrever mutuamente.
+5. O texto e o modelo de interação da UI são de «um único botão de login BigModel», sem ponto de extensão de lista de providers/estratégia.
+6. Atualmente não há uma estratégia explícita de login concorrente (o comportamento de cliques rápidos e consecutivos em providers diferentes na mesma janela não está definido).
 
-## 3. 最终目标
+## 3. Objetivo Final
 
-### 3.1 能力目标
+### 3.1 Objetivos de Capacidade
 
-1. 同一套 OAuth 主流程可接入多个提供方（Provider Adapter 可插拔）。
-2. 每个提供方独立管理 state、token、userinfo 与错误处理，不互相污染。
-3. UI 层可从配置驱动展示 provider 入口，按需开启/下线提供方。
-4. 兼容现有 BigModel 登录数据与登录入口，平滑迁移。
+1. O mesmo fluxo principal de OAuth pode atender a múltiplos providers (Provider Adapter plugável).
+2. Cada provider gerencia de forma independente state, token, userinfo e tratamento de erros, sem se poluir mutuamente.
+3. A camada de UI consegue exibir a entrada de providers orientada por configuração, habilitando/desabilitando providers conforme a necessidade.
+4. Compatibilidade com os dados e a entrada de login BigModel já existentes, com migração suave.
 
-### 3.2 产品策略（明确约束）
+### 3.2 Estratégia de Produto (restrições explícitas)
 
-1. **单一活跃 provider**：同一时刻只维护一个 `active_provider`。
-2. 新 provider 登录成功后，更新 `active_provider` 为新 provider（旧 provider token 可按策略保留或清理，见 Service 策略）。
-3. **单窗口单 pending 登录**：同一窗口只允许一个待完成 OAuth 流程；发起新登录时自动取消旧 pending。
+1. **Provider ativo único**: em cada momento se mantém apenas um `active_provider`.
+2. Depois que o login de um novo provider é bem-sucedido, o `active_provider` passa a ser o novo provider (o token do provider antigo pode ser mantido ou limpo conforme a estratégia do Service).
+3. **Um único pending por janela**: só é permitido um fluxo OAuth pendente por janela; ao iniciar um novo login, o pending antigo é cancelado automaticamente.
 
-### 3.3 架构目标（遵循分层）
+### 3.3 Objetivo de Arquitetura (seguindo as camadas)
 
-在 OAuth 域内保持单向依赖：
+Dentro do domínio de OAuth, manter dependência unidirecional:
 
 `Types -> Config -> Repo -> Service -> Runtime -> UI`
 
-横切关注点（认证）统一通过 Providers 入口，不让 UI/业务层绕过 Providers 直接拼接第三方 OAuth 协议细节。
+A preocupação transversal (autenticação) passa uniformemente pela entrada de Providers, e a camada de UI/negócio não pode contornar os Providers e montar diretamente os detalhes do protocolo OAuth de terceiros.
 
-## 4. 目标结构设计
+## 4. Design da Estrutura Objetivo
 
-### 4.1 Types 层
+### 4.1 Camada de Types
 
-在 `packages/shared` 增加 OAuth 领域类型：
+Adicionar em `packages/shared` os tipos de domínio de OAuth:
 
-- `OAuthProviderId`（如 `"bigmodel" | "github" | ...`）
+- `OAuthProviderId` (por exemplo `"bigmodel" | "github" | ...`)
 - `OAuthStartRequest` / `OAuthStartResponse`
-- `OAuthCallbackParams`（归一化后的 `code/state/...`）
+- `OAuthCallbackParams` (o `code/state/...` já normalizado)
 - `OAuthTokenSet`
 - `OAuthUserProfile`
 - `OAuthProviderMeta`
-- `OAuthLogoutScope`（`"active" | "all"`）
+- `OAuthLogoutScope` (`"active" | "all"`)
 
-原则：类型只表达通用领域语义，不带具体厂商字段名。
+Princípio: os tipos expressam apenas semântica de domínio genérica, sem carregar nomes de campo específicos de fabricante.
 
-### 4.2 Config 层
+### 4.2 Camada de Config
 
-- 仅保留公开配置（authorize 地址、redirect 模板、显示名、是否启用、排序等）。
-- `clientSecret`、私有交换参数等敏感字段不放到 `packages/shared` 或 renderer 可见路径。
-- 敏感配置由 host process 在运行时注入。
+- Manter apenas a configuração pública (endereço de autorização, template de redirect, nome de exibição, se está habilitado, ordenação etc.).
+- Campos sensíveis como `clientSecret` e parâmetros privados de troca não ficam em `packages/shared` nem em caminho visível ao renderer.
+- A configuração sensível é injetada em runtime pelo processo de host.
 
-Desktop 本轮约束：
+Restrições desta rodada no Desktop:
 
-1. 开发环境：使用本地 `.env.local`（已 `gitignore`）注入到 host process。
-2. 打包环境：通过构建管线注入运行时环境变量，不写入源码仓库。
-3. 风险标注：如果第三方接口要求客户端携带 `appSecret`，则属于协议级高风险，必须在文档中明确“可被逆向提取”。
-4. 推荐方向：中长期将 token 交换下沉到受控后端，Desktop 仅持有短时授权码。
+1. Ambiente de desenvolvimento: usar o `.env.local` local (já no `gitignore`) injetado no processo de host.
+2. Ambiente de empacotamento: injetar variáveis de ambiente de runtime pela pipeline de build, sem escrever no repositório de código.
+3. Marcação de risco: se a interface de terceiros exigir que o cliente carregue um `appSecret`, isso é um risco alto em nível de protocolo e a documentação precisa declarar explicitamente que «pode ser extraído por engenharia reversa».
+4. Direção recomendada: no médio/longo prazo, descer a troca de tokens para um backend controlado, e o Desktop passa a deter apenas o código de autorização de curta duração.
 
-### 4.3 Providers 层（核心）
+### 4.3 Camada de Providers (núcleo)
 
-目录建议：`packages/services/src/oauth/providers/`。
+Diretório sugerido: `packages/services/src/oauth/providers/`.
 
-定义 provider 适配器接口（示意）：
+Definir a interface do adapter de provider (ilustrativo):
 
 ```ts
 interface OAuthProviderContext {
@@ -95,7 +95,7 @@ interface OAuthProviderContext {
 
 interface OAuthProviderAdapter {
   providerId: OAuthProviderId;
-  parseCallbackParams(url: string): OAuthCallbackParams; // 必选：适配 authCode/code 等差异
+  parseCallbackParams(url: string): OAuthCallbackParams; // obrigatório: adaptar diferenças como authCode/code
   buildAuthorizeUrl(ctx: OAuthProviderContext): string;
   exchangeToken(params: OAuthCallbackParams, ctx: OAuthProviderContext): Promise<OAuthTokenSet>;
   fetchUserInfo?(tokenSet: OAuthTokenSet, ctx: OAuthProviderContext): Promise<OAuthUserProfile>;
@@ -104,29 +104,29 @@ interface OAuthProviderAdapter {
 }
 ```
 
-约束：Adapter 仅处理协议差异，不直接操作 `credentialService`，保持纯协议职责。
+Restrição: o Adapter trata apenas das diferenças de protocolo, não opera diretamente o `credentialService`, mantendo uma responsabilidade puramente de protocolo.
 
-### 4.4 Repo 层
+### 4.4 Camada de Repo
 
-目录建议：`packages/services/src/oauth/repo/`。
+Diretório sugerido: `packages/services/src/oauth/repo/`.
 
-统一 key 命名空间：
+Namespace de keys unificado:
 
 - `oauth:<provider>:access_token`
 - `oauth:<provider>:refresh_token`
 - `oauth:<provider>:user_info`
 - `oauth:active_provider`
 
-老 key 迁移采用 **懒迁移**（避免启动期全量迁移竞态）：
+A migração das keys antigas usa **migração preguiçosa** (evitando corrida de migração completa no startup):
 
-1. 优先读新 key。
-2. 新 key 缺失时 fallback 读旧 key（`auth_token` / `refresh_token` / `user_info`）。
-3. 读到旧值后立即写入新 key。
-4. 写入成功后删除旧 key。
+1. Ler primeiro a key nova.
+2. Quando a key nova estiver ausente, fazer fallback para a key antiga (`auth_token` / `refresh_token` / `user_info`).
+3. Depois de ler o valor antigo, gravar imediatamente na key nova.
+4. Após a gravação bem-sucedida, apagar a key antiga.
 
-### 4.5 Service 层
+### 4.5 Camada de Service
 
-`IOAuthService` 升级为 provider-aware（示意）：
+`IOAuthService` é evoluído para provider-aware (ilustrativo):
 
 ```ts
 interface IOAuthService {
@@ -135,134 +135,134 @@ interface IOAuthService {
   startOAuth(provider: OAuthProviderId): Promise<{ authorizeUrl: string; state: string }>;
   handleCallback(url: string): Promise<UserInfo>;
   refreshToken(provider?: OAuthProviderId): Promise<void>;
-  logout(provider?: OAuthProviderId): Promise<void>; // 不传则退出 active provider
+  logout(provider?: OAuthProviderId): Promise<void>; // sem argumento, sai do active provider
   logoutAll(): Promise<void>;
   cancelPending(provider?: OAuthProviderId): Promise<void>;
 }
 ```
 
-状态结构：
+Estrutura de estado:
 
 - `state -> { provider, createdAt, timeout, sourceWindowId? }`
 
-并发策略：
+Estratégia de concorrência:
 
-1. `startOAuth` 时若已有 pending，先 `cancelPending()` 再创建新 state。
-2. 防止同窗口并发登录导致回调归属不清。
+1. No `startOAuth`, se já houver um pending, executar `cancelPending()` primeiro e só então criar o novo state.
+2. Isso evita que logins concorrentes na mesma janela deixem a atribuição do callback indefinida.
 
-登出策略：
+Estratégia de logout:
 
-1. 默认 `logout()`：仅退出当前 `active_provider`。
-2. `logout(provider)`：退出指定 provider（兼容未来“非 active 预清理”场景）。
-3. `logoutAll()`：清理所有 provider 凭据。
-4. 当 `active_provider` 被登出后，置空或按策略切换到最近仍有效 provider（本轮建议置空，行为最清晰）。
+1. `logout()` padrão: sai apenas do `active_provider` atual.
+2. `logout(provider)`: sai do provider especificado (compatível com o futuro cenário de «pré-limpeza de provider não ativo»).
+3. `logoutAll()`: limpa as credenciais de todos os providers.
+4. Depois que o `active_provider` é deslogado, ele é esvaziado ou, conforme a estratégia, alternado para o provider válido mais recente (nesta rodada recomenda-se esvaziar, que é o comportamento mais claro).
 
-### 4.6 Runtime / Platform 层
+### 4.6 Camada de Runtime / Platform
 
-Desktop main deep link 路由统一为单一入口：
+O roteamento de deep link do Desktop main é unificado em uma única entrada:
 
-- 当前路径：`zcode://oauth/callback?...`
-- 已移除旧路径：`zcode://bigmodel-auth/callback?...`
-- 已移除旧路径：`zcode://zai-auth/callback?...`
+- Caminho atual: `zcode://oauth/callback?...`
+- Caminho antigo removido: `zcode://bigmodel-auth/callback?...`
+- Caminho antigo removido: `zcode://zai-auth/callback?...`
 
-收敛策略：
+Estratégia de convergência:
 
-1. 新客户端发起 OAuth 时，无论 provider，均使用 `zcode://oauth/callback` 作为 `redirect_uri`。
-2. Desktop main 进程只识别 `oauth` host，provider 归属不从 callback host 推断。
-3. 回调路由仍以 `state` 为权威索引；renderer 侧 `OAuthService` 根据 pending state 找回发起登录的 provider。
-4. 不再提供 `ZAI_OAUTH_REDIRECT_URI` / `BIGMODEL_OAUTH_REDIRECT_URI` 及 legacy redirect URI 环境变量覆盖能力，避免发布环境重新产出旧 callback。
+1. Quando o novo cliente inicia o OAuth, usa `zcode://oauth/callback` como `redirect_uri`, independentemente do provider.
+2. O processo Desktop main reconhece apenas o host `oauth`; a atribuição do provider não é inferida pelo host do callback.
+3. O roteamento do callback continua tendo o `state` como índice autoritativo; o `OAuthService` do lado do renderer recupera o provider que iniciou o login pelo pending state.
+4. Deixa de existir a capacidade de sobrescrever via variáveis de ambiente `ZAI_OAUTH_REDIRECT_URI` / `BIGMODEL_OAUTH_REDIRECT_URI` e o legacy redirect URI, evitando que o ambiente de publicação produza novamente o callback antigo.
 
-`registerOAuthState` 可附带 provider（可选），最终仍以 `state` 为权威索引。
+`registerOAuthState` pode anexar o provider (opcional), mas o `state` continua sendo o índice autoritativo final.
 
-### 4.7 UI 层
+### 4.7 Camada de UI
 
-- `useOAuth` 改为 `startLogin(provider)`。
-- LoginDialog 从“单按钮”升级为“provider 列表驱动”。
-- i18n 文案改为通用模板 + provider 显示名映射，去掉硬编码 BigModel 文案。
-- 默认保持 BigModel 置顶，保证现有用户路径不变。
+- `useOAuth` passa a `startLogin(provider)`.
+- O LoginDialog evolui de «botão único» para «lista de providers orientada por configuração».
+- O texto de i18n passa a ser um template genérico mais um mapeamento de nome de exibição por provider, removendo o texto hardcoded de BigModel.
+- BigModel permanece no topo por padrão, garantindo que o caminho dos usuários atuais não mude.
 
-## 5. 分阶段实施计划
+## 5. Plano de Implementação por Fases
 
-### 阶段 0：安全与止血（必须先做）
+### Fase 0: Segurança e contenção (tem que ser feito primeiro)
 
-1. 移除代码中的硬编码敏感信息（尤其 `clientSecret`）。
-2. 完成密钥轮换。
-3. 在 CI 增加 secret 扫描（pre-commit + pipeline）。
-4. 增加“客户端 secret 风险”文档告警与发布前检查。
+1. Remover informações sensíveis hardcoded do código (especialmente `clientSecret`).
+2. Concluir a rotação de chaves.
+3. Adicionar varredura de secrets no CI (pre-commit + pipeline).
+4. Adicionar o alerta documental de «risco de secret no cliente» e uma checagem pré-publicação.
 
-**退出标准**：仓库无明文 secret；新构建可通过运行时配置登录 BigModel；风险声明明确。
+**Critério de saída**: o repositório não tem secret em texto puro; o novo build consegue fazer login no BigModel por configuração de runtime; a declaração de risco está explícita.
 
-### 阶段 1：服务层抽象（不改 UI 行为）
+### Fase 1: Abstração da camada de serviço (sem mudar o comportamento da UI)
 
-1. 引入 Provider Adapter（含 `parseCallbackParams`）。
-2. 明确 `OAuthProviderContext`。
-3. 引入 `repo/` 层并完成 provider 命名空间 key。
-4. 在 `repo/` 层同步落地老 key **懒迁移**（读新 key 失败时 fallback 旧 key，并回写新 key 后删旧 key）。
-5. `IOAuthService` 增加 provider、logout、active provider 能力。
-6. 保持 UI 仍只显示 BigModel（仅内部完成抽象）。
+1. Introduzir o Provider Adapter (com `parseCallbackParams`).
+2. Definir `OAuthProviderContext`.
+3. Introduzir a camada `repo/` e concluir as keys com namespace de provider.
+4. Entregar na camada `repo/` a **migração preguiçosa** das keys antigas (quando a leitura da key nova falhar, fazer fallback para a antiga, regravando a nova e apagando a antiga).
+5. Adicionar a `IOAuthService` as capacidades de provider, logout e active provider.
+6. Manter a UI exibindo apenas BigModel (a abstração é feita só internamente).
 
-**退出标准**：BigModel 功能不回退，新增 provider 只需新增 adapter + config。
+**Critério de saída**: a funcionalidade do BigModel não regride; adicionar um novo provider exige apenas um novo adapter + config.
 
-### 阶段 2：deep link 通用路由 + 过渡兼容
+### Fase 2: Roteamento genérico de deep link + compatibilidade de transição
 
-1. main 进程支持新旧 path 双路由。
-2. 完成 redirect URI 切换流程（先客户端后服务端）。
-3. 补齐冷启动/多窗口路由测试。
+1. O processo main suporta o duplo roteamento de path antigo e novo.
+2. Concluir o fluxo de troca do redirect URI (primeiro o cliente, depois o servidor).
+3. Completar os testes de roteamento de cold start/múltiplas janelas.
 
-**退出标准**：任意 provider 回调都能正确路由；BigModel 迁移无中断。
+**Critério de saída**: o callback de qualquer provider é roteado corretamente; a migração do BigModel acontece sem interrupção.
 
-### 阶段 3：UI 与 i18n 扩展
+### Fase 3: Extensão de UI e i18n
 
-1. 登录弹窗 provider 列表化。
-2. 文案从 BigModel 专有改为通用键。
-3. 落地“单一活跃 provider”交互文案（例如登录替换提示）。
+1. Transformar o popup de login em lista de providers.
+2. Trocar o texto específico do BigModel por chaves genéricas.
+3. Entregar o texto de interação de «provider ativo único» (por exemplo, o aviso de substituição ao fazer login).
 
-**退出标准**：同一 UI 可发起多个 provider 登录，无硬编码品牌词。
+**Critério de saída**: a mesma UI consegue iniciar login de múltiplos providers, sem palavra de marca hardcoded.
 
-### 阶段 4：兼容与收尾
+### Fase 4: Compatibilidade e encerramento
 
-1. 完成老 key 清理收尾（懒迁移已在阶段 1 落地）。
-2. 补齐 e2e：多 provider、取消登录、state 过期、回调异常、窗口关闭等。
-3. 完整回归：Desktop 多平台（macOS、Windows、Linux）。
+1. Concluir a limpeza das keys antigas (a migração preguiçosa já foi entregue na fase 1).
+2. Completar os e2e: múltiplos providers, cancelamento de login, expiração de state, callback anômalo, fechamento de janela etc.
+3. Regressão completa: Desktop multiplataforma (macOS, Windows, Linux).
 
-**退出标准**：通过 typecheck、lint、单测与核心 e2e；BigModel 老用户可无感迁移。
+**Critério de saída**: passa por typecheck, lint, testes unitários e os e2e principais; usuários antigos do BigModel migram sem perceber.
 
-## 6. 测试策略
+## 6. Estratégia de Testes
 
-1. Provider Adapter 契约测试：引入 `MockProviderAdapter`，所有 provider 共享同一套契约用例。
-2. adapter fixture 测试：每个 provider 只补充 fixture（授权 URL 参数、callback 样例、token/userinfo 响应样例）。
-3. Service 测试：
-   - 多 provider 状态隔离
-   - 单 pending 并发保护
-   - `active_provider` 切换
-   - `logout()` / `logout(provider)` / `logoutAll()` 行为
-   - 懒迁移流程
-4. Desktop 集成测试：deep link 冷启动/热启动、多窗口路由、新旧 path 兼容。
-5. 回归测试：仅启用 BigModel 时行为与当前版本一致。
+1. Testes de contrato do Provider Adapter: introduzir `MockProviderAdapter`, com todos os providers compartilhando o mesmo conjunto de casos de contrato.
+2. Testes de fixture dos adapters: cada provider complementa apenas fixtures (parâmetros da URL de autorização, exemplos de callback, exemplos de resposta de token/userinfo).
+3. Testes de Service:
+   - isolamento de estado entre múltiplos providers
+   - proteção de concorrência com um único pending
+   - troca de `active_provider`
+   - comportamento de `logout()` / `logout(provider)` / `logoutAll()`
+   - fluxo de migração preguiçosa
+4. Testes de integração do Desktop: deep link em cold start/quente, roteamento de múltiplas janelas, compatibilidade de paths antigo e novo.
+5. Testes de regressão: com apenas o BigModel habilitado, o comportamento é idêntico ao da versão atual.
 
-## 7. 风险与对策
+## 7. Riscos e Contramedidas
 
-1. **风险：** provider 契约差异大（参数名、token 格式、userinfo 接口差异）。  
-   **对策：** 强制通过 Adapter 层隔离，Service 仅消费归一化结果。
-2. **风险：** 客户端保存或使用 `clientSecret` 存在逆向提取风险。  
-   **对策：** 运行时注入 + 密钥轮换 + 明确风险告警；中长期迁移到服务端交换。
-3. **风险：** 老凭据覆盖或丢失。  
-   **对策：** provider 命名空间 key + 懒迁移 + 原子写入后删旧 key。
-4. **风险：** deep link 在不同 OS 行为差异导致回调丢失。  
-   **对策：** 保留单实例锁、冷启动缓存、平台专项 e2e，并保持新旧 path 过渡期兼容。
-5. **风险：** 并发登录导致状态错乱。  
-   **对策：** 单窗口单 pending，发起新登录先 cancel 旧流程。
+1. **Risco:** as diferenças de contrato entre providers são grandes (nomes de parâmetro, formato de token, diferenças na interface de userinfo).
+   **Contramedida:** isolamento obrigatório pela camada de Adapter; o Service consome apenas resultados normalizados.
+2. **Risco:** salvar ou usar `clientSecret` no cliente traz risco de extração por engenharia reversa.
+   **Contramedida:** injeção em runtime + rotação de chaves + alerta de risco explícito; migração para troca no servidor no médio/longo prazo.
+3. **Risco:** credenciais antigas sobrescritas ou perdidas.
+   **Contramedida:** keys com namespace de provider + migração preguiçosa + apagar a key antiga só após a escrita atômica.
+4. **Risco:** diferenças de comportamento de deep link entre OS causam perda de callback.
+   **Contramedida:** manter o lock de instância única, cache de cold start, e2e específico por plataforma e compatibilidade de paths antigo/novo durante a transição.
+5. **Risco:** logins concorrentes causam confusão de estado.
+   **Contramedida:** um único pending por janela; ao iniciar um novo login, cancelar antes o fluxo antigo.
 
-## 8. 推荐落地顺序（执行建议）
+## 8. Ordem Recomendada de Implantação (sugestão de execução)
 
-1. 阶段 0（安全）
-2. 阶段 1（服务抽象）
-3. 阶段 2（deep link 通用化）
-4. 阶段 3（UI 扩展）
-5. 阶段 4（兼容与收尾）
+1. Fase 0 (segurança)
+2. Fase 1 (abstração do serviço)
+3. Fase 2 (generalização do deep link)
+4. Fase 3 (extensão de UI)
+5. Fase 4 (compatibilidade e encerramento)
 
-该顺序可以在每一阶段都保持“可发布状态”，并降低一次性大改风险。
+Essa ordem mantém um «estado publicável» em cada fase e reduz o risco de uma grande mudança de uma só vez.
 
 ---
 
-更新时间：2026-04-01
+Data de atualização: 2026-04-01

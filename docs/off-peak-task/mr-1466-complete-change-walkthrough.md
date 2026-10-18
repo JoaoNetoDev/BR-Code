@@ -498,7 +498,7 @@ O renderer não opera o ticket do servidor diretamente; retirada, polling, renov
 
 - A gravação do estado terminal e o settle no servidor são separados, evitando que um erro de rede bloqueie o estado de conclusão local.
 - Tarefas terminais sem `settled_at` são reenviadas repetidamente.
-- Um 4xx no settle é considerado já impossível / desnecessário de reenviar e é确是 confirmado localmente; erros de rede e 5xx mantêm a entrada no outbox.
+- Um 4xx no settle é considerado já impossível / desnecessário de reenviar e é facilmente confirmado localmente; erros de rede e 5xx mantêm a entrada no outbox.
 - A API de settle é projetada para ser idempotente.
 
 ### 8.4 Caso de múltiplos Hosts
@@ -558,7 +558,7 @@ Origem da configuração: `configs.offPeak`.
 - `enable_offpeak_task === true`
 - `allowed_models` não vazio
 
-Só quando os dois são satisfeitos a capacidade de criação é exposta. Entrar nas telas相关 força a atualizar o client config. A configuração controla apenas a exposição do produto e a lista branca de modelos idle, e não carrega mais cota gratuita estática.
+Só quando os dois são satisfeitos a capacidade de criação é exposta. Entrar nas telas relacionadas força a atualizar o client config. A configuração controla apenas a exposição do produto e a lista branca de modelos idle, e não carrega mais cota gratuita estática.
 
 ### 10.2 Julgamento do Coding Plan
 
@@ -663,9 +663,9 @@ O fluxo WDIO de gestão define o ready delay como 60 segundos para evitar que a 
 
 ### 12.6 Internacionalização e identificadores de teste
 
-- Inglês e简体中文 completam os textos de tarefa de horário ocioso, estados, erros, formulário, History, cota e keep-awake.
+- Inglês e chinês simplificado completam os textos de tarefa de horário ocioso, estados, erros, formulário, History, cota e keep-awake.
 - `IntlProvider` e o shape de locale ficam em sincronia.
-- Os test ids compartilhados ganham identificadores de定位 de página/E2E de Off-Peak.
+- Os test ids compartilhados ganham identificadores de posicionamento de página/E2E de Off-Peak.
 
 ## 13. Semântica final do Keep Awake
 

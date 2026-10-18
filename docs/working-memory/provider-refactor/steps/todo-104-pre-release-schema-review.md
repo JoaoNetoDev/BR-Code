@@ -838,7 +838,7 @@ Evidências: [codec do arquivo de seleção padrão atual](../../../../packages/
 
 Contexto: o usuário pediu para ver apenas os arquivos e tabelas novos em comparação com o staging e confirmar a necessidade de cada um, sem misturar arquivos, schemaVersion e revision numa mesma rodada de explicação. A transformação de Provider / ModelSelection desta rodada não adicionou arquivos nem tabelas de banco, mas nas três tabelas existentes automations, automation_runs e off_peak_tasks do tasks-index.sqlite atual foi adicionada uma coluna model_selection TEXT cada, e não se pode ler "sem tabela nova" como "sem coluna ou migração nova". O design dessas colunas e das outras estruturas existentes que passam a usar ModelSelection foi aprovado de forma unificada, ver 6.14. Aqui ficam registradas apenas as escolhas de arquivos desta rodada, sem iniciar uma refatoração de catálogo de todo o repositório.
 
-Camada de configuração do usuário: mantém provider_config.json, que concentra a configuração pessoal de Provider / Model, a ordenação e a seleção de modelo padrão de 6.9. O config.json综合 antigo continua cuidando das demais configurações e o conteúdo antigo de Provider serve apenas como entrada de upgrade. O estilo global de nomenclatura de arquivos ainda não foi confirmado e provider_config.json não é trocado por hífens por efeito colateral.
+Camada de configuração do usuário: mantém provider_config.json, que concentra a configuração pessoal de Provider / Model, a ordenação e a seleção de modelo padrão de 6.9. O config.json agregado antigo continua cuidando das demais configurações e o conteúdo antigo de Provider serve apenas como entrada de upgrade. O estilo global de nomenclatura de arquivos ainda não foi confirmado e provider_config.json não é trocado por hífens por efeito colateral.
 
 Camada de manutenção do programa: tudo unificado no diretório runtime/provider/ sob o diretório do ambiente. Aqui runtime representa os dados mantidos pelo programa, e não arquivos temporários que se pode apagar à vontade. As duas propostas anteriores de diretórios de topo cache/ e state/ foram substituídas.
 
@@ -863,7 +863,7 @@ Decisões por arquivo:
 
 | Implementação ou recurso atual                       | Alvo confirmado                                                | Razão                                                                                                              |
 | --------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| provider_config.json                                | mantido                                                        | concentra a configuração pessoal de Provider / Model sem ocupar o config.json综合 antigo                        |
+| provider_config.json                                | mantido                                                        | concentra a configuração pessoal de Provider / Model sem ocupar o config.json agregado antigo                        |
 | model-selection.json                                | fundido em config.defaultModelSelection                        | um membro lógico independente não exige outro arquivo físico, ver 6.9                                            |
 | active.json                                         | runtime/provider/<diretório de isolamento>/zcode-builtin.json   | o nome diz diretamente o conteúdo; como configuração embutida adotada após o download, pode ser reconstruída a partir da configuração que acompanha o pacote quando ausente |
 | refresh-control.json                                | zcode-builtin-refresh.json no mesmo diretório do arquivo baixado | registra a ocupação de refresh por múltiplos processos, o horário do refresh e a informação de retentativa de falha; não é configuração do usuário |
@@ -1058,46 +1058,46 @@ A lista de alterações de banco desta rodada fica corrigida abaixo; as três co
 
 | Tabela existente | Nova coluna          | Decisão desta rodada           |
 | --------------- | -------------------- | ------------------------- |
-| automations     | model_selection TEXT | 复用 ModelSelection，通过 |
-| automation_runs | model_selection TEXT | 复用 ModelSelection，通过 |
-| off_peak_tasks  | model_selection TEXT | 复用 ModelSelection，通过 |
+| automations         | model_selection TEXT | reutiliza ModelSelection, aprovado     |
+| automation_runs     | model_selection TEXT | reutiliza ModelSelection, aprovado     |
+| off_peak_tasks      | model_selection TEXT | reutiliza ModelSelection, aprovado     |
 
-最近选择的新 localStorage key（zcode-model-selection-recent-v1 加工作区身份）属于客户端存储，不是新 JSON 文件或数据表。Subagent Markdown 仍有原有 model / thoughtLevel 文本表达，不因本次通过而要求全改为 JSON。Bot 按 6.10 纠正后的裁决保留 v3 新文件；“通过选择结构”不要求额外调整 Bot 路径。
+A nova localStorage key da seleção recente (zcode-model-selection-recent-v1 mais a identidade do workspace) pertence ao armazenamento do cliente e não é um novo arquivo JSON nem uma nova tabela. O Markdown de Subagent continua com sua expressão textual original de model / thoughtLevel e a aprovação deste item não exige converter tudo em JSON. O Bot mantém os arquivos novos v3 conforme a decisão corrigida em 6.10; "aprovar a estrutura de seleção" não exige ajustes adicionais no caminho do Bot.
 
-通过的是 schema 设计，不豁免 staging 数据迁移验证；例如 SQL NULL、JSON null 和明确选择的既有区别，实施时仍需保留其上层语义。
+O que foi aprovado é o design do schema e isso não isenta a verificação de migração dos dados do staging; por exemplo, a distinção já existente e deliberada entre SQL NULL, JSON null e uma escolha explícita precisa continuar preservando sua semântica de camada superior na implementação.
 
-证据：[Automation 与运行记录](../../../../packages/services/src/session/automationRepo.ts)、[Off-Peak](../../../../packages/services/src/session/offPeakTaskRepo.ts)、[最近选择](../../../../packages/ui/src/lib/composerRecent.ts)、[Subagent Markdown](../../../../packages/shared/src/subagent-markdown-selection.ts)。
+Evidências: [Automation e registros de execução](../../../../packages/services/src/session/automationRepo.ts), [Off-Peak](../../../../packages/services/src/session/offPeakTaskRepo.ts), [seleção recente](../../../../packages/ui/src/lib/composerRecent.ts) e [Markdown de Subagent](../../../../packages/shared/src/subagent-markdown-selection.ts).
 
-#### 6.14.2 账号连接选择：明确不调整
+#### 6.14.2 Seleção de conexão de conta: explicitamente não ajustada
 
-保留现有 setting.json 内 providerFamilyConnectionSelections：zai / bigmodel 分别保存连接选择；kind 为 start-plan、individual-coding-plan 或 team-coding-plan，团队项带 productId、organizationId、projectId。用户已将此前“先忽略”明确为“不调整”，不进行 kind / mode 命名统一，也不重组字段；不再列为待讨论的命名问题。
+Mantém o providerFamilyConnectionSelections existente dentro do setting.json: zai / bigmodel guardam as escolhas de conexão separadamente; o kind é start-plan, individual-coding-plan ou team-coding-plan, e o item de equipe traz productId, organizationId e projectId. O usuário já transformou o "ignorar por enquanto" anterior em uma decisão explícita de "não ajustar": não há unificação de nomenclatura de kind / mode nem reestruturação de campos, e o item deixa de ser listado como questão de nomenclatura pendente.
 
-已有 schema 却重复手写类型的问题仍按第 1.1 节统一处理；这是实现的类型来源整理，不改变持久化格式。证据：[账号连接选择 schema 与重复类型](../../../../packages/shared/src/provider-family-connection-selection.ts)。
+O problema de reescrever à mão um tipo que já tem schema continua sendo tratado de forma unificada conforme a seção 1.1; trata-se de organizar a origem dos tipos na implementação, sem mudar o formato de persistência. Evidências: [schema de seleção de conexão de conta e tipos duplicados](../../../../packages/shared/src/provider-family-connection-selection.ts).
 
-#### 6.14.3 账号凭据 key：保持现状
+#### 6.14.3 Key de credencial de conta: mantém o estado atual
 
-保留现有 credentials.json 内 account-provider:...:api-key 的 key 组成和编码方式：包含 Provider、账号身份及团队所需的产品 / 组织 / 项目 ID。用户明确不做这一项；不把 coding-plan / team 改成 individual-coding-plan / team-coding-plan，也不借此重做凭据存储。
+Mantém a composição e a codificação atuais da key account-provider:...:api-key dentro do credentials.json existente: ela contém o Provider, a identidade da conta e os IDs de produto / organização / projeto necessários para a equipe. O usuário foi explícito em não mexer nesse item; não se troca coding-plan / team por individual-coding-plan / team-coding-plan e o armazenamento de credenciais não é refeito por causa disso.
 
-证据：[凭据 key 生成](../../../../packages/services/src/model-provider/accountProviderCredentialKey.ts)。
+Evidências: [geração da key de credencial](../../../../packages/services/src/model-provider/accountProviderCredentialKey.ts).
 
-来源专用 schema 的字段范围同样已明确“不调整”，沿用 6.8；原有 schema 推导类型原则及此前确认的公共字段改名保持，不因此新增来源限制。
+O escopo de campos do schema específico de origem também foi explicitamente mantido como "não ajustar", conforme 6.8; o princípio de derivar tipos do schema e as renomeações de campos comuns já confirmadas permanecem, sem que isso acrescente novas restrições por origem.
 
-### 6.15 本轮目标是否达到与实施边界
+### 6.15 Se o objetivo desta rodada foi atingido e os limites de implementação
 
-以“相比 staging 的 Provider / ModelSelection 改造”为范围，本轮已梳理核心 schema、规则及来源、物理文件与新增表列、schemaVersion、revision 和直接关联的分发记录。后续回滚讨论新增了 6.18 的旧字段保留约束；Session 已确定改为新增 modelSelection 字段。用户随后要求只复审本 Todo 要修改的内容，6.19 已据此收紧为 13 项并获认可；其他 Todo 的内容不重新打开。设计复审不代表实现或上线验证完成。
+Tomando como escopo "a transformação de Provider / ModelSelection em comparação com o staging", esta rodada levantou os schemas centrais, as regras e origens, os arquivos físicos e as novas colunas de tabela, o schemaVersion, a revision e os registros de distribuição diretamente relacionados. A discussão posterior de rollback acrescentou a restrição de preservar campos antigos de 6.18, e a Session passou a ser um novo campo modelSelection. O usuário depois pediu para revisar apenas o que este Todo vai alterar, e 6.19 foi apertado nesse sentido para 13 itens e aprovado; o conteúdo de outros Todos não é reaberto. Uma revisão de design não representa conclusão da implementação nem da verificação de lançamento.
 
-| 审阅项                                                | 当前结论                        |
-| ----------------------------------------------------- | ------------------------------- |
-| ModelSelection、ProviderConfig、ModelConfig           | 第 2、3、5 节已定               |
-| 智能 / 手动、各层规则、Provider / Template 外层及名称 | 第 6.1–6.7 节已定               |
-| 来源专用字段限制                                      | 第 6.8 节保留现状，定向审阅通过 |
-| 默认选择、文件路径、Bot 文件、资源覆盖及新增表列      | 第 6.9–6.10、6.14 节已定        |
-| 五处格式版本、发布 revision、运行时标识问题           | 第 6.11–6.12 节已定，修复未实施 |
-| 刷新 / 分发记录                                       | 第 6.13 节按收缩方案处理        |
-| 其他 ModelSelection 接入、账号选择及凭据 key          | 第 6.14 节通过或明确不调整      |
-| schema 单一来源                                       | 第 1.1、7 节作为实施原则        |
+| Item revisado                                                  | Conclusão atual                                   |
+| -------------------------------------------------------------- | ------------------------------------------------- |
+| ModelSelection, ProviderConfig, ModelConfig                    | definidos nas seções 2, 3 e 5                    |
+| inteligente/manual, regras por camada, camada externa de Provider / Template e nomes | definidos nas seções 6.1–6.7      |
+| Restrições de campos específicos de origem                    | mantidas conforme 6.8, revisão direcionada aprovada |
+| Seleção padrão, caminhos de arquivo, arquivos de Bot, cobertura de recursos e novas colunas | definidos nas seções 6.9–6.10 e 6.14 |
+| Cinco limites de versão de formato, revision de publicação, problema do identificador de runtime | definidos nas seções 6.11–6.12, correções não implementadas |
+| Registro de refresh / distribuição                             | tratado pela solução reduzida da seção 6.13      |
+| Outras integrações de ModelSelection, seleção de conta e key de credencial | aprovadas ou explicitamente não ajustadas na seção 6.14 |
+| Fonte única do schema                                          | princípio de implementação nas seções 1.1 e 7     |
 
-尚未达到的是“实现完成，可以正式上线”：当前仍是旧实现，字段 / 文件改造、已复现的 revision 问题都未落实。正式上线前需要用实际结果证明：新安装写最终格式，staging 已发布数据直接迁入同一最终格式；不支持本分支未发布中间格式。这是已有裁决的实施验证，不是继续设计另一套 schema。
+O que ainda não foi atingido é "implementação concluída, pronta para lançamento": a implementação atual ainda é a antiga, e as transformações de campos/arquivos e o problema de revision já reproduzido não foram implementados. Antes do lançamento é preciso provar com resultados reais que uma instalação nova escreve o formato final e que os dados já publicados no staging migram direto para o mesmo formato final; não é exigida compatibilidade com os formatos intermediários não publicados deste branch. Essa é a verificação de implementação de decisões já tomadas, e não continuar projetando outro schema.
 
 ```text
 全新安装 --------------------> 最终格式
@@ -1105,50 +1105,50 @@ staging 已发布数据 --升级----> 同一最终格式
 本分支未发布中间格式 --------> 不要求兼容
 ```
 
-实施验收集中在三件具体工作：按本文落地 schema / 读写 / 消费者；验证 staging 升级和重复启动不会丢失或复活旧配置；验证默认选择合并后的分发 / 回滚及同序号跨 Endpoint 切换修复。遇到实际冲突再报告，不预设新的字段和迁移版本。
+A aceitação da implementação se concentra em três trabalhos concretos: aplicar o schema / a leitura e escrita / os consumidores conforme este documento; verificar que a atualização do staging e inicializações repetidas não perdem nem ressuscitam configuração antiga; verificar a distribuição e o rollback da seleção padrão fundida e a correção da troca de Endpoint com o mesmo número. Conflitos reais são reportados quando aparecerem, sem pressupor novos campos e novas versões de migração.
 
-本结论是设计审阅收口，不承诺永远无需后续迁移，也不是对整个分支无关功能的持久化做了全仓审计。非法手改文件、未来版本兼容等未新增裁决的行为保持本轮范围，不因本文自动获得扩大改造的授权。
+Esta conclusão fecha a revisão de design e não promete que nunca será necessária uma migração futura, nem afirma ter feito uma auditoria de persistência de todo o branch. Comportamentos sem nova decisão, como edição manual de arquivos inválidos e compatibilidade com versões futuras, permanecem no escopo desta rodada e não ganham autorização de ampliação automática por causa deste documento.
 
-### 6.16 实施定位与文档复核补充
+### 6.16 Mapeamento da implementação e complemento da revisão de documentação
 
-以下只把已有裁决对应到实际入口，避免只改 schema 定义却漏掉写回、迁移或独立 CLI；不增加新的改造目标。本次核对的 staging 引用为 790884b1ce，后续实施若基线变化，应复核相关差异，不把快照当作永远不变的事实。
+Abaixo as decisões já existentes são apenas mapeadas para os pontos de entrada reais, evitando que se altere só a definição do schema e se esqueça da escrita de volta, da migração ou do CLI independente; nenhum novo alvo de transformação é acrescentado. A referência do staging conferida nesta verificação é 790884b1ce e, se a linha de base mudar na implementação posterior, as diferenças relevantes devem ser revisadas, sem tratar o snapshot como um fato eterno.
 
-| 已有裁决                       | 必须一起核对的入口                                                                                                                                                                                                  |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 字段改名、规则分组及去掉 type  | provider/config/schema.ts 的解析、provider-config.ts / model-config.ts 的构造及 toJSON、toPersonalJSON、toZCodeBuiltinJSON；不能只改展示类型，写回仍出现旧字段                                                      |
-| 个人 config 包装和默认选择合并 | provider-node 的 provider-config-file-codec.ts、personal-provider-config-repository.ts、model-selection-config-repository.ts，以及宿主装配和默认选择订阅；不得保留第二个持续写入的 model-selection.json             |
-| staging 个人配置导入           | App 的 legacyPersonalProviderConfigImporter.ts 与独立 CLI 的 legacy-cli-personal-provider-config-importer.ts 都输出最终格式；保留现有用户意图提取和旧身份转换，不把旧 Effective Config 的系统默认能力冻结成用户覆盖 |
-| Bot 保留 v3 新文件             | bots/repo.ts 与 storageMigration.ts 沿用当前新文件导入链路；验证旧配置 / 草稿选择进入 v3 文件，旧文件不被覆盖，不实施此前误记的原路径迁移                                                                           |
-| 内置发布和运行时来源标识       | config/provider/zcode-builtin.json、release codec、下载 Source、固定资源释放路径及 CLI / Server 内嵌资源链路一起核对，随包与下载使用同一最终发布 schema                                                             |
-| 分发适配                       | shared/provider-provisioning.ts 与 Source / Target / 状态结果编解码一起变更；发送、接收和失败回滚读取同一份 personalConfig                                                                                          |
+| Decisão já existente                              | Pontos de entrada que precisam ser conferidos juntos                                                                                                                                                                |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Renomeação de campos, agrupamento de regras e remoção de type | o parse de provider/config/schema.ts, a construção e o toJSON, toPersonalJSON e toZCodeBuiltinJSON de provider-config.ts / model-config.ts; não se pode mudar só o tipo de exibição, porque a escrita de volta ainda conteria campos antigos |
+| Invólucro do config pessoal e fusão da seleção padrão | o provider-config-file-codec.ts, o personal-provider-config-repository.ts e o model-selection-config-repository.ts do provider-node, além da montagem do host e da assinatura da seleção padrão; não se pode manter um segundo model-selection.json com escrita contínua |
+| Importação da configuração pessoal do staging    | o legacyPersonalProviderConfigImporter.ts do App e o legacy-cli-personal-provider-config-importer.ts do CLI independente produzem ambos o formato final; preserva-se a extração de intenção do usuário existente e a conversão de identidade antiga, sem congelar em sobrescrita do usuário a capacidade de default do sistema do Effective Config antigo |
+| Bot mantém os arquivos novos v3                 | bots/repo.ts e storageMigration.ts seguem a cadeia atual de importação dos arquivos novos; verifica-se que configuração antiga / escolha de rascunho entre no arquivo v3 e que o arquivo antigo não é sobrescrito, sem implementar a migração pelo caminho original antes registrada por engano |
+| Publicação embutida e identificador de origem de runtime | config/provider/zcode-builtin.json, o codec de release, a Source de download, o caminho de liberação do recurso fixo e a cadeia de recursos embutidos de CLI / Server são conferidos juntos, com o conteúdo que acompanha o pacote e o baixado usando o mesmo schema de publicação final |
+| Adaptação da distribuição                       | shared/provider-provisioning.ts muda junto com o Source / Target e a codificação do resultado de estado; envio, recebimento e rollback de falha leem o mesmo personalConfig                         |
 
-已有迁移入口证据：[App 个人配置导入](../../../../packages/services/src/model-provider/legacyPersonalProviderConfigImporter.ts)、[独立 CLI 个人配置导入](../../../../apps/zcode-cli/packages/bootstrap/src/app/legacy-cli-personal-provider-config-importer.ts)、[Bot 存储迁移](../../../../packages/services/src/bots/storageMigration.ts)。其他代码入口见相应裁决章节，不再复制一套实现设计。
+Evidências de pontos de entrada de migração existentes: [importação da configuração pessoal do App](../../../../packages/services/src/model-provider/legacyPersonalProviderConfigImporter.ts), [importação da configuração pessoal do CLI independente](../../../../apps/zcode-cli/packages/bootstrap/src/app/legacy-cli-personal-provider-config-importer.ts) e [migração de armazenamento do Bot](../../../../packages/services/src/bots/storageMigration.ts). Os outros pontos de entrada de código estão nas seções de decisão correspondentes, sem copiar mais um design de implementação.
 
-文档复核补全的是：公共 Match 示例与正式 schema 的区别、完整 / 手动配置关系、enabled 与 null 覆盖语义、规则顺序及身份唯一性、默认选择合并后的完整读写与回滚、最终版本 1 和旧数据导入的区别。以上均用于把已有裁决和必须保留的现有行为写明确；若实施发现需要改变这些行为，另报具体原因，不能将“文档完善”当作扩大产品改造的授权。
+O que a revisão de documentação complementa é: a diferença entre o exemplo público de Match e o schema oficial, a relação entre configuração completa e manual, a semântica de cobertura de enabled e null, a ordem das regras e a unicidade de identidade, a leitura e escrita completas e o rollback após a fusão da seleção padrão, e a diferença entre a versão final 1 e a importação de dados antigos. Tudo isso serve para deixar explícitas as decisões já existentes e os comportamentos atuais que precisam ser preservados; se a implementação descobrir que é preciso mudar algum deles, o motivo concreto deve ser reportado, e "aprimorar a documentação" não é autorização para ampliar a transformação do produto.
 
-### 6.17 按可验证性全面复评：保留方案，区分验证难度与工作量
+### 6.17 Reavaliação completa pela verificabilidade: manter a solução e distinguir dificuldade de verificação de volume de trabalho
 
-用户明确以“容易验证的都不算高风险”为本轮判断口径。此前将默认选择合并、外层重组等因影响面广而直接列为高风险，混入了工作量判断；本节取代该分级，不把复杂度等同于难以验证。恢复 6.9 的默认选择合并；Bot 按 6.10 纠正误记后保留现有 v3 新文件。没有新增字段裁决，也未授权开始产品实现。
+O usuário deixou explícito que "tudo que é fácil de verificar não é risco alto" como critério desta rodada. Antes, a fusão da seleção padrão e a reestruturação externa foram classificadas direto como de alto risco por terem ampla superfície de impacto, o que misturou a julgamento de volume de trabalho; esta seção substitui essa classificação e não equipara complexidade a dificuldade de verificação. A fusão da seleção padrão de 6.9 é restaurada, e o Bot mantém os arquivos novos v3 existentes depois da correção do registro em 6.10. Não há nova decisão de campo nem autorização para começar a implementação do produto.
 
-复评结论：目前各项都有可构造的输入与可判定的结果，没有发现因验证困难而必须撤回的变更。默认选择合并、revision 传递和资源覆盖需要更完整的集成 / 打包验证，但验证方法明确。“能够验证”不表示“当前测试已经证明最终方案正确”；下表是实施时针对实际风险的验证依据。
+Conclusão da reavaliação: hoje todos os itens têm entradas que podem ser construídas e resultados que podem ser julgados, e não foi encontrada nenhuma mudança que precise ser revertida por dificuldade de verificação. A fusão da seleção padrão, a passagem de revision e a cobertura de recursos exigem uma verificação de integração / empacotamento mais completa, mas o método de verificação é claro. "Poder ser verificado" não significa "que os testes atuais já provaram que a solução final está correta"; a tabela abaixo é a base de verificação para os riscos reais durante a implementação.
 
-| 改动组                                              | 明确的判定结果                                                                                         | 验证方式与目前边界                                                                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ModelSelection 及已有结构接入                       | 同一 providerId / modelId / reasoningLevel 读写后保持；各上层空值语义保持                              | 复用已有消费者和迁移测试，按用户裁决通过结构，不逐个重新设计；新增三列仍核对升级读写                                                              |
-| Provider / Model 字段改名、属性归位、选项 type 删除 | 最终文件只含目标字段，读写往返不丢值；最终有效配置语义保持                                             | schema 正反例、序列化断言、转换前后有效值对照，易于确定结果；不拿“同一个错误 codec 自己往返成功”代替独立预期值                                    |
-| Provider / Template 外层重组及名称                  | ID、模板关系、覆盖值和顺序保持；创建名称按语言取值并去重，重启后不变                                   | 现有创建 / 并发去重 / Overlay 测试可适配；补目标数组与字段外移的明确断言及设置操作 E2E。工作量较大，但结果直接可比                                |
-| 智能 / 手动分组、来源专用 schema                    | 非法来源字段和不完整手动规则被拒绝且不留下半次修改；enabled 独立保留，手动参数不随前层更新             | 现有固定配置 / 来源限制 / 原子编辑测试有对应场景，补集合互斥和新 schema 用例，易于验证                                                            |
-| Match 分层、删除 providerMatch、四条规则移 Site     | 各层拒绝越界字段；指定 Endpoint / API / 模型命中，邻近但不符合的输入不命中；规则顺序保持               | 用显式预期的命中 / 不命中矩阵验证，包含普通 API Key 同 Endpoint、Start Plan 与 Off-Peak 边界。验证本地声明的范围，不宣称由此证明远端模型真实能力  |
-| 默认选择合并及分发适配                              | 修改任一成员不丢其他成员；清除后重启不恢复旧选择；并发修改均保留；分发失败恢复原值且不覆盖期间新修改   | 文件更新、导入、故障注入可以稳定构造；另补真实两个进程的写入 / 通知及实际分发集成。可验证，需较多集成工作                                         |
-| staging 导入与 Bot 文件                             | 新安装和旧数据导入均生成最终格式，重复启动不重复导入；Bot 仍写 v3 文件，旧文件保持原样                 | App / CLI 已有 importer 及 Bot 测试可复用，以旧文件 fixture 和独立预期结果核对；不安排误记的 Bot 原路径改造                                       |
-| schemaVersion 与内置发布 revision                   | 五个格式边界接受最终版本 1，拒绝不符合结构的输入；发布比较接受更高序号、拒绝同序号异内容               | codec / release 测试能验证比较机制；实际打包 / 在线发布还须在同一发布范围核对真实 revision 与内容，单测不能代替发布序号管理                       |
-| 内置运行时 revision 来源修复                        | 两个 Endpoint 同序号不同内容时，切换后 Source、Account、Registry、Worker 最终一致且实际使用新配置      | 已有真实 Source / Config / Registry 的临时复现；补成正式回归并覆盖真实 Host / Worker。可观测、可重现，不能只用内存 mock 证明整条链路              |
-| runtime/provider 路径及固定资源覆盖                 | 各宿主读写正确隔离目录；固定资源变更时替换、未变时复用，不新增按 hash 增长的副本，读取不到半份文件     | 临时目录文件测试、并发读写 / 失败场景，加 Desktop / CLI / Server 实际构建产物启动检查；原子替换在所支持系统上验证。沿用退出旧程序再升级的已定前提 |
-| schema 单一来源与分发两处小调整                     | 类型从 schema 得到，解析前后 / class 序列化边界不混淆；sourceRevision 无残留消费者，结果值仍为配置标识 | 类型检查、负向类型用例按需要补充、codec 行为测试、依赖检查和发送 / 接收协议用例。不能只用类型通过证明运行时校验未被放宽；没有重写行为类的要求     |
+| Grupo de mudanças                                              | Resultado esperado explícito                                                                                  | Forma de verificação e limite atual                                                                                                             |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ModelSelection e integração de estruturas existentes         | o mesmo providerId / modelId / reasoningLevel é preservado na leitura e escrita; a semântica de valor vazio de cada camada superior é preservada | reutiliza os consumidores e testes de migração existentes, com a estrutura aprovada por decisão do usuário e sem redesenhar um a um; as três novas colunas continuam sendo conferidas na leitura e escrita do upgrade |
+| Renomeação de campos de Provider / Model, reposicionamento de propriedades e remoção do type das opções | o arquivo final contém apenas os campos alvo e o roundtrip de leitura e escrita não perde valores; a semântica da configuração efetiva final é preservada | casos positivos e negativos de schema, asserções de serialização e comparação de valores válidos antes e depois; resultado fácil de determinar e não se substitui uma expectativa independente pelo "roundtrip bem-sucedido do mesmo codec defeituoso" |
+| Reestruturação externa de Provider / Template e nomes        | IDs, relação com o template, valores de cobertura e ordem são preservados; o nome criado usa o valor do idioma e é deduplicado, sem mudar após reinício | os testes existentes de criação / deduplicação por concorrência / Overlay se adaptam; acrescentam-se asserções explícitas para o array alvo e para a movimentação de campos, além de um E2E das operações de settings. É trabalho considerável, mas o resultado é diretamente comparável |
+| Agrupamento inteligente / manual e schema específico de origem | campos de origem inválidos e regras manuais incompletas são rejeitados sem deixar modificação pela metade; o enabled é preservado de forma independente e os parâmetros manuais não acompanham atualizações da camada anterior | os testes existentes de configuração fixa / restrição de origem / edição atômica têm cenários correspondentes; acrescentam-se casos de exclusividade dos conjuntos e do novo schema, fáceis de verificar |
+| Camadas de Match, remoção de providerMatch e as quatro regras movidas para Site | cada camada rejeita campos fora do seu nível; o Endpoint / API / modelo indicado é atingido e entradas próximas mas não conformes não são atingidas; a ordem das regras é preservada | verificação por matriz explícita de acerto/não acerto, incluindo API Key comum no mesmo Endpoint e as fronteiras de Start Plan e Off-Peak. Verifica-se o escopo declarado localmente, sem afirmar que isso prova a capacidade real do modelo remoto |
+| Fusão da seleção padrão e adaptação da distribuição         | modificar qualquer membro não perde os outros; limpar e reiniciar não restaura a escolha antiga; modificações concorrentes são todas preservadas; uma falha de distribuição restaura o valor original sem sobrescrever modificações feitas no meio | a atualização de arquivo, a importação e a injeção de falha podem ser construídas de forma estável; acrescenta-se também escrita / notificação em dois processos reais e integração real de distribuição. É verificável e exige bastante trabalho de integração |
+| Importação do staging e arquivos de Bot                      | instalação nova e importação de dados antigos geram o formato final, e inicializações repetidas não reimportam; o Bot continua gravando o arquivo v3 e o arquivo antigo fica intacto | os importers do App / CLI e os testes do Bot podem ser reutilizados, conferidos com fixtures de arquivos antigos e um resultado esperado independente; não se planeja a transformação do caminho original do Bot antes registrada por engano |
+| schemaVersion e revision de publicação embutida              | os cinco limites de formato aceitam a versão final 1 e rejeitam entradas sem a estrutura esperada; a comparação de publicação aceita um número maior e rejeita o mesmo número com conteúdo diferente | os testes de codec / release conseguem verificar o mecanismo de comparação; o empacotamento e a publicação reais ainda precisam conferir a revision e o conteúdo no mesmo escopo de publicação, e um teste unitário não substitui o gerenciamento dos números de publicação |
+| Correção da origem da revision de runtime embutida            | com dois Endpoints de mesmo número e conteúdos diferentes, depois da troca Source, Account, Registry e Worker ficam consistentes e passam a usar a configuração nova | já existe uma reprodução temporária com Source / Config / Registry reais; transformá-la em regressão oficial e cobrir o Host / Worker reais. É observável e reproduzível, e a cadeia inteira não pode ser provada apenas com mock em memória |
+| Caminhos runtime/provider e cobertura do recurso fixo         | cada host lê e escreve no diretório de isolamento correto; quando o recurso fixo muda, ele é substituído, e quando não muda, é reutilizado, sem cópias adicionais crescendo por hash e sem leitura de um arquivo pela metade | testes de arquivo em diretório temporário, cenários de leitura e escrita concorrente / falha e verificação de inicialização com artefatos construídos de verdade de Desktop / CLI / Server; a substituição atômica é verificada nos sistemas suportados. Segue apremissa já decidida de sair do programa antigo antes do upgrade |
+| Fonte única do schema e os dois ajustes pequenos da distribuição | os tipos vêm do schema e a fronteira entre antes e depois do parse / a serialização da class não se confunde; não sobram consumidores de sourceRevision e o valor do resultado continua sendo o identificador de configuração | checagem de tipos, casos de tipo negativo quando necessários, testes de comportamento de codec, checagem de dependências e casos de protocolo de envio / recebimento. Não se pode provar que a validação de runtime não foi flexibilizada só porque o tipo passa, e não há exigência de reescrever as classes de comportamento |
 
-本次只读核对发现的验证边界：provider-node-runtime.test.ts 中名为“多个进程并发首次读取”的用例实际是在同一进程创建两个 Repository，能验证多实例调用，不能独立证明跨进程锁与通知。providerProvisioningTarget.test.ts 已有失败回滚、并发凭据保护和空快照同步场景，但主要使用 mock；可以作为适配基础，不等于合并后的真实文件回滚已验证。资源物化测试目前验证按 hash 保留旧版本，实施固定路径方案时必须替换这一旧预期。
+Limites de verificação encontrados nesta conferência somente de leitura: em provider-node-runtime.test.ts, o caso chamado de "leitura inicial por vários processos em paralelo" na verdade cria dois Repository no mesmo processo, o que valida chamadas de múltiplas instâncias, mas não prova de forma independente o lock e a notificação entre processos. providerProvisioningTarget.test.ts já tem cenários de rollback em falha, proteção de credenciais concorrentes e sincronização de snapshot vazio, mas usa principalmente mock; serve como base de adaptação e não equivale a uma verificação do rollback real do arquivo fundido. O teste de materialização de recursos hoje verifica que a versão antiga é mantida por hash e, ao implementar a solução de caminho fixo, essa expectativa antiga precisa ser substituída.
 
-针对最需要集成验证的两条链路，使用可控执行屏障、故障注入和实际持久化结果判定，不靠多跑几次或任意 sleep 碰概率：
+Para as duas cadeias que mais precisam de verificação de integração, usam-se barreiras de execução controladas, injeção de falha e julgamento pelo resultado real de persistência, em vez de rodar várias vezes ou dormir um tempo arbitrário para perseguir a sorte:
 
 ```text
 进程 A 修改 Provider ----+
@@ -1161,31 +1161,31 @@ Endpoint A(rev 20) -> 切换到 B(rev 20，内容不同)
                                   `-> Source -> Account / Registry -> Worker 使用 B
 ```
 
-保留全部已确认的目标改动；按数据结构、文件合并、来源标识与路径装配分别形成可验证的实施步骤。因共享依赖必须联动的代码在同一步改全，不为拆提交引入临时双写、中间迁移或新兼容格式。实施结束用验证结果确认，而非仅凭本次可验证性评估宣称上线完成。
+Todas as mudanças-alvo já confirmadas são mantidas, e os passos de implementação verificáveis são formados separadamente por estrutura de dados, fusão de arquivos e montagem de origem e caminhos. O código que precisa mudar junto por causa de uma dependência compartilhada é alterado por completo no mesmo passo, sem introduzir double write temporário, migração intermediária ou novo formato de compatibilidade só para dividir commits. O fim da implementação é confirmado por resultados de verificação, e não pela avaliação de verificabilidade deste documento.
 
-证据：[配置与固定模式测试](../../../../packages/provider/test/config-service.test.ts)、[规则测试](../../../../packages/provider/test/model-config-rules.test.ts)、[Node 存储 / 物化测试](../../../../packages/provider-node/test/provider-node-runtime.test.ts)、[分发目标测试](../../../../packages/services/test/providerProvisioningTarget.test.ts)。本次未运行针对未来目标的产品测试，也未改产品代码。
+Evidências: [testes de configuração e modo fixo](../../../../packages/provider/test/config-service.test.ts), [testes de regras](../../../../packages/provider/test/model-config-rules.test.ts), [testes de armazenamento / materialização do Node](../../../../packages/provider-node/test/provider-node-runtime.test.ts) e [testes do alvo de distribuição](../../../../packages/services/test/providerProvisioningTarget.test.ts). Desta vez não foram executados testes de produto voltados ao alvo futuro nem alterado o código de produto.
 
-### 6.18 实用回滚：旧字段保留与三处待修裁决
+### 6.18 Rollback prático: preservação de campos antigos e as três decisões de correção pendente
 
-用户倾向新增字段 / 新增文件，方便实用回滚，并进一步明确“字段就是不能删除”。旧值保留供旧版使用，新版只更新自身字段，不要求把新版值持续反向同步成旧格式。该约束针对本 Todo 修改的 staging 已发布存储；本分支未发布的新 Provider 格式仍按前文裁决改名、分组和合并，不能把这两类“旧字段”混为一谈。Subagent Markdown 已在 Todo 97 明确采用原字段身份迁移，用户要求尊重其可读性取舍，本 Todo 不推翻该方案，见 6.19.2。
+O usuário tende a preferir campos novos / arquivos novos, o que facilita o rollback prático, e esclareceu ainda que "os campos simplesmente não podem ser excluídos". Os valores antigos são preservados para uso das versões antigas, e a nova versão só atualiza os seus próprios campos, sem exigir que os valores novos sejam sincronizados de volta continuamente para o formato antigo. Essa restrição se aplica ao armazenamento já publicado do staging que este Todo modifica; o novo formato de Provider ainda não publicado neste branch continua seguindo as decisões anteriores de renomeação, agrupamento e fusão, e não se pode confundir esses dois tipos de "campo antigo". O Markdown de Subagent já foi explicitamente definido no Todo 97 como usando migração de identidade no campo original, o usuário pediu para respeitar essa escolha de legibilidade e este Todo não derruba esse plano, ver 6.19.2.
 
-#### 6.18.1 Off-Peak：待修，旧模型列不再清空
+#### 6.18.1 Off-Peak: pendente de correção, as colunas antigas de modelo não são mais limpas
 
-现有表已新增 model_selection，但 updateEditableFields 保存时还会将 model / thought_level 置为 NULL。用户要求修复为：只更新新选择和本次业务编辑字段，旧模型列保留现存值，不清空，也不按新选择反向改写。新建记录没有旧值时，无须捏造旧版选择。
+A tabela existente já ganhou model_selection, mas ao salvar, updateEditableFields ainda define model / thought_level como NULL. O usuário pediu a correção para: atualizar apenas a nova seleção e os campos editados nesta operação, mantendo as colunas antigas de modelo com os valores existentes, sem limpá-las e sem reescrevê-las a partir da nova seleção. Um registro novo não tem valor antigo, e não é preciso fabricar uma escolha antiga.
 
-实现范围：从当前 UPDATE 中去掉 model = NULL / thought_level = NULL 两个赋值；沿用已有字段更新、校验和保存入口，不新增保存机制。
+Escopo de implementação: remover as duas atribuições model = NULL / thought_level = NULL do UPDATE atual; os pontos de entrada existentes de atualização de campos, validação e gravação são reutilizados, sem criar um novo mecanismo de gravação.
 
-验收直接检查 SQLite 原始列：只改标题或修改新选择后，两个旧模型列仍与修改前相同，新版实际读取的 modelSelection 正确。此项目前未实施。
+A aceitação verifica diretamente as colunas brutas do SQLite: depois de mudar só o título ou a nova seleção, as duas colunas antigas de modelo continuam iguais ao que eram antes da modificação e o modelSelection realmente lido pela nova versão está correto. Este item ainda não foi implementado.
 
-#### 6.18.2 Wiki / Draft：待修，保存时保留旧字段
+#### 6.18.2 Wiki / Draft: pendente de correção, os campos antigos são preservados ao salvar
 
-当前读取会将 generationModel / generationOptions.thoughtLevel 转成新版 modelSelection，但输出给运行层的对象不再包含旧模型字段；直接把运行对象写回会删除磁盘旧值。用户要求修复为正常保存后旧字段仍保留，内容只作回滚快照，不参与新版选择解析。
+Na leitura atual, generationModel / generationOptions.thoughtLevel são convertidos no novo modelSelection, mas o objeto entregue à camada de execução não contém mais os campos antigos de modelo; gravar o objeto de execução de volta apagaria os valores antigos em disco. O usuário pediu a correção para que os campos antigos continuem presentes após um salvamento normal, servindo o conteúdo apenas como snapshot de rollback e sem participar do parse da nova seleção.
 
-改动应集中在 RepoWikiStorage 对 Wiki / Draft 的保存适配：保存时保留磁盘中上述几个旧值，复用现有文件锁及 atomicWriteText 原子写入能力。读取后旧字段已不在运行对象里，所以不能声称只删两行即可完成；但不需要重做保存服务、引入缓存或后台同步，也不改写通用 IO 工具。新增文件无旧值时不伪造旧参数。若实现必须超出这一局部范围，应说明具体原因，不能把保留字段扩成保存架构重构。
+A alteração deve se concentrar no adaptador de salvamento de Wiki / Draft do RepoWikiStorage: na gravação, preservar alguns valores antigos do disco reutilizando o lock de arquivo existente e a escrita atômica atomicWriteText. Depois da leitura os campos antigos já não estão no objeto de execução, então não se pode afirmar que basta apagar duas linhas, mas não é preciso refazer o serviço de gravação, introduzir cache ou sincronização em segundo plano, nem reescrever utilitários de IO genéricos. Um arquivo novo, sem valor antigo, não precisa de parâmetros antigos fabricados. Se a implementação obrigatoriamente precisar ir além desse escopo local, o motivo concreto precisa ser explicado, e preservar campos não pode virar uma reestruturação da arquitetura de gravação.
 
-同样核实到 staging 的 generationOptions.maxOutputTokens 是已发布字段：旧字段保留原则也适用于这一存量值。新版依然使用模型 Limit，不恢复手动输出预算，也不为新文件生成旧预算；这是对 Todo 94“正常保存移除旧预算”的存储行为补充，不推翻它的执行和 UI 裁决。
+Também foi verificado que generationOptions.maxOutputTokens do staging é um campo publicado, e o princípio de preservar campos antigos também se aplica a esse valor existente. A nova versão continua usando o Limit do modelo, não restaura o orçamento manual de saída e não gera orçamento antigo para arquivos novos; isto complementa o comportamento de armazenamento do Todo 94 ("remover o orçamento antigo em um salvamento normal") e não derruba as decisões de execução e de UI dele.
 
-验收覆盖 Wiki 和 Draft：保存新的选择后，旧模型 / reasoning / 预算原值仍在，正文及当前 generateDiagrams 正常保存；旧参数不进入当前请求。保留旧值以后还需验证显式清除或无效的新选择在重启后不会被旧字段复活。具体保存标记和读写实现不在本轮擅自定型，不能把前次已撤回实现里的 modelSelection: null 当成新的用户 schema 裁决。
+A aceitação cobre Wiki e Draft: depois de salvar a nova seleção, os valores antigos de modelo / reasoning / orçamento continuam presentes, o corpo e o generateDiagrams atual são salvos normalmente e os parâmetros antigos não entram na requisição atual. Depois de preservar os valores antigos, ainda é preciso verificar que uma nova escolha explicitamente limpa ou inválida não ressuscita o valor antigo após o reinício. A marcação específica de salvamento e a implementação de leitura e escrita não são definidas unilateralmente nesta rodada, e não se pode tomar o modelSelection: null da implementação já retirada como uma nova decisão de schema do usuário.
 
 ```text
 磁盘旧字段 -- 保留原值 ----------------> 回滚后的旧版读取
@@ -1194,11 +1194,11 @@ Endpoint A(rev 20) -> 切换到 B(rev 20，内容不同)
                `-- 清除后仍以新版状态为准，不重新导入旧值
 ```
 
-#### 6.18.3 Session：新增 modelSelection 字段，保留旧字段
+#### 6.18.3 Session: novo campo modelSelection, preservando os campos antigos
 
-2026-09-10 实施更新：B1c 已落实磁盘包装与旧快照保留，局部集成回归通过，完整交付验证仍跟随 B5。下文“当前迁移后”为改造前的调查示例。逻辑 SessionStorePort 沿用 ModelSelection payload，adapter 统一包装/解包；不要求 core/bootstrap 感知回滚字段。证据及边界见 [实施账本](../research/todo104-schema-implementation-ledger.md)。
+Atualização de implementação de 2026-09-10: o B1c já realizou o invólucro em disco e a preservação do snapshot antigo, a regressão de integração parcial passou e a verificação completa de entrega continua junto com o B5. O "após a migração atual" abaixo é um exemplo de investigação anterior à transformação. O SessionStorePort lógico continua usando o payload ModelSelection, e o adapter faz o invólucro e o desembrulho de forma unificada; não se exige que core/bootstrap sintam o campo de rollback. As evidências e os limites estão no [razão de implementação](../research/todo104-schema-implementation-ledger.md).
 
-数据库 session_entry 中已有 type 为 runtime/model_selection 的“当前模型选择”记录。当前迁移若命中这条旧记录，会沿用其 id，改写它的 data JSON；从旧消息推导选择时则新增一条 entry。旧 message 行保持原字节。以能确定的旧 Z.ai Coding Plan 身份为例：
+O session_entry do banco já tem registros de "seleção de modelo atual" com type runtime/model_selection. Se a migração atual atingir esse registro antigo, ela reutiliza o id dele e reescreve o JSON de data; ao derivar a seleção a partir de mensagens antigas, é adicionado um novo entry. As linhas antigas de message mantêm os mesmos bytes. Tomando como exemplo uma identidade antiga determinável do Z.ai Coding Plan:
 
 ```text
 同一条 session_entry.data（迁移前）
@@ -1213,13 +1213,13 @@ Endpoint A(rev 20) -> 切换到 B(rev 20，内容不同)
   options: { reasoningLevel: "high" }
 ```
 
-这里有两处原位损失：thoughtLevel 被替换；providerId 虽然字段名相同，但值也改变了。仅保留 thoughtLevel 不等于保留旧版原来的模型身份。再次对照 origin/staging@790884b1ce，旧版确实已有相同 type 和稳定 id 的选择记录，不是本分支新建的记录类别。
+Há duas perdas no lugar: o thoughtLevel é substituído; e o providerId, embora com o mesmo nome de campo, também tem o valor alterado. Preservar apenas o thoughtLevel não equivale a preservar a identidade de modelo original da versão antiga. Comparando de novo com origin/staging@790884b1ce, a versão antiga realmente já tinha registros de seleção com o mesmo type e id estáveis, e essa não é uma nova categoria de registro criada por este branch.
 
-用户已确认这是遗漏，并明确要求改为新字段迁移。最终方案：保留同一条 entry 的 id / type，在 data 中新增 modelSelection；旧 providerId / modelId / thoughtLevel 保留原值，后续新版选择写入只更新新成员，不持续反向同步旧字段。不新增表、不另建 entry 类型；该裁决取代此前待讨论状态及“另存新版记录”的未定建议。
+O usuário confirmou que isso era uma omissão e exigiu explicitamente uma migração para um campo novo. Solução final: manter o id / type da mesma entry e adicionar modelSelection no data; o providerId / modelId / thoughtLevel antigos mantêm seus valores originais, e as escritas posteriores da nova seleção atualizam apenas o novo membro, sem sincronizar continuamente os campos antigos de volta. Nenhuma tabela nova e nenhum novo tipo de entry são criados; esta decisão substitui o estado anteriormente pendente de discussão e a sugestão indefinida de "gravar um registro novo da nova versão".
 
-记录外层：沿用已有 session_entry 元数据与 runtime/model_selection 类别，不调整结构。
+Camada externa do registro: mantém os metadados existentes de session_entry e a categoria runtime/model_selection, sem ajuste de estrutura.
 
-data 层：旧字段仅承载已有回滚快照，新成员承载当前选择。旧字段可选，因为新建记录无须伪造旧值；这里只展示相关成员，不授权删除 data 中其他已有字段。
+Camada de data: os campos antigos carregam apenas o snapshot de rollback existente, e o novo membro carrega a seleção atual. Os campos antigos são opcionais, porque um registro novo não precisa fabricar valores antigos; aqui são mostrados apenas os membros relevantes, sem autorização para remover outros campos existentes do data.
 
 ```ts
 interface SessionModelSelectionEntryData {
@@ -1230,7 +1230,7 @@ interface SessionModelSelectionEntryData {
 }
 ```
 
-modelSelection 层：复用第 2 节通用结构，不另建一套 Provider / Model 身份定义。
+Camada do modelSelection: reutiliza a estrutura genérica da seção 2, sem criar um conjunto separado de definições de identidade de Provider / Model.
 
 ```text
 首次升级：旧 providerId / modelId / thoughtLevel
@@ -1239,57 +1239,57 @@ modelSelection 层：复用第 2 节通用结构，不另建一套 Provider / Mo
 后续修改：只更新 modelSelection，保留旧字段原值
 ```
 
-已有旧 entry 时补新成员；没有 entry、仅有旧消息时仍可创建选择 entry，但将新选择放进 modelSelection，旧消息不改。新版读取、保存、恢复及 fork 等复制选择入口必须适配包装，不能只修改迁移函数。已经存在新版状态时不得重新从旧字段或历史消息补值；清除 / 无效选择后重启不复活旧值，具体空值标记继续沿用上层约束，不借本接口展示额外裁决 null 格式。
+Quando já existe uma entry antiga, o novo membro é acrescentado; quando não há entry e só existem mensagens antigas, ainda se pode criar uma entry de seleção, mas colocando a nova escolha em modelSelection e sem alterar as mensagens antigas. Os pontos de entrada da nova versão que leem, salvam, restauram e copiam a seleção, como fork, precisam se adaptar ao invólucro, e não basta modificar a função de migração. Quando já existe estado novo, não se pode voltar a completar valores a partir dos campos antigos ou de mensagens históricas; depois de limpar uma escolha inválida, o reinício não ressuscita o valor antigo, e a marcação específica de valor vazio continua seguindo as restrições da camada superior, sem que esta interface apresente uma decisão adicional sobre o formato de null.
 
-验收读取数据库原始 JSON：迁移前后旧字段逐值相同，新成员身份和档位转换正确；修改新版选择仍保留旧快照；重复迁移幂等；旧消息不变。另用目标旧版 reader 检查仍可读取原身份与档位。本项尚未修改代码或运行目标方案测试。
+A aceitação lê o JSON bruto do banco: os campos antigos são idênticos valor a valor antes e depois da migração, a identidade e o nível do novo membro são convertidos corretamente; modificar a nova seleção continua preservando o snapshot antigo; a migração é idempotente; as mensagens antigas não mudam. Além disso, um reader antigo alvo é usado para conferir que a identidade e o nível originais ainda podem ser lidos. Este item ainda não alterou o código nem executou os testes da solução alvo.
 
-旧版行为核查仅为当前静态证据：上述 staging 的桌面 / Web 恢复链路能读陌生 ID，但将对应模型判为不可用；有可用模型时有回退路径，无可用模型时历史可打开、发送受阻。旧版不读取 options.reasoningLevel。因此本裁决解决的是原选择快照丢失，不应声称旧版必然打不开整个会话；也未宣称已完成旧 App 实机回滚。
+A verificação do comportamento antigo é apenas evidência estática atual: a cadeia de recuperação desktop / Web do staging acima consegue ler IDs desconhecidos, mas julga o modelo correspondente como indisponível; havendo um modelo disponível existe um caminho de fallback e, sem nenhum modelo disponível, o histórico abre, mas o envio fica bloqueado. A versão antiga não lê options.reasoningLevel. Portanto esta decisão resolve a perda do snapshot da escolha original e não deve ser apresentada como se a versão antiga necessariamente não conseguisse abrir a sessão inteira; também não se afirma que o rollback em uma máquina real com o App antigo foi concluído.
 
-证据：[Off-Peak 编辑](../../../../packages/services/src/session/offPeakTaskRepo.ts)、[Wiki 存储](../../../../packages/services/src/repo-wiki/repoWikiStorage.ts)、[Session 选择迁移](../../../../apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/model-selection-migration.ts)、[旧身份转换](../../../../packages/shared/src/legacy-model-provider-identity.ts)、[实用回滚原边界](./todo-69-provider-refactor-practical-rollback-compatibility.md)。
+Evidências: [edição de Off-Peak](../../../../packages/services/src/session/offPeakTaskRepo.ts), [armazenamento de Wiki](../../../../packages/services/src/repo-wiki/repoWikiStorage.ts), [migração de seleção de Session](../../../../apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/model-selection-migration.ts), [conversão de identidade antiga](../../../../packages/shared/src/legacy-model-provider-identity.ts) e [limite original do rollback prático](./todo-69-provider-refactor-practical-rollback-compatibility.md).
 
-#### 6.18.4 仍需留意的具体边界
+#### 6.18.4 Limites concretos que ainda exigem atenção
 
-- Session 新字段迁移已经裁决，待实施；ModelSelection 通用结构和其他 pass 保持。6.19 只列本 Todo 要改的项目，用户已认可收紧后的范围。
-- 保留旧值后的“新版清除选择不能复活旧值”属于三项待修的验证要求，不需要为此先扩大通用 ModelSelection。
-- Todo 69 的回滚证据针对其文档中冻结的 staging Reader，且未宣称完整旧 App 实机回滚；实施验收应明确实际回滚目标，不把新版读写测试通过当作旧版可读的证据。
+- A migração do novo campo da Session já foi decidida e está a ser implementada; a estrutura genérica do ModelSelection e os outros itens aprovados permanecem. A 6.19 lista apenas o que este Todo vai alterar, e o usuário aprovou o escopo apertado.
+- "Limpar a escolha na nova versão não pode ressuscitar o valor antigo" depois de preservar os valores antigos é um requisito de verificação das três correções pendentes e não exige ampliar antes o ModelSelection genérico.
+- As evidências de rollback do Todo 69 se referem ao Reader de staging congelado no documento dele e não afirmam um rollback completo em máquina real com o App antigo; a aceitação da implementação deve deixar explícito o alvo real do rollback e não tomar os testes de leitura e escrita da nova versão como prova de que a antiga consegue ler.
 
-本轮仅落盘上述裁决及待讨论点。此前误开始的两处实现和测试已全部撤回，没有保留产品修改；未来须待用户明确开始实施后再落实，并重新按测试先行验证。
+Nesta rodada foram registrados em disco apenas as decisões acima e os pontos ainda a discutir. As duas implementações e testes iniciados por engano antes foram totalmente revertidos e nenhuma modificação de produto foi mantida; no futuro isso só deve ser feito depois que o usuário iniciar explicitamente a implementação, e a verificação deve recomeçar com testes primeiro.
 
-### 6.19 本 Todo 核心 schema 之外的修改清单：范围已收紧、已认可
+### 6.19 Lista de mudanças fora do schema central deste Todo: escopo apertado e aprovado
 
-用户明确“我只裁决我们这个 todo 要改的，其他的不看了”“确保别改坏了就行，漏了没事”。本节取代此前混入当前分支已有行为的 A/B/C 清单；仅保留 Todo 99 将要实施的改动，省略已在前文定案的 Provider / Model Config 和规则内部字段。用户已认可其他项，并在了解 Off-Peak / Wiki 的局部保存方案及 Todo 97 背景后再次确认；仍无产品实施授权。
+O usuário foi explícito: "só vou decidir o que este nosso todo precisa mudar, o resto não vou ver" e "só não quebrem o que já funciona, perder algo não tem problema". Esta seção substitui a lista A/B/C anterior, que misturava comportamentos já existentes neste branch; ficam apenas as mudanças que o Todo 99 vai implementar, omitindo os campos internos das regras de Provider / Model Config e de Config já definidos antes. O usuário aprovou os demais itens e, ao conhecer a solução local de salvamento de Off-Peak / Wiki e o contexto do Todo 97, confirmou de novo; ainda não há autorização de implementação de produto.
 
-#### 6.19.1 本 Todo 要修改的 13 项配套内容
+#### 6.19.1 Os 13 itens de suporte que este Todo vai modificar
 
-| 编号 | 项目               | 已确认修改与边界                                                                                                                                                             |
-| ---- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Session 选择迁移   | 原 entry.data 新增 modelSelection，保留旧 providerId / modelId / thoughtLevel 原值；读取、保存、恢复及 fork 等复制入口一起适配。不新增表或 entry 类型，见 6.18.3。           |
-| 2    | Off-Peak 保存      | 当前 UPDATE 不再将旧 model / thought_level 置 NULL；沿用既有保存链路，见 6.18.1。                                                                                            |
-| 3    | Wiki / Draft 保存  | 存储层保存时保留旧模型、档位及 maxOutputTokens 原值，复用已有锁与原子写；不恢复旧预算功能，不重构保存机制，见 6.18.2。                                                       |
-| 4    | 默认选择文件合并   | model-selection.json 合并到 provider_config.json 的 config.defaultModelSelection；调整读写、持锁更新、冲突检查和通知。清除选择不删除整个文件，不授权顺带删除旧文件，见 6.9。 |
-| 5    | 下载配置路径       | active.json 改为 runtime/provider/<平台>/<应用版本>/<服务端地址标识>/zcode-builtin.json，保留三个隔离维度。                                                                  |
-| 6    | 刷新记录路径       | refresh-control.json 改为上述同目录的 zcode-builtin-refresh.json；内部字段、占用和重试机制保持。                                                                             |
-| 7    | 分发记录路径       | provider-provisioning-state.json 改为 runtime/provider/provisioning.json；保留 records / syncId 及去重语义。                                                                 |
-| 8    | 内嵌资源副本       | 固定 runtime/provider/bundled/zcode-builtin.json，启动时内容不同则原子覆盖，不再按 hash 产生多份资源副本。以上路径见 6.10。                                                  |
-| 9    | 格式版本收口       | 最终五处 schemaVersion 统一为 1；默认选择独立版本外壳随合并取消，Bot 仍保留 version: 3，见 6.11。                                                                            |
-| 10   | 来源切换刷新修复   | 运行时内置标识纳入 Endpoint 来源，并贯穿现有消费者；修复不同地址同 revision、不同内容时不刷新，不新增持久化 revision 字段，见 6.12。                                         |
-| 11   | 分发信封与回滚适配 | 删除无调用的 sourceRevision；默认选择随 personalConfig 传递，移除外层 configuredDefault；整份个人文件统一应用、校验和失败回滚，保留并发修改保护，见 6.13。                   |
-| 12   | 分发结果改名       | registryRevision 改为 configRevision，实际值和其他结果字段不变，不精简 records 包裹，见 6.13。                                                                               |
-| 13   | 重复类型清理       | 本 Todo 范围从 schema 推导数据类型；核心之外包括账号连接选择重复类型，不改变其持久化字段，见 1.1 / 7。                                                                       |
+| Nº   | Item                       | Modificação e limite confirmados                                                                                                                                                       |
+| ---- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Migração de seleção da Session | o entry.data original ganha modelSelection, mantendo os valores originais de providerId / modelId / thoughtLevel; os pontos de entrada de leitura, gravação, restauração e cópia como fork são adaptados junto. Nenhuma tabela ou tipo de entry novo, ver 6.18.3 |
+| 2    | Salvamento de Off-Peak     | o UPDATE atual deixa de definir o model / thought_level antigo como NULL; a cadeia de gravação existente é reutilizada, ver 6.18.1                                                     |
+| 3    | Salvamento de Wiki / Draft  | a camada de armazenamento preserva ao salvar os valores antigos de modelo, nível e maxOutputTokens, reutilizando o lock e a escrita atômica existentes; a funcionalidade de orçamento antigo não é restaurada e o mecanismo de gravação não é reestruturado, ver 6.18.2 |
+| 4    | Fusão do arquivo de seleção padrão | o model-selection.json é fundido em config.defaultModelSelection do provider_config.json; leitura e escrita, atualização com lock, verificação de conflito e notificação são ajustadas. Limpar a seleção não exclui o arquivo inteiro e não se autoriza excluir por efeito colateral o arquivo antigo, ver 6.9 |
+| 5    | Caminho da configuração baixada | o active.json passa a runtime/provider/<plataforma>/<versão do app>/<identificador do endereço do servidor>/zcode-builtin.json, mantendo as três dimensões de isolamento |
+| 6    | Caminho do registro de refresh | o refresh-control.json passa a zcode-builtin-refresh.json no mesmo diretório acima; os campos internos e os mecanismos de ocupação e retentativa permanecem                              |
+| 7    | Caminho do registro de distribuição | o provider-provisioning-state.json passa a runtime/provider/provisioning.json; records / syncId e a semântica de deduplicação permanecem                                        |
+| 8    | Cópia do recurso embutido  | fixada em runtime/provider/bundled/zcode-builtin.json, com sobrescrita atômica na inicialização quando o conteúdo difere, sem gerar mais cópias por hash. O caminho está em 6.10                                  |
+| 9    | Consolidação das versões de formato | as cinco versões finais de schemaVersion unificadas em 1; o invólucro de versão separado da seleção padrão é cancelado junto com a fusão e o Bot mantém version: 3, ver 6.11            |
+| 10   | Correção de refresh na troca de origem | o identificador embutido de runtime passa a incluir a origem de Endpoint e a atravessar os consumidores existentes; corrige-se a falta de refresh quando dois endereços têm a mesma revision e conteúdos diferentes, sem novo campo de revision persistido, ver 6.12 |
+| 11   | Adaptação do envelope de distribuição e do rollback | remove-se o sourceRevision sem chamadas; a seleção padrão passa pelo personalConfig e o configuredDefault externo é removido; o arquivo pessoal inteiro é aplicado, validado e revertido em caso de falha de forma unificada, mantendo a proteção contra modificações concorrentes, ver 6.13 |
+| 12   | Renomeação do resultado de distribuição | registryRevision passa a configRevision, com o valor real e os demais campos de resultado inalterados e sem simplificar o invólucro records, ver 6.13                        |
+| 13   | Limpeza de tipos duplicados  | no escopo deste Todo, os tipos de dados são derivados do schema; fora do núcleo isso inclui os tipos duplicados de seleção de conexão de conta, sem mudar seus campos de persistência, ver 1.1 / 7                       |
 
-已在核心 schema 定案中要求的解析、序列化、App / 独立 CLI staging 导入及消费者适配仍按 6.16 完整执行；上述清单不是把它们取消。内置发布 revision 的统一单调规则仍按 6.12 保持，但不把发布约定另列成一个新存储改造。
+O parse, a serialização, a importação de staging do App / CLI independente e a adaptação dos consumidores exigidos pelas decisões centrais de schema continuam sendo executados integralmente conforme 6.16; essa lista não os cancela. A regra unificada e monotônica de revision de publicação embutida continua conforme 6.12, mas o compromisso de publicação não vira uma nova transformação de armazenamento.
 
-本 Todo 不要求重做消息 / Part 格式、用量表、全局 reasoning 偏好、最近选择、Automation、Bot、账号连接或凭据机制；6.14 中已 pass / 明确不调整的结论保持。核心接口变更所必需的调用适配仍要完成，不能据此顺带重构这些业务或修改其存储格式。
+Este Todo não exige refazer o formato de mensagem / Part, a tabela de uso, a preferência global de reasoning, a seleção recente, Automation, Bot, a conexão de conta ou o mecanismo de credenciais; as conclusões já aprovadas ou explicitamente não ajustadas de 6.14 permanecem. As adaptações de chamada necessárias para as mudanças de interface centrais ainda precisam ser feitas, e isso não autoriza refatorar esses negócios nem mudar o formato de armazenamento deles por efeito colateral.
 
-#### 6.19.2 Subagent Markdown：纠正误判，尊重 Todo 97 的取舍
+#### 6.19.2 Markdown de Subagent: corrigir o julgamento errado e respeitar a escolha do Todo 97
 
-此前将 A10 原位 Provider 身份转换写成“新发现、待本轮裁决”是错误记录，现撤销。原始依据是 [Todo 97 §1–3](./todo-97-subagent-markdown-in-place-migration-and-legacy-read-audit.md)：Markdown 供用户阅读、手动编辑，正式格式明确保留 model / thoughtLevel；仅用户数据目录中的旧 Provider 身份在原字段内迁移，项目 / 插件文件不自动写回。迁移保留模型 ID、档位、正文、注释和其他无关内容。原字段在这里属于正式格式，不能机械套用其他 JSON 存储的“旧字段”定义。
+Escrever a conversão de identidade de Provider no lugar (A10) como "novo achado, a ser decidido nesta rodada" é um registro errado e está revogado agora. A base original é o [Todo 97 §1–3](./todo-97-subagent-markdown-in-place-migration-and-legacy-read-audit.md): o Markdown é para leitura e edição manual do usuário, o formato oficial mantém explicitamente model / thoughtLevel e apenas a identidade antiga de Provider no diretório de dados do usuário é migrada dentro do próprio campo, sem gravação automática de volta em arquivos de projeto / plugin. A migração preserva o ID do modelo, o nível, o corpo, os comentários e o conteúdo não relacionado. O campo original pertence aqui ao formato oficial, e não se pode aplicar mecanicamente a definição de "campo antigo" usada em outros armazenamentos JSON.
 
-这是已裁决的可读性取舍，不只是因另有 Todo 而暂时搁置。本 Todo 不把 Markdown 改成嵌套 modelSelection，不新增字段、影子文件或旧身份兼容旁路，也不重新要求用户批准 Todo 97。既有执行与测试证据由 Todo 97 维护，不将它们转成 Todo 99 新任务。
+Essa é uma escolha de legibilidade já decidida, e não algo deixado de lado por causa de outro Todo. Este Todo não transforma o Markdown em um modelSelection aninhado, não adiciona campos, arquivos sombra ou contornos de compatibilidade de identidade antiga e não exige nova aprovação do usuário para o Todo 97. As evidências existentes de execução e de teste são mantidas pelo Todo 97 e não são convertidas em novas tarefas do Todo 99.
 
-#### 6.19.3 验证要求的具体含义
+#### 6.19.3 Significado concreto dos requisitos de verificação
 
-下列是已确认行为的验收例子，不是新增四套机制；优先复用现有读写和并发保护，不因检查要求重做架构。
+Os exemplos abaixo são de aceitação de comportamentos já confirmados e não quatro mecanismos novos; a prioridade é reutilizar as leituras e escritas existentes e a proteção contra concorrência, sem refazer a arquitetura por causa de uma exigência de verificação.
 
 ```text
 旧值保留：
@@ -1306,68 +1306,68 @@ modelSelection 层：复用第 2 节通用结构，不另建一套 Provider / Mo
                                `-> 不把用户的 C 覆盖成分发前的 A
 ```
 
-清除示例只适用于原有业务允许清除的入口；Off-Peak 当前不允许保存空选择，不为该通用例子增加清除功能。这里只要求既有空值语义和保存正确性，不擅自新增 null 格式或全局兼容框架。遗漏的其他问题可以另记，不能作为本 Todo 无限扩项的理由。
+O exemplo de limpeza só vale para as entradas em que o negócio já permite limpar; hoje o Off-Peak não permite salvar uma escolha vazia e não se acrescenta essa funcionalidade para este exemplo genérico. Aqui só se exige que a semântica existente de valor vazio e a correção da gravação se mantenham, sem inventar um novo formato de null nem uma estrutura de compatibilidade global. Outros problemas esquecidos podem ser registrados à parte e não servem de motivo para expandir este Todo sem limite.
 
-## 7. Schema / 手写类型定向核查
+## 7. Verificação direcionada de schema / tipos escritos à mão
 
-范围为本轮讨论的核心结构及直接关联的完整配置 / 协议类型，不宣称已完成全仓持久化结构审计。
+O escopo são as estruturas centrais discutidas nesta rodada e os tipos completos de configuração / protocolo diretamente relacionados, e não se afirma ter concluído uma auditoria de todas as estruturas de persistência do repositório.
 
-| 结构                                               | 核查事实                                                                                                                                | 后续整理方向                                                                                                |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| ModelSelection                                     | shared/model-selection.ts 已用 z.infer；provider/registry.ts 重导出并从 options 派生，不重复手写                                        | 保持                                                                                                        |
-| ProviderConfig、API、Access、Logo、Template        | config/schema.ts 有运行时定义，provider-config.ts 仍手写 Input / Object / 接口等对应字段                                                | 从基础数据 schema 推导，区分带方法的 class 输入与序列化对象                                                 |
-| ModelConfig、Properties、输入输出格式、OptionSpecs | config/schema.ts 有运行时定义，model-config.ts 另手写 Input / Object 等字段                                                             | 共享 schema，推导数据类型；不把 class 删除视作前提                                                          |
-| ModelConfigRule 三种成员                           | schema 工厂定义规则结构，model-config.ts 又手写规则接口                                                                                 | 从各具体规则 schema 推导；工厂参数当前使用 ZodTypeAny，实施时需保留 config 的具体类型，不能让推导退化为 any |
-| Registry 完整配置                                  | resolver.ts 另手写 RegistryModelConfig / RegistryModelConfigObject 等完整成员；目前完整性依靠 validateComplete，而非已有独立完整 schema | 与完整 / 稀疏 / 固定配置共享字段定义，不错误声称这里已存在完整 schema 只是没 infer                          |
-| 协议 ZCodeProviderAccountAccess                    | shared/zcode-protocol/index.ts 已从 schema infer；Resolver 中仍有手写的同形 Registry 账号访问结构                                       | 保留已推导协议类型；共享数据形状时遵守包依赖方向                                                            |
-| 账号连接选择及设置                                 | shared/provider-family-connection-selection.ts 已定义两个 schema，但又手写联合类型及设置映射类型                                        | 改为从 schema 推导；不改变 kind、团队 ID 或持久化形状，用户已跳过结构调整                                   |
+| Estrutura                                                   | Fato verificado                                                                                                                                                | Direção de organização posterior                                                                          |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ModelSelection                                             | shared/model-selection.ts já usa z.infer; provider/registry.ts reexporta e deriva a partir de options, sem reescrita manual            | manter                                                                                                  |
+| ProviderConfig, API, Access, Logo, Template                  | config/schema.ts tem a definição de runtime, mas provider-config.ts ainda escreve à mão os campos correspondentes de Input / Object / interface | derivar do schema de dados base, distinguindo a entrada da class com métodos do objeto serializado       |
+| ModelConfig, Properties, formatos de entrada e saída, OptionSpecs | config/schema.ts tem a definição de runtime e model-config.ts escreve à mão os campos de Input / Object etc. em separado                 | schema compartilhado e tipos derivados; não tomar a remoção da class como premissa                    |
+| Os três membros de ModelConfigRule                           | a fábrica de schema define a estrutura das regras e model-config.ts escreve à mão as interfaces de regra de novo                        | derivar dos schemas de regras concretos; a fábrica usa hoje ZodTypeAny e a implementação precisa preservar o tipo concreto de config, sem deixar a derivação degenerar em any |
+| Configuração completa do Registry                            | resolver.ts escreve à mão RegistryModelConfig / RegistryModelConfigObject e outros membros completos; hoje a completude depende de validateComplete, e não de um schema completo independente já existente | compartilhar as definições de campos com a configuração completa / esparsa / fixa e não afirmar incorretamente que aqui já existe um schema completo que só não foi inferido |
+| Protocolo ZCodeProviderAccountAccess                        | shared/zcode-protocol/index.ts já infere do schema, e o Resolver ainda tem escrita à mão a estrutura de acesso de conta do Registry com a mesma forma | manter o tipo de protocolo já derivado e respeitar a direção de dependência entre pacotes ao compartilhar a forma dos dados |
+| Seleção e settings de conexão de conta                      | shared/provider-family-connection-selection.ts define dois schemas e mesmo assim escreve à mão o tipo de união e os tipos de mapeamento de settings | passar a derivar do schema, sem mudar kind, IDs de equipe ou a forma de persistência; o usuário já pulou a reestruturação        |
 
-证据：[ModelSelection](../../../../packages/shared/src/model-selection.ts)、[Registry Selection 重用](../../../../packages/provider/src/registry.ts)、[配置 schema](../../../../packages/provider/src/config/schema.ts)、[Provider 类型](../../../../packages/provider/src/config/provider-config.ts)、[Model / Rule 类型](../../../../packages/provider/src/config/model-config.ts)、[Registry 完整类型](../../../../packages/provider/src/resolver.ts)、[协议类型](../../../../packages/shared/src/zcode-protocol/index.ts)。
+Evidências: [ModelSelection](../../../../packages/shared/src/model-selection.ts), [reuso de Selection no Registry](../../../../packages/provider/src/registry.ts), [schema de configuração](../../../../packages/provider/src/config/schema.ts), [tipos de Provider](../../../../packages/provider/src/config/provider-config.ts), [tipos de Model / Rule](../../../../packages/provider/src/config/model-config.ts), [tipos completos do Registry](../../../../packages/provider/src/resolver.ts) e [tipos de protocolo](../../../../packages/shared/src/zcode-protocol/index.ts).
 
-## 8. 后续 Todo 与当前边界
+## 8. Todos posteriores e limite atual
 
-- [x] 记录审阅背景、允许重组未发布 schema 的原则，以及先讨论再实施的约定。
-- [x] 记录已确认的 ModelSelection 形状及上层默认状态、max output 的边界。
-- [x] 记录 ProviderConfig 两处改名、保留 API 嵌套的 OAuth 背景，以及 entitled 等保留项。
-- [x] 记录 ModelConfig 的分层裁决：输入输出字段命名、MFJS 字段归位和两个选项 type 删除。
-- [x] 记录两处 Match 字段改名、条件 config / 分层 Match / Provider 外壳的讨论状态，以及 schema 推导类型原则和定向核查。
-- [x] 记录智能 / 手动配置演进与 ManualModelConfig 命名、Provider 规则集合和身份外移裁决；useSmartConfig 中间方案已被集合分组取代。
-- [x] 确认不新增 ProviderModelRuleIdentity，直接复用现有规则 schema 派生智能 / 手动分支。
-- [x] 记录 builtinProviderModelRules 命名、三层 Match 的严格边界、modelMatch 必填，以及 providerMatch 字段 / 匹配逻辑删除。
-- [x] 记录四条旧 Provider 条件规则全部迁入 Site 层，取代账号媒体放实例层的旧建议；保留已确认的站点通用规则。
-- [x] 记录 templateNameMap、外层 providerName、ProviderConfigRule 类型名纠正，以及模板默认名称在创建时去重并保存的裁决。
-- [x] 记录普通 / 手动模型规则分为两个数组，同一模型身份在个人集合内互斥，不新增 Identity、不持久化 useSmartConfig。
-- [x] 删除目标结构中由集合确定的重复规则 type，保留 API / Access / Logo 的有效 type。
-- [x] 记录个人文件增加 config 内容层，以及完整的内置 / 个人文件分层结构。
-- [x] 记录 model-selection.json 合并进个人文件，使用 config.defaultModelSelection，复用通用 ModelSelection；独立文件方案被本裁决取代。
-- [x] 记录新增文件取舍、runtime/provider 目录与下载 / 刷新文件命名，取代 cache + state 方案；Bot 保留 v3 新文件，原路径迁移属于已撤销误记；内置资源改为固定文件原子覆盖，不保留 hash 历史副本。
-- [x] 记录新增内置发布格式 schemaVersion 定为 1，以及不要求兼容未发布中间格式的边界。
-- [x] 记录来源专用 schema 由基础 schema 派生的要求；现有边界经定向核查通过，不追加结构调整。
-- [x] 记录五处 schemaVersion 边界、统一内置发布序号规则，以及 revision review 的事实和三个待实施方案。
-- [x] 记录刷新 / 分发记录的收缩裁决：保留 endpointKey 和 records 包裹，只做两个明确字段调整及默认选择合并所需适配。
-- [x] 记录其他既有结构接入 ModelSelection 统一通过；补齐三个现有表的新增列，区分无新表与无新列。
-- [x] 记录账号连接选择、凭据 key 及来源字段限制明确不调整；账号选择重复手写类型仍按唯一来源原则整理。
-- [x] 核对核心结构审阅覆盖并记录实施 / 上线验证边界；Session 回滚遗漏按 6.18 新字段迁移裁决处理。
-- [x] 文档复核补清 Match / 手动配置边界、覆盖和顺序、身份迁移、合并文件读写 / 回滚及 Bot 既有导入入口，见 1.2、6.2–6.4、6.9–6.13、6.16。
-- [x] 恢复默认选择文件合并，纠正 Bot 原路径迁移误记，并按可验证性重新评估全部变更，见 6.17。
-- [x] 记录 pass 就是认可、已发布旧字段不删除、Off-Peak / Wiki 两处待修，以及只讨论 / 落盘文档的授权边界，见 6.18。
-- [x] 确定 Session 在已有 entry.data 新增 modelSelection，保留旧字段原值，不新增表或 entry 类型；见 6.18.3。
-- [x] Session 新字段迁移及读取 / 保存 / 复制入口适配，验证旧字段保留、迁移幂等及清除不复活；B1c 与 B5 证据见账本。
-- [x] 6.19 收紧为本 Todo 要改的 13 项配套内容并获认可；撤销 Subagent A10 误判，链接 Todo 97 的已裁决取舍，不再列为待讨论或待实施项。
-- [x] Off-Peak / Wiki 旧字段保留，验证旧值保留且不会复活新版已清除的选择。
-- [x] 6.12 来源标识修复、sourceRevision 删除、registryRevision 改名；真实文件 Source/Registry 及实际构建 Worker 的来源交付与精确模型请求通过。
-- [x] 按第 1.1 节原则整理第 7 节重复数据类型，复用 schema 并保持依赖单向；含账号连接类型，运行时字段不变。
-- [x] 落实第 3、5、6 节字段、模式与结构，配套 schema、序列化、消费者及批次验证；保留 api 层，不实施被撤回或跳过的建议。
-- [ ] 完成 6.15 的实施验收：全新安装与 staging 升级收敛到最终格式，验证重复启动、分发回滚及来源切换；不为未发布中间格式补迁移。
+- [x] Registrar o contexto da revisão, o princípio de permitir reorganizar schemas não publicados e o acordo de discutir antes de implementar.
+- [x] Registrar a forma confirmada do ModelSelection e o limite do estado padrão da camada superior e do max output.
+- [x] Registrar as duas renomeações de ProviderConfig, o contexto de OAuth que mantém o aninhamento de API e itens mantidos como entitled.
+- [x] Registrar as decisões em camadas do ModelConfig: nomenclatura dos campos de entrada e saída, reposicionamento do campo MFJS e remoção do type das duas opções.
+- [x] Registrar as duas renomeações de campos de Match, o estado da discussão sobre config condicional / Match em camadas / invólucro de Provider, além do princípio de derivar tipos do schema e da verificação direcionada.
+- [x] Registrar a evolução da configuração inteligente / manual com o nome ManualModelConfig, as decisões sobre o conjunto de regras de Provider e a movimentação da identidade para fora; a solução intermediária useSmartConfig foi substituída pelo agrupamento em conjuntos.
+- [x] Confirmar que não se cria ProviderModelRuleIdentity e que os ramos inteligente / manual reutilizam por derivação os schemas de regras existentes.
+- [x] Registrar a nomenclatura builtinProviderModelRules, os limites estritos das três camadas de Match, o modelMatch obrigatório e a remoção do campo providerMatch / da lógica de correspondência.
+- [x] Registrar que as quatro regras antigas com condição de Provider migram para a camada Site, substituindo a sugestão antiga de colocar mídia de conta na camada de instância; as regras genéricas de site já confirmadas são mantidas.
+- [x] Registrar o templateNameMap, o providerName externo, a correção do nome de tipo ProviderConfigRule e a decisão de deduplicar e salvar o nome padrão do template na criação.
+- [x] Registrar que as regras de modelo comuns / manuais são divididas em dois arrays, com a identidade de um mesmo modelo mutuamente exclusiva dentro do conjunto pessoal, sem novo Identity e sem persistir useSmartConfig.
+- [x] Remover da estrutura-alvo o type duplicado das regras determinado pelo conjunto, mantendo os types válidos de API / Access / Logo.
+- [x] Registrar a camada de conteúdo config acrescentada ao arquivo pessoal e a estrutura completa em camadas dos arquivos embutido / pessoal.
+- [x] Registrar a fusão do model-selection.json no arquivo pessoal, usando config.defaultModelSelection e reutilizando o ModelSelection genérico; a solução de arquivo separado é substituída por esta decisão.
+- [x] Registrar a escolha dos arquivos novos, o diretório runtime/provider e a nomenclatura dos arquivos de download / refresh, substituindo a solução cache + state; o Bot mantém os arquivos novos v3 e a migração pelo caminho original é um registro errado já revogado; o recurso embutido passa a ser um arquivo fixo com sobrescrita atômica, sem cópias históricas por hash.
+- [x] Registrar o schemaVersion do novo formato de publicação embutida definido como 1 e o limite de não exigir compatibilidade com formatos intermediários não publicados.
+- [x] Registrar que o schema específico de origem é derivado do schema base; os limites atuais passaram na verificação direcionada e nenhuma reestruturação é acrescentada.
+- [x] Registrar os cinco limites de schemaVersion, a regra unificada de número de publicação embutida e os fatos da review de revision com os três planos de correção pendentes.
+- [x] Registrar a decisão reduzida sobre o registro de refresh / distribuição: manter endpointKey e o invólucro records, fazendo apenas os dois ajustes de campo claros e a adaptação necessária para a fusão da seleção padrão.
+- [x] Registrar que a integração das outras estruturas existentes com ModelSelection foi aprovada de forma unificada; preencher as novas colunas dos três tabelas existentes e distinguir "sem tabela nova" de "sem coluna nova".
+- [x] Registrar que a seleção de conexão de conta, a key de credencial e as restrições de campos por origem foram explicitamente mantidas como não ajustadas; o tipo duplicado escrito à mão da seleção de conta continua sendo organizado pelo princípio da fonte única.
+- [x] Conferir a cobertura da revisão das estruturas centrais e registrar os limites de implementação / verificação de lançamento; a omissão de rollback da Session é tratada pela decisão de migração para campo novo de 6.18.
+- [x] A revisão de documentação esclarecer os limites de Match / configuração manual, a cobertura e a ordem, a migração de identidade, a leitura e escrita / o rollback do arquivo fundido e os pontos de entrada de importação existentes de Bot, ver 1.2, 6.2–6.4, 6.9–6.13 e 6.16.
+- [x] Restaurar a fusão do arquivo de seleção padrão, corrigir o registro errado da migração pelo caminho original do Bot e reavaliar todas as mudanças pela verificabilidade, ver 6.17.
+- [x] Registrar que passar é reconhecer, que campos antigos publicados não são excluídos, as duas correções pendentes de Off-Peak / Wiki e o limite de autorização de apenas discutir / registrar em disco, ver 6.18.
+- [x] Determinar que a Session ganha modelSelection no entry.data existente, mantendo os valores originais dos campos antigos e sem nova tabela ou tipo de entry; ver 6.18.3.
+- [x] Migração do novo campo da Session e adaptação dos pontos de entrada de leitura / gravação / cópia, verificando a preservação dos campos antigos, a idempotência da migração e o fato de limpar não ressuscitar; evidências de B1c e B5 no razão.
+- [x] 6.19 apertado para os 13 itens de suporte que este Todo vai alterar e aprovado; o julgamento errado de A10 do Subagent é revogado e ligado à escolha já decidida do Todo 97, deixando de ser listado como item pendente de discussão ou implementação.
+- [x] Preservação dos campos antigos em Off-Peak / Wiki, verificando que o valor antigo é mantido e não ressuscita uma escolha já limpa na nova versão.
+- [x] Correção do identificador de origem de 6.12, remoção de sourceRevision e renomeação de registryRevision; a entrega de origem do Source/Registry de arquivos reais e do Worker construído de verdade e a requisição precisa de modelo passaram.
+- [x] Organizar os tipos de dados duplicados da seção 7 pelo princípio da seção 1.1, reutilizando o schema e mantendo a dependência unidirecional; inclui os tipos de conexão de conta, com os campos de runtime inalterados.
+- [x] Implementar os campos, modos e estruturas das seções 3, 5 e 6, com o schema, a serialização, os consumidores e a verificação de lote correspondentes; manter a camada de api e não implementar as sugestões retiradas ou puladas.
+- [ ] Concluir a aceitação de implementação de 6.15: instalação nova e atualização do staging convergindo para o formato final, verificando inicializações repetidas, rollback de distribuição e troca de origem; sem adicionar migração para formatos intermediários não publicados.
 
-后续实施沿用仓库 spec / 测试约定；真正落地并验证后，再同步 Design V2 的现行描述和本 Todo 状态。本次只记录裁决，不直接创建迁移版本、OAuth 字段、全局命名规范或新的架构改造；defaultModelSelection 已按 6.9 确认，但仍须在用户授权实施后落到产品代码。
+A implementação posterior segue as convenções de spec / testes do repositório; só depois de realmente implementar e verificar é que a descrição vigente do Design V2 e o status deste Todo são sincronizados. Esta rodada registra apenas decisões e não cria diretamente versões de migração, campos OAuth, uma especificação global de nomenclatura ou uma nova reestruturação arquitetural; defaultModelSelection já está confirmado conforme 6.9, mas ainda precisa chegar ao código de produto depois que o usuário autorizar a implementação.
 
-本次交付仅为文档与入口索引；本轮限定范围的设计审阅已收口，字段改名、运行逻辑调整和上线验证尚未完成。
+Esta entrega consiste apenas em documentação e índice de pontos de entrada; a revisão de design com escopo limitado desta rodada foi fechada, e as renomeações de campo, os ajustes de lógica de execução e a verificação de lançamento ainda não foram concluídos.
 
-首次落盘验证：基线新鲜度、当时的 13 个本地引用、本文格式、`git diff --check`、根 `pnpm typecheck` 和 `pnpm lint` 均通过（lint 有 39 条存量警告、0 错误）。文档记录不涉及产品代码修改，未新增或运行产品行为测试。
+Verificação do primeiro registro em disco: a atualidade da linha de base, as 13 referências locais da época, o formato deste documento, `git diff --check`, o `pnpm typecheck` da raiz e o `pnpm lint` passaram (o lint com 39 avisos preexistentes e 0 erros). O registro em disco não envolve modificação de código de produto e nenhum teste de comportamento de produto foi adicionado ou executado.
 
-2026-09-09 全面收口落盘：仅更新本文和两个入口索引；基线新鲜度、三个文档格式、150 个本地引用、git diff --check、pnpm typecheck、pnpm lint 均通过（39 条存量警告、0 错误）。此前来源限制定向核查的 66 个现有测试通过；本次没有新增产品代码或重复执行产品测试。
+Fechamento completo registrado em disco em 2026-09-09: apenas este documento e os dois índices de entrada foram atualizados; atualidade da linha de base, três formatos de documento, 150 referências locais, git diff --check, pnpm typecheck e pnpm lint passaram (39 avisos preexistentes, 0 erros). Os 66 testes existentes da verificação direcionada das restrições por origem passaram; desta vez não foi adicionado código de produto nem executado de novo teste de produto.
 
-2026-09-09 文档全面复核：补清已有裁决对应的解析 / 序列化、合并读写、迁移及回滚边界；仅修改本文，无产品实现变更。基线新鲜度、本文格式、60 个本地引用、git diff --check、pnpm typecheck、pnpm lint 均通过（39 条存量警告、0 错误），未新增或重复运行产品测试。
+Revisão completa da documentação em 2026-09-09: esclarecidos o parse / a serialização correspondentes às decisões existentes, a leitura e escrita da fusão, os limites de migração e de rollback; apenas este documento foi modificado, sem mudança de implementação de produto. Atualidade da linha de base, o formato deste documento, 60 referências locais, git diff --check, pnpm typecheck e pnpm lint passaram (39 avisos preexistentes, 0 erros), sem novos testes de produto ou nova execução de testes de produto.
 
-2026-09-09 可验证性复评：恢复默认选择合并，纠正 Bot 文件误记，更新本文及两个索引。基线新鲜度、三个文档格式、157 个本地引用、git diff --check、pnpm typecheck、pnpm lint 均通过（39 条存量警告、0 错误）。仅核对了现有测试的覆盖方式，未执行未来目标的产品验证，未改产品代码。
+Reavaliação de verificabilidade em 2026-09-09: restaurada a fusão da seleção padrão, corrigido o registro errado dos arquivos de Bot, atualizados este documento e os dois índices. Atualidade da linha de base, três formatos de documento, 157 referências locais, git diff --check, pnpm typecheck e pnpm lint passaram (39 avisos preexistentes, 0 erros). Apenas a forma de cobertura dos testes existentes foi conferida, sem executar a verificação de produto do alvo futuro e sem alterar o código de produto.

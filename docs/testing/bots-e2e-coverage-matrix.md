@@ -905,4 +905,4 @@ Os testes unitarios do Provider cobrem antes do checkpoint, apos a chamada, a re
 O isolamento de plataforma/modelo sinteticos nao substitui um tenant real, e o desktop continuous/mobile replayable nao foi alterado.
 
 Regressao de posicionamento da projecao de identidade: os testes unitarios da CLI cobrem corpos iguais, troca de posicao antes/depois do @ nativo, repeticao do mesmo alvo e lotes com varias mensagens;
-o TP-04 verifica na requisicao real ao modelo a estrutura ordena
+o TP-04 verifica na requisicao real ao modelo a estrutura ordenada de text/mention e a associacao entre si e terceiros, sem expor o targetId.

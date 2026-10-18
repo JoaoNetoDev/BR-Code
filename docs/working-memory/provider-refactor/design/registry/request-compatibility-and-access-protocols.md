@@ -174,7 +174,7 @@ Esse Header é atribuição de origem em nível de requisição, não uma capaci
 - streaming, não streaming e retry do Adapter usam a mesma lógica de construção, e o retry não muda a classificação de origem.
 
 Tabela de classificação completa e regras de compatibilidade em
-[`Agent 模型请求归因 Header`](../../../../superpowers/specs/2026-06-09-agent-model-request-session-header-design.md).
+[`Header de atribuição de requisição de modelo do Agent`](../../../../superpowers/specs/2026-06-09-agent-model-request-session-header-design.md).
 
 ## 6. Fronteiras de Settings
 
