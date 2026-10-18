@@ -1,52 +1,52 @@
-# Bash Session Startup Script Snapshot Implementation Plan
+# Plano de Implementação do Snapshot de Script de Startup de Sessão Bash
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use `superpowers:executing-plans` para implementar este plano tarefa por tarefa. As etapas usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:** 引入 ZCode-native 的 session 级 Bash startup `.sh` snapshot 文件，让 Bash tool 在执行模型命令前 source 一个由 ZCode 内部生成、按 session/hash 物化的脚本文件。
+**Objetivo:** introduzir um arquivo snapshot `.sh` de startup Bash no nível da sessão, nativo do ZCode, para que a Bash tool faça `source` de um arquivo de script gerado internamente pelo ZCode e materializado por sessão/hash antes de executar o comando do modelo.
 
-**Architecture:** 第一版只做 `.sh` startup snapshot 基础设施，不重新开启 find/grep alias，不改变 main agent provider-visible system prompt，也不改变当前工具暴露策略。`core` 只负责生成内部 startup descriptor；`adapters` 负责把 descriptor 安全物化为 `.sh` 文件并 source；未来 embedded search prelude 可以作为同一个 startup script 的内容片段接入，而不是继续 inline 拼接到每条命令前。
+**Arquitetura:** a primeira versão implementa apenas a infraestrutura de startup snapshot `.sh`, sem reabilitar aliases de find/grep, sem alterar o system prompt provider-visible do main agent e sem alterar a estratégia atual de exposição de ferramentas. O `core` é responsável por gerar o descriptor interno de startup; os `adapters` são responsáveis por materializar com segurança o descriptor em um arquivo `.sh` e fazer o `source` dele; futuramente um embedded search prelude pode entrar como um fragmento de conteúdo do mesmo startup script, em vez de continuar sendo concatenado inline antes de cada comando.
 
-**Tech Stack:** TypeScript, Vitest, `@zcode/contracts`, `@zcode/core`, `@zcode/adapters`, ZCode Bash tool execution boundary.
+**Stack Tecnológico:** TypeScript, Vitest, `@zcode/contracts`, `@zcode/core`, `@zcode/adapters`, fronteira de execução do Bash tool do ZCode.
 
-## Global Constraints
+## Restrições Globais
 
-- 本计划只实现方案二：ZCode-native 真 `.sh` startup snapshot，不实现 `ARGV0=bfs/ugrep` 自分发。
-- 不重新开启 `find()` / `grep()` alias runtime 注入；`shouldInjectEmbeddedSearchBashPrelude()` 继续返回 `false`。
-- provider-visible content 不变：main agent system prompt 不新增 shell snapshot 文案，tools description / exposure 不因本计划变化。
-- Bash startup script content 只能来自 ZCode 内部 builder；禁止接受 hook、用户输入或模型命令直接写入 startup script 字段。
-- CMD 和 `legacy-shell` 不 source `.sh` startup script；POSIX 和 Git Bash 才 source。
-- Git Bash 下 source script path 必须转换成 Git Bash path。
-- `.sh` 文件物化路径必须位于 ZCode storage/output root 下，按 session 隔离，文件权限尽量收敛到 owner read/write。
-- startup script 必须 side-effect free，除非内部 builder 显式追加函数定义；第一版默认内容只包含注释/guard，不改变用户命令行为。
-- 不持久化绝对 `.sh` 文件路径到 session store；resume 后由 adapter 根据 descriptor/content hash 重新物化。
-- 不自动 commit 或 push；执行完成后留给用户 review。
+- Este plano implementa apenas a opção dois: startup snapshot `.sh` real, nativo do ZCode; não implementa a distribuição própria via `ARGV0=bfs/ugrep`.
+- Não reabilitar a injeção de aliases `find()` / `grep()` em runtime; `shouldInjectEmbeddedSearchBashPrelude()` continua retornando `false`.
+- O conteúdo provider-visible permanece inalterado: o system prompt do main agent não ganha texto de shell snapshot, e a descrição/exposição de tools não muda por causa deste plano.
+- O conteúdo do script de startup do Bash só pode vir dos builders internos do ZCode; é proibido aceitar hook, entrada do usuário ou comando do modelo escrevendo diretamente nos campos do startup script.
+- CMD e `legacy-shell` não fazem `source` de startup script `.sh`; apenas POSIX e Git Bash fazem.
+- No Git Bash, o caminho do script usado no `source` precisa ser convertido para o caminho do Git Bash.
+- O caminho de materialização do arquivo `.sh` deve ficar sob a raiz de storage/output do ZCode, isolado por sessão, com permissões de arquivo o mais restritas possível a leitura/escrita do owner.
+- O startup script deve ser livre de efeitos colaterais, a menos que o builder interno acrescente explicitamente definições de funções; por padrão, na primeira versão o conteúdo contém apenas comentários/guards e não muda o comportamento dos comandos do usuário.
+- Não persistir o caminho absoluto do arquivo `.sh` no session store; após o resume, o adapter materializa novamente a partir do descriptor/hash de conteúdo.
+- Não fazer commit nem push automático; ao terminar a execução, deixar para o usuário revisar.
 
 ---
 
-## Current State
+## Estado Atual
 
-当前已经有两层相关能力，但还没有真正的 `.sh` snapshot 文件：
+Hoje já existem duas camadas de capacidade relacionadas, mas ainda não há um arquivo snapshot `.sh` de verdade:
 
-- session shell selection snapshot：`apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
-  - 固定当前 session 使用的 `ExecutionShellSelection`。
-  - settings 切换 shell 只影响新 session。
-  - resume 时从 `runtime:bash_shell_selection` session entry 恢复。
-- inline Bash prelude：`apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
-  - 当前可以把 embedded search prelude inline 拼进 command。
-  - 但 runtime 注入已通过 `apps/zcode-cli/packages/core/src/embedded-search/shell.ts` 关闭。
+- snapshot de seleção de shell da sessão: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
+  - fixa o `ExecutionShellSelection` usado pela sessão atual.
+  - trocar o shell nas settings só afeta novas sessões.
+  - no resume, é restaurado a partir da session entry `runtime:bash_shell_selection`.
+- inline Bash prelude: `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
+  - atualmente consegue concatenar o embedded search prelude inline no command.
+  - mas a injeção em runtime já está desligada por `apps/zcode-cli/packages/core/src/embedded-search/shell.ts`.
 
-本计划的目标是把 Bash startup 从“inline command 前缀”演进为“adapter 物化 `.sh` 文件，然后 source 文件”，并保留当前行为默认不变。
+O objetivo deste plano é evoluir o startup do Bash de “prefixo inline do comando” para “o adapter materializa um arquivo `.sh` e faz `source` do arquivo”, mantendo o comportamento atual como padrão inalterado.
 
-## Target Shape
+## Forma Alvo
 
-执行前的 Bash command 从概念上变成：
+O comando Bash antes da execução passa conceitualmente a ser:
 
 ```sh
 . '/path/to/zcode/session-startup/<script-id>-<hash>.sh'
 <model command>
 ```
 
-核心接口：
+Interface central:
 
 ```ts
 export interface ExecutionBashStartupScript {
@@ -56,7 +56,7 @@ export interface ExecutionBashStartupScript {
 }
 ```
 
-adapter materializer 负责：
+O materializer do adapter é responsável por:
 
 ```ts
 export function materializeBashStartupScript(
@@ -65,7 +65,7 @@ export function materializeBashStartupScript(
 ): MaterializedBashStartupScript | undefined;
 ```
 
-core Bash handler 负责在 Bash tool request 上附带 session startup descriptor：
+O handler Bash do core é responsável por anexar o descriptor de startup da sessão ao request do Bash tool:
 
 ```ts
 bashStartup: createBashSessionStartupScript({
@@ -73,52 +73,52 @@ bashStartup: createBashSessionStartupScript({
 })
 ```
 
-第一版 startup content 是 no-op header；如果 future embedded prelude flag 打开，adapter 会把 embedded search function content 合并进同一个 `.sh` 文件。
+Na primeira versão, o conteúdo de startup é um header no-op; se a flag futura de embedded prelude for ativada, o adapter mescla o conteúdo das funções de embedded search no mesmo arquivo `.sh`.
 
 ---
 
-## File Structure
+## Estrutura de Arquivos
 
-- Modify: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
-  - 增加 `ExecutionBashStartupScript` 和 `ExecutionRequest.bashStartup`。
-- Create: `apps/zcode-cli/packages/core/src/tool/handlers/bash-startup.ts`
-  - 生成 Bash tool 专用的 session startup descriptor。
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
-  - 在 `createExecutionRequest()` 里附带 `bashStartup`。
-- Create: `apps/zcode-cli/packages/adapters/src/exec/bash-startup-script.ts`
-  - 物化 startup `.sh` 文件，生成 source command，处理 POSIX/Git Bash/CMD 差异。
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
-  - 拆出 prelude content builder，保留现有 `applyEmbeddedSearchPrelude()` 兼容测试。
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
-  - 在 cwd capture 前应用 startup script source；保留现有 output root 逻辑。
-- Create: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
-  - 覆盖 materialize/source/quoting/Git Bash/CMD skip。
-- Modify: `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`
-  - 补充 content builder 合并语义。
-- Modify: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
-  - 加真实 shell source `.sh` 的执行集成测试。
-- Modify: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
-  - 覆盖 Bash request 带 no-op startup descriptor 且不带 embedded prelude。
-- Modify: `apps/zcode-cli/packages/core/tests/embedded-search-shell.test.ts`
-  - 确认 alias 注入仍 disabled。
-- Modify: `docs/runtime-tools/bash-effective-shell-snapshot.md`
-  - 增加 session startup `.sh` snapshot 的契约说明。
+- Modificar: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
+  - Adiciona `ExecutionBashStartupScript` e `ExecutionRequest.bashStartup`.
+- Criar: `apps/zcode-cli/packages/core/src/tool/handlers/bash-startup.ts`
+  - Gera o descriptor de startup de sessão exclusivo do Bash tool.
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
+  - Anexa `bashStartup` dentro de `createExecutionRequest()`.
+- Criar: `apps/zcode-cli/packages/adapters/src/exec/bash-startup-script.ts`
+  - Materializa o arquivo `.sh` de startup, gera o comando de source e trata as diferenças POSIX/Git Bash/CMD.
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
+  - Extrai o construtor de conteúdo do prelude e mantém `applyEmbeddedSearchPrelude()` compatível com os testes existentes.
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
+  - Aplica o `source` do startup script antes da captura de cwd; mantém a lógica existente de output root.
+- Criar: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
+  - Cobre materialize/source/quoting/Git Bash/skip de CMD.
+- Modificar: `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`
+  - Acrescenta a semântica de mesclagem do content builder.
+- Modificar: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
+  - Adiciona teste de integração de execução com `source` de `.sh` por um shell real.
+- Modificar: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
+  - Cobre o request do Bash com descriptor de startup no-op e sem embedded prelude.
+- Modificar: `apps/zcode-cli/packages/core/tests/embedded-search-shell.test.ts`
+  - Confirma que a injeção de aliases continua desabilitada.
+- Modificar: `docs/runtime-tools/bash-effective-shell-snapshot.md`
+  - Acrescenta a descrição do contrato do startup snapshot `.sh` de sessão.
 
 ---
 
-### Task 1: Add Execution Bash Startup Contract
+### Tarefa 1: Adicionar o contrato de Bash Startup de execução
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`
 
 **Interfaces:**
-- Produces: `ExecutionBashStartupScript`
-- Produces: `ExecutionRequest.bashStartup?: ExecutionBashStartupScript`
-- Consumes: existing `ExecutionRequest`, `ExecutionEmbeddedSearchPrelude`
+- Produz: `ExecutionBashStartupScript`
+- Produz: `ExecutionRequest.bashStartup?: ExecutionBashStartupScript`
+- Consome: `ExecutionRequest`, `ExecutionEmbeddedSearchPrelude` existentes
 
-- [ ] **Step 1: Add the contract type**
+- [ ] **Etapa 1: Adicionar o tipo de contrato**
 
-In `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`, insert the new interface after `ExecutionEmbeddedSearchPrelude`:
+Em `apps/zcode-cli/packages/contracts/src/interfaces/execution.port.ts`, insira a nova interface depois de `ExecutionEmbeddedSearchPrelude`:
 
 ```ts
 export interface ExecutionBashStartupScript {
@@ -135,9 +135,9 @@ export interface ExecutionBashStartupScript {
 }
 ```
 
-- [ ] **Step 2: Add request field**
+- [ ] **Etapa 2: Adicionar o campo de request**
 
-In the same file, add this field to `ExecutionRequest` after `bashPrelude`:
+No mesmo arquivo, acrescente este campo em `ExecutionRequest` depois de `bashPrelude`:
 
 ```ts
   /**
@@ -148,38 +148,38 @@ In the same file, add this field to `ExecutionRequest` after `bashPrelude`:
   bashStartup?: ExecutionBashStartupScript;
 ```
 
-- [ ] **Step 3: Keep `bashPrelude` compatible**
+- [ ] **Etapa 3: Manter `bashPrelude` compatível**
 
-Do not remove `bashPrelude` in this task. It remains the structured embedded-search input so the adapter can later combine it into the same startup script.
+Não remova `bashPrelude` nesta tarefa. Ele continua sendo a entrada estruturada de embedded search, para que o adapter possa depois combiná-lo no mesmo startup script.
 
-- [ ] **Step 4: Run contracts typecheck**
+- [ ] **Etapa 4: Executar o typecheck de contracts**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/contracts typecheck
 ```
 
-Expected: command exits 0.
+Esperado: o comando sai com 0.
 
 ---
 
-### Task 2: Add Core Bash Startup Descriptor Builder
+### Tarefa 2: Adicionar o construtor de descriptor de Bash Startup no core
 
-**Files:**
-- Create: `apps/zcode-cli/packages/core/src/tool/handlers/bash-startup.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
-- Test: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
-- Test: `apps/zcode-cli/packages/core/tests/embedded-search-shell.test.ts`
+**Arquivos:**
+- Criar: `apps/zcode-cli/packages/core/src/tool/handlers/bash-startup.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/embedded-search-shell.test.ts`
 
 **Interfaces:**
-- Consumes: `SessionId`
-- Produces: `createBashSessionStartupScript(input): ExecutionBashStartupScript`
-- Produces: Bash `ExecutionRequest.bashStartup`
+- Consome: `SessionId`
+- Produz: `createBashSessionStartupScript(input): ExecutionBashStartupScript`
+- Produz: Bash `ExecutionRequest.bashStartup`
 
-- [ ] **Step 1: Add failing Bash handler assertion**
+- [ ] **Etapa 1: Adicionar asserção falhando no handler Bash**
 
-In `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`, extend the existing Bash execution request test or add a focused test:
+Em `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`, estenda o teste existente de request de execução Bash ou acrescente um teste focado:
 
 ```ts
 it("attaches a session Bash startup script without enabling embedded search aliases", async () => {
@@ -211,21 +211,21 @@ it("attaches a session Bash startup script without enabling embedded search alia
 });
 ```
 
-Use the local helper names that already exist in `bash-handler.test.ts`; if the helper names differ, keep the same assertion shape and wire it into the existing test fixture.
+Use os nomes de helper locais que já existem em `bash-handler.test.ts`; se os nomes forem diferentes, mantenha a mesma forma de asserção e integre-a à fixture de teste existente.
 
-- [ ] **Step 2: Run the focused test and verify failure**
+- [ ] **Etapa 2: Executar o teste focado e verificar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/core exec vitest run tests/bash-handler.test.ts -t "attaches a session Bash startup script"
 ```
 
-Expected: fails because `bashStartup` is not populated yet.
+Esperado: falha porque `bashStartup` ainda não é preenchido.
 
-- [ ] **Step 3: Create descriptor builder**
+- [ ] **Etapa 3: Criar o construtor de descriptor**
 
-Create `apps/zcode-cli/packages/core/src/tool/handlers/bash-startup.ts`:
+Crie `apps/zcode-cli/packages/core/src/tool/handlers/bash-startup.ts`:
 
 ```ts
 import type { ExecutionBashStartupScript, SessionId } from "@zcode/contracts";
@@ -246,15 +246,15 @@ export function createBashSessionStartupScript(input: {
 }
 ```
 
-- [ ] **Step 4: Wire Bash handler**
+- [ ] **Etapa 4: Ligar o handler Bash**
 
-In `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`, import the builder:
+Em `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`, importe o construtor:
 
 ```ts
 import { createBashSessionStartupScript } from "./bash-startup.js";
 ```
 
-Then add `bashStartup` inside `createExecutionRequest()`:
+Depois acrescente `bashStartup` dentro de `createExecutionRequest()`:
 
 ```ts
     bashStartup: createBashSessionStartupScript({
@@ -262,49 +262,49 @@ Then add `bashStartup` inside `createExecutionRequest()`:
     }),
 ```
 
-Keep the existing `bashPrelude` conditional unchanged:
+Mantenha o condicional existente de `bashPrelude` inalterado:
 
 ```ts
     ...(bashPrelude ? { bashPrelude } : {}),
 ```
 
-- [ ] **Step 5: Confirm embedded search alias flag remains disabled**
+- [ ] **Etapa 5: Confirmar que a flag de alias de embedded search continua desabilitada**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/core exec vitest run tests/embedded-search-shell.test.ts
 ```
 
-Expected: passes and still asserts `shouldInjectEmbeddedSearchBashPrelude()` is `false`.
+Esperado: passa e ainda afirma que `shouldInjectEmbeddedSearchBashPrelude()` é `false`.
 
-- [ ] **Step 6: Run Bash handler tests**
+- [ ] **Etapa 6: Executar os testes do handler Bash**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/core exec vitest run tests/bash-handler.test.ts
 ```
 
-Expected: all Bash handler tests pass.
+Esperado: todos os testes do handler Bash passam.
 
 ---
 
-### Task 3: Materialize `.sh` Startup Script in Adapter
+### Tarefa 3: Materializar o startup script `.sh` no adapter
 
-**Files:**
-- Create: `apps/zcode-cli/packages/adapters/src/exec/bash-startup-script.ts`
-- Test: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
+**Arquivos:**
+- Criar: `apps/zcode-cli/packages/adapters/src/exec/bash-startup-script.ts`
+- Testar: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
 
 **Interfaces:**
-- Consumes: `ExecutionBashStartupScript`
-- Consumes: `ExecutionShellDialect | "legacy-shell"`
-- Produces: `materializeBashStartupScript()`
-- Produces: `applyBashStartupScriptSource()`
+- Consome: `ExecutionBashStartupScript`
+- Consome: `ExecutionShellDialect | "legacy-shell"`
+- Produz: `materializeBashStartupScript()`
+- Produz: `applyBashStartupScriptSource()`
 
-- [ ] **Step 1: Add materializer tests**
+- [ ] **Etapa 1: Adicionar testes do materializer**
 
-Create `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`:
+Crie `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`:
 
 ```ts
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -384,19 +384,19 @@ describe("bash startup script materializer", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [ ] **Etapa 2: Executar os testes e verificar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/bash-startup-script.test.ts
 ```
 
-Expected: fails because `bash-startup-script.ts` does not exist.
+Esperado: falha porque `bash-startup-script.ts` não existe.
 
-- [ ] **Step 3: Implement materializer**
+- [ ] **Etapa 3: Implementar o materializer**
 
-Create `apps/zcode-cli/packages/adapters/src/exec/bash-startup-script.ts`:
+Crie `apps/zcode-cli/packages/adapters/src/exec/bash-startup-script.ts`:
 
 ```ts
 import { createHash } from "node:crypto";
@@ -477,32 +477,32 @@ function shellQuote(value: string): string {
 }
 ```
 
-- [ ] **Step 4: Run materializer tests**
+- [ ] **Etapa 4: Executar os testes do materializer**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/bash-startup-script.test.ts
 ```
 
-Expected: all tests pass.
+Esperado: todos os testes passam.
 
 ---
 
-### Task 4: Wire Startup Script Into Node Execution Adapter
+### Tarefa 4: Ligar o startup script ao Node Execution Adapter
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
-- Test: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
-- Test: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
+- Testar: `apps/zcode-cli/packages/adapters/tests/exec.test.ts`
+- Testar: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
 
 **Interfaces:**
-- Consumes: `ExecutionRequest.bashStartup`
-- Produces: Bash command whose first line sources the materialized startup script
+- Consome: `ExecutionRequest.bashStartup`
+- Produz: comando Bash cuja primeira linha faz `source` do startup script materializado
 
-- [ ] **Step 1: Add integration test for real shell source**
+- [ ] **Etapa 1: Adicionar teste de integração de source por shell real**
 
-In `apps/zcode-cli/packages/adapters/tests/exec.test.ts`, add a POSIX-only integration test near existing shell execution tests:
+Em `apps/zcode-cli/packages/adapters/tests/exec.test.ts`, acrescente um teste de integração exclusivo de POSIX perto dos testes existentes de execução de shell:
 
 ```ts
 const posixOnly = process.platform === "win32" ? it.skip : it;
@@ -539,7 +539,7 @@ posixOnly("sources Bash startup script before executing the command", async () =
 });
 ```
 
-Add missing imports at the top if this file does not already have them:
+Acrescente os imports que faltarem no topo se este arquivo ainda não os tiver:
 
 ```ts
 import { mkdtempSync, rmSync } from "node:fs";
@@ -547,19 +547,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 ```
 
-- [ ] **Step 2: Run integration test and verify failure**
+- [ ] **Etapa 2: Executar o teste de integração e verificar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/exec.test.ts -t "sources Bash startup script"
 ```
 
-Expected: fails because adapter does not source `bashStartup` yet.
+Esperado: falha porque o adapter ainda não faz `source` de `bashStartup`.
 
-- [ ] **Step 3: Import startup helpers in adapter**
+- [ ] **Etapa 3: Importar os helpers de startup no adapter**
 
-In `apps/zcode-cli/packages/adapters/src/exec/index.ts`, add:
+Em `apps/zcode-cli/packages/adapters/src/exec/index.ts`, acrescente:
 
 ```ts
 import {
@@ -568,9 +568,9 @@ import {
 } from "./bash-startup-script.js";
 ```
 
-- [ ] **Step 4: Replace inline-only prelude application with startup materialization**
+- [ ] **Etapa 4: Substituir a aplicação apenas inline do prelude pela materialização do startup**
 
-In `NodeExecutionAdapter.spawnChild()`, after `resolvedCommand` is computed and before `createCwdCapturePlan(...)`, compute a request with startup applied:
+Em `NodeExecutionAdapter.spawnChild()`, depois que `resolvedCommand` é calculado e antes de `createCwdCapturePlan(...)`, calcule um request com o startup aplicado:
 
 ```ts
     const requestWithStartup = this.applyBashStartupToExecutionRequest(
@@ -579,7 +579,7 @@ In `NodeExecutionAdapter.spawnChild()`, after `resolvedCommand` is computed and 
     );
 ```
 
-Then use `requestWithStartup` for cwd capture:
+Depois use `requestWithStartup` para a captura de cwd:
 
 ```ts
     const capturePlan = createCwdCapturePlan(requestWithStartup, {
@@ -588,11 +588,11 @@ Then use `requestWithStartup` for cwd capture:
     });
 ```
 
-Keep the later `resolveExecutionCommand(capturePlan.command, ...)` flow unchanged.
+Mantenha o fluxo posterior `resolveExecutionCommand(capturePlan.command, ...)` inalterado.
 
-- [ ] **Step 5: Add private adapter method**
+- [ ] **Etapa 5: Adicionar o método privado do adapter**
 
-In `NodeExecutionAdapter`, add:
+Em `NodeExecutionAdapter`, acrescente:
 
 ```ts
   private applyBashStartupToExecutionRequest(
@@ -627,35 +627,35 @@ In `NodeExecutionAdapter`, add:
   }
 ```
 
-At this stage, leave `applyBashPreludeToExecutionRequest(...)` in the file. Task 5 will migrate embedded prelude content into the same materialization path.
+Nesta etapa, deixe `applyBashPreludeToExecutionRequest(...)` no arquivo. A Tarefa 5 vai migrar o conteúdo do embedded prelude para o mesmo caminho de materialização.
 
-- [ ] **Step 6: Run adapter startup tests**
+- [ ] **Etapa 6: Executar os testes de startup do adapter**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/bash-startup-script.test.ts tests/exec.test.ts -t "startup"
 ```
 
-Expected: startup-related tests pass.
+Esperado: os testes relacionados a startup passam.
 
 ---
 
-### Task 5: Merge Embedded Prelude Content Into Startup Script Path
+### Tarefa 5: Mesclar o conteúdo do embedded prelude no caminho do startup script
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
-- Modify: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
-- Modify: `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`
-- Modify: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/src/exec/index.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`
+- Modificar: `apps/zcode-cli/packages/adapters/tests/bash-startup-script.test.ts`
 
 **Interfaces:**
-- Produces: `buildEmbeddedSearchPreludeContent(prelude, options): string | undefined`
-- Preserves: `applyEmbeddedSearchPrelude(command, prelude, options): string`
+- Produz: `buildEmbeddedSearchPreludeContent(prelude, options): string | undefined`
+- Preserva: `applyEmbeddedSearchPrelude(command, prelude, options): string`
 
-- [ ] **Step 1: Add content builder test**
+- [ ] **Etapa 1: Adicionar teste do content builder**
 
-In `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`, add:
+Em `apps/zcode-cli/packages/adapters/tests/embedded-search-prelude.test.ts`, acrescente:
 
 ```ts
 it("can build prelude content without appending the user command", () => {
@@ -674,7 +674,7 @@ it("can build prelude content without appending the user command", () => {
 });
 ```
 
-Update the import:
+Atualize o import:
 
 ```ts
 import {
@@ -683,19 +683,19 @@ import {
 } from "../src/exec/embedded-search-prelude.js";
 ```
 
-- [ ] **Step 2: Run test and verify failure**
+- [ ] **Etapa 2: Executar o teste e verificar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/embedded-search-prelude.test.ts -t "build prelude content"
 ```
 
-Expected: fails because `buildEmbeddedSearchPreludeContent` does not exist.
+Esperado: falha porque `buildEmbeddedSearchPreludeContent` não existe.
 
-- [ ] **Step 3: Refactor embedded prelude builder**
+- [ ] **Etapa 3: Refatorar o builder do embedded prelude**
 
-In `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`, add:
+Em `apps/zcode-cli/packages/adapters/src/exec/embedded-search-prelude.ts`, acrescente:
 
 ```ts
 export function buildEmbeddedSearchPreludeContent(
@@ -715,7 +715,7 @@ export function buildEmbeddedSearchPreludeContent(
 }
 ```
 
-Then rewrite `applyEmbeddedSearchPrelude()` as:
+Depois reescreva `applyEmbeddedSearchPrelude()` como:
 
 ```ts
 export function applyEmbeddedSearchPrelude(
@@ -728,15 +728,15 @@ export function applyEmbeddedSearchPrelude(
 }
 ```
 
-- [ ] **Step 4: Combine startup and embedded prelude content in adapter**
+- [ ] **Etapa 4: Combinar o conteúdo de startup e do embedded prelude no adapter**
 
-In `apps/zcode-cli/packages/adapters/src/exec/index.ts`, import:
+Em `apps/zcode-cli/packages/adapters/src/exec/index.ts`, importe:
 
 ```ts
 import { buildEmbeddedSearchPreludeContent } from "./embedded-search-prelude.js";
 ```
 
-Then update `applyBashStartupToExecutionRequest()` to materialize combined content:
+Depois atualize `applyBashStartupToExecutionRequest()` para materializar o conteúdo combinado:
 
 ```ts
     const embeddedPreludeContent = buildEmbeddedSearchPreludeContent(request.bashPrelude, {
@@ -760,42 +760,42 @@ Then update `applyBashStartupToExecutionRequest()` to materialize combined conte
     });
 ```
 
-After this is wired, remove the old `applyBashPreludeToExecutionRequest()` call from `spawnChild()` so there is only one Bash startup path.
+Depois que isso estiver ligado, remova a chamada antiga de `applyBashPreludeToExecutionRequest()` de `spawnChild()`, de modo que exista apenas um caminho de Bash startup.
 
-- [ ] **Step 5: Preserve current disabled behavior**
+- [ ] **Etapa 5: Preservar o comportamento desabilitado atual**
 
-Confirm core still does not send `bashPrelude` while the flag is disabled:
+Confirme que o core ainda não envia `bashPrelude` enquanto a flag estiver desabilitada:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/core exec vitest run tests/embedded-search-shell.test.ts tests/bash-handler.test.ts
 ```
 
-Expected: tests pass and Bash request has `bashStartup` but no `bashPrelude`.
+Esperado: os testes passam e o request do Bash tem `bashStartup` mas não `bashPrelude`.
 
-- [ ] **Step 6: Run adapter prelude tests**
+- [ ] **Etapa 6: Executar os testes de prelude do adapter**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/embedded-search-prelude.test.ts tests/bash-startup-script.test.ts
 ```
 
-Expected: all tests pass.
+Esperado: todos os testes passam.
 
 ---
 
-### Task 6: Document Runtime Contract
+### Tarefa 6: Documentar o contrato de runtime
 
-**Files:**
-- Modify: `docs/runtime-tools/bash-effective-shell-snapshot.md`
-- Modify: `docs/superpowers/plans/2026-06-26-bash-session-startup-script-snapshot.md`
+**Arquivos:**
+- Modificar: `docs/runtime-tools/bash-effective-shell-snapshot.md`
+- Modificar: `docs/superpowers/plans/2026-06-26-bash-session-startup-script-snapshot.md`
 
 **Interfaces:**
-- Produces: documented owner boundaries and acceptance criteria.
+- Produz: limites de propriedade documentados e critérios de aceitação.
 
-- [ ] **Step 1: Add `.sh` startup snapshot section**
+- [ ] **Etapa 1: Adicionar a seção de startup snapshot `.sh`**
 
-In `docs/runtime-tools/bash-effective-shell-snapshot.md`, add a section after the existing session shell owner section:
+Em `docs/runtime-tools/bash-effective-shell-snapshot.md`, acrescente uma seção depois da seção existente de session shell owner:
 
 ```md
 ## Bash Startup `.sh` Snapshot
@@ -812,9 +812,9 @@ Bash tool execution may source a ZCode-generated session startup script before r
 This file path is not persisted as session state. Resume reconstructs the descriptor and lets the adapter materialize the script again.
 ```
 
-- [ ] **Step 2: Add plan completion note**
+- [ ] **Etapa 2: Adicionar nota de conclusão do plano**
 
-At the bottom of this plan, update the execution status section after implementation:
+No final deste plano, atualize a seção de status de execução após a implementação:
 
 ```md
 ## Execution Notes
@@ -824,30 +824,30 @@ At the bottom of this plan, update the execution status section after implementa
 - Bash startup `.sh` file is sourced only for POSIX/Git Bash shell profiles.
 ```
 
-- [ ] **Step 3: Run doc grep checks**
+- [ ] **Etapa 3: Executar as verificações de grep na documentação**
 
-Run:
+Execute:
 
 ```bash
 rg -n "Bash Startup `.sh` Snapshot|ExecutionBashStartupScript|embedded search aliases remain disabled" docs/runtime-tools/bash-effective-shell-snapshot.md docs/superpowers/plans/2026-06-26-bash-session-startup-script-snapshot.md
 ```
 
-Expected: all three phrases are present in docs.
+Esperado: as três frases estão presentes na documentação.
 
 ---
 
-### Task 7: Final Verification
+### Tarefa 7: Verificação final
 
-**Files:**
-- No source edits unless verification exposes a concrete failure.
+**Arquivos:**
+- Nenhuma edição de código, a menos que a verificação exponha uma falha concreta.
 
 **Interfaces:**
-- Consumes: all previous task outputs.
-- Produces: review-ready working tree.
+- Consome: as saídas de todas as tarefas anteriores.
+- Produz: working tree pronto para revisão.
 
-- [ ] **Step 1: Run focused tests**
+- [ ] **Etapa 1: Executar os testes focados**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/contracts typecheck
@@ -855,11 +855,11 @@ pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/bash-st
 pnpm --dir apps/zcode-cli --filter @zcode/core exec vitest run tests/bash-handler.test.ts tests/embedded-search-shell.test.ts tests/context-builder.test.ts tests/main-tool-pool.test.ts tests/subagent-explore.test.ts
 ```
 
-Expected: all commands exit 0.
+Esperado: todos os comandos saem com 0.
 
-- [ ] **Step 2: Run package typechecks**
+- [ ] **Etapa 2: Executar os typechecks de pacote**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/contracts typecheck
@@ -867,85 +867,85 @@ pnpm --dir apps/zcode-cli --filter @zcode/adapters typecheck
 pnpm --dir apps/zcode-cli --filter @zcode/core typecheck
 ```
 
-Expected: all commands exit 0.
+Esperado: todos os comandos saem com 0.
 
-- [ ] **Step 3: Run lint on touched source**
+- [ ] **Etapa 3: Executar o lint no código tocado**
 
-Run:
+Execute:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec oxlint src/exec/bash-startup-script.ts src/exec/embedded-search-prelude.ts src/exec/index.ts
 pnpm --dir apps/zcode-cli --filter @zcode/core exec oxlint src/tool/handlers/bash-startup.ts src/tool/handlers/bash.ts src/embedded-search/shell.ts
 ```
 
-Expected: both commands exit 0.
+Esperado: ambos os comandos saem com 0.
 
-- [ ] **Step 4: Confirm provider-visible prompt did not change**
+- [ ] **Etapa 4: Confirmar que o prompt provider-visible não mudou**
 
-Run:
+Execute:
 
 ```bash
 git diff -- apps/zcode-cli/packages/core/src/context apps/zcode-cli/packages/core/src/context/sections apps/zcode-cli/packages/core/tests/context-builder.test.ts
 ```
 
-Expected: no diff caused by this plan. If there is a diff, it must be unrelated and already present before executing this plan.
+Esperado: nenhum diff causado por este plano. Se houver diff, ele deve ser sem relação e já estar presente antes de executar este plano.
 
-- [ ] **Step 5: Confirm alias runtime remains disabled**
+- [ ] **Etapa 5: Confirmar que o alias de runtime continua desabilitado**
 
-Run:
+Execute:
 
 ```bash
 rg -n "const ENABLE_EMBEDDED_SEARCH_BASH_PRELUDE = false|shouldInjectEmbeddedSearchBashPrelude" apps/zcode-cli/packages/core/src/embedded-search/shell.ts apps/zcode-cli/packages/core/tests/embedded-search-shell.test.ts
 ```
 
-Expected:
+Esperado:
 
-- `ENABLE_EMBEDDED_SEARCH_BASH_PRELUDE = false` is present.
-- test still asserts `shouldInjectEmbeddedSearchBashPrelude()` returns `false`.
+- `ENABLE_EMBEDDED_SEARCH_BASH_PRELUDE = false` está presente.
+- o teste ainda afirma que `shouldInjectEmbeddedSearchBashPrelude()` retorna `false`.
 
-- [ ] **Step 6: Hygiene check**
+- [ ] **Etapa 6: Verificação de higiene**
 
-Run:
+Execute:
 
 ```bash
 git diff --check
 git status --short
 ```
 
-Expected:
+Esperado:
 
-- `git diff --check` exits 0.
-- `git status --short` only shows intended files from this plan and any pre-existing user changes.
+- `git diff --check` sai com 0.
+- `git status --short` mostra apenas os arquivos pretendidos deste plano e quaisquer alterações preexistentes do usuário.
 
 ---
 
-## Acceptance Criteria
+## Critérios de Aceitação
 
-- Bash tool requests include an internal `bashStartup` descriptor.
-- Adapter materializes `bashStartup` to a `.sh` file under ZCode-owned storage.
-- POSIX and Git Bash Bash-tool executions source the materialized script before the model command.
-- CMD and legacy shell executions skip `.sh` startup sourcing.
-- Git Bash receives a Git Bash-compatible source path.
-- Existing embedded search prelude logic can produce script content, but runtime alias injection remains disabled by flag.
-- Main agent provider-visible system prompt remains unchanged by this plan.
-- `Glob/Grep` provider-visible tool exposure policy remains unchanged by this plan.
-- No absolute startup script path is persisted to session store.
-- Focused tests and typechecks pass.
+- Requests do Bash tool incluem um descriptor interno `bashStartup`.
+- O adapter materializa `bashStartup` em um arquivo `.sh` sob storage pertencente ao ZCode.
+- Execuções do Bash tool em POSIX e Git Bash fazem `source` do script materializado antes do comando do modelo.
+- Execuções em CMD e legacy shell pulam o `source` do startup `.sh`.
+- O Git Bash recebe um caminho de `source` compatível com Git Bash.
+- A lógica existente de embedded search prelude consegue produzir conteúdo de script, mas a injeção de aliases em runtime continua desabilitada por flag.
+- O system prompt provider-visible do main agent permanece inalterado por este plano.
+- A política de exposição provider-visible das ferramentas `Glob/Grep` permanece inalterada por este plano.
+- Nenhum caminho absoluto de startup script é persistido no session store.
+- Testes focados e typechecks passam.
 
-## Self-Review Checklist
+## Checklist de Auto-Revisão
 
-- [ ] No task changes provider-visible main system prompt.
-- [ ] No task re-enables `find()` / `grep()` alias injection.
-- [ ] `ExecutionBashStartupScript` is clearly internal-only.
-- [ ] Adapter owns filesystem materialization and path conversion.
-- [ ] Core does not import adapter prelude builders.
-- [ ] `embedded-search-prelude.ts` remains backward compatible for existing tests.
-- [ ] Startup script source happens before cwd capture wrapper so command execution observes startup definitions.
-- [ ] CMD/legacy fallback behavior does not become a spawn error.
-- [ ] Docs explain the difference between shell selection snapshot and `.sh` startup snapshot.
+- [ ] Nenhuma tarefa altera o system prompt provider-visible do main agent.
+- [ ] Nenhuma tarefa reabilita a injeção de aliases `find()` / `grep()`.
+- [ ] `ExecutionBashStartupScript` é claramente de uso interno apenas.
+- [ ] O adapter é dono da materialização em filesystem e da conversão de caminho.
+- [ ] O core não importa builders de prelude do adapter.
+- [ ] `embedded-search-prelude.ts` permanece retrocompatível com os testes existentes.
+- [ ] O `source` do startup script acontece antes do wrapper de captura de cwd, para que a execução do comando enxergue as definições de startup.
+- [ ] O comportamento de fallback CMD/legacy não se transforma em erro de spawn.
+- [ ] A documentação explica a diferença entre snapshot de seleção de shell e startup snapshot `.sh`.
 
-## Execution Notes
+## Notas de Execução
 
-- Provider-visible main system prompt remained unchanged.
-- Runtime find/grep alias injection remained disabled.
-- Bash startup `.sh` file is sourced only for POSIX/Git Bash shell profiles.
+- O system prompt provider-visible do main agent permaneceu inalterado.
+- A injeção de aliases find/grep em runtime permaneceu desabilitada.
+- O arquivo `.sh` de startup do Bash tem `source` apenas para shell profiles POSIX/Git Bash.

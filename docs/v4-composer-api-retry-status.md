@@ -1,17 +1,17 @@
-# V4 Conversation API Retry Status
+# Status de Retry da API de Conversa V4
 
-## Summary
+## Resumo
 
-V4 conversation must show the model API retry status from
-`ConversationSnapshot.control.apiRetry` at the bottom of the current running
-turn. Main sessions and read-only Subagent sessions share the same timeline
-presentation. The composer no longer renders this status.
+A conversa V4 deve mostrar o status de retry da API de modelo a partir de
+`ConversationSnapshot.control.apiRetry` no rodapé do turno em execução atual.
+Sessões principais e sessões Subagent somente leitura compartilham a mesma
+apresentação de timeline. O composer não renderiza mais esse status.
 
-The retry authority belongs to the CLI `ProductProjection`. The renderer only
-renders the current session snapshot and must not infer retry state from request
-logs, elapsed time, or local network observations.
+A autoridade de retry pertence à `ProductProjection` do CLI. O renderer apenas
+renderiza o snapshot atual da sessão e não deve inferir estado de retry a partir
+de logs de requisição, tempo decorrido ou observações locais de rede.
 
-## Behavior
+## Comportamento
 
 ```text
 Agent/runtime retry event
@@ -22,42 +22,46 @@ Agent/runtime retry event
   -> ChatApiRetryStatus
 ```
 
-- `apiRetry: null` renders no retry label.
-- A non-null retry state renders only in the current running turn's tail slot,
-  after the turn's existing assistant work.
-- The retry label replaces the generic `ChatLoading` indicator while retry is
-  active; the two statuses are never rendered together.
-- The active retry label keeps the running Thinking label's `text-ui-base`,
-  `font-medium`, and shimmer motion, but lowers its visual weight with the
-  semantic `foreground-subtle` peak color. It deliberately reuses the base
-  shimmer's low-alpha soft stop so the moving trough remains visible; Retry
-  therefore avoids Thinking's pure black/white peak without flattening the
-  animation contrast.
-- Historical turns never receive the current `apiRetry` state. If there is no
-  running live turn, the renderer does not attach the status to an older turn.
-- `model_retry_scheduled` sets the retry state for every runtime-classified
-  retryable provider/network reason, not only HTTP 429.
-- Core SSE stream recovery (`StreamRecoveryStarted`,
-  `StreamRecoveryRetryStarted`, or a recovery-tagged model request) uses the
-  same state. `retryNumber/maxRetries` is converted to the V4
-  `attempt/maxAttempts` shape.
-- V4 keeps `maxAttempts` in the protocol shape. The UI displays retry count, so
-  `maxRetries = max(maxAttempts - 1, attempt)`. For example, `maxAttempts=11`
-  converts an attempt to the `1/10` user-count shape; the presentation threshold
-  below decides whether that early count is visible.
-- `nextRetryAt` is computed with the CLI event clock. The current timeline does
-  not render a countdown because a single snapshot is not a ticking clock.
-- Existing i18n keys remain the only user-facing copy source:
-  `chat.apiRetryStatus`. Moving the status into the timeline keeps the former
-  composer copy: `重新连接中... x/y` / `Reconnecting... x/y`.
+- `apiRetry: null` não renderiza rótulo de retry.
+- Um estado de retry não nulo é renderizado apenas no slot de cauda do turno em
+  execução atual, depois do trabalho de assistente já existente no turno.
+- O rótulo de retry substitui o indicador genérico `ChatLoading` enquanto o retry
+  está ativo; os dois status nunca são renderizados juntos.
+- O rótulo de retry ativo mantém o `text-ui-base`, o `font-medium` e o movimento
+  de shimmer do rótulo de Thinking em execução, mas reduz seu peso visual com a
+  cor de pico semântica `foreground-subtle`. Ele reutiliza deliberadamente o soft
+  stop de baixa opacidade do shimmer base para que o vale em movimento continue
+  visível; portanto o Retry evita o pico preto/branco puro do Thinking sem achatar
+  o contraste da animação.
+- Turnos históricos nunca recebem o estado `apiRetry` atual. Se não houver um
+  turno ao vivo em execução, o renderer não anexa o status a um turno mais antigo.
+- `model_retry_scheduled` define o estado de retry para toda razão de
+  provider/rede retryable classificada pelo runtime, e não apenas para HTTP 429.
+- A recuperação do stream SSE central (`StreamRecoveryStarted`,
+  `StreamRecoveryRetryStarted`, ou uma requisição de modelo marcada como
+  recuperação) usa o mesmo estado. `retryNumber/maxRetries` é convertido para a
+  forma V4 `attempt/maxAttempts`.
+- A V4 mantém `maxAttempts` na forma do protocolo. A UI exibe a contagem de
+  retries, portanto `maxRetries = max(maxAttempts - 1, attempt)`. Por exemplo,
+  `maxAttempts=11` converte uma tentativa para a forma de contagem de usuário
+  `1/10`; o limiar de apresentação abaixo decide se essa contagem inicial é
+  visível.
+- `nextRetryAt` é calculado com o relógio de eventos do CLI. A timeline atual não
+  renderiza uma contagem regressiva porque um único snapshot não é um relógio
+  que avança.
+- As chaves de i18n existentes continuam sendo a única fonte de texto voltado ao
+  usuário: `chat.apiRetryStatus`. Mover o status para a timeline preserva o texto
+  que antes ficava no composer: `重新连接中... x/y` / `Reconnecting... x/y`.
 
-## Planned presentation threshold (2026-08-17)
+## Limiar de apresentação planejado (2026-08-17)
 
-当 `apiRetry.attempt <= 2` 时，UI 不显示重连次数，也不显示
-`重新连接中... x/y` 文案；当前 running turn 继续使用同一个 `ChatLoading` 槽位，
-让用户把前两次短暂恢复视为普通加载。`attempt >= 3` 才显示重连文案，计数仍保持
-现有用户口径（例如 `3/10`）。这里的 `attempt` 是投影层已经转换后的“第几次重试”，
-不是原始 `maxAttempts` 总尝试次数。
+Quando `apiRetry.attempt <= 2`, a UI não mostra a contagem de reconexões, nem
+mostra o texto `重新连接中... x/y`; o running turn atual continua usando o mesmo
+slot de `ChatLoading`, para que o usuário trate as duas primeiras recuperações
+breves como um carregamento comum. Só a partir de `attempt >= 3` o texto de
+reconexão aparece, e a contagem mantém a proporção de usuário já existente (por
+exemplo `3/10`). Aqui `attempt` é a "qual tentativa de retry" já convertida pela
+camada de projeção, e não o número total de tentativas original `maxAttempts`.
 
 ```text
 ProductProjection.control.apiRetry
@@ -71,13 +75,15 @@ ProductProjection.control.apiRetry
   current live turn only
 ```
 
-该门槛只存在于 timeline presentation；不得在
-`normalizeZCodeApiRetryStatus`、`ProductProjection`、service tracker 或 protocol schema
-中把 1/2 次重试改成 `null`，否则会丢失恢复态，影响 snapshot、desktop continuous 和
-mobile replayable 的恢复一致性。`attempt <= 2` 且当前 turn 被权限/问答/maintenance
-阻塞时，仍遵守现有 gating，不额外显示 generic loading。
+Esse limiar existe apenas na apresentação da timeline; não se deve converter 1/2
+tentativas de retry para `null` em `normalizeZCodeApiRetryStatus`,
+`ProductProjection`, no service tracker ou no schema do protocolo, pois isso
+perderia o estado de recuperação e afetaria a consistência de recuperação do
+snapshot, do desktop continuous e do mobile replayable. Quando `attempt <= 2` e o
+turn atual está bloqueado por permissão/pergunta/manutenção, o gating existente
+continua valendo e nenhum loading genérico adicional é exibido.
 
-## State lifecycle
+## Ciclo de vida do estado
 
 ```text
 model_retry_scheduled / stream recovery
@@ -104,12 +110,12 @@ request completed / non-retryable failure / turn terminal / next turn
           apiRetry = null
 ```
 
-`model_request_started` for adapter attempt 2+ does not prove recovery and must
-not clear the label. A non-empty text/reasoning delta or meaningful tool event
-does prove user-visible progress and clears it. This prevents the status from
-flashing off during the retry request itself.
+`model_request_started` da tentativa 2+ do adapter não prova recuperação e não
+deve limpar o rótulo. Um delta de texto/reasoning não vazio ou um evento de tool
+significativo de fato prova progresso visível ao usuário e o limpa. Isso evita
+que o status pisque e desapareça durante a própria requisição de retry.
 
-## Delivery and isolation
+## Entrega e isolamento
 
 ```text
                          +-> desktop-continuous
@@ -117,63 +123,73 @@ one CLI projection -----+
                          +-> web-remote-replayable
 ```
 
-- `control.apiRetry` is session-scoped. A background session cannot overwrite
-  another session's timeline status.
-- Both delivery profiles receive the same control state. Continuous versus
-  replayable only changes delivery/backpressure behavior; it does not create a
-  second retry authority.
-- A replayable snapshot may restore an in-progress retry. Relay, Electron main,
-  and host routing do not own or synthesize the retry state.
-- Retry is runtime-memory state: renderer refresh, task switching, and mobile
-  reconnect within the same CLI runtime may restore an active retry from the
-  snapshot; a CLI/runtime cold restart clears it.
+- `control.apiRetry` tem escopo de sessão. Uma sessão em segundo plano não pode
+  sobrescrever o status de timeline de outra sessão.
+- Ambos os perfis de entrega recebem o mesmo estado de controle. A diferença entre
+  continuous e replayable muda apenas o comportamento de entrega/backpressure; não
+  cria uma segunda autoridade de retry.
+- Um snapshot replayable pode restaurar um retry em andamento. Relay, Electron
+  main e o roteamento do host não são donos nem sintetizam o estado de retry.
+- Retry é estado em memória do runtime: refresh do renderer, troca de task e
+  reconexão do celular dentro do mesmo runtime de CLI podem restaurar um retry
+  ativo a partir do snapshot; um cold restart do CLI/runtime o limpa.
 
-## Boundaries
+## Limites
 
-- No protocol or schema changes.
-- No retry transcript part or timeline row is persisted. The display is a
-  transient live-turn slot driven only by `control.apiRetry`.
-- The existing `retryNotice` row remains reserved for user-triggered assistant
-  retry semantics and is not reused or extended.
-- No changes to send, queue, stop, or row retry behavior.
-- No changes to retry count, backoff, retry classification, or final-failure
-  behavior. Fault catalog cases such as N03/N04 still own those decisions.
-- The `attempt <= 2` rule is presentation-only: runtime retry count, backoff,
-  retry classification, clearing boundary, and final-failure behavior remain unchanged.
-- No changes to desktop `desktop-continuous` or mobile
-  `web-remote-replayable` delivery semantics.
-- Read-only Subagent detail still forbids manual retry commands; showing the
-  provider retry status does not make the timeline interactive.
+- Nenhuma mudança de protocolo ou schema.
+- Nenhuma parte de transcrição de retry ou linha de timeline é persistida. A
+  exibição é um slot transitório de turno ao vivo, dirigido apenas por
+  `control.apiRetry`.
+- A linha `retryNotice` existente permanece reservada para a semântica de retry de
+  assistente disparado pelo usuário e não é reutilizada nem estendida.
+- Nenhuma mudança no comportamento de envio, fila, parada ou retry de linha.
+- Nenhuma mudança na contagem de retries, no backoff, na classificação de retry ou
+  no comportamento de falha final. Casos do catálogo de falhas como N03/N04
+  continuam sendo donos dessas decisões.
+- A regra `attempt <= 2` é apenas de apresentação: contagem de retries do runtime,
+  backoff, classificação de retry, limite de limpeza e comportamento de falha
+  final permanecem inalterados.
+- Nenhuma mudança nas semânticas de entrega `desktop-continuous` do desktop nem
+  `web-remote-replayable` do celular.
+- O detalhe Subagent somente leitura ainda proíbe comandos de retry manual;
+  mostrar o status de retry do provider não torna a timeline interativa.
 
-## Regression evidence
+## Evidência de regressão
 
-- Projection tests must cover adapter retry schedule, attempt start retention,
-  meaningful progress clearing, request terminal clearing, and core stream
-  recovery.
-- The projected snapshot must pass the V4 runtime schema.
-- The same `state.updated` retry delta must survive both delivery profile
-  filters.
-- Timeline tests prove `maxAttempts=11` renders `3/10` only when `attempt=3`,
-  `attempt=1/2` render generic `ChatLoading` without retry text, retry status
-  replaces `ChatLoading` at `attempt=3`, and `apiRetry=null` renders nothing.
-- Read-only `SessionPane` tests prove child details receive the same state while
-  the composer remains absent.
-- The SAT25 desktop fault-stream E2E exercises both owners in one run: Main
-  observes the hidden early attempts and a visible `3/10` retry before clearing
-  on the successful tool response; the spawned child observes the hidden early
-  retry in its read-only detail pane and clears on text progress.
+- Os testes de projeção devem cobrir o agendamento de retry do adapter, a retenção
+  no início da tentativa, a limpeza por progresso significativo, a limpeza no
+  término da requisição e a recuperação do stream central.
+- O snapshot projetado deve passar no schema de runtime da V4.
+- O mesmo delta de retry de `state.updated` deve sobreviver aos dois filtros de
+  perfil de entrega.
+- Os testes de timeline provam que `maxAttempts=11` renderiza `3/10` apenas quando
+  `attempt=3`, que `attempt=1/2` renderiza o `ChatLoading` genérico sem texto de
+  retry, que o status de retry substitui `ChatLoading` em `attempt=3` e que
+  `apiRetry=null` não renderiza nada.
+- Testes de `SessionPane` somente leitura provam que os detalhes do filho recebem
+  o mesmo estado enquanto o composer permanece ausente.
+- O E2E de falha de stream no desktop SAT25 exercita os dois donos em uma única
+  execução: a Main observa as tentativas iniciais ocultas e um `3/10` visível antes
+  de limpar na resposta de tool bem-sucedida; o filho gerado observa o retry
+  inicial oculto em seu pane de detalhe somente leitura e limpa no progresso de
+  texto.
 
-## Implementation status (2026-08-17)
+## Status de implementação (2026-08-17)
 
-1. 已在 `packages/ui/src/v4/ConversationTurnGroup.tsx` 的
-   `TurnChatLoadingSlot` 中增加 presentation-only 的
-   `visibleRetryStatus`：`attempt=1/2` 回退到 `ChatLoading`，`attempt>=3` 才
-   进入 `ChatApiRetryStatus`；阻塞交互的既有 loading gate 保持不变。
-2. 已在 `packages/ui/test/v4ConversationTurnGroup.test.ts` 覆盖 attempts `1`、`2`、
-   `3`，以及阻塞交互下的 loading/retry 互斥。
-3. `ChatApiRetryStatus`、projection normalization、runtime snapshot、协议 schema、
-   i18n 和 retry lifecycle 均未修改；SAT25 fixture/manifest 只增加 Main 的第二、
-   第三次 429，使 UI 可观察到隐藏早期尝试与可见 `3/10`。
-4. 验证结果：focused UI test 53/53、`pnpm typecheck`、`pnpm lint`（0 error）和
-   conversation coverage audit 通过。SAT25 WDIO E2E 已完成构建，但当前环境缺少
-   可下载的 macOS arm64 Chromedriver，启动阶段失败，待具备 driver 后复跑。
+1. Já foi adicionado, em `packages/ui/src/v4/ConversationTurnGroup.tsx` dentro de
+   `TurnChatLoadingSlot`, o `visibleRetryStatus` apenas de apresentação:
+   `attempt=1/2` volta para `ChatLoading` e só `attempt>=3` entra em
+   `ChatApiRetryStatus`; o loading gate existente que bloqueia interação permanece
+   inalterado.
+2. Já foi coberto em `packages/ui/test/v4ConversationTurnGroup.test.ts` os
+   attempts `1`, `2`, `3`, além da exclusão mútua entre loading e retry sob
+   interação bloqueada.
+3. `ChatApiRetryStatus`, a normalização da projeção, o snapshot de runtime, o schema
+   do protocolo, o i18n e o ciclo de vida de retry não foram modificados; o
+   fixture/manifest do SAT25 apenas acrescenta o segundo e o terceiro 429 da Main,
+   para que a UI possa observar as tentativas iniciais ocultas e o `3/10` visível.
+4. Resultado da verificação: focused UI test 53/53, `pnpm typecheck`, `pnpm lint`
+   (0 erro) e a auditoria de cobertura de conversa passaram. O build do E2E WDIO do
+   SAT25 foi concluído, mas o ambiente atual não possui o Chromedriver macOS
+   arm64 baixável, então a fase de inicialização falhou, aguardando nova execução
+   quando houver o driver.

@@ -1,59 +1,59 @@
-# Windows CUA Native Clipboard Implementation Plan
+# Plano de Implementação da Área de Transferência Nativa do Windows CUA
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. As etapas usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:** 为 Windows source Helper 增加真实、异步、fail-closed 的 `CF_UNICODETEXT` 读写链路，并让 `broker_info.capabilities.clipboard` 只在 native 双导出齐全时为 `true`。
+**Objetivo:** adicionar ao Helper de origem para Windows uma cadeia real, assíncrona e fail-closed de leitura/escrita `CF_UNICODETEXT`, e fazer com que `broker_info.capabilities.clipboard` só seja `true` quando as duas exportações nativas estiverem presentes.
 
-**Architecture:** `ax_win.cc` 通过两个 additive `Napi::AsyncWorker` 导出执行 Win32 clipboard 同步 API；`createNodeAutomationAdapter` 只在 `win32` 且读写双导出齐全时选用该路径，并把结构化 native outcome 映射为稳定的 broker error。`electronNativeBackend` 统一 `await` sync/async clipboard adapter，因此 macOS/Linux 现有 system surface 行为不变，旧 Windows addon 继续 fail closed。
+**Arquitetura:** `ax_win.cc` executa a API síncrona de área de transferência do Win32 por meio de duas exportações aditivas `Napi::AsyncWorker`; `createNodeAutomationAdapter` só escolhe esse caminho quando `win32` e as exportações de leitura e escrita estiverem ambas presentes, mapeando o resultado nativo estruturado para um erro de broker estável. `electronNativeBackend` unifica com `await` o adapter de área de transferência síncrono/assíncrono, portanto o comportamento da superfície de sistema existente em macOS/Linux não muda e o addon antigo do Windows continua fail closed.
 
-**Tech Stack:** TypeScript 5.9、Vitest 4、Node-API / node-addon-api、C++17、Win32 Clipboard API、MSVC / node-gyp、Windows named pipe broker。
+**Stack Tecnológico:** TypeScript 5.9, Vitest 4, Node-API / node-addon-api, C++17, API de Área de Transferência do Win32, MSVC / node-gyp, broker de named pipe do Windows.
 
-## Global Constraints
+## Restrições Globais
 
-- 先改测试再改实现；每个任务都必须观察到 RED，再完成 GREEN。
-- 仅修改 `C:\Users\dev\zcode-cua` 的本地 Windows source Helper 链路，以及 `C:\Users\dev\z-code` 的事实文档；不启动或修改 SSH、WSL、Docker、remote workspace、手机 `/remote`。
-- Windows clipboard 必须使用 Win32 `CF_UNICODETEXT`；禁止 PowerShell、shell、外部命令和 Electron clipboard fallback。
-- additive ABI 固定为 `readClipboardTextAsync(): Promise<NativeClipboardReadOutcome>` 与 `writeClipboardTextAsync(text): Promise<NativeClipboardWriteOutcome>`；任一导出缺失都必须令 Windows `supportsClipboard=false`。
-- `ElectronAutomationAdapter.readClipboardText` 返回 `string | Promise<string>`；`writeClipboardText` 返回 `void | Promise<void>`；macOS/Linux 同步 system surface 保持兼容。
-- 使用独立 `std::timed_mutex g_clipboardMutex`；Helper 内部锁最多等待 250ms；`OpenClipboard(nullptr)` 最多 8 次、每次间隔 10ms。
-- 文本上限固定为 8 Mi 个 UTF-16 code units；读取必须由 `GlobalSize` 约束并在范围内查找第一个 NUL，禁止无界 `wcslen`。
-- 写入必须在 `OpenClipboard` / `EmptyClipboard` 前完成 UTF-16 转换、`HGLOBAL` 分配与内容复制；`SetClipboardData` 成功后才把所有权交给 Windows。
-- native outcome 或 broker error 不得包含 clipboard 内容、marker、token、pipe、进程路径或 Win32 原始错误文本。
-- 不新增逐次 clipboard `info` 日志；若实现期确需诊断，只能使用不含内容的低频状态或开发态 `debug`，不得按文本长度或调用流量落生产日志。
-- `busy` 映射 `timeout`；`too_large` 映射 `invalid_request`；`unavailable`、`invalid_data`、`write_failed` 和畸形 outcome 映射 `internal`，不得误报为权限错误。
-- `write_clipboard` 保持 action / `possibly_sent` 语义；`write_failed` 不得自动重放。
-- 工具名、tier、annotation、broker method 和 30-tool manifest 不变。
-- live smoke 默认关闭；没有显式 opt-in 时必须在启动 Helper、读取或修改 clipboard 前以 exit code 2 退出。
-- live smoke 只恢复原始纯文本，无法恢复被测试写入替换掉的 HTML、图片等附加格式；恢复失败必须非零退出并明确提示 clipboard 可能仍是测试值。
-- `zcode-cua` 必须执行 focused tests、native rebuild、typecheck、lint、build、全量 test；`z-code` 必须执行 Windows source Helper integration、CUA focused suite、official plugin test、typecheck、lint。
-- `z-code` 当前 Windows 全仓 `pnpm test:unit:affected` 存在已记录的非 CUA baseline；仍须执行并逐项记录，不得把非零结果改称通过。
+- Altere primeiro os testes e depois a implementação; cada tarefa deve observar RED antes de chegar a GREEN.
+- Modifique somente a cadeia local do Helper de origem para Windows em `C:\Users\dev\zcode-cua`, bem como a documentação factual em `C:\Users\dev\z-code`; não inicie nem modifique SSH, WSL, Docker, remote workspace, `/remote` móvel.
+- A área de transferência do Windows deve usar o `CF_UNICODETEXT` do Win32; são proibidos PowerShell, shell, comandos externos e fallback de área de transferência do Electron.
+- A ABI aditiva é fixa em `readClipboardTextAsync(): Promise<NativeClipboardReadOutcome>` e `writeClipboardTextAsync(text): Promise<NativeClipboardWriteOutcome>`; a ausência de qualquer uma das exportações deve tornar `supportsClipboard=false` no Windows.
+- `ElectronAutomationAdapter.readClipboardText` retorna `string | Promise<string>`; `writeClipboardText` retorna `void | Promise<void>`; a superfície de sistema síncrona de macOS/Linux permanece compatível.
+- Use um `std::timed_mutex g_clipboardMutex` independente; a espera pelo lock interno do Helper é de no máximo 250 ms; `OpenClipboard(nullptr)` no máximo 8 vezes, com 10 ms de intervalo entre cada tentativa.
+- O limite de texto é fixo em 8 Mi code units UTF-16; a leitura deve ser restringida por `GlobalSize` e procurar o primeiro NUL dentro do limite, proibindo `wcslen` sem limite.
+- A escrita deve concluir a conversão para UTF-16, a alocação do `HGLOBAL` e a cópia do conteúdo antes de `OpenClipboard` / `EmptyClipboard`; a posse só é transferida ao Windows depois que `SetClipboardData` tem sucesso.
+- O resultado nativo ou o erro de broker não pode conter conteúdo da área de transferência, marcador, token, pipe, caminho de processo ou texto de erro bruto do Win32.
+- Não adicionar logs `info` por operação de área de transferência; se diagnóstico for realmente necessário durante a implementação, usar apenas status de baixa frequência sem conteúdo ou `debug` em modo de desenvolvimento, sem registrar em produção com base no tamanho do texto ou no volume de chamadas.
+- `busy` mapeia para `timeout`; `too_large` mapeia para `invalid_request`; `unavailable`, `invalid_data`, `write_failed` e resultados malformados mapeiam para `internal`, sem relatar falsamente erro de permissão.
+- `write_clipboard` mantém a semântica de action / `possibly_sent`; `write_failed` não deve ser repetido automaticamente.
+- Nomes de ferramenta, tier, annotation, método de broker e o manifesto de 30 ferramentas permanecem inalterados.
+- O live smoke é desabilitado por padrão; sem opt-in explícito, deve sair com exit code 2 antes de iniciar o Helper, ler ou modificar a área de transferência.
+- O live smoke só restaura o texto puro original; não consegue restaurar formatos adicionais como HTML ou imagens que tenham sido substituídos pela escrita de teste; uma restauração falha deve sair com código diferente de zero e avisar claramente que a área de transferência ainda pode conter o valor de teste.
+- `zcode-cua` deve executar testes focados, rebuild nativo, typecheck, lint, build e a suíte completa de testes; `z-code` deve executar a integração do Helper de origem para Windows, a suíte focada de CUA, o teste do plugin oficial, typecheck e lint.
+- O `pnpm test:unit:affected` de todo o repositório no Windows do `z-code` tem uma baseline não-CUA já registrada; ainda assim deve ser executado e registrado item a item, sem chamar resultado não-zero de aprovado.
 
 ---
 
-## File Structure
+## Estrutura de Arquivos
 
 ### `C:\Users\dev\zcode-cua`
 
-- Modify: `src/broker/server/nativeAxSource.ts` — broker-neutral raw addon clipboard outcome 与 additive ABI。
-- Modify: `src/native/types.ts` — Windows raw addon 的公开 clipboard outcome 与导出类型。
-- Modify: `src/broker/server/electronNativeBackendTypes.ts` — sync/Promise 兼容的 adapter clipboard seam。
-- Modify: `src/broker/server/nodeAutomationAdapter.ts` — Windows 双导出 capability gate、native outcome 校验和 broker error 映射。
-- Modify: `src/broker/server/electronNativeBackend.ts` — async clipboard broker handlers。
-- Modify: `src/native/ax_win.cc` — `CF_UNICODETEXT` worker、锁、重试、RAII 与内存所有权。
-- Create: `test/windows-native-clipboard-adapter.test.ts` — adapter 双导出、平台 fallback、所有 outcome 与泄密约束。
-- Modify: `test/windows-capability-truthfulness.test.ts` — broker capability 与 async handler 真值。
-- Create: `test/native/windows-clipboard.test.ts` — native source contract 与 compiled export 检查。
-- Create: `scripts/windows-clipboard-live-smoke.mjs` — opt-in 真实 broker round-trip 和 finally 恢复。
-- Create: `test/windows-clipboard-live-smoke.test.ts` — 默认关闭且不会越过 preflight 的回归测试。
-- Modify: `package.json` — `smoke:windows:clipboard` 命令。
-- Modify: `docs/platforms.md` — Windows clipboard 当前能力、边界和实机命令。
-- Modify after all source tests pass: `dist/**` — 由 `pnpm build` 生成并纳入提交的发布产物。
+- Modificar: `src/broker/server/nativeAxSource.ts` — resultado de área de transferência do addon bruto neutro de broker e ABI aditiva.
+- Modificar: `src/native/types.ts` — resultado público de área de transferência e tipos de exportação do addon bruto do Windows.
+- Modificar: `src/broker/server/electronNativeBackendTypes.ts` — seam de área de transferência do adapter compatível com sync/Promise.
+- Modificar: `src/broker/server/nodeAutomationAdapter.ts` — gate de capability das duas exportações no Windows, validação de resultado nativo e mapeamento de erro de broker.
+- Modificar: `src/broker/server/electronNativeBackend.ts` — handlers de área de transferência assíncronos do broker.
+- Modificar: `src/native/ax_win.cc` — worker `CF_UNICODETEXT`, lock, retentativas, RAII e posse de memória.
+- Criar: `test/windows-native-clipboard-adapter.test.ts` — as duas exportações do adapter, fallback de plataforma, todos os resultados e as restrições de vazamento.
+- Modificar: `test/windows-capability-truthfulness.test.ts` — verdade da capability do broker e do handler assíncrono.
+- Criar: `test/native/windows-clipboard.test.ts` — contrato do código nativo e verificação das exportações compiladas.
+- Criar: `scripts/windows-clipboard-live-smoke.mjs` — round-trip real de broker via opt-in e restauração no `finally`.
+- Criar: `test/windows-clipboard-live-smoke.test.ts` — teste de regressão que garante desligado por padrão e que não ultrapassa o preflight.
+- Modificar: `package.json` — comando `smoke:windows:clipboard`.
+- Modificar: `docs/platforms.md` — capacidade atual, limites e comando real da área de transferência do Windows.
+- Modificar depois que todos os testes de código passem: `dist/**` — artefatos de release gerados por `pnpm build` e incluídos no commit.
 
 ### `C:\Users\dev\z-code`
 
-- Modify: `docs/cua/windows-source-development.md` — source desktop 的构建、验证、风险与实机记录。
+- Modificar: `docs/cua/windows-source-development.md` — build, verificação, riscos e registro real do desktop de origem.
 
-## Data and Error Flow
+## Fluxo de Dados e de Erros
 
 ```text
 read_clipboard
@@ -84,39 +84,39 @@ write_clipboard
 
 ```text
 native outcome        broker code       side-effect/retry meaning
-busy                  timeout           mutation 前失败；可由调用方重新决策
-too_large             invalid_request   输入/结果超过固定上限
-unavailable           internal          运行时不可用；不是用户权限开关
-invalid_data          internal          读取数据损坏；不伪造空文本
-write_failed          internal          possibly-sent；禁止自动重放
-malformed outcome     internal          addon ABI 不可信；fail closed
+busy                  timeout           falha antes da mutação; o chamador pode decidir de novo
+too_large             invalid_request   entrada/resultado excede o limite fixo
+unavailable           internal          indisponível em runtime; não é uma permissão de usuário
+invalid_data          internal          dados lidos corrompidos; não se forja texto vazio
+write_failed          internal          possibly-sent; prohibited automatic replay
+malformed outcome     internal          ABI do addon não confiável; fail closed
 ```
 
 ---
 
-### Task 1: Lock the additive TypeScript ABI and adapter error contract
+### Tarefa 1: Fixar a ABI TypeScript aditiva e o contrato de erro do adapter
 
-**Files:**
+**Arquivos:**
 
-- Create: `C:\Users\dev\zcode-cua\test\windows-native-clipboard-adapter.test.ts`
-- Modify: `C:\Users\dev\zcode-cua\src\broker\server\nativeAxSource.ts`
-- Modify: `C:\Users\dev\zcode-cua\src\native\types.ts`
-- Modify: `C:\Users\dev\zcode-cua\src\broker\server\electronNativeBackendTypes.ts`
-- Modify: `C:\Users\dev\zcode-cua\src\broker\server\nodeAutomationAdapter.ts`
+- Criar: `C:\Users\dev\zcode-cua\test\windows-native-clipboard-adapter.test.ts`
+- Modificar: `C:\Users\dev\zcode-cua\src\broker\server\nativeAxSource.ts`
+- Modificar: `C:\Users\dev\zcode-cua\src\native\types.ts`
+- Modificar: `C:\Users\dev\zcode-cua\src\broker\server\electronNativeBackendTypes.ts`
+- Modificar: `C:\Users\dev\zcode-cua\src\broker\server\nodeAutomationAdapter.ts`
 
 **Interfaces:**
 
-- Consumes: existing `createNodeAutomationAdapter({ native, system, platform })`, `NodeSystemSurface`, `BrokerError`.
-- Produces:
+- Consome: `createNodeAutomationAdapter({ native, system, platform })` existente, `NodeSystemSurface`, `BrokerError`.
+- Produz:
   - `NativeClipboardReadOutcome`
   - `NativeClipboardWriteOutcome`
-  - optional `HelperNativeAddon.readClipboardTextAsync`
-  - optional `HelperNativeAddon.writeClipboardTextAsync`
-  - Windows adapter `supportsClipboard=true` only when both functions exist.
+  - `HelperNativeAddon.readClipboardTextAsync` opcional
+  - `HelperNativeAddon.writeClipboardTextAsync` opcional
+  - adapter do Windows com `supportsClipboard=true` apenas quando ambas as funções existem.
 
-- [ ] **Step 1: Write the failing adapter contract tests**
+- [ ] **Etapa 1: Escrever os testes de contrato do adapter que falham**
 
-Create `test/windows-native-clipboard-adapter.test.ts` with factories that cast only the raw addon seam, not the behavior under test:
+Crie `test/windows-native-clipboard-adapter.test.ts` com factories que fazem cast apenas do seam do addon bruto, não do comportamento sob teste:
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
@@ -231,7 +231,7 @@ describe("Windows native clipboard adapter", () => {
 });
 ```
 
-Add table-driven cases in the same file for exact mappings:
+Adicione no mesmo arquivo casos orientados por tabela para os mapeamentos exatos:
 
 ```ts
 it.each([
@@ -283,20 +283,20 @@ it("fails closed on malformed native outcomes", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **Etapa 2: Executar o teste focado e verificar RED**
 
-Run:
+Execute:
 
 ```powershell
 cd C:\Users\dev\zcode-cua
 pnpm exec vitest run test/windows-native-clipboard-adapter.test.ts
 ```
 
-Expected: FAIL because outcome types and `HelperNativeAddon` async methods do not exist, and the Windows adapter still delegates to the unsupported system surface.
+Esperado: FAIL porque os tipos de resultado e os métodos assíncronos de `HelperNativeAddon` não existem, e o adapter do Windows ainda delega à superfície de sistema não suportada.
 
-- [ ] **Step 3: Add the exact TypeScript ABI**
+- [ ] **Etapa 3: Adicionar a ABI TypeScript exata**
 
-In `src/broker/server/nativeAxSource.ts`, immediately before `HelperNativeAddon`:
+Em `src/broker/server/nativeAxSource.ts`, imediatamente antes de `HelperNativeAddon`:
 
 ```ts
 export type NativeClipboardReadOutcome =
@@ -314,14 +314,14 @@ export type NativeClipboardWriteOutcome =
     };
 ```
 
-Add to `HelperNativeAddon`:
+Adicione a `HelperNativeAddon`:
 
 ```ts
 readClipboardTextAsync?(): Promise<NativeClipboardReadOutcome>;
 writeClipboardTextAsync?(text: string): Promise<NativeClipboardWriteOutcome>;
 ```
 
-Mirror the structurally identical public Windows shapes in `src/native/types.ts`:
+Espelhe as formas públicas do Windows, estruturalmente idênticas, em `src/native/types.ts`:
 
 ```ts
 export type AxWinClipboardReadOutcome =
@@ -339,23 +339,23 @@ export type AxWinClipboardWriteOutcome =
     };
 ```
 
-Add to `AxWinNativeAddon`:
+Adicione a `AxWinNativeAddon`:
 
 ```ts
 readClipboardTextAsync?(): Promise<AxWinClipboardReadOutcome>;
 writeClipboardTextAsync?(text: string): Promise<AxWinClipboardWriteOutcome>;
 ```
 
-Change only the clipboard return shapes in `ElectronAutomationAdapter`:
+Altere apenas as formas de retorno da área de transferência em `ElectronAutomationAdapter`:
 
 ```ts
 readClipboardText(): string | Promise<string>;
 writeClipboardText(text: string): void | Promise<void>;
 ```
 
-- [ ] **Step 4: Implement the Windows-only pair gate and outcome mapping**
+- [ ] **Etapa 4: Implementar o gate do par exclusivo do Windows e o mapeamento de resultados**
 
-In `nodeAutomationAdapter.ts`, add `NativeClipboardReadOutcome` and `NativeClipboardWriteOutcome` to the existing type import from `nativeAxSource.ts`. Immediately after the existing `const platform = options.platform ?? process.platform`, wrap both optional exports, compute the pair gate, and use these exact validators:
+Em `nodeAutomationAdapter.ts`, adicione `NativeClipboardReadOutcome` e `NativeClipboardWriteOutcome` ao import de tipos existente de `nativeAxSource.ts`. Imediatamente depois de `const platform = options.platform ?? process.platform` existente, envolva as duas exportações opcionais, calcule o gate do par e use estes validadores exatos:
 
 ```ts
 const readClipboardTextAsync = wrapOptionalNativeMethod(native.readClipboardTextAsync);
@@ -400,7 +400,7 @@ function clipboardError(
 }
 ```
 
-Use strict structural checks rather than truthiness:
+Use verificações estruturais estritas em vez de truthiness:
 
 ```ts
 async function readNativeClipboardText(
@@ -444,7 +444,7 @@ async function writeNativeClipboardText(
 }
 ```
 
-In the returned adapter object, replace only the three clipboard fields:
+No objeto adapter retornado, substitua apenas os três campos de área de transferência:
 
 ```ts
 supportsClipboard: hasNativeClipboard
@@ -460,11 +460,11 @@ writeClipboardText: hasNativeClipboard
   : (text: string) => system.writeClipboardText(text),
 ```
 
-Add a Chinese root-cause comment above the pair gate: the old single-export/partial addon could otherwise advertise a half-working clipboard and fall through to a Windows placeholder.
+Adicione acima do gate do par um comentário de causa raiz em chinês: o antigo addon de exportação única/parcial poderia, caso contrário, anunciar uma área de transferência meio funcionando e cair em um placeholder do Windows.
 
-- [ ] **Step 5: Run the focused test and typecheck**
+- [ ] **Etapa 5: Executar o teste focado e o typecheck**
 
-Run:
+Execute:
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -472,9 +472,9 @@ pnpm exec vitest run test/windows-native-clipboard-adapter.test.ts test/broker/w
 pnpm typecheck
 ```
 
-Expected: both commands exit 0; Windows placeholder tests remain fail-closed without the pair, while fake dual exports pass.
+Esperado: ambos os comandos saem com 0; os testes de placeholder do Windows permanecem fail closed sem o par, enquanto as exportações duplas falsas passam.
 
-- [ ] **Step 6: Commit the adapter contract**
+- [ ] **Etapa 6: Commitar o contrato do adapter**
 
 ```powershell
 git add src/broker/server/nativeAxSource.ts src/native/types.ts src/broker/server/electronNativeBackendTypes.ts src/broker/server/nodeAutomationAdapter.ts test/windows-native-clipboard-adapter.test.ts
@@ -483,21 +483,21 @@ git commit -m "feat(windows): add native clipboard adapter contract"
 
 ---
 
-### Task 2: Make broker handlers await clipboard work and report truthful capability
+### Tarefa 2: Fazer os handlers do broker aguardar o trabalho da área de transferência e reportar capability verdadeira
 
-**Files:**
+**Arquivos:**
 
-- Modify: `C:\Users\dev\zcode-cua\test\windows-capability-truthfulness.test.ts`
-- Modify: `C:\Users\dev\zcode-cua\src\broker\server\electronNativeBackend.ts`
+- Modificar: `C:\Users\dev\zcode-cua\test\windows-capability-truthfulness.test.ts`
+- Modificar: `C:\Users\dev\zcode-cua\src\broker\server\electronNativeBackend.ts`
 
 **Interfaces:**
 
-- Consumes: Task 1 adapter methods returning sync values or Promises.
-- Produces: `read_clipboard` and `write_clipboard` handlers that always await completion before returning.
+- Consome: métodos de adapter da Tarefa 1 que retornam valores síncronos ou Promises.
+- Produz: handlers `read_clipboard` e `write_clipboard` que sempre aguardam a conclusão antes de retornar.
 
-- [ ] **Step 1: Add failing async broker tests**
+- [ ] **Etapa 1: Adicionar testes de broker assíncronos que falham**
 
-Extend the test helper to accept `supportsClipboard`, `readClipboardText`, and `writeClipboardText` overrides. Add:
+Estenda o helper de teste para aceitar sobrescritas de `supportsClipboard`, `readClipboardText` e `writeClipboardText`. Adicione:
 
 ```ts
 it("awaits native clipboard read/write and advertises the complete pair", async () => {
@@ -547,20 +547,20 @@ it("awaits native clipboard read/write and advertises the complete pair", async 
 });
 ```
 
-Retain the existing test proving `supportsClipboard=false` rejects before adapter dispatch. Do not change tool counts, tiers or annotations.
+Mantenha o teste existente que prova que `supportsClipboard=false` rejeita antes do despacho ao adapter. Não altere contagens de ferramentas, tiers ou annotations.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **Etapa 2: Executar o teste focado e verificar RED**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
 pnpm exec vitest run test/windows-capability-truthfulness.test.ts
 ```
 
-Expected: the write Promise resolves too early because the current handler does not await `adapter.writeClipboardText`.
+Esperado: a Promise de escrita resolve cedo demais porque o handler atual não aguarda `adapter.writeClipboardText`.
 
-- [ ] **Step 3: Convert both broker handlers to async**
+- [ ] **Etapa 3: Converter ambos os handlers do broker para async
 
-Replace the handlers with:
+Substitua os handlers por:
 
 ```ts
 read_clipboard: async () => {
@@ -583,9 +583,9 @@ write_clipboard: async (params) => {
 },
 ```
 
-Keep capability derivation `adapter.supportsClipboard !== false` unchanged; Task 1 is now the source of Windows capability truth.
+Mantenha a derivação de capability `adapter.supportsClipboard !== false` inalterada; a Tarefa 1 agora é a fonte da verdade da capability do Windows.
 
-- [ ] **Step 4: Run broker, tool-surface and type gates**
+- [ ] **Etapa 4: Executar os gates de broker, superfície de ferramentas e tipos**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -593,9 +593,9 @@ pnpm exec vitest run test/windows-capability-truthfulness.test.ts test/windows-n
 pnpm typecheck
 ```
 
-Expected: exit 0; the manifest remains 30 tools, `read_clipboard` remains read-only, and `write_clipboard` remains an action.
+Esperado: exit 0; o manifesto continua com 30 ferramentas, `read_clipboard` continua read-only e `write_clipboard` continua sendo uma action.
 
-- [ ] **Step 5: Commit the async broker boundary**
+- [ ] **Etapa 5: Commitar a fronteira assíncrona do broker**
 
 ```powershell
 git add src/broker/server/electronNativeBackend.ts test/windows-capability-truthfulness.test.ts
@@ -604,23 +604,23 @@ git commit -m "feat(windows): await native clipboard operations"
 
 ---
 
-### Task 3: Implement bounded Win32 `CF_UNICODETEXT` workers
+### Tarefa 3: Implementar workers Win32 `CF_UNICODETEXT` com limites
 
-**Files:**
+**Arquivos:**
 
-- Create: `C:\Users\dev\zcode-cua\test\native\windows-clipboard.test.ts`
-- Modify: `C:\Users\dev\zcode-cua\src\native\ax_win.cc`
+- Criar: `C:\Users\dev\zcode-cua\test\native\windows-clipboard.test.ts`
+- Modificar: `C:\Users\dev\zcode-cua\src\native\ax_win.cc`
 
 **Interfaces:**
 
-- Consumes: Task 1 outcome strings and raw addon function names.
-- Produces:
+- Consome: strings de resultado da Tarefa 1 e nomes de função do addon bruto.
+- Produz:
   - `readClipboardTextAsync(): Promise<{ok:true,text:string}|{ok:false,error:string}>`
   - `writeClipboardTextAsync(text): Promise<{ok:true}|{ok:false,error:string}>`
 
-- [ ] **Step 1: Write native source and compiled-export RED tests**
+- [ ] **Etapa 1: Escrever testes RED de contrato do código nativo e das exportações compiladas**
 
-Create `test/native/windows-clipboard.test.ts`:
+Crie `test/native/windows-clipboard.test.ts`:
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -691,18 +691,18 @@ describeIfNative("compiled Windows clipboard ABI", () => {
 });
 ```
 
-- [ ] **Step 2: Run source test and verify RED**
+- [ ] **Etapa 2: Executar o teste de código e verificar RED**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
 pnpm exec vitest run test/native/windows-clipboard.test.ts
 ```
 
-Expected: source assertions fail because the workers, constants and exports do not exist.
+Esperado: as asserções de código falham porque os workers, as constantes e as exportações não existem.
 
-- [ ] **Step 3: Add Win32 clipboard primitives**
+- [ ] **Etapa 3: Adicionar primitivas de área de transferência do Win32**
 
-Add `<algorithm>`, `<chrono>`, `<memory>`, `<thread>` and `<vector>` if not already present. Near the existing global input state, add:
+Adicione `<algorithm>`, `<chrono>`, `<memory>`, `<thread>` e `<vector>` se ainda não estiverem presentes. Perto do estado global de entrada existente, adicione:
 
 ```cpp
 constexpr size_t kMaxClipboardUtf16CodeUnits = 8 * 1024 * 1024;
@@ -745,7 +745,7 @@ bool OpenClipboardBounded(ClipboardCloseGuard* guard) {
 }
 ```
 
-Use a local enum whose string conversion is exhaustive:
+Use um enum local cuja conversão para string seja exaustiva:
 
 ```cpp
 enum class ClipboardError {
@@ -770,9 +770,9 @@ const char* ClipboardErrorText(ClipboardError error) {
 }
 ```
 
-- [ ] **Step 4: Implement strict conversions and the bounded read operation**
+- [ ] **Etapa 4: Implementar conversões estritas e a operação de leitura com limite**
 
-Implement conversion helpers with `WC_ERR_INVALID_CHARS` / `MB_ERR_INVALID_CHARS`; neither helper may touch N-API values:
+Implemente helpers de conversão com `WC_ERR_INVALID_CHARS` / `MB_ERR_INVALID_CHARS`; nenhum helper pode tocar valores N-API:
 
 ```cpp
 bool Utf16ToUtf8(const wchar_t* text, size_t length, std::string* out) {
@@ -808,7 +808,7 @@ bool Utf8ToUtf16(const std::string& text, std::wstring* out) {
 }
 ```
 
-The read worker execution must follow this order:
+A execução do worker de leitura deve seguir esta ordem:
 
 ```cpp
 void ExecuteReadClipboard(
@@ -869,7 +869,7 @@ void ExecuteReadClipboard(
 }
 ```
 
-Use these outcome constructors and worker:
+Use estes construtores de resultado e o worker:
 
 ```cpp
 Napi::Object ClipboardReadOutcomeObject(
@@ -916,11 +916,11 @@ class ClipboardReadWorker : public Napi::AsyncWorker {
 };
 ```
 
-`OnError()` intentionally resolves `unavailable` and never exposes a native exception message.
+`OnError()` intencionalmente resolve `unavailable` e nunca expõe uma mensagem de exceção nativa.
 
-- [ ] **Step 5: Implement preallocated write ownership and async entry points**
+- [ ] **Etapa 5: Implementar posse pré-alocada na escrita e pontos de entrada assíncronos**
 
-The write execution must copy and allocate before `OpenClipboard`:
+A execução da escrita deve copiar e alocar antes de `OpenClipboard`:
 
 ```cpp
 void ExecuteWriteClipboard(
@@ -979,7 +979,7 @@ void ExecuteWriteClipboard(
 }
 ```
 
-Use the write outcome and worker below; it stores a copied `std::string`, never a `Napi::String`:
+Use o resultado de escrita e o worker abaixo; ele armazena um `std::string` copiado, nunca um `Napi::String`:
 
 ```cpp
 Napi::Object ClipboardWriteOutcomeObject(
@@ -1024,7 +1024,7 @@ class ClipboardWriteWorker : public Napi::AsyncWorker {
 };
 ```
 
-Add non-throwing allocation-failure helpers and the N-API entry points:
+Adicione helpers sem lançamento para falha de alocação e os pontos de entrada N-API:
 
 ```cpp
 Napi::Promise ResolvedClipboardReadFailure(
@@ -1076,7 +1076,7 @@ Napi::Value WriteClipboardTextAsync(const Napi::CallbackInfo& info) {
 }
 ```
 
-Register:
+Registre:
 
 ```cpp
 exports.Set(
@@ -1087,13 +1087,13 @@ exports.Set(
     Napi::Function::New(env, WriteClipboardTextAsync));
 ```
 
-Add Chinese comments explaining:
+Adicione comentários em chinês explicando:
 
-- 根因：Win32 clipboard API 同步且可能被其他进程短暂占用，不能阻塞 broker/N-API 线程。
-- 根因：`SetClipboardData` 成功后 Windows 接管 `HGLOBAL`，更早路径仍由 worker 释放，防止 double free 或泄漏。
-- 根因：无界 `wcslen` 会越过恶意/损坏 clipboard block，必须以 `GlobalSize` 为上界。
+- Causa raiz: a API de área de transferência do Win32 é síncrona e pode ser ocupada brevemente por outros processos, portanto não pode bloquear o thread do broker/N-API.
+- Causa raiz: depois que `SetClipboardData` tem sucesso o Windows assume o `HGLOBAL`; nos caminhos anteriores ele ainda é liberado pelo worker, evitando double free ou vazamento.
+- Causa raiz: um `wcslen` sem limite passaria além de um bloco de área de transferência malicioso/corrompido, então é obrigatório usar `GlobalSize` como limite superior.
 
-- [ ] **Step 6: Rebuild and verify source plus compiled ABI**
+- [ ] **Etapa 6: Reconstruir e verificar o código mais a ABI compilada**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1102,9 +1102,9 @@ pnpm exec vitest run test/native/windows-clipboard.test.ts test/windows-native-c
 pnpm typecheck
 ```
 
-Expected: rebuild exit 0; compiled addon exports both functions; tests do not call either function against the live clipboard.
+Esperado: rebuild exit 0; o addon compilado exporta ambas as funções; os testes não chamam nenhuma das funções contra a área de transferência real.
 
-- [ ] **Step 7: Commit the native implementation**
+- [ ] **Etapa 7: Commitar a implementação nativa**
 
 ```powershell
 git add src/native/ax_win.cc test/native/windows-clipboard.test.ts
@@ -1113,22 +1113,22 @@ git commit -m "feat(windows): implement native text clipboard"
 
 ---
 
-### Task 4: Add an opt-in real broker clipboard round-trip
+### Tarefa 4: Adicionar um round-trip real via broker, com opt-in, da área de transferência
 
-**Files:**
+**Arquivos:**
 
-- Create: `C:\Users\dev\zcode-cua\scripts\windows-clipboard-live-smoke.mjs`
-- Create: `C:\Users\dev\zcode-cua\test\windows-clipboard-live-smoke.test.ts`
-- Modify: `C:\Users\dev\zcode-cua\package.json`
+- Criar: `C:\Users\dev\zcode-cua\scripts\windows-clipboard-live-smoke.mjs`
+- Criar: `C:\Users\dev\zcode-cua\test\windows-clipboard-live-smoke.test.ts`
+- Modificar: `C:\Users\dev\zcode-cua\package.json`
 
 **Interfaces:**
 
-- Consumes: `dist/windows-helper.js`, `build/Release/ax_native.node`, `PermissionBrokerClient`, real Windows named pipe.
-- Produces: `pnpm smoke:windows:clipboard`.
+- Consome: `dist/windows-helper.js`, `build/Release/ax_native.node`, `PermissionBrokerClient`, named pipe real do Windows.
+- Produz: `pnpm smoke:windows:clipboard`.
 
-- [ ] **Step 1: Write the disabled-by-default RED test**
+- [ ] **Etapa 1: Escrever o teste RED desligado por padrão**
 
-Create `test/windows-clipboard-live-smoke.test.ts`:
+Crie `test/windows-clipboard-live-smoke.test.ts`:
 
 ```ts
 import { execFile } from "node:child_process";
@@ -1167,18 +1167,18 @@ describe("Windows clipboard live smoke guard", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **Etapa 2: Executar o teste focado e verificar RED**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
 pnpm exec vitest run test/windows-clipboard-live-smoke.test.ts
 ```
 
-Expected: FAIL because the smoke script does not exist.
+Esperado: FAIL porque o script de smoke não existe.
 
-- [ ] **Step 3: Implement the live smoke with unconditional restoration**
+- [ ] **Etapa 3: Implementar o live smoke com restauração incondicional**
 
-Base lifecycle, random pipe/token, ready verification and clean shutdown on `windows-pointer-live-smoke.mjs`, but use this exact summary surface:
+Baseie o ciclo de vida, pipe/token aleatório, verificação de prontidão e encerramento limpo em `windows-pointer-live-smoke.mjs`, mas use esta superfície de resumo exata:
 
 ```js
 const OPT_IN_ENV = "ZCODE_CUA_WINDOWS_CLIPBOARD_LIVE";
@@ -1195,7 +1195,7 @@ const summary = {
 };
 ```
 
-The live operation body must be:
+O corpo da operação real deve ser:
 
 ```js
 let originalText;
@@ -1243,9 +1243,9 @@ try {
 }
 ```
 
-The outermost `finally` must always request Helper shutdown and verify exit code 0. The final stdout must be only `JSON.stringify(summary)`; stderr may contain the failure stage but not the original text, marker, token or pipe. If restoration fails, stderr must include: `clipboard may still contain the smoke marker`.
+O `finally` mais externo deve sempre solicitar o encerramento do Helper e verificar exit code 0. O stdout final deve ser apenas `JSON.stringify(summary)`; o stderr pode conter a etapa de falha, mas não o texto original, o marcador, o token ou o pipe. Se a restauração falhar, o stderr deve incluir: `clipboard may still contain the smoke marker`.
 
-Before calling `runLiveSmoke()`:
+Antes de chamar `runLiveSmoke()`:
 
 ```js
 if (process.platform !== "win32") {
@@ -1257,13 +1257,13 @@ if (process.platform !== "win32") {
 }
 ```
 
-Add to `package.json`:
+Adicione ao `package.json`:
 
 ```json
 "smoke:windows:clipboard": "node scripts/windows-clipboard-live-smoke.mjs"
 ```
 
-- [ ] **Step 4: Verify the default path cannot touch the clipboard**
+- [ ] **Etapa 4: Verificar que o caminho padrão não pode tocar a área de transferência**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1272,11 +1272,11 @@ pnpm exec vitest run test/windows-clipboard-live-smoke.test.ts
 pnpm smoke:windows:clipboard
 ```
 
-Expected: Vitest exits 0; direct smoke exits 2 before Helper startup and prints only the opt-in instruction.
+Esperado: Vitest sai com 0; o smoke direto sai com 2 antes de iniciar o Helper e imprime apenas a instrução de opt-in.
 
-- [ ] **Step 5: Run the explicit live smoke once**
+- [ ] **Etapa 5: Executar uma vez o live smoke explícito
 
-Warn the user immediately before this step that pure-text replacement drops any existing non-text clipboard formats. Then run:
+Avise o usuário imediatamente antes desta etapa que a substituição por texto puro descarta quaisquer formatos de área de transferência não textuais existentes. Então execute:
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1286,9 +1286,9 @@ pnpm smoke:windows:clipboard
 Remove-Item Env:ZCODE_CUA_WINDOWS_CLIPBOARD_LIVE
 ```
 
-Expected JSON booleans: every field except `platform` is `true`; exit 0; original pure text is restored and re-read exactly. If any field is false, stop feature completion, preserve a redacted failure-stage record, and do not claim live acceptance.
+Esperado, booleanos JSON: todos os campos exceto `platform` são `true`; exit 0; o texto puro original é restaurado e relido exatamente. Se algum campo for false, interrompa a conclusão do recurso, preserve um registro da etapa de falha com dados censurados e não alegue aceitação real.
 
-- [ ] **Step 6: Commit the smoke**
+- [ ] **Etapa 6: Commitar o smoke**
 
 ```powershell
 git add scripts/windows-clipboard-live-smoke.mjs test/windows-clipboard-live-smoke.test.ts package.json
@@ -1297,35 +1297,36 @@ git commit -m "test(windows): add clipboard live smoke"
 
 ---
 
-### Task 5: Update platform truth and source-development runbook
+### Tarefa 5: Atualizar a verdade das plataformas e o runbook de desenvolvimento da origem
 
-**Files:**
+**Arquivos:**
 
-- Modify: `C:\Users\dev\zcode-cua\docs\platforms.md`
-- Modify: `C:\Users\dev\z-code\docs\cua\windows-source-development.md`
+- Modificar: `C:\Users\dev\zcode-cua\docs\platforms.md`
+- Modificar: `C:\Users\dev\z-code\docs\cua\windows-source-development.md`
 
 **Interfaces:**
 
-- Consumes: verified outcomes from Tasks 1–4.
-- Produces: current facts for developers and future product closure.
+- Consome: resultados verificados das Tarefas 1–4.
+- Produz: fatos atuais para desenvolvedores e para o fechamento futuro do produto.
 
-- [ ] **Step 1: Update `zcode-cua/docs/platforms.md`**
+- [ ] **Etapa 1: Atualizar `zcode-cua/docs/platforms.md`**
 
-Move native clipboard out of “未实现能力”. Record:
+Tire a área de transferência nativa de “capacidade não implementada”. Registre:
 
 ```text
-Windows source Helper 通过 ax_native.node 的 additive async ABI 读写
-CF_UNICODETEXT。只有 readClipboardTextAsync 与 writeClipboardTextAsync
-同时存在时 broker_info.capabilities.clipboard 才为 true；旧 addon 或任一
-导出缺失时继续 false。Helper 使用独立 timed mutex 和有界
-OpenClipboard 重试，单次文本上限为 8 Mi UTF-16 code units。
+O Windows source Helper lê e grava CF_UNICODETEXT por meio da ABI async
+aditiva do ax_native.node. broker_info.capabilities.clipboard só é true quando
+readClipboardTextAsync e writeClipboardTextAsync existem ao mesmo tempo; com o
+addon antigo ou faltando qualquer uma das exportações, continua false. O Helper
+usa um timed mutex independente e retentativas limitadas de OpenClipboard, com
+teto de 8 Mi code units UTF-16 por texto.
 ```
 
-Document outcome mapping, no shell/Electron fallback, pure-text replacement semantics, and the exact opt-in command. Keep WGC and UIA worker isolation listed as pending.
+Documente o mapeamento de resultados, a ausência de fallback para shell/Electron, a semântica de substituição por texto puro e o comando exato de opt-in. Mantenha WGC e isolamento de workers UIA listados como pendentes.
 
-- [ ] **Step 2: Update `z-code/docs/cua/windows-source-development.md`**
+- [ ] **Etapa 2: Atualizar `z-code/docs/cua/windows-source-development.md`**
 
-Add source build and live verification:
+Adicione build da origem e verificação real:
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1336,29 +1337,29 @@ pnpm smoke:windows:clipboard
 Remove-Item Env:ZCODE_CUA_WINDOWS_CLIPBOARD_LIVE
 ```
 
-Record these boundaries:
+Registre estes limites:
 
-- local desktop continuous source Helper only;
-- no SSH/WSL/Docker/remote/mobile changes;
-- no dependency on pointer foreground gate;
-- Session 0/non-interactive startup still fail closed;
-- lock screen does not authorize pointer input, even though the same logged-in session may expose clipboard;
-- live smoke replaces all clipboard formats with pure text during the test and restores only pure text;
-- product packaging/signing remains a later closure.
+- apenas o Helper de origem contínuo do desktop local;
+- nenhuma mudança em SSH/WSL/Docker/remoto/móvel;
+- nenhuma dependência do gate de pointer em foreground;
+- a inicialização em Sessão 0/não interativa continua fail closed;
+- a tela de bloqueio não autoriza entrada de pointer, ainda que a mesma sessão logada possa expor a área de transferência;
+- o live smoke substitui todos os formatos da área de transferência por texto puro durante o teste e restaura apenas o texto puro;
+- o empacotamento/assinatura do produto continua sendo um fechamento posterior.
 
-Add the actual machine/date/build/test results from Task 4 without recording text, token or pipe.
+Adicione os resultados reais de máquina/data/build/teste da Tarefa 4 sem registrar texto, token ou pipe.
 
-- [ ] **Step 3: Review docs against runtime facts**
+- [ ] **Etapa 3: Revisar a documentação contra os fatos de runtime
 
-Run:
+Execute:
 
 ```powershell
 rg -n "clipboard|CF_UNICODETEXT|PowerShell|WGC|UIA worker|remote|smoke:windows:clipboard" C:\Users\dev\zcode-cua\docs\platforms.md C:\Users\dev\z-code\docs\cua\windows-source-development.md
 ```
 
-Expected: native clipboard is described as implemented only for Windows source Helper; WGC/UIA worker/product packaging remain pending; no remote claim is broadened.
+Esperado: a área de transferência nativa é descrita como implementada apenas para o Helper de origem do Windows; worker WGC/UIA e empacotamento do produto continuam pendentes; nenhuma alegação remota é ampliada.
 
-- [ ] **Step 4: Commit docs in their owning repositories**
+- [ ] **Etapa 4: Commitar a documentação em seus repositórios de origem**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1372,19 +1373,19 @@ git commit -m "docs(cua): record Windows clipboard source flow"
 
 ---
 
-### Task 6: Regenerate artifacts and run proportionate regression gates
+### Tarefa 6: Regenerar artefatos e executar gates de regressão proporcionais
 
-**Files:**
+**Arquivos:**
 
-- Modify by generator: `C:\Users\dev\zcode-cua\dist\**`
-- Verify only: both worktrees and all files from Tasks 1–5.
+- Modificado pelo gerador: `C:\Users\dev\zcode-cua\dist\**`
+- Apenas verificar: os dois worktrees e todos os arquivos das Tarefas 1–5.
 
 **Interfaces:**
 
-- Consumes: all prior task commits.
-- Produces: shippable source-development artifacts plus an evidence-backed gate report.
+- Consome: todos os commits de tarefas anteriores.
+- Produz: artefatos distribuíveis de desenvolvimento da origem mais um relatório de gates com evidências.
 
-- [ ] **Step 1: Run all `zcode-cua` focused gates**
+- [ ] **Etapa 1: Executar todos os gates focados do `zcode-cua`**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1394,9 +1395,9 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: all commands exit 0; lint may print only the already-known warning baseline, with zero errors.
+Esperado: todos os comandos saem com 0; o lint pode imprimir apenas a baseline de avisos já conhecida, com zero erros.
 
-- [ ] **Step 2: Build and run the full `zcode-cua` suite**
+- [ ] **Etapa 2: Fazer build e executar a suíte completa do `zcode-cua`**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1404,9 +1405,9 @@ pnpm build
 pnpm test
 ```
 
-Expected: exit 0. Record exact passed、skipped 和待处理数量 from this run instead of copying old counts.
+Esperado: exit 0. Registre as quantidades exatas de passed, skipped e pendentes desta execução em vez de copiar contagens antigas.
 
-- [ ] **Step 3: Verify the source ZCode integration without remote paths**
+- [ ] **Etapa 3: Verificar a integração da origem do ZCode sem caminhos remotos**
 
 ```powershell
 cd C:\Users\dev\z-code
@@ -1419,18 +1420,18 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: Helper integration, CUA focused suite, official plugin, typecheck and lint exit 0. Confirm no SSH/WSL/Docker/remote/mobile process was started.
+Esperado: a integração do Helper, a suíte focada de CUA, o plugin oficial, typecheck e lint saem com 0. Confirme que nenhum processo SSH/WSL/Docker/remoto/móvel foi iniciado.
 
-- [ ] **Step 4: Execute and classify the full ZCode affected-unit baseline**
+- [ ] **Etapa 4: Executar e classificar a baseline completa de unidades afetadas do ZCode**
 
 ```powershell
 cd C:\Users\dev\z-code
 pnpm test:unit:affected
 ```
 
-Expected: capture exact exit code and failing file/test names. Any CUA, Helper lifecycle, broker, clipboard, process leak or new type/lint failure blocks completion. Previously documented unrelated Windows baseline failures may be reported separately but may not be labelled “passed”.
+Esperado: capturar o exit code exato e os nomes de arquivos/testes que falharam. Qualquer falha de CUA, ciclo de vida do Helper, broker, área de transferência, vazamento de processo ou nova falha de tipo/lint bloqueia a conclusão. Falhas de baseline do Windows sem relação com CUA já documentadas podem ser reportadas separadamente, mas não podem ser rotuladas como “aprovado”.
 
-- [ ] **Step 5: Check generated changes and process hygiene**
+- [ ] **Etapa 5: Verificar mudanças geradas e higiene de processos**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1448,9 +1449,9 @@ Get-CimInstance Win32_Process |
   Select-Object ProcessId, ParentProcessId, Name
 ```
 
-Expected: `git diff --check` exits 0; only generated `zcode-cua/dist/**` changes remain; no orphan Helper/plugin-host process remains. Do not terminate unrelated user processes.
+Esperado: `git diff --check` sai com 0; restam apenas mudanças geradas em `zcode-cua/dist/**`; nenhum processo órfão de Helper/plugin-host permanece. Não encerre processos não relacionados do usuário.
 
-- [ ] **Step 6: Commit generated artifacts**
+- [ ] **Etapa 6: Commitar os artefatos gerados**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1458,7 +1459,7 @@ git add dist
 git commit -m "build(windows): regenerate clipboard artifacts"
 ```
 
-- [ ] **Step 7: Final clean-tree and commit audit**
+- [ ] **Etapa 7: Auditoria final de árvore limpa e commits**
 
 ```powershell
 cd C:\Users\dev\zcode-cua
@@ -1470,20 +1471,20 @@ git status --short --branch
 git log -3 --oneline
 ```
 
-Expected: both worktrees clean. Final report must distinguish:
+Esperado: os dois worktrees limpos. O relatório final deve distinguir:
 
-- source unit/build gates;
-- real clipboard live round-trip and restoration;
-- ZCode source Helper integration;
-- known non-CUA full-suite baseline;
-- still-pending WGC, UIA worker isolation, product packaging/signing;
-- still-pending pointer live acceptance if the foreground remains `LockApp`.
+- os gates de unidade/build da origem;
+- o round-trip real da área de transferência e sua restauração;
+- a integração do Helper de origem do ZCode;
+- a baseline conhecida da suíte completa não-CUA;
+- WGC, isolamento de workers UIA e empacotamento/assinatura do produto ainda pendentes;
+- aceitação real do pointer ainda pendente se o foreground permanecer `LockApp`.
 
-## Self-Review Checklist
+## Checklist de Auto-Revisão
 
-- [x] Spec coverage: every ABI, timing, size, ownership, capability, error, logging, lifecycle, platform and smoke requirement maps to a task above.
-- [x] Placeholder scan: the plan contains no deferred implementation marker; every code-changing step names exact files, interfaces, commands and expected results.
-- [x] Type consistency: `NativeClipboardReadOutcome` / `NativeClipboardWriteOutcome`, async export names and broker handler names are identical across Tasks 1–4.
-- [x] Platform boundary: Windows native pair selection is isolated in `createNodeAutomationAdapter`; macOS/Linux system surface and remote/mobile architecture are unchanged.
-- [x] Safety boundary: default smoke exits before Helper startup; live smoke restores in `finally`; no clipboard contents enter output.
-- [x] Product truth: 30 tools remain unchanged; WGC/UIA worker/product closure remain explicitly pending.
+- [x] Cobertura da spec: cada requisito de ABI, temporização, tamanho, posse, capability, erro, logging, ciclo de vida, plataforma e smoke corresponde a uma tarefa acima.
+- [x] Varredura de placeholders: o plano não contém nenhum marcador de implementação adiado; cada etapa que altera código nomeia arquivos, interfaces, comandos e resultados esperados exatos.
+- [x] Consistência de tipos: `NativeClipboardReadOutcome` / `NativeClipboardWriteOutcome`, nomes das exportações assíncronas e nomes dos handlers do broker são idênticos nas Tarefas 1–4.
+- [x] Limite de plataforma: a seleção do par nativo do Windows está isolada em `createNodeAutomationAdapter`; a superfície de sistema de macOS/Linux e a arquitetura remota/móvel permanecem inalteradas.
+- [x] Limite de segurança: o smoke padrão sai antes de iniciar o Helper; o smoke real restaura no `finally`; nenhum conteúdo da área de transferência entra na saída.
+- [x] Verdade do produto: 30 ferramentas permanecem inalteradas; WGC/worker UIA/fechamento do produto permanecem explicitamente pendentes.

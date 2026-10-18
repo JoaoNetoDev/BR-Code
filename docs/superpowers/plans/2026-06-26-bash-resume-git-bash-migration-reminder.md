@@ -1,54 +1,54 @@
-# Bash Resume Git Bash Migration Reminder Implementation Plan
+# Plano de Implementação do Lembrete de Migração para Git Bash no Bash Resume
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para trabalhadores agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 修复 Windows legacy 会话在 resume 后实际使用 Git Bash 执行 Bash tool，但模型仍沿用历史 CMD 语法并写出 `nul` 文件的问题。
+**Objetivo:** corrigir o problema em que sessões Windows legadas, após o resume, realmente executam a ferramenta Bash com Git Bash, mas o modelo continua usando a sintaxe CMD histórica e escreve arquivos `nul`.
 
-**Architecture:** 保持现有 session-start shell snapshot 契约不变：shell 设置变更仍只对新 session 生效。只在 cold resume 发现旧会话没有可用 shell snapshot、最终由当前 auto Git Bash 接管执行时，通过现有 `shell_environment_change` provider-visible attachment 插入一次语法迁移提醒。实现集中在 runtime shell owner，不改 executor、protocol schema 或设置 UI。
+**Arquitetura:** manter inalterado o contrato atual de shell snapshot no session-start: mudanças nas configurações de shell continuam valendo apenas para novas sessões. Apenas quando, em um cold resume, se descobre que a sessão antiga não tem um shell snapshot utilizável e a execução acaba sendo assumida pelo Git Bash automático atual, inserir uma vez um lembrete de migração de sintaxe pelo attachment `shell_environment_change` provider-visible já existente. A implementação fica concentrada no runtime shell owner, sem alterar o executor, o schema de protocolo ou a UI de configurações.
 
-**Tech Stack:** TypeScript, Vitest, `@zcode/core` runtime, existing `MessageHistory.addAttachment()`, existing `shell_environment_change` system reminder source.
+**Stack técnico:** TypeScript, Vitest, runtime de `@zcode/core`, `MessageHistory.addAttachment()` existente, fonte de system reminder `shell_environment_change` existente.
 
-## Global Constraints
+## Restrições globais
 
-- 不新增 shell 热更新语义；同一 session 内切换 shell 设置仍不影响当前 session。
-- 不新增 protocol 字段、不新增 setting 字段、不改 Bash executor shell resolve 顺序。
-- 不新增新的 system reminder source；复用现有 `shell_environment_change`，避免 provider projection / hydrate / MCS 分类额外迁移面。
-- reminder 只针对 legacy/no-usable snapshot resume 后由 `source: "auto-detected"` 且 `dialect: "git-bash"` 的 selection 接管执行。
-- reminder 文案只说明未来 Bash command 当前会使用 Git Bash 执行，不针对单个 badcase 做命令写法教学。
-- reminder 必须幂等；同一 session 历史中已有 `shell_environment_change` attachment 时不重复插入。
-- 继续保留现有 display drift 提醒能力，但文案从 “changed by the user” 改为 resume 场景中性的描述。
-- 注释保持中文，说明线上问题根因和为什么只在 resume/migration 场景插提醒。
+- Não criar nova semântica de hot update de shell; trocar as configurações de shell dentro da mesma sessão continua não afetando a sessão atual.
+- Não criar novos campos de protocolo, nem de configuração, nem alterar a ordem de resolução de shell do executor Bash.
+- Não criar uma nova fonte de system reminder; reutilizar a `shell_environment_change` existente, evitando uma superfície extra de migração em provider projection / hydrate / classificação MCS.
+- O lembrete vale apenas para quando, após um resume legacy/sem snapshot utilizável, a execução é assumida por uma seleção com `source: "auto-detected"` e `dialect: "git-bash"`.
+- O texto do lembrete apenas informa que comandos Bash futuros passam a ser executados com Git Bash; não ensina como escrever comandos para um badcase específico.
+- O lembrete precisa ser idempotente; quando já existe um attachment `shell_environment_change` no histórico da mesma sessão, não inserir de novo.
+- Continuar preservando a capacidade existente de lembrete de display drift, mas mudando o texto de “changed by the user” para uma descrição neutra no cenário de resume.
+- Manter os comentários em chinês, explicando a causa raiz do problema em produção e por que o lembrete só é inserido em cenários de resume/migração.
 
 ---
 
-## File Structure
+## Estrutura de arquivos
 
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/shell-environment.ts`
-  - 负责 shell resume notice 的纯判定和文案构造。
-  - 新增 `ShellEnvironmentResumeNoticeKind`，把 “display drift” 和 “Windows auto Git Bash migration” 收敛成一个决策函数。
+  - Responsável pela decisão pura e a construção do texto do shell resume notice.
+  - Novo `ShellEnvironmentResumeNoticeKind`, convergindo “display drift” e “Windows auto Git Bash migration” em uma única função de decisão.
 
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
-  - 保持 runtime shell owner 职责。
-  - 将 `announceSessionShellEnvironmentDriftAfterResume()` 重构为 `announceSessionShellEnvironmentNoticeAfterResume()`。
-  - 调用 `shell-environment.ts` 的判定和文案函数，并在插入前检查已有 `shell_environment_change` attachment。
+  - Mantém a responsabilidade de runtime shell owner.
+  - Refatora `announceSessionShellEnvironmentDriftAfterResume()` para `announceSessionShellEnvironmentNoticeAfterResume()`.
+  - Chama as funções de decisão e de texto de `shell-environment.ts` e, antes de inserir, verifica se já existe um attachment `shell_environment_change`.
 
 - Modify: `apps/zcode-cli/packages/core/tests/runtime-persistence.test.ts`
-  - 覆盖 legacy Windows auto Git Bash migration reminder。
-  - 覆盖 reminder 幂等。
-  - 更新现有 drift/stale shell snapshot 测试文案。
+  - Cobre o lembrete de migração do Git Bash automático legacy do Windows.
+  - Cobre a idempotência do lembrete.
+  - Atualiza o texto dos testes existentes de drift/stale shell snapshot.
 
 - Modify: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
-  - 更新旧文案反向断言，确保新 session 初始化 Git Bash 时不会误插 migration/drift reminder。
+  - Atualiza as asserções negativas de texto antigo, garantindo que a inicialização do Git Bash em uma nova sessão não insira por engano um lembrete de migration/drift.
 
 - Modify: `docs/runtime-tools/bash-effective-shell-snapshot.md`
-  - 更新 resume 语义说明：legacy/no usable snapshot + auto Git Bash 会插一次语法迁移提醒。
-  - 明确这不是 shell hot update。
+  - Atualiza a explicação da semântica de resume: legacy/sem snapshot utilizável + Git Bash automático insere uma vez um lembrete de migração de sintaxe.
+  - Esclarece que isso não é hot update de shell.
 
 ---
 
-### Task 1: 用测试锁定 legacy Windows auto Git Bash migration reminder
+### Tarefa 1: Travar com testes o lembrete de migração do Git Bash automático legacy do Windows
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/tests/runtime-persistence.test.ts`
 
 **Interfaces:**
@@ -56,14 +56,14 @@
   - `AgentRuntime.resumeFromStore(): Promise<ResumeSessionResult>`
   - `AgentRuntime.executeTurn(input: string): Promise<unknown>`
   - `providerMessagesToText(messages: readonly ModelInputMessage[]): string`
-  - existing test helpers `createRecordingSessionStore()`, `createTestSessionEventStore()`
+  - helpers de teste existentes `createRecordingSessionStore()`, `createTestSessionEventStore()`
 - Produces:
-  - 一个失败测试，证明 legacy session resume 后 auto Git Bash 会产生 provider-visible shell reminder。
-  - 一个失败测试，证明重复 resume 不会重复插入同一类 reminder。
+  - Um teste que falha, provando que após o resume de uma sessão legacy o Git Bash automático produz um shell reminder provider-visible.
+  - Um teste que falha, provando que resumes repetidos não inserem o mesmo tipo de lembrete novamente.
 
-- [ ] **Step 1: 在 `runtime-persistence.test.ts` 的 Bash shell persistence 用例附近添加 failing test**
+- [ ] **Passo 1: adicionar o teste que falha em `runtime-persistence.test.ts`, perto dos casos de Bash shell persistence**
 
-Add this test after `announces legacy cold-resume Bash shell drift when no shell snapshot exists`:
+Adicionar este teste depois de `announces legacy cold-resume Bash shell drift when no shell snapshot exists`:
 
 ```ts
   it("announces Windows Git Bash syntax migration for legacy cold-resume sessions", async () => {
@@ -141,7 +141,7 @@ Add this test after `announces legacy cold-resume Bash shell drift when no shell
   });
 ```
 
-- [ ] **Step 2: Run the new test and verify it fails**
+- [ ] **Passo 2: rodar o novo teste e verificar que ele falha**
 
 Run:
 
@@ -149,11 +149,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/runtime-persistence.test.ts -t "Windows Git Bash syntax migration"
 ```
 
-Expected: FAIL because provider text does not contain the new Git Bash migration reminder.
+Expected: FAIL porque o texto do provider não contém o novo lembrete de migração do Git Bash.
 
-- [ ] **Step 3: Add the idempotence failing test**
+- [ ] **Passo 3: adicionar o teste que falha de idempotência**
 
-Add this test after the migration test:
+Adicionar este teste depois do teste de migração:
 
 ```ts
   it("does not duplicate the Windows Git Bash migration reminder after repeated resume", async () => {
@@ -243,7 +243,7 @@ Add this test after the migration test:
   });
 ```
 
-Also add this helper near `providerMessagesToText()`:
+Adicionar também este helper perto de `providerMessagesToText()`:
 
 ```ts
 function escapeRegExp(value: string): string {
@@ -251,7 +251,7 @@ function escapeRegExp(value: string): string {
 }
 ```
 
-- [ ] **Step 4: Run the two new tests and verify they fail**
+- [ ] **Passo 4: rodar os dois novos testes e verificar que eles falham**
 
 Run:
 
@@ -259,13 +259,13 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/runtime-persistence.test.ts -t "Git Bash migration"
 ```
 
-Expected: FAIL because implementation does not yet insert the migration reminder and does not yet have idempotence logic.
+Expected: FAIL porque a implementação ainda não insere o lembrete de migração e ainda não tem lógica de idempotência.
 
 ---
 
-### Task 2: 重构 shell resume reminder 判定和文案
+### Tarefa 2: Refatorar a decisão e o texto do lembrete de shell resume
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/shell-environment.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
 
@@ -280,9 +280,9 @@ Expected: FAIL because implementation does not yet insert the migration reminder
   - `buildShellEnvironmentResumeNotice(kind, selection): string`
   - `announceSessionShellEnvironmentNoticeAfterResume(runtime, options): void`
 
-- [ ] **Step 1: Replace shell reminder helpers in `shell-environment.ts`**
+- [ ] **Passo 1: substituir os helpers de lembrete de shell em `shell-environment.ts`**
 
-Change `apps/zcode-cli/packages/core/src/runtime/methods/shell-environment.ts` to this shape:
+Mudar `apps/zcode-cli/packages/core/src/runtime/methods/shell-environment.ts` para esta forma:
 
 ```ts
 import type { ExecutionShellSelection } from "../deps.js";
@@ -342,9 +342,9 @@ function normalizeShellDisplayName(value: string | undefined): string | undefine
 }
 ```
 
-- [ ] **Step 2: Refactor `session-shell-environment.ts` announce function**
+- [ ] **Passo 2: refatorar a função announce de `session-shell-environment.ts`**
 
-Update imports:
+Atualizar os imports:
 
 ```ts
 import {
@@ -353,7 +353,7 @@ import {
 } from "./shell-environment.js";
 ```
 
-Replace `announceSessionShellEnvironmentDriftAfterResume()` with:
+Substituir `announceSessionShellEnvironmentDriftAfterResume()` por:
 
 ```ts
 export function announceSessionShellEnvironmentNoticeAfterResume(
@@ -390,9 +390,9 @@ function hasShellEnvironmentChangeAttachment(runtime: AgentRuntimeInternal): boo
 }
 ```
 
-- [ ] **Step 3: Update the resume caller**
+- [ ] **Passo 3: atualizar quem chama no resume**
 
-In `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts`, replace the import and call:
+Em `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts`, substituir o import e a chamada:
 
 ```ts
 import {
@@ -402,7 +402,7 @@ import {
 } from "./session-shell-environment.js";
 ```
 
-And:
+E:
 
 ```ts
   announceSessionShellEnvironmentNoticeAfterResume(this, {
@@ -411,7 +411,7 @@ And:
   });
 ```
 
-- [ ] **Step 4: Run the new tests**
+- [ ] **Passo 4: rodar os novos testes**
 
 Run:
 
@@ -419,27 +419,27 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/runtime-persistence.test.ts -t "Git Bash migration"
 ```
 
-Expected: PASS for the two migration tests.
+Expected: PASS nos dois testes de migração.
 
 ---
 
-### Task 3: 更新现有 shell drift 测试，保持旧能力但改成中性文案
+### Tarefa 3: Atualizar os testes existentes de shell drift, mantendo a capacidade antiga mas com texto neutro
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/tests/runtime-persistence.test.ts`
 - Modify: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
 
 **Interfaces:**
 - Consumes:
-  - new `buildShellEnvironmentResumeNotice("display_change", selection)` text:
+  - novo texto de `buildShellEnvironmentResumeNotice("display_change", selection)`:
     `The Bash tool shell is ${selection.display.name}.`
 - Produces:
-  - Existing legacy display drift behavior remains covered.
-  - Existing new-session Git Bash initialization does not accidentally emit a resume reminder.
+  - O comportamento existente de display drift legacy continua coberto.
+  - A inicialização do Git Bash em sessão nova não emite por engano um lembrete de resume.
 
-- [ ] **Step 1: Update missing snapshot drift expectation**
+- [ ] **Passo 1: atualizar a expectativa de drift de snapshot ausente**
 
-In `runtime-persistence.test.ts`, update:
+Em `runtime-persistence.test.ts`, atualizar:
 
 ```ts
 expect(providerText).toContain(
@@ -447,7 +447,7 @@ expect(providerText).toContain(
 );
 ```
 
-to:
+para:
 
 ```ts
 expect(providerText).toContain(
@@ -455,9 +455,9 @@ expect(providerText).toContain(
 );
 ```
 
-- [ ] **Step 2: Update stale snapshot drift expectation**
+- [ ] **Passo 2: atualizar a expectativa de drift de snapshot obsoleto**
 
-In `runtime-persistence.test.ts`, update:
+Em `runtime-persistence.test.ts`, atualizar:
 
 ```ts
 expect(providerText).toContain(
@@ -465,7 +465,7 @@ expect(providerText).toContain(
 );
 ```
 
-to:
+para:
 
 ```ts
 expect(providerText).toContain(
@@ -473,9 +473,9 @@ expect(providerText).toContain(
 );
 ```
 
-- [ ] **Step 3: Update runtime trace negative assertion**
+- [ ] **Passo 3: atualizar a asserção negativa do runtime trace**
 
-In `runtime-trace.test.ts`, replace the old negative assertion:
+Em `runtime-trace.test.ts`, substituir a antiga asserção negativa:
 
 ```ts
 expect(requestText).not.toContain(
@@ -483,7 +483,7 @@ expect(requestText).not.toContain(
 );
 ```
 
-with:
+por:
 
 ```ts
 expect(requestText).not.toContain(
@@ -494,7 +494,7 @@ expect(requestText).not.toContain(
 );
 ```
 
-- [ ] **Step 4: Run focused shell persistence and trace tests**
+- [ ] **Passo 4: rodar os testes focados de shell persistence e trace**
 
 Run:
 
@@ -503,7 +503,7 @@ pnpm --filter @zcode/core exec vitest run tests/runtime-persistence.test.ts -t "
 pnpm --filter @zcode/core exec vitest run tests/runtime-trace.test.ts -t "Shell"
 ```
 
-Expected: PASS. If `runtime-trace.test.ts -t "Shell"` matches no tests because test names changed, run the whole file:
+Expected: PASS. Se `runtime-trace.test.ts -t "Shell"` não casar com nenhum teste porque os nomes mudaram, rodar o arquivo inteiro:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/runtime-trace.test.ts
@@ -513,46 +513,46 @@ Expected: PASS.
 
 ---
 
-### Task 4: 更新文档，明确 legacy Windows Git Bash migration 不是 shell hot update
+### Tarefa 4: Atualizar a documentação, esclarecendo que a migração legacy do Windows Git Bash não é hot update de shell
 
-**Files:**
+**Arquivos:**
 - Modify: `docs/runtime-tools/bash-effective-shell-snapshot.md`
 
 **Interfaces:**
 - Consumes:
-  - Existing document sections `核心契约`, `Prompt 与缓存`, `非目标`
+  - Seções existentes do documento `核心契约`, `Prompt 与缓存`, `非目标`
 - Produces:
-  - Updated runtime contract docs that explain the new reminder trigger and non-trigger cases.
+  - Documentação de contrato do runtime atualizada, explicando o novo gatilho do lembrete e os casos em que ele não dispara.
 
-- [ ] **Step 1: Update `核心契约` legacy resume bullet**
+- [ ] **Passo 1: atualizar o bullet de resume legacy em `核心契约`**
 
-Replace:
+Substituir:
 
 ```md
 - legacy session 如果没有持久化 selection，或持久化 selection 已失效，只能按当前自动解析逻辑 best-effort 恢复；当历史 `# Environment` 的 Shell 与当前执行 shell 不一致时，必须通过 `shell_environment_change` attachment 告知模型。
 ```
 
-with:
+por:
 
 ```md
 - legacy session 如果没有持久化 selection，或持久化 selection 已失效，只能按当前自动解析逻辑 best-effort 恢复；当历史 `# Environment` 的 Shell 与当前执行 shell 不一致时，必须通过 `shell_environment_change` attachment 告知模型。Windows legacy session 被当前 auto Git Bash 接管时，即使历史 `# Environment` 没有可靠 Shell 字段，也会插入一次 Git Bash shell 提醒，避免模型继续沿用旧 shell 习惯。
 ```
 
-- [ ] **Step 2: Update `Prompt 与缓存`**
+- [ ] **Passo 2: atualizar `Prompt 与缓存`**
 
-After:
+Depois de:
 
 ```md
 切换 shell 不会向已有 session 追加 `shell_environment_change` attachment。因为 Bash 执行仍然使用 session-start selection，模型看到的初始 `# Environment` 和真实 Bash 执行环境保持一致。
 ```
 
-Add:
+Adicionar:
 
 ```md
 例外是 legacy/no-usable snapshot 的 cold resume：这类会话没有稳定的 session-start shell selection 可恢复，runtime 只能用当前解析出的 selection 继续执行。若 Windows 上最终由 auto Git Bash 接管，会通过 `shell_environment_change` 插入一次短提醒，告诉模型后续 Bash command 当前使用 Git Bash 执行。这不是同 session 内 shell hot update，也不会读取用户最新设置覆盖已有可用 snapshot。
 ```
 
-- [ ] **Step 3: Run documentation diff review**
+- [ ] **Passo 3: rodar a revisão do diff da documentação**
 
 Run:
 
@@ -560,22 +560,22 @@ Run:
 git diff -- docs/runtime-tools/bash-effective-shell-snapshot.md
 ```
 
-Expected: Diff only documents legacy/no-usable snapshot resume reminder behavior and does not claim existing sessions hot update shell.
+Expected: o diff documenta apenas o comportamento do lembrete de resume legacy/sem snapshot utilizável e não afirma que sessões existentes fazem hot update de shell.
 
 ---
 
-### Task 5: Final verification
+### Tarefa 5: Verificação final
 
-**Files:**
-- Verify only; no additional modifications expected.
+**Arquivos:**
+- Apenas verificação; nenhuma modificação adicional esperada.
 
 **Interfaces:**
 - Consumes:
-  - All changes from Tasks 1-4
+  - Todas as alterações das Tarefas 1-4
 - Produces:
-  - Evidence that runtime behavior, provider-visible reminder projection, and docs are coherent.
+  - Evidência de que o comportamento do runtime, a projeção do lembrete provider-visible e a documentação são coerentes.
 
-- [ ] **Step 1: Run focused tests**
+- [ ] **Passo 1: rodar os testes focados**
 
 Run:
 
@@ -586,7 +586,7 @@ pnpm --filter @zcode/core exec vitest run tests/runtime-trace.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 2: Run system reminder source tests**
+- [ ] **Passo 2: rodar os testes da fonte de system reminder**
 
 Run:
 
@@ -594,9 +594,9 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/system-reminder-source.test.ts
 ```
 
-Expected: PASS. This verifies reusing `shell_environment_change` did not break descriptor assumptions.
+Expected: PASS. Isso verifica que reutilizar `shell_environment_change` não quebrou as premissas do descriptor.
 
-- [ ] **Step 3: Run package typecheck**
+- [ ] **Passo 3: rodar o typecheck do pacote**
 
 Run:
 
@@ -606,7 +606,7 @@ pnpm --filter @zcode/core typecheck
 
 Expected: PASS.
 
-- [ ] **Step 4: Run repo-required checks before commit**
+- [ ] **Passo 4: rodar as verificações exigidas pelo repositório antes do commit**
 
 Run:
 
@@ -615,9 +615,9 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: PASS. If these are too slow or blocked by unrelated existing workspace changes, capture the exact failure and do not claim full verification.
+Expected: PASS. Se forem lentas demais ou forem bloqueadas por mudanças de workspace não relacionadas, registrar a falha exata e não afirmar verificação completa.
 
-- [ ] **Step 5: Inspect staged diff**
+- [ ] **Passo 5: inspecionar o diff preparado**
 
 Run:
 
@@ -632,13 +632,13 @@ git diff -- apps/zcode-cli/packages/core/src/runtime/methods/shell-environment.t
 
 Expected:
 
-- No changes to executor shell resolve order.
-- No new protocol/settings fields.
-- No new system reminder source.
-- Only one resume announcement path exists in `session-shell-environment.ts`.
-- Git Bash migration reminder text is limited to legacy/no usable snapshot resume paths.
+- Nenhuma mudança na ordem de resolução de shell do executor.
+- Nenhum campo novo de protocolo/configurações.
+- Nenhuma nova fonte de system reminder.
+- Existe apenas um caminho de anúncio de resume em `session-shell-environment.ts`.
+- O texto do lembrete de migração do Git Bash fica restrito aos caminhos de resume legacy/sem snapshot utilizável.
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: commitar**
 
 Run:
 
@@ -652,13 +652,13 @@ git add apps/zcode-cli/packages/core/src/runtime/methods/shell-environment.ts \
 git commit -m "fix(cli): remind legacy windows sessions about git bash syntax"
 ```
 
-Expected: Commit succeeds with only the planned files.
+Expected: o commit é bem-sucedido contendo apenas os arquivos planejados.
 
 ---
 
-## Self-Review
+## Auto-revisão
 
-- Spec coverage: The plan covers legacy/no-usable snapshot resume, Windows auto Git Bash migration, idempotence, existing display drift preservation, docs, and verification.
-- Placeholder scan: No placeholder markers or open-ended “handle edge cases” steps remain.
-- Type consistency: The plan reuses existing `ExecutionShellSelection`, `BashShellSnapshotRestore`, `MessageHistory.addAttachment()`, and existing `shell_environment_change` source. It does not introduce protocol/settings/schema fields.
-- Complexity check: The plan intentionally avoids new persistent session entries and avoids adding a second reminder source. Repeated `if` logic is centralized in `getShellEnvironmentResumeNoticeKind()`, leaving `session-shell-environment.ts` as the single runtime owner that decides whether to attach a resume notice.
+- Cobertura da spec: o plano cobre resume legacy/sem snapshot utilizável, migração do Git Bash automático do Windows, idempotência, preservação do display drift existente, documentação e verificação.
+- Varredura de placeholders: não restam marcadores de placeholder nem passos abertos do tipo "handle edge cases".
+- Consistência de tipos: o plano reutiliza `ExecutionShellSelection`, `BashShellSnapshotRestore`, `MessageHistory.addAttachment()` e a fonte `shell_environment_change` existentes. Não introduz campos de protocolo/configurações/schema.
+- Checagem de complexidade: o plano evita deliberadamente novas entradas de sessão persistentes e evita adicionar uma segunda fonte de lembrete. A lógica repetida de `if` fica centralizada em `getShellEnvironmentResumeNoticeKind()`, deixando `session-shell-environment.ts` como o único runtime owner que decide se anexa um lembrete de resume.

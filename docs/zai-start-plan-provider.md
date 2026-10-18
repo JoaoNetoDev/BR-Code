@@ -40,70 +40,71 @@ Bot, execução em segundo plano, "executar agora" na lista de tarefas, desidrat
 
 Os `builtin:*` nas descrições de interfaces antigas abaixo são identidades anteriores à migração; hoje correspondem a `account:*`, e o Provider Store antigo não pode ser restaurado.
 
-Start Plan is represented by dedicated built-in model provider ids:
+O Start Plan é representado por ids de model provider embutidos dedicados:
 
 ```txt
 builtin:zai-start-plan
 builtin:bigmodel-start-plan
 ```
 
-Both providers intentionally reuse the same `zcode-plan` runtime endpoint and
-free model set. OAuth preset sync derives each Start Plan provider from its own
-brand login domain, so runtime model calls can continue to use the same
-`zcode-plan` endpoint while keeping credentials isolated by provider id.
+Ambos os providers reutilizam intencionalmente o mesmo endpoint de runtime `zcode-plan` e o
+mesmo conjunto de modelos gratuitos. A sincronização de presets OAuth deriva cada provider
+de Start Plan do seu próprio domínio de login da marca, de modo que as chamadas de modelo em
+runtime continuem usando o mesmo endpoint `zcode-plan` enquanto as credenciais permanecem
+isoladas por id de provider.
 
-Status checks are separate from paid Coding Plan checks. `builtin:zai-start-plan`
-reads the active free plan identity and the daily quota bucket renewal time from
-one balance request:
+As verificações de status são separadas das verificações do Coding Plan pago. `builtin:zai-start-plan`
+lê a identidade do plano gratuito ativo e o horário de renovação do bucket de cota diária a
+partir de uma única requisição de saldo:
 
 ```http
 GET https://zcode.z.ai/api/v1/zcode-plan/billing/balance?app_version=<ZCODE_VERSION>
 Authorization: Bearer <zcodejwttoken>          # Z.AI
 Authorization: Bearer <zcodejwttoken>          # BigModel
-X-Device-Mid: <telemetry-state.json deviceMid>  # required; missing -> 400 {"code":3001,"msg":"parameter error"}
+X-Device-Mid: <telemetry-state.json deviceMid>  # obrigatório; ausente -> 400 {"code":3001,"msg":"parameter error"}
 ```
 
-`X-Device-Mid` is required by the backend for this endpoint even though it is an
-optional field in the generic source-header rules. Every runtime that issues
-this request (Desktop host, remote `zcode-server`, CLI) must therefore ensure
-its own `deviceMid` exists before the first balance query; see
-`docs/zcode-endpoint-device-mid-header.md`. A `400 parameter error` here is
-classified as `unknown` availability and disables executable Start models, so a
-missing header must never be treated as a backend outage.
+O `X-Device-Mid` é exigido pelo backend para este endpoint, embora seja um campo opcional nas
+regras genéricas de cabeçalho de origem. Portanto, todo runtime que emite esta requisição
+(Host do Desktop, `zcode-server` remoto, CLI) deve garantir que seu próprio `deviceMid` exista
+antes da primeira consulta de saldo; veja `docs/zcode-endpoint-device-mid-header.md`. Um
+`400 parameter error` aqui é classificado como disponibilidade `unknown` e desabilita os
+modelos de Start executáveis, portanto um cabeçalho ausente nunca deve ser tratado como falha
+do backend.
 
-`billing/current` is deprecated for Start Plan. The `balance` response must
-include `data.plans` for active-plan detection and subscription metadata, plus
-`data.balances` for quota/remaining display. Clients must not call `current`
-before `balance` or issue a second `balance` request for the same snapshot.
+`billing/current` está obsoleto para o Start Plan. A resposta de `balance` deve incluir
+`data.plans` para detecção de plano ativo e metadados de assinatura, além de `data.balances`
+para exibição de cota/restante. Os clientes não devem chamar `current` antes de `balance` nem
+emitir uma segunda requisição de `balance` para o mesmo snapshot.
 
-`app_version` always uses the current app `ZCODE_VERSION`, including development
-builds, so backend gating observes the same version identity as the running app.
+`app_version` sempre usa o `ZCODE_VERSION` atual do app, incluindo builds de desenvolvimento,
+para que o gating do backend observe a mesma identidade de versão do app em execução.
 
-`zcodejwttoken` is the OAuth backend JWT saved during Z.AI or BigModel login.
-BigModel passes the one-time callback `code` directly to
-`https://zcode.z.ai/api/v1/oauth/token` with `state`, `redirect_uri`, and
-`provider: "bigmodel"` to save the same JWT shape used by Z.AI Start Plan.
-Paid Coding Plan providers continue to use `/api/biz/subscription/list`;
-monitor quota APIs remain reserved for Coding Plan usage/limit views.
+`zcodejwttoken` é o JWT de backend OAuth salvo durante o login do Z.AI ou do BigModel.
+O BigModel repassa o `code` de callback de uso único diretamente para
+`https://zcode.z.ai/api/v1/oauth/token` com `state`, `redirect_uri` e
+`provider: "bigmodel"` para salvar o mesmo formato de JWT usado pelo Z.AI Start Plan.
+Os providers de Coding Plan pago continuam usando `/api/biz/subscription/list`;
+as APIs de monitoramento de cota permanecem reservadas para as telas de uso/limite do Coding Plan.
 
 ## Seleção e disponibilidade independentes
 
-Start is a permanent Provider entry for the current login brand, independent of the paid connection selection. No active entitlement, a failed query or pending activation changes the status panel, not the existence of this entry. The executable model menu remains controlled by Account Source and Registry; an unavailable Start never falls back to paid quota.
+O Start é uma entrada permanente de Provider para a marca de login atual, independente da seleção da conexão paga. Sem entitlement ativo, uma consulta com falha ou ativação pendente muda apenas o painel de status, não a existência desta entrada. O menu de modelos executáveis continua controlado pelo Account Source e pelo Registry; um Start indisponível nunca recai para a cota paga.
 
-- Composer quota follows the effective Provider/model in that composer. Start does not require a saved `kind: start-plan`; paid quota still uses the exact personal/team scope.
-- Unresolved legacy team identity blocks that paid access only; it does not stop Start entitlement discovery.
-- Paid connection selection uses the saved/pending family selection and exact org/project/product identity, not a copied navigation item's `provider.current`. No matching choice displays the normal placeholder; a sole unselected option remains actionable.
-- Start details reuse the existing loading text/spinner, active/pending subscription cards, quota buckets, zero-balance presentation, reset time and model management. There is no new skeleton, exhausted warning, persistent refresh-failure overlay or status-dot color system.
-- Signed-out Start offers login; conclusive no-plan shows no available trial plan and the existing introduction/eligible campaign. A first query failure offers retry, explicit auth expiry offers login, and configuration-unavailable is reserved for actual missing configuration. Silent refresh retains existing data only under the existing cache/error rules.
-- Claim success remains success if subsequent refresh fails. The settings action is “查看套餐 / View plan”; no automatic model guide or implicit model/paid-connection mutation remains.
+- A cota do composer segue o Provider/modelo efetivo daquele composer. O Start não exige um `kind: start-plan` salvo; a cota paga continua usando o escopo exato pessoal/time.
+- Identidade de time legada não resolvida bloqueia apenas esse acesso pago; não interrompe a descoberta de entitlement do Start.
+- A seleção da conexão paga usa a seleção de family salva/pendente e a identidade exata de org/projeto/produto, não o `provider.current` de um item de navegação copiado. Sem escolha correspondente, exibe-se o placeholder normal; uma única opção não selecionada continua acionável.
+- Os detalhes do Start reutilizam o texto/spinner de carregamento existente, os cartões de assinatura ativo/pendente, os buckets de cota, a apresentação de saldo zero, o horário de reset e a gestão de modelos. Não há novo skeleton, aviso de esgotamento, overlay persistente de falha de refresh ou sistema de cores de ponto de status.
+- O Start sem login oferece login; uma ausência conclusiva de plano mostra que não há plano de experimental disponível nem a introdução/campanha elegível existente. Uma falha na primeira consulta oferece retry, expiração explícita de autenticação oferece login, e configuração indisponível fica reservada para configuração realmente ausente. O refresh silencioso mantém os dados existentes apenas sob as regras de cache/erro já existentes.
+- O sucesso do resgate continua sendo sucesso se um refresh subsequente falhar. A ação de configurações é "查看套餐 / View plan"; nenhum guia automático de modelos ou mutação implícita de modelo/conexão paga permanece.
 
 ### Frescor da recomendação e mudanças de conta
 
-Recommendation, settings and composer balance use the same Start request/cache identity for the same Host/account/Provider. Reuse the existing Provider entitlement fingerprint, refresh events and UsageEntitlement cache; do not introduce another balance owner. Settings refresh publishes new quota to the recommendation consumer.
+Recomendação, configurações e saldo do composer usam a mesma identidade de requisição/cache do Start para o mesmo Host/conta/Provider. Reutilize a impressão digital de entitlement de Provider existente, os eventos de refresh e o cache de UsageEntitlement; não introduza outro dono do saldo. O refresh das configurações publica a nova cota para o consumidor da recomendação.
 
-Page entry and interactive submission perform an access refresh check with the existing 60-second throttle, in-flight merging and error backoff. Account/claim changes use the existing auth/purchase refresh path. No idle polling is introduced.
+A entrada na página e o envio interativo realizam uma verificação de atualidade de acesso com o throttle existente de 60 segundos, mesclagem de requisições em voo e backoff de erro. Mudanças de conta/resgate usam o caminho de refresh de auth/compra existente. Nenhuma sondagem ociosa é introduzida.
 
-Only a successful snapshot sampled at most 60 seconds ago can support a recommendation. Reading or remounting does not renew its age. At submission time, add elapsed local time since sampling to the server reference time before checking bucket expiration. An expired bucket never supports a recommendation, even in a fresh snapshot. Missing/stale quota triggers background refresh and this submission proceeds with its original selection, without waiting or later resending. Query failures skip recommendations; they do not extend old positive quota validity. This limit applies to recommendation decisions, not automatic clearing of visible plan cards.
+Somente um snapshot bem-sucedido amostrado há no máximo 60 segundos pode sustentar uma recomendação. Ler ou remontar não renova sua idade. No momento do envio, some o tempo local decorrido desde a amostragem ao tempo de referência do servidor antes de verificar a expiração do bucket. Um bucket expirado nunca sustenta uma recomendação, mesmo em um snapshot recente. Cota ausente/desatualizada dispara refresh em segundo plano e este envio prossegue com sua seleção original, sem esperar e sem reenviar depois. Falhas de consulta pulam recomendações; elas não estendem a validade de cota positiva antiga. Este limite se aplica às decisões de recomendação, não à limpeza automática dos cartões de plano visíveis.
 
 ```text
 account/claim change → existing entitlement refresh → shared quota snapshot
@@ -117,7 +118,7 @@ submission → fresh snapshot + valid bucket + compatible same-model quota?
 
 `/side <text>` também é um primeiro envio interativo. Resolva o modelo efetivo herdado pelo filho antes da recomendação; nunca substitua por um rascunho não enviado do composer pai. `createSelectionSideSession.firstInput` aceita um `modelSelection` completo opcional, usado na criação do filho e no primeiro envio, preservando as opções de reasoning. Payloads antigos só com texto mantêm sua herança existente. Cancelar mantém a seleção herdada; fechar a recomendação deixa o rascunho e não envia comando de criação. `/side` vazio apenas abre um filho e não recomenda.
 
-The existing atomic creation/first-input command, command id, admission and ACK own execution and deduplication. Parent model/queue and global paid connection remain unchanged. Desktop continuous and mobile replayable still use the same owner and original recovery paths. Accepted regressions are SF-01 through SF-19 in [Todo156](working-memory/provider-refactor/steps/todo-156-start-plan-followup-final-decisions.md).
+O comando atômico existente de criação/primeira entrada, seu id de comando, a admissão e o ACK são responsáveis pela execução e pela deduplicação. O modelo/fila do pai e a conexão paga global permanecem inalterados. O desktop contínuo e o mobile reexecutável continuam usando o mesmo dono e os caminhos de recuperação originais. As regressões aceitas são SF-01 até SF-19 em [Todo156](working-memory/provider-refactor/steps/todo-156-start-plan-followup-final-decisions.md).
 
 O painel de status das configurações usa a identidade de provider do Start Plan para apresentar um
 estado de plano gratuito com uma entrada de upgrade para o Coding Plan pago. A projeção do painel é
@@ -139,66 +140,64 @@ billing/balance (server priority order)
                                       read-only Models section at the bottom
 ```
 
-Field contract (server guaranteed, no legacy fallbacks on the client):
+Contrato de campos (garantido pelo servidor, sem recuos legados no cliente):
 
-- every `plans[]` entry carries `plan_id`, `status`, and `ends_at`
-- every `balances[]` entry carries `plan_id` and `expires_at`
-- every `balances[]` bucket belongs to an active `plans[]` entry: the server
-  must not return buckets whose `plan_id` is missing or maps to a non-active
-  plan. The provider logs a tripwire warn
-  (`warnOnUnattributedStartPlanBuckets`) when this contract is violated,
-  because the settings multi-card path silently drops such buckets while the
-  chat input bubble still shows them.
-- Plan card grouping still uses `plan_id`; reset labels use `expires_at`,
-  without falling back to `period_end`. Bucket reminders additionally preserve
-  `bucket_id`, `user_plan_id`, `period_start`, and `period_end`: the bucket and
-  period identify a single reminder, while `user_plan_id` joins the entitlement
-  period label for the exact user-plan instance. See `start-plan-daily-quota-banner.md`.
+- cada entrada de `plans[]` carrega `plan_id`, `status` e `ends_at`
+- cada entrada de `balances[]` carrega `plan_id` e `expires_at`
+- cada bucket de `balances[]` pertence a uma entrada `plans[]` ativa: o servidor
+  não deve retornar buckets cujo `plan_id` esteja ausente ou mapeie para um plano
+  inativo. O provider registra um warn de armadilha
+  (`warnOnUnattributedStartPlanBuckets`) quando este contrato é violado,
+  porque o caminho de múltiplos cartões das configurações descarta silenciosamente
+  esses buckets enquanto a bolha da entrada de chat ainda os mostra.
+- O agrupamento dos cartões de plano continua usando `plan_id`; os rótulos de reset usam `expires_at`,
+  sem recuar para `period_end`. Os lembretes de bucket preservam adicionalmente
+  `bucket_id`, `user_plan_id`, `period_start` e `period_end`: o bucket e o período
+  identificam um único lembrete, enquanto `user_plan_id` faz a junção com o rótulo do
+  período de entitlement para a instância exata do plano do usuário. Veja `start-plan-daily-quota-banner.md`.
 
-- Active plans are rendered in the exact order returned by `data.plans`; the
-  client must not sort them again because the server has already applied
-  product priority.
-- Every plan reuses the existing Plan Card surface and shows its own remote
-  name, `ends_at`, and quota buckets.
-- A bucket belongs to a card only when its `plan_id` matches that plan. A bucket
-  without a matching `plan_id` is not attached to any card; the client must not
-  fall back to plan-less buckets, otherwise the same bucket would be copied
-  into every card.
-- Each quota bucket formats its own `expires_at` as its reset time; a
-  plan-level or earliest reset time must never be copied to sibling buckets.
-  Start Plan cards do not render a plan-level renew time at all. The chat
-  input toolbar context balance bubble follows the same rule: every meter reads
-  only its own bucket's `expires_at` (`limit.nextResetTime`), never the
-  aggregated `remaining.nextResetTime` or the plan-level renew time. Bucket
-  reset time formatting is aligned with Coding Plan through the shared
-  `formatQuotaResetTime({ format: "adaptive" })`: same-day resets render
-  `HH:mm` only, other-day resets render the date only.
-- The read-only Models section remains outside all plan cards at the bottom of
-  the provider detail. Its content is the case-insensitive union of model
-  capabilities from all returned buckets, preserving first occurrence order.
-- This presentation does not change balance fetching, provider selection,
-  runtime routing, or model synchronization. The entitlement snapshot only
-  preserves the plan/bucket identity already present in the same balance
-  response so the settings UI can render the correct grouping.
+- Os planos ativos são renderizados na ordem exata retornada por `data.plans`; o
+  cliente não deve ordená-los novamente, porque o servidor já aplicou a
+  prioridade de produto.
+- Cada plano reutiliza a superfície existente de Plan Card e mostra seu próprio nome
+  remoto, `ends_at` e buckets de cota.
+- Um bucket pertence a um cartão apenas quando seu `plan_id` corresponde a esse plano. Um bucket
+  sem `plan_id` correspondente não é anexado a nenhum cartão; o cliente não deve
+  recorrer a buckets sem plano, caso contrário o mesmo bucket seria copiado
+  para cada cartão.
+- Cada bucket de cota formata seu próprio `expires_at` como seu horário de reset; um
+  horário de reset de nível de plano ou o mais cedo nunca deve ser copiado para buckets irmãos.
+  Os cartões do Start Plan não renderizam nenhum horário de renovação de nível de plano. A bolha de
+  saldo contextual da barra da entrada de chat segue a mesma regra: cada medidor lê
+  apenas o `expires_at` de seu próprio bucket (`limit.nextResetTime`), nunca o
+  `remaining.nextResetTime` agregado nem o horário de renovação do plano. A formatação do horário de
+  reset do bucket é alinhada ao Coding Plan pelo `formatQuotaResetTime({ format: "adaptive" })`
+  compartilhado: resets no mesmo dia renderizam apenas `HH:mm`, resets em outros dias renderizam apenas a data.
+- A seção Models somente leitura permanece fora de todos os cartões de plano, no final
+  do detalhe do provider. Seu conteúdo é a união sem distinção de maiúsculas das capacidades
+  de modelo de todos os buckets retornados, preservando a ordem de primeira ocorrência.
+- Esta apresentação não muda a obtenção do saldo, a seleção de provider,
+  o roteamento de runtime ou a sincronização de modelos. O snapshot de entitlement apenas
+  preserva a identidade de plano/bucket já presente na mesma resposta de saldo para que a UI de configurações possa renderizar o agrupamento correto.
 
-Telemetry identity impact: `subscription.details` now carries all active plans
-in server priority order, so the `plan_product_id` reported by `send_btn`
-telemetry reads `details[0]` — the highest-priority active plan. Server-side
-reordering intentionally flips this id. See
-`docs/monitoring/business-monitoring.md` for the reporting contract.
+Impacto na identidade de telemetria: `subscription.details` agora carrega todos os planos ativos
+na ordem de prioridade do servidor, portanto o `plan_product_id` reportado pela telemetria
+`send_btn` lê `details[0]` — o plano ativo de maior prioridade. A reordenação
+intencional do servidor inverte este id. Veja
+`docs/monitoring/business-monitoring.md` para o contrato de reporte.
 
-The shared Plan Card behavior remains:
+O comportamento compartilhado do Plan Card permanece:
 
-- title: `{provider} - Start Plan`
-- purchased metadata: `Start Free` badge and the plan expire time from
-  `balance.data.plans[].ends_at`, rendered as a date only (year omitted for the
-  current year). Bucket reset times come only from each bucket's `expires_at`.
-- upgrade button is shown; pricing cards remain hidden until the user clicks
+- título: `{provider} - Start Plan`
+- metadados de compra: badge `Start Free` e o horário de expiração do plano vindo de
+  `balance.data.plans[].ends_at`, renderizado apenas como data (ano omitido para o
+  ano atual). Os horários de reset dos buckets vêm apenas do `expires_at` de cada bucket.
+- o botão de upgrade é exibido; os cartões de preços permanecem ocultos até o usuário clicar em
   upgrade
-- manage and unlink actions are both hidden for Start Plan plan cards: the
-  free tier has no management page and the login state is managed at the
-  family connection level; the card keeps only the expiry date and the
-  upgrade-to-Coding-Plan action (with its billing-discount badge)
+- as ações de gerenciar e desvincular ficam ambas ocultas para os cartões de plano do Start Plan: o
+  nível gratuito não tem página de gerenciamento e o estado de login é gerenciado no
+  nível da conexão da family; o cartão mantém apenas a data de expiração e a
+  ação de upgrade para o Coding Plan (com seu badge de desconto de faturamento)
 
 O formulário de detalhes das configurações não expõe campos de conexão manual para o Start
 Plan. `Base URL`, `API Format` e `API Key` são substituídos por um cartão do Start Plan,
@@ -215,25 +214,25 @@ contexto. O refresh remoto ainda pode atualizar a lista de modelos e os metadado
 
 ## Preview sem login
 
-When a user opens either Start Plan entry before logging in, the settings panel
-shows the free Start Plan preview followed by the paid Coding Plan pricing
-cards:
+Quando um usuário abre qualquer uma das entradas do Start Plan antes de fazer login, o painel de
+configurações mostra a prévia gratuita do Start Plan seguida pelos cartões de preços do Coding
+Plan pago:
 
 ```tsx
 <StartPlanCard />
 <CodingPlanPricingCards />
 ```
 
-Both sections read from the same unauthenticated client config endpoint, and the
-service layer must share one `client/configs` payload between the preview card,
-pricing cards, and any other client-config consumers in the same provider
-instance:
+Ambas as seções leem do mesmo endpoint de configuração do cliente sem autenticação, e a
+camada de serviço deve compartilhar um único payload `client/configs` entre o cartão de prévia,
+os cartões de preços e quaisquer outros consumidores de configuração do cliente na mesma
+instância de provider:
 
 ```http
 GET https://zcode.z.ai/api/v1/client/configs?app_version=<ZCODE_VERSION>&platform=<platform>-<arch>
 ```
 
-`StartPlanCard` uses `configs.startPlanPreview`:
+`StartPlanCard` usa `configs.startPlanPreview`:
 
 ```ts
 interface StartPlanPreviewConfig {
@@ -249,22 +248,22 @@ interface StartPlanPreviewConfig {
 }
 ```
 
-The current payload is provider-neutral, so Z.AI Start Plan and BigModel Start
-Plan both show the same Start Plan preview. The provider-specific difference is
-the paid pricing list underneath:
+O payload atual é neutro em relação ao provider, portanto o Z.AI Start Plan e o BigModel Start
+Plan mostram a mesma prévia do Start Plan. A diferença específica do provider está
+na lista de preços paga logo abaixo:
 
-- `builtin:zai-start-plan` preview card: `configs.startPlanPreview`
-- `builtin:zai-start-plan` pricing cards:
+- cartão de prévia de `builtin:zai-start-plan`: `configs.startPlanPreview`
+- cartões de preços de `builtin:zai-start-plan`:
   `configs.codingPlanStaticProducts["builtin:zai-coding-plan"]`
-- `builtin:bigmodel-start-plan` preview card: `configs.startPlanPreview`
-- `builtin:bigmodel-start-plan` pricing cards:
+- cartão de prévia de `builtin:bigmodel-start-plan`: `configs.startPlanPreview`
+- cartões de preços de `builtin:bigmodel-start-plan`:
   `configs.codingPlanStaticProducts["builtin:bigmodel-coding-plan"]`
 
-If `configs.startPlanPreview` is missing, the signed-out Start Plan surface must
-not render the Start free preview or the free Start SKU / 体验套餐 content. Paid
-Coding Plan pricing cards may still render from `codingPlanStaticProducts`; the
-free Start content is controlled only by `startPlanPreview`, not by a local
-hard-coded fallback.
+Se `configs.startPlanPreview` estiver ausente, a superfície do Start Plan sem login não
+deve renderizar a prévia gratuita do Start nem o conteúdo do SKU Start gratuito / 体验套餐. Os cartões
+de preços do Coding Plan pago ainda podem ser renderizados a partir de `codingPlanStaticProducts`; o
+conteúdo gratuito do Start é controlado apenas por `startPlanPreview`, e não por um
+fallback local codificado em definitivo.
 
 O banner de escolha de compra sem login da BigModel segue a mesma regra. A entrada do Start
 Plan só é renderizada quando `configs.startPlanPreview` existe e possui entitlements `model_usage`
@@ -282,14 +281,14 @@ desconectado sem próxima ação.
 
 ## Banner de resgate manual
 
-The workspace sidebar queries `GET /api/v1/zcode-plan/billing/preview` with the
-current client version/platform. A ZCode JWT is attached when available, while
-signed-out preview is sent without Authorization. It renders one banner
-directly above the profile footer only when `data.plans` contains a claimable
-plan. Multiple plans are resolved by descending `priority`, then ascending
-`plan_id` for deterministic display. An empty response or a request failure
-renders no banner on the first read. A transient refresh failure preserves the last
-successful preview; an authoritative empty response removes it. Reading preview never claims or activates a plan.
+A barra lateral do workspace consulta `GET /api/v1/zcode-plan/billing/preview` com a
+versão/plataforma atuais do cliente. Um JWT do ZCode é anexado quando disponível, enquanto a
+prévia sem login é enviada sem Authorization. Ela renderiza um banner
+diretamente acima do rodapé do perfil somente quando `data.plans` contém um plano
+resgatável. Múltiplos planos são resolvidos por `priority` descendente, depois por `plan_id`
+ascendente para exibição determinística. Uma resposta vazia ou uma falha de requisição
+não renderiza banner na primeira leitura. Uma falha transitória de refresh preserva a última
+prévia bem-sucedida; uma resposta vazia autoritativa a remove. Ler a prévia nunca resgata nem ativa um plano.
 
 O `data.server_time` de `preview`, `claim` e `balance` é a autoridade de negócio para os campos de tempo dentro de cada resposta,
 com unidade unificada em segundos Unix; quando exposto ao Renderer, o Service converte tudo para milissegundos. O cliente não pode substituir
@@ -381,7 +380,7 @@ idle -> checking-auth -> verifying -> claiming -> success-dialog -> refreshing -
   layout de linha única e o horário deemphasizado por peso de fonte e tamanho maiores; quando o campo está ausente, mostra-se um placeholder e não se usa o tempo do preview
   para inferir o prazo real do entitlement. A descrição de pendência usa apenas o `effective_at` do entitlement retornado na mesma Claim,
   sem usar balance nem `plan.starts_at`, e a área de tempo do Ticket não repete o horário de início.
-  Quando o ponteiro do desktop se move dentro do ticket, o卡片 produz um leve pressed 3D, brilho dinâmico e sombra de contorno conforme a posição do ponteiro em relação ao centro; ao pressionar, afunda ainda mais e, após o clique, completa uma rotação horizontal de 360° em torno do eixo Y, mostrando durante a passagem pelo verso um texto sem espelhamento e um fundo temático da mesma cor da frente, retornando à frente ao final. Esse feedback não altera o comportamento de resgate e é desativado em `prefers-reduced-motion`.
+  Quando o ponteiro do desktop se move dentro do ticket, o cartão produz um leve pressed 3D, brilho dinâmico e sombra de contorno conforme a posição do ponteiro em relação ao centro; ao pressionar, afunda ainda mais e, após o clique, completa uma rotação horizontal de 360° em torno do eixo Y, mostrando durante a passagem pelo verso um texto sem espelhamento e um fundo temático da mesma cor da frente, retornando à frente ao final. Esse feedback não altera o comportamento de resgate e é desativado em `prefers-reduced-motion`.
   Quando não há ponteiro sobre o ticket, ele simula um ponteiro invisível percorrendo em ciclo os quatro cantos superior esquerdo, superior direito, inferior direito e inferior esquerdo, movendo-se suavemente entre os cantos, com ponto de pressão, brilho, inclinação e sombra sincronizados;
   quando um ponteiro real entra, o movimento automático para imediatamente e passa a seguir o ponteiro, e ao sair volta ao contorno dos quatro cantos.
   A direção do flip no clique precisa seguir a posição pressionada: clicar na metade esquerda do ticket rotaciona `-360°` em torno do eixo Y para a esquerda, e clicar na metade direita
@@ -418,7 +417,7 @@ idle -> checking-auth -> verifying -> claiming -> success-dialog -> refreshing -
   to use" e "{showName} will be available on {time}". O horário pendente continua destacado com sublinhado tracejado, mantendo
   data e hora como um todo sem quebra de linha. A descrição não pode conter link para as configurações de modelo. A área de ação usa botões primário e secundário lado a lado
   `h-10 min-w-32 rounded-full`: o botão principal "模型设置 / Model settings" cuida da navegação, e o
-  botão secondary "复制分享 / Copy & share" copia diretamente o texto de compartilhamento para Twitter/X; após a cópia bem-sucedida, mostra momentaneamente no lugar "内容已复制 / Text copied", sem expandir um painel adicional.
+  botão secundário "复制分享 / Copy & share" copia diretamente o texto de compartilhamento para Twitter/X; após a cópia bem-sucedida, mostra momentaneamente no lugar "内容已复制 / Text copied", sem expandir um painel adicional.
   O tweet é localizado no idioma atual e contém apenas o entitlement do modelo, `#ZCode` e `@zcode_ai`, sem repetir o nome do plano, a cota total ou o
   período de início/fim, evitando texto social longo demais. Exemplo em chinês: `我在 ZCode 领取了 {权益明细}。#ZCode @zcode_ai`.
   Entre o botão principal e o de copiar compartilhamento usa-se `gap-2`. O título e a descrição de sucesso do resgate formam uma

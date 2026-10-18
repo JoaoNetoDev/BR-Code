@@ -117,16 +117,16 @@ O `base64url` precisa usar um codec unificado, e não é permitido usar diretame
 
 ```typescript
 interface OAuthStatePayload {
-  /** 防 CSRF 随机数，与 sessionStorage['oauth_pending_nonce'] 比对 */
+  /** Número aleatório anti-CSRF, comparado com sessionStorage['oauth_pending_nonce'] */
   nonce: string;
   /**
-   * 可选。登录成功后回到的业务页面完整 URL。
-   * 用于保留旧远控链接上的 remoteControlToken / relayOrigin 等 query 参数。
+   * Opcional. URL completa da página de negócio para onde voltar após o login bem-sucedido.
+   * Usada para preservar query params como remoteControlToken / relayOrigin de links antigos de controle remoto.
    */
   app_return_to?: string;
   /**
-   * 可选。仅开发态注入本地 callback URL。
-   * 生产态不注入；生产 callback 页直接换 token。
+   * Opcional. Injeta a callback URL local apenas no ambiente de desenvolvimento.
+   * Não é injetada em produção; a página de callback de produção troca o token diretamente.
    */
   return_to?: string;
 }
@@ -221,27 +221,27 @@ Módulo de funções puras, responsável pela codificação, decodificação e v
 
 Configuração do ZAI OAuth no Web:
 
-- authorize URL：`https://chat.z.ai/api/oauth/authorize`
-- token URL：在生产态为 `/api/v1/oauth/token`；在开发态可通过 Vite proxy 指到 `https://zcode.z.ai/api/v1/oauth/token`
-- client id：复用 ZAI OAuth client id
-- redirect URI：始终使用 `https://zcode.z.ai/web-remote/callback`
-- 开关 de dev return 中转：默认关闭；仅开发/测试部署或带后端签名的生产中转允许打开
+- authorize URL: `https://chat.z.ai/api/oauth/authorize`
+- token URL: em produção, `/api/v1/oauth/token`; em desenvolvimento, pode apontar via Vite proxy para `https://zcode.z.ai/api/v1/oauth/token`
+- client id: reutiliza o ZAI OAuth client id
+- redirect URI: sempre `https://zcode.z.ai/web-remote/callback`
+- switch de encaminhamento de dev return: desligado por padrão; só é permitido ligar em deploys de desenvolvimento/teste ou em um encaminhamento de produção com assinatura de backend
 
 ### `packages/web/src/auth/zaiWebOAuthProvider.ts`
 
 Módulo de provider, responsável pelos detalhes do protocolo ZAI:
 
-- `buildAuthorizeUrl(params)` — 构造 ZAI authorize URL
-- `parseCallbackParams(url)` — 解析 `code` / `state` / `error`
-- `exchangeToken(params)` — POST token 接口并校验响应结构
-- `toUserInfo(user)` — 将后端 `data.user` 映射成前端展示态
+- `buildAuthorizeUrl(params)` — constrói a authorize URL do ZAI
+- `parseCallbackParams(url)` — analisa `code` / `state` / `error`
+- `exchangeToken(params)` — faz POST na interface de token e valida a estrutura da resposta
+- `toUserInfo(user)` — mapeia o `data.user` do backend para o estado de exibição do frontend
 
 ### `packages/web/src/auth/browserOAuthCredentialRepo.ts`
 
 Módulo de repo que encapsula o armazenamento do navegador, sem permitir que a camada de negócio espalhe leituras e escritas de `localStorage` / `sessionStorage`:
 
-- `saveTokenSet(tokenSet)` — 保存 `oauth:zai:access_token` 和 `zcodejwttoken`
-- `saveUserInfo(user)` — 保存 `oauth:zai:user_info`
+- `saveTokenSet(tokenSet)` — salva `oauth:zai:access_token` e `zcodejwttoken`
+- `saveUserInfo(user)` — salva `oauth:zai:user_info`
 - `setActiveProvider("zai")`
 - `loadCachedSession()`
 - `clearAll()`
@@ -259,10 +259,10 @@ Se qualquer condição não for satisfeita, o estado é tratado como não autent
 
 Módulo de service, equivalente ao `OAuthService` do desktop no runtime Web, que apenas orquestra provider e repo:
 
-- `startLogin(options?: { devReturnTo?: string; appReturnTo?: string }): void` — 生成 nonce，交给 repo 存入 sessionStorage，调用 provider 构造 authorize URL，跳转；`appReturnTo` 默认取当前完整 URL，用于保留 `remoteControlToken` / `relayOrigin`
-- `handleCallback(url: string): Promise<{ userInfo: UserInfo; appReturnTo: string | null } | null>` — 解 state，处理中转/nonce 校验，调用 provider 换 token，调用 repo 持久化
-- `restoreCachedSession(): Promise<UserInfo | null>` — 通过 repo 读取 localStorage 恢复登录态；这里只做本地缓存恢复，不调用远端 userinfo
-- `logout(): Promise<void>` — 通过 repo 清除 localStorage
+- `startLogin(options?: { devReturnTo?: string; appReturnTo?: string }): void` — gera o nonce, entrega ao repo para salvar no sessionStorage, chama o provider para construir a authorize URL e redireciona; `appReturnTo` assume por padrão a URL completa atual, para preservar `remoteControlToken` / `relayOrigin`
+- `handleCallback(url: string): Promise<{ userInfo: UserInfo; appReturnTo: string | null } | null>` — decodifica o state, trata o encaminhamento/validação de nonce, chama o provider para trocar o token e chama o repo para persistir
+- `restoreCachedSession(): Promise<UserInfo | null>` — restaura o estado de login lendo o localStorage através do repo; aqui há apenas restauração de cache local, sem chamar o userinfo remoto
+- `logout(): Promise<void>` — limpa o localStorage através do repo
 
 ### `packages/web/src/auth/WebLoginPage.tsx`
 
@@ -299,7 +299,7 @@ Restrições de UI:
 - O componente recebe apenas parâmetros de exibição/ação como `user: UserInfo` e `onLogout?: () => void`; ele não lê nem escreve `localStorage` diretamente e não chama o repo diretamente.
 - O layout é uma página de tela cheia do mesmo nível da página de login, sem aninhar cards e sem definir temporariamente cores, raios ou tamanhos de fonte fora do `DESIGN.md`.
 
-### 改造 de `packages/web/src/main.tsx`
+### Mudanças em `packages/web/src/main.tsx`
 
 Antes da conexão WebSocket em `bootstrapWebApp()`, inserir a validação de login:
 
@@ -366,7 +366,7 @@ Como é uma SPA, a decisão é tomada por `window.location.pathname`, sem necess
 
 | localStorage key | Valor | Uso |
 |-----------------|-------|-----|
-| `zcodejwttoken` | 字符串 JWT do backend, ou seja `data.token` | autenticação das APIs de negócio; a futura interface de lista de dispositivos também a usa para identificar o usuário atual |
+| `zcodejwttoken` | string JWT do backend, ou seja `data.token` | autenticação das APIs de negócio; a futura interface de lista de dispositivos também a usa para identificar o usuário atual |
 | `oauth:zai:access_token` | access token do ZAI, ou seja `data.zai.access_token` | mantém consistência com a estrutura do token set do ZAI OAuth do desktop |
 | `oauth:zai:user_info` | JSON; de preferência a estrutura original `data.user` do backend, mapeada para `UserInfo` ao restaurar o estado de exibição | exibe nome/avatar e mantém compatibilidade com a lógica existente de restauração de user_info do ZAI no `OAuthCredentialRepo` |
 | `oauth:active_provider` | `"zai"` | identifica a forma de login atual |

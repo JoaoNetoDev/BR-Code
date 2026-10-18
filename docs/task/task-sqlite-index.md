@@ -1,45 +1,57 @@
-# Task SQLite Index
+# Índice SQLite de Tarefas
 
-## Scope
+## Escopo
 
-`~/.zcode/v2/tasks-index.sqlite` is the app/host-side index for task list queries. ZCode Agent owns core session content and runtime state; the sqlite index owns fast list metadata and product shell state.
+`~/.zcode/v2/tasks-index.sqlite` é o índice do lado do app/host para consultas de lista de
+tarefas. O ZCode Agent é dono do conteúdo central das sessões e do estado de runtime; o índice
+sqlite é dono dos metadados de listagem rápidos e do estado do shell do produto.
 
-The index is not a replacement for ZCode Protocol session snapshots.
+O índice não substitui os snapshots de sessão do ZCode Protocol.
 
-## 库级迁移（Todo109）
+## Migrações em nível de banco (Todo109)
 
-`tasks-index.sqlite` 还容纳 Automation 与 Off-Peak 表。三个 Repo 在开放读写前
-复用 `runTasksDatabaseMigrations`；库级 `tasks_schema_migration` 通过
-`BEGIN IMMEDIATE` 串行检查并应用迁移，失败回滚且不记成功。
-`0001_adopt_task_schema` 接管八张已有表、历史补列和索引；
-`0002_provider_selection` 收口已裁决的 Automation 转换。之后只追加新迁移，
-不得修改已发布 SQL、冻结转换实现或其语义版本。checksum 覆盖声明式 SQL/列清单及
-转换语义版本，不使用会被打包器改写的函数文本。
+`tasks-index.sqlite` também hospeda as tabelas de Automation e Off-Peak. Os três repos
+reaproveitam `runTasksDatabaseMigrations` antes de abrir para leitura/escrita; a migração de
+nível de banco `tasks_schema_migration` verifica e aplica as migrações de forma serializada
+através de `BEGIN IMMEDIATE`, com rollback em caso de falha e sem registrar sucesso.
+`0001_adopt_task_schema` adota oito tabelas existentes, colunas e índices históricos;
+`0002_provider_selection` consolida as conversões de Automation já decididas. Depois disso
+apenas novas migrações podem ser acrescentadas, e SQL já publicado, a implementação de
+conversão congelada ou sua versão semântica não podem ser modificados. O checksum cobre o
+SQL/declarativo de colunas e a versão semântica das conversões, e não o texto de funções que
+o empacotador reescreveria.
 
 ```text
-任意 Repo 首次打开 → 库级账本/事务 → 所有表就绪 → Repo 正常读写
-其他 Repo / 其他进程 → 同一账本校验 → 跳过已应用版本
+Primeira abertura por qualquer repo → razão de nível de banco/transação → todas as tabelas
+prontas → leitura/escrita normal pelo repo
+Outros repos / outros processos → verificação pela mesma razão → pulam versões já aplicadas
 ```
 
-旧列及时间戳不被 Provider 转换覆盖；正常 Reader/派发只使用新列。
-Automation 的 JSON `null` 表示明确使用默认配置，SQL NULL 表示配置缺失，需要重选。
-回滚产生的新旧格式记录不通过重复执行既有迁移追赶，内容仍须可列出、打开。
-Off-Peak 缺失 Provider 的旧选择不查询当前账号补猜，不改变 Ticket 或读取时补迁；
-缺配置只影响后续执行资格。TaskIndex 既有关联清理与投影维护不属于 Provider 转换。
+Colunas antigas e timestamps não são sobrescritos pela conversão de Provider; Readers
+normais/dispatch usam apenas as colunas novas. Na Automation, um JSON `null` significa uso
+explícito da configuração padrão, enquanto SQL NULL significa configuração ausente, precisando
+de nova seleção. Registros no formato antigo e novo produzidos pelo rollback não são
+recuperados pela reexecução das migrações existentes; o conteúdo ainda precisa poder ser
+listado e aberto. Seleções antigas de Off-Peak sem Provider não consultam a conta atual para
+adivinhar, não alteram o Ticket nem fazem migração tardia na leitura; a configuração ausente
+apenas afeta a elegibilidade para execuções futuras. A limpeza de associações e a manutenção
+de projeções já existentes do TaskIndex não fazem parte da conversão de Provider.
 
-## Responsibilities
+## Responsabilidades
 
-- Keep task list queries fast without starting every workspace agent.
-- Persist product shell state such as title, pinned, archived, deleted, unread, and title override.
-- Store a compact `ZCodeTaskMeta` snapshot in `meta_json` for list rendering.
-- Store bounded searchable text for global task search.
-- Keep remote workspace identity isolation consistent through `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
+- Manter as consultas de lista de tarefas rápidas sem iniciar o agente de cada workspace.
+- Persistir o estado do shell do produto, como título, fixado, arquivado, excluído, não lido e
+  override de título.
+- Armazenar um snapshot compacto de `ZCodeTaskMeta` em `meta_json` para renderização da lista.
+- Armazenar texto pesquisável limitado para a busca global de tarefas.
+- Manter o isolamento de identidade de workspaces remotos consistente através de
+  `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
 
-## Table
+## Tabela
 
-The `tasks` table is keyed by `(workspace_key, task_id)`.
+A tabela `tasks` tem como chave `(workspace_key, task_id)`.
 
-Core columns:
+Colunas centrais:
 
 - `workspace_key`
 - `workspace_path`
@@ -63,86 +75,121 @@ Core columns:
 - `searchable_text`
 - `meta_json`
 
-Indexes cover active workspace list queries, pinned list queries, archived list queries, deleted list queries, recent global timeline, and bounded text search.
+Os índices cobrem consultas de lista de workspaces ativos, listas de fixados, listas de
+arquivados, listas de excluídos, linha do tempo global recente e busca de texto limitada.
 
-## Runtime Rules
+## Regras de Runtime
 
-- Writes are serialized per `(workspace_key, task_id)` to avoid concurrent metadata overwrites.
-- `unread_at` is the current unread membership/CAS marker. `last_unread_at` is an internal
-  allocation watermark that survives clearing `unread_at`; repository writes allocate each new
-  unread marker above that watermark so same-millisecond writes and clock rollback cannot reuse
-  a stale compare-and-clear version.
-- `unread_at` is authoritative over the copy in `meta_json`. Writes that do not explicitly mutate
-  unread state must preserve the current row value at the SQLite conflict boundary, so a stale
-  snapshot from another Host cannot roll back a newer marker.
-- Every task-index connection uses a bounded SQLite busy timeout. Additive schema migrations are
-  idempotent under concurrent Host startup: after lock contention, a duplicate-column result is
-  accepted only when the column is present.
-- `meta_json` is parsed with `zcodeTaskMetaSchema`; invalid rows fall back to scalar columns and log a warning.
-- SQLite row columns are authoritative for entity coordinates: reads must overwrite `meta_json` values with
-  `task_id` and `workspace_path`. Because `(workspace_key, task_id)` is the actual query/primary-key boundary,
-  a valid remote `workspace_key` is authoritative over a missing or stale `workspace_identity` projection;
-  non-remote rows use the identity column only when it equals `workspace_key`. This keeps list queries and
-  sessions-index joins on the same isolation key without ever falling back to a remote path.
-- `searchable_text` is capped so long tasks cannot grow the sqlite file without bound.
-- Query scopes must pass `workspaceIdentity` for remote workspaces; `workspacePath` remains the execution/display path.
-- Task-list queries and dynamic workspace-event listeners are passive observers. Registering either one must not
-  start a workspace Agent runtime, reconnect a remote workspace, or promote a dormant runtime retry.
-- The desktop Main startup warmup is an explicit lifecycle action rather than a task-list side effect. When multiple
-  local workspaces are restored, it may start at most three deduplicated targets selected from the last active
-  workspace and persisted recent-project order. A failed warmup does not pull in a fourth target.
-- The task-index `sessions-index` / `workspace-config` ingestion subscriptions attach only after an explicit
-  workspace operation has made that exact `workspaceKey` runtime available. Their subscribe and retry paths use
-  an `existing-only` policy, so a stopped runtime returns to dormant state instead of being started by observation.
-- Runtime availability is keyed by `workspaceIdentity?.trim() || workspacePath`. An available event for one SSH,
-  WSL, or Docker identity must not attach observers belonging to another identity with the same execution path.
-- The first authoritative `sessions-index` snapshot is a silent reconciliation boundary: non-draft sessions seed
-  only missing task rows, existing product-shell state is never overwritten, and no per-row list-change broadcast
-  is emitted. This keeps late attachment/reconnect safe without replaying historical terminal events or causing a
-  startup broadcast storm.
+- As escritas são serializadas por `(workspace_key, task_id)` para evitar sobrescritas
+  concorrentes de metadados.
+- `unread_at` é o marcador atual de pertencimento/CAS de não lido. `last_unread_at` é uma
+  marca d'água interna de alocação que sobrevive à limpeza de `unread_at`; as escritas do
+  repositório alocam cada novo marcador de não lido acima dessa marca d'água, de modo que
+  escritas no mesmo milissegundo e retrocessos de relógio não reutilizem uma versão obsoleta
+  de compare-and-clear.
+- `unread_at` é autoritativo sobre a cópia em `meta_json`. Escritas que não mutam
+  explicitamente o estado de não lido devem preservar o valor atual da linha no limite de
+  conflito do SQLite, para que um snapshot obsoleto de outro Host não possa reverter um
+  marcador mais novo.
+- Toda conexão do task-index usa um busy timeout do SQLite limitado. Migrações aditivas de
+  schema são idempotentes sob inicialização concorrente de Hosts: após contenção de lock, um
+  resultado de coluna duplicada só é aceito quando a coluna está presente.
+- `meta_json` é analisado com `zcodeTaskMetaSchema`; linhas inválidas caem para as colunas
+  escalares e registram um aviso.
+- As colunas de linha do SQLite são autoritativas para as coordenadas da entidade: as leituras
+  devem sobrescrever os valores de `meta_json` com `task_id` e `workspace_path`. Como
+  `(workspace_key, task_id)` é o limite real de consulta/chave primária, um
+  `workspace_key` remoto válido é autoritativo sobre uma projeção de `workspace_identity`
+  ausente ou obsoleta; linhas não remotas usam a coluna de identidade apenas quando ela é
+  igual a `workspace_key`. Isso mantém as consultas de lista e os joins do sessions-index na
+  mesma chave de isolamento, sem nunca recorrer a um caminho remoto.
+- `searchable_text` tem um limite, para que tarefas longas não aumentem o arquivo sqlite sem
+  limite.
+- Os escopos de consulta devem passar `workspaceIdentity` para workspaces remotos;
+  `workspacePath` permanece o caminho de execução/exibição.
+- Consultas de lista de tarefas e listeners de eventos dinâmicos de workspace são observadores
+  passivos. Registrar qualquer um dos dois não deve iniciar um runtime de agente de workspace,
+  reconectar um workspace remoto nem promover uma retentativa de runtime dormente.
+- O warmup de inicialização do Main do desktop é uma ação explícita de ciclo de vida, e não
+  um efeito colateral de lista de tarefas. Quando múltiplos workspaces locais são restaurados,
+  ele pode iniciar no máximo três alvos deduplicados, selecionados a partir do último workspace
+  ativo e da ordem persistida de projetos recentes. Um warmup que falha não puxa um quarto alvo.
+- As assinaturas de ingestão de `sessions-index` / `workspace-config` do task-index só são
+  anexadas depois que uma operação explícita de workspace tornou disponível o runtime daquele
+  `workspaceKey` exato. Seus caminhos de subscribe e retry usam uma política `existing-only`,
+  de modo que um runtime parado volta ao estado dormente em vez de ser iniciado por observação.
+- A disponibilidade de runtime é chaveada por `workspaceIdentity?.trim() || workspacePath`. Um
+  evento disponível para uma identidade SSH, WSL ou Docker não deve anexar observadores
+  pertencentes a outra identidade com o mesmo caminho de execução.
+- O primeiro snapshot autoritativo de `sessions-index` é um limite silencioso de
+  reconciliação: sessões não-rascunho apenas semeiam linhas de tarefas ausentes, o estado
+  existente do shell do produto nunca é sobrescrito e nenhuma difusão de mudança de lista por
+  linha é emitida. Isso mantém o anexo tardio/reconexão seguros sem reproduzir eventos terminais
+  históricos nem causar uma tempestade de difusões na inicialização.
 
-## Relationship To Session State
+## Relação Com o Estado de Sessão
 
-ZCode Agent session state remains authoritative for messages, model/runtime settings, permission requests, stream events, and active turn state.
+O estado de sessão do ZCode Agent permanece autoritativo para mensagens, configurações de
+modelo/runtime, solicitações de permissão, eventos de stream e estado do turno ativo.
 
-The task index may cache enough metadata for list rendering, but it must not become the source of truth for session content. Missing rows are seeded from the authoritative `sessions-index` summary during initial reconciliation; opening, resuming, or completing a task later enriches that row from the full session snapshot (including model and searchable message text).
+O índice de tarefas pode guardar metadados suficientes para a renderização da lista, mas não
+deve se tornar a fonte da verdade para o conteúdo das sessões. Linhas ausentes são semeadas a
+partir do resumo autoritativo de `sessions-index` durante a reconciliação inicial; abrir,
+retomar ou concluir uma tarefa mais tarde enriquece essa linha a partir do snapshot completo
+da sessão (incluindo o modelo e o texto de mensagens pesquisável).
 
-### Index read profile（2026-09-30）
+### Perfil de leitura do índice (2026-09-30)
 
-Host task-index 回源（`resyncTaskIndexRowFromAgent`：`phase.completed/error`、`meta.titleUpdated`、
-`session.became-visible`）调用 `session/read` 时带 `contentProfile: "index"`：
+O resync do task-index junto ao Host (`resyncTaskIndexRowFromAgent`: `phase.completed/error`,
+`meta.titleUpdated`, `session.became-visible`) chama `session/read` com
+`contentProfile: "index"`:
 
 ```text
 task-index syncer ──session/read {runtimePolicy: existing-only, contentProfile: "index"}──▶ CLI
-                                                          │ 先按 full 构建完整 snapshot（语义不变）
-                                                          │ 再只剥离大载荷字段（不增删 message/part）
-task-index syncer ◀── 同结构 snapshot（几十 KB~数百 KB，而非 15 MB）──┘
-   └─ buildMetaFromSnapshot / searchableText / hasUserVisibleContent：结果与 full 逐字节一致
+                                                          │ primeiro constrói o snapshot completo como full (semântica inalterada)
+                                                          │ depois só remove os campos de payload grandes (sem adicionar/remover message/part)
+task-index syncer ◀── snapshot de mesma estrutura (dezenas de KB~centenas de KB, não 15 MB)──┘
+   └─ buildMetaFromSnapshot / searchableText / hasUserVisibleContent: resultado idêntico byte a byte com full
 ```
 
-- 剥离规则（`elideSessionSnapshotForIndex`，`@zcode/shared`）：tool part 的 `state.input` → `{}`、
-  `state.output/raw/error` → `""`、`state.metadata` → `{}`；reasoning part 的 `text` → `""`；
-  file part 的 `data:` URL → `data:,`。message 数量与顺序、`info`、所有 part 的 `type/id/metadata`、
-  text/compaction/timeline/subagent 等其它 part 全部原样保留。
-- 为什么不用 `messageLimit`：它保留尾部 N 条，而 searchable text 取开头 200K 字符、标题回退取
-  第一条真实用户消息、可见性判断看全部消息，截尾会改变索引结果。
-- 修订原因：旧实现每轮 turn 完成都读完整 snapshot，长 session 单行 NDJSON 达 15 MB（主要是 3 MB
-  级 tool output），Host 每轮做一次 15 MB JSON/zod 解析；task index 实际只用文本、info 和 part 结构。
-- 这是只给 task index 用的读取视图：其它 `session/read` 调用方不得传 `index`，拿到的 snapshot
-  也不得回写到 UI/conversation 状态。缺省或 `full` 行为不变。
+- Regras de remoção (`elideSessionSnapshotForIndex`, `@zcode/shared`): `state.input` de tool
+  part → `{}`, `state.output/raw/error` → `""`, `state.metadata` → `{}`; `text` de reasoning
+  part → `""`; URL `data:` de file part → `data:,`. A quantidade e a ordem das messages,
+  `info`, o `type/id/metadata` de todos os parts e os demais parts de
+  text/compaction/timeline/subagent etc. são preservados como estão.
+- Por que não usar `messageLimit`: ele preserva as N últimas mensagens, enquanto o searchable
+  text usa os primeiros 200K caracteres, o fallback de título usa a primeira mensagem real do
+  usuário e o julgamento de visibilidade considera todas as mensagens; truncar mudaria o resultado
+  do índice.
+- Motivo da revisão: a implementação antiga lia o snapshot completo a cada turno concluído, e
+  uma sessão longa com uma única linha NDJSON de 15 MB (principalmente tool output na casa
+  dos 3 MB), com o Host fazendo uma vez por turno uma análise de 15 MB de JSON/zod; o task
+  index usa de fato apenas texto, info e a estrutura de parts.
+- Esta é uma visão de leitura exclusiva do task index: outros chamadores de `session/read` não
+  devem passar `index`, e o snapshot obtido também não deve ser gravado de volta no
+  estado de UI/conversation. O comportamento padrão ou `full` permanece inalterado.
 
-## Task Status Projection
+## Projeção de Status da Tarefa
 
-`task_status` is a product task state, not a direct mirror of `session.status`.
+`task_status` é um estado de tarefa do produto, e não um espelho direto de `session.status`.
 
-- `session.status=running|waiting|paused` maps to `task_status=running` when the snapshot still has active runtime.
-- `session.status=error|completed` maps directly to the same terminal task status.
-- `session.status=idle` only means the agent engine has no active turn. If the latest user-visible assistant message has a completed timestamp and is not a tool-call continuation boundary, the task status is `completed`.
-- `projection.lastError` takes precedence over a previously completed assistant message, because provider failures can happen before a new assistant message is persisted.
+- `session.status=running|waiting|paused` mapeia para `task_status=running` quando o snapshot
+  ainda tem runtime ativo.
+- `session.status=error|completed` mapeia diretamente para o mesmo status terminal de tarefa.
+- `session.status=idle` significa apenas que o motor do agente não tem turno ativo. Se a última
+  mensagem do assistente visível ao usuário tem um timestamp de conclusão e não é um limite
+  de continuação de chamada de ferramenta, o status da tarefa é `completed`.
+- `projection.lastError` tem precedência sobre uma mensagem do assistente previamente
+  concluída, porque falhas de provider podem acontecer antes de uma nova mensagem do assistente
+  ser persistida.
 
-All snapshot-to-task-status callers must use the shared projection helper from `@zcode/shared`. UI projection, service adapter, and sqlite index sync must not carry separate copies of this logic, otherwise switching workspaces can restore a task from a different terminal-status interpretation than the one used while streaming.
+Todos os chamadores que projetam snapshot para status de tarefa devem usar o helper de
+projeção compartilhado de `@zcode/shared`. A projeção da UI, o adaptador de serviço e a
+sincronização do índice sqlite não devem carregar cópias separadas dessa lógica, caso contrário
+trocar de workspace pode restaurar uma tarefa a partir de uma interpretação de status terminal
+diferente daquela usada durante o streaming.
 
-## Implementation
+## Implementação
 
 - `packages/services/src/session/taskIndexRepo.ts`
 - `packages/services/src/session/zcodeTaskService.ts`

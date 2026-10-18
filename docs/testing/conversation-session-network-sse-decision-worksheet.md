@@ -51,29 +51,29 @@ Cada case N/S precisa confirmar pelo menos as seguintes dimensões. Só depois d
 
 ## Índice de Questões de Protocolo P0
 
-Esta tabela é a superfície de protocolo em nível de case, destinada ao script de auditoria. `Status=unanswered` significa que o fault case ainda não pode ser devolvido como `accepted` nem receber asserções E2E estáveis; nesse caso `产品结论` deve permanecer `待确认`. Depois que o produto confirmar, escreva primeiro uma conclusão explícita, depois mude a linha correspondente para `answered` e, por fim, devolva ao fault catalog / coverage matrix.
+Esta tabela é a superfície de protocolo em nível de case, destinada ao script de auditoria. `Status=unanswered` significa que o fault case ainda não pode ser devolvido como `accepted` nem receber asserções E2E estáveis; nesse caso `产品结论` (a confirmar) deve permanecer `待确认`. Depois que o produto confirmar, escreva primeiro uma conclusão explícita, depois mude a linha correspondente para `answered` e, por fim, devolva ao fault catalog / coverage matrix.
 
-| Questão | Case | Status | 产品结论 | O que precisa ser confirmado | Palavras-chave de verificação | Alvo do write-back |
+| Questão | Case | Status | Conclusão de produto | O que precisa ser confirmado | Palavras-chave de verificação | Alvo do write-back |
 | --- | --- | --- | --- | --- | --- | --- |
-| N01.1 | N01 | unanswered | 待确认 | estado final após `401/403`, orientação em configurações, se user message e fila são preservados | auth error、settings entry、queue snapshot | fault N01、fault coverage N01 |
-| N02.1 | N02 | unanswered | 待确认 | provider/API Key ausente é bloqueio antes do envio ou falha depois do envio; se o rascunho é preservado | no network request、composer draft、settings entry | fault N02、fault coverage N02 |
-| N03.1 | N03 | unanswered | 待确认 | estratégia de retry do `429`, enfileirar durante o retry, estado e fila após a falha final | retry count、toolbar retry、queue | fault N03、fault coverage N03 |
-| N04.1 | N04 | unanswered | 待确认 | se `502/503` são distinguidos, estratégia de retry, se retry/edit/fork/compact ficam disponíveis após a falha | status code、retry、action buttons | fault N04、fault coverage N04 |
-| N06.1 | N06 | unanswered | 待确认 | user message, estado de rede caída e regras de fila após falha de DNS/conexão/proxy/TLS | network error、message retention、queue | fault N06、fault coverage N06 |
-| N07.1 | N07 | unanswered | 待确认 | limiar de timeout da requisição, semântica de stop, falha automática ou retry após o timeout | delay fixture、stop、timeout | fault N07、fault coverage N07 |
-| N08.1 | N08 | unanswered | 待确认 | resposta 200 malformada é erro de protocolo/provider/ignorável, e se há retry | malformed body、normalized error、log | fault N08、fault coverage N08 |
-| N09.1 | N09 | unanswered | 待确认 | texto de fallback quando title/sidecar falha, se é visível ao usuário, se afeta o turno principal | title fallback、warn、main turn completed | fault N09、fault coverage N09 |
-| S01.1 | S01 | unanswered | 待确认 | queda com SSE vazio: retry ou erro, placeholder de assistant, user message e fila | empty SSE、retry boundary、queue | fault S01、fault coverage S01 |
-| S02.1 | S02 | unanswered | 待确认 | queda após `message_start` gera interrupted/error/sem assistant; a fila é drenada automaticamente | prelude close、assistant placeholder、queue | fault S02、fault coverage S02 |
-| S03.1 | S03 | unanswered | 待确认 | preservação do partial após text delta, estado final, disponibilidade de fork/edit/compact | partial text、failed/interrupted、buttons | fault S03、fault coverage S03 |
-| S04.1 | S04 | unanswered | 待确认 | evento SSE malformado: terminar, ignorar ou recuperar, e classificação no log | bad event、protocol log、event ordering | fault S04、fault coverage S04 |
-| S05.1 | S05 | unanswered | 待确认 | evento de erro do provider no SSE: mostrar texto original, retry, gerar assistant de erro | provider error frame、retry、assistant error | fault S05、fault coverage S05 |
-| S06.1 | S06 | unanswered | 待确认 | UI de stream stall, limiar de timeout, stop do usuário e estratégia de retry/falha automática | stalled event、toolbar state、timeout | fault S06、fault coverage S06 |
-| S07.1 | S07 | unanswered | 待确认 | evento SSE tardio após stop: ignorar, emitir warn e como provar o isolamento por inputId | late event、activeInputId、new turn isolation | fault S07、fault coverage S07 |
+| N01.1 | N01 | unanswered | a confirmar | estado final após `401/403`, orientação em configurações, se user message e fila são preservados | auth error、settings entry、queue snapshot | fault N01、fault coverage N01 |
+| N02.1 | N02 | unanswered | a confirmar | provider/API Key ausente é bloqueio antes do envio ou falha depois do envio; se o rascunho é preservado | no network request、composer draft、settings entry | fault N02、fault coverage N02 |
+| N03.1 | N03 | unanswered | a confirmar | estratégia de retry do `429`, enfileirar durante o retry, estado e fila após a falha final | retry count、toolbar retry、queue | fault N03、fault coverage N03 |
+| N04.1 | N04 | unanswered | a confirmar | se `502/503` são distinguidos, estratégia de retry, se retry/edit/fork/compact ficam disponíveis após a falha | status code、retry、action buttons | fault N04、fault coverage N04 |
+| N06.1 | N06 | unanswered | a confirmar | user message, estado de rede caída e regras de fila após falha de DNS/conexão/proxy/TLS | network error、message retention、queue | fault N06、fault coverage N06 |
+| N07.1 | N07 | unanswered | a confirmar | limiar de timeout da requisição, semântica de stop, falha automática ou retry após o timeout | delay fixture、stop、timeout | fault N07、fault coverage N07 |
+| N08.1 | N08 | unanswered | a confirmar | resposta 200 malformada é erro de protocolo/provider/ignorável, e se há retry | malformed body、normalized error、log | fault N08、fault coverage N08 |
+| N09.1 | N09 | unanswered | a confirmar | texto de fallback quando title/sidecar falha, se é visível ao usuário, se afeta o turno principal | title fallback、warn、main turn completed | fault N09、fault coverage N09 |
+| S01.1 | S01 | unanswered | a confirmar | queda com SSE vazio: retry ou erro, placeholder de assistant, user message e fila | empty SSE、retry boundary、queue | fault S01、fault coverage S01 |
+| S02.1 | S02 | unanswered | a confirmar | queda após `message_start` gera interrupted/error/sem assistant; a fila é drenada automaticamente | prelude close、assistant placeholder、queue | fault S02、fault coverage S02 |
+| S03.1 | S03 | unanswered | a confirmar | preservação do partial após text delta, estado final, disponibilidade de fork/edit/compact | partial text、failed/interrupted、buttons | fault S03、fault coverage S03 |
+| S04.1 | S04 | unanswered | a confirmar | evento SSE malformado: terminar, ignorar ou recuperar, e classificação no log | bad event、protocol log、event ordering | fault S04、fault coverage S04 |
+| S05.1 | S05 | unanswered | a confirmar | evento de erro do provider no SSE: mostrar texto original, retry, gerar assistant de erro | provider error frame、retry、assistant error | fault S05、fault coverage S05 |
+| S06.1 | S06 | unanswered | a confirmar | UI de stream stall, limiar de timeout, stop do usuário e estratégia de retry/falha automática | stalled event、toolbar state、timeout | fault S06、fault coverage S06 |
+| S07.1 | S07 | unanswered | a confirmar | evento SSE tardio após stop: ignorar, emitir warn e como provar o isolamento por inputId | late event、activeInputId、new turn isolation | fault S07、fault coverage S07 |
 
 ### Subdecisões já confirmadas que não fecham as perguntas de primeiro nível
 
-| Decision | Parent cases | 产品结论 | Palavras-chave de verificação | Alvo do write-back |
+| Decision | Parent cases | Conclusão de produto | Palavras-chave de verificação | Alvo do write-back |
 | --- | --- | --- | --- | --- |
 | S02-R1 | S02 / S06 | stream interrompido apenas com reasoning ou idle timeout é retentável: o core descarta o rabo de reasoning incompleto e retoma automaticamente a partir do último anchor seguro com um novo assistant message id; não altera fila, Stop nem fronteira de entrega | reasoning-only recovery、safe anchor、new request id、no tool side effect | fault catalog / focused runtime and projection tests |
 

@@ -167,7 +167,7 @@ card inteiro; apenas o botão do rodapé leva à próxima página; o estado do p
 uma cápsula dentro do card, e não apenas dentro do botão; se o plan atual ainda tiver um ciclo superior à
 venda, o botão continua sendo a entrada de upgrade; caso contrário, fica desabilitado. Os cards de
 escolha de plano usam textos de marketing de produto e não reutilizam diretamente os campos de entitlement
-da interface de pagamento; os entitlements e preços de interface continuam_makecidos pela página de
+da interface de pagamento; os entitlements e preços de interface continuam mantidos pela página de
 ciclo, pela página de pagamento e pelo preview do backend. Os cards de plano pessoal da BigModel exibem
 conteúdo sempre em chinês, para combinar com o cenário de compra doméstico; os cards de plano pessoal da
 Z.ai exibem conteúdo sempre em inglês, para combinar com o cenário de compra overseas. A exibição do Start
@@ -255,7 +255,7 @@ Textos dos Plan cards:
 | Pro  | 5x Lite usage       | Mid-sized repo development; Priority model access; Curated MCP tools |
 | Max  | 20x Lite usage      | Mid-to-large repo work; First model access; Peak-time priority       |
 
-### Team section
+### Seção de equipe
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐

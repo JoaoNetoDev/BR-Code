@@ -1,108 +1,108 @@
-# ExitPlanMode Plan File Compact Continuity Hack Implementation Plan
+# Plano de Implementação do Hack de Continuidade Compacta do Plan File no ExitPlanMode
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 本计划禁止自动提交；完成后只输出验证结果和 `git status --short`，除非用户再次明确要求提交。
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use `superpowers:executing-plans` para implementar este plano tarefa por tarefa. As etapas usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento. Este plano proíbe commit automático; ao final, apenas output os resultados de verificação e `git status --short`, a menos que o usuário exija explicitamente o commit novamente.
 
-**Goal:** 在保留当前 `ExitPlanMode({ plan, allowedPrompts? })` 输入形态的前提下，让审批通过的 plan 同步写入 workspace 下的 `.zcode/plans/*.md`，并在 compact 成功后通过 `plan_file_reference` 持久化恢复完整 plan，保证 compact/resume 后 plan 不丢。
+**Objetivo:** mantendo a forma atual de entrada `ExitPlanMode({ plan, allowedPrompts? })`, fazer com que o plan aprovado seja gravado de forma síncrona em `.zcode/plans/*.md` sob o workspace e, após um compact bem-sucedido, persistir a restauração do plan completo por meio de `plan_file_reference`, garantindo que o plan não se perca após compact/resume.
 
-**Architecture:** 这是一个保证 `plan_file_reference` 连续性的最小过渡方案，不做完整 provider-visible schema 重构。`ExitPlanMode` 审批通过后由 tool handler 通过现有 `FileSystemPort.writeTextFile({ createParents: true, atomic: true })` 写入确定性 plan file；`compactActiveConversation()` 在构造 `postCompactReminderEntries` 时读取同一文件并追加 `plan_file_reference` model-only reminder，复用现有 compact summary/reminder 原子持久化路径。没有 plan file 的会话不追加该 reminder。
+**Arquitetura:** esta é uma solução mínima de transição para garantir a continuidade de `plan_file_reference`, sem uma reformulação completa do schema visível ao provider. Depois que `ExitPlanMode` é aprovado, o tool handler grava o plan file determinístico através do `FileSystemPort.writeTextFile({ createParents: true, atomic: true })` existente; `compactActiveConversation()` lê o mesmo arquivo ao construir `postCompactReminderEntries` e acrescenta o reminder model-only `plan_file_reference`, reutilizando o caminho existente de persistência atômica de compact summary/reminder. Sessões sem plan file não recebem esse reminder.
 
-**Review update:** 最终实现按 review 反馈进一步收敛 provider-visible plan file 效果：`plan_file_reference` 使用固定文案，plan file 写入原始 `plan` 字符串，保存失败不阻断已批准的退出 plan mode。下方早期执行步骤中的代码片段只保留为实施轨迹，最终合同以 `docs/plan-mode-plan-file-compact-continuity.md` 和源码为准。
+**Atualização de review:** a implementação final converge, conforme o feedback de review, o efeito do plan file visível ao provider: `plan_file_reference` usa texto fixo, o plan file grava a string `plan` original e falha ao salvar não bloqueia a saída do plan mode já aprovado. Os trechos de código nas etapas iniciais abaixo são mantidos apenas como rastro de implementação; o contrato final é o de `docs/plan-mode-plan-file-compact-continuity.md` e o código-fonte.
 
-**Tech Stack:** TypeScript, Vitest, ZCode core runtime, `FileSystemPort`, system reminder source registry, WDIO desktop conversation-session E2E, manual-review fixture promotion workflow.
+**Stack Tecnológico:** TypeScript, Vitest, runtime core do ZCode, `FileSystemPort`, registro de fontes de system reminder, E2E de conversation-session do desktop via WDIO, fluxo de promoção de fixtures com revisão manual.
 
-## Global Constraints
+## Restrições Globais
 
-- 本计划只实现 compact/resume 后 plan 连续性小 hack；不移除 provider-visible `ExitPlanMode.plan`，不新增 runtime injected input，不改变 permission broker schema，不实现完整的 plan-file schema 重构。
-- plan file 路径固定为 `${workspaceRoot}/.zcode/plans/plan-${sanitizedSessionId}.md`；路径语义使用 `workspaceRoot`，不能使用会随 Bash `cd` 变化的 `workingDirectory`。
-- 写 plan file 必须发生在用户审批通过并得到最终 plan input 之后；保存原始 `plan` 字符串，不做 trim 或补换行。写失败不阻断 `sessionModePort.exitPlanMode()`。
-- compact 只在确定性 plan file 存在且内容非空时追加 `plan_file_reference`；没有 plan file 的普通会话不能因为读取缺失文件导致 compact 失败。
-- `plan_file_reference` 内容必须包含固定文案：`A plan file exists from plan mode at: ${planFilePath}`、`Plan contents:`、完整 plan 正文，以及 `If this plan is relevant to the current work and not already complete, continue working on it.`。
-- 不把 plan file 混进 generic read-state reminder；保留 `compact-post-reminders.ts` 对 `docs/superpowers/plans/` 的 skip guard。
-- 不改 desktop/web/remote control 架构，不新增 relay/main 业务状态，不改 queue/stream/snapshot 语义。
-- 新增功能先写 docs/spec，再写测试，再实现代码。
-- 完成后必须运行 targeted tests、conversation E2E 可视化窗口验证、`typecheck:e2e`、`pnpm typecheck`、`pnpm lint`；不能自动 commit。
-
----
-
-## File Structure
-
-- Create: `docs/plan-mode-plan-file-compact-continuity.md`
-  - 记录当前小 hack 的产品边界、路径合同、compact reminder 合同、非目标。
-- Modify: `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`
-  - 更新当前 ZCode plan mode 设计说明：`ExitPlanMode.plan` 仍保留，但审批通过后写 plan file，compact 后用 `plan_file_reference` 恢复。
-- Create: `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file-continuity.ts`
-  - 封装 plan file 路径、写入、读取、`plan_file_reference` entry 构造。
-- Modify: `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`
-  - 导出 `plan-file-continuity.ts`。
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`
-  - `ExitPlanMode` 审批通过后 best-effort 写入 plan file，再退出 plan mode；写失败不阻断退出。
-- Modify: `apps/zcode-cli/packages/core/src/system-reminder/source.ts`
-  - 新增 persisted source：`plan_file_reference`。
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`
-  - compact 成功时把 plan file reference entry 放入 `postCompactReminderEntries`，排在 read-state reminders 前。
-- Create: `apps/zcode-cli/packages/core/tests/plan-file-continuity.test.ts`
-  - 覆盖路径、写入、读取、reminder 正文。
-- Modify: `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`
-  - 覆盖 `ExitPlanMode` 审批后的 plan file 写入和写失败仍退出 plan mode。
-- Modify: `apps/zcode-cli/packages/core/tests/system-reminder-source.test.ts`
-  - 覆盖 `plan_file_reference` source 分组、descriptor、wrapper。
-- Modify: `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`
-  - 覆盖 compact 后 runtime history/provider context 包含 `plan_file_reference` 完整 plan。
-- Modify: `docs/conversation-session-case-catalog.md`
-  - 新增 plan approval + compact continuity accepted case。
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-  - 新增测试缩写和覆盖映射。
-- Create: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
-  - 通过真实桌面窗口验证 plan approval、plan file 落盘、`/compact`、后续 provider request 中 plan continuity。
-- After manual review, move: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts` -> `packages/desktop/test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts`
-  - 通过 `pnpm --filter @zcode/desktop e2e:promote -- --spec ./test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts --reviewed --apply` 完成移动和脚手架生成。
+- Este plano implementa apenas o pequeno hack de continuidade do plan após compact/resume; não remove o `ExitPlanMode.plan` visível ao provider, não adiciona runtime injected input, não altera o schema do permission broker e não implementa a reformulação completa do schema de plan-file.
+- O caminho do plan file é fixo em `${workspaceRoot}/.zcode/plans/plan-${sanitizedSessionId}.md`; a semântica de caminho usa `workspaceRoot`, e não `workingDirectory`, que muda com `cd` do Bash.
+- A gravação do plan file deve acontecer depois da aprovação do usuário e do input final de plan; salva a string `plan` original, sem trim nem quebra de linha acrescentada. Falha ao salvar não bloqueia `sessionModePort.exitPlanMode()`.
+- O compact só acrescenta `plan_file_reference` quando o plan file determinístico existir e tiver conteúdo não vazio; uma sessão comum sem plan file não pode falhar no compact por causa da leitura de um arquivo ausente.
+- O conteúdo de `plan_file_reference` deve conter o texto fixo: `A plan file exists from plan mode at: ${planFilePath}`, `Plan contents:`, o corpo completo do plan e `If this plan is relevant to the current work and not already complete, continue working on it.`.
+- Não misturar o plan file ao generic read-state reminder; manter o skip guard de `compact-post-reminders.ts` para `docs/superpowers/plans/`.
+- Não alterar a arquitetura de controle desktop/web/remoto, não adicionar estado de negócio em relay/main e não mudar a semântica de queue/stream/snapshot.
+- Para novas funcionalidades, escrever primeiro docs/spec, depois os testes, e só então o código.
+- Ao final, é obrigatório executar testes direcionados, a verificação visual da janela do conversation E2E, `typecheck:e2e`, `pnpm typecheck` e `pnpm lint`; não fazer commit automático.
 
 ---
 
-## Phase 0: Spec First
+## Estrutura de Arquivos
 
-### Task 0.1: 写 feature spec，锁定小 hack 边界
+- Criar: `docs/plan-mode-plan-file-compact-continuity.md`
+  - Registra os limites de produto do pequeno hack atual, o contrato de caminho, o contrato do reminder de compact e os não objetivos.
+- Modificar: `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`
+  - Atualiza a descrição atual do design de plan mode do ZCode: `ExitPlanMode.plan` permanece, mas após a aprovação o plan file é gravado e, após o compact, é restaurado com `plan_file_reference`.
+- Criar: `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file-continuity.ts`
+  - Encapsula o caminho do plan file, a escrita, a leitura e a construção da entry `plan_file_reference`.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`
+  - Exporta `plan-file-continuity.ts`.
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`
+  - Depois que `ExitPlanMode` é aprovado, grava o plan file em best-effort e só então sai do plan mode; falha na gravação não bloqueia a saída.
+- Modificar: `apps/zcode-cli/packages/core/src/system-reminder/source.ts`
+  - Nova source persistida: `plan_file_reference`.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`
+  - Em compact bem-sucedido, coloca a plan file reference entry em `postCompactReminderEntries`, antes dos read-state reminders.
+- Criar: `apps/zcode-cli/packages/core/tests/plan-file-continuity.test.ts`
+  - Cobre caminho, escrita, leitura e corpo do reminder.
+- Modificar: `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`
+  - Cobre a gravação do plan file após a aprovação de `ExitPlanMode` e a saída do plan mode mesmo quando a gravação falha.
+- Modificar: `apps/zcode-cli/packages/core/tests/system-reminder-source.test.ts`
+  - Cobre o agrupamento de source, o descriptor e o wrapper de `plan_file_reference`.
+- Modificar: `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`
+  - Cobre que o runtime history/provider context após o compact contém o `plan_file_reference` com o plan completo.
+- Modificar: `docs/conversation-session-case-catalog.md`
+  - Novo caso accepted de plan approval + compact continuity.
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+  - Nova abreviatura de teste e mapeamento de cobertura.
+- Criar: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
+  - Valida, por uma janela real do desktop, plan approval, gravação do plan file, `/compact` e a continuidade do plan na requisição seguinte ao provider.
+- Após a revisão manual, mover: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts` -> `packages/desktop/test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts`
+  - A movimentação e a geração do scaffolding são feitas com `pnpm --filter @zcode/desktop e2e:promote -- --spec ./test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts --reviewed --apply`.
 
-**Files:**
-- Create: `docs/plan-mode-plan-file-compact-continuity.md`
-- Modify: `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`
+---
+
+## Fase 0: Spec primeiro
+
+### Tarefa 0.1: Escrever o feature spec e fixar os limites do pequeno hack
+
+**Arquivos:**
+- Criar: `docs/plan-mode-plan-file-compact-continuity.md`
+- Modificar: `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`
 
 **Interfaces:**
-- Consumes: 当前 `ExitPlanModeInputSchema` 仍要求 `plan: string`。
-- Produces: 后续实现必须遵守的 plan file 路径合同和 reminder 正文合同。
+- Consome: o `ExitPlanModeInputSchema` atual ainda exige `plan: string`.
+- Produz: o contrato de caminho do plan file e o contrato do corpo do reminder que a implementação seguinte deve respeitar.
 
-- [ ] **Step 1: 创建 feature spec**
+- [ ] **Etapa 1: Criar o feature spec**
 
-Create `docs/plan-mode-plan-file-compact-continuity.md` with this content:
+Crie `docs/plan-mode-plan-file-compact-continuity.md` com este conteúdo:
 
 ```markdown
 # Plan Mode Plan File Compact Continuity
 
-## 背景
+## Contexto
 
-当前 ZCode 的 `ExitPlanMode` 仍通过 tool input 的 `plan` 字段承载完整 plan。若 `ExitPlanMode` 审批后很快触发 compact，summary 可能没有保留完整 plan，compact/resume 后模型无法稳定拿回已批准 plan。
+Atualmente, o `ExitPlanMode` do ZCode ainda carrega o plan completo pelo campo `plan` do tool input. Se um compact for disparado logo após a aprovação de `ExitPlanMode`, o summary pode não preservar o plan completo, e após compact/resume o modelo não consegue recuperar de forma estável o plan já aprovado.
 
-## 目标
+## Objetivo
 
-审批通过后的 `ExitPlanMode.plan` 必须同步写入 workspace root 下的确定性 plan file。compact 成功后，runtime 必须把该 plan file 的路径和完整内容作为 `plan_file_reference` model-only reminder 持久化到 compact 后历史里。
+O `ExitPlanMode.plan` aprovado deve ser gravado de forma síncrona em um plan file determinístico sob a raiz do workspace. Após um compact bem-sucedido, o runtime deve persistir o caminho e o conteúdo completo desse plan file como um reminder model-only `plan_file_reference` no histórico posterior ao compact.
 
-## 路径合同
+## Contrato de caminho
 
-plan file 路径为：
+O caminho do plan file é:
 
 ```text
 ${workspaceRoot}/.zcode/plans/plan-${sanitizedSessionId}.md
 ```
 
-`workspaceRoot` 表示工作区根路径；不能使用可能被 Bash `cd` 改变的 `workingDirectory`。`sanitizedSessionId` 只保留 `A-Z`、`a-z`、`0-9`、`.`、`_`、`-`，其他字符替换成 `-`，并去掉首尾 `-`。
+`workspaceRoot` representa o caminho da raiz do workspace; não é permitido usar `workingDirectory`, que pode mudar com `cd` do Bash. `sanitizedSessionId` mantém apenas `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`; os demais caracteres viram `-`, e os `-` iniciais e finais são removidos.
 
-## 写入合同
+## Contrato de escrita
 
-`ExitPlanMode` 在用户审批通过并应用 permission broker 返回的最终 input 后写 plan file。写入使用 `FileSystemPort.writeTextFile()`，参数必须包含 `createParents: true`、`atomic: true`、`encoding: "utf8"`。写失败时 `ExitPlanMode` 失败，session 保持 plan mode。
+`ExitPlanMode` grava o plan file depois que o usuário aprova e que o input final retornado pelo permission broker é aplicado. A gravação usa `FileSystemPort.writeTextFile()`, e os parâmetros devem incluir `createParents: true`, `atomic: true` e `encoding: "utf8"`. Se a gravação falhar, `ExitPlanMode` falha e a sessão permanece em plan mode.
 
-## Compact 合同
+## Contrato de compact
 
-compact 成功后，如果确定性 plan file 存在且内容非空，runtime 在 `postCompactReminderEntries` 中追加 source 为 `plan_file_reference` 的 model-only reminder，内容格式为：
+Após um compact bem-sucedido, se o plan file determinístico existir e não estiver vazio, o runtime acrescenta em `postCompactReminderEntries` um reminder model-only com source `plan_file_reference`, no seguinte formato:
 
 ```text
 A plan file exists from plan mode at: ${planFilePath}
@@ -110,28 +110,28 @@ A plan file exists from plan mode at: ${planFilePath}
 ${planContent}
 ```
 
-该 reminder 排在 generic read-state reminders 前面，并通过现有 `persistCompactSummary()` 与 compact summary 一起持久化；任一步持久化失败时沿用现有 compact persistence rollback。
+Esse reminder vem antes dos generic read-state reminders e é persistido junto com o compact summary pelo `persistCompactSummary()` existente; se qualquer passo da persistência falhar, vale o rollback de persistência de compact já existente.
 
-## 非目标
+## Não objetivos
 
-- 不改变 provider-visible `ExitPlanMode` input schema。
-- 不实现 runtime injected `plan` / `planFilePath`。
-- 不改变 `ExitPlanMode` output shape。
-- 不新增 UI 展示。
-- 不把 plan file 加入 generic read-state reminder。
-- 不处理用户手动删除 `.zcode/plans` 后的恢复。
+- Não alterar o input schema de `ExitPlanMode` visível ao provider.
+- Não implementar `plan` / `planFilePath` injetados pelo runtime.
+- Não alterar o output shape de `ExitPlanMode`.
+- Não adicionar exibição na UI.
+- Não adicionar o plan file ao generic read-state reminder.
+- Não tratar a recuperação após o usuário apagar manualmente `.zcode/plans`.
 ```
 
-- [ ] **Step 2: 更新 plan mode 设计文档**
+- [ ] **Etapa 2: Atualizar o documento de design do plan mode**
 
-In `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`, keep the current statement that ZCode `ExitPlanMode` receives `plan` in tool input, and add a subsection named `审批后 plan file 连续性` containing:
+Em `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`, mantenha a afirmação atual de que o `ExitPlanMode` do ZCode recebe `plan` no tool input e acrescente uma subseção chamada `Continuidade do plan file após a aprovação` contendo:
 
 ```markdown
-### 审批后 plan file 连续性
+### Continuidade do plan file após a aprovação
 
-当前过渡实现仍保留 `ExitPlanMode({ plan, allowedPrompts? })` 的 provider-visible 输入形态。审批通过后，runtime 会把最终批准的 plan 写入 workspace root 下的 `.zcode/plans/plan-${sanitizedSessionId}.md`。
+A implementação transitória atual ainda preserva a forma de input visível ao provider `ExitPlanMode({ plan, allowedPrompts? })`. Após a aprovação, o runtime grava o plan final aprovado em `.zcode/plans/plan-${sanitizedSessionId}.md` sob a raiz do workspace.
 
-这个文件不是新的 provider-visible input，也不是完整的 plan-file schema 重构；它只用于 compact/resume continuity。compact 成功时，如果该 plan file 存在且非空，runtime 会在 compact 后历史中持久化 `plan_file_reference` model-only reminder：
+Este arquivo não é um novo input visível ao provider nem uma reformulação completa do schema de plan-file; ele existe apenas para a continuidade de compact/resume. Quando o compact é concluído com sucesso, se o plan file existir e não estiver vazio, o runtime persiste um reminder model-only `plan_file_reference` no histórico posterior ao compact:
 
 ```text
 A plan file exists from plan mode at: ${planFilePath}
@@ -139,39 +139,39 @@ A plan file exists from plan mode at: ${planFilePath}
 ${planContent}
 ```
 
-这样即使 `ExitPlanMode` 后立即 compact，恢复后的下一轮 provider context 仍能拿到完整批准计划。
+Assim, mesmo que o compact ocorra imediatamente após `ExitPlanMode`, o próximo contexto de provider após a retomada ainda obtém o plano aprovado completo.
 ```
 
-- [ ] **Step 3: 检查 spec 没有扩展成完整 plan-file schema 重构**
+- [ ] **Etapa 3: Verificar que o spec não se expandiu para uma reformulação completa do schema de plan-file**
 
-Run:
+Execute:
 
 ```bash
 rg -n "runtime injected|provider-visible.*allowedPrompts|remove.*plan|filePath output|EnterPlanMode.*draft|schema parity" docs/plan-mode-plan-file-compact-continuity.md apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md
 ```
 
-Expected: no lines that require removing provider-visible `plan` or adding injected input. Lines inside the `非目标` section are acceptable only when they explicitly say the item is not implemented.
+Esperado: nenhuma linha que exija remover o `plan` visível ao provider ou adicionar input injetado. Linhas dentro da seção de não objetivos são aceitáveis apenas quando dizem explicitamente que o item não é implementado.
 
 ---
 
-## Phase 1: Plan File Helper
+## Fase 1: Helper de Plan File
 
-### Task 1.1: 先写 plan-file continuity helper 单测
+### Tarefa 1.1: Escrever primeiro os testes unitários do helper de plan-file continuity
 
-**Files:**
-- Create: `apps/zcode-cli/packages/core/tests/plan-file-continuity.test.ts`
-- Use existing: `apps/zcode-cli/packages/core/tests/memory-test-utils.ts`
+**Arquivos:**
+- Criar: `apps/zcode-cli/packages/core/tests/plan-file-continuity.test.ts`
+- Usar existente: `apps/zcode-cli/packages/core/tests/memory-test-utils.ts`
 
 **Interfaces:**
-- Produces expected signatures:
+- Produz as assinaturas esperadas:
   - `resolveApprovedPlanFilePath(input: { sessionId: string; workspaceRoot: string }): string`
   - `writeApprovedPlanFile(input: { abortSignal?: AbortSignal; fileSystemPort: FileSystemPort; plan: string; sessionId: string; traceContext?: TraceContext; workspaceRoot: string }): Promise<{ path: string }>`
   - `readApprovedPlanFileReferenceEntry(input: { abortSignal?: AbortSignal; fileSystemPort: FileSystemPort; sessionId: string; traceContext?: TraceContext; workspaceRoot: string }): Promise<RuntimeMessageEntry | undefined>`
   - `formatPlanFileReference(input: { planContent: string; planFilePath: string }): string`
 
-- [ ] **Step 1: Add failing helper tests**
+- [ ] **Etapa 1: Adicionar testes de helper que falham**
 
-Create `apps/zcode-cli/packages/core/tests/plan-file-continuity.test.ts`:
+Crie `apps/zcode-cli/packages/core/tests/plan-file-continuity.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -264,29 +264,29 @@ describe("plan file continuity", () => {
 });
 ```
 
-- [ ] **Step 2: Run helper tests and confirm they fail because helper does not exist**
+- [ ] **Etapa 2: Executar os testes do helper e confirmar que falham porque o helper não existe**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- plan-file-continuity.test.ts
 ```
 
-Expected: FAIL with module resolution error for `../src/runtime/helpers/plan-file-continuity.js`.
+Esperado: FAIL com erro de resolução de módulo para `../src/runtime/helpers/plan-file-continuity.js`.
 
-### Task 1.2: 实现 plan-file continuity helper
+### Tarefa 1.2: Implementar o helper de plan-file continuity
 
-**Files:**
-- Create: `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file-continuity.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`
+**Arquivos:**
+- Criar: `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file-continuity.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`
 
 **Interfaces:**
-- Consumes: `FileSystemPort`, `PLAN_MODE_MAX_PLAN_CHARS`, `systemReminderAttachmentEntry`.
-- Produces: the four helper functions used by Task 1.1 and later phases.
+- Consome: `FileSystemPort`, `PLAN_MODE_MAX_PLAN_CHARS`, `systemReminderAttachmentEntry`.
+- Produz: as quatro funções de helper usadas pela Tarefa 1.1 e pelas fases seguintes.
 
-- [ ] **Step 1: Add helper implementation**
+- [ ] **Etapa 1: Adicionar a implementação do helper**
 
-Create `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file-continuity.ts`:
+Crie `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file-continuity.ts`:
 
 ```ts
 import { join } from "node:path";
@@ -406,40 +406,40 @@ function sanitizePlanFileSessionId(sessionId: SessionId | string): string {
 }
 ```
 
-- [ ] **Step 2: Export helper**
+- [ ] **Etapa 2: Exportar o helper**
 
-Append to `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`:
+Acrescente ao final de `apps/zcode-cli/packages/core/src/runtime/helpers/index.ts`:
 
 ```ts
 export * from "./plan-file-continuity.js";
 ```
 
-- [ ] **Step 3: Run helper tests and confirm pass**
+- [ ] **Etapa 3: Executar os testes do helper e confirmar que passam**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- plan-file-continuity.test.ts
 ```
 
-Expected: PASS all five tests.
+Esperado: PASS nos cinco testes.
 
 ---
 
-## Phase 2: ExitPlanMode 写入 Plan File
+## Fase 2: ExitPlanMode grava o Plan File
 
-### Task 2.1: 先写 ExitPlanMode 写入/失败行为测试
+### Tarefa 2.1: Escrever primeiro os testes de gravação/falha do ExitPlanMode
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`
 
 **Interfaces:**
-- Consumes: `writeApprovedPlanFile()` from Phase 1.
-- Produces: `ExitPlanMode` approved path writes final broker-modified plan before leaving plan mode.
+- Consome: `writeApprovedPlanFile()` da Fase 1.
+- Produz: o caminho aprovado de `ExitPlanMode` grava o plan final modificado pelo broker antes de sair do plan mode.
 
-- [ ] **Step 1: Extend test helper to pass FileSystemPort and workspace paths**
+- [ ] **Etapa 1: Estender o helper de teste para passar FileSystemPort e caminhos de workspace**
 
-In `createPlanModeExecutor()` test helper input type, add:
+No tipo de input do helper de teste `createPlanModeExecutor()`, acrescente:
 
 ```ts
   fileSystemPort?: import("@zcode/contracts").FileSystemPort;
@@ -447,7 +447,7 @@ In `createPlanModeExecutor()` test helper input type, add:
   workspaceRoot?: string;
 ```
 
-In the `createToolExecutor()` call, pass:
+Na chamada `createToolExecutor()`, passe:
 
 ```ts
     fileSystemPort: input.fileSystemPort,
@@ -455,22 +455,22 @@ In the `createToolExecutor()` call, pass:
     workspaceRoot: input.workspaceRoot ?? "/workspace/project",
 ```
 
-- [ ] **Step 2: Update existing approval test to assert final modified plan file content**
+- [ ] **Etapa 2: Atualizar o teste de aprovação existente para verificar o conteúdo final do plan file modificado**
 
-In the existing test named `requests approval before exiting plan mode and returns the approved plan`, create a memory file system before the executor:
+No teste existente chamado `requests approval before exiting plan mode and returns the approved plan`, crie um sistema de arquivos em memória antes do executor:
 
 ```ts
     const fileSystemPort = new MemoryFileSystem({});
 ```
 
-Pass it to `createPlanModeExecutor({ ... })`:
+Passe-o para `createPlanModeExecutor({ ... })`:
 
 ```ts
       fileSystemPort,
       workspaceRoot: "/workspace/project",
 ```
 
-After the existing output/modelContent assertions, add:
+Depois das verificações existentes de output/modelContent, acrescente:
 
 ```ts
     expect(
@@ -480,15 +480,15 @@ After the existing output/modelContent assertions, add:
     ).toBe("1. Update the service boundary\n2. Add tests");
 ```
 
-Add import near the top:
+Acrescente o import perto do topo:
 
 ```ts
 import { MemoryFileSystem } from "./memory-test-utils.js";
 ```
 
-- [ ] **Step 3: Add write-failure test**
+- [ ] **Etapa 3: Adicionar teste de falha de gravação**
 
-Add this test in `describe("plan mode tools", ...)`:
+Acrescente este teste em `describe("plan mode tools", ...)`:
 
 ```ts
   it("does not exit plan mode when approved plan file write fails", async () => {
@@ -548,36 +548,36 @@ Add this test in `describe("plan mode tools", ...)`:
   });
 ```
 
-- [ ] **Step 4: Run focused tests and confirm new assertions fail**
+- [ ] **Etapa 4: Executar os testes direcionados e confirmar que as novas asserções falham**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- plan-mode-tool.test.ts
 ```
 
-Expected: FAIL because `ExitPlanMode` has not written the plan file yet.
+Esperado: FAIL porque `ExitPlanMode` ainda não grava o plan file.
 
-### Task 2.2: 写入 approved plan file 再退出 plan mode
+### Tarefa 2.2: Gravar o approved plan file e só então sair do plan mode
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`
 
 **Interfaces:**
-- Consumes: `writeApprovedPlanFile()`.
-- Produces: `ExitPlanMode` preserves current output shape and writes plan file before `sessionModePort.exitPlanMode()`.
+- Consome: `writeApprovedPlanFile()`.
+- Produz: `ExitPlanMode` preserva o output shape atual e grava o plan file antes de `sessionModePort.exitPlanMode()`.
 
-- [ ] **Step 1: Import helper**
+- [ ] **Etapa 1: Importar o helper**
 
-In `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`, add:
+Em `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`, acrescente:
 
 ```ts
 import { writeApprovedPlanFile } from "../../runtime/helpers/plan-file-continuity.js";
 ```
 
-- [ ] **Step 2: Add FileSystemPort assertion helper**
+- [ ] **Etapa 2: Adicionar helper de asserção de FileSystemPort**
 
-Below `assertSessionModePort()`, add:
+Abaixo de `assertSessionModePort()`, acrescente:
 
 ```ts
 function assertFileSystemPort(
@@ -601,9 +601,9 @@ function assertFileSystemPort(
 }
 ```
 
-- [ ] **Step 3: Write plan before mode transition**
+- [ ] **Etapa 3: Gravar o plan antes da transição de modo**
 
-In `exitPlanModeHandler`, after the mode check and before `context.sessionModePort.exitPlanMode(...)`, insert:
+Em `exitPlanModeHandler`, depois da verificação de modo e antes de `context.sessionModePort.exitPlanMode(...)`, insira:
 
 ```ts
   assertFileSystemPort(context);
@@ -622,37 +622,37 @@ In `exitPlanModeHandler`, after the mode check and before `context.sessionModePo
   });
 ```
 
-- [ ] **Step 4: Run focused tests**
+- [ ] **Etapa 4: Executar os testes direcionados**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- plan-mode-tool.test.ts plan-file-continuity.test.ts
 ```
 
-Expected: PASS. The existing output shape still includes `plan`, `approved`, `previousMode`, `mode`, and `allowedPrompts`; no `planFilePath` output field is introduced.
+Esperado: PASS. O output shape existente ainda inclui `plan`, `approved`, `previousMode`, `mode` e `allowedPrompts`; nenhum campo de output `planFilePath` é introduzido.
 
 ---
 
-## Phase 3: `plan_file_reference` Source Registry
+## Fase 3: Registro de Source `plan_file_reference`
 
-### Task 3.1: 先写 system reminder source 测试
+### Tarefa 3.1: Escrever primeiro os testes de source de system reminder
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/tests/system-reminder-source.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/tests/system-reminder-source.test.ts`
 
 **Interfaces:**
-- Produces: `plan_file_reference` is a persisted `history_continuity` / `resume_history` meta provider-visible reminder source.
+- Produz: `plan_file_reference` como source de reminder meta, provider-visible, persistido, de `history_continuity` / `resume_history`.
 
-- [ ] **Step 1: Add source to expected list and persisted bucket assertions**
+- [ ] **Etapa 1: Adicionar a source à lista esperada e às asserções do bucket persistido**
 
-In `EXPECTED_SOURCES`, insert `"plan_file_reference"` immediately after `"resume_referenced_session_context"`.
+Em `EXPECTED_SOURCES`, insira `"plan_file_reference"` imediatamente depois de `"resume_referenced_session_context"`.
 
-In the `SYSTEM_REMINDER_PERSISTED_SOURCES` assertion, insert `"plan_file_reference"` immediately after `"resume_referenced_session_context"`.
+Na asserção `SYSTEM_REMINDER_PERSISTED_SOURCES`, insira `"plan_file_reference"` imediatamente depois de `"resume_referenced_session_context"`.
 
-- [ ] **Step 2: Add explicit descriptor assertion**
+- [ ] **Etapa 2: Adicionar asserção explícita de descriptor**
 
-Add this assertion to the test named `classifies sources by explicit source instead of reminder text`:
+Acrescente esta asserção ao teste chamado `classifies sources by explicit source instead of reminder text`:
 
 ```ts
     expect(getSystemReminderDescriptor("plan_file_reference")).toMatchObject({
@@ -664,9 +664,9 @@ Add this assertion to the test named `classifies sources by explicit source inst
     });
 ```
 
-- [ ] **Step 3: Add wrapper assertion**
+- [ ] **Etapa 3: Adicionar asserção de wrapper**
 
-Add:
+Acrescente:
 
 ```ts
   it("wraps plan_file_reference without nested reminder metadata", () => {
@@ -681,58 +681,58 @@ Add:
   });
 ```
 
-- [ ] **Step 4: Run source tests and confirm fail**
+- [ ] **Etapa 4: Executar os testes de source e confirmar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- system-reminder-source.test.ts
 ```
 
-Expected: FAIL because `plan_file_reference` is not registered yet.
+Esperado: FAIL porque `plan_file_reference` ainda não está registrada.
 
-### Task 3.2: 注册 `plan_file_reference`
+### Tarefa 3.2: Registrar `plan_file_reference`
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/system-reminder/source.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/system-reminder/source.ts`
 
 **Interfaces:**
-- Consumes: persisted compact reminder entry metadata source.
-- Produces: source descriptor usable by provider projection and persisted model-only reminder hydration.
+- Consome: source de metadados da entry de reminder de compact persistida.
+- Produz: descriptor de source utilizável pela projeção para o provider e pela hidratação de reminder model-only persistido.
 
-- [ ] **Step 1: Add persisted source**
+- [ ] **Etapa 1: Adicionar a source persistida**
 
-In `SYSTEM_REMINDER_PERSISTED_SOURCES`, insert:
-
-```ts
-  "plan_file_reference",
-```
-
-immediately after:
-
-```ts
-  "resume_referenced_session_context",
-```
-
-- [ ] **Step 2: Keep non-MCS behavior aligned with resume continuity reminders**
-
-In `NON_MID_CONVERSATION_SYSTEM_SOURCES`, insert:
+Em `SYSTEM_REMINDER_PERSISTED_SOURCES`, insira:
 
 ```ts
   "plan_file_reference",
 ```
 
-immediately after:
+imediatamente depois de:
 
 ```ts
   "resume_referenced_session_context",
 ```
 
-This keeps the reminder projected through the same non-mid-conversation path as current resume continuity context.
+- [ ] **Etapa 2: Manter o comportamento não-MCS alinhado aos reminders de continuidade de resume**
 
-- [ ] **Step 3: Add descriptor**
+Em `NON_MID_CONVERSATION_SYSTEM_SOURCES`, insira:
 
-In `SYSTEM_REMINDER_DESCRIPTORS`, add:
+```ts
+  "plan_file_reference",
+```
+
+imediatamente depois de:
+
+```ts
+  "resume_referenced_session_context",
+```
+
+Isso mantém o reminder projetado pelo mesmo caminho não-mid-conversation do contexto atual de continuidade de resume.
+
+- [ ] **Etapa 3: Adicionar o descriptor**
+
+Em `SYSTEM_REMINDER_DESCRIPTORS`, acrescente:
 
 ```ts
   plan_file_reference: descriptor(
@@ -743,40 +743,40 @@ In `SYSTEM_REMINDER_DESCRIPTORS`, add:
   ),
 ```
 
-immediately after `resume_referenced_session_context`.
+imediatamente depois de `resume_referenced_session_context`.
 
-- [ ] **Step 4: Run source tests**
+- [ ] **Etapa 4: Executar os testes de source**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- system-reminder-source.test.ts
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
 ---
 
-## Phase 4: Compact 后注入 Plan Reference
+## Fase 4: Injetar Plan Reference após o Compact
 
-### Task 4.1: 先写 compact runtime 回归测试
+### Tarefa 4.1: Escrever primeiro o teste de regressão de compact do runtime
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`
 
 **Interfaces:**
-- Consumes: `readApprovedPlanFileReferenceEntry()`.
-- Produces: compact after approved plan stores `plan_file_reference` in post-compact runtime history and next provider request.
+- Consome: `readApprovedPlanFileReferenceEntry()`.
+- Produz: após o compact de um plan aprovado, `plan_file_reference` fica no histórico de runtime pós-compact e na próxima requisição ao provider.
 
-- [ ] **Step 1: Add regression test near existing compact post-reminder tests**
+- [ ] **Etapa 1: Adicionar teste de regressão perto dos testes existentes de post-compact reminder**
 
-In `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`, add this import near the existing test helper imports:
+Em `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`, acrescente este import perto dos imports de helper de teste existentes:
 
 ```ts
 import { MemoryFileSystem } from "./memory-test-utils.js";
 ```
 
-Then add this test near the existing post-compact read-state reminder tests:
+Depois acrescente este teste perto dos testes existentes de post-compact read-state reminder:
 
 ```ts
 it("persists approved plan file reference after compact so resume keeps the full plan", async () => {
@@ -869,38 +869,38 @@ it("persists approved plan file reference after compact so resume keeps the full
 });
 ```
 
-- [ ] **Step 2: Run compact test and confirm fail**
+- [ ] **Etapa 2: Executar o teste de compact e confirmar a falha**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- runtime-compact.test.ts -t "persists approved plan file reference after compact"
 ```
 
-Expected: FAIL because `compactActiveConversation()` only appends read-state reminders today.
+Esperado: FAIL porque hoje `compactActiveConversation()` apenas acrescenta read-state reminders.
 
-### Task 4.2: Append plan file reference before generic read-state reminders
+### Tarefa 4.2: Acrescentar a plan file reference antes dos generic read-state reminders
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`
 
 **Interfaces:**
-- Consumes: `readApprovedPlanFileReferenceEntry()`.
-- Produces: `postCompactReminderEntries` includes `plan_file_reference` first when plan file exists.
+- Consome: `readApprovedPlanFileReferenceEntry()`.
+- Produz: `postCompactReminderEntries` inclui `plan_file_reference` primeiro quando o plan file existe.
 
-- [ ] **Step 1: Import helper**
+- [ ] **Etapa 1: Importar o helper**
 
-In `compact-active.ts`, import:
+Em `compact-active.ts`, importe:
 
 ```ts
   readApprovedPlanFileReferenceEntry,
 ```
 
-from `../helpers/index.js`.
+de `../helpers/index.js`.
 
-- [ ] **Step 2: Build plan reference entry before read-state entries**
+- [ ] **Etapa 2: Construir a plan reference entry antes das read-state entries**
 
-Replace:
+Substitua:
 
 ```ts
       const postCompactReminderEntries = buildPostCompactReadStateReminderEntries({
@@ -909,7 +909,7 @@ Replace:
       });
 ```
 
-with:
+por:
 
 ```ts
       const planFileReferenceEntry = this.fileSystemPort
@@ -930,42 +930,42 @@ with:
       ];
 ```
 
-- [ ] **Step 3: Run focused compact tests**
+- [ ] **Etapa 3: Executar os testes de compact direcionados**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- runtime-compact.test.ts -t "persists approved plan file reference after compact"
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 4: Run reminder/helper/plan-mode focused suite**
+- [ ] **Etapa 4: Executar a suíte direcionada de reminder/helper/plan-mode**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- plan-file-continuity.test.ts plan-mode-tool.test.ts system-reminder-source.test.ts runtime-compact.test.ts
 ```
 
-Expected: PASS for the four targeted files.
+Esperado: PASS nos quatro arquivos direcionados.
 
 ---
 
-## Phase 5: Regression Guardrails
+## Fase 5: Guardrails de Regressão
 
-### Task 5.1: 确认 provider-visible tool schema 没有被小 hack 改动
+### Tarefa 5.1: Confirmar que o schema de tool visível ao provider não foi alterado pelo pequeno hack
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`
 
 **Interfaces:**
-- Consumes: existing `ExitPlanModeInputSchema`.
-- Produces: guard that provider-visible schema still exposes `plan` until the full plan-file schema work starts.
+- Consome: o `ExitPlanModeInputSchema` existente.
+- Produz: uma proteção garantindo que o schema visível ao provider ainda expõe `plan` até o início do trabalho completo de schema de plan-file.
 
-- [ ] **Step 1: Add or update tool-contract assertion**
+- [ ] **Etapa 1: Adicionar ou atualizar a asserção de contrato de tool**
 
-In the plan-mode portion of `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`, ensure there is an assertion equivalent to:
+Na parte de plan mode de `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`, garanta que exista uma asserção equivalente a:
 
 ```ts
 expect(exitPlanModeContract.inputSchema).toHaveProperty("properties.plan");
@@ -973,99 +973,99 @@ expect(exitPlanModeContract.inputSchema).not.toHaveProperty("properties.planFile
 expect(exitPlanModeContract.inputSchema).not.toHaveProperty("properties.filePath");
 ```
 
-- [ ] **Step 2: Run contract test**
+- [ ] **Etapa 2: Executar o teste de contrato**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- tool-contracts.test.ts
 ```
 
-Expected: PASS. Any failure blocks completion until its source is identified; do not edit unrelated files while diagnosing this gate.
+Esperado: PASS. Qualquer falha bloqueia a conclusão até que sua origem seja identificada; não edite arquivos sem relação enquanto diagnostica este gate.
 
-### Task 5.2: Provider-visible compact evidence check
+### Tarefa 5.2: Verificação de evidência de compact visível ao provider
 
-**Files:**
-- No file changes.
+**Arquivos:**
+- Nenhuma alteração de arquivo.
 
 **Interfaces:**
-- Produces: evidence that acceptance is provider context, not just helper output.
+- Produz: evidência de que a aceitação está no contexto do provider, e não apenas na saída do helper.
 
-- [ ] **Step 1: Inspect the focused compact test output**
+- [ ] **Etapa 1: Inspecionar a saída do teste de compact direcionado**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- runtime-compact.test.ts -t "persists approved plan file reference after compact" --reporter verbose
 ```
 
-Expected: PASS. The assertion must inspect the post-resume provider request messages and must include both `A plan file exists from plan mode at:` and `E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER`.
+Esperado: PASS. A asserção precisa inspecionar as mensagens da requisição ao provider após a retomada e deve conter tanto `A plan file exists from plan mode at:` quanto `E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER`.
 
 ---
 
-## Phase 6: Conversation E2E Spec and Visual Window Validation
+## Fase 6: Spec de Conversation E2E e Validação Visual da Janela
 
-### Task 6.1: 先补 catalog 和 coverage matrix
+### Tarefa 6.1: Completar primeiro o catálogo e a matriz de cobertura
 
-**Files:**
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+**Arquivos:**
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
 
 **Interfaces:**
-- Produces: accepted product case before E2E code, as required by conversation-session workflow.
+- Produz: caso de produto accepted antes do código E2E, como exige o fluxo de conversation-session.
 
-- [ ] **Step 1: Add catalog case**
+- [ ] **Etapa 1: Adicionar o caso ao catálogo**
 
-In `docs/conversation-session-case-catalog.md`, add a new accepted row in the plan approval / tool interaction area with these fields:
+Em `docs/conversation-session-case-catalog.md`, adicione uma nova linha accepted na área de plan approval / tool interaction com estes campos:
 
 ```markdown
-| P01 | `completed(success)` 或 `plan` flow，用户批准 `ExitPlanMode` 后立即触发 `/compact` | approve plan -> `/compact` -> resume/continue | planFileReferenceAfterCompact | 已批准 plan 写入 `.zcode/plans/plan-${sessionId}.md`；compact 成功后后续 provider context 包含 `plan_file_reference` 路径和完整 plan 内容；UI 不出现错误 banner，session 可继续完成下一轮 | accepted |
+| P01 | fluxo `completed(success)` ou `plan`, em que o usuário aprova `ExitPlanMode` e dispara `/compact` imediatamente depois | approve plan -> `/compact` -> resume/continue | planFileReferenceAfterCompact | o plan aprovado é gravado em `.zcode/plans/plan-${sessionId}.md`; após o compact bem-sucedido, o contexto do provider seguinte contém o caminho `plan_file_reference` e o conteúdo completo do plan; nenhum banner de erro aparece na UI e a sessão pode concluir o próximo turno | accepted |
 ```
 
-Before editing, run:
+Antes de editar, execute:
 
 ```bash
 rg -n "^\\| P01 \\|" docs/conversation-session-case-catalog.md docs/testing/conversation-session-e2e-coverage-matrix.md
 ```
 
-Expected: no output. A match means the plan ID is already occupied and implementation must stop for a user decision instead of inventing another ID.
+Esperado: nenhuma saída. Uma correspondência significa que o ID de plano já está ocupado e a implementação deve parar para uma decisão do usuário, em vez de inventar outro ID.
 
-- [ ] **Step 2: Add matrix abbreviation**
+- [ ] **Etapa 2: Adicionar a abreviatura na matriz**
 
-In `docs/testing/conversation-session-e2e-coverage-matrix.md`, add:
+Em `docs/testing/conversation-session-e2e-coverage-matrix.md`, acrescente:
 
 ```markdown
 | `PFC` | `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts` |
 ```
 
-Then add the coverage row for the catalog ID chosen above:
+Depois acrescente a linha de cobertura para o ID de catálogo escolhido acima:
 
 ```markdown
-| P01 | covered | PFC | manual-review pending：可视化窗口验证 plan approval、plan file 落盘、manual compact completed、后续 provider request 包含 `plan_file_reference` 和唯一 plan marker；review 通过后移动到默认 conversation E2E |
+| P01 | covered | PFC | manual-review pending: a janela visível valida a aprovação do plan, a gravação do plan file, o compact manual concluído e a presença de `plan_file_reference` e do plan marker único na requisição seguinte ao provider; após a aprovação do review, o spec é movido para o conversation E2E padrão |
 ```
 
-- [ ] **Step 3: Run coverage audit**
+- [ ] **Etapa 3: Executar a auditoria de cobertura**
 
-Run:
+Execute:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --json
 ```
 
-Expected: PASS. When the audit reports count drift, update the matrix statistics with the exact counts printed by the audit and rerun this command until it passes.
+Esperado: PASS. Se a auditoria relatar divergência de contagem, atualize as estatísticas da matriz com as contagens exatas impressas pela auditoria e repita este comando até passar.
 
-### Task 6.2: 写 pending manual-review E2E
+### Tarefa 6.2: Escrever o E2E pending de revisão manual
 
-**Files:**
-- Create: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
+**Arquivos:**
+- Criar: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
 
 **Interfaces:**
-- Consumes: existing helpers from `conversation-session-plan-approval-feedback-user-message.test.ts` and `conversation-session-compact.test.ts`.
-- Produces: an E2E that drives the visible desktop window and asserts plan continuity after compact.
+- Consome: helpers existentes de `conversation-session-plan-approval-feedback-user-message.test.ts` e `conversation-session-compact.test.ts`.
+- Produz: um E2E que conduz a janela visível do desktop e verifica a continuidade do plan após o compact.
 
-- [ ] **Step 1: Create E2E spec**
+- [ ] **Etapa 1: Criar o spec de E2E**
 
-Create `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`:
+Crie `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`:
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -1221,141 +1221,141 @@ async function readLatestPlanFile(): Promise<{ content: string; path: string }> 
 }
 ```
 
-- [ ] **Step 2: Run TypeScript check for E2E**
+- [ ] **Etapa 2: Executar a verificação de TypeScript do E2E**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/desktop typecheck:e2e
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-### Task 6.3: 用可视化窗口运行 pending E2E 并人工确认
+### Tarefa 6.3: Executar o E2E pending com janela visual e confirmar manualmente
 
-**Files:**
-- Uses: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
+**Arquivos:**
+- Usa: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
 
 **Interfaces:**
-- Produces: visual evidence that plan approval dialog, compact marker, and final assistant completion behave as expected.
+- Produz: evidência visual de que o diálogo de aprovação de plan, o marcador de compact e a conclusão final do assistente se comportam como esperado.
 
-- [ ] **Step 1: Run the pending E2E in visual/manual-review mode**
+- [ ] **Etapa 1: Executar o E2E pending no modo visual/de revisão manual**
 
-Run:
+Execute:
 
 ```bash
 ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop test:e2e -- --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts'
 ```
 
-Expected:
-- A desktop app window opens.
-- The visible chat shows the original user prompt.
-- `EnterPlanMode` and `ExitPlanMode` tool blocks render.
-- The plan approval dialog appears and is approved by the test.
-- No `ChatViewErrorBanner` or `ChatErrorBanner` appears.
-- After `/compact`, the compact marker reaches completed.
-- The final continuation finishes with an assistant message containing `deepseek-e2e-ok`.
-- Test process exits PASS.
+Esperado:
+- Uma janela do app desktop abre.
+- O chat visível mostra o prompt original do usuário.
+- Os blocos de tool `EnterPlanMode` e `ExitPlanMode` são renderizados.
+- O diálogo de aprovação de plan aparece e é aprovado pelo teste.
+- Nenhum `ChatViewErrorBanner` ou `ChatErrorBanner` aparece.
+- Após `/compact`, o marcador de compact chega a completed.
+- A continuação final termina com uma mensagem do assistente contendo `deepseek-e2e-ok`.
+- O processo de teste sai com PASS.
 
-- [ ] **Step 2: Inspect artifacts from the visual run**
+- [ ] **Etapa 2: Inspecionar os artefatos da execução visual**
 
-Check the E2E output path printed by WDIO and verify:
+Verifique o caminho de saída do E2E impresso pelo WDIO e confirme:
 
 ```bash
 rg -n "A plan file exists from plan mode at:|E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER|ChatViewErrorBanner|ChatErrorBanner" packages/desktop/.e2e-artifacts packages/desktop/.e2e-home
 ```
 
-Expected:
-- At least one provider capture contains `A plan file exists from plan mode at:`.
-- At least one provider capture contains `E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER`.
-- No artifact line indicates a visible `ChatViewErrorBanner` or `ChatErrorBanner` for this positive case.
+Esperado:
+- Pelo menos uma captura de provider contém `A plan file exists from plan mode at:`.
+- Pelo menos uma captura de provider contém `E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER`.
+- Nenhuma linha de artefato indica um `ChatViewErrorBanner` ou `ChatErrorBanner` visível para este caso positivo.
 
-### Task 6.4: Promote, fill fixtures, replay, and run final gates
+### Tarefa 6.4: Promover, preencher fixtures, reexecutar e rodar os gates finais
 
-**Files:**
-- Move after visual pass:
-  - From: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
-  - To: `packages/desktop/test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts`
-- Modify after move:
+**Arquivos:**
+- Mover após a aprovação visual:
+  - De: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts`
+  - Para: `packages/desktop/test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts`
+- Modificar após a movimentação:
   - `docs/testing/conversation-session-e2e-coverage-matrix.md`
 
 **Interfaces:**
-- Produces: stable default conversation E2E coverage and fixture replay.
+- Produz: cobertura estável de conversation E2E padrão e reexecução de fixtures.
 
-- [ ] **Step 1: Move spec out of manual-review pending**
+- [ ] **Etapa 1: Mover o spec para fora do pending de revisão manual**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:promote -- --spec ./test/e2e/conversation-session/manual-review/pending/conversation-session-plan-file-compact-continuity.test.ts --reviewed --apply
 ```
 
-Expected:
-- spec moves to `packages/desktop/test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts`;
-- promotion creates fixture shells under `packages/desktop/test/e2e/fixtures/upstream/conversation-session/` and `packages/desktop/test/e2e/fixtures/cases/conversation-session/`;
-- coverage matrix `PFC` path is updated to:
+Esperado:
+- o spec é movido para `packages/desktop/test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts`;
+- a promoção cria shells de fixture em `packages/desktop/test/e2e/fixtures/upstream/conversation-session/` e `packages/desktop/test/e2e/fixtures/cases/conversation-session/`;
+- o caminho `PFC` na matriz de cobertura é atualizado para:
 
 ```markdown
 | `PFC` | `packages/desktop/test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts` |
 ```
 
-Update the coverage row note to remove `manual-review pending` and mention the green visual run artifact id from Step 6.3.
+Atualize a nota da linha de cobertura para remover `manual-review pending` e mencionar o id do artefato da execução visual verde da Etapa 6.3.
 
-- [ ] **Step 2: Fill deterministic replay fixture from the reviewed capture**
+- [ ] **Etapa 2: Preencher a fixture determinística de reexecução a partir da captura revisada**
 
-Open the visual run capture artifact printed by Step 6.3 and classify requests:
+Abra o artefato de captura da execução visual impresso na Etapa 6.3 e classifique as requisições:
 
 ```bash
 rg -n "E2E_PLAN_FILE_COMPACT_CONTINUITY|A plan file exists from plan mode at:|CRITICAL: Respond with TEXT ONLY|Generate a concise title" packages/desktop/.e2e-artifacts packages/desktop/.e2e-home
 ```
 
-Write the case-local provider fixture at:
+Escreva a fixture de provider local do caso em:
 
 ```text
 packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-plan-file-compact-continuity.json
 ```
 
-The fixture must include exactly these main requests:
-- initial plan-mode request containing `E2E_PLAN_FILE_COMPACT_CONTINUITY_PROMPT`;
-- exit-plan request containing `E2E_PLAN_FILE_COMPACT_CONTINUITY_EXIT`;
-- manual compact summary request containing `CRITICAL: Respond with TEXT ONLY`;
-- post-compact continuation request containing `A plan file exists from plan mode at:` and `E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER`.
+A fixture deve incluir exatamente estas requisições principais:
+- requisição inicial de plan mode contendo `E2E_PLAN_FILE_COMPACT_CONTINUITY_PROMPT`;
+- requisição de saída do plan mode contendo `E2E_PLAN_FILE_COMPACT_CONTINUITY_EXIT`;
+- requisição de summary do compact manual contendo `CRITICAL: Respond with TEXT ONLY`;
+- requisição de continuação pós-compact contendo `A plan file exists from plan mode at:` e `E2E_PLAN_FILE_COMPACT_CONTINUITY_MARKER`.
 
-The fixture may reuse `packages/desktop/test/e2e/fixtures/upstream/common.json` for title-generation responses and must not rely on legacy shared provider fixtures for the four main requests.
+A fixture pode reutilizar `packages/desktop/test/e2e/fixtures/upstream/common.json` para as respostas de geração de título e não deve depender de fixtures de provider compartilhadas legadas para as quatro requisições principais.
 
-- [ ] **Step 3: Check fixture consistency**
+- [ ] **Etapa 3: Verificar a consistência da fixture**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:fixture:check -- --spec './test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts'
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 4: Replay the promoted E2E through WDIO**
+- [ ] **Etapa 4: Reexecutar o E2E promovido pelo WDIO**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/desktop test:e2e -- --spec './test/e2e/conversation-session/conversation-session-plan-file-compact-continuity.test.ts'
 ```
 
-Expected: PASS. The replay must assert `plan_file_reference` in the post-compact provider request, not only visible UI completion.
+Esperado: PASS. A reexecução precisa verificar `plan_file_reference` na requisição ao provider pós-compact, e não apenas a conclusão visível na UI.
 
-- [ ] **Step 5: Run conversation docs audit**
+- [ ] **Etapa 5: Executar a auditoria da documentação de conversation**
 
-Run:
+Execute:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --json
 ```
 
-Expected: PASS.
+Esperado: PASS.
 
-- [ ] **Step 6: Run final required gates**
+- [ ] **Etapa 6: Executar os gates finais obrigatórios**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core test -- plan-file-continuity.test.ts plan-mode-tool.test.ts system-reminder-source.test.ts runtime-compact.test.ts
@@ -1364,57 +1364,56 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected:
-- Focused core tests PASS.
-- E2E typecheck PASS.
-- Repo typecheck PASS.
-- Repo lint PASS.
+Esperado:
+- Testes core direcionados PASS.
+- Typecheck do E2E PASS.
+- Typecheck do repositório PASS.
+- Lint do repositório PASS.
 
-- [ ] **Step 7: Stop without committing**
+- [ ] **Etapa 7: Parar sem commitar**
 
-Run:
+Execute:
 
 ```bash
 git status --short
 ```
 
-Expected: shows the docs, core, tests, and E2E files changed by this implementation. Do not run `git commit`. Final handoff must include:
-- plan file path written in this planning step,
-- implementation files changed,
-- visual E2E command and artifact id,
-- final verification commands and results,
-- explicit note: no commit was created.
+Esperado: mostra os arquivos de docs, core, testes e E2E alterados por esta implementação. Não execute `git commit`. O handoff final deve incluir:
+- o caminho do plan file gravado nesta etapa de planejamento,
+- os arquivos de implementação alterados,
+- o comando do E2E visual e o id do artefato,
+- os comandos e resultados da verificação final,
+- uma nota explícita: nenhum commit foi criado.
 
 ---
 
-## Acceptance Criteria
+## Critérios de Aceitação
 
-- `ExitPlanMode` provider-visible input schema still includes required `plan`.
-- `ExitPlanMode` approved final plan is written to `${workspaceRoot}/.zcode/plans/plan-${sanitizedSessionId}.md`.
-- `ExitPlanMode` file write failure prevents mode exit.
-- compact after plan approval persists a `plan_file_reference` model-only reminder with full plan content.
-- resume after compact preserves the reminder in the next provider-visible context.
-- Generic read-state reminders remain independent and still skip `docs/superpowers/plans/`.
-- Conversation-session catalog and coverage matrix include the new accepted case before E2E implementation.
-- The E2E is run through a visible desktop window, passes, is promoted, and passes replay/fixture checks.
-- `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm typecheck`, and `pnpm lint` pass or have clearly documented unrelated pre-existing failures.
-- No commit is created automatically.
+- O input schema provider-visible de `ExitPlanMode` ainda inclui o `plan` obrigatório.
+- O plan final aprovado por `ExitPlanMode` é gravado em `${workspaceRoot}/.zcode/plans/plan-${sanitizedSessionId}.md`.
+- Falha na gravação de arquivo de `ExitPlanMode` impede a saída do modo.
+- O compact após a aprovação do plan persiste um reminder model-only `plan_file_reference` com o conteúdo completo do plan.
+- O resume após o compact preserva o reminder no próximo contexto visível ao provider.
+- Os generic read-state reminders permanecem independentes e continuam ignorando `docs/superpowers/plans/`.
+- O catálogo e a matriz de cobertura de conversation-session incluem o novo caso accepted antes da implementação do E2E.
+- O E2E é executado por uma janela visível do desktop, passa, é promovido e passa nas verificações de reexecução/fixture.
+- `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm typecheck` e `pnpm lint` passam ou têm falhas preexistentes sem relação claramente documentadas.
+- Nenhum commit é criado automaticamente.
 
-## Change Surface and Cost
+## Superfície de Mudança e Custo
 
-- Core helper + source registry: low risk, about 0.5 day.
-- `ExitPlanMode` handler write path and tests: low to medium risk, about 0.5 day because it changes approval failure behavior.
-- compact runtime injection and provider-context regression test: medium risk, about 0.5 day because compact persistence/resume must be validated at provider-visible boundary.
-- conversation docs + visual E2E + fixture promotion: medium cost, about 0.5-1 day depending on E2E capture stability.
-- Total expected cost for this small hack with tests/docs/E2E: 1.5-2.5 engineering days.
-- The full plan-file schema redesign remains outside this plan and should use the existing full plan-file plan as a separate project.
+- Helper do core + registro de sources: baixo risco, cerca de 0,5 dia.
+- Caminho de escrita do handler `ExitPlanMode` e testes: risco baixo a médio, cerca de 0,5 dia, porque altera o comportamento de falha da aprovação.
+- Injeção no compact do runtime e teste de regressão de provider-context: risco médio, cerca de 0,5 dia, porque a persistência/resume do compact precisa ser validado na fronteira visível ao provider.
+- Docs de conversation + E2E visual + promoção de fixtures: custo médio, cerca de 0,5 a 1 dia, dependendo da estabilidade da captura do E2E.
+- Custo total esperado para este pequeno hack com testes/docs/E2E: 1,5 a 2,5 dias de engenharia.
+- O redesenho completo do schema de plan-file permanece fora deste plano e deve usar o plano completo de plan-file existente como um projeto separado.
 
-## Self-Review Checklist
+## Checklist de Auto-Revisão
 
-- [ ] Every implementation task has exact files and commands.
-- [ ] The plan keeps current `ExitPlanMode.plan` schema intact.
-- [ ] The plan writes through `FileSystemPort`, not `node:fs` inside core runtime.
-- [ ] The plan uses `workspaceRoot`, not `workingDirectory`, for plan file path.
-- [ ] The compact reminder source is explicit `plan_file_reference`, not generic read-state.
-- [ ] The E2E phase starts from docs catalog/matrix and ends with a visible-window run plus replay.
-- [ ] The final step stops at `git status --short` and does not commit.
+- [ ] Toda tarefa de implementação tem arquivos e comandos exatos.
+- [ ] O plano mantém intacto o schema atual `ExitPlanMode.plan`.
+- [ ] O plano grava através do `FileSystemPort`, e não de `node:fs` dentro do runtime do core.
+- [ ] O plano usa `workspaceRoot`, e não `workingDirectory`, para o caminho do plan file.
+- [ ] A source do reminder de compact é explicitamente `plan_file_reference`, e não read-state genérico.
+- [ ] A fase de E2E começa pelo catálogo/matriz de docs e termina com uma execução em janela visível mais a reexecuç

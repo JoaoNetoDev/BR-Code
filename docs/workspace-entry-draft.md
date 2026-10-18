@@ -1,44 +1,44 @@
-# Workspace / App 入口草稿态
+# Workspace / App — estado de rascunho na entrada
 
-## Feature Summary
+## Resumo da feature
 
-| Field                 | Value                                                                                                                      |
+| Campo                 | Valor                                                                                                                      |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Change                | app 冷启动和 workspace 级打开入口不再自动选择上次 session，只进入空草稿                                                    |
-| User-visible surfaces | Desktop 启动恢复、打开本地/远程 workspace、侧栏 workspace 行、系统 workspace focus                                         |
-| Existing docs         | `docs/conversation-session-case-catalog.md` TSL、`docs/v4-refactor/06-ui.md`                                               |
-| State owners          | tab/workspace 激活由 tab store 持有；草稿/`activeTaskId` 由 workspace Zustand 桶持有；pane/group 是 renderer-local UI 状态 |
-| Out of scope          | 显式点击历史 session、通知/task deep link、session 内容恢复、CLI projection、手机 replayable gap/snapshot                  |
+| Mudança               | a entrada de cold start do app e a entrada de abertura em nível de workspace não selecionam mais a última sessão, apenas entram no rascunho vazio                                                    |
+| Superfícies visíveis ao usuário | restauração de startup do Desktop, abertura de workspace local/remoto, linha de workspace na barra lateral, foco de workspace do sistema                                         |
+| Docs existentes       | `docs/conversation-session-case-catalog.md` TSL、`docs/v4-refactor/06-ui.md`                                               |
+| Donos do estado       | a ativação de tab/workspace é mantida pelo tab store; o rascunho/`activeTaskId` é mantido pelo bucket Zustand do workspace; pane/group é estado de UI local do renderer |
+| Fora de escopo         | clique explícito em sessão histórica, deep link de notificação/task, restauração do conteúdo da sessão, projeção de CLI, gap/snapshot replayable do celular                  |
 
-## Clarification Log
+## Registro de esclarecimentos
 
-| Round | Question                                             | User answer          | Boundary fixed                                   | Follow-up needed |
+| Rodada | Pergunta                                             | Resposta do usuário          | Limite fixado                                   | Necessário acompanhamento |
 | ----- | ---------------------------------------------------- | -------------------- | ------------------------------------------------ | ---------------- |
-| 1     | 打开 workspace 或启动 app 是否需要默认打开 session？ | 不需要，只需要草稿态 | workspace/app 级入口必须保持 `activeTaskId=null` | no               |
-| 2     | 远程连接成功后的 workspace 切换期间，右侧是否允许先空白再显示草稿？ | 不允许；仍需激活远程 workspace，但右侧应直接进入新建对话 | 远程 tab 激活与目标 workspace 的 `startDraft` 必须属于同一提交阶段，列表刷新不得夹在两者之间 | no |
-| 3     | 从侧栏激活断连 remote workspace 时，连接期间右侧显示什么？ | 连接期间保留当前右侧内容；连接 ready 后再切换为远程新建对话 | 不得先激活缺少 `remoteSessionId` 的断连 tab；连接、identity 和 services ready 后再原子提交 tab + draft | no |
-| 4     | 从远程历史入口打开断连 workspace 时，成功后是否只更新 tab？ | 不可以；与侧栏重连一致，ready 后必须进入目标 workspace 的新建对话 | 历史入口必须传递统一的 workspace 激活回调；顺序固定为补齐 tab → 激活精确 identity → `startDraft` → pinned/timeline 刷新 | no |
+| 1     | Abrir um workspace ou iniciar o app exige abrir uma sessão por padrão? | Não, apenas o estado de rascunho | a entrada em nível de workspace/app deve manter `activeTaskId=null` | no               |
+| 2     | Durante a troca de workspace após uma conexão remota bem-sucedida, o lado direito pode ficar em branco antes de mostrar o rascunho? | Não; ainda é preciso ativar o workspace remoto, mas o lado direito deve entrar direto na nova conversa | a ativação da tab remota e o `startDraft` do workspace de destino devem pertencer à mesma etapa de commit, e a atualização da lista não pode ficar entre as duas | no |
+| 3     | Ao ativar pela barra lateral um workspace remoto desconectado, o que o lado direito mostra durante a conexão? | Durante a conexão o conteúdo atual à direita é mantido; só após a conexão ficar ready é que se muda para a nova conversa remota | não se deve ativar primeiro uma tab desconectada sem `remoteSessionId`; só após conexão, identity e services ready se faz o commit atômico de tab + rascunho | no |
+| 4     | Ao abrir um workspace desconectado pela entrada de histórico remoto, depois do sucesso apenas a tab é atualizada? | Não; deve ser consistente com o reconexão pela barra lateral, e após o ready é preciso entrar na nova conversa do workspace de destino | a entrada de histórico deve passar um callback unificado de ativação de workspace; a ordem fixa é completar a tab → ativar a identity exata → `startDraft` → atualizar pinned/timeline | no |
 
-## Boundary Decisions
+## Decisões de limite
 
-| Boundary         | Decision                                             | Includes                                  | Excludes / prunes               | Source                |
+| Limite         | Decisão                                             | Inclui                                  | Exclui / poda               | Origem                |
 | ---------------- | ---------------------------------------------------- | ----------------------------------------- | ------------------------------- | --------------------- |
-| app 冷启动       | 恢复 workspace tab，但不恢复可见 session owner       | 本地、SSH/WSL/Docker tab                  | 不删除历史 session              | user                  |
-| workspace 级入口 | 每次显式打开/激活 workspace 都进入草稿               | 文件夹选择、workspace 行、系统 focus      | 显式 session/task 导航          | user                  |
-| renderer reload  | 保留当前 session 的 pane 恢复                        | 同一 renderer 刷新、输出中续流            | app 进程冷启动                  | existing M3 contract  |
-| 首次执行         | 首次发送或必须依附 session 的命令才创建/绑定 session | draft promotion                           | 启动/打开时隐藏创建正式 session | conversation protocol |
-| 多端             | workspace 入口语义一致；delivery profile 不变        | desktop continuous、web remote replayable | relay/main 持有 session 状态    | architecture          |
-| 远程连接完成     | ready 前保留当前右侧；ready 后激活远程 tab 并立即切换该 workspace 的草稿归属 | SSH/WSL/Docker/Server 首次连接与断连 tab 复用 | 提前激活 `remote-waiting` tab；等 pinned/timeline 刷新后才 `startDraft` | user |
+| cold start do app       | restaura as tabs de workspace, mas não restaura o dono de sessão visível       | tabs locais, SSH/WSL/Docker                  | não apaga sessões históricas              | usuário                  |
+| Entrada de nível workspace | toda abertura/ativação explícita de workspace entra no rascunho               | seleção de pasta, linha de workspace, foco do sistema      | navegação explícita de sessão/task          | usuário                  |
+| reload do renderer  | preserva a restauração de pane da sessão atual                        | refresh do mesmo renderer, retomada do streaming em andamento            | cold start do processo do app                  | contrato M3 existente  |
+| Primeira execução         | somente o primeiro envio ou um comando que precisa se anexar a uma sessão cria/liga a sessão | promoção do rascunho                           | esconde a criação de sessão formal na inicialização/abertura | protocolo de conversa |
+| Multiplataforma             | semântica de entrada de workspace consistente; perfil de delivery inalterado        | desktop continuous, web remote replayable | relay/main mantém o estado da sessão    | arquitetura          |
+| Conexão remota concluída     | antes do ready mantém o lado direito atual; após o ready ativa a tab remota e troca imediatamente a titularidade do rascunho desse workspace | primeira conexão SSH/WSL/Docker/Server e reuso de tab desconectada | ativar antes a tab `remote-waiting`; só fazer `startDraft` depois da atualização de pinned/timeline | usuário |
 
-## Domain Scope And State Owners
+## Escopo de domínio e donos do estado
 
-| Domain                        | Include?       | Authority / evidence                                                         |
+| Domínio                        | Inclui?       | Autoridade / evidência                                                         |
 | ----------------------------- | -------------- | ---------------------------------------------------------------------------- |
-| Conversation/session behavior | yes            | `activeTaskId`、draft DOM、首次 `createSession` command                      |
-| UI shell / persistence        | yes            | tab activation、pane layout、workbench group、last-session renderer storage  |
-| Workspace identity            | yes            | `workspaceKey = workspaceIdentity?.trim() \|\| workspacePath`               |
-| Mobile replayable             | representative | 只证明入口不选 session；不改变 snapshot/gap/owner/lease                      |
-| Provider/runtime/queue        | pruned         | 不改变首次发送后的既有行为                                                   |
+| Comportamento de conversa/sessão | sim            | `activeTaskId`, DOM do rascunho, primeiro comando `createSession`                      |
+| Casca de UI / persistência        | sim            | ativação de tab, layout de pane, workbench group, armazenamento de renderer de last-session  |
+| Identidade do workspace            | sim            | `workspaceKey = workspaceIdentity?.trim() \|\| workspacePath`               |
+| Replayable no celular             | representativo | apenas prova que a entrada não seleciona sessão; não altera snapshot/gap/owner/lease                      |
+| Provider/runtime/fila        | podado         | não altera o comportamento existente após o primeiro envio                                                   |
 
 ```text
 app cold launch / open workspace
@@ -66,26 +66,26 @@ remote workspace selection / disconnected workspace reconnect
   -> refresh pinned/timeline task lists as async follow-up
 ```
 
-## Candidate Combinations And Pruning
+## Combinações candidatas e poda
 
-| Candidate ID | State                                    | Event                                 | Expected effect                                          | Status   | Notes                                        |
+| ID do candidato | Estado                                    | Evento                                 | Efeito esperado                                          | Status   | Observações                                        |
 | ------------ | ---------------------------------------- | ------------------------------------- | -------------------------------------------------------- | -------- | -------------------------------------------- |
-| WED-01       | persisted workspace + last session       | app cold launch                       | workspace visible, primary draft, no session selected    | accepted | stale pane/group owner cannot override draft |
-| WED-02       | workspace has historical sessions        | workspace-level open/activate         | target workspace draft                                   | accepted | exact identity bucket only                   |
-| WED-03       | historical session exists                | explicit session click/task deep link | open target session                                      | accepted | not a workspace-only entry                   |
-| WED-04       | session is running in current renderer   | renderer reload                       | restore the selected session and continue projection     | accepted | preserves M3 refresh continuity              |
-| WED-05       | mobile remote attachment                 | workspace-only switch                 | draft without changing replayable recovery               | accepted | shared-host boundary unchanged               |
-| WED-06       | 当前右侧正在显示本地或其它 workspace；目标远程 workspace 尚未连接 | 选择远程目录、点击侧栏断连 workspace，或从远程历史入口打开断连 workspace | 连接期间保留当前右侧；services ready 后先补齐 tab，再激活精确远程 workspace，并在任务列表刷新完成前同步进入该 workspace 草稿 | accepted | 禁止暴露 `remote-waiting` active tab；三条入口必须复用同一 tab activation 与 draft owner 提交语义 |
-| WED-P01      | provider/model/theme/locale combinations | any WED entry                         | same navigation result                                   | pruned   | these dimensions do not own selection        |
-| WED-P02      | queue/goal/compact/fork/tool state       | app/workspace entry                   | historical session remains in history, not auto-selected | pruned   | no command is sent to that session           |
+| WED-01       | workspace persistido + última sessão       | cold start do app                       | workspace visível, rascunho primário, nenhuma sessão selecionada    | aceito | dono de pane/group obsoleto não pode sobrescrever o rascunho |
+| WED-02       | workspace tem sessões históricas        | abertura/ativação em nível de workspace         | rascunho do workspace de destino                                   | aceito | apenas o bucket de identity exata                   |
+| WED-03       | existe sessão histórica                | clique explícito em sessão/deep link de task | abre a sessão de destino                                      | aceito | não é uma entrada exclusiva de workspace                   |
+| WED-04       | sessão em execução no renderer atual   | reload do renderer                       | restaura a sessão selecionada e continua a projeção     | aceito | preserva a continuidade de refresh do M3              |
+| WED-05       | anexo remoto no celular                 | troca apenas de workspace                 | rascunho sem alterar a recuperação replayable               | aceito | limite de host compartilhado inalterado               |
+| WED-06       | o lado direito atual está mostrando o workspace local ou outro; o workspace remoto de destino ainda não está conectado | selecionar um diretório remoto, clicar no workspace desconectado na barra lateral, ou abrir um workspace desconectado pela entrada de histórico remoto | durante a conexão mantém o lado direito atual; quando os services ficam ready, completa primeiro a tab, depois ativa o workspace remoto exato e entra sincronamente no rascunho desse workspace antes de a lista de tarefas concluir a atualização | aceito | proibido expor uma tab ativa `remote-waiting`; as três entradas devem reutilizar a mesma semântica de commit de ativação de tab e de dono do rascunho |
+| WED-P01      | combinações de provider/modelo/tema/locale | qualquer entrada WED                         | mesmo resultado de navegação                                   | podado   | essas dimensões não são donas da seleção        |
+| WED-P02      | estado de fila/meta/compacto/fork/ferramenta       | entrada de app/workspace                   | a sessão histórica permanece no histórico, sem auto-seleção | podado   | nenhum comando é enviado para essa sessão           |
 
-## Accepted Cases And Matrix Backfill
+## Casos aceitos e preenchimento da matriz
 
-| Case ID | Setup                                    | Action                             | Assertions                                                               | Evidence                            | E2E status |
+| ID do caso | Configuração                                    | Ação                             | Asserções                                                               | Evidência                            | Status do E2E |
 | ------- | ---------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------ | ----------------------------------- | ---------- |
-| TSL08   | persisted last-session/group/pane exists | cold launch or workspace-only open | `activeTaskId=null`; one primary draft; no restored session subscription | UI + renderer store + command trace | planned    |
-| TSL09   | current renderer shows a running session | reload renderer                    | same session is rebound; projection continues                            | UI + subscription/session id        | planned    |
-| TSL10   | draft or another workspace is visible    | click a historical session         | target session opens; exact workspace identity selected                  | UI + renderer store                 | planned    |
-| TSL35   | local/other workspace conversation is visible; target remote workspace is disconnected | select a remote directory or click the disconnected workspace | current conversation remains mounted while connecting; after services become ready, exact remote tab and its primary draft become visible before pinned/timeline refresh settles | UI + tab/Zustand ordering + deferred connect/refresh | covered-unit |
+| TSL08   | existem last-session/group/pane persistidos | cold start ou abertura só de workspace | `activeTaskId=null`; um rascunho primário; nenhuma assinatura de sessão restaurada | UI + renderer store + rastro de comandos | planejado    |
+| TSL09   | o renderer atual mostra uma sessão em execução | reload do renderer                    | a mesma sessão é religada; a projeção continua                            | UI + subscription/session id        | planejado    |
+| TSL10   | rascunho ou outro workspace está visível    | clicar em uma sessão histórica         | a sessão de destino abre; a identity exata de workspace é selecionada                  | UI + renderer store                 | planejado    |
+| TSL35   | a conversa do workspace local/outro está visível; o workspace remoto de destino está desconectado | selecionar um diretório remoto ou clicar no workspace desconectado | a conversa atual permanece montada durante a conexão; depois que os services ficam ready, a tab remota exata e seu rascunho primário ficam visíveis antes de a atualização de pinned/timeline assentar | UI + ordem de tab/Zustand + connect/refresh diferido | coberto por unitário |
 
-E2E 使用无 provider 请求的启动/导航 fixture；TSL08 在首次发送前必须断言没有 `createSession` conversation command。TSL09 继续使用 controlled stream 证明 reload 续流，不把 app 冷启动与 renderer reload 混成同一等价类。
+O E2E usa fixtures de inicialização/navegação sem requisições de provider; a TSL08 deve afirmar, antes do primeiro envio, que não houve comando de conversa `createSession`. A TSL09 continua usando um stream controlado para provar a retomada do streaming no reload, sem misturar cold start do app com reload do renderer numa mesma classe de equivalência.

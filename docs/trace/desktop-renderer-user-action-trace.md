@@ -1,28 +1,27 @@
-# Desktop Renderer 用户操作 Trace
+# Trace de Ações de Usuário do Desktop Renderer
 
-## 状态
+## Status
 
-- 本文是 Electron Desktop Renderer 用户语义操作 Trace 的实现规范。
-- 只新增 `ui_action` Span；Web、手机、Host、CLI、RPC 与 ZCode Protocol 不接入。
-- `/event/report` 保持现有事件、字段与计数，不复用本 Catalog。
+- Este documento é a especificação de implementação do Trace de ações do usuário com semântica de usuário do Electron Desktop Renderer.
+- Apenas o Span `ui_action` é adicionado; Web, celular, Host, CLI, RPC e o ZCode Protocol não são integrados.
+- `/event/report` mantém os eventos, campos e contagens existentes e não reutiliza este Catalog.
 
-## 架构
+## Arquitetura
 
 ```text
-用户操作
+Ação do usuário
   -> Renderer Feature Catalog
-  -> Renderer 创建/结束 ui_action
-  -> Renderer 有界批处理
-  -> Main 透明 Broker
+  -> Renderer cria/encerra ui_action
+  -> Renderer com batching limitado
+  -> Main como Broker transparente
   -> OTLP
 ```
 
-Main 只分发灰度配置、校验 batch 并使用自身凭据导出。Main 不创建、结束、重采样、
-改写或重新挂接 Span；Host/CLI 不接收 Trace Context。
+O Main apenas distribui a configuração de rollout, valida o batch e exporta usando as próprias credenciais. O Main não cria, encerra, reamostra, reescreve nem religa Spans; Host/CLI não recebem Trace Context.
 
 ## Catalog
 
-### Core：25 个叶子 feature
+### Core: 25 features folha
 
 | feature_id                         | action                                                                                                              |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -51,7 +50,7 @@ Main 只分发灰度配置、校验 batch 并使用自身凭据导出。Main 不
 | `extension.mcp`                    | `authorize` / `refresh` / `enable` / `disable`                                                                      |
 | `automation.lifecycle`             | `create` / `update` / `run_now` / `enable` / `disable` / `pause` / `resume` / `delete`                              |
 
-### Settings：17 个叶子 feature
+### Settings: 17 features folha
 
 | feature_id               | action                                                                                                                                                                         |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -71,28 +70,30 @@ Main 只分发灰度配置、校验 batch 并使用自身凭据导出。Main 不
 | `settings.memory`        | `toggle_memory` / `refresh_memory` / `change_memory_scope`                                                                                                                     |
 | `settings.browser`       | `toggle_browser_use` / `import_browser_data` / `toggle_insecure_certificates` / `clear_cache` / `clear_all_data`                                                               |
 
-`toggle_*` 通过 `state_after=enabled|disabled` 表达目标值；`change_*` 只允许低基数枚举；
-`save_*` 只在显式提交时开始。`toggle_memory` 不删除已有 Memory。
+`toggle_*` expressa o valor alvo por meio de `state_after=enabled|disabled`; `change_*` só aceita enums de baixa cardinalidade;
+`save_*` só começa em um envio explícito. `toggle_memory` não apaga a Memory existente.
 
-## 生命周期与字段
+## Ciclo de vida e campos
 
-操作通过本地校验、即将产生真实语义副作用时开始。导航在目标视图提交后结束，设置在相应
-偏好或服务写入成功后结束，Command 仅在 Renderer 收到 `accepted` ACK 后完成。确认型操作
-从最终确认开始；超时或卸载为 `abandoned`。遥测异常不得改变业务结果。
+A ação começa quando passa pela validação local e está prestes a produzir um efeito semântico real. A navegação termina
+depois que a view de destino é confirmada, as configurações terminam depois que a preferência ou o serviço
+correspondente é gravado com sucesso, e um Command só é concluído depois que o Renderer recebe o ACK `accepted`.
+Ações de confirmação começam na confirmação final; timeout ou descarregamento resultan em `abandoned`.
+Exceções de telemetria não podem alterar o resultado de negócio.
 
-固定 outcome：`completed` / `failed` / `rejected` / `cancelled` / `noop` / `abandoned`。
+Outcomes fixos: `completed` / `failed` / `rejected` / `cancelled` / `noop` / `abandoned`.
 
-固定 result source：`local_commit` / `shared_settings` / `setting_service` /
-`platform_result` / `authority_ack` / `optimistic_projection`。
+Sources de resultado fixos: `local_commit` / `shared_settings` / `setting_service` /
+`platform_result` / `authority_ack` / `optimistic_projection`.
 
-Span Name 固定为 `ui_action`，service.name 固定为 `zcode-desktop-renderer`。允许字段仅包括
-Catalog 标识、surface/trigger、结果、受控状态、workspace/remote 类型和 action_id。禁止 prompt、
-回复、文件内容、路径、workspaceIdentity、remoteSessionId、代理地址、证书路径、字体名称、
-Cookie、浏览记录、Model I/O、完整错误和 stack。
+O Span Name é fixo como `ui_action` e `service.name` é fixo como `zcode-desktop-renderer`. Os campos permitidos incluem
+apenas a identificação do Catalog, surface/trigger, o resultado, o estado controlado, o tipo de workspace/remote e o
+action_id. São proibidos prompt, resposta, conteúdo de arquivos, caminhos, workspaceIdentity, remoteSessionId, endereço
+de proxy, caminho de certificado, nome de fonte, Cookie, histórico de navegação, Model I/O, erro completo e stack.
 
-## 灰度、批次与失败合同
+## Rollout, batch e contrato de falha
 
-`/api/v1/client/configs` 的 `data.configs.rendererActionTrace` 下发：
+Distribuído em `data.configs.rendererActionTrace` de `/api/v1/client/configs`:
 
 ```json
 {
@@ -103,18 +104,18 @@ Cookie、浏览记录、Model I/O、完整错误和 stack。
 }
 ```
 
-- 生产默认关闭；缺失、首次超时、解析失败或非法配置均不采集。
-- 生产 sampleRatio 只允许 0～0.20；开发/自动化测试显式使用 1.0。
-- 未知 group 忽略；配置更新只影响新 Span。
-- Renderer queue 256；batch 32 条/256 KiB；2 秒或满批触发。
-- Main ingress 32 batch；OTLP timeout 3 秒，最多重试一次。
-- 满队列、非法 DTO 或导出失败只丢遥测，不回压业务。
+- Desabilitado por padrão em produção; configuração ausente, primeiro timeout, falha de parsing ou configuração inválida resultam em nenhuma coleta.
+- Em produção, sampleRatio só permite de 0 a 0.20; desenvolvimento/testes automatizados usam 1.0 explicitamente.
+- Groups desconhecidos são ignorados; atualizações de configuração só afetam Spans novos.
+- Fila do Renderer de 256; batch de 32 itens/256 KiB; dispara ao atingir 2 segundos ou o batch cheio.
+- Ingress do Main de 32 por batch; timeout OTLP de 3 segundos, no máximo uma retentativa.
+- Fila cheia, DTO inválido ou falha de exportação só descarta telemetria e não aplica contrapressão ao negócio.
 
-## 验收
+## Aceitação
 
-- Catalog feature/action 唯一且完整。
-- `/event/report` 调用和 payload 零变化。
-- Host/CLI/RPC/Protocol 零改动。
-- Web/手机不初始化、不发送 batch。
-- Main 保留 Renderer 生成的 traceId/spanId/时间/Resource/Attribute。
-- 无敏感字段，无新增 50ms Long Task，Renderer Heap 增量不超过 10 MB，batch IPC P95 小于 5ms。
+- As features/actions do Catalog são únicas e completas.
+- Chamadas e payload de `/event/report` sem nenhuma alteração.
+- Zero alterações em Host/CLI/RPC/Protocol.
+- Web/celular não inicializam nem enviam batch.
+- O Main preserva traceId/spanId/tempo/Resource/Attribute gerados pelo Renderer.
+- Sem campos sensíveis, sem nova Long Task de 50ms, incremento do Heap do Renderer não superior a 10 MB e P95 do IPC de batch menor que 5ms.

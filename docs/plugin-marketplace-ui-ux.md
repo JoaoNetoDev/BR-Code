@@ -7,8 +7,8 @@
 > (`ZCodePluginInfo.components`), o princípio de degradação honesta e a renderização em duas linhas「nome — descrição」.
 >
 > Os termos seguem o [CONTEXT.md](../CONTEXT.md) na raiz; decisões-chave em
-> [ADR-0001（listing 放目录层）](./adr/0001-store-listing-in-marketplace-catalog.md) e
-> [ADR-0002（有意偏离 DESIGN.md 克制风格）](./adr/0002-plugin-store-style-deviation.md).
+> [ADR-0001（listing fica na camada de catálogo）](./adr/0001-store-listing-in-marketplace-catalog.md) e
+> [ADR-0002（desvio deliberado do estilo contido do DESIGN.md）](./adr/0002-plugin-store-style-deviation.md).
 
 ## Contexto e objetivos
 
@@ -89,7 +89,7 @@ contornando a UI ou afrouxando as asserções:
 | -------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------- |
 | Entrada de cancelamento de instalação ausente | O botão de instalar só mostra loading/disabled; o protocolo tem capacidade de cancelar, mas a UI da loja não tem ação de cancelar | Verificar o estado busy da instalação, sem alegar cobertura de cancelamento |
 | Entrada Validate/Diagnose de origem ausente | Adicionar origem faz validação; a página de gerenciamento de origens só expõe atualização e remoção | Cobrir adição com validação, atualização e remoção, sem alegar cobertura de diagnóstico independente |
-| Uninstall exposto para plugins inline | O menu genérico da loja renderiza卸载, mas inline não tem registro de instalação de marketplace para um uninstall normal | Cobrir apenas exibição e disponibilidade de inline, sem executar o卸载 |
+| Uninstall exposto para plugins inline | O menu genérico da loja renderiza a remoção, mas inline não tem registro de instalação de marketplace para um uninstall normal | Cobrir apenas exibição e disponibilidade de inline, sem executar a remoção |
 
 ### Semântica dos plugins instalados ao remover uma Personal Source
 
@@ -132,7 +132,7 @@ De cima para baixo:
 
 - Esquerda: nada (a tab「插件/技能」não é feita). À direita, o grupo de ações, nesta ordem:
   - **Refresh**（Manual Refresh）：dispara `plugins/marketplace/update(null)`（todos os mercados), reutilizando o estado de loading existente; não é afetado pelo throttling do refresh automático.
-  - **Catalog Auto-Refresh**（目录自动刷新）：após entrar na página da loja, atualiza apenas `zcode-plugins-official`,
+  - **Catalog Auto-Refresh**（refresh automático de catálogo）：após entrar na página da loja, atualiza apenas `zcode-plugins-official`,
     com o critério `now - max(lastUpdated, lastAttemptAt) >= 10 minutos`. `lastUpdated` vem da persistência de catálogo em nível de usuário do Host;
     `lastAttemptAt` é o horário de tentativa dentro do módulo do Renderer, com placeholder ao iniciar, preservado ao remontar a página entre navegações
     e zerado ao reiniciar o processo. Falhas dentro da janela e requisições em voo não são reiniciadas ao reentrar na página; um refresh manual bem-sucedido atualiza o tempo persistido.
@@ -195,7 +195,7 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
   depois que o usuário recolhe manualmente, apenas os 6 primeiros são exibidos e o restante é recolhido em uma linha no rodapé: `[小 icon do 前 3 个] 查看 A、B，以及另外 N 个`,
   e o clique expande novamente. Nesta rodada não há recolhimento automático por quantidade, e os grupos newly also appear expandidos por padrão; a escolha manual do usuário é preservada na página atual. Plugins sem `category` vão para a seção「其他」（por padrão no final）.
 - Categorias e plugins dentro de cada categoria suportam ordenação enviada pelo servidor conforme o modo de interface; veja
-  [模式排序契约](plugins/plugin-store-mode-order.md). O modo de programação usa `code` e o modo geral usa
+  [contrato de ordenação por modo](plugins/plugin-store-mode-order.md). O modo de programação usa `code` e o modo geral usa
   `work`; itens não configurados são adicionados na ordem original, e a configuração explícita permite reposicionar「其他」. Destaques e as demais listas não são afetados.
 - O Divider de título do bloco de categoria usa a cor semântica `surface`; o padding superior e inferior soma 32px (16px cada), formando um espaçamento estável de 32px entre categorias vizinhas. Esse espaçamento vale apenas para as categorias de catálogo e não altera o layout da busca,
   da Faixa de Instalados ou do controle de segmentação.
@@ -322,9 +322,9 @@ O `marketplace.json` de nível superior já tem `name` / `description(_i18n)` / 
 | `featured`                                | superior  | `string[]`（plugin name）                | lista e ordenação do Featured da segmentação pública  |
 | `displayName` / `displayName_i18n`        | entrada   | `string` / `Record<locale,string>`       | nome de exibição no cartão/detalhe（fallback `name` slug） |
 | `icon`                                    | entrada   | `string`（URL https ou caminho relativo no pacote） | ícone do cartão, da faixa de instalados e do cabeçalho de detalhe |
-| `homepage`                                | entrada   | `string`（URL https）                   | 信息区·site                                          |
-| `privacyPolicy`                           | entrada   | `string`（URL https）                   | 信息区·política de privacidade                        |
-| `termsOfService`                          | entrada   | `string`（URL https）                   | 信息区·termos de serviço                              |
+| `homepage`                                | entrada   | `string`（URL https）                   | seção de informações·site                              |
+| `privacyPolicy`                           | entrada   | `string`（URL https）                   | seção de informações·política de privacidade           |
+| `termsOfService`                          | entrada   | `string`（URL https）                   | seção de informações·termos de serviço                 |
 | `heroImage`                               | entrada   | `string`（URL https ou caminho relativo no pacote） | banner hero da página de detalhe                       |
 | `examplePrompts` / `examplePrompts_i18n`  | entrada   | `string[]` / `Record<locale,string[]>`  | cápsulas de prompt da área hero                       |
 | `requiresPaidPlan`                        | entrada   | `boolean`（só `true` tem efeito）        | badge cor de damasco do plano de programação à direita do título no cartão/detalhe |
@@ -344,7 +344,7 @@ Os campos já disponíveis continuam sendo repassados: `category`、`author{name
   dentro do repositório. Para plugins embutidos oficiais que precisam cobrir caches antigos ou ainda não possuem material publicado no CDN, um parser de ícones compartilhado
   pode selecionar o ícone empacotado no cliente pelo id oficial completo do plugin; hoje Documents, PDF,
   Presentations, Spreadsheets, Image Search e Plugin Creator usam esse caminho, e plugins pessoais homônimos não podem reutilizá-lo. Os demais icon/hero são distribuídos como recursos empacotados junto com o app (gravando um caminho local resolvível no marketplace.json ao gerar o seed). Apenas https e recursos locais controlados são aceitos como origem; os demais schemes são descartados.
-- A regra de取值 de i18n é unificada: `x_i18n[locale] ?? x`.
+- A regra de leitura do i18n é unificada da seguinte forma: `x_i18n[locale] ?? x`.
 
 ### Propagação dos tipos de wire
 

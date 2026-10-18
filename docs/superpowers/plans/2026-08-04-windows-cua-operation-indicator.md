@@ -1,53 +1,53 @@
-# Windows CUA Operation Indicator Implementation Plan
+# Plano de Implementação do Indicador de Operação CUA no Windows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para trabalhadores agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 在 Windows 本机 Computer Use turn 首次开始真实桌面工具后，显示不抢焦点、鼠标穿透且不会进入截图的顶部“ZCode 正在操作电脑”提示，并在 turn/Host/runtime 终态可靠隐藏。
+**Objetivo:** no Windows local, após um turn de Computer Use iniciar de fato a primeira ferramenta de desktop real, exibir no topo um aviso "ZCode 正在操作电脑" que não rouba o foco, é atravessado pelo mouse e não entra na captura de tela, e ocultá-lo de forma confiável no turn/Host/runtime em estado terminal.
 
-**Architecture:** `ZCodeAgentService` 在协议校验、seq 归一化和 live 去重之后把事件交给纯状态机 `CuaOperationTurnTracker`；仅 desktop-local Windows Host 把状态跃迁通过严格 Host→Main 消息上报。Desktop Main 按 `UtilityProcess source + workspaceKey + sessionId + turnId` 聚合活跃键，并以独立透明 `BrowserWindow` 投影 UI；状态不进入 Renderer、task snapshot、broadcast 或 mobile replayable 链路。
+**Arquitetura:** `ZCodeAgentService`, após a validação de protocolo, a normalização de seq e a deduplicação live, entrega o evento à máquina de estados pura `CuaOperationTurnTracker`; apenas o Host Windows desktop-local reporta as transições de estado por mensagens estritas Host→Main. O Desktop Main agrega chaves ativas por `UtilityProcess source + workspaceKey + sessionId + turnId` e projeta a UI em uma `BrowserWindow` transparente independente; o estado não entra no Renderer, no snapshot de task, no broadcast nem na cadeia mobile replayable.
 
-**Tech Stack:** TypeScript 6、Zod、Vitest 4、Electron 41 `BrowserWindow`/`screen`、Services `createServiceLogger`、现有 Host `utilityProcess` postMessage。
+**Stack técnico:** TypeScript 6, Zod, Vitest 4, Electron 41 `BrowserWindow`/`screen`, Services `createServiceLogger`, postMessage de `utilityProcess` do Host existente.
 
-## Global Constraints
+## Restrições globais
 
-- 仅 Windows desktop-local 创建顶部提示；macOS、Linux、remote workspace、server、普通 Web 不创建。
-- 手机 `/remote` 复用同一个 desktop-local Host 时允许显示物理 Windows 屏幕提示，但不新增手机 UI 或 replayable 事件。
-- 工具身份只接受 canonical `mcp__computer-use__*` 和 official namespaced `mcp__plugin_zcode-cua_computer-use__*`，不新增 `computer_use` 链路。
-- `workspaceKey = workspaceIdentity?.trim() || workspacePath`；路径 IO/展示继续使用 `workspacePath`。
-- `wait`、`request_access` 不激活；`stop_computer_control` 立即清理当前 session。
-- 单工具 result/error 不隐藏；`turn.completed`、`turn.failed`、`session.closed`、runtime/workspace dispose、Host exit、app quit 才收口。
-- 浮层必须 `focusable: false`、`skipTaskbar: true`、`setIgnoreMouseEvents(true)`、`setContentProtection(true)`。
-- 不修改 `zcode-cua` broker/native wire protocol，不新增依赖。
-- 新增/修改行为先观察失败测试，再写最小实现；最终执行 `pnpm typecheck` 与 `pnpm lint`。
-
----
-
-## File Structure
-
-- Create `packages/services/src/zcode-agent/cuaOperationTurnTracker.ts`: 纯 turn/session/workspace 状态机和 reporter 类型。
-- Create `packages/services/test/cuaOperationTurnTracker.test.ts`: tracker 的 canonical tool、幂等、终态和隔离测试。
-- Modify `packages/services/src/zcode-agent/zcodeAgentService.ts`: 在 live 去重后接入 tracker，并在 runtime/dispose 边界清理。
-- Modify `packages/services/test/zcodeAgentService.test.ts`: 真实 notification→去重→reporter 集成测试。
-- Modify `packages/services/src/node.ts`: 暴露 reporter 注入点，并只允许 `desktop-local` authority 接入。
-- Modify `packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts`: authority gate 测试。
-- Modify `packages/shared/src/channels.ts`: 新增 Host response type 常量。
-- Modify `packages/shared/src/validation.ts`: 新增严格 `cua-operation-state` schema 与导出类型。
-- Modify `packages/shared/test/validation.test.ts`: Host payload 接受/拒绝测试。
-- Modify `packages/desktop/src/host/index.ts`: Windows local Host reporter → parentPort。
-- Modify `packages/desktop/src/main/desktopHostProcess.ts`: 校验后转发状态，并在 child exit 清理 source。
-- Create `packages/desktop/src/main/windowsCuaOperationIndicator.ts`: source 聚合、窗口生命周期、定位、文案和动画。
-- Create `packages/desktop/test/windowsCuaOperationIndicator.test.ts`: 窗口属性、聚合、DPI/display、locale、hide/recreate 测试。
-- Modify `packages/desktop/test/desktopHostProcess.test.ts`: Host message routing/exit cleanup 测试。
-- Modify `packages/desktop/src/main/index.ts`: 实例化 indicator、两个 Host spawn 入口接线、locale/app quit 同步。
-- Modify `apps/dev-docs/src/data/productCapabilityMap.ts`: 把 Windows turn-level indicator 标为当前能力并增加 local Host 状态边。
-- Modify `apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`: 能力图防漂移测试。
-- Modify `docs/product-capability-map-office-computer-use.md`: 更新 Windows current fact、状态 owner 与链路图。
+- Só cria o aviso superior no Windows desktop-local; macOS, Linux, workspace remoto, server e Web comum não criam.
+- O `/remote` do celular, ao reaproveitar o mesmo Host desktop-local, pode exibir o aviso na tela física do Windows, mas não adiciona UI no celular nem eventos replayable.
+- A identidade de ferramenta só aceita os nomes canônicos `mcp__computer-use__*` e os oficiais namespaced `mcp__plugin_zcode-cua_computer-use__*`; não cria a cadeia `computer_use`.
+- `workspaceKey = workspaceIdentity?.trim() || workspacePath`; a IO/exibição de caminhos continua usando `workspacePath`.
+- `wait` e `request_access` não ativam; `stop_computer_control` limpa imediatamente a sessão atual.
+- result/error de uma única ferramenta não oculta; só `turn.completed`, `turn.failed`, `session.closed`, dispose de runtime/workspace, exit do Host e quit do app encerram.
+- A camada flutuante precisa de `focusable: false`, `skipTaskbar: true`, `setIgnoreMouseEvents(true)` e `setContentProtection(true)`.
+- Não modifica o broker/wire protocol nativo do `zcode-cua` e não adiciona dependências.
+- Para comportamento novo/modificado, observa-se primeiro o teste falhando, depois escreve-se a implementação mínima; ao final executam-se `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: Strict Host→Main State Contract
+## Estrutura de arquivos
 
-**Files:**
+- Create `packages/services/src/zcode-agent/cuaOperationTurnTracker.ts`: máquina de estados pura de turn/session/workspace e tipos de reporter.
+- Create `packages/services/test/cuaOperationTurnTracker.test.ts`: testes de ferramenta canônica, idempotência, estado terminal e isolamento do tracker.
+- Modify `packages/services/src/zcode-agent/zcodeAgentService.ts`: conecta o tracker após a dedup live e limpa nas fronteiras de runtime/dispose.
+- Modify `packages/services/test/zcodeAgentService.test.ts`: teste de integração real notification→dedup→reporter.
+- Modify `packages/services/src/node.ts`: expõe o ponto de injeção do reporter e só permite a entrada de autoridade `desktop-local`.
+- Modify `packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts`: teste do gate de autoridade.
+- Modify `packages/shared/src/channels.ts`: nova constante de tipo de resposta do Host.
+- Modify `packages/shared/src/validation.ts`: novo schema estrito `cua-operation-state` e tipo exportado.
+- Modify `packages/shared/test/validation.test.ts`: testes de aceitação/recusa do payload do Host.
+- Modify `packages/desktop/src/host/index.ts`: reporter do Host local Windows → parentPort.
+- Modify `packages/desktop/src/main/desktopHostProcess.ts`: encaminha o estado após validar e limpa o source no exit do child.
+- Create `packages/desktop/src/main/windowsCuaOperationIndicator.ts`: agregação de source, ciclo de vida da janela, posicionamento, copy e animação.
+- Create `packages/desktop/test/windowsCuaOperationIndicator.test.ts`: testes de propriedades da janela, agregação, DPI/display, locale, hide/recreate.
+- Modify `packages/desktop/test/desktopHostProcess.test.ts`: testes de roteamento de mensagens do Host e limpeza no exit.
+- Modify `packages/desktop/src/main/index.ts`: instancia o indicator, liga os dois pontos de entrada de spawn do Host e sincroniza locale/app quit.
+- Modify `apps/dev-docs/src/data/productCapabilityMap.ts`: marca o indicator de nível de turn do Windows como capacidade atual e adiciona a aresta de estado do Host local.
+- Modify `apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`: teste antideriva do grafo de capacidades.
+- Modify `docs/product-capability-map-office-computer-use.md`: atualiza o fato atual do Windows, o owner de estado e o diagrama de cadeia.
+
+---
+
+### Tarefa 1: Contrato estrito de estado Host→Main
+
+**Arquivos:**
 
 - Modify: `packages/shared/src/channels.ts`
 - Modify: `packages/shared/src/validation.ts`
@@ -59,9 +59,9 @@
 - Produces: `hostCuaOperationStateResponseSchema`
 - Produces: `HostCuaOperationStateResponse`
 
-- [ ] **Step 1: Write the failing schema tests**
+- [ ] **Passo 1: Escrever os testes de schema que falham**
 
-Add one acceptance test and a table of invalid payloads:
+Adicionar um teste de aceitação e uma tabela de payloads inválidos:
 
 ```ts
 it("accepts a strict CUA operation state payload", () => {
@@ -94,15 +94,15 @@ it.each([{ active: "true" }, { sessionId: "" }, { turnId: "" }, { workspacePath:
 );
 ```
 
-- [ ] **Step 2: Run RED**
+- [ ] **Passo 2: Rodar RED**
 
 Run: `pnpm exec vitest run packages/shared/test/validation.test.ts`
 
-Expected: FAIL because `HostResponseTypes.CuaOperationState` and the discriminated-union member do not exist.
+Expected: FAIL porque `HostResponseTypes.CuaOperationState` e o membro da união discriminada não existem.
 
-- [ ] **Step 3: Add the minimal strict contract**
+- [ ] **Passo 3: Adicionar o contrato estrito mínimo**
 
-Add the response constant and schema:
+Adicionar a constante de resposta e o schema:
 
 ```ts
 CuaOperationState: "cua-operation-state",
@@ -121,9 +121,9 @@ export type HostCuaOperationStateResponse = z.infer<
 >;
 ```
 
-Insert the schema into `hostResponseMessageSchema`.
+Inserir o schema em `hostResponseMessageSchema`.
 
-- [ ] **Step 4: Run GREEN**
+- [ ] **Passo 4: Rodar GREEN**
 
 Run: `pnpm exec vitest run packages/shared/test/validation.test.ts`
 
@@ -131,9 +131,9 @@ Expected: PASS.
 
 ---
 
-### Task 2: Turn-Level CUA Tracker and Services Wiring
+### Tarefa 2: Tracker CUA de nível de turn e wiring nos Services
 
-**Files:**
+**Arquivos:**
 
 - Create: `packages/services/src/zcode-agent/cuaOperationTurnTracker.ts`
 - Create: `packages/services/test/cuaOperationTurnTracker.test.ts`
@@ -149,9 +149,9 @@ Expected: PASS.
 - Produces: `createCuaOperationTurnTracker({ reporter })`
 - Produces: `shouldEnableCuaOperationStateReporter({ serviceAuthorityMode, hasReporter })`
 
-- [ ] **Step 1: Write failing tracker behavior tests**
+- [ ] **Passo 1: Escrever os testes de comportamento do tracker que falham**
 
-Use a real tracker with an array reporter and protocol-valid event fixtures. Cover these separate assertions:
+Usar um tracker real com um reporter em array e fixtures de evento válidos pelo protocolo. Cobrir estas asserções separadas:
 
 ```ts
 tracker.accept(workspace, turnStarted("turn-1"));
@@ -165,17 +165,17 @@ tracker.accept(workspace, turnCompleted("turn-1"));
 expect(states.at(-1)).toMatchObject({ active: false, turnId: "turn-1" });
 ```
 
-Also test started-with-toolName fallback, duplicate CUA started, namespaced official tool, underscore rejection, ordinary MCP rejection, `wait`/`request_access`, `stop_computer_control`, new-turn replacement, failed/session.closed, missing turnId, workspaceIdentity isolation, `clearWorkspaceKey`, and `clearAll`.
+Testar também o fallback de started com toolName, started CUA duplicado, ferramenta oficial namespaced, rejeição de underscore, rejeição de MCP comum, `wait`/`request_access`, `stop_computer_control`, substituição por novo turn, failed/session.closed, turnId ausente, isolamento por workspaceIdentity, `clearWorkspaceKey` e `clearAll`.
 
-- [ ] **Step 2: Run tracker RED**
+- [ ] **Passo 2: Rodar tracker RED**
 
 Run: `pnpm exec vitest run packages/services/test/cuaOperationTurnTracker.test.ts`
 
-Expected: FAIL because the tracker module does not exist.
+Expected: FAIL porque o módulo do tracker não existe.
 
-- [ ] **Step 3: Implement the minimal tracker**
+- [ ] **Passo 3: Implementar o tracker mínimo**
 
-Implement the public API:
+Implementar a API pública:
 
 ```ts
 export interface CuaOperationState {
@@ -197,23 +197,23 @@ export interface CuaOperationTurnTracker {
 }
 ```
 
-The tracker stores current turn per workspace/session, scheduled tool names per tool call, and active turn records. It reports only state transitions. Tool matching is exact-prefix based:
+O tracker armazena o turn atual por workspace/session, os nomes de ferramenta agendados por tool call e os registros de turn ativo. Ele reporta apenas transições de estado. O casamento de ferramenta é por prefixo exato:
 
 ```ts
 const prefixes = ["mcp__computer-use__", "mcp__plugin_zcode-cua_computer-use__"] as const;
 ```
 
-`wait` and `request_access` return without activation; `stop_computer_control` clears the session. Terminal and clear methods emit inactive before deleting records. Add Chinese comments explaining that tool results cannot end a turn and why underscore aliases are deliberately excluded.
+`wait` e `request_access` retornam sem ativar; `stop_computer_control` limpa a sessão. Os métodos terminais e de limpeza emitem inativo antes de apagar os registros. Adicionar comentários em chinês explicando que resultados de ferramenta não podem encerrar um turn e por que aliases com underscore são deliberadamente excluídos.
 
-- [ ] **Step 4: Run tracker GREEN**
+- [ ] **Passo 4: Rodar tracker GREEN**
 
 Run: `pnpm exec vitest run packages/services/test/cuaOperationTurnTracker.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Write failing authority and integration tests**
+- [ ] **Passo 5: Escrever os testes de autoridade e integração que falham**
 
-Add table assertions for:
+Adicionar asserções em tabela para:
 
 ```ts
 expect(
@@ -236,17 +236,17 @@ expect(
 ).toBe(false);
 ```
 
-In `zcodeAgentService.test.ts`, inject a reporter into the service fixture, deliver protocol notifications, and assert the reporter receives active then inactive only after live dedup. If the fixture cost makes this test process-isolated, keep it in the existing `zcodeAgentService.test.ts` project rather than mocking the tracker.
+Em `zcodeAgentService.test.ts`, injetar um reporter na fixture de serviço, entregar notifications de protocolo e afirmar que o reporter recebe ativo e então inativo apenas depois da dedup live. Se o custo da fixture tornar esse teste isolado por processo, mantê-lo no projeto `zcodeAgentService.test.ts` existente em vez de mockar o tracker.
 
-- [ ] **Step 6: Run integration RED**
+- [ ] **Passo 6: Rodar integração RED**
 
 Run: `pnpm exec vitest run packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts packages/services/test/zcodeAgentService.test.ts`
 
-Expected: FAIL because authority gate/options/wiring do not exist.
+Expected: FAIL porque o gate de autoridade, as opções e o wiring não existem.
 
-- [ ] **Step 7: Wire tracker after validation and live dedup**
+- [ ] **Passo 7: Ligar o tracker após validação e dedup live**
 
-Extend `CreateZCodeAgentServiceOptions` and `createLocalServices` options with `cuaOperationStateReporter?: CuaOperationStateReporter`. Create the tracker only when the node authority helper returns true, pass it into `createZCodeAgentService`, and call it immediately after `shouldDeliverLiveSessionEvent` succeeds:
+Estender `CreateZCodeAgentServiceOptions` e as opções de `createLocalServices` com `cuaOperationStateReporter?: CuaOperationStateReporter`. Criar o tracker apenas quando o helper de autoridade do node retornar verdadeiro, passá-lo para `createZCodeAgentService` e chamá-lo imediatamente depois de `shouldDeliverLiveSessionEvent` ter sucesso:
 
 ```ts
 cuaOperationTurnTracker?.accept(workspace, normalizedEvent);
@@ -256,9 +256,9 @@ emitSessionEvent(workspace, normalizedEvent.sessionId, {
 });
 ```
 
-Clear by `workspaceKey` from `processManager.onRuntimeRestarted` and `disposeWorkspace`; call `clearAll()` from `disposeLocalState`. Use `createServiceLogger("cua-operation-turn")`: per-event diagnostics are `debug`, state transitions are `info`.
+Limpar por `workspaceKey` a partir de `processManager.onRuntimeRestarted` e `disposeWorkspace`; chamar `clearAll()` a partir de `disposeLocalState`. Usar `createServiceLogger("cua-operation-turn")`: diagnósticos por evento são `debug`, transições de estado são `info`.
 
-- [ ] **Step 8: Run integration GREEN**
+- [ ] **Passo 8: Rodar integração GREEN**
 
 Run: `pnpm exec vitest run packages/services/test/cuaOperationTurnTracker.test.ts packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts packages/services/test/zcodeAgentService.test.ts`
 
@@ -266,9 +266,9 @@ Expected: PASS.
 
 ---
 
-### Task 3: Windows Host Reporting and Main Routing
+### Tarefa 3: Relato do Host Windows e roteamento no Main
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/desktop/src/host/index.ts`
 - Modify: `packages/desktop/src/main/desktopHostProcess.ts`
@@ -287,19 +287,19 @@ onCuaOperationStateChanged?: (
 onCuaOperationStateSourceExited?: (source: ElectronUtilityProcess) => void;
 ```
 
-- [ ] **Step 1: Write failing routing tests**
+- [ ] **Passo 1: Escrever os testes de roteamento que falham**
 
-Mock `utilityProcess.fork()` with `MockUtilityProcess`, call `spawnHostProcess`, emit a valid `cua-operation-state` message, and assert the callback receives the exact child source and payload. Emit child `exit` and assert `onCuaOperationStateSourceExited(child)` once. Emit an invalid payload and assert no callback.
+Mockar `utilityProcess.fork()` com `MockUtilityProcess`, chamar `spawnHostProcess`, emitir uma mensagem `cua-operation-state` válida e afirmar que o callback recebe exatamente o source do child e o payload. Emitir `exit` do child e afirmar `onCuaOperationStateSourceExited(child)` uma única vez. Emitir um payload inválido e afirmar que nenhum callback é chamado.
 
-- [ ] **Step 2: Run routing RED**
+- [ ] **Passo 2: Rodar roteamento RED**
 
 Run: `pnpm exec vitest run packages/desktop/test/desktopHostProcess.test.ts`
 
-Expected: FAIL because callback dependencies and response branch do not exist.
+Expected: FAIL porque as dependências de callback e o ramo de resposta não existem.
 
-- [ ] **Step 3: Add reporter and routing**
+- [ ] **Passo 3: Adicionar reporter e roteamento**
 
-In Host define a reporter satisfying the `createLocalServices` option and post:
+No Host definir um reporter que satisfaça a opção de `createLocalServices` e postar:
 
 ```ts
 parentPort?.postMessage({
@@ -308,9 +308,9 @@ parentPort?.postMessage({
 });
 ```
 
-Pass it only inside `InitLocal` and only when `process.platform === "win32"`. In Main, after Zod validation, route the message with the child as source. In the existing child `exit` handler, call source cleanup before deleting maps. Add Chinese comments explaining why main does not parse session events and why Host exit is an authoritative fail-hidden boundary.
+Passá-lo apenas dentro de `InitLocal` e apenas quando `process.platform === "win32"`. No Main, após a validação Zod, rotear a mensagem com o child como source. No handler de `exit` do child existente, chamar a limpeza do source antes de apagar os maps. Adicionar comentários em chinês explicando por que o main não faz parse de eventos de sessão e por que o exit do Host é uma fronteira autoritativa de fail-hidden.
 
-- [ ] **Step 4: Run routing GREEN**
+- [ ] **Passo 4: Rodar roteamento GREEN**
 
 Run: `pnpm exec vitest run packages/desktop/test/desktopHostProcess.test.ts`
 
@@ -318,16 +318,16 @@ Expected: PASS.
 
 ---
 
-### Task 4: Native Windows Indicator Window
+### Tarefa 4: Janela nativa do indicador no Windows
 
-**Files:**
+**Arquivos:**
 
 - Create: `packages/desktop/src/main/windowsCuaOperationIndicator.ts`
 - Create: `packages/desktop/test/windowsCuaOperationIndicator.test.ts`
 
 **Interfaces:**
 
-- Consumes: `HostCuaOperationStateResponse`, `Locale`, Electron `BrowserWindow` and `screen`
+- Consumes: `HostCuaOperationStateResponse`, `Locale`, Electron `BrowserWindow` e `screen`
 - Produces:
 
 ```ts
@@ -363,43 +363,43 @@ export function createWindowsCuaOperationIndicator(options: {
 }): WindowsCuaOperationIndicator;
 ```
 
-- [ ] **Step 1: Write failing indicator tests**
+- [ ] **Passo 1: Escrever os testes do indicador que falham**
 
-Use injected fake window/screen dependencies and fake timers. Assert separately:
+Usar dependências fakes de janela/screen injetadas e timers falsos. Afirmar separadamente:
 
-1. non-Windows is a no-op;
-2. first active creates with `alwaysOnTop`, `focusable: false`, `frame: false`, `resizable: false`, `show: false`, `skipTaskbar: true`, `transparent: true`;
-3. creation calls `setIgnoreMouseEvents(true)` and `setContentProtection(true)`;
-4. repeated active is idempotent;
-5. two sources/turns remain visible until the final inactive/clearSource;
-6. position is `workArea.x + (workArea.width - width) / 2`, `workArea.y + 12`;
-7. zh-CN and en-US render exact approved copy;
-8. inactive executes exit state, waits 120ms, then hides;
-9. active during exit cancels hide;
-10. unexpected `closed` schedules one reconcile when active;
-11. `loadURL` failure only warns and never throws into CUA state handling;
-12. `dispose` destroys and prevents recreation.
+1. não-Windows é um no-op;
+2. o primeiro active cria com `alwaysOnTop`, `focusable: false`, `frame: false`, `resizable: false`, `show: false`, `skipTaskbar: true`, `transparent: true`;
+3. a criação chama `setIgnoreMouseEvents(true)` e `setContentProtection(true)`;
+4. active repetido é idempotente;
+5. dois sources/turns permanecem visíveis até o inactive/clearSource final;
+6. a posição é `workArea.x + (workArea.width - width) / 2`, `workArea.y + 12`;
+7. zh-CN e en-US renderizam o copy exato aprovado;
+8. inactive executa o estado de saída, espera 120ms e então oculta;
+9. active durante a saída cancela o hide;
+10. um `closed` inesperado agenda uma reconciliação quando está active;
+11. falha de `loadURL` apenas avisa e nunca lança para dentro do tratamento de estado do CUA;
+12. `dispose` destrói e impede recriação.
 
-- [ ] **Step 2: Run indicator RED**
+- [ ] **Passo 2: Rodar indicador RED**
 
 Run: `pnpm exec vitest run packages/desktop/test/windowsCuaOperationIndicator.test.ts`
 
-Expected: FAIL because the indicator module does not exist.
+Expected: FAIL porque o módulo do indicador não existe.
 
-- [ ] **Step 3: Implement minimal window projection**
+- [ ] **Passo 3: Implementar a projeção mínima de janela**
 
-Create one lazy `BrowserWindow`. The generated data URL contains a CSP, semantic light/dark colors through `prefers-color-scheme`, 40px compact pill, three-dot animation, 140ms enter/120ms exit, and `prefers-reduced-motion`. Use a base64 data URL so Chinese copy and CSP do not depend on URL escaping.
+Criar uma única `BrowserWindow` preguiçosa. A data URL gerada contém uma CSP, cores semânticas light/dark via `prefers-color-scheme`, pílula compacta de 40px, animação de três pontos, entrada de 140ms/saída de 120ms e `prefers-reduced-motion`. Usar uma data URL em base64 para que o copy em chinês e a CSP não dependam de escaping de URL.
 
-The active key is:
+A chave ativa é:
 
 ```ts
 const workspaceKey = event.workspaceIdentity?.trim() || event.workspacePath;
 const turnKey = `${workspaceKey}\0${event.sessionId}\0${event.turnId}`;
 ```
 
-Store it under the source object. `showInactive()` is called only after `loadURL()` resolves and the aggregate set is still non-empty. Failures log `warn` and never reject into CUA execution. `clearSource` removes all keys for that child. `closed` preserves aggregate state and schedules one reconcile. `setContentProtection(true)` is mandatory to exclude Windows capture.
+Armazená-la sob o objeto source. `showInactive()` só é chamado depois que `loadURL()` resolve e o conjunto agregado ainda não está vazio. Falhas registram `warn` e nunca rejeitam para dentro da execução do CUA. `clearSource` remove todas as chaves daquele child. `closed` preserva o estado agregado e agenda uma reconciliação. `setContentProtection(true)` é obrigatório para excluir a captura do Windows.
 
-- [ ] **Step 4: Run indicator GREEN**
+- [ ] **Passo 4: Rodar indicador GREEN**
 
 Run: `pnpm exec vitest run packages/desktop/test/windowsCuaOperationIndicator.test.ts`
 
@@ -407,9 +407,9 @@ Expected: PASS.
 
 ---
 
-### Task 5: Main Composition, Locale/App Quit, and Capability Truth
+### Tarefa 5: Composição do Main, Locale/App Quit e a verdade das capacidades
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/desktop/src/main/index.ts`
 - Modify: `apps/dev-docs/src/data/productCapabilityMap.ts`
@@ -419,21 +419,21 @@ Expected: PASS.
 **Interfaces:**
 
 - Consumes: `createWindowsCuaOperationIndicator`
-- Connects both `spawnHostProcess` dependency sites to the same singleton.
+- Conecta os dois pontos de dependência de `spawnHostProcess` ao mesmo singleton.
 
-- [ ] **Step 1: Write failing capability graph assertions**
+- [ ] **Passo 1: Escrever as asserções do grafo de capacidades que falham**
 
-Assert the `computer-use-task-ux` node scope contains `Windows 顶部 turn 级操作提示`, owner is `Desktop Main native projection + Renderer tool projection`, and a state edge exists from `local-host` to `computer-use-task-ux` labelled `Windows CUA turn 状态`.
+Afirmar que o escopo do nó `computer-use-task-ux` contém `Windows 顶部 turn 级操作提示`, que o owner é `Desktop Main native projection + Renderer tool projection`, e que existe uma aresta de estado de `local-host` para `computer-use-task-ux` rotulada `Windows CUA turn 状态`.
 
-- [ ] **Step 2: Run capability RED**
+- [ ] **Passo 2: Rodar capacidade RED**
 
 Run: `pnpm exec vitest run apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`
 
-Expected: FAIL because node/edge still describe only generic tool projection.
+Expected: FAIL porque o nó/a aresta ainda descrevem apenas a projeção genérica de ferramenta.
 
-- [ ] **Step 3: Compose Main and update docs**
+- [ ] **Passo 3: Compor o Main e atualizar a documentação**
 
-Instantiate once beside the Host maps:
+Instanciar uma vez ao lado dos maps de Host:
 
 ```ts
 const windowsCuaOperationIndicator = createWindowsCuaOperationIndicator({
@@ -443,9 +443,9 @@ const windowsCuaOperationIndicator = createWindowsCuaOperationIndicator({
 });
 ```
 
-At both Host spawn dependency objects wire `handleState` and `clearSource`. In `applyApplicationLocale`, call `refreshContent()` after updating locale. At the beginning of `prepareAppQuit`, call `dispose()` so the prompt disappears before waiting for Host cleanup.
+Em ambos os objetos de dependência de spawn do Host ligar `handleState` e `clearSource`. Em `applyApplicationLocale`, chamar `refreshContent()` depois de atualizar o locale. No início de `prepareAppQuit`, chamar `dispose()` para que o aviso desapareça antes de esperar a limpeza do Host.
 
-Update the capability node/edge and current-fact document. Preserve the statement that pause/takeover/live video remain planned, and document this exact state chain:
+Atualizar o nó/a aresta de capacidade e o documento de fato atual. Preservar a afirmação de que pausa/takeover/vídeo ao vivo permanecem planejados, e documentar esta cadeia de estado exata:
 
 ```text
 validated live session event
@@ -454,7 +454,7 @@ validated live session event
         -> capture-excluded Windows BrowserWindow
 ```
 
-- [ ] **Step 4: Run composed focused suite**
+- [ ] **Passo 4: Rodar a suíte focada composta**
 
 Run:
 
@@ -462,41 +462,41 @@ Run:
 pnpm exec vitest run packages/shared/test/validation.test.ts packages/services/test/cuaOperationTurnTracker.test.ts packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts packages/services/test/zcodeAgentService.test.ts packages/desktop/test/desktopHostProcess.test.ts packages/desktop/test/windowsCuaOperationIndicator.test.ts apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts
 ```
 
-Expected: PASS with zero failed tests and no unhandled errors.
+Expected: PASS com zero testes falhando e sem erros não tratados.
 
 ---
 
-### Task 6: Repository Verification and Commit
+### Tarefa 6: Verificação do repositório e commit
 
-**Files:**
+**Arquivos:**
 
-- Review all paths listed above.
+- Revisar todos os caminhos listados acima.
 
-- [ ] **Step 1: Run formatting/diff hygiene checks**
+- [ ] **Passo 1: Rodar as verificações de formatação/higiene do diff**
 
 Run: `git diff --check`
 
 Expected: exit 0.
 
-- [ ] **Step 2: Run affected unit tests**
+- [ ] **Passo 2: Rodar os testes unitários afetados**
 
 Run: `pnpm test:unit:affected`
 
-Expected: exit 0. If a pre-existing unrelated Windows baseline fails, record exact file/test names; any new CUA/shared/desktop/dev-docs failure blocks completion.
+Expected: exit 0. Se uma baseline Windows preexistente e não relacionada falhar, registrar os nomes exatos de arquivo/teste; qualquer nova falha de CUA/shared/desktop/dev-docs bloqueia a conclusão.
 
-- [ ] **Step 3: Run required typecheck**
+- [ ] **Passo 3: Rodar o typecheck obrigatório**
 
 Run: `pnpm typecheck`
 
 Expected: exit 0.
 
-- [ ] **Step 4: Run required lint**
+- [ ] **Passo 4: Rodar o lint obrigatório**
 
 Run: `pnpm lint`
 
 Expected: exit 0.
 
-- [ ] **Step 5: Review final diff against spec**
+- [ ] **Passo 5: Revisar o diff final contra a spec**
 
 Run:
 
@@ -506,9 +506,9 @@ git diff --stat
 git diff -- packages/shared packages/services packages/desktop apps/dev-docs docs/product-capability-map-office-computer-use.md
 ```
 
-Confirm every acceptance criterion in `docs/superpowers/specs/2026-08-04-windows-cua-operation-indicator-design.md` has code or test evidence, and confirm no `computer_use` producer/detector was added.
+Confirmar que todo critério de aceitação de `docs/superpowers/specs/2026-08-04-windows-cua-operation-indicator-design.md` tem evidência em código ou teste, e confirmar que nenhum produtor/detector `computer_use` foi adicionado.
 
-- [ ] **Step 6: Commit implementation**
+- [ ] **Passo 6: Commitar a implementação**
 
 Run:
 
@@ -518,4 +518,4 @@ git diff --cached --check
 git commit -m "feat(cua): show Windows operation indicator"
 ```
 
-Expected: one Conventional Commit, no push.
+Expected: um Conventional Commit, sem push.
