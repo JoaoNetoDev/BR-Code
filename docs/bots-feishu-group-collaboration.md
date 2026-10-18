@@ -117,7 +117,7 @@ identidade de execução; a próxima rodada só é submetida após um estado ter
 Durante a parada todas as mensagens são agrupadas na ordem de onboarding, e cada mensagem
 original é preservada; a mesma run é parada apenas uma vez. Uma corrida entre conclusão natural
 e parada avança apenas uma vez; notificações atrasadas não afetam a nova rodada. Efeitos colaterais
-de ferramentas já concluídos não são revertidos e não se promete otomada de controle forçada de ferramentas.
+de ferramentas já concluídos não são revertidos e não se promete atomicidade de controle forçada de ferramentas.
 
 O agrupamento salva em botGroupSource.messages o messageId, senderId, senderName, o corpo, as
 referências e o índice achatado de anexos de cada mensagem; a última mensagem é a fronteira de
@@ -933,8 +933,8 @@ endereço de envio; um nome só pode ser enviado depois de resolvido pela consul
 descrita abaixo. Tipos de alvo desconhecidos podem receber menção nativa, e @todos não entra em
 nós pessoais.
 
-输入 → Provider 节点 → 既有 inputs.source / canonical intent → queue / transcript / desktop continuous / mobile replayable
-执行 → ReplyToChannel(refId, text parts) → CLI 执行输入标识 → 已鉴权 Host 反向请求 → Bot 任务绑定检查 → 既有 delivery → 飞书回执
+Entrada → nós do Provider → inputs.source / canonical intent já existentes → queue / transcript / desktop continuous / mobile replayable
+Execução → ReplyToChannel(refId, text parts) → identificador de entrada de execução do CLI → requisição reversa ao Host autenticada → verificação de vínculo de task do Bot → delivery já existente → recibo do Feishu
 
 ReplyToChannel é usado apenas para respostas nativas extras solicitadas explicitamente pelo
 usuário e não pode especificar um grupo, robô ou ID cru arbitrário. O serviço resolve de forma
@@ -980,7 +980,7 @@ Aceitação: após um @ nativo bem-sucedido no Feishu, acrescentar “再 @ 一�
 cliente/celular continua enviando para o mesmo grupo/tópico; ausência de vínculo, múltiplos
 vínculos, rebinding, desativação, referências de outras tasks/tópicos e entradas canceladas não
 podem enviar.
-CLI → 已鉴权反向请求 → Bot 状态唯一 owner 解析绑定及历史节点 → 既有 delivery 幂等投递。
+CLI → requisição reversa autenticada → o owner único de estado do Bot resolve o vínculo e os nós de histórico → entrega idempotente pela delivery já existente.
 Não se adicionam cache nem accepted queue, e as cadeias de entrada e recuperação de desktop
 continuous e mobile replayable permanecem inalteradas.
 
@@ -997,7 +997,7 @@ prevalece a correspondência de nome completo e única, ou então a seleção é
 plataforma vindos do modelo não são analisados nem aceitos. Espaços internos de nomes em inglês
 são preservados; vírgulas, vírgulas chinesas, quebras de linha e outros separadores explícitos de
 lista formam múltiplos mentionName, e nomes não são separados apenas por espaços. Todos os
-nomes precisam ser consultados; o resultado da esclarecimento lista todos os itens não resolvidos,
+nomes precisam ser consultados; o resultado do esclarecimento lista todos os itens não resolvidos,
 não pula os nomes seguintes porque o primeiro falhou e nunca descreve como sucesso algo não
 consultado ou não enviado.
 A interface de membros do grupo não inclui robôs; um robô nunca mencionado nativamente e sem

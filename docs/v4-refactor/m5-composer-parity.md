@@ -24,7 +24,7 @@ Suporte atual: `packages/ui/src/v4/ConversationComposer.tsx`, `packages/ui/src/v
 | Anexo: arrastar do SO externo + reset automático por heartbeat | useChatComposer                                                    | `handleDragOver/Leave/Drop` + `scheduleComposerDragFeedbackReset`                                                                                                                              | Concluído                                                                                                    |
 | Anexo: whiteboard add-to-chat (PNG)                       | useChatComposer                                                      | `handleWhiteboardMentionSelected` + `WHITEBOARD_ADD_TO_CHAT_EVENT`                                                                                                                             | Concluído                                                                                                    |
 | Anexo: limite de 8 / tamanho / recusa de imagem inline oversized | useChatComposer                                                    | `MAX_CHAT_ATTACHMENTS` + `serializeForSend` (`OversizedInlineImageAttachmentError`→recusa envio preservando o rascunho)                                                                           | Concluído                                                                                                    |
-| Anexo:回收 do objectUrl / ciclo de vida                  | useChatComposer                                                      | `revokeChatComposerAttachment` na desmontagem/limpeza                                                                                                                                           | Concluído                                                                                                    |
+| Anexo: reciclagem do objectUrl / ciclo de vida                  | useChatComposer                                                      | `revokeChatComposerAttachment` na desmontagem/limpeza                                                                                                                                           | Concluído                                                                                                    |
 | Grade de pré-visualização de anexos + pré-visualização ampliada de imagem | ChatViewComposer topContent                                 | `topContentNode` (trecho antigo 345-501 restaurado como está)                                                                                                                                  | Concluído                                                                                                    |
 | Chip de anexo codeComment                                  | `CodeCommentAttachmentChip` + bloco de prompt `codeCommentContext`    | `useCodeCommentContexts` (estado em memória do composer) + `buildPromptWithCodeComments`; apenas o pane principal recebe eventos globais; após envio bem-sucedido a pré-visualização do código é removida em sincronia                                          | **Concluído (correção de bug em 2026-07-21)**: repostos os eventos de add/remove, o chip e a serialização de envio que faltaram na migração v4 |
 | Chip de anexo webElementContext                            | `WebElementContextAttachmentChip` + bloco de prompt `webElementContext` | `useWebElementContexts` (estado em memória do composer) + `buildPromptWithWebElementContexts`; após o envio, a linha de usuário restaura o chip somente-leitura com `parsePromptWebElementContexts`, e copy/edit preservam o `row.text` original                    | **Concluído (2026-07-09)**: não passa por anexos de protocolo nem entra na persistência de rascunho                                 |
@@ -121,9 +121,9 @@ Solução unificada (em par com 10-protocol-spec §4.2.3 R-19): **no estado de r
   e gravar de volta no bucket de identidade do workspace atual por `workspaceIdentity?.trim() || workspacePath`.
 
       task → draft
-          ├─ configOptions: 保留 ───────┐
-          └─ slashCommands: 清空 ──────┼─ 任一目录未就绪 → readWorkspaceState
-                                       └─ 两份目录均就绪 → 跳过 RPC
+          ├─ configOptions: preservado ───────┐
+          └─ slashCommands: esvaziado ──────┼─ qualquer catálogo não pronto → readWorkspaceState
+                                       └─ ambos os catálogos prontos → pula o RPC
 
   Essa correção apenas repõe a hidratação de catálogos de rascunho no renderer; não altera a entrega de mensagens, o snapshot, a fila nem os limites de owner do desktop continuous ou do web remote replayable.
 
@@ -133,10 +133,10 @@ Solução unificada (em par com 10-protocol-spec §4.2.3 R-19): **no estado de r
   está de fato vazio em estado antigo, `useDraftConfigControl` também lê o workspace state de forma independente mesmo com sessão existente, mas não sobrescreve
   a config da task nem aplica a semente global de modelo do rascunho àquela sessão.
 
-      draft / task A：workspace slash catalog ready
-                      │ select known task B（同 workspace identity）
-                      ├─ catalog 非空 ──> 原样保留，composer 立即可用
-                      └─ catalog 为空 ──> readWorkspaceState ──> 补齐 workspace catalog
+      draft / task A: catálogo slash do workspace pronto
+                      │ seleciona a task B conhecida (mesma identidade de workspace)
+                      ├─ catálogo não vazio ──> preservado como está, composer já utilizável
+                      └─ catálogo vazio ──> readWorkspaceState ──> completa o catálogo do workspace
 
   Essa correção não altera a cadeia principal do desktop continuous nem espalha a hidratação de catálogos para semântica de snapshot, gap, fila ou owner do mobile replayable.
 
@@ -171,7 +171,7 @@ Solução unificada (em par com 10-protocol-spec §4.2.3 R-19): **no estado de r
 #### 5.2.1 Posição do título em janelas de baixa altura (2026-07-30)
 
 - A altura padrão continua usando o layout centralizado existente de «saudação + dock do composer», sem alterar as distâncias já existentes entre Logo, título, composer, banners e templates.
-- O grupo de conteúdo do rascunho adota uma restrição de centralização segura e contínua: com espaço suficiente em cima e embaixo mantém o整体 centralizado; quando falta espaço, para de subir.
+- O grupo de conteúdo do rascunho adota uma restrição de centralização segura e contínua: com espaço suficiente em cima e embaixo mantém o conjunto como um todo centralizado; quando falta espaço, para de subir.
   A janela desktop continua usando o piso nativo base de `480 × 640px` compartilhado entre páginas, e o renderer é proibido de chamar `setMinimumSize` ou `setBounds` dinamicamente conforme a altura do DOM do
   rascunho, senão a quebra de linha localizada provocada por mudança de largura formaria um laço de feedback de arraste `ResizeObserver → IPC → janela nativa crescendo de volta`.
   O topo do título preserva `52px`, e abaixo do último cartão preserva `16px`; quando o monitor ou a janela atual não consegue acomodar todo o conteúdo, a própria timeline do rascunho
@@ -299,7 +299,7 @@ Decisão do usuário: **a ação de troca é uma intenção, não um fato da tim
 sess_54392f61: [modelChange] pendurado acima da primeira mensagem), e trocar durante a edição também é apenas preparação —
 nenhum dos dois entra na timeline; depois do envio, só quando o modelo realmente mudou em relação ao turno anterior é que o registro é feito.
 
-- **Momento do marker** (projeção da CLI, spec 10 §config «R-17 细则 de momento»): o marker `modelChange`
+- **Momento do marker** (projeção da CLI, spec 10 §config «R-17 detalhes de momento»): o marker `modelChange`
   é decidido por onTurnStarted pelo critério «a identidade provider/model deste turno ≠ a identidade provider/model do último turno efetivamente iniciado»;
   a profundidade de pensamento atualiza apenas `config.thought` e os parâmetros da requisição, não gera
   `modelChange`,

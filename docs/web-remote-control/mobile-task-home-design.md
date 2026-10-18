@@ -461,12 +461,12 @@ fatos de mesmo nível:
 
 Essa precedência precisa cobrir todas as direções de conflito, e não apenas corrigir `running`:
 
-| sessions-index activity | 旧 runtime / 持久缓存 | 手机展示 |
+| sessions-index activity | runtime antigo / cache persistente | exibição no celular |
 | --- | --- | --- |
 | `prewarming` / `running` | `completed` / `failed` / `error` | `running` |
 | `completedSuccess` / `completedInterrupted` | live / `failed` / `running` | `completed` |
 | `error` | live / `completed` / `running` | `error` |
-| 缺失或兼容 `draft` | 任意 | 保持现有 runtime → 持久终态 fallback |
+| ausente ou compatível com `draft` | qualquer | mantém o runtime existente → fallback de estado terminal persistido |
 
 Assim, um novo frame do sessions-index tanto consegue promover um cache antigo `completed/error` para
 `running` quanto consegue encerrar um cache live antigo como `completed/error`. A homepage do celular

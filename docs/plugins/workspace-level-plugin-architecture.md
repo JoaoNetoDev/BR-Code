@@ -475,12 +475,12 @@ Esta é uma exceção explícita no domínio de Plugin. Um `.zcode/config.json` 
 
 | Boundary                               | Decision                                            |
 | -------------------------------------- | --------------------------------------------------- |
-| Workspace Plugin enable、dirs、options | 无 Workspace trust，直接进入新 App resolution       |
-| Plugin Hook/Skill/Command/Agent        | 随已启用 Plugin 激活                                |
-| Plugin MCP                             | 直接进入 runtime，无独立 approval                   |
-| 顶层 project hooks/MCP/Agent           | 保持既有安全合同                                    |
-| sensitive value persistence            | User/Workspace 均可明文保存                         |
-| sensitive value output                 | UI/log/diagnostic/provider/mobile artifact 必须脱敏 |
+| Workspace Plugin enable、dirs、options | sem Workspace trust, entra direto na resolução de um novo App |
+| Plugin Hook/Skill/Command/Agent        | ativados junto com o Plugin habilitado              |
+| Plugin MCP                             | entra direto no runtime, sem approval separado     |
+| Hooks/MCP/Agent de projeto de topo     | mantém o contrato de segurança já existente       |
+| persistência de valores sensíveis      | User/Workspace podem salvar em texto claro          |
+| saída de valores sensíveis             | deve ser mascarada em UI/log/diagnóstico/provider/artefato mobile |
 
 ## 13. Evidência e fronteira da fonte
 

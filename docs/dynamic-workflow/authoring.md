@@ -1214,7 +1214,7 @@ Em resumo, porque a renderização pertence a `docs/dynamic-workflow/presentatio
   descarta um ponto inicial funde `.notes` e `notes`. Não é o arquivo do store, por três
   razões: o store mora com o CLI, que para um workspace SSH, WSL ou Docker é outra máquina;
   um editor escrevendo no arquivo do store mudaria uma versão publicada sob seu registro de
-  journal; e o protocol teria de entregar caminhos do host ao renderer. Uma cópia é escrita
+  journal; e o protocolo teria de entregar caminhos do host ao renderer. Uma cópia é escrita
   só quando seu caminho está vazio. Os bytes de uma versão nunca mudam, então uma cópia
   existente ou é os mesmos bytes ou são as edições do próprio usuário, e ambos são mantidos;
   abrir de novo abre o mesmo arquivo. A ação existe onde o shell pode escrever essa cópia

@@ -207,7 +207,7 @@ se recuperar: clicar em enviar -> esperar a sincronização da configuração at
                     falha de sincronização -> mostrar erro, manter o rascunho, não enviar
 ```
 
-Hoje não é totalmente sem sincronização: já existem barreiras de conexão, gatilhos por gravação/conta/modelo default, coalescência no mesmo Environment e refresh trailing. Mas isso não garante que cada envio espere a sincronização mais recente. O usuário antes aceitou explicitamente essa pequena janela de tempo e depois مالي提出的 de que sim, é possível recuperar, então está pendente de nova confirmação.
+Hoje não é totalmente sem sincronização: já existem barreiras de conexão, gatilhos por gravação/conta/modelo default, coalescência no mesmo Environment e refresh trailing. Mas isso não garante que cada envio espere a sincronização mais recente. O usuário antes aceitou explicitamente essa pequena janela de tempo e depois afirmou que sim, é possível recuperar, então está pendente de nova confirmação.
 
 Se for necessário recuperar, sugiro adicionar apenas a capacidade de espera pelo Environment de destino ao coordenador de sincronização existente; não é possível reenviar o antigo RuntimeModel pelo Renderer, nem repetir a sincronização por Workspace. O coordenador atual não expõe uma interface pública para esperar o sucesso de uma dada geração, e após estar conectado a falha é tratada como degradação; é preciso distinguir claramente "espera terminou" de "sincronização teve sucesso". Esta rodada não acrescentou esse comportamento por conta própria.
 

@@ -226,9 +226,9 @@ Ainda é preciso continuar conferindo contra Endpoints reais:
 - se `glm-5v-turbo` ainda é habilitado por padrão como um modelo visual distinto;
 - Model IDs com diferenças de caixa não devem ser usados para identidade de requisição a ponto de fazer os fatos do mesmo modelo divergirem.
 
-Referências: [BigModel 模型总览](https://docs.bigmodel.cn/cn/guide/start/model-overview)、
+Referências: [Visão geral de modelos BigModel](https://docs.bigmodel.cn/cn/guide/start/model-overview)、
 [Z.ai Chat Completion](https://docs.z.ai/api-reference/llm/chat-completion)、
-[Z.ai 核心参数](https://docs.z.ai/guides/overview/concept-param).
+[Parâmetros principais do Z.ai](https://docs.z.ai/guides/overview/concept-param).
 
 ### 6.2 Kimi
 
@@ -239,7 +239,7 @@ K2.6; K3 tem 1M de contexto e K2.7 Code/K2.6 têm 256K. Os membros de modelo atu
 A Kimi Chat API já oferece evidência de formato de resposta na forma `json_schema`, o que permite habilitar JSON Schema estrito na Rule oficial de API/Endpoint correspondente;
 isso não pode se propagar automaticamente para outros protocolos compatíveis.
 
-Referências: [Kimi 模型主页](https://platform.kimi.ai/)、[Kimi Chat API](https://platform.kimi.ai/docs/api/chat)。
+Referências: [Página inicial de modelos Kimi](https://platform.kimi.ai/)、[Kimi Chat API](https://platform.kimi.ai/docs/api/chat)。
 
 ### 6.3 MiniMax
 
@@ -252,7 +252,7 @@ O julgamento anterior de que o “Endpoint direto ainda não prova o M3” veio 
 refutado pela documentação atual de chamada de modelo. As respostas de exemplo da Models API só provam o formato do protocolo; o que realmente vale para a validação de membros é
 uma resposta de sucesso ao vivo com o material de acesso atual.
 
-Referências: [MiniMax 文本生成](https://platform.minimaxi.com/docs/guides/text-generation)。
+Referências: [Geração de texto MiniMax](https://platform.minimaxi.com/docs/guides/text-generation)。
 
 ### 6.4 DeepSeek
 
@@ -268,7 +268,7 @@ decisão de atualização dos membros de modelo do Provider.
 As capacidades de 1M de context, 64K de output, Text/Image/Video e Tool do Qwen 3.5 Plus/Flash têm base oficial. O JSON Schema estrito
 cobre apenas parte dos modelos; o suporte a JSON Object tem um escopo maior, e os dois não podem ser confundidos.
 
-Referências: [Qwen 视觉模型能力](https://help.aliyun.com/en/model-studio/vision-model/)、
+Referências: [Capacidades de modelos de visão do Qwen](https://help.aliyun.com/en/model-studio/vision-model/)、
 [Qwen Structured Output](https://help.aliyun.com/en/model-studio/qwen-structured-output)。
 
 ### 6.6 MiMo
@@ -277,7 +277,7 @@ MiMo v2.5/v2.5-pro é o atual em destaque, e o oficial dá 1M de context e 128K 
 descontinuação em 2026-06-30 e devem permanecer, quando mantidos, como disabled por padrão. O material atual de saída estruturada só é suficiente para provar JSON Object, portanto, sem evidência de Schema
 estrito, `supportsJsonSchemaOutput` permanece false. Web Search é uma capacidade de Endpoint/Plugin e não deve ser escrita como um fato global do modelo.
 
-Referências: [MiMo 模型总览](https://mimo.mi.com/docs/en-US/quick-start/model)。
+Referências: [Visão geral de modelos MiMo](https://mimo.mi.com/docs/en-US/quick-start/model)。
 
 ### 6.7 OpenAI
 
@@ -307,9 +307,9 @@ Os itens determinados a seguir já foram escritos no Config; membros não provad
 
 | Família de Provider | Candidatos a enabled por padrão                                                   | disabled por padrão / a confirmar                          |
 | ------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
-| GLM API       | `glm-5.3`、`glm-5.3-flash`、`glm-5v-turbo`                                   | 旧 5.1/5/4.x                                      |
+| GLM API       | `glm-5.3`、`glm-5.3-flash`、`glm-5v-turbo`                                   | antigos 5.1/5/4.x                                 |
 | Coding Plan   | Individual/Team: 5.3, 5.3 Flash, 5.2, 5-Turbo; Start é definido pelo conjunto retornado pela Account | sem usar regra estática para ampliar o conjunto de contas Start |
-| Kimi          | faixas distintas ainda presentes no Endpoint atual entre K3, K2.7 Code e K2.6 | 旧 K2.x, Moonshot V1, aliases duplicados             |
+| Kimi          | faixas distintas ainda presentes no Endpoint atual entre K3, K2.7 Code e K2.6 | antigos K2.x, Moonshot V1, aliases duplicados      |
 | MiniMax       | M3、M2.7、M2.7-highspeed                                                     | M2.x mais antigos                                   |
 | DeepSeek      | `deepseek-v4-flash`、`deepseek-v4-pro`                                       | Schema estrito é promovido apenas pela Rule oficial de Responses Endpoint |
 | Qwen          | `qwen3.8-max`、`qwen3.8-flash`                                               | modelos 3.5/3.x substituídos                        |

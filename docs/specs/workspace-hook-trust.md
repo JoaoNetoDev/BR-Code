@@ -255,7 +255,7 @@ admissão é uma dimensão diferente da permissão comum de ferramentas e do est
 7. A V1 não oferece autorização granular do tipo "liberar permanentemente todo um evento de Hook"; o alvo do Trust é a declaração de Hook efetiva.
 8. A V1 não cria Trust persistente silenciosamente via variável de ambiente.
 9. A V1 não grava trust token, assinatura ou allowlist no arquivo de configuração do workspace.
-10. O revoke não seresponsabiliza por encerrar processos externos de Hook já iniciados; o cancelamento de processos é uma capacidade separada posterior.
+10. O revoke não se responsabiliza por encerrar processos externos de Hook já iniciados; o cancelamento de processos é uma capacidade separada posterior.
 
 ---
 
@@ -457,7 +457,7 @@ Detalhamento:
 Razões:
 
 - Impede a substituição do comando após a aprovação;
-- Reduz reanálises caused por mudanças irrelevantes no bundle;
+- Reduz reanálises causadas por mudanças irrelevantes no bundle;
 - Mantém configured, trusted e effective como três dimensões independentes.
 
 ### D6. Semântica de Revoke
@@ -1297,7 +1297,7 @@ Fechar a página de configurações, um reload do renderer ou uma desconexão tr
 chamam a decision API; o Coordinator mantém a request pendente até uma decisão explícita, um timeout
 seguro, um supersede de generation, o cancelamento da session ou o término do Runtime.
 
-### 14.7 Mixed-source ordering
+### 14.7 Ordenação mixed-source
 
 Após a mesclagem de Hooks user/project/plugin/internal, a semântica existente de ordem de eventos,
 matchers e Hooks precisa ser preservada. Depois da admissão, os project candidates precisam ser
@@ -1311,7 +1311,7 @@ Quando um project Hook é blocked:
 - a correspondência de matchers não deve mudar incorretamente por causa da remoção de uma entrada project;
 - o estado/log de execução registra explicitamente `skipped_untrusted` ou `skipped_policy`, em vez de fingir que está disabled.
 
-### 14.8 Soft-gate Turn Boundary
+### 14.8 Limite do turno com soft-gate
 
 O turno nunca fica esperando a revisão. Quando `activate()` encontra uma declaração pendente, ele não
 cria review flow nem espera; o hook pendente emite `HookRunBlocked` item a item e o turno segue
@@ -1683,7 +1683,7 @@ A forma final dos comandos segue as convenções atuais da CLI, mas precisa aten
 
 - `review/status` são somente leitura e exibem tanto o bundle digest quanto o declaration digest/state item a item;
 - um `grant` preciso precisa indicar explicitamente o workspace e um ou mais `--hook-digest`;
-- `--all-current` é o comando de pré-Trust headless: precisa estar vinculado ao `bundleDigest` atual e criar precise persistent records apenas para as declarations configuradas atuais; não é uma action de decisão de review e a UI não expõe essa operação;
+- `--all-current` é o comando de pré-Trust headless: precisa estar vinculado ao `bundleDigest` atual e criar records persistentes precisos apenas para as declarations configuradas atuais; não é uma action de decisão de review e a UI não expõe essa operação;
 - em TTY é possível exibir um índice temporário estável para a saída atual e permitir a seleção interativa; o índice serve apenas como selector de UX e, no envio, continua vinculado ao bundleDigest atual com validação do declaration digest correspondente;
 - em non-TTY não se pode confiar em declarações desconhecidas ou alteradas com um `--yes` vago;
 - `revoke` suporta declaration digest preciso e todos os records do workspace;
@@ -2368,7 +2368,7 @@ Todas as métricas devem usar campos anônimos/agregados, sem enviar o comando c
 | CLI02 | status --json | emite identity, bundle, items, state e reason code |
 | CLI03 | grant de digest preciso | apenas aquela declaration casa depois disso |
 | CLI04 | Seleção por índice em TTY + validação de digest | o índice é apenas selector e o digest é validado no final |
-| CLI05 | all-current + bundle correto | escreve precise persistent records separados para os items configurados atuais |
+| CLI05 | all-current + bundle correto | escreve records persistentes precisos separados para os itens configurados atuais |
 | CLI06 | all-current + bundle stale | recusado, sem gravar record |
 | CLI07 | revoke exact/all | remove os records alvo e incrementa a security revision |
 | CLI08 | remote identity ausente / bypass por variável de ambiente | fail closed |
@@ -2839,7 +2839,7 @@ engenharia antes da implementação:
 8. **Otimizações futuras da security revision**: a Fase 2 adotou um counter global por workspace; só depois dos benchmarks do Runtime avaliar uma revision por declaration, sem enfraquecer o gate por isso na V1.
 9. **Texto de produto para o caso sem client capaz**: notificação de sistema do Desktop, banner mobile ou apenas a linha de task pendente.
 10. **Ponto de recuperação quando a configuração é gravada mas o rebuild do snapshot falha**: oferecer "abrir o arquivo de origem/tentar o parse de novo" ou retry automático por watcher; em qualquer opção o fail closed é mantido.
-11. **Se `--require-workspace-hooks` deve existir**: se a automation deve falhar ativamente quando algum Hook required for pulado.
+11. **Se `--require-workspace-hooks` deve existir**: se a automação deve falhar ativamente quando algum Hook obrigatório for pulado.
 12. **Arquivamento dos designs**: incorporar screenshots de design fornecidos pelo usuário ou links de design interno como anexos de design revisáveis.
 13. **Ciclo de vida do pretrust sem session**: o tempo de recuperação ocioso e o feedback de falha do Agent control plane somente leitura podem ser otimizados, mas não podem criar tasks ocultas nem contornar a revalidação do snapshot canônico do Agent.
 
