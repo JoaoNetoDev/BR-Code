@@ -129,8 +129,8 @@ Não há ferramenta de codegraph disponível, então a varredura de impacto por 
 
 | Item                            | Evidência atual                          | Relação obsoleta                              | Seguimento                                        |
 | ------------------------------- | ---------------------------------------- | -------------------------------------------- | ------------------------------------------------- |
-| start-plan-manual-claim surface | Banner/ResultDialog antigos removidos     | o graph ainda referencia arquivos antigos e caminho de guide | substituir pela surface de Marketing, sem restaurar seleção automática de modelo |
-| cloud-content-preview           | entrada de preview do App removida        | o graph ainda referencia componente de preview/mock antigo | remover a relação da entrada aposentada            |
+| start-plan-manual-claim surface | Banner/ResultDialog antigos removidos     | o graph ainda referência arquivos antigos e caminho de guide | substituir pela surface de Marketing, sem restaurar seleção automática de modelo |
+| cloud-content-preview           | entrada de preview do App removida        | o graph ainda referência componente de preview/mock antigo | remover a relação da entrada aposentada            |
 | nós de evidência de teste       | nova spec está em pending                 | E2E oficial antigo/unitário do Banner antigo | atualizar para a evidência atual, indicando pending |
 | relação de capacidade de marketing | cadeia de confirmação atual Settings/Market/Upgrade | não descreve por completo o novo destino e a recuperação de falha | complementar a relação, sem tratar seleção de UI como conexão persistida |
 
@@ -176,7 +176,7 @@ impact-only; nesta rodada não se modifica spec de produto/testes nem promoção
 | Posição                                                       | Causa e verificação complementar                                                                                                                        | Evidência de atribuição no código                                                                 |
 | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | MarketingTouchProvider.tsx:275, 278                            | IServiceAccessor não tem modelProviderService; a chamada de refresh pós-sucesso ainda usa a API antiga. O caso atual de retirada só assere o popup de sucesso, sem validar a execução do refresh | `git blame`: `fe04f4ba330`; arquivo novo nesta branch                        |
-| Root.tsx:3, 357                                                | o import de RefreshCw foi removido, mas a UI de retentativa de falha de carregamento ainda o referencia. A inicialização normal não dispara esse ramo de erro; deve-se complementar com regressão por injeção de falha | `a19b8c64f11` removeu o import; visível no diff da baseline                      |
+| Root.tsx:3, 357                                                | o import de RefreshCw foi removido, mas a UI de retentativa de falha de carregamento ainda o referência. A inicialização normal não dispara esse ramo de erro; deve-se complementar com regressão por injeção de falha | `a19b8c64f11` removeu o import; visível no diff da baseline                      |
 | ModelProviderSection.tsx:1121                                  | a nova correspondência de navegação lê item.provider.id; o ProviderSettingsFormProvider atual é providerId. Não basta trocar o selector do teste para mascarar o defeito no caminho de provider custom | `646cba8528f`; novo effect nesta branch                                     |
 | marketing-touch-entitlement.test.ts:94, 100, 131, 163, 164     | as enumerações bigmodelCodingPlan/bigmodel e modelProviderFamilyModes/SelectedKeys não existem mais                                                            | spec de migração nova nesta branch; reproduzido no typecheck atual, sem especular responsabilidade pela migração |
 | marketing-touch-delivery.test.ts:35-42, 393                    | a verificação de ausência de efeito colateral na conexão lê dois campos já removidos. Hoje deve-se usar providerFamilyConnectionSelections e primeiro asserir que existe uma seleção inicial válida                                     | leitura de plain JSON contorna a checagem de TS; fato de código, não se pode afirmar que a asserção foi de fato alcançada nesta rodada e passou |
@@ -208,7 +208,7 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
   --spec './test/e2e/ui-shell/manual-review/pending/marketing-touch-entitlement.test.ts'
 ```
 
-### Integridade da cobertura
+### integridade da cobertura
 
 Na primeira rodada o report do Renderer está completo; os reports de Main/Host/CLI estão completos, com missing process=0. Isso só prova que os processos esperados foram coletados, não que todo o mapeamento de código-fonte é suficientemente preciso.
 

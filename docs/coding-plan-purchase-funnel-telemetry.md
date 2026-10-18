@@ -106,10 +106,10 @@ Enumeração de entradas:
 
 | `eventRegion` | `upgrade_source` | Local | Código atual |
 | --- | --- | --- | --- |
-| `app.profile` | `profile_menu` | Upgrade no menu do avatar do usuário | `WorkspaceSidebar.tsx`、`SettingsPage.tsx` |
+| `app.profile` | `profile_menu` | Upgrade no menu do avatar do usuário | `WorkspaceSidebar.tsx`, `SettingsPage.tsx` |
 | `app.session` | `session_quota_alert` | Upgrade no lembrete de quota da Session | `ChatView.tsx` |
 | `app.session` | `session_token_usage` | Upgrade na área de uso de tokens da caixa de entrada | `ChatInputToolbar.tsx` |
-| `app.session` | `session_idle_time` | Upgrade na página inicial de New task e no aviso de elegibilidade de tarefas off-peak de Automations | `OffPeakNewTaskEntry.tsx`、`AutomationsSection.tsx` |
+| `app.session` | `session_idle_time` | Upgrade na página inicial de New task e no aviso de elegibilidade de tarefas off-peak de Automations | `OffPeakNewTaskEntry.tsx`, `AutomationsSection.tsx` |
 | `app.setting` | `setting_plan_card` | Upgrade/Subscribe do Coding Plan na página de configurações de modelo | `StatusCards.tsx` |
 | `app.setting` | `setting_start_plan_card` | Upgrade/Subscribe na página de configurações de modelo quando o modo de vínculo atual é Start Plan | `StatusCards.tsx` |
 | `app.setting` | `setting_personal_plan_banner` | Entrada de plano pessoal na página de configurações de modelo | `Detail.tsx` |
@@ -321,10 +321,10 @@ Responsável uniformemente por:
 
 | Cenário | Código |
 | --- | --- |
-| Menu do avatar no canto inferior esquerdo | `WorkspaceSidebar.tsx`、`SettingsPage.tsx` |
+| Menu do avatar no canto inferior esquerdo | `WorkspaceSidebar.tsx`, `SettingsPage.tsx` |
 | Lembrete de quota da Session | `ChatView.tsx` |
 | Upgrade de uso de tokens | `ChatInputToolbar.tsx` |
-| Entradas Upgrade/Subscribe/pessoal/equipe de Settings | `StatusCards.tsx`、`CodingPlanStatusActions.tsx`、`Detail.tsx` |
+| Entradas Upgrade/Subscribe/pessoal/equipe de Settings | `StatusCards.tsx`, `CodingPlanStatusActions.tsx`, `Detail.tsx` |
 | Seleção de produto e de ciclo | Página webview do site oficial (o antigo `CodingPlanPurchasePanel.tsx` foi removido em 2026-09 e o App não tem mais interação nativa de seleção de produto e ciclo) |
 
 A navegação entre páginas precisa estender `packages/ui/src/lib/settingsNavigation.ts`, carregando:

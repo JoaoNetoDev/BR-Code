@@ -142,7 +142,7 @@ não outro conjunto de DTO nem um segundo Registry.
 
 Os campos de Model têm como única fonte o schema de dados completo de `@zcode/shared/model-config`; o schema esparso deriva da mesma lista de campos
 a semântica de default/override por null. A construção de entrada, a saída JSON e o tipo completo do Registry usam inferência a partir do schema; as classes de comportamento mantêm apenas congelamento, overlay
-e serialização. A checagem de completude reaproveita esse schema, sem reescrever à mão uma segunda lista de verificação de campos/domínios. O schema de dados puro não referencia classes de comportamento,
+e serialização. A checagem de completude reaproveita esse schema, sem reescrever à mão uma segunda lista de verificação de campos/domínios. O schema de dados puro não referência classes de comportamento,
 evitando dependência circular entre codec e classe. Provider/API/Access também fornecem um contrato de dados único via `config/provider-data-schema.ts`;
 os tipos ModelProperties/OptionSpecs da CLI e a projeção de campos de mídia do protocolo também derivam do Model schema compartilhado,
 sem depender inversamente da implementação de comportamento do Provider. A camada compartilhada depende apenas do compilador de expressões puras, sem estado ou IO.

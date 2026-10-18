@@ -495,7 +495,7 @@ Em produção, a token URL usa o `/api/v1/oauth/token` de mesma origem; em desen
 
 ## Iterações futuras (fora deste escopo)
 
-- Refresh ativo do JWT expirado(o backend não fornece refresh_token, então é adiado por enquanto)
+- Refresh ativo do JWT expirado (o backend não fornece refresh_token, então é adiado por enquanto)
 - Funcionalidade de logout(limpar o localStorage e voltar à página de login)
 - Outros providers OAuth(como BigModel)
 - Sincronização do estado de login com o desktop(mesmo navegador entre dispositivos)

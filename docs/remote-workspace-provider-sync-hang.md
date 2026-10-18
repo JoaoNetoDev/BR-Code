@@ -109,7 +109,7 @@ Os dois pontos de mudança restauram o mesmo invariante, e ambos são indispens�
 
 | Ponto de chamada                                                    | Cenário                                                                                                      |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `packages/server/src/remote/connect.ts:247`（`beginDisposal`）        | encerramento da conexão host↔remoto (às 09:57:44 deste incidente foi exatamente este caminho) → resolve de quebra a suspensão dos handlers proxy no lado host |
+| `packages/server/src/remote/connect.ts:247` (`beginDisposal`)         | encerramento da conexão host↔remoto (às 09:57:44 deste incidente foi exatamente este caminho) → resolve de quebra a suspensão dos handlers proxy no lado host |
 | `packages/rpc/src/ipc.ts:138-139`                                     | IPCServer detecta desconexão do client                                                                       |
 | `packages/rpc/src/ipc.ts:259-260`, `305-306`                          | destruição completa de IPCServer / IPCClient                                                                   |
 | `packages/rpc/src/remote.ts:325`                                      | destruição final do client reconectado (atenção: uma reconexão no meio do caminho usa `replaceSocket` e reaproveita o mesmo ChannelClient, sem disparar dispose; a semântica de replay permanece inalterada) |

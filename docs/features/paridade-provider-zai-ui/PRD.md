@@ -25,13 +25,17 @@ A decisão do dono do produto é remover todo tratamento preferencial e toda ofe
 | E3 | `resolveVisibleLoginProviders` mostra os logins OAuth (incl. Z.ai/BigModel) ordenados por prioridade quando deslogado | `packages/ui/src/WelcomeScreen.tsx:542-548` |
 | E4 | Botões OAuth renderizados por provedor visível na welcome screen | `packages/ui/src/WelcomeScreen.tsx:319-356` |
 | E5 | Toque de marketing com ação `claim_zcode_plan` ("Limited-time offer") chamando `claimManualPlan` | `packages/ui/src/components/marketing-touch/MarketingTouchProvider.tsx:262` (claim) e `:370` (predicado `claim_zcode_plan` do banner) |
-| E6 | Strings de banner de claim manual: `manualClaimPlan.banner.tag` = "Limited-time offer", `manualClaimPlan.banner.claim`, diálogos de sucesso/falha | `packages/ui/src/i18n/locales/en-US.ts:226-259` |
-| E7 | Recomendação de plano no chat: `startPlan.recommendation.*` (title, description, switch, decline, dismiss) | `packages/ui/src/i18n/locales/en-US.ts:4-13` (espelhado em `zh-CN.ts:4-9`) |
+| E6 | Strings de banner de claim manual: `manualClaimPlan.*` (banner, claim, dismiss, share) — o bloco vai de :226 até :283 (`manualClaimPlan.claim.share.twitterTextLabel` é a última) | `packages/ui/src/i18n/locales/en-US.ts:226-283` |
+| E7 | Recomendação de plano no chat: `startPlan.recommendation.*` (title, description, switch, decline, dismiss) | `packages/ui/src/i18n/locales/en-US.ts:4-13` (espelhado em `zh-CN.ts:4-12`, verificado) |
 | E8 | Strings de promoção do Coding Plan em settings: `settings.modelProvider.codingPlan.start.freeEquityTitle` = "Start free plan", `start.loginTrial` = "Connect Z.ai", `product.firstPromo` = "First-time subscription discount" | `packages/ui/src/i18n/locales/en-US.ts:3418-3424` e `:3651` |
 | E9 | Cards de preço, produtos e saldo do Coding Plan na seção de provedores | `packages/ui/src/settings/model-provider-section/codingPlanPricingCards.ts`, `useCodingPlanProducts.ts`, `StartPlanBalanceCard.tsx` |
 | E10 | Card de saldo do Start Plan na toolbar do chat | `packages/ui/src/chat-input-toolbar/StartPlanContextBalance.tsx` |
 | E11 | Resolução de entitlement/usage com `preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan` (e o equivalente bigmodel na linha 463), com `requirePreferredProvider: true` | `packages/ui/src/SettingsPage.tsx:408-451` (:444, :450; bigmodel em :411-437, :463) |
 | E12 | Login OAuth disparado a partir das settings para presets de assinatura | `packages/ui/src/settings/model-provider-section/oauthActions.ts:10-36` (`startPresetSubscriptionLogin`) |
+| E13 | O tipo `OAuthProviderId` só tem casos brandados para `BIGMODEL_PROVIDER_ID` e `ZAI_PROVIDER_ID` — não existem adapters OAuth de outros provedores | `packages/shared/src/oauth.ts:56-59` |
+| E14 | Ecossistema preferred-provider na UI além da SettingsPage: `CodingPlanUsagePanel.tsx` usa `preferredProviderId: zaiIndividualCodingPlan` (:134) e `bigmodelIndividualCodingPlan` (:152), além de `:169-171`; `WorkspaceSidebarFooterUsageSummary.tsx`, `chat-input-toolbar/CodingPlanContextUsage.tsx` (:215), `v4/composer/V4ComposerToolbar.tsx` e `v4/SessionPane.tsx` consomem o mesmo ecossistema | `packages/ui/src/settings/usage-stats/CodingPlanUsagePanel.tsx:134,152,169-171` e arquivos listados |
+| E15 | Oferta de troca de modelo de subagente para o Start Plan: `useStartPlanRecommendation` usado em `settings/SubagentsSection.tsx:2,609,674,817,1008` e `settings/AutomationEditView.tsx:2`; hook em `hooks/useStartPlanRecommendation.ts`, entitlement em `hooks/useStartPlanEntitlement.ts` | arquivos citados |
+| E16 | Inventário marketing/claim: `components/manual-claim-plan/manualClaimFailureMessage.ts` e `manualClaimPlanStartUsing.ts`; `components/marketing-touch/MarketingDialogs.tsx`; `request-security-edition/claim.ts` (stub: `prepareRequestVerificationClaim` já retorna `{}` sem tocar serviço); visibilidade do banner compartilhada com a sidebar via `MarketingBanner`/`useMarketingBannerVisible` | `packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx:1,19-20`, `components/marketing-touch/useMarketingBannerVisible.ts`, arquivos citados |
 
 **Correções/ajustes em relação à evidência inicial recebida:**
 - `StartPlanContextBalance.tsx` fica em `packages/ui/src/chat-input-toolbar/` (não em `model-provider-section/chat-input-toolbar/`).
@@ -55,9 +59,9 @@ A decisão do dono do produto é remover todo tratamento preferencial e toda ofe
 
 **Cenários:**
 
-- **C1 (P1):** Na welcome screen, o usuário vê apenas caminhos neutros de configuração (API key ou provedores que ele mesmo configurar); não vê botões OAuth dedicados a Z.ai/BigModel nem entrada destacada no topo.
+- **C1 (P1):** Na welcome screen, o usuário vê apenas o caminho de configuração via API key (DECISÃO: o modo de login OAuth da welcome screen é removido por inteiro — ver RF-01 e Q1/Q2 resolvidas).
 - **C2 (P2):** Na settings, o usuário seleciona Z.ai ou BigModel na lista de provedores e configura a API key, exatamente como faria com qualquer outro provedor.
-- **C3 (P3):** Nenhum banner "Limited-time offer", nenhuma recomendação de Start Plan e nenhum card de saldo/promo do Coding Plan aparece em chat ou settings.
+- **C3 (P3):** Nenhum banner "Limited-time offer", nenhuma recomendação de Start Plan (nem a oferta de troca de modelo de subagente) e nenhum card de saldo/promo do Coding Plan aparece em chat ou settings.
 - **C4 (usuário avançado):** Quem preferir OAuth pode continuar usando `zcode login` no CLI; a UI não oferece esse caminho, mas não o impede.
 
 ---
@@ -86,27 +90,35 @@ A decisão do dono do produto é remover todo tratamento preferencial e toda ofe
 
 ### Welcome screen
 
-- **RF-01.** Remover os botões OAuth dedicados a Z.ai/BigModel da welcome screen: o caminho OAuth por provider (E1, E4) deixa de existir para esse par. A welcome screen passa a oferecer exclusivamente o fluxo de API key (botão "use API key") e o fluxo já existente para provedores não-Z.ai/BigModel, se houver.
-- **RF-02.** Remover a ordenação preferencial: eliminar `getProviderPriority` com pesos fixos (zai=0, bigmodel=1) (E2) e qualquer lógica em `resolveVisibleLoginProviders` (E3) que posicione Z.ai/BigModel acima dos demais. Provedores remanescentes, se houver, seguem ordem neutra (`order`).
-- **RF-03.** Remover tags de região exclusivas (`LoginOAuthRegionTag` e `getLoginOAuthRegionTagMessageId`) junto com os botões a que pertencem (E1).
-- **RF-04.** Revisar `resolveLoginRetryProvider` (`WelcomeScreen.tsx:550-560`): com OAuth de Z.ai/BigModel removido da UI, o fallback para `providers[0]` não deve mais cair implicitamente em Z.ai/BigModel.
+- **RF-01.** **Remover por completo o modo de login OAuth da welcome screen** — para zai E bigmodel. Como só existem adapters OAuth brandados para esses dois provedores (`packages/shared/src/oauth.ts:56-59`, E13), não há caso genérico a preservar: saem os botões OAuth (incluindo o caso default `login.oauth.button`, E1/E4), `startTrackedLogin`, `resolveVisibleLoginProviders` (E3), os estados waiting/error/retry, os testids (`TID_OAUTH_*`) e `getProviderPriority` com os pesos fixos zai=0/bigmodel=1 (E2). A welcome screen passa a oferecer exclusivamente o fluxo de API key (botão "use API key", `WelcomeScreen.tsx:344-354`).
+- **RF-02.** (Dobrada no RF-01.) Nenhuma ordenação preferencial de Z.ai/BigModel sobrevive na welcome screen — a ordenação existia só para o modo OAuth removido.
+- **RF-03.** Remover tags de região exclusivas (`LoginOAuthRegionTag` e `getLoginOAuthRegionTagMessageId`, E1) junto com o modo OAuth.
+- **RF-04.** Remover `resolveLoginRetryProvider` (`WelcomeScreen.tsx:550-560`) junto com o fluxo OAuth; nenhum caminho de retry pode sobrar referenciando `providers[0]`.
 
 ### Settings (provedores de modelo)
 
-- **RF-05.** Remover o login OAuth a partir das settings para presets de assinatura Z.ai/BigModel: `startPresetSubscriptionLogin` e `reportPresetSubscriptionSuccess` (`oauthActions.ts:10-55`, E12) deixam de ser alcançáveis da UI; o arquivo deve ser removido ou reduzido ao que sobrar de uso real (decidir na implementação, ver Q3).
+- **RF-05.** Remover o login OAuth a partir das settings para presets de assinatura Z.ai/BigModel: os botões que acionam `startPresetSubscriptionLogin`/`reportPresetSubscriptionSuccess` (`oauthActions.ts:10-55`, E12) saem da UI. Rodar `pnpm dep:refs --list-exports packages/ui/src/settings/model-provider-section/oauthActions.ts` para definir o que fica órfão; expectation: o arquivo é deletado se nenhum outro consumir (ver Q3).
 - **RF-06.** Remover os cards de preço e produtos do Coding Plan (`codingPlanPricingCards.ts`, `useCodingPlanProducts.ts`), o card de saldo Start Plan (`StartPlanBalanceCard.tsx`) e componentes relacionados de status/promo de Coding Plan da seção de provedores (E9), incluindo `StartPlanCard.tsx`, `StartPlanQuotaStatusCard.tsx` e strings `settings.modelProvider.codingPlan.start.*` / `product.firstPromo` (E8).
 - **RF-07.** Remover o card de saldo do Start Plan da toolbar de chat (`chat-input-toolbar/StartPlanContextBalance.tsx`, E10).
 - **RF-08.** Remover dicas/hints de registro específicas de BigModel na UI de provedores (`BigModelRegistrationHint.tsx`) ou generalizá-las para provedores por API key — nenhuma menção preferencial a BigModel.
 
 ### Entitlement / usage
 
-- **RF-09.** Remover a preferência de provider na resolução de entitlement/usage em `SettingsPage.tsx:408-451`: eliminar `preferredProviderId: zaiIndividualCodingPlan` (:444, :450), o paralelo bigmodel (:463) e `requirePreferredProvider`/`allowDisabledPreferredProvider` associados (E11). A aba de usage não deve assumir nenhum provedor preferido; se o usuário não tiver provedor configurado, mostra estado neutro/vazio.
-- **RF-10.** Garantir que a usage de provedores configurados via API key continue funcionando sem a camada de preferência (o caminho genérico por provider configurado é a fonte única).
+- **RF-09.** Remover o ecossistema preferred-provider da UI inteira, não só a SettingsPage:
+  - `packages/ui/src/SettingsPage.tsx` — `preferredProviderId: zaiIndividualCodingPlan` (:444, :450) e o paralelo bigmodel (:411-437, :463), com `requirePreferredProvider`/`allowDisabledPreferredProvider` (E11);
+  - `packages/ui/src/settings/usage-stats/CodingPlanUsagePanel.tsx` — `preferredProviderId: zaiIndividualCodingPlan` (:134), `bigmodelIndividualCodingPlan` (:152) e bloco :169-171 (E14);
+  - `packages/ui/src/WorkspaceSidebarFooterUsageSummary.tsx`;
+  - `packages/ui/src/chat-input-toolbar/CodingPlanContextUsage.tsx` (:215);
+  - `packages/ui/src/v4/composer/V4ComposerToolbar.tsx`;
+  - `packages/ui/src/v4/SessionPane.tsx`.
+  Nenhuma superfície de usage pode assumir provedor preferido; sem provedor Coding Plan, exibe estado neutro/vazio.
+- **RF-10.** **Não existe hoje caminho genérico de entitlement por preferred provider para provedores API-key — e este PRD não cria um.** DECISÃO DE PRODUTO: as superfícies de usage que dependem de `preferredProviderId`/`accountAccess` builtin (listadas no RF-09) são **removidas junto**, não reescritas. A usage de provedores API-key continua pelo caminho que já existe hoje e já é independente de Coding Plan: `AppUsagePanel` (`packages/ui/src/settings/usage-stats/AppUsagePanel.tsx:37-38`) via `useAppUsageStats` → `usageStatsService` (`packages/ui/src/hooks/useUsageStats.ts:191-206`), sem preferred provider. O que existe de genérico é esse painel de usage por app; entitlement no sentido Coding Plan é conceito exclusivo do par Z.ai/BigModel e sai com ele.
 
 ### Marketing / ofertas
 
-- **RF-11.** A UI não deve mais renderizar nem acionar banners/toques de marketing com claim de plano: remover os caminhos de `claim_zcode_plan` e `claimManualPlan` do lado da UI (`MarketingTouchProvider.tsx:250-295, :365-372`, E5), incluindo banner, diálogos de dismiss/sucesso/falha e o prewarm de verificação. Ações de marketing neutras (ex.: `open_url`) permanecem, se desejado (ver Q4).
-- **RF-12.** Remover recomendações de plano no chat: `startPlan.recommendation.*` (E7) e o componente/gatilho que as exibe deixam de existir.
+- **RF-11.** A UI não deve mais renderizar nem acionar banners/toques de marketing com claim de plano: remover os caminhos de `claim_zcode_plan` e `claimManualPlan` do lado da UI (`MarketingTouchProvider.tsx:250-295, :365-372`, E5), incluindo banner, `MarketingDialogs.tsx`, diálogos de dismiss/sucesso/falha, prewarm de verificação e `request-security-edition/claim.ts` (que já é stub: `prepareRequestVerificationClaim` retorna `{}`, E16). Inventário completo no escopo: `components/manual-claim-plan/` (`manualClaimFailureMessage.ts`, `manualClaimPlanStartUsing.ts`). O predicado de visibilidade do banner é compartilhado com `sidebar-activity/SidebarBottomActivity.tsx` (`MarketingBanner`/`useMarketingBannerVisible`, :1,19-20, E16) — **alterar em conjunto** para não recriar o drift já comentado no código. Ações de marketing neutras (`open_url`) permanecem (Q4).
+- **RF-12.** A recomendação de plano some inteira, **incluindo as ofertas de troca de modelo de subagente**: remover `hooks/useStartPlanRecommendation.ts` e `hooks/useStartPlanEntitlement.ts` e seus pontos de uso em `settings/SubagentsSection.tsx` (:2, :609, :674, :817, :1008), `settings/AutomationEditView.tsx` (:2, :1500-1501), `v4/SessionPane.tsx` (:1754, :2490, :2525) (E15). **A troca manual de modelo permanece** — só a oferta/proativa some. Strings `startPlan.recommendation.*` (E7) saem junto.
+  - **Arquivos de teste afetados** (verificados por grep): `packages/ui/test/startPlanRecommendation.test.ts`, `startPlanRecommendationFreshness.test.ts`, `useStartPlanRecommendation.test.ts`, `v4SessionPaneModelSwitchRecovery.test.ts`, `highspeed/sessionPaneHighspeedActivation.test.ts` e `highspeed/highspeedVisibilityRefresh.test.ts` (os dois últimos mockam `useStartPlanRecommendation`; cenários de highspeed em si devem ser preservados).
 
 ### Paridade de provedor
 
@@ -115,7 +127,7 @@ A decisão do dono do produto é remover todo tratamento preferencial e toda ofe
 
 ### i18n
 
-- **RF-15.** Limpar strings órfãs em `en-US.ts` e `zh-CN.ts` (e qualquer outro locale espelhado): `manualClaimPlan.*` (E6), `startPlan.recommendation.*` (E7), `settings.modelProvider.codingPlan.start.*`, `settings.modelProvider.codingPlan.product.firstPromo`, `login.oauth.button.zai` / `.bigmodel` / `login.oauth.regionTag.*` e demais strings que ficarem sem referência. Rodar verificação de strings não usadas para fechar o conjunto.
+- **RF-15.** Limpar strings órfãs em `en-US.ts` e `zh-CN.ts` (e qualquer outro locale espelhado): `manualClaimPlan.*` (E6 — bloco `en-US.ts:226-283`, verificado), `startPlan.recommendation.*` (E7 — `zh-CN.ts:4-12`, verificado), `settings.modelProvider.codingPlan.start.*`, `settings.modelProvider.codingPlan.product.firstPromo`, `login.oauth.button` (incl. variants `.zai`/`.bigmodel`) / `login.oauth.regionTag.*` e demais strings que ficarem sem referência. Rodar verificação de strings não usadas para fechar o conjunto.
 
 ---
 
@@ -123,10 +135,10 @@ A decisão do dono do produto é remover todo tratamento preferencial e toda ofe
 
 - **RNF-01 (Performance):** A remoção não deve degradar o tempo de renderização da welcome screen e da settings; espera-se melhora (menos consultas de entitlement/produtos no mount). Nenhum fetch fantasma deve permanecer: hooks removidos (`useCodingPlanProducts`, entitlement probing com preferred provider) não devem disparar requisições.
 - **RNF-02 (Acessibilidade):** Estados vazios criados pelas remoções (ex.: aba usage sem provedor) devem ter texto acessível e foco gerenciado; remoção de banners não pode deixar regiões aria-live vazias referenciadas.
-- **RNF-03 (Observabilidade/telemetria — proposta):**
+- **RNF-03 (Observabilidade/telemetria — decisão):**
   - Remover junto com os componentes os eventos de telemetria que só eles emitem (ex.: `add_model_success` com `login_default: "1"` em `oauthActions.ts:38-55`).
-  - **Não** remover eventos genéricos de configuração de provider por API key — pelo contrário, aproveitar para garantir que configuração de Z.ai/BigModel via API key emita o mesmo evento genérico dos demais provedores (paridade mensurável).
-  - Proposta: adicionar um evento único de migração (ex.: `zai_ui_parity_visible`, tipo `pv`) na welcome screen/settings por uma release, para medir adoção e detectar usuários que procuravam OAuth (ver Métricas). Removê-lo na release seguinte.
+  - **Não** remover eventos genéricos de configuração de provider por API key.
+  - **Único evento de migração aprovado:** um evento só (ex.: `zai_ui_parity_surface`, tipo `pv`) emitido na welcome screen/settings, com campo de desfecho: visibilidade da superfície e conclusão (ou não) da configuração de provedor via API key na mesma sessão. Vive por exatamente 1 release e é removido na seguinte. M2/M3 (Métricas) são coletados apenas por esse evento.
 - **RNF-04 (Consistência visual):** Seguir `DESIGN.md`; reutilizar os cards/fluxos genéricos de provider por API key existentes.
 - **RNF-05 (Build):** `pnpm typecheck`, `pnpm lint` e `pnpm knip` limpos após remoções (knip deve confirmar que não sobraram exports órfãos dos arquivos deletados).
 

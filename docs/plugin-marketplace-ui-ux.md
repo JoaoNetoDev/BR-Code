@@ -217,9 +217,9 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
 ### 8. Cartões
 
 - Estrutura: ícone (40px, cantos arredondados) · nome de exibição (negrito) · descrição truncada em uma linha · ações à direita.
-- Ações à direita: não instalado → botão de cápsula「安装」(virando spinner durante a instalação, cancelável, mantendo o fluxo de operações existente)；
+- Ações à direita: não instalado → botão de cápsula「安装」(virando spinner durante a instalação, cancelável, mantendo o fluxo de operações existente);
   instalado → menu「…」: habilitar/desabilitar, atualizar(somente quando há atualização e a origem ainda existe), remover
-  (a remoção passa pelo diálogo de confirmação existente)。
+  (a remoção passa pelo diálogo de confirmação existente).
   > Revisão de 2026-07-17: os cartões da loja em duas colunas permanecem compactos e não repetem o Switch de nível de plugin; ligar/desligar continua possível pelo
   > menu「…」. Quando for necessário ver explicitamente o estado atual de habilitação, o cabeçalho da página de detalhe e a visão「管理已安装」continuam
   > oferecendo um Switch de nível de plugin visível (o interruptor individual de componentes continua fora do escopo desta rodada, ver os limites do ADR).
@@ -235,12 +235,12 @@ De cima para baixo, coluna única centralizada (max-width conforme o design):
 1. **Cabeçalho**: após o ícone grande (64px), o nome de exibição e as ações permanecem na mesma linha horizontal:
    `显示名 | 插件级启停 Switch | 「…」菜单 | Try now / 安装`. O nome de exibição pode encolher e truncar,
    a área de ações não encolhe; a descrição de uma linha e o aviso de origem ausente ocupam a linha seguinte sozinhos e não podem ficar entre o nome e as ações.
-   - **Switch de ligar/desligar do plugin**(quando instalado e há runtime info, explicitando o estado)。
-   - Menu「…」：igual ao menu do cartão (habilitar/desabilitar, atualizar, remover); plugins órfãos não exibem o item de atualizar antes de a origem ser reassociada.
+   - **Switch de ligar/desligar do plugin**(quando instalado e há runtime info, explicitando o estado).
+   - Menu「…」: igual ao menu do cartão (habilitar/desabilitar, atualizar, remover); plugins órfãos não exibem o item de atualizar antes de a origem ser reassociada.
    - Botão principal: instalado →「立即试用 / Try now」; não instalado →「安装」.
      Clicar em「立即试用」reaproveita a ação padrão de nova tarefa do Root, preenchendo apenas
      a mention estruturada `[@Plugin](plugin://stable-id)`, sem anexar texto de exemplo e sem enviar automaticamente.
-2. **Área do Hero**(renderizada apenas se houver `heroImage`)：imagem de banner arredondada, sobre a qual são empilhadas verticalmente as **cápsulas de prompt de exemplo**
+2. **Área do Hero**(renderizada apenas se houver `heroImage`): imagem de banner arredondada, sobre a qual são empilhadas verticalmente as **cápsulas de prompt de exemplo**
    (de `examplePrompts`, cada uma: ícone do produto de documentos + prefixo com o nome do plugin + prompt + botão →). Os exemplos de Document Skills
    usam `documents@2x.png`, `pdf@2x.png`, `spreadsheets@2x.png` empacotados com a UI: DOCX/Word mapeia para documents, PDF mapeia para pdf e XLSX/Excel/CSV mapeia para spreadsheets; quando não reconhecido, há fallback para documents,
    sem exibir novamente o avatar do plugin.
@@ -257,7 +257,7 @@ De cima para baixo, coluna única centralizada (max-width conforme o design):
 3. **Descrição longa**: `description` do listing (por locale, pega `description_i18n`, com fallback `description`).
 4. **Seções de componentes**: na ordem「MCP 服务器」「技能」「命令」「子智能体」「Hooks」,
    renderizando apenas grupos não vazios. Cada seção: título + contador + divisor + linhas de itens (avatar de ícone pequeno/iniciais + nome +
-   descrição truncada), com o mesmo estilo de linha aplicado às cinco categorias. **Nesta rodada não há interruptor individual nem engrenagem na linha**(ver não objetivos)。
+   descrição truncada), com o mesmo estilo de linha aplicado às cinco categorias. **Nesta rodada não há interruptor individual nem engrenagem na linha**(ver não objetivos).
    Os ícones de recurso devem manter a mesma semântica das listas de configurações: servidores MCP usam `Server`, skills usam
    `WandSparkles`, comandos usam `Terminal`, subagentes usam `Bot` e Hooks usam `Anchor`;
    a página de detalhe não pode criar um conjunto próprio de ícones aproximados e inconsistentes.

@@ -27,9 +27,9 @@ A aprovação da UI do MVP só pode vir destes sinais determinísticos:
 | Sinal | Uso | Exemplo |
 | --- | --- | --- |
 | `data-testid` | localizar elementos estáveis | queue item, message, compact marker |
-| `data-state` | verificar a projeção da máquina de estados | `running`、`completed-interrupted`、`compacting` |
-| `data-status` | verificar o resultado de uma operação | `queued`、`started`、`completed`、`failed`、`interrupted` |
-| `data-role` | verificar o papel da mensagem | `user`、`assistant`、`tool`、`timeline` |
+| `data-state` | verificar a projeção da máquina de estados | `running`, `completed-interrupted`, `compacting` |
+| `data-status` | verificar o resultado de uma operação | `queued`, `started`, `completed`, `failed`, `interrupted` |
+| `data-role` | verificar o papel da mensagem | `user`, `assistant`, `tool`, `timeline` |
 | `data-session-id` | verificar a qual session o elemento pertence | active session, message list, queue panel |
 | `data-message-id` | verificar a identidade da mensagem | fork target, edit target |
 | `data-queue-item-id` | verificar a identidade do item da fila | send-now, edit, remove, reorder |
@@ -96,7 +96,7 @@ Quando o seletor de modelo da barra de ferramentas do chat é uma estrutura de d
 
 | Constante sugerida | Elemento | Atributos obrigatórios |
 | --- | --- | --- |
-| `TID_CHAT_VIEW` | contêiner raiz dos detalhes da sessão | `data-session-id`、`data-state`、`data-queue-count`、`data-target-id`、`data-target-objective`、`data-target-status`、`data-runtime-status`、`data-active-input-id`、`data-stop-requested` |
+| `TID_CHAT_VIEW` | contêiner raiz dos detalhes da sessão | `data-session-id`, `data-state`, `data-queue-count`, `data-target-id`, `data-target-objective`, `data-target-status`, `data-runtime-status`, `data-active-input-id`, `data-stop-requested` |
 | `TID_CHAT_MESSAGES` | lista de mensagens | `data-session-id` |
 | `TID_CHAT_INPUT` | campo de entrada do composer | value |
 | `TID_CHAT_SEND_BUTTON` | botão de envio | `disabled` |
@@ -107,17 +107,17 @@ Quando o seletor de modelo da barra de ferramentas do chat é uma estrutura de d
 
 | Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_CHAT_TURN` | contêiner do grupo de turno | `turnIndex` | `data-turn-index`、`data-session-id` |
-| `TID_CHAT_MESSAGE` | contêiner de uma mensagem | `messageId` | `data-message-id`、`data-role`、`data-turn-index` |
+| `TID_CHAT_TURN` | contêiner do grupo de turno | `turnIndex` | `data-turn-index`, `data-session-id` |
+| `TID_CHAT_MESSAGE` | contêiner de uma mensagem | `messageId` | `data-message-id`, `data-role`, `data-turn-index` |
 | `TID_CHAT_USER_MESSAGE` | contêiner de mensagem de user | `messageId` | `data-message-id` |
 | `TID_CHAT_ASSISTANT_MESSAGE` | contêiner de mensagem de assistant | `messageId` | `data-message-id` |
-| `TID_CHAT_ASSISTANT_HISTORY_TRIGGER` | gatilho de recolhimento do histórico da mensagem de assistant | `historyStateKey` | `data-history-state-key`、`data-history-open`、`data-history-has-content` |
-| `TID_CHAT_ASSISTANT_HISTORY_CONTENT` | área de conteúdo recolhido do histórico da mensagem de assistant | `historyStateKey` | `data-history-state-key`、`data-history-open` |
+| `TID_CHAT_ASSISTANT_HISTORY_TRIGGER` | gatilho de recolhimento do histórico da mensagem de assistant | `historyStateKey` | `data-history-state-key`, `data-history-open`, `data-history-has-content` |
+| `TID_CHAT_ASSISTANT_HISTORY_CONTENT` | área de conteúdo recolhido do histórico da mensagem de assistant | `historyStateKey` | `data-history-state-key`, `data-history-open` |
 | `TID_CHAT_TOOL_MESSAGE` | contêiner de mensagem de tool | `messageId` ou `toolCallId` | `data-tool-call-id` |
-| `TID_CHAT_TOOL_CALL_BLOCK` | bloco de tool call dentro da mensagem de assistant | `toolCallId` | `data-tool-call-id`、`data-tool-name`、`data-status` |
-| `TID_CHAT_TIMELINE_MARKER` / `TID_V4_ROW` | timeline marker | marker id / rowId | `data-row-kind`、`data-marker-type`、`data-status`; o compact ainda tem `data-origin` |
-| `TID_CHAT_COMPACT_MARKER` | compact marker | `inputId` ou `operationId` | `data-trigger`、`data-status`、`data-operation-id`、`data-input-id` |
-| `TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON` | botão de desfazer/reaplicar no resumo de alterações do assistant | `messageId` | `data-message-id`、texto do botão |
+| `TID_CHAT_TOOL_CALL_BLOCK` | bloco de tool call dentro da mensagem de assistant | `toolCallId` | `data-tool-call-id`, `data-tool-name`, `data-status` |
+| `TID_CHAT_TIMELINE_MARKER` / `TID_V4_ROW` | timeline marker | marker id / rowId | `data-row-kind`, `data-marker-type`, `data-status`; o compact ainda tem `data-origin` |
+| `TID_CHAT_COMPACT_MARKER` | compact marker | `inputId` ou `operationId` | `data-trigger`, `data-status`, `data-operation-id`, `data-input-id` |
+| `TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON` | botão de desfazer/reaplicar no resumo de alterações do assistant | `messageId` | `data-message-id`, texto do botão |
 
 ### Ciclo mínimo do Compact Marker
 
@@ -133,8 +133,8 @@ Um `/compact` manual bem-sucedido é a primeira case E2E a posteriori da área d
 
 | Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_CHAT_QUEUE_PANEL` | painel da fila | nenhum | `data-session-id`、`data-auto-drain` |
-| `TID_CHAT_QUEUE_ITEM` | item da fila | `queueItemId` | `data-queue-item-id`、`data-kind`、`data-index` |
+| `TID_CHAT_QUEUE_PANEL` | painel da fila | nenhum | `data-session-id`, `data-auto-drain` |
+| `TID_CHAT_QUEUE_ITEM` | item da fila | `queueItemId` | `data-queue-item-id`, `data-kind`, `data-index` |
 | `TID_CHAT_QUEUE_ITEM_CONTENT` | conteúdo do item da fila | `queueItemId` | texto normalizado |
 | `TID_CHAT_QUEUE_SEND_NOW_BUTTON` | botão de envio imediato | `queueItemId` | `disabled` |
 | `TID_CHAT_QUEUE_EDIT_BUTTON` | botão de edição do item da fila | `queueItemId` | `disabled` |
@@ -153,7 +153,7 @@ Um `/compact` manual bem-sucedido é a primeira case E2E a posteriori da área d
 | `TID_CHAT_MESSAGE_EDIT_INPUT` | campo de edição | `messageId` | value |
 | `TID_CHAT_MESSAGE_EDIT_SUBMIT` | botão de confirmação da edição | `messageId` | `disabled` |
 | `TID_CHAT_MESSAGE_EDIT_CANCEL` | botão de cancelamento da edição | `messageId` | `disabled` |
-| `TID_V4_HOOK_DETAILS_TRIGGER` | botão de detalhes de Hook no fim do turno | `productTurnId` | `aria-label`、`aria-expanded` |
+| `TID_V4_HOOK_DETAILS_TRIGGER` | botão de detalhes de Hook no fim do turno | `productTurnId` | `aria-label`, `aria-expanded` |
 | `TID_V4_HOOK_DETAILS_CONTENT` | Popover de detalhes de Hook do turno | `productTurnId` | event/tool, origem e texto de estado; não pode conter comandos nem caminhos absolutos |
 
 O tool call hoje não é uma mensagem independente, e sim um bloco estruturado dentro da mensagem de assistant. Ao verificar que "tool não pode ser edit/fork", é obrigatório localizar `TID_CHAT_TOOL_CALL_BLOCK` e afirmar que dentro desse bloco não há descendentes `TID_CHAT_MESSAGE_EDIT_BUTTON` ou `TID_CHAT_MESSAGE_FORK_BUTTON`. A própria mensagem de assistant ainda pode exibir fork segundo as regras de assistant, o que não equivale a o tool block poder ser forkado.
@@ -166,18 +166,18 @@ Por padrão, um conversation E2E positivo precisa afirmar a ausência de `TID_CH
 
 | Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_CHAT_TOAST` | contêiner de toast | reason code | `data-reason`、`data-severity` |
-| `TID_CHAT_ERROR_BANNER` | contêiner da faixa de erro `ChatViewErrorBanner` / `ChatErrorBanner` | nenhum; para distinguir a causa do erro, use `data-reason` / `data-error-code` | `data-reason`、`data-error-code`、`data-trace-id`、`data-dismissible` |
-| `TID_CHAT_GOAL_STATE` | projeção do estado de goal | session id | `data-goal-status`、`data-target-id` |
+| `TID_CHAT_TOAST` | contêiner de toast | reason code | `data-reason`, `data-severity` |
+| `TID_CHAT_ERROR_BANNER` | contêiner da faixa de erro `ChatViewErrorBanner` / `ChatErrorBanner` | nenhum; para distinguir a causa do erro, use `data-reason` / `data-error-code` | `data-reason`, `data-error-code`, `data-trace-id`, `data-dismissible` |
+| `TID_CHAT_GOAL_STATE` | projeção do estado de goal | session id | `data-goal-status`, `data-target-id` |
 
 ### Troca de sessão e configurações
 
 | Constante sugerida | Elemento | Sufixo dinâmico | Atributos obrigatórios |
 | --- | --- | --- | --- |
-| `TID_TASK_ITEM` | item da lista de session/task | `sessionId` / `taskId` | `data-session-id`、`data-active`、`data-state` |
-| `TID_CHAT_MODEL_SELECT_TRIGGER` | seletor de modelo da session atual | nenhum | `data-session-id`、`data-model-value` |
-| `TID_CHAT_MODEL_SELECT_GROUP` | grupo de provider de modelo da session atual | chave do grupo de provider | `data-model-provider-key`、`data-model-provider-selected` |
-| `TID_CHAT_THOUGHT_LEVEL_SELECT_TRIGGER` | seletor de profundidade de pensamento da session atual | nenhum | `data-session-id`、`data-thought-level` |
+| `TID_TASK_ITEM` | item da lista de session/task | `sessionId` / `taskId` | `data-session-id`, `data-active`, `data-state` |
+| `TID_CHAT_MODEL_SELECT_TRIGGER` | seletor de modelo da session atual | nenhum | `data-session-id`, `data-model-value` |
+| `TID_CHAT_MODEL_SELECT_GROUP` | grupo de provider de modelo da session atual | chave do grupo de provider | `data-model-provider-key`, `data-model-provider-selected` |
+| `TID_CHAT_THOUGHT_LEVEL_SELECT_TRIGGER` | seletor de profundidade de pensamento da session atual | nenhum | `data-session-id`, `data-thought-level` |
 
 ## Requisitos de Page Object do WDIO
 

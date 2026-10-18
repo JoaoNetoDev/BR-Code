@@ -293,7 +293,7 @@ DOM, de MessageWithParts legados ou de DTOs Web.
 
 A seleção precisa conter pelo menos um product turn terminal. Cada ID selecionado precisa ter exatamente um
 `turnHeader` e o estado não pode ser `running`. Qualquer inconsistência de revision/log epoch entre
-paginação precisa falhar antes da preparation.
+páginação precisa falhar antes da preparation.
 
 ## Descoberta e upload de produtos
 

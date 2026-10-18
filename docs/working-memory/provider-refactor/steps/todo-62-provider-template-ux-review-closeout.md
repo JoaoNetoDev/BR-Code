@@ -129,7 +129,7 @@ Escrever primeiro os testes que falham, depois alterar a implementação.
 ### 5.1 Logo
 
 - todos os Logos Built-in do manifesto atendem ao contrato de material quadrado;
-- a Alibaba Cloud não referencia mais o wordmark horizontal;
+- a Alibaba Cloud não referência mais o wordmark horizontal;
 - o comportamento para key conhecida, key desconhecida, key ausente e falha de carregamento do recurso permanece inalterado;
 - a escolha Light/Dark e o fallback de material único continuam corretos;
 - o card de Template, a navegação de Provider e o título dos detalhes leem o mesmo fato estruturado de `logo`.

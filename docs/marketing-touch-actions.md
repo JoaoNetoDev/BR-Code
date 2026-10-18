@@ -299,7 +299,7 @@ O cliente novo é publicado primeiro e o servidor abre a entrega operacional por
 | Adaptação da área de transferência | escrita multiplataforma e feedback de sucesso/falha |
 | Controller/exibição | fechamento na navegação, manutenção na cópia, reutilização de pending e do relatório |
 
-Se o corpo copiado é configurado diretamente pelo lado operacional ou referencia a biblioteca i18n existente é algo a ser avaliado pelo servidor; o cliente sempre recebe o args.text final no idioma atual, e não é exigido que o App interprete chaves i18n.
+Se o corpo copiado é configurado diretamente pelo lado operacional ou referência a biblioteca i18n existente é algo a ser avaliado pelo servidor; o cliente sempre recebe o args.text final no idioma atual, e não é exigido que o App interprete chaves i18n.
 
 Ordem de implementação: confirmar spec/semântica de eventos → varrer as fronteiras de chamada → escrever primeiro os testes de Schema/comportamento → adaptação de capacidade e Controller → registro dos dois lados e restrições de versão → E2E em App isolado → integração com a entrega real. A UI não deve chamar o Repo diretamente e não se cria estado de modelo/plugin exclusivo de marketing.
 

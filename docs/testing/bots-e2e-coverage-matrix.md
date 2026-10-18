@@ -3,7 +3,7 @@
 ## Promoção de MN-01 / MN-03 (2026-10-08)
 
 O usuário confirmou a promoção dos 4 casos Feishu/Lark × grupo/tópico, com entrada formal em
-`bots/feishu-channel-mention.test.ts`. Reutiliza-se o contrato synthetic／fast-text do domínio de Bot
+`bots/feishu-channel-mention.test.ts`. Reutiliza-se o contrato synthetic/fast-text do domínio de Bot
 `fixtures/bots/feishu-channel-mention.json`, cobrindo menção nativa, correspondência por conteúdo,
 múltiplos alvos, esclarecimento com zero envio, idempotência e o callback nativo de @ em grupo comum.
 Sem requisições reais de modelo; o HTTP de plataforma é registrado e asseverado dentro do case; não
@@ -13,44 +13,44 @@ formal de Bot existente e corrige o caminho do helper. O WDIO Desktop padrão é
 nenhum Docker admission foi adicionado.
 Verificação: o replay isolado apenas-common `desktop-e2e-20261008-102803-871` e o replay padrão
 `desktop-e2e-20261008-102907-909` deram 4 passing; sem toggle de manual-review.
-O typecheck raiz, o typecheck de E2E, o lint（67 warnings existentes）、a verificação de arquitetura e a
+O typecheck raiz, o typecheck de E2E, o lint ( 67 warnings existentes ), a verificação de arquitetura e a
 verificação de formatação do diff passaram.
 O primeiro skip-build não iniciou os testes porque o build de desenvolvimento comum não tinha o toggle
 de teste; após reconstruir, os dois replays acima passaram.
 
 ## Correção do recebimento de eventos de robô (2026-10-08)
 
-O callback de recebimento com sender_type=bot（normalizado internamente como app）; as APIs históricas
+O callback de recebimento com sender_type=bot ( normalizado internamente como app ); as APIs históricas
 mantêm app. Um grupo comum precisa já estar habilitado e com @ nativo; tópicos já integrados continuam
 processando todas as mensagens de bot realmente enviadas pela plataforma; eco próprio, eventos
 duplicados, grupo não habilitado e tópico já abandonado são todos bloqueados.
-Mensagens slash／de seleção de bot no chat principal e em tópicos contam apenas como mensagens e não
+Mensagens slash/de seleção de bot no chat principal e em tópicos contam apenas como mensagens e não
 entram na distribuição de comandos.
 
-- 205 testes unitários de Provider／serviço de grupo／mention gate passaram; os testes de arquivo falharam
+- 205 testes unitários de Provider/serviço de grupo/mention gate passaram; os testes de arquivo falharam
   inicialmente no sandbox, e passaram após ser permitido o diretório temporário de teste já existente.
 - `desktop-e2e-20261008-095311-834`: 2 regressões reais de CLI em tópico passaram; o evento nativo de bot
   acionou o encerramento da rodada antiga, a continuação e a resposta.
 - `desktop-e2e-20261008-095707-065`: 4 regressões Feishu/Lark × grupo/tópico passaram; callback de bot em
   grupo comum, corpo de comando e deduplicação passaram.
   A primeira verificação de callback de grupo recém-adicionada falhou porque o substituto de teste omitia as
-  respostas de identidade bot／v3／info; passou após o preenchimento.
-- O typecheck raiz, o typecheck de E2E, o lint（67 warnings existentes）、os gates de arquitetura e o
+  respostas de identidade bot/v3/info; passou após o preenchimento.
+- O typecheck raiz, o typecheck de E2E, o lint ( 67 warnings existentes ), os gates de arquitetura e o
   fixture checker de tópicos passaram.
 - Plataforma e rede de modelo são substitutos; a permissão de eventos de bot em tenant real e a notificação
   ao vivo ainda precisam ser verificadas. A mensagem de habilitação de grupo já complementou a explicação da
   permissão include_bot.
 - Não foram alterados o desktop continuous, o celular replayable, o isolamento de identidade de workspace
-  remoto, o owner de entrega ou a fila de entrada; celular e Windows／Linux não foram testados.
+  remoto, o owner de entrega ou a fila de entrada; celular e Windows/Linux não foram testados.
 
 
 ## MN-03 resolvendo menções nativas por nome (2026-10-08)
 
 A busca por conteúdo foi atualizada: um único candidato por conteúdo ou um único casamento de nome completo
 envia direto, e todos os nomes não resolvidos são retornados juntos.
-Nesta rodada 147 testes unitários passaram; os 4 casos Feishu/Lark × grupo／tópico de
+Nesta rodada 147 testes unitários passaram; os 4 casos Feishu/Lark × grupo/tópico de
 `desktop-e2e-20261008-093912-272` passaram, validando apelido, múltiplos alvos com at nativo e múltiplos
-itens com falha com zero envio. Typecheck raiz／CLI, typecheck de E2E, lint raiz e verificação de arquitetura
+itens com falha com zero envio. Typecheck raiz/CLI, typecheck de E2E, lint raiz e verificação de arquitetura
 passaram; o lint completo da CLI foi bloqueado por um erro de max-lines em um arquivo de telemetry não
 alterado, e o lint isolado dos arquivos da CLI alterados passou. A spec pending de Bot não é suportada pelo
 fixture checker genérico e, na época, usava o fixture sintético de Bot existente com replay explícito, ainda
@@ -59,29 +59,29 @@ O nome completo em inglês e o separador para várias pessoas foram adicionados 
 resolução de linguagem natural por modelo real e o tenant real ainda aguardam teste real.
 
 - Implementado: a consulta mentionName do `ReplyToChannel`, envio com casamento único, candidatos homônimos e
-  a escolha do usuário, zero envio quando não há resultado／a consulta falha, além da revalidação de autorização
+  a escolha do usuário, zero envio quando não há resultado/a consulta falha, além da revalidação de autorização
   durante a consulta e do replay do recibo da requisição original.
 - A API de membros do grupo não inclui robôs; o nome de um robô só casa menções nativas já salvas dentro da
   autorização válida da mesma tarefa e, sem identidade confiável, exige @ nativo. Não se garante enumerar todos
   os robôs do grupo.
-- 4 arquivos de Provider／serviço com 130 testes e 2 arquivos da CLI com 11 testes passaram; cobre usuário／robô
-  homônimos, falha de paginação completa, seleção preservada entre entradas／rejeitada entre credenciais, envio
+- 4 arquivos de Provider/serviço com 130 testes e 2 arquivos da CLI com 11 testes passaram; cobre usuário/robô
+  homônimos, falha de páginação completa, seleção preservada entre entradas/rejeitada entre credenciais, envio
   de nada parcial e idempotência do recibo após mudança de diretório.
-- Host／CLI reais de MN-02: `desktop-e2e-20261008-091311-382` com 1 caso passando; o cliente continuando uma
+- Host/CLI reais de MN-02: `desktop-e2e-20261008-091311-382` com 1 caso passando; o cliente continuando uma
   conversa sem origem passou consultando por nome um membro que antes não tinha nó nativo e enviou o at. Outro
   pending spec do mesmo lote não foi executado por falta da URL de teste no capture padrão; após replay
-  explícito, os 4 casos MN-01／MN-03 Feishu/Lark × grupo／tópico de `desktop-e2e-20261008-091522-301` passaram.
-- Typecheck raiz, desktop typecheck:e2e, fixture, lint raiz（67 warnings existentes）、verificação de arquitetura
+  explícito, os 4 casos MN-01/MN-03 Feishu/Lark × grupo/tópico de `desktop-e2e-20261008-091522-301` passaram.
+- Typecheck raiz, desktop typecheck:e2e, fixture, lint raiz ( 67 warnings existentes ), verificação de arquitetura
   passaram; o typecheck completo da CLI passou nos 30 tarefas. O lint completo da CLI foi bloqueado por erros de
   max-lines existentes em arquivos não modificados, e os 2 arquivos-fonte da CLI desta rodada foram
-  verificados isoladamente com as regras da CLI em 0 errors／0 warnings.
+  verificados isoladamente com as regras da CLI em 0 errors/0 warnings.
 - Modelo e HTTP de plataforma são substitutos isolados; não foram verificadas permissões de tenant real, a
   seleção por linguagem natural de um modelo real, a UI em celular nem outros sistemas operacionais. Desktop
   continuous, celular replayable, owner de entrega e fila não foram alterados.
 
 ## Refactor do material de entrada (fronteira atual)
 
-O TP-01 agora cobre a admissão de início imediato do tópico e a apresentação de mensagens originais através do Host/CLI real. Setup: uma execução de streaming controlada; ação: enviar um lote de tópico com duas mensagens originais, uma citação da raiz e um anexo de histórico; asserções: nenhum input enfileirado, remetentes/corpos originais separados, citação/histórico apenas da primeira mensagem e pré-visualização do texto original nos tamanhos de Desktop e de viewport estreita. O material é sintético; a coleta nativa de histórico do Feishu e a coordenação de parada do serviço do Bot exigem testes de service separados e aceitação manual. O registro de execuções subsequente do TP-01 está neste documento; os resultados antigos de queue／Steer servem apenas como histórico. O case atual submete após parada manual e ainda não prova a coordenação automática de parada do Bot; o novo TP-04 cobre isso especificamente.
+O TP-01 agora cobre a admissão de início imediato do tópico e a apresentação de mensagens originais através do Host/CLI real. Setup: uma execução de streaming controlada; ação: enviar um lote de tópico com duas mensagens originais, uma citação da raiz e um anexo de histórico; asserções: nenhum input enfileirado, remetentes/corpos originais separados, citação/histórico apenas da primeira mensagem e pré-visualização do texto original nos tamanhos de Desktop e de viewport estreita. O material é sintético; a coleta nativa de histórico do Feishu e a coordenação de parada do serviço do Bot exigem testes de service separados e aceitação manual. O registro de execuções subsequente do TP-01 está neste documento; os resultados antigos de queue/Steer servem apenas como histórico. O case atual submete após parada manual e ainda não prova a coordenação automática de parada do Bot; o novo TP-04 cobre isso especificamente.
 
 ## Colaboração em tópico (em andamento)
 
@@ -204,7 +204,7 @@ A execução em tópico dedicado foi então verificada pelo Computer Use em 2026
 Dedicated-group history, attachment/card-control races, long history and remaining
 cross-platform cases are still pending; the broader TP-02 case is not promoted.
 
-Fonte: [Bots E2E Case Catalog](../bots-e2e-case-catalog.md)、[Bots](../bots.md) e [Bot Channel Runtime Split](../bot-channel-runtime-split.md)。
+Fonte: [Bots E2E Case Catalog](../bots-e2e-case-catalog.md), [Bots](../bots.md) e [Bot Channel Runtime Split](../bot-channel-runtime-split.md).
 
 ## Dimensões de estado
 
@@ -238,13 +238,13 @@ Fonte: [Bots E2E Case Catalog](../bots-e2e-case-catalog.md)、[Bots](../bots.md)
 
 ## Contrato de fixtures
 
-BOT-E2E-SR87 está em `bots/manual-review/pending/bot-effective-selection.test.ts`; synthetic, fast-text. Valida que o menu／o primeiro despacho usam a mesma seleção válida e que ver o menu e enviar um envio inválido não muda a intenção original. O Todo99 acrescenta BOT-E2E-SR99: após a vinculação, resolver a próxima entrada ociosa a partir da seleção original da Session, sem reinterpretar a execução já fixada. Compartilham essa pending spec e não foram promovidos; conversation W99-E03／E06 validam separadamente em Pro o adaptador Bot→Task de produção→requisição real do Worker, o setter completo e a recuperação a frio. As evidências não cobrem rede IM real nem o ambiente combinado celular／SSH.
+BOT-E2E-SR87 está em `bots/manual-review/pending/bot-effective-selection.test.ts`; synthetic, fast-text. Valida que o menu/o primeiro despacho usam a mesma seleção válida e que ver o menu e enviar um envio inválido não muda a intenção original. O Todo99 acrescenta BOT-E2E-SR99: após a vinculação, resolver a próxima entrada ociosa a partir da seleção original da Session, sem reinterpretar a execução já fixada. Compartilham essa pending spec e não foram promovidos; conversation W99-E03/E06 validam separadamente em Pro o adaptador Bot→Task de produção→requisição real do Worker, o setter completo e a recuperação a frio. As evidências não cobrem rede IM real nem o ambiente combinado celular/SSH.
 
 - `feishu-streaming-card-lifecycle.json` é o fixture de stream sintético local ao case.
 - Os outros 5 cases usam metadata sintética local ao case com nomenclatura de mesmo significado em `fixtures/bots/`; todos os fixtures declaram `syntheticReason` e a classificação de timing.
 - Classificado como `synthetic`, porque o replay de provider externo só pode fornecer SSE de modelo e não controla de forma estável a janela de observação passo a passo do consumo de task events pelo Bot; o fixture gera explicitamente ZCode stream events determinísticos.
 - A API Feishu simulada precisa registrar as requisições em vez de apenas retornar sucesso, usando contagem de requisições, URL, method, reaction id e Card JSON como evidência.
-- `bot-automation-result-delivery` registra requisições Feishu simuladas e usa um stream de task controlado para provar que o scheduler escuta antes do despacho do prompt; não é permitido substituir a barreira de evento por um sleep fixo. O `/sendmessage` do Weixin é coberto pelo watcher／provider service integration test compartilhado em `packages/services/test/botsService.messageFlow.test.ts`, e não é reportado como Desktop E2E.
+- `bot-automation-result-delivery` registra requisições Feishu simuladas e usa um stream de task controlado para provar que o scheduler escuta antes do despacho do prompt; não é permitido substituir a barreira de evento por um sleep fixo. O `/sendmessage` do Weixin é coberto pelo watcher/provider service integration test compartilhado em `packages/services/test/botsService.messageFlow.test.ts`, e não é reportado como Desktop E2E.
 - Os cases passaram por revisão manual e saíram de `manual-review/pending/`; o domínio de Bot hoje não tem preset Docker próprio, e o WDIO Desktop padrão é a entrada formal de execução.
 - CF-01 usa metadata sintética local ao case; a credencial ausente é usada apenas para disparar deterministicamente um erro de runtime, e o `syntheticReason` precisa explicar que ela substitui uma injeção real de falha do Feishu; este case já passou por aceitação manual no Desktop.
 
@@ -257,11 +257,11 @@ BOT-E2E-SR87 está em `bots/manual-review/pending/bot-effective-selection.test.t
 - Fixture: metadata sintética local ao case; o estado de exclusão e o HTTP do provider vêm de fixtures determinísticos; o robô do usuário não é acessado.
 - Unit boundary: identidade local/remota, não excluída mas invisível na lista (incluindo arquivada/fixada), falha de leitura do índice, falha de criação, falha de notificação e chinês/inglês. Apenas o comportamento de arquivamento permanece como estava.
 
-Registro de verificacao (2026-09-07): o DT-01 passou no Desktop WDIO em macOS, e tambem passaram as regressoes em `feishu-provider-interactions`、`bot-remote-disconnected`、`feishu-streaming-card-lifecycle` . A evidencia do DT-01 cobre provider callback -> estado do Bot -> task service -> HTTP do provider e broadcast do Desktop, sem se passar por tenant real do Feishu nem por validacao de DOM do desktop. Host remoto real, Windows/Linux e a cadeia em celular ainda nao foram testados em aparelho; esta rodada usa apenas o task service existente e o roteamento por workspaceIdentity, sem alterar o protocolo continuous/replayable. O case permanece pending e nao se declara concluida a aceitacao manual nem a promocao em CI.
+Registro de verificação (2026-09-07): o DT-01 passou no Desktop WDIO em macOS, e também passaram as regressões em `feishu-provider-interactions`, `bot-remote-disconnected`, `feishu-streaming-card-lifecycle`. A evidência do DT-01 cobre provider callback -> estado do Bot -> task service -> HTTP do provider e broadcast do Desktop, sem se passar por tenant real do Feishu nem por validação de DOM do desktop. Host remoto real, Windows/Linux e a cadeia em celular ainda não foram testados em aparelho; esta rodada usa apenas o task service existente e o roteamento por workspaceIdentity, sem alterar o protocolo continuous/replayable. O case permanece pending e não se declara concluida a aceitação manual nem a promoção em CI.
 
 ### BOT-E2E-DF-01 Feishu reply delivery failure and recovery
 
-O Todo103 acrescenta a aceitação: a task substituta do DT-01 usa a seleção completa da Model Selection View atual e segue a criação／primeiro envio em V4, sem restaurar campos antigos; sem seleção disponível não pode criar nem enviar. CF-01 espera a projeção do status de conexão em background com o popover ainda aberto, sem depender de fechar e reabrir para atualizar, para validar o novo polling serial de estado visível.
+O Todo103 acrescenta a aceitação: a task substituta do DT-01 usa a seleção completa da Model Selection View atual e segue a criação/primeiro envio em V4, sem restaurar campos antigos; sem seleção disponível não pode criar nem enviar. CF-01 espera a projeção do status de conexão em background com o popover ainda aberto, sem depender de fechar e reabrir para atualizar, para validar o novo polling serial de estado visível.
 O registro de 2026-09-07 abaixo é evidência histórica fixa de staging; o resultado da execução desta rodada é registrado no razão do Todo103.
 
 - Status: pending. Spec: `packages/desktop/test/e2e/bots/manual-review/pending/feishu-delivery-error.test.ts`.
@@ -672,7 +672,7 @@ passaram em isolamento (79 testes). A reexecução completa de
 # 2026-09-08 regressão de @ nativo isolado e validade de token
 
 - Com `pnpm dev:desktop` realmente em execução, o @ isolado no chat principal das 12:37 recebeu o evento nativo, mas o envio da mensagem complementar de requisitos falhou, e o Feishu retornou `99991663`. O código antes ignorava `expire` e fixava o cache em 90 minutos.
-- Alterado para cachear conforme o tempo de vida restante da interface; a regressão periódica do provider Feishu／Lark falhou antes e passou depois, com 79 testes do provider passando. Desta vez a interface real retornou `expire=4187` segundos, menor que os 5400 segundos fixos da implementação antiga.
+- Alterado para cachear conforme o tempo de vida restante da interface; a regressão periódica do provider Feishu/Lark falhou antes e passou depois, com 79 testes do provider passando. Desta vez a interface real retornou `expire=4187` segundos, menor que os 5400 segundos fixos da implementação antiga.
 - Depois de reiniciar a versão de desenvolvimento, o Computer Use enviou um @ nativo isolado em `ZCode 群聊验证`, mensagem `om_x100b66cd6c1c20a4c026ae6aa5b7893`, com resposta nativa `om_x100b66cd6c2e3938c1c10da2d404a76`, e o cliente exibiu“请补充需求，或回复要处理的消息并 @我。”
 - O ID de mensagem nativo foi conferido contra a entrada persistida do grupo atual: essa mensagem não tem registro de admission; nenhuma task foi criada ou enfileirada. A mensagem que falhou antes, `om_x100b66cd5f92d8acc322408850c60f9`, também não teve execução automaticamente reabastecida.
 - Esta verificação real confirma que a entrega da mensagem deorientação se recuperou após o reinício; a travessia completa da validade é coberta por teste de relógio controlado, e não se esperou o token expirar naturalmente em um tenant real. Esta verificação não foi declarada como aprovação de leitura de anexos de histórico pelo Agent, de celular, de Lark ou de outros sistemas operacionais.
@@ -685,17 +685,17 @@ Outra mensagem de teste às 13:11 carregou acidentalmente uma imagem da área de
 
 Antes de continuar o envio de /stop o Mac bloqueou a tela e o Computer Use retornou que não consegue desbloquear automaticamente; o comando de parada ainda não confirmado como enviado não foi registrado como sucesso. O download do arquivo de histórico, a resposta final de campos e a atribuição final da reação ainda exigem desbloquear e reiniciar o novo código para reteste, e não podem ser substituídos por testes unitários nem pela verificação anterior de hash de download do Host.
 
-Verificações locais: a ponte de recursos, a autorização de recursos, o upload de anexos e o task adapter somam 122 testes passando; o typecheck e o lint da raiz passaram (lint com 43 warnings). O pre-push completo desta rodada falhou no cenário de falha de refresh após salvar em `subagentsSection.test.ts`; a reexecução isolada desse cenário passou, e ainda não foi obtida uma nova rodada completa de pre-push bem-sucedida. A suíte completa de testes do Agent ainda tem falhas de CUA, de limite de linhas de arquivo e de caminhos externos de conformance; não se declara aprovação total. As alterações atuais ainda não foram commitadas, e o encaminhamento de Host remoto, o celular real e o Lark continuam pendentes de verificação／implementação.
+Verificações locais: a ponte de recursos, a autorização de recursos, o upload de anexos e o task adapter somam 122 testes passando; o typecheck e o lint da raiz passaram (lint com 43 warnings). O pre-push completo desta rodada falhou no cenário de falha de refresh após salvar em `subagentsSection.test.ts`; a reexecução isolada desse cenário passou, e ainda não foi obtida uma nova rodada completa de pre-push bem-sucedida. A suíte completa de testes do Agent ainda tem falhas de CUA, de limite de linhas de arquivo e de caminhos externos de conformance; não se declara aprovação total. As alterações atuais ainda não foram commitadas, e o encaminhamento de Host remoto, o celular real e o Lark continuam pendentes de verificação/implementação.
 
 ### 2026-09-08 verificações posteriores de código e da cadeia remota controlada
 
 - A consulta do texto original do tópico completou a prioridade dos campos canônicos; os dois testes de conflito e de canônico inválido falharam antes e, após a correção, 14 testes de ferramenta passaram.
-- Um canal privado reverso de recursos foi conectado às conexões stdio existentes de SSH／WSL／Docker; os testes usam um transporte PassThrough controlado, e não uma conexão SSH real. Antes da alteração a requisição expirava em 30 segundos; depois, o RPC reverso teve sucesso na conexão original.
+- Um canal privado reverso de recursos foi conectado às conexões stdio existentes de SSH/WSL/Docker; os testes usam um transporte PassThrough controlado, e não uma conexão SSH real. Antes da alteração a requisição expirava em 30 segundos; depois, o RPC reverso teve sucesso na conexão original.
 - A transferência em chunks cobre contagem de bytes, SHA-256, desativação de grupo, conexão de origem, remoteSessionId, cancelamento, timeout, rejeição por sobrecarga e chegada tardia de requisições antigas com o mesmo ID. Nenhuma fila de tasks ou runtime nova foi criada.
 - Um processo CLI falso controlado reproduziu, após o pré-aquecimento, a omissão de remoteSessionId em requisição reversa; corrigido para que cada requisição de recurso use sempre o alvo atual daquela mesma CLI. Esse teste verifica o roteamento do Host e não representa uma chamada de ferramenta de Agente remoto bem-sucedida.
-- A regressão mais recente de serviço／Host／stdio passou com 8 arquivos e 86 testes; o typecheck e o lint da raiz passaram（43 warnings）. A reexecução completa de `verify:pre-push` sobre o escopo de commit da versão anterior teve sucesso; esse script usa a faixa de baseline até HEAD, e os arquivos novos não commitados são cobertos pelos testes direcionados acima; a verificação de commit ainda precisa ser rodada novamente no commit final.
-- O Computer Use confirmou novamente que o Mac está bloqueado. O handle de execução antigo de `pnpm dev:desktop` saiu（130）e os PIDs antigos de Electron／Host não existem mais; portanto os processos de teste com falha do código antigo não são mantidos. O novo handle de build de `pnpm dev:desktop` continua em execução, e a verificação nativa da nova versão ainda não foi registrada como aprovada.
-- Pendente: leitura completa de arquivo de histórico local e resultado no tópico original com a nova versão, SSH／WSL／Docker reais, canal privado de consulta via WebSocket Server, cartão de permissão de celular／multimembros, Lark e verificação em outros sistemas. O escopo original de metas é mantido e esses testes de transporte controlados não substituem essas aceitações.
+- A regressão mais recente de serviço/Host/stdio passou com 8 arquivos e 86 testes; o typecheck e o lint da raiz passaram ( 43 warnings ). A reexecução completa de `verify:pre-push` sobre o escopo de commit da versão anterior teve sucesso; esse script usa a faixa de baseline até HEAD, e os arquivos novos não commitados são cobertos pelos testes direcionados acima; a verificação de commit ainda precisa ser rodada novamente no commit final.
+- O Computer Use confirmou novamente que o Mac está bloqueado. O handle de execução antigo de `pnpm dev:desktop` saiu ( 130 ) e os PIDs antigos de Electron/Host não existem mais; portanto os processos de teste com falha do código antigo não são mantidos. O novo handle de build de `pnpm dev:desktop` continua em execução, e a verificação nativa da nova versão ainda não foi registrada como aprovada.
+- Pendente: leitura completa de arquivo de histórico local e resultado no tópico original com a nova versão, SSH/WSL/Docker reais, canal privado de consulta via WebSocket Server, cartão de permissão de celular/multimembros, Lark e verificação em outros sistemas. O escopo original de metas é mantido e esses testes de transporte controlados não substituem essas aceitações.
 
 ### BOT-E2E-TP-03 cartão de interação em tópico (pending)
 
@@ -705,19 +705,19 @@ Verificações locais: a ponte de recursos, a autorização de recursos, o uploa
 - Assert: o card faz POST apenas do reply à mensagem raiz original do tópico, com reply_in_thread; o callback preserva grupo, tópico, task e versão de autorização.
 - Escopo: regressão determinística de serviço até o HTTP do provider; não representa validação de tenant real, modelo do Agent ou DOM do Desktop.
 - O reteste nativo das 13:53 ainda não passou: o modelo continuou a consulta local após a falha anterior e não chamou a ferramenta de anexo; às 13:54 o cartão de aprovação apareceu no chat do proprietário do grupo. Depois de encerrar a janela de operação, a verificação foi entregue ao usuário. O cartão de interação nativo após a correção ainda não foi testado novamente.
-- O encaminhamento WebSocket privado já foi conectado; a regressão controlada de uma conexão WebSocket local real e as verificações de peer／Host somaram 4 arquivos e 16 testes passando, sem se declarar que a cadeia de negócio de anexos remotos reais passou.
+- O encaminhamento WebSocket privado já foi conectado; a regressão controlada de uma conexão WebSocket local real e as verificações de peer/Host somaram 4 arquivos e 16 testes passando, sem se declarar que a cadeia de negócio de anexos remotos reais passou.
 
-A regressão de serviço atual do TP-03: Provider e serviço de grupo somam 139 testes passando; os dois novos cenários Feishu／Lark passaram na entrada de execução de serviço do Vitest（2 testes）, sem executar WDIO e portanto não contados como aprovação de Desktop E2E.
-O typecheck da raiz passou, com lint em 43 warnings／0 errors. O roteamento de cartão temporário para o tópico original e a correção dos campos de autorização de pergunta／resposta ainda não foram reiniciados no processo de desenvolvimento que o usuário está operando, e a aceitação nativa está pendente.
+A regressão de serviço atual do TP-03: Provider e serviço de grupo somam 139 testes passando; os dois novos cenários Feishu/Lark passaram na entrada de execução de serviço do Vitest ( 2 testes ), sem executar WDIO e portanto não contados como aprovação de Desktop E2E.
+O typecheck da raiz passou, com lint em 43 warnings/0 errors. O roteamento de cartão temporário para o tópico original e a correção dos campos de autorização de pergunta/resposta ainda não foram reiniciados no processo de desenvolvimento que o usuário está operando, e a aceitação nativa está pendente.
 
 ### 2026-09-08 13:57 chamada nativa de ferramenta dispara o fechamento do protocolo
 
 Após o novo reteste manual do usuário, o registro real da task CEDAR passou a mostrar ReadSessionContext, com strategy=topic, sessionId=current e a mensagem de anexo `om_x100b66ccd1ebe0a8c22a536e7f67b07` corretos, mas o resultado foi `ZCode Protocol client connection closed`.
-O Host registrou simultaneamente o fechamento do protocolo da CLI desse workspace e um SIGTERM（protocol-close）. A porta de anexo envia diretamente o trace do Core, incluindo sessionId／turnId／attributes que o protocolo estrito não aceita. O novo teste de quadro completo de protocolo falhou primeiro e, após reutilizar o `protocolTraceFromTraceContext` existente, 3 testes da porta de bootstrap passaram（incluindo leitura e cancelamento）。
-Typecheck do bootstrap, typecheck／lint da raiz e o build da CLI passaram; lint com 43 warnings、0 errors.
-Após o usuário confirmar que podia reiniciar, o handle de desenvolvimento antigo saiu com 130, e o Electron 3817／Host 4058 antigos não existiam mais; foi iniciado um novo `pnpm dev:desktop`. A leitura nativa corrigida, a devolução do conteúdo do arquivo e a reação final ainda precisam de novo teste e não são registradas como aprovadas.
+O Host registrou simultaneamente o fechamento do protocolo da CLI desse workspace e um SIGTERM ( protocol-close ). A porta de anexo envia diretamente o trace do Core, incluindo sessionId/turnId/attributes que o protocolo estrito não aceita. O novo teste de quadro completo de protocolo falhou primeiro e, após reutilizar o `protocolTraceFromTraceContext` existente, 3 testes da porta de bootstrap passaram ( incluindo leitura e cancelamento ).
+Typecheck do bootstrap, typecheck/lint da raiz e o build da CLI passaram; lint com 43 warnings, 0 errors.
+Após o usuário confirmar que podia reiniciar, o handle de desenvolvimento antigo saiu com 130, e o Electron 3817/Host 4058 antigos não existiam mais; foi iniciado um novo `pnpm dev:desktop`. A leitura nativa corrigida, a devolução do conteúdo do arquivo e a reação final ainda precisam de novo teste e não são registradas como aprovadas.
 
-14:06:46: o novo processo de desenvolvimento ficou pronto（Electron45600／Host45737, local services ready）; nos artefatos do build da CLI foi confirmado que a porta de anexo usa o trace de protocolo convertido. A regressão de ponte de anexo／grupo／serviço de Provider somou 167 testes, e a regressão existente de fluxo de mensagens somou 77 testes, ambos passando. A janela do Feishu foi operada pelo usuário, e a próxima chamada nativa de ferramenta e o resultado no tópico original aguardam confirmação.
+14:06:46: o novo processo de desenvolvimento ficou pronto ( Electron45600/Host45737, local services ready ); nos artefatos do build da CLI foi confirmado que a porta de anexo usa o trace de protocolo convertido. A regressão de ponte de anexo/grupo/serviço de Provider somou 167 testes, e a regressão existente de fluxo de mensagens somou 77 testes, ambos passando. A janela do Feishu foi operada pelo usuário, e a próxima chamada nativa de ferramenta e o resultado no tópico original aguardam confirmação.
 
 ### Regressão de roteamento de recursos WebSocket do Core standalone
 
@@ -732,22 +732,22 @@ Nenhuma mudança de transporte de produção foi necessária. As respostas de re
 permanecem sintéticas, então isto não é aceitação de Feishu/Lark ao vivo, anexo de
 Agent remoto ou UI mobile.
 
-Regressão de corrida entre cancelamento／desconexão de anexo: chamando diretamente o abort listener real, reproduziu-se que o erro síncrono lançado por requestClient escapava do Promise.catch existente. Depois que a notificação de cancelamento passou a usar async try/catch, a porta de bootstrap somou 4 testes passando; a leitura original continua falhando por cancelamento ou desconexão, sem novo retry. O typecheck do bootstrap e da raiz e o lint passaram（43 warnings／0 errors）.
+Regressão de corrida entre cancelamento/desconexão de anexo: chamando diretamente o abort listener real, reproduziu-se que o erro síncrono lançado por requestClient escapava do Promise.catch existente. Depois que a notificação de cancelamento passou a usar async try/catch, a porta de bootstrap somou 4 testes passando; a leitura original continua falhando por cancelamento ou desconexão, sem novo retry. O typecheck do bootstrap e da raiz e o lint passaram ( 43 warnings/0 errors ).
 Esse fix adicional ainda não foi reiniciado no processo de desenvolvimento iniciado às 14:06; o fix de trace da leitura normal já está nesse processo.
 
-Os testes unitários afetados na árvore de trabalho atual（incluindo fontes não commitadas e novas, e não apenas a comparação com HEAD）: 865 arquivos passaram, com 9721 testes passando e 4 pulados, log em `/tmp/topic-current-related.log`. Isso não inclui a suíte completa de testes do Agent em workspace independente nem representa a aceitação nativa do Feishu. TP-01／TP-03 começaram a rodar o WDIO; sua limpeza de build removeu o `out` compartilhado e fez com que o processo de desenvolvimento existente saísse, sendo necessário restaurar o processo de desenvolvimento após o fim desta rodada de testes, antes de continuar a verificação manual do usuário.
+Os testes unitários afetados na árvore de trabalho atual ( incluindo fontes não commitadas e novas, e não apenas a comparação com HEAD ): 865 arquivos passaram, com 9721 testes passando e 4 pulados, log em `/tmp/topic-current-related.log`. Isso não inclui a suíte completa de testes do Agent em workspace independente nem representa a aceitação nativa do Feishu. TP-01/TP-03 começaram a rodar o WDIO; sua limpeza de build removeu o `out` compartilhado e fez com que o processo de desenvolvimento existente saísse, sendo necessário restaurar o processo de desenvolvimento após o fim desta rodada de testes, antes de continuar a verificação manual do usuário.
 
-Esta rodada de WDIO foi concluída: o cenário de Host／CLI real, fila de anexos e DOM do Desktop do TP-01 passou com 1 teste; os 2 cenários de serviço de cartão de interação Feishu／Lark do TP-03 passaram, com 2 arquivos no total e saída 0.
+Esta rodada de WDIO foi concluída: o cenário de Host/CLI real, fila de anexos e DOM do Desktop do TP-01 passou com 1 teste; os 2 cenários de serviço de cartão de interação Feishu/Lark do TP-03 passaram, com 2 arquivos no total e saída 0.
 Log `/tmp/topic-desktop-wdio-current.log`. Mesmo executado pelo WDIO, o TP-03 continua sendo um cenário de serviço substituto e não serve como evidência nativa de cartão ou de UI ponta a ponta; o TP-01 não cobre download real de arquivo do Feishu.
 
-14:31:46: o processo de desenvolvimento foi restaurado, com Host33325 registrando `local services ready, all channels registered`, log `/tmp/zcode-topic-post-wdio-dev.log`. Este rebuild inclui o fix de cancelamento／desconexão;
+14:31:46: o processo de desenvolvimento foi restaurado, com Host33325 registrando `local services ready, all channels registered`, log `/tmp/zcode-topic-post-wdio-dev.log`. Este rebuild inclui o fix de cancelamento/desconexão;
 a verificação pré-commit foi rodada separadamente em `/tmp/topic-post-wdio-prepush.log`, e o resultado da leitura nativa ainda aguarda novo teste do usuário.
 
-Essa verificação pré-commit terminou com saída 1: o Vitest relacionado foi terminado por SIGSEGV e não emitiu um relatório completo de asserções, portanto não pode ser registrada como aprovada. A verificação foi executada novamente（`/tmp/topic-post-wdio-prepush-workers2.log`）; o "workers2" no nome do arquivo indica apenas a variável de ambiente passada na inicialização — a configuração de Vitest do repositório especifica explicitamente 4 threads — e não se pode afirmar com base nisso que a concorrência foi de fato reduzida. Não se modificou o escopo dos testes nem se contornou o hook de commit.
+Essa verificação pré-commit terminou com saída 1: o Vitest relacionado foi terminado por SIGSEGV e não emitiu um relatório completo de asserções, portanto não pode ser registrada como aprovada. A verificação foi executada novamente ( `/tmp/topic-post-wdio-prepush-workers2.log` ); o "workers2" no nome do arquivo indica apenas a variável de ambiente passada na inicialização — a configuração de Vitest do repositório especifica explicitamente 4 threads — e não se pode afirmar com base nisso que a concorrência foi de fato reduzida. Não se modificou o escopo dos testes nem se contornou o hook de commit.
 
 O relatório de crash do sistema `~/Library/Logs/DiagnosticReports/node-2026-09-08-143229.ips`
 corresponde ao PID14259 do Vitest, com EXC_BAD_ACCESS e a pilha da faultingThread5 dentro de V8
-ConcurrentBaselineCompiler／AssemblerBase::AddEmbeddedObject. Isso prova que o processo de verificação
+ConcurrentBaselineCompiler/AssemblerBase::AddEmbeddedObject. Isso prova que o processo de verificação
 crashou durante a fase de compilação em background; a causa ainda não pode ser confirmada e isso não
 substitui o resultado dos testes incompletos.
 
@@ -757,30 +757,30 @@ apaga o registro de crash aforementioned nem amplia o escopo da aceitação nati
 
 ## Grupo vinculado fase 1 (aceitação manual pendente)
 
-BOT-E2E-GR-01: configurações do robô → robô Feishu／Lark atual → abaixo do escopo de acesso ao workspace.
-Validar com dois robôs, dois grupos e 0／vários tópicos já registrados: uma linha por grupo, contendo apenas nome do grupo, contagem de tópicos e interruptor;
+BOT-E2E-GR-01: configurações do robô → robô Feishu/Lark atual → abaixo do escopo de acesso ao workspace.
+Validar com dois robôs, dois grupos e 0/vários tópicos já registrados: uma linha por grupo, contendo apenas nome do grupo, contagem de tópicos e interruptor;
 sem task associada, sem expansão e sem entrada de detalhe. Trocar de robô, nome de grupo longo, temas claro e escuro, chinês e inglês são todos verificados.
-Desktop e controle remoto do celular são validados separadamente（Desktop estreito não substitui o celular）; na tela estreita a lista de robôs fica em cima e as configurações embaixo.
-Depois de desabilitar o grupo, as contagens de tasks／tópicos são preservadas e o outro grupo não muda; reabrir não reenvia, e após `/disable` no Feishu a interface sincroniza.
+Desktop e controle remoto do celular são validados separadamente ( Desktop estreito não substitui o celular ); na tela estreita a lista de robôs fica em cima e as configurações embaixo.
+Depois de desabilitar o grupo, as contagens de tasks/tópicos são preservadas e o outro grupo não muda; reabrir não reenvia, e após `/disable` no Feishu a interface sincroniza.
 Enquanto salva, não é possível operar repetidamente; falha de desconexão mantém o estado original e mostra a entrada de atualização; com o robô desligado o interruptor de grupo é desabilitado.
-Testes unitários cobrem isolamento agregado, tópicos duplicados, espera／falha／no-op do interruptor e falha de carregamento; não substituem a aceitação real ponta a ponta.
-Por pedido do usuário não foi iniciado o dev naquele momento, e este item permanece pending; em 2026-09-23 foi adicionado o caminho de sucesso de salvamento no Desktop（ver o fim deste documento）, e o controle remoto do celular continua não verificado.
-Commit de encerramento de 2026-09-17: lista／interação de grupo e serviço de grupo somam 91 testes unitários passando; testes unitários não são tratados como aceitação real de canal.
+Testes unitários cobrem isolamento agregado, tópicos duplicados, espera/falha/no-op do interruptor e falha de carregamento; não substituem a aceitação real ponta a ponta.
+Por pedido do usuário não foi iniciado o dev naquele momento, e este item permanece pending; em 2026-09-23 foi adicionado o caminho de sucesso de salvamento no Desktop ( ver o fim deste documento ), e o controle remoto do celular continua não verificado.
+Commit de encerramento de 2026-09-17: lista/interação de grupo e serviço de grupo somam 91 testes unitários passando; testes unitários não são tratados como aceitação real de canal.
 
 ## BOT-UI-TP-PREPARATION: bolha de mensagem em estado de preparação
 
-- Candidato：`packages/ui/test/browser/manual-review/pending/topic-preparation.test.mjs`，com fixture local ao case no mesmo diretório。
-- Testes unitários：`packages/ui/test/v4BotTopicPreparation.test.ts`；cobre deduplicação por ID de mensagem original, ID de lote, corpo igual com IDs diferentes preservados, corpo em branco sem bolha, ícone de carregamento na linha de origem e tooltip de hover／focus.
-- Navegador: largura desktop／celular × chinês／inglês × tema claro／escuro, com componentes e estilos reais; preparação, espera, remoção por falha e sobreposição na recepção; o corpo reaproveita o collapse／expand da mensagem oficial, e o loading fica ao lado do canal／nome.
-- Desktop／celular reais／E2E do Feishu aguardam verificação, e o Chrome em tela estreita não conta como aceitação real de celular.
+- Candidato: `packages/ui/test/browser/manual-review/pending/topic-preparation.test.mjs`，com fixture local ao case no mesmo diretório.
+- Testes unitários: `packages/ui/test/v4BotTopicPreparation.test.ts`; cobre deduplicação por ID de mensagem original, ID de lote, corpo igual com IDs diferentes preservados, corpo em branco sem bolha, ícone de carregamento na linha de origem e tooltip de hover/focus.
+- Navegador: largura desktop/celular × chinês/inglês × tema claro/escuro, com componentes e estilos reais; preparação, espera, remoção por falha e sobreposição na recepção; o corpo reaproveita o collapse/expand da mensagem oficial, e o loading fica ao lado do canal/nome.
+- Desktop/celular reais/E2E do Feishu aguardam verificação, e o Chrome em tela estreita não conta como aceitação real de celular.
 
- Validação de componente desta rodada: os 8 grupos de navegador acima passaram e as capturas de tela dos temas claro e escuro foram inspecionadas manualmente; 42 testes unitários de preparação／expansão de mensagem original／edição de mensagem e 33 de regressão de timeline／marcas passaram; typecheck da raiz, `architecture:check --changed` passaram, lint com 0 error e 48 warnings. As capturas estão no diretório temporário do sistema `zcode-topic-preparation/`.
+ Validação de componente desta rodada: os 8 grupos de navegador acima passaram e as capturas de tela dos temas claro e escuro foram inspecionadas manualmente; 42 testes unitários de preparação/expansão de mensagem original/edição de mensagem e 33 de regressão de timeline/marcas passaram; typecheck da raiz, `architecture:check --changed` passaram, lint com 0 error e 48 warnings. As capturas estão no diretório temporário do sistema `zcode-topic-preparation/`.
 
-Correção posterior de 2026-09-17: a mensagem de preparação passou a entrar no fluxo de mensagens ConversationTurnGroup, compartilhando o componente de corpo completo, e estado／falha／retry ficam no mesmo DOM da bolha. Foram adicionados render-unit e regressões reais do componente turn-group, cobrindo ausência de rows da CLI, preservação do running live tail e substituição pela entrada oficial; 140 testes unitários relacionados passaram. Typecheck da raiz, lint（0 error, 48 warnings）、verificação de arquitetura passaram; os 8 grupos de navegador passaram. Feishu real e celular remoto continuam aguardando aceitação.
+Correção posterior de 2026-09-17: a mensagem de preparação passou a entrar no fluxo de mensagens ConversationTurnGroup, compartilhando o componente de corpo completo, e estado/falha/retry ficam no mesmo DOM da bolha. Foram adicionados render-unit e regressões reais do componente turn-group, cobrindo ausência de rows da CLI, preservação do running live tail e substituição pela entrada oficial; 140 testes unitários relacionados passaram. Typecheck da raiz, lint ( 0 error, 48 warnings ), verificação de arquitetura passaram; os 8 grupos de navegador passaram. Feishu real e celular remoto continuam aguardando aceitação.
 
-Ajuste da linha de origem em 2026-09-17: o texto de preparação não fica mais permanentemente visível e passa a ser「飞书/Lark · 姓名 + loading」, com o estado no tooltip de hover／focus; corpo vazio não cria bolha. 119 testes unitários relacionados e 8 grupos de navegador passaram; cobrem a resolução inicial de configuração do Lark, o isolamento de configuração tardia de tasks antigas, nome longo, tooltip e retry. Typecheck, lint (0 error, 48 warnings) e a verificacao de arquitetura passaram. Feishu real/celular remoto aguardam aceitacao.
+Ajuste da linha de origem em 2026-09-17: o texto de preparação não fica mais permanentemente visível e passa a ser「飞书/Lark · 姓名 + loading」, com o estado no tooltip de hover/focus; corpo vazio não cria bolha. 119 testes unitários relacionados e 8 grupos de navegador passaram; cobrem a resolução inicial de configuração do Lark, o isolamento de configuração tardia de tasks antigas, nome longo, tooltip e retry. Typecheck, lint (0 error, 48 warnings) e a verificação de arquitetura passaram. Feishu real/celular remoto aguardam aceitação.
 
-Remoção da exibição de falha na preparação de material em 2026-09-17: a falha não é mais projetada como mensagem temporária; o erro vermelho, o botão de retry e a origem órfã foram removidos, e nenhum render unit em branco é produzido; registro／execução／resposta do Feishu não foram alterados. 75 testes unitários e 8 grupos de navegador cobrem falha inicial, preparação que vira falha e preservação das outras mensagens; Feishu real／celular remoto aguardam aceitação.
+Remoção da exibição de falha na preparação de material em 2026-09-17: a falha não é mais projetada como mensagem temporária; o erro vermelho, o botão de retry e a origem órfã foram removidos, e nenhum render unit em branco é produzido; registro/execução/resposta do Feishu não foram alterados. 75 testes unitários e 8 grupos de navegador cobrem falha inicial, preparação que vira falha e preservação das outras mensagens; Feishu real/celular remoto aguardam aceitação.
 
 ## Retorno contínuo em conversa privada
 
@@ -788,26 +788,26 @@ Remoção da exibição de falha na preparação de material em 2026-09-17: a fa
 | ------------- | -------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | BOT-E2E-PS-01 | pending  | `packages/desktop/test/e2e/bots/manual-review/pending/bot-private-task-sync.test.ts` | controlled-stream, HTTP de saída em três canais, rodadas consecutivas de origem desktop/mobile e desativação; IM real/celular não verificados |
 
-Suplemento de serviço: assinatura compartilhada por múltiplos alvos, deduplicação de tasks automáticos, atualização／leitura após reinício／retry explícito do token do WeChat e isolamento ao trocar de vínculo. Suplemento de UI: o botão de retry só é acionado explicitamente, fica desabilitado durante o envio, some no sucesso e exibe o erro. Nada disso substitui a aceitação manual de canal real.
+Suplemento de serviço: assinatura compartilhada por múltiplos alvos, deduplicação de tasks automáticos, atualização/leitura após reinício/retry explícito do token do WeChat e isolamento ao trocar de vínculo. Suplemento de UI: o botão de retry só é acionado explicitamente, fica desabilitado durante o envio, some no sucesso e exibe o erro. Nada disso substitui a aceitação manual de canal real.
 
 ## Resposta a menção nativa de canal
 
 BOT-E2E-MN-01: `bots/feishu-channel-mention.test.ts`，
-servico/provider sinteticos validam o no de entrada atual, o at nativo no corpo, a sessao fixa, a idempotencia e a rejeicao de alvo desconhecido.
-A vinculacao da mensagem pai da ferramenta CLI, o protocolo e a exibicao do no no cliente sao cobertos por testes unitarios separados; a validacao real no Feishu e feita pelo usuario.
+serviço/provider sintéticos validam o no de entrada atual, o at nativo no corpo, a sessao fixa, a idempotencia e a rejeicao de alvo desconhecido.
+A vinculacao da mensagem pai da ferramenta CLI, o protocolo e a exibicao do no no cliente são cobertos por testes unitarios separados; a validação real no Feishu e feita pelo usuário.
 
-Validacao de 2026-09-23: os 4 cenarios sinteticos Feishu/Lark x grupo/topico de MN-01 passaram no Desktop WDIO
-（`desktop-e2e-20260923052447997-p75879-83688b39c0a71a8a`）, permanecendo pending na epoca; em 2026-10-08 foi promovido.
-`channel-mention.test.mjs`  de `channel-mention.test.mjs` em 390/1200px x temas claro e escuro, 4 cenarios de componente reais, passaram;
-O contrato da ferramenta CLI, a vinculacao da entrada de execucao atual, a persistencia de origem, o protocolo reverso e o isolamento de conexao Host/remoto tem testes unitarios proprios.
-Isso nao constitui validacao de notificacao em tenant real, de resposta de outro robo ou de celular replayable em aparelho real.
+validação de 2026-09-23: os 4 cenários sintéticos Feishu/Lark x grupo/topico de MN-01 passaram no Desktop WDIO
+ ( `desktop-e2e-20260923052447997-p75879-83688b39c0a71a8a` ), permanecendo pending na época; em 2026-10-08 foi promovido.
+`channel-mention.test.mjs`  de `channel-mention.test.mjs` em 390/1200px x temas claro e escuro, 4 cenários de componente reais, passaram;
+O contrato da ferramenta CLI, a vinculacao da entrada de execução atual, a persistência de origem, o protocolo reverso e o isolamento de conexão Host/remoto tem testes unitarios próprios.
+Isso não constitui validação de notificação em tenant real, de resposta de outro robo ou de celular replayable em aparelho real.
 
 ## 2026-09-23 complemento da cobertura de ramos
 
-Vale como referencia a tabela de aceitacao de ramos aceitos do case catalog. Os novos TP-04/TP-05/FN-01/MN-02 priorizam Host/CLI reais;
+Vale como referência a tabela de aceitação de ramos aceitos do case catalog. Os novos TP-04/TP-05/FN-01/MN-02 priorizam Host/CLI reais;
 nos cases GR/MN/TP/PS existentes o comportamento ja definido foi estendido, e GR-UI-01 complementa com interacao real de componente.
-As evidencias precisam ser marcadas separadamente como service synthetic, CLI real, DOM do Desktop, celular replayable e tenant ao vivo;
-as evidencias desta rodada sao as abaixo, sem reaproveitar contagens de aprovacoes antigas. A correcao de recibo de sucesso duplicado nao foi reaberta.
+As evidências precisam ser marcadas separadamente como service synthetic, CLI real, DOM do Desktop, celular replayable e tenant ao vivo;
+as evidências desta rodada são as abaixo, sem reaproveitar contagens de aprovação antigas. A correcao de recibo de sucesso duplicado não foi reaberta.
 
 
 | Case | Evidência atual | Conclusão |
@@ -822,35 +822,35 @@ as evidencias desta rodada sao as abaixo, sem reaproveitar contagens de aprovaco
 O caminho real dos novos cases de worker e `packages/desktop/test/e2e/conversation-session/manual-review/pending/`;
 os outros candidatos ficam em `packages/desktop/test/e2e/bots/manual-review/pending/`.
 Os fixtures de provider locais ao case dos tres workers e os manifests canonicos passaram no fixture checker;
-as hints do checker sobre markers de resultado nao indicam entrada nao correspondida: eles sao usados apenas em assercoes de saida e de conteudo de arquivo.
+as hints do checker sobre markers de resultado não indicam entrada não correspondida: eles são usados apenas em assercoes de saída e de conteudo de arquivo.
 
-Evidencias de execucao:
+evidências de execução:
 
-- `desktop-e2e-20260923072023647-p32033-0a7006ae178b1ce2`： MN-02/FN-01, GR-02 promocao normal/PS-01 e GR-UI-01, 4 tests no total, passaram. A primeira versao da assercao de arquivo do TP-05 nesse lote falhou por tentar interpretar o texto da ferramenta como JSON completo e depois foi corrigida para o formato real de saida da ferramenta.
-- `desktop-e2e-20260923072235577-p39368-fb67b05b6f0e5ef6`: TP-04/05, dois testes, passaram; MN-01 com quatro, PS-01 com tres canais e tres, runtime authority com dois, remote disconnected com um, automation result com um e provider interactions com tres, passaram. As falhas de GR runtime e do fixture antigo do TP-03 sao registradas separadamente e o lote nao e escrito como aprovado por inteiro.
+- `desktop-e2e-20260923072023647-p32033-0a7006ae178b1ce2`: MN-02/FN-01, GR-02 promoção normal/PS-01 e GR-UI-01, 4 tests no total, passaram. A primeira versão da assercao de arquivo do TP-05 nesse lote falhou por tentar interpretar o texto da ferramenta como JSON completo e depois foi corrigida para o formato real de saída da ferramenta.
+- `desktop-e2e-20260923072235577-p39368-fb67b05b6f0e5ef6`: TP-04/05, dois testes, passaram; MN-01 com quatro, PS-01 com tres canais e tres, runtime authority com dois, remote disconnected com um, automation result com um e provider interactions com tres, passaram. As falhas de GR runtime e do fixture antigo do TP-03 são registradas separadamente e o lote não e escrito como aprovado por inteiro.
 - `pnpm typecheck`, `typecheck:e2e` do Desktop e `architecture:check --changed` passaram; 6 arquivos de teste unitario relacionados somaram 149 tests passando.
-O `pnpm lint` da raiz falhou por max-lines em arquivos nao alterados nesta rodada:`packages/shared/src/zcode-protocol-v4/command.ts`  com 405 linhas;`packages/ui/src/v4/conversationTurnRenderUnits.ts`  com 401 linhas; o lint direcionado dos testes e helpers alterados nesta rodada ficou em 0 error/0 warning.
+O `pnpm lint` da raiz falhou por max-lines em arquivos não alterados nesta rodada:`packages/shared/src/zcode-protocol-v4/command.ts`  com 405 linhas;`packages/ui/src/v4/conversationTurnRenderUnits.ts`  com 401 linhas; o lint direcionado dos testes e helpers alterados nesta rodada ficou em 0 error/0 warning.
 
 Questoes e limites em aberto:
 
 1. O `/mode yolo` do GR runtime realmente retorna `Mode option not found.`, e depois disso a permissão da nova session é `{scope:"session",mode:"build"}`. `listDraftConfigOptions` retorna apenas reasoning, e mode.set não tem candidatos; ao comparar com `origin/staging`, a mesma implementação já existe na baseline. Mantém-se a asserção original de isolamento do yolo, sem modificar a implementação do produto nem baixar a expectativa; portanto o case continua falhando e as asserções seguintes não foram executadas.
-2. Durante o debug de TP-05, a interface antiga `readSessionMessages` mostrou que a estrutura retornada pela CLI atual não bate com o schema antigo（messageId/sessionId contra id/sessionID, entre outros）. A verificação final de arquivo lê o resultado real de tool completed do SQLite da CLI isolada, sem contornar o download de ReadSessionContext; esse problema da interface antiga de consulta não foi corrigido nesta manutenção de testes.
-3. Celular replayable real, SSH, Windows／Linux, notificações de tenant Feishu／Lark reais e a resposta de outro robô não foram verificados. Testes Node Host／CLI bem-sucedidos não se passam por Electron UI, e janela estreita não se passa por celular.
+2. Durante o debug de TP-05, a interface antiga `readSessionMessages` mostrou que a estrutura retornada pela CLI atual não bate com o schema antigo ( messageId/sessionId contra id/sessionID, entre outros ). A verificação final de arquivo lê o resultado real de tool completed do SQLite da CLI isolada, sem contornar o download de ReadSessionContext; esse problema da interface antiga de consulta não foi corrigido nesta manutenção de testes.
+3. Celular replayable real, SSH, Windows/Linux, notificações de tenant Feishu/Lark reais e a resposta de outro robô não foram verificados. Testes Node Host/CLI bem-sucedidos não se passam por Electron UI, e janela estreita não se passa por celular.
 4. Na verificação inicial todos os novos cases permaneceram pending; em seguida o usuário confirmou a promoção, e o estado final está na seção abaixo. Como as verificações necessárias ainda têm falhas, não há commit automático.
 
 
-A configuracao isolada final do GR-UI-01 mantem a referencia de vinculo sem credencial, evitando disparar automaticamente o registro por QR code;
+A configuração isolada final do GR-UI-01 mantem a referência de vinculo sem credencial, evitando disparar automaticamente o registro por QR code;
 `desktop-e2e-20260923072504683-p46231-87bcca99bca1deb4` nesse item passou, e a captura de tela mostra os dois interruptores de grupo e as contagens 2/0 de topicos.
-TP-03 atualizou o limite de historico atual, trocou a referencia pela mensagem raiz pela referencia a mensagem atual e adicionou o campo de entrada real `mentionedBot` e a origem de run/input;
-O lembrete de administrador da aprovacao de permissao nao e limitado por esse campo; apenas a pergunta e resposta comum e. Nao se pode inferir o comportamento real do cliente a partir da falha de um fixture antigo sem esse campo.
+TP-03 atualizou o limite de historico atual, trocou a referência pela mensagem raiz pela referência a mensagem atual e adicionou o campo de entrada real `mentionedBot` e a origem de run/input;
+O lembrete de administrador da aprovação de permissão não e limitado por esse campo; apenas a pergunta e resposta comum e. não se pode inferir o comportamento real do cliente a partir da falha de um fixture antigo sem esse campo.
 
-Os quatro cenarios finais do TP-03 em `desktop-e2e-20260923073023766-p58398-07c97a81dceae606` passaram todos.
-Somando sem duplicatas conforme a versao final: 6 tests novos nesta rodada mais 18 tests de regressao relacionada passaram, e um case completo do GR-02/04 continua falhando;
-falhas intermediarias e replays repetidos nao contam como aprovacoes. Este e o registro de verificacao anterior a promocao; o estado final dos diretorios esta na secao abaixo e os limites nao verificados acima continuam valendo.
+Os quatro cenários finais do TP-03 em `desktop-e2e-20260923073023766-p58398-07c97a81dceae606` passaram todos.
+Somando sem duplicatas conforme a versão final: 6 tests novos nesta rodada mais 18 tests de regressão relacionada passaram, e um case completo do GR-02/04 continua falhando;
+falhas intermediarias e replays repetidos não contam como aprovação. Este e o registro de verificação anterior a promoção; o estado final dos diretorios esta na secao abaixo e os limites não verificados acima continuam valendo.
 
-### 2026-09-23 confirmacao de promocao pelo usuario
+### 2026-09-23 confirmacao de promoção pelo usuário
 
-Apos a confirmacao do usuario, quatro specs novas (seis testes) entraram no diretorio formal:
+Apos a confirmacao do usuário, quatro specs novas (seis testes) entraram no diretorio formal:
 
 - `conversation-session/conversation-session-bot-channel-worker.test.ts`
 - `conversation-session/conversation-session-bot-topic-worker.test.ts`
@@ -859,82 +859,82 @@ Apos a confirmacao do usuario, quatro specs novas (seis testes) entraram no dire
 
 As três primeiras usam replay com common independente e fixture local ao case; o case de UI usa configuração isolada, sem requisições de modelo. O case com falha de `/mode yolo` já existente permanece pending. Não houve validação Docker nem admissão de CI nesta rodada, e isso não representa aceitação de tenant Feishu real, celular ou outros sistemas desktop.
 
-Verificacao apos a promocao:
+verificação apos a promoção:
 
-- Replay com fixture independente explicito:`desktop-e2e-20260923080004888-p15664-50144fe647413bfe`，4 spec / 6 tests passaram todos.
-- Replay padrao:`desktop-e2e-20260923080201440-p21714-f35052aadb92370c` com 4 spec / 6 tests, todos passando. O servico de replay do Worker so carrega o common e o seu proprio fixture local ao case.
-- Os tres fixture checks, o typecheck de E2E do Desktop, o typecheck raiz, a verificacao de arquitetura e a auditoria de cobertura passaram; o lint direcionado das specs/helpers novas ficou em 0 errors / 0 warnings. Os avisos de markers nao correspondidos do fixture check correspondem a assercoes de saida/conteudo de anexo e nao a requisicoes faltantes.
-- A auditoria de promocao encontrou duas syntheticReason do manifest Highspeed inconsistentes com o fixture de provider; o texto explicativo foi sincronizado mecanicamente, sem alterar requisicoes nem semantica de teste.
-- Na primeira promocao o lint raiz tinha dois erros de max-lines, resolvidos depois por `536dd65dce`, que separou o schema de configuracao dos tipos de renderizacao preservando o comportamento e a entrada de export existentes.
-- `905e271182` completou o mock do servico de Bot do teste Highspeed e passou a esperar a coleta assincrona do servico stdio antes de limpar o diretorio temporario. O typecheck final, o lint (0 errors / 62 warnings), a verificacao de arquitetura e o pre-push completo passaram; o pre-push cobriu 76 arquivos de teste alterados e a regressao relacionada de 196 arquivos-fonte. Este resultado nao substitui o Desktop E2E ou a admissao Docker/CI ainda nao aprovados acima.
+- Replay com fixture independente explícito:`desktop-e2e-20260923080004888-p15664-50144fe647413bfe`，4 spec / 6 tests passaram todos.
+- Replay padrão:`desktop-e2e-20260923080201440-p21714-f35052aadb92370c` com 4 spec / 6 tests, todos passando. O serviço de replay do Worker so carrega o common e o seu próprio fixture local ao case.
+- Os tres fixture checks, o typecheck de E2E do Desktop, o typecheck raiz, a verificação de arquitetura e a auditoria de cobertura passaram; o lint direcionado das specs/helpers novas ficou em 0 errors / 0 warnings. Os avisos de markers não correspondidos do fixture check correspondem a assercoes de saída/conteudo de anexo e não a requisicoes faltantes.
+- A auditoria de promoção encontrou duas syntheticReason do manifest Highspeed inconsistentes com o fixture de provider; o texto explicativo foi sincronizado mecanicamente, sem alterar requisicoes nem semantica de teste.
+- Na primeira promoção o lint raiz tinha dois erros de max-lines, resolvidos depois por `536dd65dce`, que separou o schema de configuração dos tipos de renderização preservando o comportamento e a entrada de export existentes.
+- `905e271182` completou o mock do serviço de Bot do teste Highspeed e passou a esperar a coleta assincrona do serviço stdio antes de limpar o diretorio temporario. O typecheck final, o lint (0 errors / 62 warnings), a verificação de arquitetura e o pre-push completo passaram; o pre-push cobriu 76 arquivos de teste alterados e a regressão relacionada de 196 arquivos-fonte. Este resultado não substitui o Desktop E2E ou a admissão Docker/CI ainda não aprovados acima.
 
-## 2026-10-08 remocao da entrada de detalhes do topico
+## 2026-10-08 remoção da entrada de detalhes do topico
 
-A barra de acoes de resposta nao exibe mais botao nem popover de detalhes do topico; as evidencias antigas de exibicao de detalhes do TP-01 nao representam mais o contrato de UI atual. As regressoes de componente cobrem a ausencia de entrada para entrega bem-sucedida em task de topico e a manutencao do botao de recuperacao para entregas com falha/desconhecidas. As regressoes de componente e de turno de sessao somaram 119 testes passando; as 8 combinacoes no navegador real em larguras 390/1200 x chines/ingles x temas claro e escuro passaram, asseverando que a entrada de detalhes desapareceu e que a camada de recuperacao de falha ainda abre. O Desktop real e o E2E de relay em celular nao foram rodados novamente nesta rodada.
+A barra de acoes de resposta não exibe mais botao nem popover de detalhes do topico; as evidências antigas de exibicao de detalhes do TP-01 não representam mais o contrato de UI atual. As regressões de componente cobrem a ausencia de entrada para entrega bem-sucedida em task de topico e a manutencao do botao de recuperação para entregas com falha/desconhecidas. As regressões de componente e de turno de sessao somaram 119 testes passando; as 8 combinacoes no navegador real em larguras 390/1200 x chines/ingles x temas claro e escuro passaram, asseverando que a entrada de detalhes desapareceu e que a camada de recuperação de falha ainda abre. O Desktop real e o E2E de relay em celular não foram rodados novamente nesta rodada.
 
 ## TP-06 mensagens de outros robos
 
-Reaproveita o cenario TP-04 de `conversation-session-bot-topic-worker.test.ts` e acrescenta assercoes de entrada de outros robos resolvida pelo Provider real e de filtragem das proprias mensagens. Os testes unitarios de Provider/servico cobrem os dois canais, os limites de nao integrado/ saida, o isolamento de comandos de controle, eventos duplicados e o historico de robos.
+Reaproveita o cenário TP-04 de `conversation-session-bot-topic-worker.test.ts` e acrescenta assercoes de entrada de outros robos resolvida pelo Provider real e de filtragem das próprias mensagens. Os testes unitarios de Provider/serviço cobrem os dois canais, os limites de não integrado/ saída, o isolamento de comandos de controle, eventos duplicados e o historico de robos.
 
-Validacao de 2026-10-08: 5 arquivos de teste unitario somaram 232 testes passando; 2 testes de E2E desktop passaram, com o registro de execucao em
-`desktop-e2e-20261008-085523-181`. O Host/CLI real prova que a mensagem de outro robo, apos parar a execucao antiga,
-entra na mesma task e responde com sucesso, e que callbacks duplicados e as proprias mensagens nao adicionam entradas; a consulta pela ferramenta de recursos historicos continua passando.
-A verificacao de fixture, o typecheck raiz, o desktop typecheck:e2e, o lint e a verificacao de arquitetura passaram; o lint mantem
-os warnings ja existentes. O HTTP de plataforma e o modelo sao substitutos isolados e nao substituem push real de Feishu/Lark, permissao de tenant,
-a interface de controle remoto do celular nem verificacao em outros sistemas operacionais. Esta rodada nao modifica a cadeia desktop continuous / celular replayable.
+validação de 2026-10-08: 5 arquivos de teste unitario somaram 232 testes passando; 2 testes de E2E desktop passaram, com o registro de execução em
+`desktop-e2e-20261008-085523-181`. O Host/CLI real prova que a mensagem de outro robo, apos parar a execução antiga,
+entra na mesma task e responde com sucesso, e que callbacks duplicados e as próprias mensagens não adicionam entradas; a consulta pela ferramenta de recursos historicos continua passando.
+A verificação de fixture, o typecheck raiz, o desktop typecheck:e2e, o lint e a verificação de arquitetura passaram; o lint mantem
+os warnings ja existentes. O HTTP de plataforma e o modelo são substitutos isolados e não substituem push real de Feishu/Lark, permissão de tenant,
+a interface de controle remoto do celular nem verificação em outros sistemas operacionais. Esta rodada não modifica a cadeia desktop continuous / celular replayable.
 
 ## 2026-10-08 limite de respostas automaticas entre robos
 
-- TP-04: uma task de topico em Host/CLI real recebe consecutivamente 5 mensagens de robo; enquanto a 5a ainda roda, a 6a nao dispara stop nem admission; apos a chegada de uma nova mensagem de pessoa real, o recebimento continua.
-- MN-01: o callback nativo de bot em Feishu/Lark no chat principal aplica o limite de 5, nao conta duplicatas e retoma com mensagem de pessoa real.
-- Testes unitarios de servico: limite de concorrencia, reenvio antigo de pessoa real nao retoma, isolamento entre chat principal e topico e preservacao do limite em um servico recriado apos serializar o schema v3.
-- Limitacoes: o HTTP de plataforma usa fixtures sinteticos; isso nao prova permissao de push de robo em tenant real nem comportamento de celular remoto em aparelho real. O guard afeta apenas o inbound do Bot Host e nao altera o protocolo de recuperacao de estado de execucao do desktop continuous / mobile replayable.
+- TP-04: uma task de topico em Host/CLI real recebe consecutivamente 5 mensagens de robo; enquanto a 5a ainda roda, a 6a não dispara stop nem admission; apos a chegada de uma nova mensagem de pessoa real, o recebimento continua.
+- MN-01: o callback nativo de bot em Feishu/Lark no chat principal aplica o limite de 5, não conta duplicatas e retoma com mensagem de pessoa real.
+- Testes unitarios de serviço: limite de concorrencia, reenvio antigo de pessoa real não retoma, isolamento entre chat principal e topico e preservacao do limite em um serviço recriado apos serializar o schema v3.
+- Limitacoes: o HTTP de plataforma usa fixtures sintéticos; isso não prova permissão de push de robo em tenant real nem comportamento de celular remoto em aparelho real. O guard afeta apenas o inbound do Bot Host e não altera o protocolo de recuperação de estado de execução do desktop continuous / mobile replayable.
 
-Verificacao: `desktop-e2e-20261008-113805-939` com 6 passing nos dois specs formais; depois de reforcar as assercoes em tempo de execucao,
-`desktop-e2e-20261008-114025-803` o topico em CLI real `desktop-e2e-20261008-114025-803` deu 2 passing; servico/Provider/armazenamento/mention somaram 216 testes unitarios passando.
+verificação: `desktop-e2e-20261008-113805-939` com 6 passing nos dois specs formais; depois de reforcar as assercoes em tempo de execução,
+`desktop-e2e-20261008-114025-803` o topico em CLI real `desktop-e2e-20261008-114025-803` deu 2 passing; serviço/Provider/armazenamento/mention somaram 216 testes unitarios passando.
 
-## 2026-10-09 regressao de referencia e replay de entrega
+## 2026-10-09 regressão de referência e replay de entrega
 
 O case formal MN-01 cobre o replay de envio ativo em Feishu/Lark x grupo/topico: a resposta da plataforma e controlada por uma barreira de Promise,
-o replay nao pode retornar antes, os dois recibos finais sao consistentes e ha apenas um envio; a referencia de robo em grupo comum le a mensagem pai.
+o replay não pode retornar antes, os dois recibos finais são consistentes e ha apenas um envio; a referência de robo em grupo comum le a mensagem pai.
 `desktop-e2e-20261009-022912-432`: 4 passing. Apos o primeiro build completo a criacao da sessao WebDriver expirou,
-e a repeticao com o mesmo build teve sucesso; essa falha de inicializacao nao conta como aprovacao de case.
-Servico/Provider/delivery somaram 138 testes unitarios passando, cobrindo a referencia pai de texto/anexo de bot/app, o filtragem da propria mensagem,
-a espera de replay no envio ativo e no retry com limite de taxa e o nao reenvio de um unknown remanescente do reinicio. O HTTP de plataforma e um substituto sintetico,
-e nao substitui notificacao em tenant real, celular remoto nem verificacao entre sistemas operacionais.
+e a repeticao com o mesmo build teve sucesso; essa falha de inicializacao não conta como aprovação de case.
+serviço/Provider/delivery somaram 138 testes unitarios passando, cobrindo a referência pai de texto/anexo de bot/app, o filtragem da própria mensagem,
+a espera de replay no envio ativo e no retry com limite de taxa e o não reenvio de um unknown remanescente do reinicio. O HTTP de plataforma e um substituto sintético,
+e não substitui notificação em tenant real, celular remoto nem verificação entre sistemas operacionais.
 
-## 2026-10-09 identidade de multiplos robos e limite de atribuicao
+## 2026-10-09 identidade de múltiplos robos e limite de atribuicao
 
-- Extensao do TP-04: com a CLI real em execucao, uma mensagem nativa que so marca outro robo nao dispara stop/admission; a proxima entrada valida le esse contexto de fundo carregando a identidade do robo atual e, apos a recepacao bem-sucedida, limpa a marca de releitura.
-- Testes unitarios de servico: nomes iguais com IDs diferentes nao disputam resposta; um servico recriado preserva o checkpoint de releitura; um novo fundo durante a releitura e guardado para a proxima rodada; saida vazia sem @ fica silenciosa e saida vazia com @ explicito mantem o aviso de conclusao.
-- Testes unitarios da CLI: o contexto do modelo contem a propria identidade, se cada mensagem marca o proprio robo e o limite de responsabilidade; em uma task de outra pessoa sem @ e permitido nao chamar ferramenta e nao responder.
+- Extensao do TP-04: com a CLI real em execução, uma mensagem nativa que so marca outro robo não dispara stop/admission; a proxima entrada valida le esse contexto de fundo carregando a identidade do robo atual e, apos a recepacao bem-sucedida, limpa a marca de releitura.
+- Testes unitarios de serviço: nomes iguais com IDs diferentes não disputam resposta; um serviço recriado preserva o checkpoint de releitura; um novo fundo durante a releitura e guardado para a proxima rodada; saída vazia sem @ fica silenciosa e saída vazia com @ explícito mantem o aviso de conclusao.
+- Testes unitarios da CLI: o contexto do modelo contem a própria identidade, se cada mensagem marca o próprio robo e o limite de responsabilidade; em uma task de outra pessoa sem @ e permitido não chamar ferramenta e não responder.
 
-Verificacao: `desktop-e2e-20261009-072256-679` com 2 passing em TP-04/05; servico 112,
+verificação: `desktop-e2e-20261009-072256-679` com 2 passing em TP-04/05; serviço 112,
 Provider 100 e contexto da CLI 5 testes passaram. Typecheck raiz, typecheck da CLI, desktop
-typecheck:e2e, lint raiz, lint dos arquivos da CLI alterados e as verificacoes de arquitetura e de fixture passaram.
-O lint completo da CLI foi bloqueado por erros de max-lines existentes nos arquivos debug/cli/telemetry, que nao foram alterados.
-O HTTP de plataforma e o modelo usam fixtures sinteticos; isso nao prova que um modelo real sempre compreende corretamente a divisao sem @ e nao substitui tenant real,
-celular remoto nem verificacao em outros sistemas operacionais. Esta rodada altera apenas a entrada do Bot e o contexto de entrada, sem modificar o protocolo de recuperacao de stream do desktop continuous /
-mobile replayable; nenhuma admissao Docker/CI foi adicionada.
+typecheck:e2e, lint raiz, lint dos arquivos da CLI alterados e as verificações de arquitetura e de fixture passaram.
+O lint completo da CLI foi bloqueado por erros de max-lines existentes nos arquivos debug/cli/telemetry, que não foram alterados.
+O HTTP de plataforma e o modelo usam fixtures sintéticos; isso não prova que um modelo real sempre compreende corretamente a divisao sem @ e não substitui tenant real,
+celular remoto nem verificação em outros sistemas operacionais. Esta rodada altera apenas a entrada do Bot e o contexto de entrada, sem modificar o protocolo de recuperação de stream do desktop continuous /
+mobile replayable; nenhuma admissão Docker/CI foi adicionada.
 
-### Silencio ao parar em grupo (2026-10-09)
+### silêncio ao parar em grupo (2026-10-09)
 
-Os quatro casos de MN-01 em Feishu/Lark x chat principal/topico cobrem o `/stop` bem-sucedido nao retornando cartao de status e
-o evento de conclusao por cancelamento nao entregar notificacao de parada. Testes unitarios do servico de grupo validam a atualizacao da reacao de parada e o destinatario original da resposta de erro.
-O resultado de execucao desta rodada segue o registro de verificacao do MR, e a cobertura de canal sintetico nao representa validacao de tenant real.
+Os quatro casos de MN-01 em Feishu/Lark x chat principal/topico cobrem o `/stop` bem-sucedido não retornando cartao de status e
+o evento de conclusao por cancelamento não entregar notificação de parada. Testes unitarios do serviço de grupo validam a atualizacao da reacao de parada e o destinatario original da resposta de erro.
+O resultado de execução desta rodada segue o registro de verificação do MR, e a cobertura de canal sintético não representa validação de tenant real.
 
 ### Candidatos de nome entre tasks (2026-10-09)
 
-As quatro combinacoes de MN-01 em Feishu/Lark x chat principal/topico simulam a troca de task e a recuperacao a partir do estado persistido, e
+As quatro combinacoes de MN-01 em Feishu/Lark x chat principal/topico simulam a troca de task e a recuperação a partir do estado persistido, e
 na nova task, fornecer apenas o nome em texto puro ainda resolve mencoes nativas do historico sob a mesma autorizacao, enquanto usar diretamente o ref antigo rejeita o envio.
 Testes unitarios cobrem ainda o isolamento dos nos de historico entre autorizacoes, grupos, apps, bots e providers diferentes.
 
-### Regressao da revisao do MR (2026-10-09)
+### regressão da revisão do MR (2026-10-09)
 
 O case TP-04 existente em Host/CLI real ganha um lote de requisicao valida seguida de um so @ durante a barreira de parada, verificando que
-as mensagens originais sao todas admitidas e que destinatarios nativos com o mesmo nome sao diferenciados pelo isCurrentBot da requisicao real ao modelo.
-Os testes unitarios do Provider cobrem antes do checkpoint, apos a chamada, a remocao e a falha de expansao de um cartao obrigatorio dentro da janela.
-O isolamento de plataforma/modelo sinteticos nao substitui um tenant real, e o desktop continuous/mobile replayable nao foi alterado.
+as mensagens originais são todas admitidas e que destinatarios nativos com o mesmo nome são diferenciados pelo isCurrentBot da requisicao real ao modelo.
+Os testes unitarios do Provider cobrem antes do checkpoint, apos a chamada, a remoção e a falha de expansao de um cartao obrigatorio dentro da janela.
+O isolamento de plataforma/modelo sintéticos não substitui um tenant real, e o desktop continuous/mobile replayable não foi alterado.
 
-Regressao de posicionamento da projecao de identidade: os testes unitarios da CLI cobrem corpos iguais, troca de posicao antes/depois do @ nativo, repeticao do mesmo alvo e lotes com varias mensagens;
+regressão de posicionamento da projecao de identidade: os testes unitarios da CLI cobrem corpos iguais, troca de posição antes/depois do @ nativo, repeticao do mesmo alvo e lotes com varias mensagens;
 o TP-04 verifica na requisicao real ao modelo a estrutura ordenada de text/mention e a associacao entre si e terceiros, sem expor o targetId.

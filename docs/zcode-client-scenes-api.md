@@ -52,7 +52,7 @@ Os detalhes de mapeamento e os limites de falha estão em `docs/ui/conversation-
 `AutomationsSection` e `OffPeakNewTaskEntry` também consomem duas scenes explícitas:
 
 - `scheduled-task`: os `labels` do prompt item são o título e os `contents` são description/instructions;
-  `defaults.cronExpr` referencia inversamente `options.cronExpr.items`, e o cron usa apenas os `contents` do item referenciado;
+  `defaults.cronExpr` referência inversamente `options.cronExpr.items`, e o cron usa apenas os `contents` do item referenciado;
   a UI primeiro valida a legalidade do Service e a capacidade de round-trip sem perdas do editor de Automations, depois exibe com o descritor de agendamento local, ignorando os `labels` do cron item.
 - `off-peak-task`: os `labels` do prompt item são o título; apenas a description do card da página inicial New task prioriza `descs` por locale,
   com fallback para `contents` quando o idioma correspondente estiver ausente ou em branco; a description dos cards de Automations e as instructions de criação de rascunho sempre usam `contents`;

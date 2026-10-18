@@ -4,7 +4,7 @@ Este documento registra o limite de enumeração E2E das background runtime task
 
 > **Nota sobre o estado de cobertura**: o spec histórico consolidado `conversation-session-background.test.ts` está atualmente em
 > `manual-review/pending`, portanto o `covered by` de BG01–BG24 indica que o spec candidato já tem as asserções correspondentes,
-> e não que eles façam parte do gate E2E padrão. O spec de background V4 no diretório padrão atual cobre apenas os cases que ele referencia explicitamente dentro da sua própria linha.
+> e não que eles façam parte do gate E2E padrão. O spec de background V4 no diretório padrão atual cobre apenas os cases que ele referência explicitamente dentro da sua própria linha.
 
 ## Resumo de Funcionalidades
 

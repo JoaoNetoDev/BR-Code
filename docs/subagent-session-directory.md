@@ -27,7 +27,7 @@ CLI ProductProjection V4 snapshot.subagents
 
 - `snapshot.subagents` da V4 é a única autoridade de estado de runtime do branch atual; a contagem do composer, o resumo de status, os itens em execução e a
   limpeza de child tabs inválidos consomem diretamente essa projeção, sem emitir outra consulta `session/subagents` para reconstruir o estado de execução.
-- A UI consome de `session/subagents` apenas a paginação keyset dos detalhes já encerrados, sem participar da contagem de membros em execução nem do manifest de
+- A UI consome de `session/subagents` apenas a páginação keyset dos detalhes já encerrados, sem participar da contagem de membros em execução nem do manifest de
   tabs; os campos antigos de running/manifest na resposta servem só para compatibilidade de protocolo e validação de cold recovery da CLI, e deixam de ser autoridade do renderer.
 - Antes de `SubagentSpawned` ficar visível externamente, a child session já deve estar persistida e ser legível como
   `taskType=subagent_child`. Execução, background start e resume usam a mesma ordem, e não se permite que a projeção anuncie antes um child
@@ -100,7 +100,7 @@ Subagent directory（桌面 / 普通 Web）
 
 ## Limites Multi-plataforma
 
-- Desktop e Web comum oferecem o diretório com paginação.
+- Desktop e Web comum oferecem o diretório com páginação.
 - O `/remote` do celular não oferece diretório; as linhas de Agent/Task e Running ainda podem abrir os detalhes do child na gaveta lateral direita existente.
 - O desktop continua usando `desktop-continuous` e o celular `web-remote-replayable`; os dois lados consomem o mesmo `snapshot.subagents` da V4, e a reconexão do celular continua sendo restaurada pelo snapshot/gap existente. A consulta ended-only chega ao mesmo CLI/runtime pelo attachment de host confiável atual, sem adicionar estado no relay, no main do desktop ou no Host.
 - O workspace remoto percorre `workspaceIdentity` e `remoteSessionId`; a chave de identidade é sempre
