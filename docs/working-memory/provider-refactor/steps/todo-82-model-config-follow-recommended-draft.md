@@ -1,33 +1,33 @@
-# Todo 82：模型配置跟随推荐与 Draft 物化
+# Todo 82：A configuração de modelo seguir as recomendações e a materialização do Draft
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-09-04
+> Data: 2026-09-04
 
-## 背景
+## Contexto
 
-模型编辑弹窗同时提供了模型列表行开关和弹窗内“开启”开关，两个入口修改同一个模型 `enabled` 配置，造成重复。当前弹窗底部还有“全部恢复默认”，但模型配置已经使用 Built-in 推荐值与 Personal Model Config Overlay 的稀疏合并，缺少一个明确的“跟随推荐”模式。
+O diálogo de edição de modelo oferecia tanto o interruptor da linha da lista de modelos quanto um interruptor 「开启」 dentro do diálogo; os dois pontos de entrada alteravam a mesma configuração `enabled` do modelo, criando duplicação. Na base do diálogo havia ainda 「全部恢复默认」, mas a configuração de modelo já usava a mesclagem esparsa entre os valores recomendados Built-in e o Personal Model Config Overlay, faltando um modo explícito de "seguir as recomendações".
 
-本 Todo 将两套交互收口为一个配置模式开关：用户可以继续跟随 Built-in 推荐配置，也可以把当前配置固定为完整的个人配置。切换只修改弹窗 Draft，点击“保存”后才持久化。
+Este Todo consolida as duas interações em um único interruptor de modo de configuração: o usuário pode continuar seguindo a configuração recomendada Built-in ou pode fixar a configuração atual como uma configuração pessoal completa. A alternância altera apenas o Draft do diálogo, e a persistência ocorre somente ao clicar em "Salvar".
 
-## 产品裁决
+## Decisão de produto
 
-### 1. 删除弹窗内重复的模型启用入口
+### 1. Remover o ponto de entrada duplicado de ativação do modelo dentro do diálogo
 
-- 删除模型编辑弹窗中模型 ID 旁边的“开启”开关及其 Draft 字段。
-- 保留模型列表行右侧的 `enabled` 开关，继续作为模型启用状态的唯一 UI 入口。
-- `enabled` 仍是 Model Config 的正式字段，但不属于“跟随推荐配置”开关的编辑范围。
+- Remover o interruptor 「开启」 ao lado do ID do modelo no diálogo de edição de modelo e seu campo no Draft.
+- Manter o interruptor `enabled` à direita da linha da lista de modelos, que continua sendo o único ponto de entrada de UI para o estado de ativação do modelo.
+- `enabled` continua sendo um campo formal do Model Config, mas não faz parte do escopo de edição do interruptor "seguir a configuração recomendada".
 
-### 2. “跟随推荐配置”取代“全部恢复默认”
+### 2. "Seguir a configuração recomendada" substitui "restaurar tudo para o padrão"
 
-弹窗只保留一个配置模式开关，推荐文案为：
+O diálogo passa a manter apenas um interruptor de modo de configuração, com o texto recomendado:
 
-- 中文：`跟随推荐配置`
-- 英文：`Follow recommended settings`
+- Chinês：`跟随推荐配置`
+- Inglês：`Follow recommended settings`
 
-开关开启表示继续使用当前稀疏 Overlay 逻辑；关闭表示固定当前模型的个人配置。删除底部“全部恢复默认”按钮及其重复交互，不新增第二个重置入口。
+Com o interruptor ligado, continua-se usando a lógica atual de Overlay esparso; desligado, a configuração pessoal do modelo atual fica fixada. O botão 「全部恢复默认」 na base e sua interação duplicada são removidos, sem criar um segundo ponto de entrada de reset.
 
-### 3. 两种模式的配置语义
+### 3. Semântica de configuração dos dois modos
 
 ```text
 跟随推荐配置：开
@@ -41,9 +41,9 @@
   -> Built-in 推荐值不再参与这些字段的结果
 ```
 
-关闭状态下保存的是一份完整的“编辑器管理字段” Personal Overlay，不是一次性的 UI 快照。打开状态下重新保存时，清空该模型的 Personal Overlay，恢复推荐值和 placeholder。
+No estado desligado, o que é salvo é um Personal Overlay completo dos "campos gerenciados pelo editor", e não um snapshot único de UI. Ao salvar novamente no estado ligado, o Personal Overlay do modelo é limpo e os valores recomendados e os placeholders são restaurados.
 
-### 4. Draft-only 切换
+### 4. Alternância apenas no Draft
 
 ```text
 打开弹窗
@@ -65,11 +65,11 @@
     `-- 保存：一次性提交当前模式和配置
 ```
 
-切换模式、编辑字段和“恢复推荐值”都不得直接写 Personal Config、刷新 Registry 或触发远端同步。只有保存成功后，才按现有 Provider Settings Facade 的单次保存入口提交并刷新。
+Alternar o modo, editar campos e "restaurar os valores recomendados" não podem gravar diretamente na Personal Config, atualizar o Registry nem disparar sincronização remota. Somente após um salvamento bem-sucedido a submissão e a atualização acontecem, pela entrada de salvamento único já existente do Provider Settings Facade.
 
-### 5. 模式的存储位置
+### 5. Onde o modo é armazenado
 
-模式属于具体 `providerId + modelId` 的 Personal 精确模型配置记录，建议使用一个可选字段表达：
+O modo pertence ao registro de configuração pessoal exata de modelo do `providerId + modelId` específico; recomenda-se expressá-lo com um campo opcional:
 
 ```ts
 {
@@ -83,64 +83,64 @@
 }
 ```
 
-- 缺失或 `true`：跟随推荐配置；
-- `false`：固定个人配置。
+- Ausente ou `true`: seguir a configuração recomendada;
+- `false`: fixar a configuração pessoal.
 
-该字段是 Settings 配置模式元数据，不进入 `ModelConfigObject`，不参与 Model Registry、ModelFactory 或请求参数。现有 `provider-model` Rule 名称和 Provider/Model 身份不改；UI 使用“个人模型配置”或 `personalExactConfig` 等清晰名称。
+Esse campo é metadado de modo de configuração de Settings; não entra no `ModelConfigObject` e não participa do Model Registry, do ModelFactory nem dos parâmetros de requisição. O nome de Rule `provider-model` existente e a identidade de Provider/Model não mudam; a UI usa nomes claros como "个人模型配置" ou `personalExactConfig`.
 
-### 6. `enabled` 的边界
+### 6. A fronteira de `enabled`
 
-“跟随推荐配置”只覆盖编辑器管理的配置字段：Context、Max Output、输入/输出类型、能力、Reasoning、Mapping 和高级配置。模型 `enabled` 由列表行开关单独管理，模式切换不得偷偷启用或停用模型。
+"Seguir a configuração recomendada" cobre apenas os campos de configuração gerenciados pelo editor: Context, Max Output, tipos de entrada/saída, capacidades, Reasoning, Mapping e configuração avançada. O `enabled` do modelo é gerenciado separadamente pelo interruptor da linha da lista, e a alternância de modo não pode ativar nem desativar o modelo de forma oculta.
 
-因此“完整 Personal Overlay”指完整覆盖编辑器管理的字段；不以模式切换替代模型列表的启用操作。
+Portanto, um "Personal Overlay completo" significa a cobertura completa dos campos gerenciados pelo editor; a alternância de modo não substitui a operação de ativação da lista de modelos.
 
-## 实施范围
+## Escopo de implementação
 
-- 扩展当前 Personal 精确模型配置记录以保存配置模式；优先与 Todo 76 的 `provider-model` Rule 整理一并落地，不新增 Provider 层或 Registry 层配置。
-- 将“跟随推荐配置”加入模型编辑 Draft，确保切换时表单值、placeholder、Personal 来源样式和保存按钮状态即时更新。
-- 关闭跟随时，以当前最新 Effective 值生成完整的编辑器管理字段 Overlay；不能使用过期的 Built-in 快照。
-- 打开跟随时清空 Draft Overlay；保存后恢复推荐值。该动作不保留此前的个人覆盖，用户如误操作可在保存前取消。
-- 保存时复用现有模型 Draft 保存入口和 revision 校验，模式字段与配置在一次原子操作中提交。
-- 关闭模式保存前校验 Personal Overlay 已覆盖所有编辑器管理字段，且解析结果不再依赖 Built-in 对这些字段的补值；校验失败不得部分保存。
-- 保留现有“全部恢复默认”核心能力的结果，但由“跟随推荐配置”开关承载；删除旧按钮、旧回调和仅供旧入口使用的状态分支。
-- 无 Built-in 推荐基线的纯自定义模型不显示或禁用该开关，继续使用普通 Personal 配置编辑。
+- Estender o registro atual de configuração pessoal exata de modelo para salvar o modo de configuração; dar preferência a implementar isso junto da organização da Rule `provider-model` do Todo 76, sem criar nova camada de Provider nem de Registry.
+- Adicionar "seguir a configuração recomendada" ao Draft de edição de modelo, garantindo que, ao alternar, os valores do formulário, o placeholder, o estilo de origem Personal e o estado do botão de salvar sejam atualizados imediatamente.
+- Ao desligar o acompanhamento, gerar o Overlay completo dos campos gerenciados pelo editor com os valores Effective mais recentes; não se pode usar um snapshot Built-in desatualizado.
+- Ao ligar o acompanhamento, limpar o Overlay do Draft; após salvar, os valores recomendados são restaurados. Essa ação não preserva as substituições pessoais anteriores, e o usuário que agir por engano pode cancelar antes de salvar.
+- Ao salvar, reaproveitar a entrada de salvamento de Draft de modelo existente e a validação de revision; o campo de modo e a configuração são submetidos em uma única operação atômica.
+- Antes de salvar no modo desligado, validar que o Personal Overlay cobre todos os campos gerenciados pelo editor e que o resultado da resolução não depende mais da complementação do Built-in para esses campos; uma falha de validação não pode permitir salvamento parcial.
+- Preservar o resultado da capacidade existente de "restaurar tudo para o padrão", agora passados pelo interruptor "seguir a configuração recomendada"; remover o botão antigo, o callback antigo e os ramos de estado que existiam apenas para a entrada antiga.
+- Modelos puramente customizados sem linha de base de recomendação Built-in não exibem nem desabilitam esse interruptor e continuam usando a edição de Personal Config comum.
 
-## 非目标
+## Não objetivos
 
-- 不修改 Provider 顶层配置、Provider Template、Account Access 或 Provider/Model 身份。
-- 不改变 Model Registry、ModelFactory、Adapter 和请求协议；Runtime 不读取配置模式字段。
-- 不改变模型列表行的 `enabled` 开关语义。
-- 不新增“跟随推荐策略”或另一套 Model Config Overlay 类型。
-- 不在切换时自动保存、自动刷新 Registry 或单独触发远端 Provisioning。
+- Não modificar a configuração de topo do Provider, o Provider Template, o Account Access ou a identidade de Provider/Model.
+- Não alterar o Model Registry, o ModelFactory, o Adapter nem o protocolo de requisição; o Runtime não lê o campo de modo de configuração.
+- Não alterar a semântica do interruptor `enabled` da linha da lista de modelos.
+- Não criar uma nova "política de seguir recomendações" nem outro tipo de Model Config Overlay.
+- Não salvar automaticamente, atualizar o Registry automaticamente nem disparar Provisioning remoto separado durante a alternância.
 
-## 测试与验收
+## Testes e aceitação
 
-先补测试，再实现：
+Adicionar primeiro os testes e só então implementar:
 
-- 弹窗不再出现重复的模型“开启”控件；模型列表行启用开关行为不变。
-- 打开弹窗后切换开关只改变 Draft，Personal Config、Registry 和远端同步在保存前均不变化。
-- 开 -> 关：所有编辑器管理字段填入当前 Effective 值，placeholder 消失，保存后形成完整 Personal Overlay。
-- 关 -> 开：Draft Overlay 清空，字段恢复推荐值/placeholder，保存后不再保留原 Personal 覆盖。
-- 切换后取消：恢复切换前的模式和所有字段，不能留下写盘结果。
-- 关闭模式下修改任意字段后保存，仍保持完整 Personal Overlay；后续 Built-in 更新不改变这些字段。
-- 打开模式下重新编辑并保存后，未覆盖字段继续跟随 Built-in 更新。
-- `enabled` 在任何模式切换中保持原值，只能通过模型列表行开关改变。
-- 已有配置缺少模式字段时按“跟随推荐配置”处理，不需要数据迁移。
-- Built-in 基线缺失或不完整时不能生成半成品 Overlay，保存应明确失败且不写入部分结果。
-- Registry revision 变化、并发保存和迟到响应不会用旧 Effective 值覆盖新 Draft。
-- 运行 Provider Settings、Model Config、Registry、Settings UI 相关单测及桌面/远程端必要回归；确认不会改变 Model Selection、Automation、Subagent、Wiki 和 Composer 的模型选择语义。
+- O diálogo não exibe mais o controle duplicado de 「开启」 do modelo; o comportamento do interruptor de ativação da linha da lista permanece inalterado.
+- Após abrir o diálogo, alternar o interruptor altera apenas o Draft; Personal Config, Registry e sincronização remota não mudam antes do salvamento.
+- Ligado -> desligado: todos os campos gerenciados pelo editor recebem os valores Effective atuais, os placeholders desaparecem e, após salvar, forma-se um Personal Overlay completo.
+- Desligado -> ligado: o Overlay do Draft é limpo, os campos voltam aos valores recomendados/placeholders e, após salvar, a substituição Personal original deixa de ser preservada.
+- Cancelar após alternar: o modo e todos os campos voltam ao estado anterior à alternância, sem deixar resultado gravado em disco.
+- Alterar qualquer campo no modo desligado e salvar ainda mantém um Personal Overlay completo; atualizações posteriores do Built-in não alteram esses campos.
+- Depois de editar e salvar novamente no modo ligado, os campos não cobertos continuam seguindo as atualizações do Built-in.
+- `enabled` mantém seu valor em qualquer alternância de modo e só pode ser alterado pelo interruptor da linha da lista de modelos.
+- Quando uma configuração existente não tem o campo de modo, ela é tratada como "seguir a configuração recomendada", sem necessidade de migração de dados.
+- Quando a linha de base Built-in está ausente ou incompleta, não se pode gerar um Overlay pela metade; o salvamento deve falhar de forma explícita e não gravar resultado parcial.
+- Mudanças de revision do Registry, salvamentos concorrentes e respostas atrasadas não podem sobrescrever o novo Draft com valores Effective antigos.
+- Executar os testes unitários de Provider Settings, Model Config, Registry e Settings UI, além das regressões necessárias no desktop/remoto; confirmar que a semântica de seleção de modelo de Model Selection, Automation, Subagent, Wiki e Composer não muda.
 
-## 与现有 Todo 的关系
+## Relação com os Todos existentes
 
-- Todo 55 已确定 Model `enabled` 保留、Provider 顶层 `enabled` 删除；本 Todo 只删除弹窗重复入口，不改变该结论。
-- Todo 76 已完成 Provider Site、Template Model 和 Provider Model Rule 的分层整理；本 Todo 的模式字段并入同一条 Personal 精确 `provider-model` 记录，没有另造一层。
-- Todo 77 已完成，开关样式复用现有设计系统控件；本 Todo 只增加配置模式语义。
-- Todo 81 负责 Composer/闲时任务的模型选择失效提示，与本 Todo 的模型配置继承模式相互独立。
+- O Todo 55 já definiu que o `enabled` do Model é mantido e o `enabled` de topo do Provider é removido; este Todo apenas remove a entrada duplicada no diálogo e não altera essa conclusão.
+- O Todo 77 já foi concluído e o estilo do interruptor reaproveita os controles existentes do design system; este Todo apenas acrescenta a semântica de modo de configuração.
+- O Todo 76 concluiu a organização em camadas de Provider Site, Template Model e Provider Model Rule; o campo de modo deste Todo entra no mesmo registro Personal exato `provider-model`, sem criar outra camada.
+- O Todo 81 é responsável pelo aviso de invalidação de seleção de modelo em Composer/tarefas ociosas e é independente do modo de herança de configuração de modelo deste Todo.
 
-## 9. 实施记录（2026-09-04）
+## 9. Registro de implementação (2026-09-04)
 
-- `provider-model` Personal Rule 增加可选的 `useRecommendedConfig` 元数据；缺省或 `true` 表示跟随推荐，`false` 表示固定个人配置。该元数据不进入 `ModelConfig`，不参与 Registry、ModelFactory 或请求参数。
-- Settings Facade、Provider Config Service 和 UI Form Projection 已贯通该字段；保存仍使用原有 revision 校验和单次 Personal Repository 更新。
-- 模型编辑弹窗删除重复的模型启用控件和“全部恢复默认”入口，保留列表行作为唯一 `enabled` 编辑入口；新增 Draft-only“跟随推荐配置”开关。没有 Built-in 继承基线的纯自定义模型不显示该开关。
-- 固定模式保存时将当前 Effective 的编辑器管理字段物化为完整 Personal Overlay；切回推荐模式时仅在用户本次明确切换后清除旧 Overlay，同时保留独立的模型启用状态。
-- 补充 Provider Config、Facade、Draft、Dialog 和模型行回归测试；受影响测试 119 个全部通过，`pnpm typecheck` 通过，`pnpm lint` 通过（仓库既有 40 条 warning、0 error）。
+- A Personal Rule `provider-model` passou a ter a metadada opcional `useRecommendedConfig`; ausente ou `true` significa seguir as recomendações, e `false` significa fixar a configuração pessoal. Essa metadada não entra no `ModelConfig` nem participa do Registry, do ModelFactory ou dos parâmetros de requisição.
+- O campo já atravessa o Settings Facade, o Provider Config Service e a UI Form Projection; o salvamento continua usando a validação de revision existente e uma única atualização do Personal Repository.
+- O diálogo de edição de modelo removeu o controle duplicado de ativação do modelo e a entrada 「全部恢复默认」, mantendo a linha da lista como único ponto de edição de `enabled`; foi adicionado o interruptor Draft-only "seguir a configuração recomendada". Modelos puramente customizados sem linha de base de herança Built-in não exibem esse interruptor.
+- Ao salvar no modo fixo, os campos gerenciados pelo editor do Effective atual são materializados como um Personal Overlay completo; ao voltar ao modo recomendado, o Overlay antigo só é removido se o usuário tiver feito a alternância explicitamente nesta sessão, mantendo-se separado o estado de ativação do modelo.
+- Foram adicionados testes de regressão de Provider Config, Facade, Draft, Dialog e da linha do modelo; os 119 testes afetados passaram, `pnpm typecheck` passou e `pnpm lint` passou (40 warnings já existentes no repositório, 0 erros).

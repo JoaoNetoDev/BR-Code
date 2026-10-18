@@ -1,101 +1,101 @@
-# 插件创建入口与 Plugin Creator
+# Entrada de criação de plugin e Plugin Creator
 
-## 产品合同
+## Contrato de produto
 
-2026-09-16：插件市场、插件管理 User 视图共用“添加”菜单，只有“创建插件”和“添加插件市场”两项；不提供录制技能。Workspace 配置视图不出现市场写入入口，空态“浏览插件”保持原行为。
+2026-09-16: o mercado de plugins e a visão de Gerenciamento de Plugins compartilham o menu "Adicionar", contendo apenas os itens "Criar plugin" e "Adicionar marketplace de plugins"; não há gravação de skills. A visão de configuração do Workspace não exibe entrada de escrita no marketplace, e o estado vazio "Explorar plugins" mantém o comportamento original.
 
-创建插件只打开新任务草稿，预填官方 `plugin-creator@zcode-plugins-official` 所提供的 `plugin-creator` Skill canonical 引用和一个尾空格。不自动发送，不切换模型，不安装或启用插件。使用标准 Root 新任务编排及其草稿持久化。
+Criar plugin apenas abre um rascunho de nova tarefa, pré-preenchido com a referência canônica da Skill `plugin-creator` fornecida pelo `plugin-creator@zcode-plugins-official` oficial e um espaço final. Não envia automaticamente, não troca o modelo e não instala nem habilita plugins. Usa a orquestração padrão de nova tarefa Root e sua persistência de rascunho.
 
 ```text
-点击创建 -> 解析 Root 新任务目标 -> 该 workspace 的 skillsService.list
+Clique em criar -> resolve o alvo de nova tarefa Root -> skillsService.list deste workspace
                                       |
-                        校验目标/attachment 未变化
+                        Valida que alvo/attachment não mudaram
                                       |
-                  精确匹配官方 skill + enabled + 有效路径
+                  Correspondência exata da skill oficial + enabled + caminho válido
                                       |
-                  Root 校验 expectedWorkspaceKey -> startDraft
+                  Root valida expectedWorkspaceKey -> startDraft
                                       |
                   initialPrompt + initialPromptMention -> Composer
 ```
 
-请求进行中禁用重复创建；工作区身份、远端 attachment、服务实例变化或入口卸载时，旧结果不提交。缺少/禁用 skill、断连、加载失败均明确提示且保持当前任务。身份为 `workspaceIdentity?.trim() || workspacePath`，路径始终来自目标 host；手机只使用可见工作区，桌面沿用 focused pane。不修改 continuous/replayable、runtime 或 accepted queue。
+A criação duplicada fica desabilitada enquanto a requisição está em andamento; mudanças de identidade do workspace, de attachment remoto, da instância de serviço ou o desmonte da entrada invalidam resultados antigos, que não são submetidos. Skill ausente/desabilitada, desconexão ou falha de carregamento exibem aviso explícito e mantêm a tarefa atual. A identidade é `workspaceIdentity?.trim() || workspacePath`, e o caminho sempre vem do host alvo; no celular são usados apenas workspaces visíveis, no desktop segue-se o pane em foco. Não modifica continuous/replayable, runtime nem a fila de aceitação.
 
-添加插件市场复用现有商店对话框及 store mutation。管理页通过可选导航 `intent: "add-marketplace"` 打开市场和对话框；成功切换个人分段，失败保留输入与错误。
+Adicionar marketplace de plugins reaproveita o diálogo de loja existente e a mutação de store. A página de gerenciamento abre o marketplace e o diálogo via navegação opcional `intent: "add-marketplace"`; em sucesso alterna para o segmento pessoal, em falha mantém a entrada e o erro.
 
-## 插件搜索
+## Busca de plugins
 
-市场页和管理页共享匹配规则：当前语言名称/简介、原始名称、完整 ID、市场名仍支持文本搜索；原始名称及 listing 中的所有展示名支持不带声调的全拼和首字母子串，忽略大小写和拼音中的空格。英文界面也能用 `feishu`、`fei shu`、`fs` 找到中文名“飞书”。保留同名跨市场的完整 ID 关联，不增加别名表、错字容忍或排序变化；不改变聊天输入框的技能搜索。
+A página do marketplace e a página de gerenciamento compartilham as regras de correspondência: nome/descrição no idioma atual, nome original, ID completo e nome do marketplace continuam suportando busca textual; o nome original e todos os nomes exibidos no listing suportam pinyin sem acento e sub-string de iniciais, ignorando maiúsculas/minúsculas e espaços no pinyin. Mesmo em uma interface em inglês é possível encontrar pelo nome chinês "飞书" usando `feishu`, `fei shu` ou `fs`. Preserva-se a associação de ID completo entre marketplaces homônimos, sem tabela de aliases, tolerância a erros de digitação ou mudança de ordenação; não altera a busca de skills da caixa de entrada do chat.
 
-## Skill 内容与分发
+## Conteúdo e distribuição da Skill
 
-独立内置内容插件 `plugin-creator`，版本 0.1.1，默认启用，中文名称“插件创建器”。随 Desktop、CLI/SEA、server/远端 Agent 资产一起分发，所有 scripts/references 均须存在。
+Plugin de conteúdo integrado e independente `plugin-creator`, versão 0.1.1, habilitado por padrão, nome em chinês "插件创建器". Distribuído junto com os assets de Desktop, CLI/SEA e server/agente remoto, e todos os scripts/references devem existir.
 
-Skill 按 scaffold -> optional components -> validate -> install/update 流程组织；正文路由到脚本与参考资料。脚手架使用 Node 标准库、异步 IO，默认 `<cwd>/plugins/<slug>`，名称规范化为小写连字符，目录名与 manifest 一致。已有文件默认拒绝覆盖，显式 force 才能更新选定文件；市场无关字段与条目顺序保留。组件只声明实际生成的路径。
+A Skill é organizada pelo fluxo scaffold -> componentes opcionais -> validate -> install/update; o corpo roteia para scripts e material de referência. O scaffold usa a biblioteca padrão do Node, IO assíncrono, caminho padrão `<cwd>/plugins/<slug>`, nome normalizado em minúsculas com hífen, e nome de diretório igual ao manifest. Arquivos existentes são recusados por padrão; apenas `force` explícito atualiza os arquivos selecionados; campos não relacionados ao marketplace e a ordem das entradas são preservados. Os componentes declaram somente os caminhos realmente gerados.
 
-生成 ZCode `.zcode-plugin/plugin.json`；marketplace listing 承载显示名与 i18n。2026-09-17 收敛：默认交付源码、测试市场清单和手动添加/安装/更新/试用指引，由用户在界面完成市场与安装操作。普通桌面用户不需要安装 CLI 或 Node；已有开发运行时可选用辅助脚本，无运行时则使用文件工具准备源码与 JSON。检查结构、资源路径和占位符；只有已有可用开发 CLI 时才额外调用 `zcode plugins validate`，未执行时不声称协议校验通过。
+Gera o `.zcode-plugin/plugin.json` do ZCode; o listing do marketplace carrega o nome de exibição e a i18n. Convergência de 2026-09-17: a entrega padrão é o código-fonte, o manifesto de marketplace de teste e as instruções de adicionar/instalar/atualizar/experimentar manualmente, com o usuário concluindo as operações de marketplace e instalação na interface. Um usuário comum de desktop não precisa instalar CLI nem Node; quem já tem runtime de desenvolvimento pode usar opcionalmente o script auxiliar, e sem runtime usa ferramentas de arquivo para preparar o código-fonte e o JSON. Verifica-se estrutura, caminhos de recursos e placeholders; `zcode plugins validate` só é chamado extra quando já existe um CLI de desenvolvimento utilizável, e sem execução não se afirma que a validação do protocolo passou.
 
-## 本地 dev 市场闭环
+## Ciclo local de marketplace dev
 
-当前阶段的交付为：源码实现 → 可执行的检查与能力 smoke → dev 清单 → 用户手动添加市场、安装/更新并在新任务试用。只发送 skill 引用仍需先明确用途；明确只要源码时不额外生成市场。Skill 不自动登记、安装、更新或启用插件，不要求用户执行 CLI 命令，也不引入新的内部工具或运行时入口。
+A entrega da fase atual é: implementação do código-fonte -> verificações executáveis e smoke de capacidades -> manifesto dev -> o usuário adiciona o marketplace manualmente, instala/atualiza e experimenta em uma nova tarefa. O envio apenas da referência da skill ainda exige esclarecer o uso pretendido; quando fica claro que só o código-fonte é desejado, nenhum marketplace é gerado. A Skill não registra, instala, atualiza nem habilita plugins automaticamente, não exige que o usuário execute comandos de CLI e não introduz novas ferramentas internas ou entradas de runtime.
 
-- 源码继续默认在当前工作区 `plugins/<slug>/`。dev 清单默认在同级 `plugins/marketplace.json`；显式目录/市场选择优先。
-- 有 Node 时可选用现有 helper，市场名为 `dev-<父工作区名>-<规范化市场根目录 SHA256 前 8 位>`。无 Node 时按参考规范用文件工具生成清单，选择明确的 `dev-` 开头名称并保存在清单内，后续更新沿用该名称。已有清单优先复用；若之后改用 helper，显式传入该市场文件。遇到同名不同源则报告冲突，不隐式接管或移除市场。
-- 清单只更新对应 listing，不重新生成插件源码；同步 manifest 名称、版本和简介，提供准确展示名与中文元数据，保留无关条目、字段和顺序。现有 helper 的原子写入、锁和路径保护保持不变。
-- 手动添加路径：`插件市场 → 添加 → 添加插件市场`，粘贴市场根目录的绝对路径（默认工作区的 `plugins/`，不是单个插件子目录），点击添加；成功后在 `个人` 分段找到实际市场名和插件，再点安装。
-- 市场操作由现有界面与插件服务执行，注册表和安装记录仍为 Host 用户级 inventory。手机/远程场景使用目标 Host 上的路径，不选择手机或当前本机上无关的目录。不编辑 known/installed/cache 内部文件。
-- 修改已有插件先增加语义版本并同步 listing，再引导用户从市场页齿轮进入 `市场源`，点击对应市场的 `刷新该市场`，随后打开插件详情点 `更新`，在新任务试用。保留已有显式禁用选择；安装副本不是源码，不声称热加载。
-- 完成回复列出源码、市场根目录与清单的绝对路径、实际市场名/完整 pluginId/源码版本、手动操作步骤及预期结果。未操作前明确写“市场待手动添加、插件待安装、试用待验”，已有安装但本轮未核实则写状态未核实。
-- 新任务试用提示只使用可发现的插件/技能选择方式；未安装时不编造安装路径或已安装 skill 引用。添加失败保留源码，索取界面错误继续定位；取消或没有用户反馈不视为完成。
+- O código-fonte continua por padrão em `plugins/<slug>/` no workspace atual. O manifesto dev fica por padrão em `plugins/marketplace.json` no mesmo nível; seleção explícita de diretório/marketplace tem precedência.
+- Com Node disponível, o helper existente é opcional, e o nome do marketplace é `dev-<nome-do-workspace-pai>-<8 primeiros caracteres do SHA256 da raiz do marketplace normalizada>`. Sem Node, o manifesto é gerado com ferramentas de arquivo conforme a especificação de referência, escolhendo-se um nome explícito iniciado por `dev-` e guardado no próprio manifesto; atualizações posteriores reutilizam esse nome. Um manifesto existente tem prioridade e é reaproveitado; se depois o helper passar a ser usado, o arquivo do marketplace é passado explicitamente. Nomes iguais com origens diferentes geram relatório de conflito, sem assumir nem remover o marketplace implicitamente.
+- O manifesto atualiza apenas o listing correspondente e não regenera o código-fonte do plugin; sincroniza nome, versão e descrição do manifest, fornece nome de exibição exato e metadados em chinês, preservando entradas, campos e ordem não relacionados. A escrita atômica, os locks e a proteção de caminho do helper existente permanecem inalterados.
+- Caminho manual: `Plugin Marketplace → Adicionar → Adicionar marketplace de plugins`, colar o caminho absoluto da raiz do marketplace (o `plugins/` do workspace padrão, não o subdiretório de um plugin individual), clicar em adicionar; depois de sucesso, encontrar o nome real do marketplace e o plugin no segmento `Pessoal` e clicar em instalar.
+- As operações de marketplace são executadas pela interface e pelo serviço de plugins existentes; o registro e os registros de instalação continuam sendo o inventory de nível de usuário do Host. Em cenários de celular/remoto usam-se caminhos no Host alvo, sem escolher diretórios irrelevantes do celular ou da máquina local atual. Não se editam arquivos internos de known/installed/cache.
+- Para modificar um plugin existente, primeiro aumenta-se a versão semântica e sincroniza-se o listing; depois orienta-se o usuário a entrar em `Fontes do marketplace` pelo ícone de engrenagem na página do marketplace, clicar em `Atualizar este marketplace` do mercado correspondente, abrir os detalhes do plugin e clicar em `Atualizar`, experimentando em uma nova tarefa. Escolhas explícitas de desabilitação já existentes são preservadas; a cópia instalada não é o código-fonte e não se afirma hot reload.
+- A resposta de conclusão lista os caminhos absolutos do código-fonte, da raiz do marketplace e do manifesto, o nome real do marketplace/o pluginId completo/a versão do código-fonte, os passos manuais e os resultados esperados. Antes da operação, escrever explicitamente "marketplace pendente de adição manual, plugin pendente de instalação, experimentação pendente de verificação"; havendo instalação prévia mas não verificada nesta rodada, registrar o status como não verificado.
+- O aviso de experimentação em nova tarefa usa apenas formas descobríveis de selecionar plugin/skill; quando não houver instalação, não se inventam caminhos de instalação nem referências de skills instaladas. Falha ao adicionar mantém o código-fonte; solicitar o erro da interface continua o diagnóstico; cancelamento ou ausência de retorno do usuário não contam como conclusão.
 
 ```text
-源码目录（用户维护）
-  → manifest / 能力校验
-  → dev marketplace.json（文件工具或可用的 helper）
-  → 交付准确路径和操作指引
-  → 用户在界面添加/刷新市场 → 安装/更新插件
-  → 个人市场/管理页核对 → 用户在新任务试用
+Diretório de código-fonte (mantido pelo usuário)
+  -> manifest / verificação de capacidades
+  -> dev marketplace.json (ferramentas de arquivo ou helper disponível)
+  -> entrega de caminhos exatos e instruções de operação
+  -> usuário adiciona/atualiza o marketplace na interface -> instala/atualiza o plugin
+  -> conferência no marketplace pessoal/página de gerenciamento -> usuário experimenta em nova tarefa
 ```
 
-验收当前指令：无全局 CLI/Node 时能交付源码、清单和界面步骤；首次添加与已有插件更新路径清楚；取消/失败/尚未试用保留真实状态。已有隔离 CLI 集成测试只证明辅助脚本和安装机制，不证明普通用户已经完成手动流程。本次不新增 UI/后端协议。
+Aceitação das instruções atuais: sem CLI/Node global é possível entregar código-fonte, manifesto e passos de interface; o caminho de primeira adição e o de atualização de plugin existente ficam claros; cancelamento/falha/não experimentado preservam o estado real. Os testes de integração de CLI isolado existentes provam apenas o script auxiliar e o mecanismo de instalação, não que um usuário comum concluiu o fluxo manual. Esta rodada não adiciona UI nem protocolo de backend.
 
-## 验收与影响
+## Aceitação e impacto
 
-| Case | 状态/动作 | 断言 |
+| Case | Estado/ação | Asserção |
 | --- | --- | --- |
-| PLM-LC-018 | 中英文管理列表及搜索 | 完整 ID 关联 listing，名称/简介/反馈一致，原名与中文可搜，无翻译保留原文 |
-| PLM-LC-019 | 两处添加菜单/创建 | 两个菜单项；真实 skill chip 和尾空格；未发送；remount 恢复同一草稿 |
-| PLM-LC-020 | 添加来源成功/失败/取消 | 一次导航消费；成功个人分段；失败输入保留；取消无写入 |
-| creator-boundary | 重复点击、切换 identity/attachment、禁用/缺失 | 仅当前目标提交一次，错误无预填/启用副作用 |
-| creator-assets | Node/SEA/Desktop/remote | manifest、skill、scripts、references 齐全且可发现 |
-| creator-scaffold | 最小、skill、MCP、hook、市场、更新 | ZCode 校验通过；非法输入、越界、重复/覆盖、TODO 被拒绝 |
-| creator-dev-market | 创建/更新 dev listing、同名工作区与写入竞争 | 稳定 ID、无关数据与源码保留；来源冲突、重复、越界、锁占用拒绝；独占临时文件失败不删除已有文件 |
-| creator-dev-workflow | 实际 CLI 创建、登记、安装、版本更新 | available/installed ID 与版本一致；安装目录与源码分离；内容更新生效且保留显式禁用 |
-| creator-manual-handoff | 无 CLI/Node、首次添加、已有插件更新、取消/失败 | 给出真实目录与界面步骤；无自动登记安装；不编造安装引用；未完成状态明确 |
+| PLM-LC-018 | Listas de gerenciamento em chinês e inglês e busca | Listing associado ao ID completo; nome/descrição/feedback consistentes; nome original e chinês pesquisáveis; sem tradução, o texto original é preservado |
+| PLM-LC-019 | Menu Adicionar/criação nos dois pontos | Dois itens de menu; chip de skill real e espaço final; não enviado; remount restaura o mesmo rascunho |
+| PLM-LC-020 | Adição de origem com sucesso/falha/cancelamento | Uma navegação consumida; sucesso no segmento pessoal; falha mantém a entrada; cancelamento não escreve |
+| creator-boundary | Cliques duplicados, troca de identity/attachment, desabilitada/ausente | Apenas o alvo atual é submetido uma vez; erro sem pré-preenchimento/habilitação |
+| creator-assets | Node/SEA/Desktop/remote | Manifest, skill, scripts e references completos e descobríveis |
+| creator-scaffold | Mínimo, skill, MCP, hook, marketplace, atualização | Validação do ZCode passa; entradas inválidas, fora de escopo, duplicadas/sobrescritas e TODO são rejeitadas |
+| creator-dev-market | Criação/atualização de listing dev, workspaces homônimos e disputa de escrita | ID estável, dados não relacionados e código-fonte preservados; conflito de origem, duplicata, fora de escopo e lock ocupado rejeitados; falha em temp file exclusivo não apaga arquivo existente |
+| creator-dev-workflow | Criação real via CLI, registro, instalação e atualização de versão | IDs available/installed e versões consistentes; diretório de instalação separado do código-fonte; atualização de conteúdo surte efeito e preserva desabilitação explícita |
+| creator-manual-handoff | Sem CLI/Node, primeira adição, atualização de plugin existente, cancelamento/falha | Diretórios reais e passos de interface fornecidos; sem registro/instalação automática; sem inventar referências de instalação; status inacabado explícito |
 
-UI/草稿 owner：管理和商店组件负责展示/入口，Root 负责新任务，Composer draft store 负责预填事实；Skill/Plugin 内容以目标 host discovery 为准。共享菜单、prefill builder 和两处搜索是 must-inspect，runtime 是 invariant-only。Codegraph 已用于旧工作区定位；实现工作区未建索引，按已定位文件读当前源码。架构门禁的 ui/zcode-cli 当前非 managed，门禁通过不能替代语义检查。
+Owner de UI/rascunho: os componentes de gerenciamento e loja são responsáveis pela exibição/entrada, o Root pela nova tarefa e o store de rascunho do Composer pelos fatos de pré-preenchimento; o conteúdo de Skill/Plugin segue o discovery do host alvo. Menu compartilhado, builder de prefill e as duas buscas são must-inspect; runtime é invariant-only. O Codegraph já foi usado para localizar workspaces antigos; o workspace de implementação não foi indexado, então o código atual foi lido pelos arquivos já localizados. Os módulos ui/zcode-cli do gate de arquitetura não são gerenciados no momento, e a aprovação do gate não substitui a verificação semântica.
 
-对应 E2E 保留在 plugins/manual-review/pending，需人工审核后另行转正；桌面宽屏中文浅色、窄屏英文深色覆盖展示，远控身份用定向单测覆盖，未运行真实手机/SSH 时必须列为待验。
+Os E2E correspondentes permanecem em plugins/manual-review/pending e precisam de revisão humana antes de serem promovidos; a exibição é coberta em desktop widescreen chinês claro e narrow screen inglês escuro, e a identidade de controle remoto é coberta por testes unitários direcionados; sem rodar celular/SSH reais, é obrigatório listar como pendente de verificação.
 
-## 本机验证（2026-09-16）
+## Verificação local (2026-09-16)
 
-以下为先前 helper/CLI 与 UI 实现的验证记录，当前手动交付规则见上文；这些记录不表示用户已执行添加、安装或试用。
+A seguir estão os registros de verificação do helper/CLI anterior e da implementação de UI; as regras atuais de entrega manual estão acima e estes registros não indicam que o usuário tenha executado adição, instalação ou experimentação.
 
-- UI 定向单测 66 条、bootstrap 54 条、分发资产 92 条、Node scaffold/SEA 6 条通过；最小、Skills、MCP、hooks、组合五种脚手架均通过实际构建的 ZCode CLI 校验。
-- Electron E2E `plugin-localization-creator.test.ts` 通过：两处菜单、真实引用与尾空格/焦点、未发送、返回后草稿恢复、中文和拼音搜索、添加来源成功/失败保留输入/取消；覆盖 1440px 中文浅色和 480px 英文深色。480px 是 Electron 最小窗口宽度，进入共享 UI 手机断点；未代替真实手机远控验证。
-- 当前基线 WDIO 注入的自定义 agent command 不支持 storage startup。此轮使用临时 WDIO 配置清空 `ZCODE_AGENT_SERVER_COMMAND`、`ZCODE_AGENT_SERVER_ARGS_JSON`（包括 worker runnerEnv），复用原 hooks 和已构建 bundle，恢复内置 Agent 启动；未修改生产 runtime 或仓库 E2E 配置。
-- 根 typecheck、CLI typecheck、根 lint（初次验证 47 个既有 warning、0 error）、架构检查通过。初次 CLI 全量 lint 未通过：所报告的 103 个文件与初始 staging 基线 `94cc393296` 内容完全一致；本次改动的 CLI 脚本和定义单独 lint 为 0 warning、0 error。
-- feature graph 保留 4 条既有悬空边，无新增悬空边，新 code seeds 均存在；本 worktree 无 Codegraph 索引。未生成正式安装包、未连接真实 SSH/手机；已验证各分发资产清单及打包 fixture，远端身份/attachment 切换由定向单测覆盖。
-- 扩展门禁已补齐远端部署 fixture 的 creator 清单、旧创建按钮断言和 E2E 隔离路径；对应回归通过。合并 staging `c32957bdad` 后，92 条 UI/导航定向测试、根 typecheck、lint（51 warning、0 error）和架构检查通过；Electron E2E 运行记录为 `desktop-e2e-20260916-110001-302`。本机通过 uv 启动 MR helper 时需确保其子进程 PATH 优先使用 Node 24.14.0，避免 Homebrew Node 26 覆盖仓库运行时。
-- dev 闭环增量：8 条 Node helper 单测、24 条 bootstrap 分发/安装状态测试、2 条 SEA 资产测试通过；实际构建的 CLI 在隔离 storage 中完成登记、安装 0.1.0、禁用、刷新与更新 0.1.1，核对源码/安装副本分离和安装内容变化。根与 CLI typecheck、根 lint、架构检查通过；CLI 全量 lint 仍有既有失败，改动文件单独 lint 为 1 个既有 warning、0 error。
-- Skill 边界静态复核：裸引用先明确用途；只要源码/只登记遵循用户选择；正常开发完成本地登记安装；更新不重脚手架、不改缓存、不恢复显式禁用；冲突停止并保留源码。未运行模型驱动的新任务验收，CLI 集成测试不等于模型使用新能力成功。
-- MR 更新时合并 staging `2772217134`，SEA 清单同时保留 Guide 0.2.0 与 Creator 0.1.1，并补齐内容插件 fixture。合并后 51 条 Node/SEA 打包、24 条 bootstrap、65 条 UI 定向测试通过；重新构建的 CLI 开发闭环、根与 CLI typecheck、根 lint（52 warning、0 error）、架构检查通过。
+- 66 testes unitários direcionados de UI, 54 de bootstrap, 92 de assets de distribuição e 6 de scaffold Node/SEA passaram; os cinco tipos de scaffold (mínimo, Skills, MCP, hooks e combinado) passaram na validação do ZCode CLI realmente construído.
+- E2E em Electron `plugin-localization-creator.test.ts` passou: os dois menus, referência real e espaço final/foco, não enviado, restauração do rascunho ao voltar, buscas em chinês e pinyin, adição de origem com sucesso/falha mantendo a entrada/cancelamento; cobertura de 1440px chinês claro e 480px inglês escuro. 480px é a largura mínima de janela do Electron, entrando no breakpoint de celular da UI compartilhada; não substitui a verificação real de celular via controle remoto.
+- O WDIO da linha de base injeta agent command customizado que não suporta storage startup. Nesta rodada foi usada uma configuração WDIO temporária que limpa `ZCODE_AGENT_SERVER_COMMAND` e `ZCODE_AGENT_SERVER_ARGS_JSON` (incluindo worker runnerEnv), reutilizando os hooks originais e o bundle já construído e restaurando a inicialização do Agent embutido; não houve modificação do runtime de produção nem da configuração de E2E do repositório.
+- typecheck da raiz, typecheck do CLI, lint da raiz (47 warnings existentes na primeira verificação, 0 erros) e verificação de arquitetura passaram. O lint completo inicial do CLI não passou: os 103 arquivos reportados são idênticos ao conteúdo do baseline de staging inicial `94cc393296`; os scripts e definições do CLI alterados nesta rodada passages lint isolado com 0 warnings e 0 erros.
+- O feature graph mantém as 4 arestas pendentes existentes, sem novas arestas pendentes, e todos os novos code seeds existem; este worktree não tem índice Codegraph. Não foi gerado pacote de instalação formal nem conectado SSH/celular reais; os manifestos de assets de distribuição e o fixture de empacotamento foram verificados, e a troca de identidade/attachment remoto é coberta por testes unitários direcionados.
+- O gate estendido foi complementado com o manifesto creator do fixture de deploy remoto, as asserções do botão antigo de criação e o caminho de isolamento do E2E; a regressão correspondente passou. Após o merge do staging `c32957bdad`, passaram 92 testes direcionados de UI/navegação, o typecheck da raiz, lint (51 warnings, 0 erros) e a verificação de arquitetura; o registro de execução do E2E em Electron é `desktop-e2e-20260916-110001-302`. Ao iniciar o helper de MR localmente via uv, é preciso garantir que o PATH dos subprocessos use preferencialmente o Node 24.14.0, evitando que o Node 26 do Homebrew sobrescreva o runtime do repositório.
+- Incremento do ciclo dev: passaram 8 testes unitários do helper em Node, 24 testes de bootstrap de distribuição/status de instalação e 2 testes de assets SEA; o CLI realmente construído completou registro, instalação da 0.1.0, desabilitação, refresh e atualização para 0.1.1 em storage isolado, com conferência da separação entre código-fonte/cópia instalada e da mudança de conteúdo instalado. Typecheck da raiz e do CLI, lint da raiz e verificação de arquitetura passaram; o lint completo do CLI ainda tem falhas existentes, e o lint isolado dos arquivos alterados fica em 1 warning existente e 0 erros.
+- Revisão estática dos limites da Skill: referência nua exige esclarecimento de uso primeiro; apenas código-fonte/apenas registro seguem a escolha do usuário; desenvolvimento normal completa registro e instalação local; atualização não re-gera scaffold, não mexe no cache e não restaura desativações explícitas; conflito interrompe e preserva o código-fonte. Não foi executada a aceitação de nova tarefa orientada por modelo, e os testes de integração do CLI não equivalem ao uso bem-sucedido da nova capacidade por um modelo.
+- Na atualização de MR foi mesclado o staging `2772217134`, o manifesto SEA manteve Guide 0.2.0 e Creator 0.1.1 simultaneamente, e o fixture do plugin de conteúdo foi complementado. Após o merge passaram 51 testes de empacotamento Node/SEA, 24 de bootstrap e 65 testes direcionados de UI; o ciclo de desenvolvimento do CLI reconstruído, o typecheck da raiz e do CLI, o lint da raiz (52 warnings, 0 erros) e a verificação de arquitetura passaram.
 
-## 手动交付指令验证（2026-09-17）
+## Verificação das instruções de entrega manual (2026-09-17)
 
-- 本轮只修改 5 份 Markdown；未新增工具、运行时、界面或协议。核对添加对话框的目录输入、个人分段、市场源刷新和插件详情更新入口。
-- Skill 元数据、4 处本地文档链接、5 个 JSON 示例检查通过；用户安装参考文档不含 CLI 命令。首次创建、缺少 CLI/Node、已有插件更新、取消/失败、安装引用与待验状态已逐项静态复核。
-- 2 条既有 creator 分发测试、根 typecheck 和根 lint（52 warning、0 error）通过；未新增或重跑 APP E2E，未声称模型已按新版指令完成用户手动流程。
+- Nesta rodada só 5 arquivos Markdown foram modificados; nenhuma ferramenta, runtime, interface ou protocolo foi adicionado. Foram conferidas a entrada de diretório do diálogo de adição, o segmento pessoal, o refresh de fontes do marketplace e a entrada de atualização nos detalhes do plugin.
+- Metadados da Skill, 4 links de documentação local e 5 exemplos JSON passaram na verificação; o documento de referência de instalação do usuário não contém comandos de CLI. Primeira criação, ausência de CLI/Node, atualização de plugin existente, cancelamento/falha, referência de instalação e status pendente foram revisados estaticamente item a item.
+- Passaram 2 testes existentes de distribuição do creator, o typecheck da raiz e o lint da raiz (52 warnings, 0 erros); nenhum E2E de APP foi adicionado ou reexecutado, e não se afirma que o modelo concluiu o fluxo manual do usuário com as novas instruções.
 
-## 插件创建器图标
+## Ícone do Plugin Creator
 
-官方 `plugin-creator@zcode-plugins-official` 在商店卡片、已安装条、详情与管理列表使用本地 `packages/ui/src/assets/plugin-icons/plugin-creator.png`：蓝色渐变圆角积木与白色加号，透明底，延续现有文档插件图标风格。既有缓存中的旧图片由该官方身份的本地图标覆盖，其他市场同名插件保留自己的 listing 图标。
+O `plugin-creator@zcode-plugins-official` oficial usa o asset local `packages/ui/src/assets/plugin-icons/plugin-creator.png` no cartão da loja, na barra de instalados, nos detalhes e na lista de gerenciamento: peça de construção com cantos arredondados e gradiente azul com sinal de mais branco, fundo transparente, continuando o estilo dos ícones de plugins de documentação já existentes. A imagem antiga em caches existentes é sobrescrita por esse ícone local da identidade oficial; plugins homônimos de outros marketplaces mantêm seu próprio ícone de listing.

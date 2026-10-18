@@ -1,51 +1,42 @@
-# Conversation Session E2E Development Workflow
+# Fluxo de desenvolvimento E2E de Conversation Session
 
-本文定义 conversation session 从“覆盖面枚举”到“正式 E2E”的开发流水线。目标是让新增 case 能按固定步骤推进，避免在转正时临时修改共享 replay fixture、反复等待长 E2E 才发现数据不匹配。
+Este documento define o pipeline de desenvolvimento da conversation session, da "enumeração de cobertura" até o "E2E formal". O objetivo é que novos casos avançem por etapas fixas, evitando modificar na hora da promoção o fixture de replay compartilhado e descobrir dados incompatíveis só depois de esperar várias vezes por E2E longos.
 
-## 两条流水线
+## Duas linhas de pipeline
 
-### 覆盖面生成
+### Geração de cobertura
 
-覆盖面生成回答“需要测什么”：
+A geração de cobertura responde "o que precisa ser testado":
 
-1. 从功能 spec、现有 case catalog 和 coverage matrix 中抽出状态维度。
-2. 使用 `feature-boundary-planner` skill 和 formal-proof 口径辅助枚举排列组合。
-3. 与产品或开发者对话剪枝，确认哪些组合是 accepted、undefined 或 pruned。
-4. 产出或更新 `docs/conversation-session-case-catalog.md`、`docs/testing/conversation-session-e2e-coverage-matrix.md` 和相关 decision 文档。
+1. Extrair as dimensões de estado da spec de funcionalidade, do case catalog existente e da coverage matrix.
+2. Usar a skill `feature-boundary-planner` e a métrica formal-proof para auxiliar na enumeração das combinações.
+3. Conversar com produto ou desenvolvedores para podar, confirmando quais combinações são accepted, undefined ou pruned.
+4. Produzir ou atualizar `docs/conversation-session-case-catalog.md`, `docs/testing/conversation-session-e2e-coverage-matrix.md` e os documentos de decisão relacionados.
 
-这一层只产出文档和待覆盖 case，不直接生成正式 E2E。
+Esta camada só produz documentos e casos a cobrir; não gera E2E formais diretamente.
 
-### E2E 落地
+### Implantação do E2E
 
-E2E 落地回答“怎么稳定测”：
+A implantação do E2E responde "como testar de forma estável":
 
-1. 为 accepted case 编写或生成 `manual-review/pending` spec。
-2. 运行 manual/capture，自动执行用户路径并留下 UI、network、log、session artifact。
-3. 人工 review 产品表现，确认 case 语义。
-4. 整理 provider replay fixture 和文件 fixture，形成正式测试合同。
-5. 将 spec 移到 `packages/desktop/test/e2e/conversation-session/`。
-6. 跑本地 default replay。
-7. 需要进入 Docker suite 时，先单 spec 跑 `replay-isolated`，通过后再登记进 Docker preset。
-8. 常规 Docker 回归按 suite 批量运行，复用同一个镜像、容器和 WDIO 构建入口。
-9. MR 与 GitLab Web pipeline 通过手动 optional job 跑正式目录下的 default replay：共享 macOS 与专用 macOS runner job 都是单实例执行，只有 Windows job 使用四个 GitLab/WDIO 原生 shard。三条入口都复用 `ZCODE_E2E_SPEC=./test/e2e/conversation-session/*.test.ts` 等 direct-root glob；这些 glob 是非递归的，只收已经转正到正式目录的 spec，不收 `manual-review/pending`。
-10. Docker CI 只收已经自动化稳定的 suite。
+1. Escrever ou gerar a spec `manual-review/pending` para os casos accepted.
+2. Executar manual/capture, percorrendo automaticamente o caminho do usuário e deixando artefatos de UI, network, log e session.
+3. Fazer review manual do comportamento do produto e confirmar a semântica do caso.
+4. Organizar o fixture de replay do provider e o fixture de arquivos, formando o contrato formal de teste.
+5. Mover a spec para `packages/desktop/test/e2e/conversation-session/`.
+6. Rodar o replay default local.
+7. Quando precisar entrar na Docker suite, rodar primeiro o `replay-isolated` de spec única e, após passar, registrar no Docker preset.
+8. A regressão Docker rotina roda em lote por suite, reutilizando a mesma imagem, contêiner e entry point de build do WDIO.
+9. O MR e a GitLab Web pipeline rodam, por job opcional manual, o replay default do diretório formal: o job compartilhado de macOS e o job de macOS dedicado são execução de instância única, e só o job do Windows usa quatro shards nativos GitLab/WDIO. As três entradas reutilizam globs direct-root como `ZCODE_E2E_SPEC=./test/e2e/conversation-session/*.test.ts`; esses globs não são recursivos e só coletam specs já promovidos ao diretório formal, não `manual-review/pending`.
+10. A Docker CI só recebe suites já estabilizadas e automatizadas.
 
-## 共享初始化合同
+## Contrato de inicialização compartilhado
 
-正式目录下的 spec 使用 `prepareV4ConversationE2E` 把测试带到“可发送的空草稿”；`manual-review/pending` 迁移期候选仍可使用 `prepareConversationE2E`。已转正 spec 不得导入 legacy `helpers/conversation-session.js`：V4 pane/composer/timeline 操作来自 `v4-conversation.ts`，tool block 断言来自 `conversation-session-tool.ts`，provider request 断言来自 `conversation-session-network.ts`。这条边界只收敛 formal 证据实现，不改变 catalog 的产品状态组合。
+Specs no diretório formal usam `prepareV4ConversationE2E` para levar o teste a um "rascunho vazio pronto para envio"; candidatos da fase de migração em `manual-review/pending` ainda podem usar `prepareConversationE2E`. Specs já promovidos não podem importar o legacy `helpers/conversation-session.js`: operações de pane/composer/timeline do V4 vêm de `v4-conversation.ts`, asserções de bloco de tool vêm de `conversation-session-tool.ts` e asserções de request do provider vêm de `conversation-session-network.ts`. Essa fronteira apenas converge a implementação da evidência formal e não altera as combinações de estado de produto do catalog.
 
-formal promotion 合并前还必须同时满足两条机械合同：spec 的 composer、message、queue、运行态与 task
-切换操作只能读取 V4 helper / 已拆分的专项 helper；case manifest 的 `requests` 必须按 case-local
-provider fixture 的数组顺序逐项镜像 `id` 与完整 `metadata`。fixture 调整了 matcher 顺序、
-`kind`、`timingPolicy` 或 `syntheticReason` 时，manifest 必须在同一提交同步，不能让两份 replay
-合同分别漂移。`pnpm audit:conversation-session-coverage` 是最终准入门禁，不能通过放宽 formal
-admission 规则让 legacy helper 或 ledger mismatch 进入 direct-root suite。
+Antes do merge da promoção formal também é preciso satisfazer simultaneamente dois contratos mecânicos: as operações de composer, message, queue, estado de execução e troca de task da spec só podem ler o helper do V4 / helpers especializados já separados; o `requests` do case manifest precisa espelhar item a item o `id` e o `metadata` completo na ordem de array do provider fixture case-local. Quando o fixture ajusta a ordem de matcher, o `kind`, o `timingPolicy` ou o `syntheticReason`, o manifest precisa ser sincronizado no mesmo commit, para não deixar dois contratos de replay divergirem. `pnpm audit:conversation-session-coverage` é o portão de admissão final; não se pode afrouxar a regra de formal admission para deixar helper legacy ou divergência de ledger entrar na direct-root suite.
 
-`prepareV4ConversationE2E` 只负责把测试带到“可发送的空草稿”，必须保持幂等，不能把初始化本身
-当作一次“新建任务”产品操作。workspace 冷启动或重新激活后如果已经满足
-`activeTaskId=null`、V4 pane `data-session-id="draft"`、idle 且
-composer 可见，provider 配置完成后直接复用该草稿；只有当前仍绑定已有 session、处于非 draft
-页面或 composer 不存在时，才点击新建任务。
+`prepareV4ConversationE2E` só é responsável por levar o teste ao "rascunho vazio pronto para envio", precisa ser idempotente e não pode tratar a própria inicialização como uma operação de produto "criar nova tarefa". Se, após o cold start ou a reativação do workspace, já valem `activeTaskId=null`, o pane do V4 com `data-session-id="draft"`, o estado idle e o composer visível, o rascunho é reutilizado diretamente após a configuração do provider; só se clica em nova tarefa quando ainda houver session existente vinculada, quando a página não for draft ou quando o composer não existir.
 
 ```text
 workspace shell ready -> provider setup -> inspect draft
@@ -58,22 +49,13 @@ workspace shell ready -> provider setup -> inspect draft
                                   click New Task -> wait draft ready
 ```
 
-`startNewTask` 仍表示测试步骤中的显式用户动作，必须真实点击新建入口并等待同一组 draft 条件，不能
-被幂等初始化替代。共享 helper 对 composer、发送/停止控件、消息和运行态采用 V4 test id / pane /
-renderer store 优先，legacy ChatView 仅作为兼容回退。初始化或显式新建失败时，helper 应在报错中
-携带 pane/store 状态、composer 是否存在以及当前可见 test id，避免 before hook 只留下“元素未显示”
-的无上下文超时。V4 pane 为 draft 时，helper 必须从当前窗口导航 TabStore 取得
-`workspaceKey = activeWorkspaceIdentity?.trim() || activeWorkspacePath` 并精确读取该 bucket，禁止用
-`activeTaskId=null` 在多个 draft workspace 之间猜测；pane 已绑定 task 时，Goal metadata 与
-`stopRequested` 必须复用 task store snapshot 的 optimistic/cache 读取语义，不能伪造为空值。
-该合同不新增 case 状态组合，沿用 catalog 的 TSL08 workspace draft、H Goal 状态和 I11 new-task
-action 三个已确认边界。
+`startNewTask` continua representando uma ação explícita do usuário dentro dos passos de teste: é preciso clicar de verdade na entrada de nova tarefa e esperar o mesmo conjunto de condições de draft, e isso não pode ser substituído pela inicialização idempotente. O helper compartilhado prioriza test id / pane / renderer store do V4 para composer, controles de envio/parada, mensagens e estado de execução, usando o legacy ChatView apenas como fallback de compatibilidade. Quando a inicialização ou a criação explícita falha, o helper deve carregar na mensagem de erro o estado do pane/store, se o composer existe e quais test ids estão visíveis, evitando que o before hook deixe só um timeout sem contexto do tipo "elemento não exibido". Quando o pane do V4 é draft, o helper precisa obter do TabStore da janela atual `workspaceKey = activeWorkspaceIdentity?.trim() || activeWorkspacePath` e ler exatamente esse bucket, proibindo adivinhar entre vários draft workspaces com `activeTaskId=null`; quando o pane já está vinculado a uma task, o Goal metadata e o `stopRequested` devem reutilizar a semântica de leitura optimistic/cache do snapshot do task store, sem forjar valor vazio. Esse contrato não adiciona combinações de estado de caso; ele segue os três limites já confirmados no catalog: TSL08 workspace draft, estado H de Goal e action I11 new-task.
 
-## 数据合同
+## Contrato de dados
 
-capture artifact 是证据，不是最终测试合同。正式 E2E 使用 case-local fixture 表达稳定合同。
+O capture artifact é evidência, não o contrato final de teste. O E2E formal usa fixture case-local para expressar o contrato estável.
 
-推荐目录：
+Diretórios recomendados:
 
 ```text
 packages/desktop/test/e2e/fixtures/upstream/common.json
@@ -82,24 +64,24 @@ packages/desktop/test/e2e/fixtures/fs/conversation-session/<case-name>/
 packages/desktop/test/e2e/fixtures/cases/conversation-session/<case-name>.json
 ```
 
-- `upstream/common.json`：真正跨 case 复用的辅助响应，例如标题生成。
-- `upstream/conversation-session/<case-name>.json`：某个 spec 自己的 provider replay 数据。
-- `fixtures/fs/...`：该 case 需要的真实文件系统输入。
-- `fixtures/cases/...`：case manifest，记录 spec、provider fixture、文件 fixture、请求来源和时序策略。
+- `upstream/common.json`: respostas auxiliares realmente reutilizadas entre casos, como a geração de título.
+- `upstream/conversation-session/<case-name>.json`: dados de replay do provider exclusivos de uma spec.
+- `fixtures/fs/...`: entradas reais de sistema de arquivos necessárias ao caso.
+- `fixtures/cases/...`: case manifest, registrando spec, provider fixture, fixture de arquivos, origem das requests e política de temporização.
 
-### 跨平台运行时路径合同
+### Contrato de caminhos de runtime multiplataforma
 
-`.e2e-home` 是 Desktop E2E 的隔离用户目录，不应把 case 文件散落到系统 `/tmp`。spec 在运行时创建、读取、修改或等待的文件统一放到 Agent 实际执行 workspace `ZCodeProject` 下的 `.zcode-e2e/<case>`：
+`.e2e-home` é o diretório de usuário isolado do Desktop E2E e não deve espalhar arquivos de caso no `/tmp` do sistema. Arquivos criados, lidos, modificados ou aguardados pela spec em runtime vão uniformemente para `.zcode-e2e/<case>` sob o workspace `ZCodeProject` onde o Agent realmente executa:
 
 ```text
-.e2e-home/ZCodeProject/               Agent workspace cwd
-└── .zcode-e2e/<case>/                case-owned runtime files
+.e2e-home/ZCodeProject/               cwd do workspace do Agent
+└── .zcode-e2e/<case>/                arquivos de runtime pertencentes ao caso
 ```
 
-- Node 文件操作使用共享 helper 生成的原生绝对路径。
-- provider fixture 的 Read/Write/Edit/Glob/Grep 等绝对路径使用 `{{e2eRuntimeRoot}}/<case>/...`；replay server 在请求匹配前展开变量。
-- Bash command 使用 `.zcode-e2e/<case>/...` workspace-relative POSIX 路径，禁止依赖 `/tmp`、Windows drive 到 Git Bash mount 的隐式转换或用户 TEMP 目录。
-- case manifest 的 `fileFixtures[].path` 使用 workspace-relative 路径。
+- Operações de arquivo em Node usam o caminho absoluto nativo gerado pelo helper compartilhado.
+- Os caminhos absolutos das ferramentas Read/Write/Edit/Glob/Grep no fixture do provider usam `{{e2eRuntimeRoot}}/<case>/...`; o replay server expande as variáveis antes do casamento de requests.
+- Comandos Bash usam caminho POSIX relativo ao workspace `.zcode-e2e/<case>/...`, proibindo depender de `/tmp`, da conversão implícita de drive do Windows para mount do Git Bash ou do diretório TEMP do usuário.
+- O `fileFixtures[].path` do case manifest usa caminho relativo ao workspace.
 
 ```text
 spec native path ─────────────┐
@@ -107,87 +89,73 @@ fixture absolute tool path ───┼─> ZCodeProject/.zcode-e2e/<case>/file
 Bash relative path ───────────┘
 ```
 
-该合同保证 macOS、Linux 和 Windows Git Bash 下的 Node/spec、工具执行与 shell barrier 指向同一文件。新增或修改 conversation E2E 时，fixture contract check 之外还必须通过裸 `/tmp` 审计。
+Esse contrato garante que, em macOS, Linux e Windows com Git Bash, o Node/spec, a execução de ferramentas e o shell barrier apontem para o mesmo arquivo. Ao adicionar ou modificar um E2E de conversation, além do fixture contract check é obrigatório passar também por uma auditoria de `/tmp` cru.
 
-case manifest 与 case-local provider fixture 中的 `spec` 统一表示 **canonical formal target**，始终写成
-`./test/e2e/conversation-session/<case>.test.ts`。它不是 pending 阶段当前文件的物理路径；当前路径由
-coverage matrix 和传给命令的 `--spec` 表达。这样 fixture 合同从 pending 到 formal 保持稳定，promotion
-只移动 spec，不需要重写或覆盖已经人工整理好的 fixture 内容。
+O `spec` no case manifest e no provider fixture case-local representa uniformemente o **canonical formal target**, sempre escrito como `./test/e2e/conversation-session/<case>.test.ts`. Não é o caminho físico do arquivo atual na fase pending; o caminho atual é expresso pela coverage matrix e pelo `--spec` passado ao comando. Assim o contrato de fixture permanece estável do pending ao formal, e a promoção apenas move a spec, sem precisar reescrever ou sobrescrever o conteúdo de fixture já organizado manualmente.
 
 ```text
-manual-review/pending/<case>.test.ts   当前待审文件
-                 │ fixture check 读取当前文件与 canonical fixture 合同
+manual-review/pending/<case>.test.ts   arquivo atual aguardando review
+                 │ o fixture check lê o arquivo atual e o contrato de fixture canônico
                  ▼
 fixture JSON: spec=conversation-session/<case>.test.ts
                  │ human review + promotion
                  ▼
-conversation-session/<case>.test.ts   canonical formal target 成为当前文件
+conversation-session/<case>.test.ts   o canonical formal target passa a ser o arquivo atual
 ```
 
-只验证输入框、菜单、键盘选择等 renderer 交互且不会发送 prompt 的纯 UI case，可以在 manifest 中显式写入 `noProviderRequests: true` 并保持 `requests: []`；此时 case-local provider fixture 允许为空，用来表达“没有 provider 合同”，而不是漏填 fixture。
+Casos puramente de UI que só validam input, menu, seleção por teclado etc. e não enviam prompt podem escrever explicitamente `noProviderRequests: true` no manifest e manter `requests: []`; nesse caso o provider fixture case-local pode ficar vazio, para expressar "não há contrato de provider" e não uma lacuna de preenchimento.
 
-迁移期仍允许加载 legacy `provider-basic.json` / `provider-conversation-tool-cross-product.json`，但新增 case 不应继续往 legacy 共享池追加专用响应。
+A fase de migração ainda permite carregar o legacy `provider-basic.json` / `provider-conversation-tool-cross-product.json`, mas novos casos não devem continuar acrescentando respostas dedicadas ao pool compartilhado legacy.
 
-纯 composer、native picker 或其他不触发 provider 请求的正式 case，可以保留空的 case-local provider fixture，但必须在 manifest 中显式声明 `"providerRequestPolicy": "none"`，并保持 `"requests": []`。这类 case 仍需要跑 `e2e:fixture:check` 和本地 replay；声明只表示该 spec 的稳定合同是“不产生模型请求”，不是跳过正式验证。
+Casos formais puramente de composer, native picker ou outros que não disparam request de provider podem manter o provider fixture case-local vazio, mas precisam declarar explicitamente `"providerRequestPolicy": "none"` no manifest e manter `"requests": []`. Esses casos ainda precisam rodar `e2e:fixture:check` e o replay local; a declaração significa apenas que o contrato estável daquela spec é "não gera request de modelo", e não uma dispensa da verificação formal.
 
-## 请求分类
+## Classificação de requests
 
-录制时可以全量 capture；转成 fixture 时只把必要请求纳入合同。
+Na gravação é possível capturar tudo; ao converter para fixture, apenas as requests necessárias entram no contrato.
 
-| 分类 | 含义 | 处理 |
+| Categoria | Significado | Tratamento |
 | --- | --- | --- |
-| `main` | case 核心断言依赖的请求，例如 edit rerun、compact summary、goal verifier | 放入 case-local fixture |
-| `common` | 多个 case 稳定需要的辅助请求，例如标题生成 | 放入 common fixture |
-| `ignore` | capture 中出现但不属于测试合同的请求 | 不进入 case-local fixture，必要时在 manifest 说明 |
-| `synthetic` | 真实 capture 不稳定或不能构造的时序/故障，例如慢流、断流、429 | 放入 case-local fixture，并写 `syntheticReason` |
+| `main` | requests das quais as asserções centrais do caso dependem, como edit rerun, compact summary, goal verifier | vão para o fixture case-local |
+| `common` | requests auxiliares estavelmente necessárias a múltiplos casos, como geração de título | vão para o common fixture |
+| `ignore` | requests que aparecem na captura mas não pertencem ao contrato de teste | não entram no fixture case-local; se necessário, são explicadas no manifest |
+| `synthetic` | temporizações/falhas instáveis ou impossíveis de construir na captura real, como stream lento, stream interrompido, 429 | vão para o fixture case-local, com `syntheticReason` escrito |
 
-工具可以基于 marker、path、prompt 内容和请求顺序自动建议分类，但产品语义由开发者 review。
+Ferramentas podem sugerir a categoria automaticamente com base em marker, path, conteúdo de prompt e ordem das requests, mas a semântica de produto é revisada pelo desenvolvedor.
 
 ## SSE Timing
 
-不同 case 使用不同回放策略，避免所有测试都被慢流拖慢，也避免性能 case 被一次性 body 回放冲掉价值。
+Casos diferentes usam estratégias de replay diferentes, evitando que todos os testes fiquem lentos por causa de stream lento e evitando que um case de performance perca o valor por ser reproduzido com body de uma só vez.
 
-| 策略 | 适用场景 |
-| --- | --- |
-| `fast-text` | 普通功能断言，快速返回即可 |
-| `controlled-stream` | stop、queue、interrupted 等需要稳定 streaming 窗口的 case |
-| `recorded-stream` | 性能、Markdown 渲染、流式节奏相关 case，需要保留真实 `responseEvents` / `responseChunkTimeline` |
-| `fault-stream` | 断流、半包、socket destroy 等故障注入 |
+| Estratégia             | Cenário aplicável |
+| --------------------- | ----------------- |
+| `fast-text`           | asserções funcionais comuns; basta retorno rápido |
+| `controlled-stream`   | casos de stop, queue, interrupted, que precisam de janela de streaming estável |
+| `recorded-stream`     | casos de performance, renderização de Markdown e ritmo de streaming; precisam preservar `responseEvents` / `responseChunkTimeline` reais |
+| `fault-stream`        | injeção de falhas como stream interrompido, pacote parcial, socket destroy |
 
-synthetic 的 controlled/fault stream 必须说明原因。典型例子：真实模型太快，无法稳定覆盖 stop window。
+controlled/fault stream sintéticos precisam explicar o motivo. Exemplo típico: o modelo real é rápido demais e não cobre a stop window de forma estável.
 
-Replay capture artifact 属于请求生命周期：请求开始的 `pending`、正常响应终态以及
-fixture variable 缺失等 fail-closed 终态都必须等待对应 artifact 写入后，handler 才能返回。
-原子替换重试最终失败时，拒绝必须进入 replay server 的统一 handler catch；即使 500 响应已经
-结束，也不能把诊断落盘 Promise 留成 fire-and-forget 的未处理拒绝。该错误路径使用可注入的
-artifact writer 做 focused test，避免依赖 Windows 文件锁竞争时序。
-Replay server 的启动也遵守同一生命周期：`listen` 成功后的首次 artifact 写入若失败，
-启动流程必须先等待 HTTP listener 关闭和当前 artifact 写队列收口，再重新抛出原始写入错误；
-不得让失败的 fixture 初始化遗留端口或后台 server。
+O capture artifact de replay pertence ao ciclo de vida da request: o `pending` de início de request, o estado final de resposta normal e estados finais fail-closed como variável de fixture ausente só podem retornar ao handler depois que o artifact correspondente for gravado. Quando a retentativa de substituição atômica falha de vez, a rejeição precisa entrar no catch unificado de handler do replay server; mesmo com a resposta 500 já encerrada, não se pode deixar a Promise de escrita de diagnóstico como rejeição não tratada em fire-and-forget. Esse caminho de erro usa um artifact writer injetável para teste focado, evitando depender da temporização de disputa de lock de arquivo no Windows. A inicialização do replay server segue o mesmo ciclo de vida: se a primeira escrita de artifact após o sucesso do `listen` falhar, o fluxo de inicialização precisa primeiro aguardar o fechamento do HTTP listener e o encerramento da fila de escrita de artifacts corrente, e só então relançar o erro de escrita original; não se pode deixar uma inicialização de fixture falha deixar porta ou server em background.
 
-## 转正准入
+## Admissão para promoção
 
-一个 case 从 `manual-review/pending` 进入正式路径前，至少满足：
+Antes de um caso sair de `manual-review/pending` para o caminho formal, é preciso satisfazer ao menos:
 
-1. 对应 catalog/matrix 已经是 accepted 语义。
-2. manual/capture artifact 已被 review，或 synthetic 原因已在 manifest 说明。
-3. case-local provider fixture 和文件 fixture 已准备好。
-4. `e2e:fixture:check` 通过。
-5. 本地 default replay 通过。
-6. 文档路径从 pending 更新到正式 spec。
+1. O catalog/matrix correspondente já tem semântica accepted.
+2. O artifact manual/capture foi revisado, ou o motivo sintético já foi explicado no manifest.
+3. O provider fixture case-local e o fixture de arquivos estão prontos.
+4. `e2e:fixture:check` passou.
+5. O replay default local passou.
+6. O caminho na documentação foi atualizado de pending para a spec formal.
 
-pending case 已有 case-local fixture 时，可以在转正前直接检查合同；检查器读取 pending spec 中的 marker，
-同时要求两个 fixture JSON 的 `spec` 指向 canonical formal target：
+Quando o caso pending já tem fixture case-local, é possível verificar o contrato antes da promoção; o verificador lê o marker na spec pending e exige que o `spec` dos dois JSONs de fixture aponte para o canonical formal target:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:fixture:check -- \
   --spec ./test/e2e/conversation-session/manual-review/pending/<case>.test.ts
 ```
 
-pending manual-review 会按 case 是否已有 case-local fixture 自动隔离模式：已有 fixture 时使用 replay，
-缺 fixture 时使用 live/capture。需要临时覆盖 fixture 集合时仍可显式传入 fixture 路径；该变量同时把
-provider transport 切到 replay，但仍保留 `ZCODE_E2E_MANUAL_REVIEW=1` 的 pending spec 运行边界，
-避免把回放证据误当成真实 provider capture：
+O manual-review pending isola o modo automaticamente conforme o caso já tenha fixture case-local: usa replay quando há fixture e live/capture quando falta. Para sobrepor temporariamente o conjunto de fixtures ainda se pode passar explicitamente o caminho do fixture; essa variável também troca o provider transport para replay, mas preserva o limite de execução de spec pending de `ZCODE_E2E_MANUAL_REVIEW=1`, evitando tomar evidência de replay por captura real de provider:
 
 ```bash
 E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/common.json,packages/desktop/test/e2e/fixtures/upstream/conversation-session/<case>.json \
@@ -195,46 +163,41 @@ E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/com
   './test/e2e/conversation-session/manual-review/pending/<case>.test.ts'
 ```
 
-如果 case 的产品语义就是不触发 provider 请求，manifest 必须使用
-`providerRequestPolicy: "none"` 明确这一点；否则空的 case-local fixture 不能转正。
+Se a semântica de produto do caso for realmente não disparar request de provider, o manifest precisa declarar isso explicitamente com `providerRequestPolicy: "none"`; caso contrário, um fixture case-local vazio não pode ser promovido.
 
-进入 Docker preset 前还需要：
+Antes de entrar no Docker preset, ainda é preciso:
 
-1. Docker `replay-isolated` 通过。
-2. artifact 路径写入运行记录或 PR 描述。
-3. `manual-review/pending` 下的 spec 不直接加入 Docker preset。
-4. 使用 `e2e:docker:admit` 同步 Docker preset 和准入文档。
+1. O `replay-isolated` em Docker passou.
+2. O caminho do artifact foi gravado no registro de execução ou na descrição do PR.
+3. Specs sob `manual-review/pending` não entram diretamente no Docker preset.
+4. Usar `e2e:docker:admit` para sincronizar o Docker preset e o documento de admissão.
 
-## Skill 入口
+## Entradas por skill
 
-这份文档是 conversation session 领域的落地实例；通用流程由两个 skill 承接：
+Este documento é a instância de implantação do domínio de conversation session; o processo genérico fica por conta de duas skills:
 
-- `.agents/skills/feature-boundary-planner`：从功能变动、matrix、formal-proof 和剪枝对话产出需要覆盖的 case 文档。
-- `.agents/skills/e2e-case-lifecycle`：从 manual-review spec、capture/replay fixture、promotion、Docker admission 到 CI 的稳定化流程。
+- `.agents/skills/feature-boundary-planner`: produz o documento de casos a cobrir a partir de mudanças de funcionalidade, matrix, formal-proof e diálogos de poda.
+- `.agents/skills/e2e-case-lifecycle`: processo de estabilização da spec manual-review, capture/replay fixture, promotion, Docker admission e CI.
 
-## 工具化流程
+## Processo ferramentas
 
-review 已确认的 pending case 使用 promotion 工具做机械转正：
+Para casos pending já confirmados no review, a ferramenta de promotion faz a promoção mecânica:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:promote -- --spec ./test/e2e/conversation-session/manual-review/pending/<case>.test.ts --reviewed --apply
 ```
 
-promotion 工具只做确定性脚手架：
+A ferramenta de promotion só faz脚手架 mecânico:
 
-1. 将 spec 从 `manual-review/pending` 移到正式 `conversation-session/` 目录。
-2. 修正常见 helper 相对 import。
-3. 不存在时生成 case-local provider fixture 空壳和 case manifest 空壳；已有 fixture 保持内容不变，其
-   `spec` 必须已经是 canonical formal target。
-4. 将 coverage matrix 中该 spec 的 pending 路径更新为正式路径。
-5. 在同一文件事务内运行 `pnpm audit:conversation-session-coverage`；只有 audit 通过才保留转正结果。
-6. audit 失败或执行异常时恢复 spec、fixture、manifest 与 coverage matrix 的转正前快照，退出码为 1，
-   禁止留下 formal admission 半状态。
-7. 输出后续运行 fixture check、case-local replay、default replay 与 Docker admission 的命令。
+1. Move a spec de `manual-review/pending` para o diretório formal `conversation-session/`.
+2. Corrige imports relativos de helper comuns.
+3. Gera, quando não existem, o case manifest vazio e o case-local provider fixture vazio; fixture existente mantém o conteúdo, e seu `spec` já precisa ser o canonical formal target.
+4. Atualiza na coverage matrix o caminho pending daquela spec para o caminho formal.
+5. Executa `pnpm audit:conversation-session-coverage` na mesma transação de arquivo; o resultado da promoção só é mantido se o audit passar.
+6. Em caso de falha do audit ou exceção na execução, restaura o snapshot pré-promoção de spec, fixture, manifest e coverage matrix e sai com código 1, proibindo deixar um estado parcial de formal admission.
+7. Imprime os comandos seguintes de fixture check, replay case-local, replay default e Docker admission.
 
-promotion 工具不自动决定产品语义，也不把 capture artifact 直接当合同。由于 `--apply` 会在转正事务内执行
-formal audit，开发者必须在 pending 阶段根据人工 review 和请求分类先填好 `fixtures` / `requests`，并让
-manifest 与 provider fixture 的 `spec` 都指向 canonical formal target；audit 未通过时不会完成转正。转正后再运行：
+A ferramenta de promotion não decide sozinha a semântica de produto nem toma o capture artifact diretamente como contrato. Como `--apply` executa o audit formal dentro da transação de promoção, o desenvolvedor precisa ter preenchido `fixtures` / `requests` antes, na fase pending, a partir do review manual e da classificação de requests, e fazer com que o `spec` do manifest e do provider fixture aponte para o canonical formal target; a promoção não é concluída se o audit falhar. Depois da promoção, rodar:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/<case>.test.ts
@@ -245,16 +208,16 @@ E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/com
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/<case>.test.ts'
 ```
 
-第一条 replay 命令显式只加载 common + case-local fixture，用来证明正式 case 不依赖 legacy `provider-basic.json` 的专用兜底。
+O primeiro comando de replay carrega explicitamente apenas o common + fixture case-local, para provar que o caso formal não depende do fallback dedicado do legacy `provider-basic.json`.
 
-进入 Docker suite 前，先跑单 spec 的断网容器证明：
+Antes de entrar na Docker suite, rodar primeiro a prova de contêiner sem rede de spec única:
 
 ```bash
 E2E_SPEC=./test/e2e/conversation-session/<case>.test.ts \
   pnpm run test:e2e:container
 ```
 
-通过后再登记进 `conversation-session-verified`：
+Depois de passar, registrar em `conversation-session-verified`:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:docker:admit -- \
@@ -266,26 +229,19 @@ pnpm --filter @zcode/desktop e2e:docker:admit -- \
 pnpm run test:e2e:container:conversation
 ```
 
-`e2e:docker:admit` 只做机械登记：更新 `scripts/test-desktop-e2e-container.sh` 里的
-`conversation-session-verified` preset，并同步
-`docs/testing/conversation-session-docker-automation-plan.md`。它不会替代单 spec 的
-Docker 证明，也不会允许 `manual-review/pending` spec 直接进 suite。
+`e2e:docker:admit` só faz registro mecânico: atualiza o preset `conversation-session-verified` em `scripts/test-desktop-e2e-container.sh` e sincroniza `docs/testing/conversation-session-docker-automation-plan.md`. Ele não substitui a prova Docker de spec única nem permite que specs de `manual-review/pending` entrem direto na suite.
 
-进入 suite 后，常规回归不再按 case 单独 build/run Docker。`conversation-session-verified`
-会把多条 spec 传入同一次 WDIO 运行，复用 Docker 镜像、容器启动、desktop app 构建和
-agent server 构建成本。单 spec Docker 运行保留给准入证明和失败定位；真实 capture、
-fault-stream、性能/时序敏感、会污染全局配置或依赖特殊网络/文件系统状态的 case，再拆到
-独立 preset 或独立容器运行。
+Depois de entrar na suite, a regressão rotina não faz mais build/run de Docker por caso. O `conversation-session-verified` passa várias specs para uma mesma execução do WDIO, reutilizando o custo de imagem Docker, subida de contêiner, build do app desktop e build do agent server. A execução Docker de spec única fica reservada para prova de admissão e localização de falha; casos de capture real, fault-stream, sensíveis a performance/tempo, que poluem configuração global ou que dependem de estado especial de rede/sistema de arquivos devem ser separados em preset próprio ou execução em contêiner próprio.
 
-## 当前 MVP
+## MVP atual
 
-第一阶段只做 E2E 落地流水线的基础设施：
+A primeira fase faz apenas a infraestrutura da linha de implantação de E2E:
 
-1. WDIO 支持自动加载 case-local provider fixture。
-2. `conversation-session-edit` 作为样板迁出 legacy 专用 fixture。
-3. `conversation-session-running-actions` 作为第二个样板，覆盖通用只读 tool call、case-local final response 和 controlled slow stream 的组合。
-4. 提供 `e2e:fixture:check` 秒级检查命令，检查 JSON shape、manifest、fixture id 和 spec marker 覆盖。
-5. 提供 `e2e:promote` 转正脚手架，减少移动 spec、修 import、建 manifest 的重复操作。
-6. 提供 `e2e:docker:admit` Docker 准入脚手架，减少维护 preset 和准入文档的重复操作。
+1. WDIO suporta carregar automaticamente o provider fixture case-local.
+2. `conversation-session-edit` migra como exemplo o fixture dedicado legacy.
+3. `conversation-session-running-actions` como segundo exemplo, cobrindo a combinação de tool call somente leitura genérico, final response case-local e controlled slow stream.
+4. Disponibilizar o comando de verificação de segundos `e2e:fixture:check`, que verifica o JSON shape, o manifest, o id do fixture e a cobertura de marker da spec.
+5. Disponibilizar o scaffolding de promoção `e2e:promote`, reduzindo as operações repetidas de mover spec, corrigir import e criar manifest.
+6. Disponibilizar o scaffolding de admissão Docker `e2e:docker:admit`, reduzindo as operações repetidas de manter preset e documento de admissão.
 
-后续再补 capture-to-fixture，把 capture artifact 自动转换成待 review 的 main/common/ignore/synthetic 草稿。
+Depois se complementa o capture-to-fixture, convertendo automaticamente o capture artifact em rascunhos main/common/ignore/synthetic aguardando review.

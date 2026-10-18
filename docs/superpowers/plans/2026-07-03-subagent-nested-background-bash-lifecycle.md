@@ -1,126 +1,126 @@
-# Subagent Nested Background Bash Lifecycle Implementation Plan
+# Plano de Implementação do Ciclo de Vida de Bash em Background Aninhado de Subagent
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 收敛 BG06：background subagent 内部启动 background Bash 后，Bash completion 归属于 child runtime 的 cleanup lifecycle，不复活已完成的 child model loop，也不补发 parent Agent result。
+**Objetivo:** convergir BG06: depois que um subagent em background inicia um Bash em background internamente, a conclusão do Bash pertence ao ciclo de vida de cleanup do child runtime, não ressuscita o model loop do child já concluído e não reenvia o Agent result do parent.
 
-**Architecture:** 不引入全局 `agentId -> task` owner routing。ZCode 已经通过 main/child `AgentRuntime` 隔离解决了 runtime 串线问题；本计划只在 child runtime 内增加 terminal/sealed background notification policy、subagent-scope Bash 最大运行时长和取消清理。parent/main background Agent、parent Bash、goal defer/wake 主链路保持现状。
+**Arquitetura:** não introduzir roteamento global de owner `agentId -> task`. O ZCode já resolveu o problema de crossover de runtime via isolamento main/child do `AgentRuntime`; este plano apenas adiciona, dentro do child runtime, a política de notificação de background terminal/sealed, o tempo máximo de execução do Bash em escopo de subagent e o cleanup de cancelamento. O Agent em background do parent/main, o Bash do parent e o caminho principal de goal defer/wake permanecem como estão.
 
-**Tech Stack:** TypeScript, `AgentRuntime`, `ToolExecutor`, `RuntimeTaskRegistry`, `ExecutionPort`, Vitest, desktop conversation E2E replay.
+**Stack técnico:** TypeScript, `AgentRuntime`, `ToolExecutor`, `RuntimeTaskRegistry`, `ExecutionPort`, Vitest, replay E2E de conversa no desktop.
 
-## Global Constraints
+## Restrições Globais
 
-- 先更新 spec / matrix，再实现代码；BG06 语义必须先从 `deferred` 改成新 accepted boundary。
-- 不引入任何外部产品命名的环境变量、标识符、注释或 provider-visible 文案。
-- 不实现全局 owner graph，不给 Bash 为了 routing 增加 parent/main 可见 owner 字段；runtime 隔离是 routing 边界。
-- 不把 nested Bash result 回写已完成的 parent Agent output。
-- 不给 main 发第二条 Agent notification。
-- 不改变 parent-level background Agent / Bash / Workflow 的 notification wake 行为。
-- 不改 Bash 单一 `output-file` provider surface；stdout/stderr 收敛是独立需求。
-- 不改手机 `web-remote-replayable` 语义；本计划只覆盖 desktop continuous / core runtime。
-- 不自动提交；只有用户明确要求提交时才 `git commit`。
-
----
-
-## Current Facts
-
-- child runtime 是独立 `AgentRuntime`，在 `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` 中创建。
-- Bash background tracking 由 `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts` 负责；terminal 后会尝试 enqueue `<task-notification>`。
-- runtime command queue 在 `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts` 中消费 `task-notification`，当前会直接执行一轮 `executeTurnCommand(...)`。
-- `RuntimeTaskRegistry` 已可记录 `local_bash` / `local_agent` / `local_workflow`，但没有 owner lifecycle 状态。
-- 当前 BG06 文档仍是 `deferred`，且文字里还保留旧误解：“child runtime 消费 Bash notification 后再形成最终 Agent result”。本计划先修正文档语义。
-
-## Target Semantics
-
-### Expected
-
-- background subagent 首轮 child turn 结束后，parent Agent 可以完成并向 main 发唯一一条 Agent `<task-notification>`。
-- child runtime 内如果还有 background Bash 运行，它继续由 child runtime / execution adapter 追踪。
-- child runtime sealed 后，nested Bash terminal 只做：
-  - 更新 child `RuntimeTaskRegistry` terminal 状态；
-  - 写 output artifact；
-  - 发 child/parent mirrored UI session event，如果现有 event mirror 支持；
-  - 清理 tracker / timer / process state。
-- child runtime sealed 后，nested Bash terminal 不做：
-  - 不 enqueue provider-visible child `<task-notification>` model turn；
-  - 不驱动 child `executeTurnCommand(...)`；
-  - 不补发 parent Agent result；
-  - 不让 main goal 等待 nested Bash。
-- subagent-scope background Bash 有最大运行时长；默认 `3_600_000ms`，超时后 kill/cancel 并落 terminal cleanup。
-- 如果 subagent owner 被显式取消/kill，child runtime 内仍 running 的 background Bash 应被取消。
-
-### Non-goals
-
-- 不让 subagent 等 nested Bash 完成后再返回 main。
-- 不让 nested Bash result 出现在 parent Agent output 中。
-- 不为 unsupported terminal resume / manual background controls 扩大范围。
-- 不把 Workflow 纳入 BG06；Workflow 已有 background registry 接入，但完整 output artifact 是独立收敛项。
+- Atualizar spec / matrix primeiro, depois implementar o código; a semântica de BG06 precisa passar de `deferred` para o novo boundary aceito.
+- Não introduzir nenhuma variável de ambiente, identificador, comentário ou texto provider-visible com nome de produto externo.
+- Não implementar grafo global de owners, nem adicionar ao Bash campos de owner visíveis a parent/main apenas para roteamento; o isolamento de runtime é o boundary de roteamento.
+- Não reescrever o resultado do nested Bash no Agent output do parent já concluído.
+- Não enviar uma segunda Agent notification para o main.
+- Não alterar o comportamento de notification wake de background Agent / Bash / Workflow em nível de parent.
+- Não mudar a superfície de provider do `output-file` único do Bash; a convergência de stdout/stderr é uma exigência separada.
+- Não mudar a semântica de `web-remote-replayable` no celular; este plano cobre apenas o desktop continuous / core runtime.
+- Não commitar automaticamente; só executar `git commit` quando o usuário pedir explicitamente.
 
 ---
 
-## File Map
+## Fatos Atuais
 
-### Documentation
+- O child runtime é um `AgentRuntime` independente, criado em `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`.
+- O tracking de Bash em background é responsabilidade de `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts`; após o terminal ele tenta enfileirar `<task-notification>`.
+- A fila de comandos do runtime consome `task-notification` em `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts`, e atualmente executa diretamente um turno de `executeTurnCommand(...)`.
+- O `RuntimeTaskRegistry` já consegue registrar `local_bash` / `local_agent` / `local_workflow`, mas não tem estado de owner lifecycle.
+- A documentação atual de BG06 ainda está como `deferred`, e o texto ainda conserva um mal-entendido antigo: "o child runtime forma o Agent result final após consumir a notification do Bash". Este plano corrige primeiro a semântica da documentação.
+
+## Semântica-Alvo
+
+### Esperado
+
+- Após o primeiro child turn do background subagent terminar, o parent Agent pode concluir e enviar ao main a única Agent `<task-notification>`.
+- Se ainda houver Bash em background rodando dentro do child runtime, ele continua sendo rastreado pelo child runtime / execution adapter.
+- Depois que o child runtime é sealed, o terminal de nested Bash apenas:
+  - atualiza o estado terminal do `RuntimeTaskRegistry` do child;
+  - grava o output artifact;
+  - emite um UI session event espelhado child/parent, se o espelhamento de eventos existente suportar;
+  - limpa tracker / timer / process state.
+- Depois que o child runtime é sealed, o terminal de nested Bash não:
+  - enfileira um model turn de `<task-notification>` do child visível ao provider;
+  - dispara `executeTurnCommand(...)` do child;
+  - reenvia o Agent result do parent;
+  - faz o goal do main esperar pelo nested Bash.
+- O Bash em background de escopo de subagent tem tempo máximo de execução; padrão `3_600_000ms`, com kill/cancel e terminal cleanup no timeout.
+- Se o owner subagent for explicitamente cancelado/killed, o Bash em background ainda rodando dentro do child runtime deve ser cancelado.
+
+### Não-objetivos
+
+- Não fazer o subagent esperar o nested Bash terminar para então retornar ao main.
+- Não fazer o resultado do nested Bash aparecer no output do parent Agent.
+- Não ampliar o escopo para terminal resume / controles manuais de background não suportados.
+- Não incluir Workflow em BG06; o Workflow já tem integração com o background registry, mas o output artifact completo é um item de convergência separado.
+
+---
+
+## Mapa de Arquivos
+
+### Documentação
 
 - Modify: `docs/conversation-session-case-catalog.md`
-  - 更新 BG06 从 `deferred` 到新 accepted/pruned wording。
+  - Atualizar BG06 de `deferred` para a nova redação accepted/pruned.
 - Modify: `docs/testing/conversation-session-background-e2e-coverage-matrix.md`
-  - 更新 Nested background boundary 和 BG06 accepted case。
+  - Atualizar o boundary de Nested background e o accepted case de BG06.
 - Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-  - 更新 BG06 覆盖状态。
+  - Atualizar o status de cobertura de BG06.
 - Create later: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-background-nested-bash.test.ts`
-  - 只在 Phase 5 写入；前置 core behavior 稳定前不转正。
+  - Escrito apenas na Phase 5; não promovido antes de o comportamento core estar estável.
 
 ### Runtime / Tool Executor
 
 - Modify: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
-  - 增加 runtime-local sealed state。
-  - 给 `createToolExecutor(...)` 传入 notification policy 和 subagent Bash timeout config。
+  - Adicionar estado sealed local do runtime.
+  - Passar a policy de notification e a config de timeout de Bash de subagent para `createToolExecutor(...)`.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/internal.ts`
-  - 扩展 `AgentRuntimeInternal` 字段/方法类型。
+  - Estender os tipos de campos/métodos de `AgentRuntimeInternal`.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/types.ts`
-  - 增加内部 runtime config：`subagents.backgroundBashMaxMs?: number`。
+  - Adicionar config interna de runtime: `subagents.backgroundBashMaxMs?: number`.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts`
-  - 增加 `sealBackgroundTaskNotifications(...)` 和 policy 判断 helper。
+  - Adicionar `sealBackgroundTaskNotifications(...)` e o helper de decisão de policy.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
-  - child `executeTurn(...)` 结束后 seal child runtime。
-  - child turn 被 abort/cancel 时，取消 child runtime 内 running background Bash。
+  - Sealar o child runtime após o `executeTurn(...)` do child.
+  - Cancelar o Bash em background ainda rodando no child runtime quando o child turn for abortado/cancelado.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/index.ts`
-  - 安装新增 runtime method。
+  - Instalar o novo runtime method.
 - Modify: `apps/zcode-cli/packages/core/src/tool/executor/types.ts`
-  - 增加 `shouldEnqueueBackgroundTaskNotification` 与 `subagentBackgroundBashMaxMs` deps。
+  - Adicionar as deps `shouldEnqueueBackgroundTaskNotification` e `subagentBackgroundBashMaxMs`.
 - Modify: `apps/zcode-cli/packages/core/src/tool/executor/impl.ts`
-  - 传递新增 deps。
+  - Passar as novas deps.
 - Modify: `apps/zcode-cli/packages/core/src/tool/executor/background-tasks.ts`
-  - terminal 前检查 notification policy；sealed child Bash 只 terminal cleanup，不 mark notified。
-  - 为 subagent-scope Bash background task 安装最大运行时长 timer。
-  - clear timer in `stopTracking()`.
+  - Verificar a notification policy antes do terminal; Bash de child sealed só faz terminal cleanup, sem marcar como notified.
+  - Instalar o timer de tempo máximo para background tasks de Bash em escopo de subagent.
+  - Limpar o timer em `stopTracking()`.
 
-### Tests
+### Testes
 
 - Modify: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
-  - core runtime policy tests。
+  - Testes de policy do core runtime.
 - Modify: `apps/zcode-cli/packages/core/tests/subagent-background.test.ts`
-  - subagent child runtime wiring tests，如现有 harness 合适。
+  - Testes de wiring do child runtime de subagent, se o harness existente couber.
 - Modify or add: `packages/desktop/test/e2e/conversation-session/conversation-session-background.test.ts`
-  - 只有 manual review 通过后再纳入正式 spec 或现有 BG spec。
+  - Só entra na spec formal (ou na spec de BG existente) depois de passar pelo manual review.
 
 ---
 
-## Phase 0: Spec and Matrix First
+## Phase 0: Spec e Matrix Primeiro
 
-**Files:**
+**Arquivos:**
 - Modify: `docs/conversation-session-case-catalog.md`
 - Modify: `docs/testing/conversation-session-background-e2e-coverage-matrix.md`
 - Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
 
 **Interfaces:**
-- Consumes: 当前 BG06 deferred 文档。
-- Produces: 新 BG06 accepted semantic contract，供后续 tests 和实现使用。
+- Consumes: a documentação atual de BG06 como `deferred`.
+- Produces: o novo contrato semântico aceito de BG06, usado pelos testes e pela implementação seguintes.
 
 - [x] **Step 1: Update BG06 catalog wording**
 
-Replace BG06 expectation with:
+Substituir a expectativa de BG06 por:
 
 ```markdown
 | BG06 | background 子 agent 内部启动 background Bash | 子 Bash 在 child runtime sealed 后完成 | subagentRuntimeBackgroundTaskCleanup | background subagent 首轮 child turn 结束后可以完成并通知 parent；child 内部 background Bash completion 只更新 child runtime task/artifact/event cleanup，不再驱动 child model turn，不回写 parent Agent output，也不补发 parent notification | accepted |
@@ -128,7 +128,7 @@ Replace BG06 expectation with:
 
 - [x] **Step 2: Update background coverage matrix boundary**
 
-Change `Nested background` decision to:
+Alterar a decisão `Nested background` para:
 
 ```markdown
 | Nested background | accepted as cleanup-only child lifecycle | child runtime 内 background Bash terminal cleanup、timeout、cancel cleanup | nested Bash result 回写 parent Agent output；main/goal 等待 nested Bash | runtime-local queue 设计 + owner-scoped lifecycle 语义 |
@@ -136,7 +136,7 @@ Change `Nested background` decision to:
 
 - [x] **Step 3: Update BG06 accepted case**
 
-Use this BG06 row:
+Usar esta linha de BG06:
 
 ```markdown
 | BG06 | background subagent 内启动 background Bash；subagent 首轮 child turn 已完成 | 子 Bash 完成或超时 | parent 只收到一次 Agent completion notification；child Bash terminal 不再触发 child provider request；child registry/event/artifact terminal cleanup 完成；UI 不出现 parent fake-running | core runtime tests + manual/replay E2E parent surface | planned |
@@ -144,27 +144,27 @@ Use this BG06 row:
 
 - [x] **Step 4: Run docs sanity check**
 
-Run:
+Executar:
 
 ```bash
 rg -n "BG06|Nested background|subagentRuntimeBackgroundTaskCleanup|deferred" docs/conversation-session-case-catalog.md docs/testing/conversation-session-background-e2e-coverage-matrix.md docs/testing/conversation-session-e2e-coverage-matrix.md
 ```
 
-Expected:
+Esperado:
 
-- BG06 不再描述“等待 child Bash 后回写最终 Agent result”。
-- BG06 可以仍是 `planned`，但不能继续是旧 `deferred` 语义。
+- BG06 não descreve mais "aguardar o child Bash e então reescrever o Agent result final".
+- BG06 pode continuar `planned`, mas não pode continuar sendo a antiga semântica `deferred`.
 
-**Phase 0 exit criteria:**
+**Critérios de saída da Phase 0:**
 
-- BG06 产品语义清楚表达为 cleanup-only child lifecycle。
-- 没有 code change。
+- A semântica de produto de BG06 está claramente expressa como child lifecycle somente de cleanup.
+- Nenhuma mudança de código.
 
 ---
 
-## Phase 1: Runtime-local Sealed Notification Policy
+## Phase 1: Notification Policy Sealed Local ao Runtime
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/internal.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts`
@@ -180,12 +180,12 @@ Expected:
   - `ToolExecutorOptions.shouldEnqueueBackgroundTaskNotification?: (input: BackgroundTaskNotificationPolicyInput) => boolean`
   - `BackgroundTaskNotificationPolicyInput = { taskId: string; toolName: string; status: string; runtimeScope: ToolRuntimeScope; traceContext: TraceContext }`
 - Consumes:
-  - Existing `RuntimeTaskRegistry` terminal update.
-  - Existing `enqueueBackgroundTaskNotification` sync command enqueue.
+  - Atualização terminal existente do `RuntimeTaskRegistry`.
+  - Enfileiramento do sync command `enqueueBackgroundTaskNotification` existente.
 
 - [x] **Step 1: Write failing test for sealed subagent runtime**
 
-Add a focused test in `runtime-tool-loop.test.ts`:
+Adicionar um teste focado em `runtime-tool-loop.test.ts`:
 
 ```ts
 it("does not wake a sealed subagent runtime for background Bash completion", async () => {
@@ -298,22 +298,22 @@ it("does not wake a sealed subagent runtime for background Bash completion", asy
 });
 ```
 
-Expected before implementation: fails because sealed method does not exist and/or notification still wakes model.
+Esperado antes da implementação: falha porque o método sealed não existe e/ou porque a notification ainda acorda o model.
 
 - [x] **Step 2: Add runtime sealed state**
 
-Add private state to `AgentRuntime`:
+Adicionar estado privado ao `AgentRuntime`:
 
 ```ts
 private backgroundTaskNotificationsSealed = false;
 private backgroundTaskNotificationSealReason?: "subagent_terminal" | "subagent_cancelled";
 ```
 
-Add corresponding fields to `AgentRuntimeInternal`.
+Adicionar os campos correspondentes ao `AgentRuntimeInternal`.
 
 - [x] **Step 3: Add seal method in background-notifications**
 
-In `runtime/methods/background-notifications.ts`, add:
+Em `runtime/methods/background-notifications.ts`, adicionar:
 
 ```ts
 export function sealBackgroundTaskNotifications(
@@ -337,7 +337,7 @@ export function sealBackgroundTaskNotifications(
 
 - [x] **Step 4: Add notification policy input**
 
-In `tool/executor/types.ts`, add:
+Em `tool/executor/types.ts`, adicionar:
 
 ```ts
 export interface BackgroundTaskNotificationPolicyInput {
@@ -353,11 +353,11 @@ export type ShouldEnqueueBackgroundTaskNotification = (
 ) => boolean;
 ```
 
-Add `shouldEnqueueBackgroundTaskNotification?: ShouldEnqueueBackgroundTaskNotification` to options and deps.
+Adicionar `shouldEnqueueBackgroundTaskNotification?: ShouldEnqueueBackgroundTaskNotification` às options e deps.
 
 - [x] **Step 5: Wire runtime policy into ToolExecutor**
 
-In `agent-runtime.ts`, pass:
+Em `agent-runtime.ts`, passar:
 
 ```ts
 shouldEnqueueBackgroundTaskNotification: (input) => {
@@ -379,7 +379,7 @@ shouldEnqueueBackgroundTaskNotification: (input) => {
 
 - [x] **Step 6: Check policy before enqueue**
 
-In `BackgroundTaskTracker.maybeEnqueueBackgroundTaskNotification(...)`, before formatting/enqueue:
+Em `BackgroundTaskTracker.maybeEnqueueBackgroundTaskNotification(...)`, antes de formatar/enfileirar:
 
 ```ts
 if (
@@ -403,53 +403,53 @@ if (
 }
 ```
 
-Do not call `markRuntimeBackgroundTaskNotified(...)` when policy suppresses notification.
+Não chamar `markRuntimeBackgroundTaskNotified(...)` quando a policy suprime a notification.
 
 - [x] **Step 7: Install method**
 
-In `runtime/methods/index.ts`, install:
+Em `runtime/methods/index.ts`, instalar:
 
 ```ts
 proto.sealBackgroundTaskNotifications = sealBackgroundTaskNotifications;
 ```
 
-Add the method to the public `AgentRuntime` interface if TypeScript requires `childRuntime.sealBackgroundTaskNotifications(...)` later.
+Adicionar o método à interface pública `AgentRuntime` se o TypeScript exigir `childRuntime.sealBackgroundTaskNotifications(...)` mais tarde.
 
 - [x] **Step 8: Run focused test**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/runtime-tool-loop.test.ts -t "sealed subagent runtime|background Bash"
 ```
 
-Expected:
+Esperado:
 
-- New sealed test passes.
-- Existing parent background Bash wake tests still pass.
+- O novo teste sealed passa.
+- Os testes existentes de wake de background Bash do parent continuam passando.
 
-**Phase 1 exit criteria:**
+**Critérios de saída da Phase 1:**
 
-- Sealed subagent runtime suppresses nested Bash provider/model notification.
-- Parent/main runtime still wakes for normal background Bash.
-- Terminal registry/event cleanup still happens for nested Bash.
+- O subagent runtime sealed suprime a notificação de provider/model do nested Bash.
+- O runtime parent/main ainda acorda para background Bash normal.
+- O cleanup terminal de registry/event continua ocorrendo para o nested Bash.
 
 ---
 
-## Phase 2: Seal Child Runtime When Subagent Turn Ends
+## Phase 2: Sealar o Child Runtime Quando o Turno do Subagent Termina
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
 - Test: `apps/zcode-cli/packages/core/tests/subagent-background.test.ts`
 - Test: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
 
 **Interfaces:**
-- Consumes: `AgentRuntime.sealBackgroundTaskNotifications(...)` from Phase 1.
-- Produces: child runtime is sealed after the initial subagent turn returns or throws.
+- Consumes: `AgentRuntime.sealBackgroundTaskNotifications(...)` da Phase 1.
+- Produces: o child runtime é sealed depois que o turno inicial do subagent retorna ou lança erro.
 
 - [x] **Step 1: Write failing subagent integration test**
 
-Add a test that uses a real `createDefaultSubagentPort` path when practical:
+Adicionar um teste que use o caminho real de `createDefaultSubagentPort` quando viável:
 
 ```ts
 it("seals child runtime after subagent turn completion", async () => {
@@ -460,11 +460,11 @@ it("seals child runtime after subagent turn completion", async () => {
 });
 ```
 
-If existing harness cannot easily expose child model call counts, keep this as a `runtime-tool-loop.test.ts` child-runtime unit and add the direct wiring test in Phase 5 E2E.
+Se o harness existente não conseguir expor facilmente a contagem de chamadas ao model do child, manter isto como unit de child runtime em `runtime-tool-loop.test.ts` e adicionar o teste de wiring direto na E2E da Phase 5.
 
 - [x] **Step 2: Wrap child executeTurn with finally**
 
-In `createDefaultSubagentPort(...).runExploreAgent`, replace direct return:
+Em `createDefaultSubagentPort(...).runExploreAgent`, substituir o return direto:
 
 ```ts
 return childRuntime.executeTurn(request.prompt, undefined, {
@@ -473,7 +473,7 @@ return childRuntime.executeTurn(request.prompt, undefined, {
 });
 ```
 
-with:
+por:
 
 ```ts
 try {
@@ -491,38 +491,38 @@ try {
 
 - [x] **Step 3: Keep parent notification unchanged**
 
-Verify no change to:
+Verificar que não há mudança em:
 
 - `finalizeBackgroundCompletion(...)`
 - `finalizeBackgroundFailure(...)`
 - `enqueueParentTaskNotification(...)`
 
-Parent Agent completion remains the only parent-level notification.
+A conclusão do Agent do parent continua sendo a única notification em nível de parent.
 
 - [x] **Step 4: Run focused tests**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/subagent-background.test.ts packages/core/tests/runtime-tool-loop.test.ts -t "background|sealed|subagent"
 ```
 
-Expected:
+Esperado:
 
-- Existing background subagent tests pass.
-- Existing parent notification tests pass.
-- New sealed child behavior passes.
+- Os testes existentes de background subagent passam.
+- Os testes existentes de notification do parent passam.
+- O novo comportamento de child sealed passa.
 
-**Phase 2 exit criteria:**
+**Critérios de saída da Phase 2:**
 
-- A completed child runtime cannot be reawakened into a model turn by later nested Bash completion.
-- Parent/main Agent output and notification behavior are unchanged.
+- Um child runtime concluído não pode ser reavivado para um model turn por uma conclusão posterior de nested Bash.
+- O output do Agent e o comportamento de notificação do parent/main ficam inalterados.
 
 ---
 
-## Phase 3: Subagent-scope Background Bash Max Runtime
+## Phase 3: Tempo Máximo de Runtime do Bash em Background de Escopo de Subagent
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/src/runtime/types.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
@@ -540,7 +540,7 @@ Expected:
 
 - [x] **Step 1: Write failing timeout test**
 
-Add:
+Adicionar:
 
 ```ts
 it("cancels subagent background Bash after the subagent max runtime", async () => {
@@ -633,17 +633,17 @@ it("cancels subagent background Bash after the subagent max runtime", async () =
 
 - [x] **Step 2: Add config**
 
-In `AgentRuntimeConfig.subagents`, add:
+Em `AgentRuntimeConfig.subagents`, adicionar:
 
 ```ts
 backgroundBashMaxMs?: number;
 ```
 
-Do not expose CLI/user config in this phase unless existing runtime config plumbing requires it for tests.
+Não expor config de CLI/usuário nesta fase, a menos que o encanamento de config de runtime existente exija isso para os testes.
 
 - [x] **Step 3: Pass config into child runtime**
 
-In `subagent.ts`, when constructing child runtime:
+Em `subagent.ts`, ao construir o child runtime:
 
 ```ts
 subagents: {
@@ -652,11 +652,11 @@ subagents: {
 },
 ```
 
-If undefined, child runtime uses default.
+Se for undefined, o child runtime usa o padrão.
 
 - [x] **Step 4: Pass timeout into ToolExecutor deps**
 
-In `agent-runtime.ts`:
+Em `agent-runtime.ts`:
 
 ```ts
 subagentBackgroundBashMaxMs:
@@ -665,7 +665,7 @@ subagentBackgroundBashMaxMs:
     : undefined,
 ```
 
-Add helper:
+Adicionar o helper:
 
 ```ts
 const DEFAULT_SUBAGENT_BACKGROUND_BASH_MAX_MS = 3_600_000;
@@ -680,7 +680,7 @@ function normalizeSubagentBackgroundBashMaxMs(value: number | undefined): number
 
 - [x] **Step 5: Start timeout in BackgroundTaskTracker**
 
-In `trackBackgroundTask(...)`, after background task registration and before poll/wait:
+Em `trackBackgroundTask(...)`, após o registro da background task e antes do poll/wait:
 
 ```ts
 let maxRuntimeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -704,7 +704,7 @@ if (
 }
 ```
 
-In `stopTracking()`:
+Em `stopTracking()`:
 
 ```ts
 if (maxRuntimeTimer) clearTimeout(maxRuntimeTimer);
@@ -713,28 +713,28 @@ maxRuntimeTimer = undefined;
 
 - [x] **Step 6: Run focused timeout tests**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/runtime-tool-loop.test.ts -t "subagent background Bash|max runtime|background Bash"
 ```
 
-Expected:
+Esperado:
 
-- Timeout test passes.
-- Existing background Bash tests still pass.
+- O teste de timeout passa.
+- Os testes existentes de background Bash continuam passando.
 
-**Phase 3 exit criteria:**
+**Critérios de saída da Phase 3:**
 
-- subagent-scope background Bash cannot run forever by default.
-- Main runtime background Bash does not get the subagent max-runtime timer.
-- No external-product keyword introduced.
+- O background Bash de escopo de subagent não pode rodar indefinidamente por padrão.
+- O background Bash do runtime main não recebe o timer de tempo máximo de subagent.
+- Nenhuma palavra-chave de produto externo foi introduzida.
 
 ---
 
-## Phase 4: Cancel Running Child Background Bash on Subagent Cancellation
+## Phase 4: Cancelar o Bash em Background do Child em Execução no Cancelamento do Subagent
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/background.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/index.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/internal.ts`
@@ -751,7 +751,7 @@ Expected:
 
 - [x] **Step 1: Write failing cancellation test**
 
-Add:
+Adicionar:
 
 ```ts
 it("cancels running subagent background Bash tasks when the subagent turn is cancelled", async () => {
@@ -810,7 +810,7 @@ it("cancels running subagent background Bash tasks when the subagent turn is can
 
 - [x] **Step 2: Implement runtime cancellation helper**
 
-In `runtime/methods/background.ts`, add:
+Em `runtime/methods/background.ts`, adicionar:
 
 ```ts
 export async function cancelRunningRuntimeBackgroundTasks(
@@ -841,7 +841,7 @@ export async function cancelRunningRuntimeBackgroundTasks(
 
 - [x] **Step 3: Wire cancellation on aborted child turn**
 
-In `subagent.ts`, extend the `finally` from Phase 2:
+Em `subagent.ts`, estender o `finally` da Phase 2:
 
 ```ts
 const cancelled = options?.signal?.aborted === true;
@@ -863,27 +863,27 @@ try {
 
 - [x] **Step 4: Run focused cancellation tests**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/runtime-tool-loop.test.ts packages/core/tests/subagent-background.test.ts -t "cancel|background Bash|subagent"
 ```
 
-Expected:
+Esperado:
 
-- Cancellation helper cancels running child background Bash.
-- Normal completed child runtime does not cancel nested Bash; it relies on terminal cleanup/timeout.
+- O helper de cancelamento cancela o background Bash do child em execução.
+- Um child runtime concluído normalmente não cancela o nested Bash; ele depende do terminal cleanup/timeout.
 
-**Phase 4 exit criteria:**
+**Critérios de saída da Phase 4:**
 
-- Explicit subagent cancellation does not leave detached child Bash orphaned.
-- Completed subagent still allows child Bash to finish cleanup-only.
+- O cancelamento explícito do subagent não deixa um child Bash órfão.
+- O subagent concluído ainda permite que o child Bash termine em modo cleanup-only.
 
 ---
 
-## Phase 5: BG06 E2E Manual Review and Promotion
+## Phase 5: Manual Review e Promoção da E2E de BG06
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/desktop/test/e2e/conversation-session/conversation-session-background.test.ts`
 - Modify: `packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-background.json`
 - Modify: `packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-background.json`
@@ -891,12 +891,12 @@ Expected:
 - Modify after promotion: `docs/testing/conversation-session-e2e-coverage-matrix.md`
 
 **Interfaces:**
-- Consumes: core runtime behavior from Phases 1-4.
-- Produces: replayable BG06 parent-surface proof.
+- Consumes: o comportamento de core runtime das Phases 1-4.
+- Produces: prova replayável de BG06 na superfície do parent.
 
 - [x] **Step 1: Write replay E2E spec**
 
-Spec should drive:
+A spec deve dirigir:
 
 ```text
 E2E_BACKGROUND_NESTED_BASH:
@@ -908,18 +908,18 @@ E2E_BACKGROUND_NESTED_BASH:
   6. parent does not receive a second Agent notification and does not show fake-running
 ```
 
-Assertions:
+Asserções:
 
-- parent model request contains Agent launch result.
-- parent later model request contains exactly one Agent `<task-notification>`.
-- no later parent request contains nested Bash `<task-notification>`.
-- UI visible user messages do not include `<task-notification>`.
-- session returns idle after parent Agent notification.
-- child model-io does not contain nested Bash `<task-notification>` after child runtime is sealed.
+- o model request do parent contém o resultado de lançamento do Agent.
+- o model request posterior do parent contém exatamente uma Agent `<task-notification>`.
+- nenhum request posterior do parent contém `<task-notification>` do nested Bash.
+- as mensagens de usuário visíveis na UI não incluem `<task-notification>`.
+- a sessão retorna para idle após a notification do Agent do parent.
+- o model-io do child não contém `<task-notification>` do nested Bash depois que o child runtime é sealed.
 
 - [x] **Step 2: Run fixture validation**
 
-Run:
+Executar:
 
 ```bash
 python -m json.tool packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-background.json >/dev/null
@@ -927,18 +927,18 @@ python -m json.tool packages/desktop/test/e2e/fixtures/cases/conversation-sessio
 pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-background.test.ts
 ```
 
-Expected:
+Esperado:
 
-- Fixture JSON is valid.
-- Fixture contract includes the new BG06 requests.
+- O JSON da fixture é válido.
+- O contrato da fixture inclui os novos requests de BG06.
 
 - [x] **Step 3: Reuse existing background suite instead of promotion**
 
-BG06 is part of the same accepted background surface as BG01-BG03/BG07, so it was added directly to the existing formal background replay suite instead of creating and promoting a separate manual-review spec.
+BG06 faz parte da mesma superfície de background aceita que BG01-BG03/BG07, então foi adicionado diretamente à suite formal de replay de background existente, em vez de criar e promover uma spec separada de manual review.
 
 - [x] **Step 4: Fill fixture contract**
 
-Classify requests:
+Classificar os requests:
 
 ```text
 main: Agent launch request
@@ -947,11 +947,11 @@ ignore: title generation
 ignore or synthetic: child-internal provider requests if the spec only asserts parent surface
 ```
 
-Case-specific responses were added only to the existing background case-local fixture.
+Respostas específicas do caso foram adicionadas apenas à fixture local do caso de background existente.
 
 - [x] **Step 5: Verify fixture and replay**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-background.test.ts
@@ -962,52 +962,52 @@ E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/com
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/conversation-session-background.test.ts'
 ```
 
-Expected:
+Esperado:
 
-- Fixture check passes.
-- Replay passes with only common + case-local fixture.
-- Default replay passes.
+- O fixture check passa.
+- O replay passa com apenas a fixture common + case-local.
+- O replay padrão passa.
 
-**Phase 5 exit criteria:**
+**Critérios de saída da Phase 5:**
 
-- BG06 is covered by replayable E2E or remains documented as manual-reviewed pending with explicit reason.
-- Coverage matrix reflects actual status.
+- BG06 está coberto por E2E replayável ou permanece documentado como pending de manual review, com motivo explícito.
+- A coverage matrix reflete o status real.
 
 ---
 
-## Phase 6: Regression Verification
+## Phase 6: Verificação de Regressão
 
-**Files:**
-- No new implementation files.
-- Update docs only if verification uncovers an intentional scope note.
+**Arquivos:**
+- Nenhum arquivo de implementação novo.
+- Atualizar docs somente se a verificação revelar uma nota de escopo intencional.
 
 - [x] **Step 1: Run core focused tests**
 
-Run:
+Executar:
 
 ```bash
 ../../node_modules/.bin/vitest run packages/core/tests/runtime-tool-loop.test.ts packages/core/tests/subagent-background.test.ts packages/core/tests/bash-handler.test.ts
 ```
 
-Expected:
+Esperado:
 
-- All focused core tests pass.
+- Todos os testes core focados passam.
 
 - [x] **Step 2: Run existing background E2E fixture checks**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-background.test.ts
 ```
 
-Expected:
+Esperado:
 
-- Existing BG01-BG05/BG07 fixture check remains green.
+- O fixture check existente de BG01-BG05/BG07 continua verde.
 
 - [x] **Step 3: Run typecheck/lint**
 
-Run:
+Executar:
 
 ```bash
 pnpm --filter @zcode/desktop typecheck:e2e
@@ -1015,14 +1015,14 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected:
+Esperado:
 
-- Typecheck passes; lint exits successfully with existing warnings only.
-- If unrelated existing failures appear, record exact failing command and first relevant error.
+- O typecheck passa; o lint sai com sucesso apenas com os warnings já existentes.
+- Se aparecerem falhas existentes não relacionadas, registrar o comando exato que falhou e o primeiro erro relevante.
 
 - [x] **Step 4: Provider-visible keyword scan**
 
-Run:
+Executar:
 
 ```bash
 python - <<'PY'
@@ -1069,36 +1069,36 @@ if matches:
 PY
 ```
 
-Expected:
+Esperado:
 
-- No new provider/runtime identifiers or docs text introduced by this work that anchors behavior to external product names.
-- Existing vendor docs are not part of this scan.
+- Nenhum identificador provider/runtime novo ou texto de docs introduzido por este trabalho que ancore o comportamento em nomes de produtos externos.
+- Docs existentes de vendors não fazem parte deste scan.
 
-**Phase 6 exit criteria:**
+**Critérios de saída da Phase 6:**
 
-- Core tests green.
-- Existing background behavior not regressed.
-- BG06 new semantics verified or explicitly left as manual-reviewed pending.
-- No unintended provider-visible surface change.
+- Testes core verdes.
+- Comportamento de background existente sem regressão.
+- A nova semântica de BG06 verificada ou explicitamente deixada como pending de manual review.
+- Nenhuma mudança unintended na superfície provider-visible.
 
 ---
 
-## Review Checklist
+## Checklist de Revisão
 
-- [x] BG06 wording no longer says nested Bash should update parent Agent output.
-- [x] Runtime isolation remains the routing boundary.
-- [x] Sealed child runtime suppresses only child Bash model notification, not parent Bash or parent Agent notifications.
-- [x] Suppressed notification does not mark task `notified: true`.
-- [x] BackgroundTaskCompleted / registry terminal state still happens for nested Bash.
-- [x] Subagent background Bash max runtime applies only to `runtimeScope === "subagent"` and Bash.
-- [x] Explicit child cancellation cancels running child background Bash.
-- [x] No external-product keyword added.
-- [x] No mobile replayable behavior changed.
-- [x] No commit made without explicit user request.
+- [x] A redação de BG06 não diz mais que o nested Bash deve atualizar o output do Agent do parent.
+- [x] O isolamento de runtime continua sendo o boundary de roteamento.
+- [x] O child runtime sealed suprime apenas a model notification do child Bash, não as notifications do parent Bash nem do parent Agent.
+- [x] A notification suprimida não marca a task como `notified: true`.
+- [x] O `BackgroundTaskCompleted` / estado terminal do registry ainda acontece para o nested Bash.
+- [x] O tempo máximo de runtime do background Bash de subagent se aplica apenas a `runtimeScope === "subagent"` e a Bash.
+- [x] O cancelamento explícito do child cancela o background Bash do child em execução.
+- [x] Nenhuma palavra-chave de produto externo foi adicionada.
+- [x] Nenhum comportamento de replayable no celular foi alterado.
+- [x] Nenhum commit foi feito sem pedido explícito do usuário.
 
-## Implementation Notes
+## Notas de Implementação
 
-- Prefer small runtime-local helpers over a global owner graph.
-- If a test needs to observe child runtime requests, prefer a core unit test over an E2E timing assertion.
-- If E2E cannot reliably capture child-internal provider traffic, assert parent-visible invariants and leave child behavior to core tests.
-- Do not broaden this into Workflow output artifact or Bash single output-file work.
+- Preferir pequenos helpers locais ao runtime em vez de um grafo global de owners.
+- Se um teste precisar observar requests do child runtime, preferir um teste unitário de core em vez de uma asserção de timing E2E.
+- Se a E2E não conseguir capturar de forma confiável o tráfego de provider interno do child, afirmar os invariantes visíveis ao parent e deixar o comportamento do child para os testes de core.
+- Não ampliar isto para o output artifact de Workflow nem para o trabalho de output-file único do Bash.

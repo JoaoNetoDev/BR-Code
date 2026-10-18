@@ -1,115 +1,115 @@
-# Plan Mode Plan File Implementation Plan
+# Plano de Implementação do Plan File no Plan Mode
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use `superpowers:executing-plans` para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 将 ZCode Plan mode 的 `ExitPlanMode(plan)` 设计改造成 plan-file 设计：计划正文写入 plan file，确保 compact / resume / pending approval replay 后仍能从 plan file 恢复完整计划。
+**Objetivo:** Transformar o design `ExitPlanMode(plan)` do Plan mode do ZCode em um design baseado em plan file: o corpo do plano é gravado em um plan file, garantindo que após compact / resume / pending approval replay o plano completo ainda possa ser recuperado a partir do plan file.
 
-**Architecture:** 以 provider-visible tool schema、tool prompt、runtime injected input、tool output、plan-file reminder 组成的 plan-file 合同为唯一目标。模型只看到 `ExitPlanMode({ allowedPrompts? })`；runtime 在 permission/hook/handler 之前从当前 plan file 注入 `{ plan, planFilePath }`；审批通过后的 tool output 使用 `{ plan, isAgent, filePath, hasTaskTool?, planWasEdited?, awaitingLeaderApproval?, requestId? }` shape。Plan file 本身是计划正文的事实来源，session event 只记录 plan file path/status 以支持 compact、resume 和 snapshot。
+**Arquitetura:** O contrato do plan file — composto por provider-visible tool schema, tool prompt, runtime injected input, tool output e plan-file reminder — é o único objetivo. O modelo vê apenas `ExitPlanMode({ allowedPrompts? })`; o runtime injeta `{ plan, planFilePath }` a partir do plan file atual antes de permission/hook/handler; após a aprovação, o tool output usa o shape `{ plan, isAgent, filePath, hasTaskTool?, planWasEdited?, awaitingLeaderApproval?, requestId? }`. O próprio plan file é a fonte de verdade do corpo do plano; eventos de sessão registram apenas o path/status do plan file para suportar compact, resume e snapshot.
 
-**Tech Stack:** TypeScript, Zod, Vitest, `@zcode/contracts`, ZCode core runtime/tool executor, session events/reducer, provider-visible prompt trajectory, desktop continuous and web-remote replayable session projection.
+**Stack técnico:** TypeScript, Zod, Vitest, `@zcode/contracts`, runtime/tool executor do core do ZCode, session events/reducer, prompt trajectory provider-visible, projeção de sessão replayable desktop continuous e web-remote.
 
-## Global Constraints
+## Restrições Globais
 
-- 行为合同以下方「Target Contract」和 Task 0 写入的 `docs/plan-mode-plan-file.md` 为唯一事实源。
-- 目标范围只包含 Plan mode plan-file 设计：`EnterPlanMode` / `ExitPlanMode` schema、prompt、plan file path、permission approval、tool result、compact/resume continuity、UI snapshot/replay。不要顺手改 Read/PDF、Agent.model、TodoWrite.activeForm、Bash dynamic fragments、server compact、team/agent swarm、ultraplan、auto-mode gate 等其它暂缓项。
-- 不保留新的 provider-visible legacy `plan` 参数兼容路径。新的 provider-visible `ExitPlanMode.inputSchema` 只能包含 `allowedPrompts?`，不能包含 `plan`、`planFilePath`、`filePath`。
-- Runtime 可以有 internal injected input schema：`allowedPrompts?` + `plan?` + `planFilePath?`。该 schema 只用于 normalize / permission / hooks / handler，不能泄漏到 `registry.toContracts()`。
-- Output schema 字段固定为：`plan`, `isAgent`, `filePath`, `hasTaskTool?`, `planWasEdited?`, `awaitingLeaderApproval?`, `requestId?`。不要新增 `planFilePath` output 字段。
-- Plan file path 使用 workspace root 下的 `.claude/plans/plan-session-id.md` 命名模式。实际实现用 `plan-<sanitized session id>.md` 和数字后缀保证唯一；这是本仓库已有的 plan artifact 位置。不要改成 `.zcode/plans`、artifact store、session sqlite、docs/superpowers/plans 或临时目录。
-- Plan file 写入只允许当前 reserved plan file。Plan mode 仍禁止普通非只读修改；只对 `Write` / `Edit` 的 exact current plan file path 放行。不要允许 Bash redirect、ApplyPatch、任意 workspace write、任意 `.claude` 写入。
-- `EnterPlanMode` 只 reserve plan file path，不预创建文件。这样模型可用 `Write` 创建该文件，且不会触发已有文件未 Read 的 Write stale guard。
-- `ExitPlanMode` 不能在 handler 里才读 plan file，因为 permission、hooks、pending approval UI 都发生在 handler 之前。必须在 PreToolUse hook 之前完成 runtime input enrichment，让 PreToolUse、PermissionRequest、broker、pending snapshot、PostToolUse 都看到 injected input。
-- 如果当前 plan file 不存在或内容为空，`ExitPlanMode` 返回可恢复工具错误并保持 plan mode；不要用 toolcall 参数、summary、read-state 或 artifact store 兜底。
-- Compact / resume 必须通过 explicit `plan_file_reference` producer 恢复 plan file path 和完整内容。不要复用 generic read-state reminder，也不要移除 read-state 对 `docs/superpowers/plans/` 的 skip guard。
-- Desktop `desktop-continuous` 与 mobile `web-remote-replayable` 边界保持不变：relay/main 只透传，不保存 plan 业务状态；session snapshot/replay payload 必须带足 pending approval 所需的 injected input。
-- 远程 workspace 的文件操作使用 `workspacePath` / runtime working directory；身份隔离继续由 session/workspace owner 使用 `workspaceIdentity?.trim() || workspacePath`，不要把 `workspaceIdentity` 当文件路径。
-- 修改 `packages/ui` 前必须先读取根目录 `DESIGN.md`。UI 只做字段解析和现有 block 展示，不新增大 UI 体验。
-- 新增日志遵守现有 logger 规则：高频 provider/tool payload 细节只能走 debug/model-io，不走生产 info。
-- 每个实现任务先写失败测试，再实现，再跑 focused tests。最后必须运行 `pnpm typecheck` 和 `pnpm lint`。
-- 每个任务结束按 Conventional Commits 提交一个小 commit；不要 push。
+- O contrato comportamental tem como única fonte de verdade o «Target Contract» abaixo e o `docs/plan-mode-plan-file.md` escrito na Task 0.
+- O escopo alvo cobre somente o design de plan-file do Plan mode: schemas de `EnterPlanMode` / `ExitPlanMode`, prompt, plan file path, permission approval, tool result, continuidade de compact/resume, snapshot/replay de UI. Não altere Read/PDF, Agent.model, TodoWrite.activeForm, fragmentos dinâmicos de Bash, server compact, team/agent swarm, ultraplan, auto-mode gate e outros itens adiados.
+- Não mantenha caminhos de compatibilidade legados de `plan` provider-visible. O novo `ExitPlanMode.inputSchema` provider-visible só pode conter `allowedPrompts?`; não pode conter `plan`, `planFilePath`, `filePath`.
+- O runtime pode ter um internal injected input schema: `allowedPrompts?` + `plan?` + `planFilePath?`. Esse schema serve apenas para normalize / permission / hooks / handler e não pode vazar para `registry.toContracts()`.
+- Os campos do output schema são fixos: `plan`, `isAgent`, `filePath`, `hasTaskTool?`, `planWasEdited?`, `awaitingLeaderApproval?`, `requestId?`. Não adicione o campo de output `planFilePath`.
+- O plan file path usa o padrão de nomenclatura `.claude/plans/plan-session-id.md` sob a raiz do workspace. A implementação real usa `plan-<session id sanitizado>.md` com sufixo numérico para garantir unicidade; essa já é a localização de artefatos de plano existente neste repositório. Não mude para `.zcode/plans`, artifact store, session sqlite, docs/superpowers/plans ou diretórios temporários.
+- A gravação de plan file só é permitida para o plan file reservado atualmente. O Plan mode continua proibindo modificações normais não somente-leitura; a liberação vale apenas para o path exato do plan file atual em `Write` / `Edit`. Não permita Bash redirect, ApplyPatch, qualquer escrita arbitrária no workspace nem qualquer escrita em `.claude`.
+- `EnterPlanMode` apenas reserva o plan file path, sem pré-criar o arquivo. Assim o modelo pode criar o arquivo com `Write` sem disparar o guard de Write stale de arquivo ainda não lido.
+- `ExitPlanMode` não pode ler o plan file só no handler, porque permission, hooks e a UI de aprovação pendente acontecem antes do handler. O runtime input enrichment deve ser concluído antes do hook PreToolUse, para que PreToolUse, PermissionRequest, broker, pending snapshot e PostToolUse enxerguem o injected input.
+- Se o plan file atual não existir ou estiver vazio, `ExitPlanMode` retorna um erro de ferramenta recuperável e mantém o plan mode; não use parâmetros de toolcall, summary, read-state ou artifact store como fallback.
+- Compact / resume devem restaurar o plan file path e o conteúdo completo através de um producer `plan_file_reference` explícito. Não reutilize o generic read-state reminder nem remova o skip guard de read-state para `docs/superpowers/plans/`.
+- As fronteiras desktop `desktop-continuous` e mobile `web-remote-replayable` permanecem inalteradas: relay/main apenas repassa, sem salvar estado de negócio do plano; o payload de snapshot/replay de sessão deve conter o injected input necessário para a aprovação pendente.
+- Operações de arquivo em workspace remoto usam `workspacePath` / diretório de trabalho do runtime; o isolamento de identidade continua sendo feito por session/workspace owner usando `workspaceIdentity?.trim() || workspacePath`; não trate `workspaceIdentity` como caminho de arquivo.
+- Antes de modificar `packages/ui`, leia o `DESIGN.md` da raiz. A UI faz apenas parsing de campos e exibição de blocos existentes, sem grandes novas experiências de UI.
+- Logs novos seguem as regras de logger existentes: detalhes de alto volume de payload provider/tool só podem ir para debug/model-io, nunca para info de produção.
+- Cada tarefa de implementação começa com um teste falhando, depois a implementação, depois testes focados. Ao final é obrigatório rodar `pnpm typecheck` e `pnpm lint`.
+- Ao fim de cada tarefa, faça um commit pequeno seguindo Conventional Commits; não faça push.
 
 ---
 
-## Explicit Skip List
+## Lista Explícita de Omissões
 
-- 不实现 team lead / teammate mailbox / agent swarm approval：`awaitingLeaderApproval` 和 `requestId` 只保留在 output schema，普通 ZCode main-agent flow 不设置。
-- 不实现 agent 身份分支：普通 ZCode `ExitPlanMode` 输出 `isAgent: false`。
-- 不实现 `Ctrl+G` plan editor UI；只实现文件已存在时用户可通过外部编辑器修改，runtime 以 disk content 为准。
-- 不实现 plan file 内容摘要、截断版 approved snapshot 或 artifact fallback。传给模型的 tool result 仍受现有 result budget 控制，但 plan file 本身不被截断写入。
-- 不改变 `ExitPlanMode` 审批边界：仍遵守 `docs/plan-mode-approval-boundary.md` 的用户确认、拒绝停轮、拒绝反馈继续修订语义。
-- 不新增 `.gitignore` 规则隐藏 `.claude/plans`。本仓库已有 `.claude/plans/*.md` 被跟踪；是否版本化 plan artifact 属于现有仓库事实，不在本计划改。
-- 不更新 conversation E2E case catalog，除非实现时实际修改 conversation/session E2E 行为。若只改 existing session snapshot/projection unit tests，不扩大到新的 conversation E2E matrix。
+- Não implemente team lead / teammate mailbox / agent swarm approval: `awaitingLeaderApproval` e `requestId` permanecem apenas no output schema, e o fluxo ZCode main-agent comum não os define.
+- Não implemente ramificação de identidade de agente: o `ExitPlanMode` do ZCode comum retorna `isAgent: false`.
+- Não implemente a UI de edição de plano com `Ctrl+G`; implemente apenas que, quando o arquivo já existe, o usuário possa modificá-lo por um editor externo, e o runtime usa o conteúdo em disco como autoridade.
+- Não implemente resumo do conteúdo do plan file, snapshot aprovado truncado ou fallback de artifact. O tool result entregue ao modelo continua sujeito ao result budget existente, mas o plan file em si não é gravado de forma truncada.
+- Não altere a fronteira de aprovação de `ExitPlanMode`: continuam valendo as semânticas de confirmação do usuário, parada do turno em rejeição e continuação da revisão em caso de rejeição com feedback, conforme `docs/plan-mode-approval-boundary.md`.
+- Não adicione regra em `.gitignore` para esconder `.claude/plans`. Este repositório já rastreia `.claude/plans/*.md`; se artefatos de plano são versionados é um fato existente do repositório e não é alterado por este plano.
+- Não atualize o catálogo de casos E2E de conversa, a menos que a implementação de fato mude o comportamento E2E de conversa/sessão. Se apenas testes unitários de snapshot/projeção de sessão existentes forem alterados, não ampliar para uma nova matriz E2E de conversa.
 
-## Target Contract
+## Contrato Alvo
 
-这些合同在 Task 0 写入 spec，后续实现不得偏离：
+Estes contratos são escritos na spec na Task 0 e a implementação posterior não pode divergir:
 
-- `ExitPlanMode` provider input schema 是 `strictObject({ allowedPrompts }).passthrough()`，不包含 provider-visible `plan`。
-- internal schema 在此基础上 extend `{ plan?: string, planFilePath?: string }`，由 runtime 在 permission / hooks 之前从磁盘注入。
-- output schema 是 `{ plan, isAgent, filePath, hasTaskTool?, planWasEdited?, awaitingLeaderApproval?, requestId? }`。
-- 非 agent 普通 flow 的 tool result 文案包含：
+- O provider input schema de `ExitPlanMode` é `strictObject({ allowedPrompts }).passthrough()`, sem `plan` provider-visible.
+- O internal schema estende isso com `{ plan?: string, planFilePath?: string }`, injetado pelo runtime a partir do disco antes de permission / hooks.
+- O output schema é `{ plan, isAgent, filePath, hasTaskTool?, planWasEdited?, awaitingLeaderApproval?, requestId? }`.
+- O texto do tool result do flow comum não-agente contém:
   - `User has approved your plan. You can now start coding. Start with updating your todo list if applicable`
   - `Your plan has been saved to: ${filePath}`
   - `You can refer back to it if needed during implementation.`
   - `## ${planWasEdited ? "Approved Plan (edited by user)" : "Approved Plan"}:`
-- `plan_file_reference` system reminder 文案是：
+- O texto do system reminder `plan_file_reference` é:
   - `A plan file exists from plan mode at: ${planFilePath}`
-  - blank line
+  - linha em branco
   - `Plan contents:`
-  - blank line
+  - linha em branco
   - `${planContent}`
-  - blank line
+  - linha em branco
   - `If this plan is relevant to the current work and not already complete, continue working on it.`
-- `plan_mode_exit` 在 plan exists 时追加：` The plan file is located at ${planFilePath} if you need to reference it.`
-- 本仓库已有 `.claude/plans/*.md`，作为 plan-file artifact 的本地位置。
+- `plan_mode_exit` acrescenta quando o plano existe: ` The plan file is located at ${planFilePath} if you need to reference it.`
+- Este repositório já tem `.claude/plans/*.md` como localização local do artefato de plan file.
 
-## File Map
+## Mapa de Arquivos
 
 - Create: `docs/plan-mode-plan-file.md`
-  - 语义 spec：plan file path、provider schema、runtime injected input、approval、compact/resume、UI/replayable 边界。
+  - spec semântico: plan file path, provider schema, runtime injected input, approval, compact/resume, fronteiras de UI/replayable.
 - Modify: `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`
-  - 删除旧的“计划正文通过 `ExitPlanMode.plan` 直接传入、不引入 plan file”contract，替换为 plan-file contract。
+  - remover o contrato antigo de que o corpo do plano era passado diretamente por `ExitPlanMode.plan`, sem Introducing plan file, e substituir pelo contrato de plan file.
 - Modify: `docs/plan-mode-approval-boundary.md`
-  - 保留审批边界，补充审批内容来源从 `input.plan` 改为 injected plan file content。
+  - manter a fronteira de aprovação e complementar que a origem do conteúdo aprovado passa de `input.plan` para o conteúdo do plan file injetado.
 - Modify: `apps/zcode-cli/packages/contracts/src/tools/plan-mode.ts`
-  - 拆分 provider input schema 与 internal injected input schema；output 加 plan-file 字段。
+  - separar o provider input schema do internal injected input schema; adicionar campos de plan file ao output.
 - Modify: `apps/zcode-cli/packages/contracts/src/events/session.events.ts`
 - Modify: `apps/zcode-cli/packages/contracts/src/events/event-reducer.ts`
 - Modify: `packages/shared/src/zcode-protocol/index.ts`
-  - 增加 plan file state / snapshot 字段，保留 pending permission input。
+  - adicionar campos de plan file state / snapshot, preservando o pending permission input.
 - Modify: `apps/zcode-cli/packages/core/src/tool/types.ts`
 - Modify: `apps/zcode-cli/packages/core/src/tool/executor/types.ts`
 - Modify: `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`
 - Modify: `apps/zcode-cli/packages/core/src/tool/executor/validation.ts`
 - Modify: `apps/zcode-cli/packages/core/src/tool/executor/permission-flow.ts`
-  - 增加 provider input validation、pre-hook input preparation、execution input validation，并让 permission request 使用 injected input。
+  - adicionar validação de provider input, preparação de input antes dos hooks, validação do input de execução, e fazer o permission request usar o injected input.
 - Modify: `apps/zcode-cli/packages/core/src/permission/service.ts`
-  - 增加 exact current plan file write exception。
+  - adicionar exceção de escrita do plan file atual exato.
 - Modify: `apps/zcode-cli/packages/core/src/tool/handlers/write.ts`
 - Modify: `apps/zcode-cli/packages/core/src/tool/handlers/edit.ts`
-  - 只在 plan mode 且 exact current plan file path 时放行 Write/Edit。
+  - liberar Write/Edit somente no plan mode e somente para o path exato do plan file atual.
 - Create: `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file.ts`
-  - plan file path 生成、slug 生成、跨 POSIX/Windows path join、disk read、system reminder formatter。
+  - geração de plan file path, geração de slug, path join entre POSIX/Windows, leitura de disco, formatter do system reminder.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/internal.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/session-mode-port.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/helpers/runtime-reminders.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts`
-  - 维护当前 / approved plan file path，注入 plan mode / exit reminders。
+  - manter o plan file path atual / aprovado e injetar os reminders de plan mode / exit.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/helpers/compact-post-reminders.ts`
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`
-  - compact 后 explicit plan file reference。
+  - referência explícita ao plan file após o compact.
 - Modify: `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`
 - Modify: `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode-prompts.ts`
-  - `ExitPlanMode` 读取 injected input，输出 `filePath`。
+  - `ExitPlanMode` lê o injected input e emite `filePath`.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/session-mapper.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/interaction-broker.ts`
 - Modify: `packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts`
 - Modify: `packages/ui/src/lib/zcodeSessionProjection.ts`
 - Modify: `packages/ui/src/lib/toolDisplay.ts`
 - Modify: `packages/ui/src/ToolCallBlocks/ToolCallBody.tsx`
-  - snapshot/replay/UI 使用 `filePath`，pending approval schema 保留 injected input。
+  - snapshot/replay/UI usam `filePath`; o schema de aprovação pendente preserva o injected input.
 - Test: `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`
 - Test: `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`
 - Test: `apps/zcode-cli/packages/core/tests/permission-service.test.ts`
@@ -119,19 +119,19 @@
 - Test: `packages/ui/test/zcodeSessionProjection.test.ts`
 - Test: `packages/services/test/zcodeAgentService.test.ts`
 - Test: `packages/services/test/zcodeSessionService.test.ts`
-- Test: prompt trajectory fixture under `apps/zcode-cli/tools/prompt-trajectory/testcases/`
+- Test: prompt trajectory fixture em `apps/zcode-cli/tools/prompt-trajectory/testcases/`
 
 ---
 
-### Task 0: 写入 Plan File 合同 Spec
+### Task 0: Escrever a Spec de Contrato do Plan File
 
 **Files:**
 - Create: `docs/plan-mode-plan-file.md`
 
 **Interfaces:**
-- Produces: `docs/plan-mode-plan-file.md` 中的 `## Tool Contract`，后续任务只能引用这里的合同。
+- Produces: `## Tool Contract` em `docs/plan-mode-plan-file.md`; as tarefas seguintes só podem referenciar os contratos de lá.
 
-- [ ] **Step 1: 写 spec 文档**
+- [ ] **Step 1: Escrever o documento de spec**
 
 Create `docs/plan-mode-plan-file.md` with this content:
 
@@ -174,7 +174,7 @@ ZCode Plan mode keeps the plan body in a reserved plan file; `ExitPlanMode` read
 - Other postponed surfaces unrelated to plan files.
 ```
 
-- [ ] **Step 2: Commit Task 0**
+- [ ] **Step 2: Commit da Task 0**
 
 Run:
 
@@ -187,7 +187,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 1: 更新现有 Plan Mode 语义文档
+### Task 1: Atualizar a Documentação Semântica Existente do Plan Mode
 
 **Files:**
 - Modify: `apps/zcode-cli/docs/design/v2/tool/16-plan-mode.md`
@@ -195,17 +195,17 @@ Expected: commit succeeds.
 
 **Interfaces:**
 - Consumes: `docs/plan-mode-plan-file.md`.
-- Produces: docs no longer claim `ExitPlanMode.plan` is current contract.
+- Produces: docs que não afirmam mais que `ExitPlanMode.plan` é o contrato atual.
 
-- [ ] **Step 1: Update `16-plan-mode.md`**
+- [ ] **Step 1: Atualizar `16-plan-mode.md`**
 
-Replace the old first-version scope with:
+Substitua o escopo antigo da primeira versão por:
 
 ```markdown
 ZCode 当前版本采用 plan-file 语义：计划正文写入 workspace root 下的 `.claude/plans/plan-session-id.md`，`ExitPlanMode` 的 provider-visible 输入只包含 `allowedPrompts?`，runtime 在 permission / hook / handler 前从 plan file 注入 `plan` 与 `planFilePath`。
 ```
 
-In the `ExitPlanMode` section, make the input/output bullets:
+Na seção `ExitPlanMode`, deixe os bullets de input/output assim:
 
 ```markdown
 - Provider-visible 输入：
@@ -223,7 +223,7 @@ In the `ExitPlanMode` section, make the input/output bullets:
   - `requestId?: string`
 ```
 
-Remove all statements that say:
+Remova todas as afirmações que dizem:
 
 ```text
 工具必须通过 plan 参数传入完整计划
@@ -232,27 +232,27 @@ ExitPlanMode 的 plan 留在 tool input / result payload
 从 yolo 进入 plan mode 时直接 allow
 ```
 
-Keep the current approval boundary from `docs/plan-mode-approval-boundary.md`: `ExitPlanMode` still asks user approval in plan mode.
+Mantenha a fronteira de aprovação atual de `docs/plan-mode-approval-boundary.md`: `ExitPlanMode` ainda pede aprovação do usuário no plan mode.
 
-- [ ] **Step 2: Update `docs/plan-mode-approval-boundary.md`**
+- [ ] **Step 2: Atualizar `docs/plan-mode-approval-boundary.md`**
 
-Add this paragraph under `## 语义`:
+Adicione este parágrafo sob `## 语义`:
 
 ```markdown
 审批内容来源是 runtime injected `ExitPlanMode` input：runtime 在进入 permission broker 前读取当前 plan file，将 `{ plan, planFilePath }` 注入 tool input。UI、hook、pending snapshot 和 tool result 均消费这个 injected input，而不是 provider-visible toolcall 参数。
 ```
 
-- [ ] **Step 3: Verify docs no longer contain stale contract**
+- [ ] **Step 3: Verificar que os docs não contêm mais o contrato obsoleto**
 
 Run:
 
 ```bash
-rg -n 'DOES take the plan content|required plan parameter|计划正文通过 `ExitPlanMode.plan` 直接传入|不做 `ExitPlanMode` V2|保留 ZCode 当前 `ExitPlanMode\\(plan\\)`|工具必须通过 `plan` 参数' apps/zcode-cli/docs docs
+rg -n 'DOES take the plan content|required plan parameter|计划正文通过 `ExitPlanMode.plan` 直接传入|不做 `ExitPlanMode` V2|保留 ZCode 当前 `ExitPlanMode\(plan\)`|工具必须通过 `plan` 参数' apps/zcode-cli/docs docs
 ```
 
 Expected: no hits except historical completed-plan files under `apps/zcode-cli/docs/plan/trajectory/completed/` if those files are explicitly describing old completed work. Do not edit completed historical plans.
 
-- [ ] **Step 4: Commit Task 1**
+- [ ] **Step 4: Commit da Task 1**
 
 Run:
 
@@ -265,7 +265,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 2: 拆分 Provider Schema 与 Runtime Injected Schema
+### Task 2: Separar Provider Schema do Runtime Injected Schema
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/contracts/src/tools/plan-mode.ts`
@@ -277,14 +277,14 @@ Expected: commit succeeds.
 - Test: `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`
 
 **Interfaces:**
-- Produces: `ExitPlanModeInputSchema` for provider input: `{ allowedPrompts? }`.
-- Produces: `ExitPlanModeInjectedInputSchema` for runtime input: `{ allowedPrompts?, plan?, planFilePath? }`.
+- Produces: `ExitPlanModeInputSchema` para o provider input: `{ allowedPrompts? }`.
+- Produces: `ExitPlanModeInjectedInputSchema` para o runtime input: `{ allowedPrompts?, plan?, planFilePath? }`.
 - Produces: `ToolEntry.executionInputSchema?: JsonSchema`.
 - Produces: `ToolEntry.prepareInput?: (input, context) => Promise<unknown>`.
 
-- [ ] **Step 1: Write failing contract test**
+- [ ] **Step 1: Escrever o teste de contrato falhando**
 
-In `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`, replace the current ExitPlanMode contract test with:
+Em `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`, substitua o teste de contrato atual do ExitPlanMode por:
 
 ```ts
 it("matches the ExitPlanMode plan-file provider contract", () => {
@@ -308,11 +308,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/tool-contracts.test.ts -t "ExitPlanMode plan-file provider contract"
 ```
 
-Expected: FAIL because current schema exposes `plan`.
+Expected: FAIL porque o schema atual expõe `plan`.
 
-- [ ] **Step 2: Write failing injected schema test**
+- [ ] **Step 2: Escrever o teste falhando do injected schema**
 
-In `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`, add:
+Em `apps/zcode-cli/packages/core/tests/plan-mode-tool.test.ts`, adicione:
 
 ```ts
 it("keeps injected ExitPlanMode plan fields out of provider schema", () => {
@@ -330,11 +330,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/plan-mode-tool.test.ts -t "injected ExitPlanMode plan fields"
 ```
 
-Expected: FAIL because `executionInputSchema` does not exist.
+Expected: FAIL porque `executionInputSchema` não existe.
 
-- [ ] **Step 3: Implement contract schemas**
+- [ ] **Step 3: Implementar os schemas de contrato**
 
-In `apps/zcode-cli/packages/contracts/src/tools/plan-mode.ts`, replace the current `ExitPlanModeInputSchema` with:
+Em `apps/zcode-cli/packages/contracts/src/tools/plan-mode.ts`, substitua o `ExitPlanModeInputSchema` atual por:
 
 ```ts
 export const ExitPlanModeInputSchema = z
@@ -361,7 +361,7 @@ export const ExitPlanModeInjectedInputJsonSchema = toToolJsonSchema(
 );
 ```
 
-Update output schema to the plan-file shape:
+Atualize o output schema para o shape de plan file:
 
 ```ts
 export const ExitPlanModeOutputSchema = z
@@ -383,11 +383,11 @@ export const ExitPlanModeOutputSchema = z
   .strict();
 ```
 
-Do not export `PLAN_MODE_MAX_PLAN_CHARS`; it no longer applies to provider input.
+Não exporte `PLAN_MODE_MAX_PLAN_CHARS`; ele não se aplica mais ao provider input.
 
-- [ ] **Step 4: Add execution input schema plumbing**
+- [ ] **Step 4: Adicionar o plumbing do execution input schema**
 
-In `apps/zcode-cli/packages/core/src/tool/types.ts`, add:
+Em `apps/zcode-cli/packages/core/src/tool/types.ts`, adicione:
 
 ```ts
 export interface ToolInputPreparationContext {
@@ -403,7 +403,7 @@ export interface ToolInputPreparationContext {
 }
 ```
 
-Add to `ToolEntry`:
+Adicione ao `ToolEntry`:
 
 ```ts
 executionInputSchema?: JsonSchema;
@@ -413,15 +413,15 @@ prepareInput?: (
 ) => Promise<unknown>;
 ```
 
-Add matching fields to `ToolExecutorOptions` / `ToolExecutorDeps` in `executor/types.ts`:
+Adicione os campos correspondentes a `ToolExecutorOptions` / `ToolExecutorDeps` em `executor/types.ts`:
 
 ```ts
 getCurrentPlanFilePath?: () => string | undefined;
 ```
 
-- [ ] **Step 5: Split validation phases**
+- [ ] **Step 5: Separar as fases de validação**
 
-In `apps/zcode-cli/packages/core/src/tool/executor/validation.ts`, change `validateInput` to:
+Em `apps/zcode-cli/packages/core/src/tool/executor/validation.ts`, mude `validateInput` para:
 
 ```ts
 export function validateInput(
@@ -447,9 +447,9 @@ export function validateInput(
 }
 ```
 
-- [ ] **Step 6: Call `prepareInput` before hooks and permission**
+- [ ] **Step 6: Chamar `prepareInput` antes dos hooks e da permission**
 
-In `call-runner.ts`, use this order:
+Em `call-runner.ts`, use esta ordem:
 
 ```ts
 let executionInput = normalizeToolExecutionInput({ entry, input: toolCall.input, logger: deps.logger, source: "initial" });
@@ -475,11 +475,11 @@ const executionInputValidation = validateInput(executionInput, entry, "execution
 if (executionInputValidation) return createErrorResult(toolCall, executionInputValidation);
 ```
 
-When PreToolUse or permission modify input, normalize and validate with phase `"execution"`.
+Quando PreToolUse ou permission modificarem o input, normalize e valide com a phase `"execution"`.
 
-- [ ] **Step 7: Wire ExitPlanMode entry**
+- [ ] **Step 7: Conectar a entry do ExitPlanMode**
 
-In `plan-mode.ts`, set:
+Em `plan-mode.ts`, defina:
 
 ```ts
 inputSchema: ExitPlanModeInputJsonSchema,
@@ -487,9 +487,9 @@ executionInputSchema: ExitPlanModeInjectedInputJsonSchema,
 runtimeInputSchema: ExitPlanModeInjectedInputSchema,
 ```
 
-Do not implement `prepareInput` yet; Task 3 adds it.
+Não implemente `prepareInput` ainda; a Task 3 o adiciona.
 
-- [ ] **Step 8: Run focused tests**
+- [ ] **Step 8: Rodar os testes focados**
 
 Run:
 
@@ -499,7 +499,7 @@ pnpm --filter @zcode/core exec vitest run tests/tool-contracts.test.ts tests/pla
 
 Expected: only tests that require actual plan file enrichment may still fail; schema tests pass.
 
-- [ ] **Step 9: Commit Task 2**
+- [ ] **Step 9: Commit da Task 2**
 
 Run:
 
@@ -512,7 +512,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 3: 实现 Plan File Path 生命周期与 Plan Mode 写入例外
+### Task 3: Implementar o Ciclo de Vida do Plan File Path e a Exceção de Escrita no Plan Mode
 
 **Files:**
 - Create: `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file.ts`
@@ -534,9 +534,9 @@ Expected: commit succeeds.
 - Produces: `buildPlanFilePath({ workspaceRoot, sessionId, now, exists })`.
 - Produces: `PermissionToolCapability.allowInPlanMode?: boolean`.
 
-- [ ] **Step 1: Write failing plan file path tests**
+- [ ] **Step 1: Escrever os testes falhando do plan file path**
 
-In `plan-mode-tool.test.ts`, add:
+Em `plan-mode-tool.test.ts`, adicione:
 
 ```ts
 it("reserves a .claude/plans markdown file when entering plan mode", async () => {
@@ -565,11 +565,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/plan-mode-tool.test.ts -t "plan file"
 ```
 
-Expected: FAIL because no plan path is reserved.
+Expected: FAIL porque nenhum plan path é reservado.
 
-- [ ] **Step 2: Implement plan file helper**
+- [ ] **Step 2: Implementar o helper de plan file**
 
-Create `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file.ts`:
+Crie `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file.ts`:
 
 ```ts
 import path from "node:path";
@@ -613,39 +613,39 @@ export async function reservePlanFilePath(input: PlanFilePathInput): Promise<str
 }
 ```
 
-Use deterministic `plan-<sessionId>.md` instead of whimsical random names. The invariant is the `.claude/plans/*.md` location; random word naming is cosmetic and not provider-visible.
+Use o nome determinístico `plan-<sessionId>.md` em vez de nomes aleatórios extravagantes. O invariante é a localização `.claude/plans/*.md`; a nomenclatura com palavras aleatórias é cosmética e não é provider-visible.
 
-- [ ] **Step 3: Add runtime state**
+- [ ] **Step 3: Adicionar o estado no runtime**
 
-In `AgentRuntimeInternal` add:
+Em `AgentRuntimeInternal` adicione:
 
 ```ts
 currentPlanFilePath?: string;
 approvedPlanFilePath?: string;
 ```
 
-Initialize both as `undefined` in `agent-runtime.ts`.
+Inicialize ambos como `undefined` em `agent-runtime.ts`.
 
-Pass to `createToolExecutor`:
+Passe para `createToolExecutor`:
 
 ```ts
 getCurrentPlanFilePath: () => runtime.currentPlanFilePath,
 ```
 
-- [ ] **Step 4: Reserve path on enter**
+- [ ] **Step 4: Reservar o path na entrada**
 
-In `session-mode-port.ts`, before switching mode to `plan`, require `runtime.fileSystemPort` and call `reservePlanFilePath`. Store:
+Em `session-mode-port.ts`, antes de trocar o modo para `plan`, exija `runtime.fileSystemPort` e chame `reservePlanFilePath`. Armazene:
 
 ```ts
 runtime.currentPlanFilePath = reservedPath;
 runtime.approvedPlanFilePath = undefined;
 ```
 
-If already in plan mode and `currentPlanFilePath` exists, keep the same path.
+Se já estiver em plan mode e `currentPlanFilePath` existir, mantenha o mesmo path.
 
-- [ ] **Step 5: Write failing permission test for plan file write**
+- [ ] **Step 5: Escrever o teste falhando de permissão para escrita no plan file**
 
-In `permission-service.test.ts`, add:
+Em `permission-service.test.ts`, adicione:
 
 ```ts
 it("allows Write to the exact current plan file while in plan mode", () => {
@@ -706,17 +706,17 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/permission-service.test.ts -t "plan file"
 ```
 
-Expected: FAIL because `allowInPlanMode` does not exist.
+Expected: FAIL porque `allowInPlanMode` não existe.
 
-- [ ] **Step 6: Add permission capability field**
+- [ ] **Step 6: Adicionar o campo de capability de permissão**
 
-In `PermissionToolCapability` add:
+Em `PermissionToolCapability` adicione:
 
 ```ts
 allowInPlanMode?: boolean;
 ```
 
-In `checkPlanMode`, before read-only allow:
+Em `checkPlanMode`, antes do allow somente-leitura:
 
 ```ts
 if (capability.allowInPlanMode === true) {
@@ -729,25 +729,25 @@ if (capability.allowInPlanMode === true) {
 }
 ```
 
-- [ ] **Step 7: Add mode and current plan file to permission capability context**
+- [ ] **Step 7: Adicionar modo e plan file atual ao contexto de capability de permissão**
 
-In `ToolRuntimePermissionCapabilityContext`, add:
+Em `ToolRuntimePermissionCapabilityContext`, adicione:
 
 ```ts
 currentPlanFilePath?: string;
 mode?: CollaborationMode;
 ```
 
-In `resolveRuntimePermissionCapability`, pass:
+Em `resolveRuntimePermissionCapability`, passe:
 
 ```ts
 currentPlanFilePath: deps.getCurrentPlanFilePath?.(),
 mode: deps.getMode(),
 ```
 
-- [ ] **Step 8: Mark Write/Edit exact plan path as allowed**
+- [ ] **Step 8: Marcar o path exato do plano em Write/Edit como permitido**
 
-In `write.ts` and `edit.ts`, add `resolvePermissionCapability` to the tool entries:
+Em `write.ts` e `edit.ts`, adicione `resolvePermissionCapability` às tool entries:
 
 ```ts
 resolvePermissionCapability: (input, context) => {
@@ -772,9 +772,9 @@ resolvePermissionCapability: (input, context) => {
 },
 ```
 
-Use `EditInputSchema` in `edit.ts`. Do not add this to `ApplyPatch` or `Bash`.
+Use `EditInputSchema` em `edit.ts`. Não adicione isso a `ApplyPatch` nem a `Bash`.
 
-- [ ] **Step 9: Run focused tests**
+- [ ] **Step 9: Rodar os testes focados**
 
 Run:
 
@@ -784,7 +784,7 @@ pnpm --filter @zcode/core exec vitest run tests/plan-mode-tool.test.ts tests/per
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit Task 3**
+- [ ] **Step 10: Commit da Task 3**
 
 Run:
 
@@ -797,7 +797,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 4: 从 Plan File 注入 ExitPlanMode Input 并输出 Plan-File Tool Result
+### Task 4: Injetar o Input do ExitPlanMode a Partir do Plan File e Emitir o Tool Result de Plan File
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts`
@@ -809,11 +809,11 @@ Expected: commit succeeds.
 
 **Interfaces:**
 - Produces: `prepareExitPlanModeInput(input, context)`.
-- Produces: model result content for the normal main-agent flow.
+- Produces: model result content para o flow comum main-agent.
 
-- [ ] **Step 1: Write failing test for input enrichment before approval**
+- [ ] **Step 1: Escrever o teste falhando de enriquecimento de input antes da aprovação**
 
-In `plan-mode-tool.test.ts`, add:
+Em `plan-mode-tool.test.ts`, adicione:
 
 ```ts
 it("injects plan and planFilePath from disk before requesting approval", async () => {
@@ -857,11 +857,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/plan-mode-tool.test.ts -t "injects plan"
 ```
 
-Expected: FAIL because `prepareInput` is not implemented.
+Expected: FAIL porque `prepareInput` não está implementado.
 
-- [ ] **Step 2: Implement `prepareExitPlanModeInput`**
+- [ ] **Step 2: Implementar `prepareExitPlanModeInput`**
 
-In `plan-mode.ts`, add:
+Em `plan-mode.ts`, adicione:
 
 ```ts
 async function prepareExitPlanModeInput(
@@ -902,15 +902,15 @@ async function prepareExitPlanModeInput(
 }
 ```
 
-Set on the entry:
+Defina na entry:
 
 ```ts
 prepareInput: prepareExitPlanModeInput,
 ```
 
-- [ ] **Step 3: Update handler**
+- [ ] **Step 3: Atualizar o handler**
 
-Change `exitPlanModeHandler` to parse `ExitPlanModeInjectedInputSchema`, require `parsed.plan?.trim()` and `parsed.planFilePath`, then return:
+Mude `exitPlanModeHandler` para fazer parse de `ExitPlanModeInjectedInputSchema`, exigir `parsed.plan?.trim()` e `parsed.planFilePath`, e então retornar:
 
 ```ts
 return {
@@ -920,7 +920,7 @@ return {
 } satisfies ExitPlanModeOutput;
 ```
 
-After transition, set:
+Após a transição, defina:
 
 ```ts
 context.sessionModePort.approvePlanFile?.({
@@ -930,11 +930,11 @@ context.sessionModePort.approvePlanFile?.({
 });
 ```
 
-If adding `approvePlanFile` to `SessionModePort` is too large, extend `exitPlanMode(input)` to accept `planFilePath?: string` and update runtime state there.
+Se adicionar `approvePlanFile` ao `SessionModePort` for grande demais, estenda `exitPlanMode(input)` para aceitar `planFilePath?: string` e atualize o estado do runtime ali.
 
-- [ ] **Step 4: Update result formatter**
+- [ ] **Step 4: Atualizar o formatter do result**
 
-Replace `formatExitPlanModeModelContent` with the normal main-agent content:
+Substitua `formatExitPlanModeModelContent` pelo conteúdo do main-agent comum:
 
 ```ts
 function formatExitPlanModeModelContent(output: unknown): string {
@@ -957,11 +957,11 @@ ${plan}`;
 }
 ```
 
-Use `Agent tool` only if `hasTaskTool` is true; otherwise omit `taskNote`.
+Use `Agent tool` apenas se `hasTaskTool` for true; caso contrário omita `taskNote`.
 
-- [ ] **Step 5: Update ExitPlanMode prompt text**
+- [ ] **Step 5: Atualizar o texto do prompt do ExitPlanMode**
 
-In `plan-mode-prompts.ts`, replace the current prompt with the plan-file prompt:
+Em `plan-mode-prompts.ts`, substitua o prompt atual pelo prompt de plan file:
 
 ```text
 Use this tool when you are in plan mode and have finished writing your plan to the plan file and are ready for user approval.
@@ -974,11 +974,11 @@ Use this tool when you are in plan mode and have finished writing your plan to t
 ...
 ```
 
-Keep the trailing newline.
+Mantenha a newline final.
 
-- [ ] **Step 6: Update plan mode exit reminder**
+- [ ] **Step 6: Atualizar o reminder de saída do plan mode**
 
-Change `buildPlanModeExitReminderBody` to accept `{ planFilePath?: string }` and emit:
+Mude `buildPlanModeExitReminderBody` para aceitar `{ planFilePath?: string }` e emitir:
 
 ```ts
 export function buildPlanModeExitReminderBody(input: { planFilePath?: string } = {}): string {
@@ -991,9 +991,9 @@ You have exited plan mode. You can now make edits, run tools, and take actions.$
 }
 ```
 
-Update `turn-loop.ts` to pass `this.approvedPlanFilePath`.
+Atualize `turn-loop.ts` para passar `this.approvedPlanFilePath`.
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 7: Rodar os testes focados**
 
 Run:
 
@@ -1003,7 +1003,7 @@ pnpm --filter @zcode/core exec vitest run tests/plan-mode-tool.test.ts tests/too
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 4**
+- [ ] **Step 8: Commit da Task 4**
 
 Run:
 
@@ -1016,7 +1016,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 5: 用 Session Event / Snapshot 恢复 Plan File State
+### Task 5: Restaurar o Estado do Plan File com Session Event / Snapshot
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/contracts/src/events/session.events.ts`
@@ -1031,11 +1031,11 @@ Expected: commit succeeds.
 **Interfaces:**
 - Produces: `SessionEventType.PlanFileChanged`.
 - Produces: `SessionProjection.planFile?: { currentPath?: string; approvedPath?: string; status: "none" | "draft" | "approved" }`.
-- Produces: protocol snapshot field `planFile`.
+- Produces: campo de snapshot do protocolo `planFile`.
 
-- [ ] **Step 1: Write failing reducer test**
+- [ ] **Step 1: Escrever o teste falhando do reducer**
 
-Add a reducer test near existing session event reducer tests:
+Adicione um teste de reducer perto dos testes existentes do reducer de session events:
 
 ```ts
 it("projects current and approved plan file paths", () => {
@@ -1059,11 +1059,11 @@ it("projects current and approved plan file paths", () => {
 });
 ```
 
-Run the exact reducer test file. Expected: FAIL because event does not exist.
+Run the exact reducer test file. Expected: FAIL porque o evento não existe.
 
-- [ ] **Step 2: Add event contract**
+- [ ] **Step 2: Adicionar o contrato do evento**
 
-In `session.events.ts`:
+Em `session.events.ts`:
 
 ```ts
 PlanFileChanged: "plan_file_changed",
@@ -1079,11 +1079,11 @@ export interface PlanFileChangedPayload {
 }
 ```
 
-Add to payload union.
+Adicione à union de payloads.
 
-- [ ] **Step 3: Add projection state**
+- [ ] **Step 3: Adicionar o estado de projeção**
 
-In event reducer projection types, add:
+Nos tipos de projeção do event reducer, adicione:
 
 ```ts
 planFile?: {
@@ -1093,7 +1093,7 @@ planFile?: {
 };
 ```
 
-Reducer behavior:
+Comportamento do reducer:
 
 ```ts
 if (payload.status === "draft") {
@@ -1107,27 +1107,27 @@ if (payload.status === "cleared") {
 }
 ```
 
-- [ ] **Step 4: Emit events**
+- [ ] **Step 4: Emitir eventos**
 
-In `session-mode-port.ts`:
+Em `session-mode-port.ts`:
 
-- After reserving path on enter, append `PlanFileChanged(status: "draft")`.
-- On approved exit, append `PlanFileChanged(status: "approved")`.
+- Após reservar o path na entrada, anexe `PlanFileChanged(status: "draft")`.
+- Na saída aprovada, anexe `PlanFileChanged(status: "approved")`.
 
-Do not emit content in the event.
+Não emita conteúdo no evento.
 
-- [ ] **Step 5: Resume runtime state**
+- [ ] **Step 5: Retomar o estado do runtime**
 
-In `resume.ts`, after reducing projection:
+Em `resume.ts`, após reduzir a projeção:
 
 ```ts
 this.currentPlanFilePath = projection.planFile?.currentPath;
 this.approvedPlanFilePath = projection.planFile?.approvedPath;
 ```
 
-- [ ] **Step 6: Map protocol snapshot**
+- [ ] **Step 6: Mapear o snapshot do protocolo**
 
-In shared protocol schema and bootstrap session mapper, expose:
+No schema de protocolo compartilhado e no session mapper do bootstrap, exponha:
 
 ```ts
 planFile: z.object({
@@ -1137,9 +1137,9 @@ planFile: z.object({
 }).optional()
 ```
 
-The UI and services must receive this under session projection, not as relay/main state.
+A UI e os serviços devem receber isso sob a projeção de sessão, e não como estado de relay/main.
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 7: Rodar os testes focados**
 
 Run:
 
@@ -1151,7 +1151,7 @@ pnpm vitest run packages/services/test/zcodeSessionService.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 5**
+- [ ] **Step 8: Commit da Task 5**
 
 Run:
 
@@ -1164,7 +1164,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 6: Compact / Resume 注入 `plan_file_reference`
+### Task 6: Injetar `plan_file_reference` em Compact / Resume
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/core/src/runtime/helpers/plan-file.ts`
@@ -1176,9 +1176,9 @@ Expected: commit succeeds.
 - Produces: `buildPlanFileReferenceEntry({ planFilePath, planContent })`.
 - Produces: `buildPostCompactPlanFileReminderEntries(runtime)`.
 
-- [ ] **Step 1: Write failing compact preservation test**
+- [ ] **Step 1: Escrever o teste falhando de preservação no compact**
 
-In `runtime-compact.test.ts`, add:
+Em `runtime-compact.test.ts`, adicione:
 
 ```ts
 it("re-injects approved plan file contents after compact", async () => {
@@ -1204,11 +1204,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/runtime-compact.test.ts -t "approved plan file"
 ```
 
-Expected: FAIL because no plan reminder exists.
+Expected: FAIL porque nenhum plan reminder existe.
 
-- [ ] **Step 2: Add formatter**
+- [ ] **Step 2: Adicionar o formatter**
 
-In `plan-file.ts`, add:
+Em `plan-file.ts`, adicione:
 
 ```ts
 import { systemReminderAttachmentEntry } from "../../agent/message-history.js";
@@ -1235,9 +1235,9 @@ export function buildPlanFileReferenceEntry(input: {
 }
 ```
 
-- [ ] **Step 3: Read plan file during compact**
+- [ ] **Step 3: Ler o plan file durante o compact**
 
-In `compact-active.ts`, when building `postCompactReminderEntries`, append plan file reference before generic read-state reminders:
+Em `compact-active.ts`, ao construir `postCompactReminderEntries`, anexe a referência do plan file antes dos generic read-state reminders:
 
 ```ts
 const postCompactPlanEntries = await buildPostCompactPlanFileReminderEntries.call(this, {
@@ -1252,7 +1252,7 @@ const postCompactReminderEntries = [
 ];
 ```
 
-Helper behavior:
+Comportamento do helper:
 
 ```ts
 async function buildPostCompactPlanFileReminderEntries(this: AgentRuntimeInternal, input: { traceContext: TraceContext }) {
@@ -1270,15 +1270,15 @@ async function buildPostCompactPlanFileReminderEntries(this: AgentRuntimeInterna
 }
 ```
 
-Do not catch and downgrade missing/empty file.
+Não capture nem degrade o arquivo ausente/vazio.
 
-- [ ] **Step 4: Preserve existing read-state skip guard**
+- [ ] **Step 4: Preservar o skip guard existente de read-state**
 
-Keep `shouldSkipPostCompactReadStatePath()` unchanged for `.codex/memories`, `docs/superpowers/plans`, and `.git`. Do not add `.claude/plans` there; explicit plan-file producer owns plan file continuity.
+Mantenha `shouldSkipPostCompactReadStatePath()` inalterado para `.codex/memories`, `docs/superpowers/plans` e `.git`. Não adicione `.claude/plans` lá; o producer explícito de plan file é o dono da continuidade do plan file.
 
-- [ ] **Step 5: Add active plan mode compact test**
+- [ ] **Step 5: Adicionar o teste de compact no plan mode ativo**
 
-Add:
+Adicione:
 
 ```ts
 it("re-injects draft plan file contents when compact runs during plan mode", async () => {
@@ -1298,7 +1298,7 @@ it("re-injects draft plan file contents when compact runs during plan mode", asy
 });
 ```
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **Step 6: Rodar os testes focados**
 
 Run:
 
@@ -1308,7 +1308,7 @@ pnpm --filter @zcode/core exec vitest run tests/runtime-compact.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 6**
+- [ ] **Step 7: Commit da Task 6**
 
 Run:
 
@@ -1321,7 +1321,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 7: 修复 Pending Approval / UI / Replayable Snapshot 的 Plan Payload
+### Task 7: Corrigir o Plan Payload de Pending Approval / UI / Snapshot Replayable
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/interaction-broker.ts`
@@ -1335,10 +1335,10 @@ Expected: commit succeeds.
 - Test: `packages/services/test/zcodeSessionService.test.ts`
 
 **Interfaces:**
-- Produces: pending ExitPlanMode elicitation `schema` includes original injected input plus `{ interaction: "plan_approval", toolName }`.
-- Produces: UI plan result reads `output.filePath`.
+- Produces: o `schema` da elicitation de ExitPlanMode pendente inclui o injected input original mais `{ interaction: "plan_approval", toolName }`.
+- Produces: o plan result da UI lê `output.filePath`.
 
-- [ ] **Step 1: Read DESIGN.md before UI edit**
+- [ ] **Step 1: Ler o DESIGN.md antes de editar a UI**
 
 Run:
 
@@ -1346,11 +1346,11 @@ Run:
 sed -n '1,220p' DESIGN.md
 ```
 
-Expected: file is read. Apply only field/display changes; do not redesign the plan block.
+Expected: o arquivo é lido. Aplique apenas mudanças de campos/display; não redesenhe o bloco de plano.
 
-- [ ] **Step 2: Write failing pending snapshot test**
+- [ ] **Step 2: Escrever o teste falhando de pending snapshot**
 
-In `packages/ui/test/zcodeSessionProjection.test.ts`, update the pending ExitPlanMode approval test to assert:
+Em `packages/ui/test/zcodeSessionProjection.test.ts`, atualize o teste de aprovação pendente de ExitPlanMode para afirmar:
 
 ```ts
 expect(elicitation.schema).toMatchObject({
@@ -1367,11 +1367,11 @@ Run:
 pnpm vitest run packages/ui/test/zcodeSessionProjection.test.ts -t "ExitPlanMode"
 ```
 
-Expected: FAIL because schema currently drops `permission.input`.
+Expected: FAIL porque o schema atualmente descarta `permission.input`.
 
-- [ ] **Step 3: Preserve injected input in UI projection**
+- [ ] **Step 3: Preservar o injected input na projeção da UI**
 
-In `pendingExitPlanModeToElicitationEvent`, change schema to:
+Em `pendingExitPlanModeToElicitationEvent`, mude o schema para:
 
 ```ts
 schema: {
@@ -1381,15 +1381,15 @@ schema: {
 },
 ```
 
-Use the existing local `isRecord` helper or add one in the file.
+Use o helper local `isRecord` existente ou adicione um no arquivo.
 
-- [ ] **Step 4: Preserve injected input in services adapter**
+- [ ] **Step 4: Preservar o injected input no adapter de services**
 
-Apply the same schema merge in `packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts`.
+Aplique o mesmo merge de schema em `packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts`.
 
-- [ ] **Step 5: Update interaction broker**
+- [ ] **Step 5: Atualizar o interaction broker**
 
-In `interaction-broker.ts`, keep `input: request.input`, and change schema to:
+Em `interaction-broker.ts`, mantenha `input: request.input` e mude o schema para:
 
 ```ts
 schema: {
@@ -1401,27 +1401,27 @@ schema: {
 },
 ```
 
-This keeps approval replay self-contained.
+Isso mantém o replay da aprovação autossuficiente.
 
-- [ ] **Step 6: Update tool display to use `filePath`**
+- [ ] **Step 6: Atualizar o tool display para usar `filePath`**
 
-In `toolDisplay.ts`, change extraction:
+Em `toolDisplay.ts`, mude a extração:
 
 ```ts
 const rawPlanFilePath = value["filePath"];
 ```
 
-Keep the local display model property named `planFilePath` if that avoids component churn; the source field must be `filePath`.
+Mantenha a propriedade do modelo de display local chamada `planFilePath` se isso evitar churn nos componentes; o campo de origem deve ser `filePath`.
 
-Update `packages/ui/test/toolDisplay.test.ts`:
+Atualize `packages/ui/test/toolDisplay.test.ts`:
 
 ```ts
 output: { plan: "# Plan", filePath: ".claude/plans/plan-session.md", isAgent: false }
 ```
 
-Expected display path resolves to `/workspace/.claude/plans/plan-session.md`.
+O path de display esperado resolve para `/workspace/.claude/plans/plan-session.md`.
 
-- [ ] **Step 7: Run focused UI/services tests**
+- [ ] **Step 7: Rodar os testes focados de UI/services**
 
 Run:
 
@@ -1432,7 +1432,7 @@ pnpm vitest run packages/services/test/zcodeAgentService.test.ts packages/servic
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 7**
+- [ ] **Step 8: Commit da Task 7**
 
 Run:
 
@@ -1445,7 +1445,7 @@ Expected: commit succeeds.
 
 ---
 
-### Task 8: Provider-Visible Trajectory 和 Request 验收
+### Task 8: Trajectory Provider-Visible e Aceitação da Request
 
 **Files:**
 - Modify: `apps/zcode-cli/tools/prompt-trajectory/testcases/system-reminder-sr9-runtime/expect.json`
@@ -1455,14 +1455,14 @@ Expected: commit succeeds.
 - Test: prompt trajectory tests
 
 **Interfaces:**
-- Produces: provider-visible evidence that `ExitPlanMode` schema has no `plan`.
-- Produces: provider-visible evidence that post-compact request includes `plan_file_reference`.
+- Produces: evidência provider-visible de que o schema de `ExitPlanMode` não tem `plan`.
+- Produces: evidência provider-visible de que a request pós-compact inclui `plan_file_reference`.
 
-- [ ] **Step 1: Add prompt trajectory fixture**
+- [ ] **Step 1: Adicionar o fixture de prompt trajectory**
 
-Create a fixture that enters plan mode, writes `.claude/plans/plan-session-id.md`, calls `ExitPlanMode({ allowedPrompts })`, approves, then compacts.
+Crie um fixture que entra em plan mode, escreve `.claude/plans/plan-session-id.md`, chama `ExitPlanMode({ allowedPrompts })`, aprova e então faz compact.
 
-Expected assertions in `expect.json`:
+Asserções esperadas em `expect.json`:
 
 ```json
 {
@@ -1480,7 +1480,7 @@ Expected assertions in `expect.json`:
 }
 ```
 
-- [ ] **Step 2: Rebuild trajectory dependencies**
+- [ ] **Step 2: Reconstruir as dependências de trajectory**
 
 Run:
 
@@ -1492,7 +1492,7 @@ pnpm --filter @zcode/bootstrap build
 
 Expected: all build commands exit `0`.
 
-- [ ] **Step 3: Run trajectory tests**
+- [ ] **Step 3: Rodar os testes de trajectory**
 
 Run:
 
@@ -1502,7 +1502,7 @@ pnpm --filter @zcode/prompt-trajectory run:testcases -- plan-file-exit
 
 Expected: new plan-file fixture passes and old SR9 runtime fixture is updated for plan file wording.
 
-- [ ] **Step 4: Verify final provider tool contract directly**
+- [ ] **Step 4: Verificar diretamente o contrato final de tool provider-visible**
 
 Run:
 
@@ -1512,7 +1512,7 @@ pnpm --filter @zcode/core exec vitest run tests/tool-contracts.test.ts -t "ExitP
 
 Expected: PASS and no provider-visible `properties.plan`.
 
-- [ ] **Step 5: Commit Task 8**
+- [ ] **Step 5: Commit da Task 8**
 
 Run:
 
@@ -1533,7 +1533,7 @@ Expected: commit succeeds.
 **Interfaces:**
 - Produces: final validation evidence.
 
-- [ ] **Step 1: Check working tree**
+- [ ] **Step 1: Verificar a working tree**
 
 Run:
 
@@ -1541,9 +1541,9 @@ Run:
 git status --short
 ```
 
-Expected: no unrelated uncommitted changes from this plan. If user WIP exists, leave it untouched and mention it in final handoff.
+Expected: nenhuma mudança não commitada e não relacionada a este plano. Se houver WIP do usuário, deixe intocado e mencione no handoff final.
 
-- [ ] **Step 2: Run focused test suite**
+- [ ] **Step 2: Rodar a suíte de testes focada**
 
 Run:
 
@@ -1554,7 +1554,7 @@ pnpm vitest run packages/ui/test/zcodeSessionProjection.test.ts packages/ui/test
 
 Expected: PASS.
 
-- [ ] **Step 3: Run required repo checks**
+- [ ] **Step 3: Rodar as verificações obrigatórias do repositório**
 
 Run:
 
@@ -1565,7 +1565,7 @@ pnpm lint
 
 Expected: both commands exit `0`.
 
-- [ ] **Step 4: Inspect provider-visible diff**
+- [ ] **Step 4: Inspecionar o diff provider-visible**
 
 Run:
 
@@ -1575,10 +1575,10 @@ rg -n "DOES take the plan content|required plan parameter|properties\\.plan|plan
 
 Expected:
 
-- No active code/provider prompt hits for stale `ExitPlanMode(plan)` contract.
-- Historical completed docs may mention the old state only when clearly labeled completed/history.
+- Nenhum hit em código ativo/prompt de provider para o contrato obsoleto `ExitPlanMode(plan)`.
+- Documentos históricos concluídos podem mencionar o estado antigo apenas quando claramente rotulados como concluídos/histórico.
 
-- [ ] **Step 5: Confirm validation did not edit files**
+- [ ] **Step 5: Confirmar que a validação não editou arquivos**
 
 Run:
 
@@ -1586,25 +1586,25 @@ Run:
 git status --short
 ```
 
-Expected: clean working tree except pre-existing user WIP. Task 9 must not introduce edits; if validation reveals a required fixture or doc update, stop and add a new focused task rather than committing ad hoc changes from this validation task.
+Expected: working tree limpa exceto pelo WIP pré-existente do usuário. A Task 9 não deve introduzir edições; se a validação revelar uma atualização necessária de fixture ou doc, pare e adicione uma nova tarefa focada em vez de commitar mudanças ad hoc desta tarefa de validação.
 
 ---
 
-## Acceptance Checklist
+## Checklist de Aceitação
 
-- [ ] Provider-visible `ExitPlanMode.inputSchema` has `allowedPrompts?` and no `plan`.
-- [ ] `ExitPlanMode` prompt says the plan was written to the plan file and the tool reads it from file.
-- [ ] Runtime injected input includes `plan` and `planFilePath` before PreToolUse hooks, PermissionRequest hooks, permission broker, and pending approval snapshot.
-- [ ] `ExitPlanMode` fails in plan mode when the reserved plan file is missing or empty.
-- [ ] `Write` / `Edit` can write only the exact reserved plan file while in plan mode.
-- [ ] `Bash`, `ApplyPatch`, arbitrary `Write`, and arbitrary `Edit` remain blocked in plan mode.
-- [ ] Approval output shape uses `filePath`, `isAgent: false`, and approved plan content.
-- [ ] Tool result model content includes `Your plan has been saved to:`.
-- [ ] `plan_mode_exit` includes plan file path when a plan exists.
-- [ ] Compact after approval injects `plan_file_reference` with full plan file content.
-- [ ] Compact during draft plan mode injects `plan_file_reference` with current draft content.
-- [ ] Resume rehydrates current/approved plan file path from session projection.
-- [ ] Pending approval replay in desktop and web-remote snapshot preserves plan and plan file path.
-- [ ] UI plan block reads `filePath` and shows the existing plan display without redesign.
-- [ ] `pnpm typecheck` passes.
-- [ ] `pnpm lint` passes.
+- [ ] O `ExitPlanMode.inputSchema` provider-visible tem `allowedPrompts?` e não tem `plan`.
+- [ ] O prompt de `ExitPlanMode` diz que o plano foi gravado no plan file e que a ferramenta o lê do arquivo.
+- [ ] O injected input do runtime inclui `plan` e `planFilePath` antes dos hooks PreToolUse, dos hooks de PermissionRequest, do permission broker e do snapshot de aprovação pendente.
+- [ ] `ExitPlanMode` falha no plan mode quando o plan file reservado está ausente ou vazio.
+- [ ] `Write` / `Edit` só podem gravar o plan file reservado exato enquanto no plan mode.
+- [ ] `Bash`, `ApplyPatch`, `Write` arbitrário e `Edit` arbitrário permanecem bloqueados no plan mode.
+- [ ] O shape do output de aprovação usa `filePath`, `isAgent: false` e o conteúdo do plano aprovado.
+- [ ] O model content do tool result inclui `Your plan has been saved to:`.
+- [ ] `plan_mode_exit` inclui o plan file path quando existe um plano.
+- [ ] O compact após a aprovação injeta `plan_file_reference` com o conteúdo completo do plan file.
+- [ ] O compact durante o plan mode com plano em rascunho injeta `plan_file_reference` com o conteúdo atual do rascunho.
+- [ ] O resume reidrata o plan file path atual/aprovado a partir da projeção de sessão.
+- [ ] O replay de aprovação pendente no snapshot desktop e web-remote preserva o plano e o plan file path.
+- [ ] O bloco de plano da UI lê `filePath` e mostra o display de plano existente sem redesenho.
+- [ ] `pnpm typecheck` passa.
+- [ ] `pnpm lint` passa.

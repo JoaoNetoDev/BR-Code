@@ -1,38 +1,36 @@
-# 旧 IModelProviderService 调用面
+# Superfície de chamadas do antigo IModelProviderService
 
-> 调查日期：2026-08-17
+> Data da investigação: 2026-08-17
 >
-> 适用范围：M2 Host Settings / Selection RPC 迁移
+> Escopo de aplicação: migração M2 de Host Settings / Selection RPC
 >
-> 文档身份：M2 迁移前后的历史调用面证据。正文保留调查当时的“当前”状态；主要消费者已经迁移，
-> 尚未物理退役的旧 DTO、Snapshot、接口和 fallback 统一由
-> [`../steps/02-provider-config-and-registry-cleanup.md`](../steps/02-provider-config-and-registry-cleanup.md) 跟踪。
+> Identidade do documento: evidência da superfície histórica de chamadas antes e depois da migração M2. O corpo preserva o estado "atual" no momento da investigação; os principais consumidores já foram migrados, e os DTOs, Snapshots, interfaces e fallbacks antigos ainda não fisicamente aposentados são acompanhados de forma unificada por
+> [`../steps/02-provider-config-and-registry-cleanup.md`](../steps/02-provider-config-and-registry-cleanup.md).
 
-## 结论
+## Conclusão
 
-`IModelProviderService` 不是一个可以整体替换的领域服务。它同时承载配置设置、模型选择、账号套餐、连通性工具和 Host→Worker 迁移桥。新链路按用途退出旧方法：
+`IModelProviderService` não é um serviço de domínio que possa ser substituído por inteiro. Ele carrega ao mesmo tempo configuração de settings, seleção de modelo, planos de conta, utilitários de conectividade e a ponte de migração Host→Worker. A nova cadeia abandona os métodos antigos conforme o uso:
 
-| 旧方法                                                        | 当前主要用途                                         | 目标归属                                                                                               |
+| Método antigo                                                | Uso principal atual                                         | Destino                                                                                               |
 | ------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `getAll` / `getAllCached`                                     | 设置页、模型选择、用量 UI、旧执行同步                | Settings View 或 Selection View；不再区分“触发远端同步”和“只读缓存”                                    |
-| `save` / `delete`                                             | 设置页与 API Key 登录表单写 Provider                 | `ProviderSettingsService` 写 Personal Config                                                           |
-| `getDisplayOrder` / `saveDisplayOrder`                        | 设置页与选择器排序                                   | ProviderConfig / ModelConfig 自身有序 Overlay；旧独立 Preference 退出                                  |
-| `resolveWorkspaceModelSelection`                              | 旧 Provider、Workspace Preference 和配置文件混合解析 | 已删除；统一 ZCode Agent 的回显只使用 prepare 回包、App Recent 与 Model Selection View                  |
-| `getEndpointSuggestions` / `getModelsByEndpoint`              | 旧 Add Provider 表单的 Endpoint 建议与远端模型探测   | 当前设置表单已改为显式填写 Provider Config；两个无生产调用方的旧接口及 `client/configs` 查询实现已删除 |
-| `getCatalogProviders`                                         | 设置页读取旧 Catalog                                 | Official Config 取代 Catalog 后退出                                                                    |
-| `testModelConnectivity`                                       | 设置页显式连通性测试                                 | 独立 Connectivity Service，结果不进入 Registry                                                         |
-| `refreshPresetProviders`                                      | 同步远端 Builtin/Preset 并改写旧 Store               | Official Config Source / Account Access Source 各自刷新后退出                                          |
-| `refreshCodingPlanApiKey` / `clearCodingPlanApiKey`           | 登录、重连和套餐切换                                 | Account Request Auth / Account Access Service                                                          |
-| `setProviderRuntimeHeaders`                                   | Start Plan 一次性安全校验 Header 和临时 Header       | 已删除；一次性 Header 只通过请求级 Runtime Header response 传递                                       |
-| `getProviderRegistrySnapshot`                         | 设置连通性测试及少量旧兼容调用                     | 本地启动门禁和模型选择已改读 Selection View；完整 Snapshot 仅保留剩余执行兼容，最终退出            |
-| `applyToProvider`                                             | 把旧选择与完整 Provider 配置同步给 Agent             | 已删除；Submission 携带 Selection、Worker 自建 Registry                                                  |
+| `getAll` / `getAllCached`                                     | Página de settings, seleção de modelo, UI de uso, sincronização de execução antiga | Settings View ou Selection View; sem distinguir mais "disparar sincronização remota" de "só ler cache"                                    |
+| `save` / `delete`                                             | Gravar Provider pela página de settings e pelo formulário de login por API Key | `ProviderSettingsService` grava o Personal Config                                                           |
+| `getDisplayOrder` / `saveDisplayOrder`                        | Ordenação na página de settings e no seletor           | Overlay ordenado próprio de ProviderConfig / ModelConfig; a Preference independente antiga sai                                  |
+| `resolveWorkspaceModelSelection`                              | Resolução misturada de Provider antigo, Workspace Preference e arquivo de configuração | Removido; o eco unificado do ZCode Agent usa apenas o retorno de prepare, o App Recent e o Model Selection View                  |
+| `getEndpointSuggestions` / `getModelsByEndpoint`              | Sugestões de Endpoint e sondagem de modelos remotos no antigo formulário de Add Provider | O formulário de settings atual passou a exigir o preenchimento explícito do Provider Config; as duas interfaces antigas sem chamador de produção e a implementação de consulta `client/configs` foram removidas |
+| `getCatalogProviders`                                         | Página de settings lendo o Catalog antigo                | Sai depois que a Official Config substitui o Catalog                                                                    |
+| `testModelConnectivity`                                       | Teste explícito de conectividade na página de settings   | Connectivity Service independente; o resultado não entra no Registry                                                         |
+| `refreshPresetProviders`                                      | Sincronizar Builtin／Preset remoto e reescrever a Store antiga | Official Config Source / Account Access Source saem depois de cada um refreshing                                                  |
+| `refreshCodingPlanApiKey` / `clearCodingPlanApiKey`           | Login, reconexão e troca de plano                         | Account Request Auth / Account Access Service                                                          |
+| `setProviderRuntimeHeaders`                                   | Header de verificação de segurança pontual do Start Plan e header temporário | Removido; o header pontual é transmitido apenas pelo Runtime Header response no nível da requisição                                       |
+| `getProviderRegistrySnapshot`                         | Teste de conectividade nas settings e poucas chamadas de compatibilidade antigas | O gate de startup local e a seleção de modelo já leem o Selection View; o Snapshot completo só permanece pela compatibilidade de execução restante e sai no final            |
+| `applyToProvider`                                             | Sincronizar a seleção antiga e a config completa do Provider com o Agent | Removido; a Submission carrega a Selection e o Worker constrói o próprio Registry                                                  |
 
-旧 Preset 同步的网络失败 fallback 已停止创建 Start Plan。API Key Provider 的兼容兜底暂时保留；Account
-Provider 必须由账号连接与权益事实形成 Account Overlay，不能由本地模型白名单推断。
+O fallback de falha de rede da sincronização do Preset antigo parou de criar Start Plan. A rede de proteção de compatibilidade do Provider por API Key é mantida por enquanto; o Account Provider precisa ser formado pelo Account Overlay a partir da conexão de conta e dos fatos de benefícios, e não pode ser inferido por uma whitelist local de modelos.
 
-## 新 Host 服务面
+## Nova superfície de serviços do Host
 
-新 Runtime 先暴露两个独立 RPC 服务：
+O novo Runtime expõe primeiro dois serviços RPC independentes:
 
 ```text
 ProviderSettingsService
@@ -46,73 +44,72 @@ ModelSelectionService
 └─ validate(ModelSelection)
 ```
 
-它们共享同一个 `ProviderRegistryService`，通过读取最新 View 获取模型数据。旧 `IModelProviderService` 的全局 Registry
-变更事件已经退出；Renderer 不读取文件、Catalog 或 Account Access，也不执行 Overlay。
+Eles compartilham o mesmo `ProviderRegistryService` e obtêm os dados de modelo lendo a View mais recente. O evento global de mudança de Registry do antigo `IModelProviderService` já saiu; o Renderer não lê arquivos, Catalog ou Account Access, nem executa Overlay.
 
-## 当前设置页实际包含的四类职责
+## As quatro responsabilidades realmente presentes na página de settings atual
 
-`ModelProviderSection` 与 `useModelProviders` 目前把四类不同工作编排在同一个页面和 Hook 中。迁移时按职责拆开，比按组件文件逐个替换更安全。
+`ModelProviderSection` e `useModelProviders` hoje orquestram quatro tipos distintos de trabalho na mesma página e no mesmo Hook. Dividir por responsabilidade durante a migração é mais seguro do que substituir arquivo de componente por arquivo de componente.
 
-| 职责                      | 当前入口                                              | 目标边界                                                                    |
+| Responsabilidade                   | Entrada atual                                                | Limite alvo                                                                    |
 | ------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------- |
-| Provider / Model 配置编辑 | `getAll`、`save`、`delete`、独立 display order        | `ProviderSettingsService`                                                   |
-| 账号与套餐连接            | OAuth、Credential、Subscription、Coding Plan key 刷新 | Account Access / Request Auth；不进入 Settings Config                       |
-| 连接测试                  | connectivity test                                     | 独立设置辅助服务；结果不进入 Registry；旧 Endpoint 建议与远端模型发现已删除 |
-| 运行时同步                | 保存后向已打开 Workspace 推完整 Registry Snapshot     | Worker 自建 Registry 后删除                                                 |
+| Edição de config de Provider / Model | `getAll`, `save`, `delete`, display order independente | `ProviderSettingsService`                                                   |
+| Conexão de conta e plano       | OAuth, Credential, Subscription, refresh de Coding Plan key | Account Access / Request Auth; não entra no Settings Config                       |
+| Teste de conexão                 | connectivity test                                     | Serviço auxiliar de settings independente; o resultado não entra no Registry; as sugestões de Endpoint antigas e a descoberta remota de modelos foram removidas |
+| Sincronização de runtime          | Enviar o Snapshot completo do Registry para Workspaces já abertos após salvar | Removido depois que o Worker constrói o próprio Registry                                                |
 
-设置页的 Config 部分可以先按新 View 重写，账号卡片和连通性操作继续调用各自现有服务。迁移过程中不能让账号状态反向写入 Personal Provider Config，也不能因为保留连通性测试而继续使用旧 `save/getAll` 作为事实来源。
+A parte de Config da página de settings pode ser reescrita primeiro pela nova View, enquanto os cartões de conta e as ações de conectividade continuam chamando seus serviços atuais. Durante a migração, o estado de conta não pode escrever de volta no Personal Provider Config, nem se deve continuar usando o antigo `save/getAll` como fonte de verdade só por manter o teste de conectividade.
 
-## 旧字段到新 Config 的归属
+## Destino dos campos antigos no novo Config
 
-旧 `ModelProviderConfig` 同时包含配置、Catalog 标记、账号状态和运行时数据。真正进入新 Provider Config 的字段如下：
+O antigo `ModelProviderConfig` continha configuração, marcação de Catalog, estado de conta e dados de runtime ao mesmo tempo. Os campos que realmente entram no novo Provider Config são:
 
-| 旧字段                                                       | 新字段或归属                                                                  |
+| Campo antigo                                                       | Campo novo ou destino                                                                  |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `id`                                                         | 外层 `providerId` key                                                         |
-| `name`                                                       | 可选 `label`；缺省展示 `providerId`                                           |
+| `id`                                                         | key externo `providerId`                                                         |
+| `name`                                                       | `label` opcional; na ausência, exibe-se o `providerId`                                           |
 | `logoUrl`                                                    | `logoUrl`                                                                     |
 | `apiFormat`                                                  | `apiFormat`                                                                   |
 | `endpoints.baseURL`                                          | `baseURL`                                                                     |
-| `apiKey`                                                     | API Provider 的 `apiKey`                                                      |
-| `apiKeyUrl`                                                  | API Provider 的 `apiKeyManagementUrl`                                         |
-| `headers`                                                    | 静态 `headers`；当前设置页不提供编辑，但 Official / Account Provider 可以使用 |
-| `models` 的成员与顺序                                        | Provider Config 的 `models`                                                   |
-| 模型 properties/options/reasoning                            | 精确 Personal `ModelConfig` 或 Official `ModelConfigRules`                    |
-| `source`、`modified/deleted`、`systemDisabledReason`、时间戳 | 不进入新 Config；由配置层、成员结果、Account Access 或运行状态表达            |
+| `apiKey`                                                     | `apiKey` do API Provider                                                      |
+| `apiKeyUrl`                                                  | `apiKeyManagementUrl` do API Provider                                         |
+| `headers`                                                    | `headers` estático; a página de settings atual não oferece edição, mas Official / Account Provider podem usar |
+| Membros e ordem de `models`                                        | `models` do Provider Config                                                   |
+| properties／options／reasoning do modelo                            | Personal `ModelConfig` exato ou `ModelConfigRules` oficial                    |
+| `source`, `modified/deleted`, `systemDisabledReason`, timestamps | Não entram no novo Config; são expressos pela camada de configuração, pelo resultado de membros, pelo Account Access ou pelo estado de runtime            |
 
-旧 `endpoints.paths` 不迁入新的公开 Config。当前设置页已经只允许选择一个 `apiFormat`；保存边界会清理历史多协议 path，并把用户填写的完整地址保留在 `baseURL` 中。运行时根据 `apiFormat` 使用对应默认 operation path。新 Config 再保存 paths 会重新制造已经退出的 endpoint 双轨。
+O antigo `endpoints.paths` não é migrado para o novo Config público. A página de settings atual já permite escolher apenas um `apiFormat`; o limite de gravação limpa paths históricos de múltiplos protocolos e mantém o endereço completo preenchido pelo usuário no `baseURL`. Em runtime, o operation path padrão correspondente é usado conforme o `apiFormat`. Guardar paths no novo Config recriaria o duplo trilho de endpoints que já foi aposentado.
 
-当前只建立后端频道，现有 UI 尚未改用新类型。切换设置页时需要同时完成：
+Hoje só o canal de backend é estabelecido; a UI existente ainda não usa os novos tipos. Ao trocar a página de settings, é preciso concluir ao mesmo tempo:
 
 ```text
-冻结旧 save/delete 写入口
+Congelar a entrada de escrita antiga save/delete
         |
         v
-执行最后一次旧 Config -> Personal Config 导入
+Executar a última importação de Config antigo -> Personal Config
         |
         v
-ProviderSettingsService 成为唯一写入口
+O ProviderSettingsService se torna a única entrada de escrita
         |
         v
-删除旧 UI 写入和独立 display-order 写入
+Remover as escritas da UI antiga e a escrita de display-order independente
 ```
 
-这四步必须处于同一迁移序列，不能让旧写入在新 Personal 文件生成后继续发生。
+Esses quatro passos precisam pertencer à mesma sequência de migração; a escrita antiga não pode continuar ocorrendo depois que o novo arquivo Personal for gerado.
 
-## 仍需单独处理的消费者
+## Consumidores que ainda exigem tratamento separado
 
-`getAll/getAllCached` 目前还被 Usage、官方版本安全校验、Provider Family 迁移和 Bot 兼容分支调用。本地 Bot 的候选、状态展示和启动迁移已切到 Selection View；本地 Repo Wiki 的展示与预热也已经退出旧 Snapshot。Session create/resume/set/send、V4 草稿预热、replayable/Bot V4 create 和 Automation 模型切换不再从旧 Snapshot 派生普通 runtimeModel，本地 V4 模型切换失败也不再用旧 Snapshot 恢复；旧读取只为未装配新服务的 Entry、desktop-attached remote 和显式兼容调用保留。其余调用并不都需要同一种数据：
+`getAll/getAllCached` ainda são chamados por Usage, verificação de segurança de versão oficial, migração de Provider Family e ramo de compatibilidade de Bot. Os candidatos, a exibição de status e a migração de startup do Bot local já passaram para o Selection View; a exibição e o aquecimento do Repo Wiki local também já saíram do Snapshot antigo. Session create/resume/set/send, o pré-aquecimento de rascunhos do V4, create replayable／Bot V4 e a troca de modelo de Automation não derivam mais um runtimeModel comum a partir do Snapshot antigo, e a falha da troca de modelo local do V4 também não usa mais o Snapshot antigo para se recuperar; a leitura antiga só é mantida para Entries que ainda não montaram os novos serviços, para o remote `desktop-attached` e para chamadas de compatibilidade explícitas. Nem todas as demais chamadas precisam do mesmo tipo de dado:
 
-- 只显示或选择模型的调用改读 Selection View。
-- 需要编辑显式配置的调用改读 Settings View。
-- 需要套餐身份或凭据的调用改读 Account Service。
-- 需要执行模型的调用通过 Registry 创建 Model。
-- 只为 Host→Worker 同步存在的调用随迁移桥删除。
+- Chamadas que apenas exibem ou selecionam modelo passam a ler o Selection View.
+- Chamadas que precisam editar configuração explícita passam a ler o Settings View.
+- Chamadas que precisam de identidade de plano ou credenciais passam a ler o Account Service.
+- Chamadas que precisam executar modelo criam o Model pelo Registry.
+- Chamadas que existem apenas para a sincronização Host→Worker são removidas junto com a ponte de migração.
 
-因此 UI 切换不能以“把新 View 转回 `ModelProviderConfig[]`”实现；那会让旧完整结构继续成为隐性事实源，并保留同样的混合语义。
+Por isso, a troca da UI não pode ser implementada como "converter a nova View de volta para `ModelProviderConfig[]`"; isso manteria a estrutura completa antiga como fonte de verdade implícita e preservaria a mesma semântica misturada.
 
-## Client 代理的迁移语义
+## Semântica de migração do proxy do Client
 
-`RemoteServiceAccess` 会根据频道名直接创建代理；代理对象存在，不等于对端已经注册频道。因此 `IServiceAccessor` 上的可选字段只是迁移期 TypeScript 装配兼容，不能用 `service !== undefined` 作为远端能力协商。
+`RemoteServiceAccess` cria o proxy diretamente com base no nome do canal; a existência do objeto de proxy não significa que o outro lado já registrou o canal. Portanto, os campos opcionais em `IServiceAccessor` são apenas compatibilidade de montagem de TypeScript durante a migração, e `service !== undefined` não pode ser usado como negociação de capacidade remota.
 
-当前设置页从窗口自己的 Local Host 读取 Provider Settings。远端 Environment 的新 Registry 尚未接入时，继续走旧 Remote 服务链路。等所有 Entry 都注册新频道后，删除可选标记；如果未来需要跨版本 Host 能力探测，应增加显式协议能力，而不是靠代理对象是否存在推断。
+A página de settings atual lê os Provider Settings do Local Host da própria janela. Enquanto o novo Registry do Environment remoto ainda não estiver conectado, o caminho segue pela antiga cadeia de serviços remotos. Depois que todas as Entries registrarem os novos canais, a marcação opcional é removida; caso no futuro seja necessária a detecção de capacidade de Host entre versões, deve-se adicionar uma capacidade explícita ao protocolo, em vez de inferir pela existência do objeto de proxy.

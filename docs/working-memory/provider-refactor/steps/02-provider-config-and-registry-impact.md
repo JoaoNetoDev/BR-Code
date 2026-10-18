@@ -1,162 +1,165 @@
-# M2 Provider Config / Registry Impact Brief
+# M2 Provider Config / Registry — Brief de Impacto
 
-> 状态：历史实施契约
+> Status: contrato histórico de implementação
 >
-> 适用范围：M2 首个纯领域切片开工时的影响面、边界和测试交接
+> Escopo de aplicação: superfície de impacto, fronteiras e passagem de testes quando o primeiro slice de domínio puro do M2 foi iniciado
 >
-> 本文保留当时的规划证据，因此正文中的“本批次”“后续接入”和未决项不代表 M2 当前状态。
-> 当前实施状态见 [`02-provider-config-and-registry.md`](./02-provider-config-and-registry.md)，剩余退役项见
-> [`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md)，当前设计见
-> [`../design/registry/registry.md`](../design/registry/registry.md)。
+> Este documento preserva as evidências de planejamento da época, portanto "neste lote", "integração posterior" e os itens em aberto
+> no texto não representam o estado atual do M2.
+> O estado atual de implementação está em [`02-provider-config-and-registry.md`](./02-provider-config-and-registry.md), os itens
+> de aposentadoria restantes em
+> [`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md) e o design atual em
+> [`../design/registry/registry.md`](../design/registry/registry.md).
 
-## Feature Summary
+## Resumo da Feature
 
-| Field            | Value                                                                                                             |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Developer intent | 建立 Host、Worker、Prompt CLI 与 TUI 可复用的 Provider 配置解析和 Registry 领域核心                               |
-| Capability       | Provider registry、model capabilities、model selection option source                                              |
-| Change layer     | option-source、validation、persistence boundary                                                                   |
-| Operating mode   | planning                                                                                                          |
-| Primary seeds    | `IModelProviderService`、`ModelProviderConfig`、`ModelConfigSelect`、Workspace Model Catalog、M1 `Model` contract |
-| Out of scope     | UI 改动、物理配置存储、watcher、账号网络请求、Submission、Adapter、远端同步迁移                                   |
+| Campo           | Valor                                                                                                             |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Intenção do desenvolvedor | Estabelecer o núcleo de domínio de Registry e de resolução de configuração de Provider reutilizável por Host, Worker, Prompt CLI e TUI |
+| Capacidade      | Provider registry, model capabilities, model selection option source                                              |
+| Camada de mudança | option-source, validation, persistence boundary                                                                   |
+| Modo de operação | planning                                                                                                          |
+| Seeds principais | `IModelProviderService`、`ModelProviderConfig`、`ModelConfigSelect`、Workspace Model Catalog、contrato `Model` do M1 |
+| Fora de escopo  | Mudanças de UI, armazenamento físico de configuração, watcher, requisições de rede de conta, Submission, Adapter, migração de sincronização remota |
 
-## UI Surface Matrix
+## Matriz de Superfície de UI
 
-本批次不接入 UI。下表记录后续接入时必须保持的消费边界。
+Este lote não integra UI. A tabela abaixo registra as fronteiras de consumo que devem ser mantidas na integração posterior.
 
-| User scenario | UI entry                                          | Shared implementation                        | Display/draft owner     | Default/inherit source              | Validation/gating       | Commit action            | Authority/persistence            | Mode boundary                  | Must remain isolated from            |
-| ------------- | ------------------------------------------------- | -------------------------------------------- | ----------------------- | ----------------------------------- | ----------------------- | ------------------------ | -------------------------------- | ------------------------------ | ------------------------------------ |
-| 编辑 Provider | Model Provider Settings                           | ProviderConfigResolver；未来 Settings Facade | 设置页 draft            | Official + Personal + draft overlay | Resolver issues         | 未来 Config Service save | Personal Provider Config         | Host 所属 Environment          | 模型选择状态、活动 Agent Loop        |
-| 选择模型      | Conversation/Automation/Subagent/Repo Wiki picker | Registry View；各 Surface 自己组织候选       | 各 Surface 自己的 draft | 各 Surface 自己的默认/继承规则      | Registry 只提供可选模型 | 各 Surface 原有提交链路  | 各自的 Selection owner           | local/remote Registry 各自独立 | 其它 Surface 的 draft 与 commit sink |
-| 执行模型      | Core Worker / Prompt CLI / TUI                    | Registry lookup；后续 ModelFactory           | Agent Loop              | Submission/Session ModelSelection   | Registry Selection 校验 | create Model             | Worker 所属 Environment Registry | Worker 不依赖 Renderer         | Host draft、App Recent、设置页面状态 |
+| Cenário do usuário | Entrada de UI                                     | Implementação compartilhada                         | Owner de exibição/rascunho | Origem de padrão/herança             | Validação/portão                    | Ação de commit                   | Autoridade/persistência            | Limite de modo                     | Deve permanecer isolado de          |
+| ----------------- | ------------------------------------------------- | --------------------------------------------------- | --------------------------- | ------------------------------------ | ----------------------------------- | -------------------------------- | -------------------------------- | ---------------------------------- | ------------------------------------ |
+| Editar Provider   | Model Provider Settings                          | ProviderConfigResolver; futuro Settings Facade       | rascunho da página de configurações | Official + Personal + draft overlay | issues do Resolver                  | futuro save do Config Service    | Personal Provider Config          | Environment ao qual o Host pertence | estado de seleção de modelo, Agent Loop ativo |
+| Selecionar modelo | Picker de Conversation/Automation/Subagent/Repo Wiki | Registry View; cada Surface organiza seus candidatos | draft de cada Surface       | regras próprias de padrão/herança de cada Surface | Registry só fornece modelos selecionáveis | fluxo de commit original de cada Surface | Selection owner de cada um        | Registry local/remote independentes | drafts e commit sink de outras Surfaces |
+| Executar modelo    | Core Worker / Prompt CLI / TUI                   | Registry lookup; ModelFactory posterior              | Agent Loop                   | Submission/Session ModelSelection    | validação de Registry Selection     | create Model                      | Environment Registry do Worker   | Worker não depende do Renderer     | Host draft, App Recent, estado das páginas de configurações |
 
-## Shared And Divergent Behavior
+## Comportamento Compartilhado e Divergente
 
-| Concern              | Shared across surfaces                        | Deliberately different                                    | Why it matters for this change            |
-| -------------------- | --------------------------------------------- | --------------------------------------------------------- | ----------------------------------------- |
-| Option source        | ProviderConfigResolver 与 Registry View       | 设置页还需要无效项和显式 Personal 值                      | Registry 不能为了设置页保留灰色不可用模型 |
-| Validation           | Schema、三层 Overlay 与完整性校验             | accessId 鉴权、额度、网络错误仍由执行链路处理             | Registry 不承担账号权限判断               |
-| Commit effect        | 无                                            | 设置保存、模型选择、Agent 执行各自保持原有 owner          | 共享解析不能统一掉不同产品语义            |
-| Persistence/recovery | Config 类型与普通 Object 序列化格式           | 物理文件、远端服务、缓存和 watcher 由 Source Service 决定 | 纯领域包不拥有 IO                         |
+| Assunto               | Compartilhado entre surfaces                                    | Deliberadamente diferente                                        | Por que importa para esta mudança             |
+| --------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------- |
+| Origem de opções      | ProviderConfigResolver e Registry View                        | A página de configurações também precisa de itens inválidos e de valores Personal explícitos | O Registry não pode manter modelos indisponíveis em cinza só por causa das configurações |
+| Validação             | Schema, overlay de três camadas e verificação de completude    | accessId, autorização, cota e erros de rede continuam tratados pela cadeia de execução | O Registry não responde por julgamento de permissão de conta |
+| Efeito de commit      | Nenhum                                                         | O salvamento das configurações, a seleção de modelo e a execução do agente mantêm seus owners originais | A resolução compartilhada não pode unificar semânticas de produto diferentes |
+| Persistência/recuperação | Tipos de Config e formato de serialização de Object comum     | Arquivo físico, serviço remoto, cache e watcher são decididos pelo Source Service | O pacote de domínio puro não possui IO |
 
-## Feature Relationships
+## Relacionamentos da Feature
 
-| Rank           | From                   | Semantic edge           | To                           | Condition              | Why inspect it                          | Evidence                                                               |
-| -------------- | ---------------------- | ----------------------- | ---------------------------- | ---------------------- | --------------------------------------- | ---------------------------------------------------------------------- |
-| must-inspect   | Provider Config        | resolves-through        | ProviderConfigResolver       | 所有入口               | 避免 Host、Worker 各写一套 Overlay/过滤 | Working Memory registry design；`packages/services/src/model-provider` |
-| must-inspect   | ProviderConfigResolver | publishes-valid-view-to | ProviderRegistry             | 静态事实完整且允许选择 | Registry 只包含可绑定候选               | `design/registry/registry.md`                                          |
-| should-inspect | ProviderRegistry       | options-from            | 各模型选择 Surface           | 后续 UI 接入           | 共享候选源但不共享 draft/commit         | feature graph `capability.model-selection`                             |
-| conditional    | ProviderRegistry       | creates-model-through   | ModelFactory                 | M2.4 起                | 本批不创建执行 Model                    | `design/registry/model-creation.md`                                    |
-| invariant-only | Registry 更新          | must-not-mutate         | 已创建 Model / 活动 Loop     | 所有进程               | 新配置只影响以后创建的 Model            | `design/registry/runtime.md`                                           |
-| invariant-only | Provider 领域包        | must-not-own            | file/network/account runtime | 所有模式               | 保持领域核心无 IO、可独立测试           | 用户确认的 M2 边界                                                     |
+| Rank           | De                     | Aresta semântica           | Para                          | Condição                 | Por que inspecionar                            | Evidência                                                             |
+| -------------- | ---------------------- | -------------------------- | ----------------------------- | ------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------- |
+| must-inspect   | Provider Config        | resolves-through           | ProviderConfigResolver        | Todas as entradas        | Evitar que Host e Worker implementem overlays e filtros próprios | Working Memory registry design; `packages/services/src/model-provider` |
+| must-inspect   | ProviderConfigResolver | publishes-valid-view-to   | ProviderRegistry              | Fatos estáticos completos e seleção permitida | O Registry contém apenas candidatos vinculáveis | `design/registry/registry.md`                                          |
+| should-inspect | ProviderRegistry       | options-from               | Cada surface de seleção de modelo | Integração de UI posterior | Fonte de candidatos compartilhada, mas draft/commit separados | feature graph `capability.model-selection`                             |
+| conditional    | ProviderRegistry       | creates-model-through      | ModelFactory                  | A partir de M2.4         | Este lote não cria Model de execução           | `design/registry/model-creation.md`                                    |
+| invariant-only | Atualização do Registry| must-not-mutate            | Model já criado / Loop ativo | Todos os processos      | Nova configuração só afeta Models criados depois | `design/registry/runtime.md`                                           |
+| invariant-only | Pacote de domínio Provider | must-not-own             | runtime de arquivo/rede/conta | Todos os modos          | Manter o núcleo de domínio sem IO e testável isoladamente | Limites do M2 confirmadas pelo usuário                                  |
 
-## State Owners And Commit Sinks
+## Owners de Estado e Sinks de Commit
 
-| State/fact                      | Draft/display owner | Authoritative owner               | Commit command/service | Persistence/cache                  | Evidence                          |
-| ------------------------------- | ------------------- | --------------------------------- | ---------------------- | ---------------------------------- | --------------------------------- |
-| Official/Personal Config Object | Source Service      | 所属 Environment 的 Config Source | 后续 Config Service    | 当前 v2 config / 管理服务；M5 细化 | M2 design                         |
-| Account Provider Access         | Account Service     | 当前账号/权益 Source              | 账号刷新链路           | Source 自有缓存                    | M2 design；plan entitlement graph |
-| Effective Provider resolution   | Resolver 返回值     | 可重建派生事实                    | 无                     | 不持久化                           | M2 design                         |
-| Registry View / index           | 进程内 Registry     | 当前 Registry 实例                | `replace()`            | 仅内存                             | M2 runtime design                 |
-| Surface draft / Selection       | 各产品 Surface      | 各自状态 owner                    | 原有 command/service   | 各自持久化                         | feature graph surface edges       |
+| Estado/fato                     | Owner de rascunho/exibição | Owner autoritativo                 | Comando/serviço de commit   | Persistência/cache                  | Evidência                          |
+| ------------------------------- | --------------------------- | --------------------------------- | --------------------------- | ----------------------------------- | --------------------------------- |
+| Object de Config Official/Personal | Source Service            | Config Source do Environment dono | Config Service posterior    | config v2 atual / serviço de administração; refinado no M5 | M2 design                         |
+| Access de Account Provider      | Account Service            | Source da conta/cota atual        | cadeia de atualização da conta | cache próprio do Source            | M2 design; grafo de entitlement do plano |
+| Resolução efetiva do Provider   | Valor de retorno do Resolver | Fato derivado reconstruível      | Nenhum                      | Não persistido                       | M2 design                         |
+| Registry View / index           | Registry no processo       | Instância atual do Registry       | `replace()`                 | Apenas em memória                    | M2 runtime design                 |
+| Draft / Selection de Surface    | Cada Surface de produto    | Respectivo owner de estado        | command/service originais   | Respectiva persistência             | arestas de surface do feature graph |
 
-## Must-Preserve Invariants
+## Invariantes que Devem Ser Preservados
 
-| Invariant                                                               | Surfaces/modes             | Proof needed           | Evidence               |
-| ----------------------------------------------------------------------- | -------------------------- | ---------------------- | ---------------------- |
-| Official key 保留 Official 顺序；Personal-only key 按 Personal 顺序追加 | Config、Settings、Registry | Overlay 单测           | configuration design   |
-| 嵌套 ConfigOverlay 递归覆盖，普通字段整体替换，输入不被修改             | 所有消费方                 | 单元测试               | configuration design   |
-| Account Source 只为 account kind 产生第三层 ProviderConfig；API Provider 没有该层 | Host/Worker/CLI/TUI | Resolver 单测 | registry design |
-| Registry 只发布完整、启用、静态可选的模型                               | 模型选择与执行             | Resolver/Registry 单测 | 已确认产品结论         |
-| Registry 替换 View 不改变调用方已经持有的旧 View/Model                  | 活动 Loop                  | 不可变快照单测         | runtime design         |
-| 本批代码不读写文件、不发网络请求、不依赖 UI/Services/SDK                | 所有进程                   | 包依赖审查             | 用户确认的纯领域包边界 |
+| Invariante                                                                                             | Surfaces/modos                | Prova necessária         | Evidência               |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------- | ----------------------- |
+| A chave Official preserva a ordem Official; a chave somente Personal é acrescentada na ordem Personal      | Config, Settings, Registry    | Teste unitário de overlay | configuration design    |
+| O ConfigOverlay aninhado sobrescreve recursivamente, campos comuns são substituídos por inteiro e a entrada não é modificada | Todos os consumidores           | Teste unitário            | configuration design    |
+| O Account Source só produz a terceira camada de ProviderConfig para o kind account; o API Provider não tem essa camada | Host/Worker/CLI/TUI          | Teste unitário do Resolver| registry design         |
+| O Registry só publica modelos completos, habilitados e estaticamente selecionáveis                     | Seleção e execução de modelo  | Testes de Resolver/Registry | Conclusão de produto já confirmada |
+| A substituição de View pelo Registry não altera a View/Model antiga que o chamador já possui              | Loop ativo                    | Teste de snapshot imutável | runtime design         |
+| O código deste lote não lê nem escreve arquivos, não envia requisições de rede e não depende de UI/Services/SDK | Todos os processos            | Revisão de dependências de pacote | Limite de pacote de domínio puro confirmado pelo usuário |
 
-## Codegraph Evidence
+## Evidências do Codegraph
 
-当前环境没有可调用的 codegraph 工具，按技能约定退回功能图声明的 seeds 与 `rg` 直接调用方核对，深度限制为 2。
+O ambiente atual não possui uma ferramenta de codegraph chamável; conforme a convenção da skill, o retorno foi aos seeds declarados no
+grafo de funcionalidades e à verificação direta de chamadores com `rg`, com profundidade limitada a 2.
 
-| Seed                                           | Query                     | Direct callers / key path                            | Depth | Interpretation                                                |
-| ---------------------------------------------- | ------------------------- | ---------------------------------------------------- | ----- | ------------------------------------------------------------- |
-| `IModelProviderService`                        | declarations / callers    | Settings、模型选择 hook、Host registry snapshot      | 2     | 当前服务混合配置、Registry 和运行时投影，后续逐步接入新领域包 |
-| `ModelProviderConfig`                          | references                | shared schema、services storage、protocol projection | 2     | 当前完整副本结构是迁移输入，不直接成为新 Overlay 类型         |
-| `ModelConfigSelect` / `buildModelSelectGroups` | graph seeds + references  | Conversation、Automation、Subagent、Repo Wiki        | 2     | 候选源可共享，draft/commit 必须分离                           |
-| M1 `Model`                                     | declarations / references | Core、Bootstrap、Adapter wrapper                     | 2     | M2-A 不改变执行契约；M2.4 才接 ModelFactory                   |
+| Seed                                           | Consulta                    | Chamadores diretos / caminho principal                | Profundidade | Interpretação                                                |
+| ---------------------------------------------- | --------------------------- | ----------------------------------------------------- | ----------- | ------------------------------------------------------------- |
+| `IModelProviderService`                        | declarations / callers     | Settings, hook de seleção de modelo, snapshot do registry do Host | 2     | O serviço atual mistura configuração, Registry e projeção de runtime; o novo pacote de domínio entra gradualmente |
+| `ModelProviderConfig`                          | references                 | schema compartilhado, storage do services, projeção do protocol | 2     | A estrutura de cópia completa atual é entrada de migração e não se torna diretamente o novo tipo de Overlay |
+| `ModelConfigSelect` / `buildModelSelectGroups` | graph seeds + references   | Conversation, Automation, Subagent, Repo Wiki         | 2     | A origem de candidatos pode ser compartilhada; draft/commit devem ficar separados |
+| `Model` do M1                                  | declarations / references  | Core, Bootstrap, wrapper de Adapter                   | 2     | M2-A não altera o contrato de execução; o ModelFactory só entra em M2.4 |
 
-## Graph Drift Candidates
+## Candidatos de Drift do Grafo
 
-| Candidate          | Live-code evidence           | Missing/stale graph relation                    | Proposed follow-up                                         |
-| ------------------ | ---------------------------- | ----------------------------------------------- | ---------------------------------------------------------- |
-| 纯 Provider 领域包 | 本批新增 `packages/provider` | `capability.provider-registry` 尚无该 code seed | 代码落地后把 package seed 加到现有 capability/service 节点 |
+| Candidato                | Evidência no código vivo            | Relação ausente/obsoleta no grafo            | Seguimento proposto                                         |
+| ----------------------- | ----------------------------------- | ------------------------------------------- | ---------------------------------------------------------- |
+| Pacote de domínio Provider puro | `packages/provider` adicionado neste lote | `capability.provider-registry` ainda não tem esse code seed | Após o código ficar pronto, adicionar o package seed aos nós existentes de capability/service |
 
-## Graph Delta
+## Delta do Grafo
 
-| Status    | Node/edge                                                                 | Semantic reason                                | Evidence       | Action                                    |
+| Status    | Nó/aresta                                                                  | Razão semântica                                | Evidência       | Ação                                    |
 | --------- | ------------------------------------------------------------------------- | ---------------------------------------------- | -------------- | ----------------------------------------- |
-| confirmed | `capability.provider-registry` 增加 `packages/provider/src/index.ts` seed | 新包承载共享 Config/Resolver/Registry 领域核心 | 用户确认与实现 | 实现后更新 graph seed，不新增产品 surface |
+| confirmed | `capability.provider-registry` ganha o seed `packages/provider/src/index.ts` | O novo pacote hospeda o núcleo de domínio compartilhado de Config/Resolver/Registry | Confirmado pelo usuário e pela implementação | Atualizar o graph seed após a implementação, sem criar nova surface de produto |
 
-## Unresolved Questions
+## Perguntas em Aberto
 
-| Question                           | Candidate answers                           | Scope difference                                                                       | Owner             |
-| ---------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------- |
-| `reasoningMapping` 最终静态 Schema | 延续当前兼容结构 / Adapter 专题后换正式结构 | 不阻塞 Properties、Option Specs、Resolver 与 Registry；阻塞 M2.4 ModelFactory 完整接入 | 后续 Adapter 设计 |
-| Source 失败时发布策略              | 保留 last-known-good / 发布部分结果         | 属于 Source 与 Registry Service 装配，不属于本批纯 Registry                            | M2 后续实施       |
+| Pergunta                                  | Respostas candidatas                          | Diferença de escopo                                                                 | Owner             |
+| ---------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------- |
+| Schema estático final de `reasoningMapping` | Manter a estrutura compatível atual / trocar por estrutura oficial após o tópico do Adapter | Não bloqueia Properties, Option Specs, Resolver e Registry; bloqueia a integração completa do ModelFactory em M2.4 | Design posterior do Adapter |
+| Estratégia de publicação quando o Source falha | Manter last-known-good / publicar resultado parcial | Pertence à montagem do Source com o Registry Service, não a este lote de Registry puro | Implementação posterior do M2 |
 
-## Planning Handoff
+## Passagem do Planejamento
 
-| Item             | Destination                          | Status     |
-| ---------------- | ------------------------------------ | ---------- |
-| Spec update      | `02-provider-config-and-registry.md` | complete   |
-| Case catalog     | 本文下方 accepted cases              | complete   |
-| Coverage matrix  | 纯领域包单测                         | complete   |
-| Decision backlog | M2 step 未决项                       | complete   |
-| E2E handoff      | 无 UI/协议行为变化                   | not-needed |
+| Item             | Destino                            | Status     |
+| ---------------- | ---------------------------------- | ---------- |
+| Atualização do spec | `02-provider-config-and-registry.md` | complete   |
+| Catálogo de casos | Casos aceitos abaixo deste documento | complete   |
+| Matriz de cobertura | Testes unitários do pacote de domínio puro | complete   |
+| Backlog de decisões | Itens em aberto dos steps do M2 | complete   |
+| Passagem de E2E    | Nenhuma mudança de UI/protocolo      | not-needed |
 
-## Clarification Log
+## Log de Esclarecimentos
 
-| Round | Question                  | User answer                                                 | Boundary fixed               | Follow-up needed |
-| ----- | ------------------------- | ----------------------------------------------------------- | ---------------------------- | ---------------- |
-| 1     | 共享代码放在哪里          | 新建纯领域包                                                | Host/Worker/CLI/TUI 共享实现 | no               |
-| 2     | JSON 与运行时形态         | JSON/RPC 普通 Object；解析后 ConfigOverlay Class + 有序 Map | 序列化与运行时边界           | no               |
-| 3     | Account Personal override | 领域层不特殊限制；设置页预期不提供部分交互                  | Resolver 不硬编码 UI 策略    | no               |
-| 4     | Registry 是否无 IO        | 是；Source Service 负责 IO，Registry 维护内存 View          | IO 所有权                    | no               |
+| Rodada | Pergunta                       | Resposta do usuário                                              | Fronteira fixada             | Seguimento necessário |
+| ------ | ------------------------------ | ---------------------------------------------------------------- | ---------------------------- | --------------------- |
+| 1      | Onde fica o código compartilhado | Criar um pacote de domínio puro                                | Implementação compartilhada para Host/Worker/CLI/TUI | não |
+| 2      | Forma de JSON e de runtime      | Object comum de JSON/RPC; após o parse, classe ConfigOverlay + Map ordenado | Fronteira serialização/runtime | não |
+| 3      | Override de Account Personal    | Sem restrição especial na camada de domínio; a página de configurações não deve oferecer interações parciais | O Resolver não codifica política de UI em hardcode | não |
+| 4      | O Registry é sem IO            | Sim; o Source Service responde pelo IO e o Registry mantém a View em memória | Propriedade de IO | não |
 
-## Boundary Decisions
+## Decisões de Fronteira
 
-| Boundary              | Decision                          | Includes                                             | Excludes / prunes                                   | Source      |
-| --------------------- | --------------------------------- | ---------------------------------------------------- | --------------------------------------------------- | ----------- |
-| M2-A                  | Config + Resolver + 内存 Registry | schema、overlay、order、filter、issues、index、event | storage、watcher、account request、UI、ModelFactory | user/design |
-| Registry availability | 只包含配置完整且启用的模型        | complete、enabled、三层 Provider Config             | accessId 是否可鉴权、网络健康、额度、瞬时 token    | user/design |
-| View ownership        | Registry 原子替换不可变 View      | 新查询使用新 View                                    | 修改旧 View / 活动 Model                            | user/design |
+| Fronteira             | Decisão                                  | Inclui                                             | Exclui / poda                                          | Origem      |
+| --------------------- | ---------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------ | ----------- |
+| M2-A                  | Config + Resolver + Registry em memória  | schema, overlay, order, filter, issues, index, event | storage, watcher, account request, UI, ModelFactory | user/design |
+| Disponibilidade do Registry | Só inclui modelos com configuração completa e habilitados | complete, enabled, Provider Config de três camadas | Se o accessId autoriza, saúde de rede, cota, token instantâneo | user/design |
+| Propriedade da View  | O Registry substitui atomicamente uma View imutável | Novas consultas usam a nova View                       | Modificar a View antiga / o Model ativo                | user/design |
 
-## Accepted Cases
+## Casos Aceitos
 
-| Case ID          | Setup                                      | Action               | Assertions                                             | Evidence layers  | E2E status |
-| ---------------- | ------------------------------------------ | -------------------- | ------------------------------------------------------ | ---------------- | ---------- |
-| M2A-OVERLAY-01   | Official `[A,B,C]`，Personal `[Y,C',X,A']` | overlay              | 结果 `[A',B,C',Y,X]`；输入不变                         | unit             | not-needed |
-| M2A-OVERLAY-02   | 嵌套 Properties + 普通数组/Record          | overlay              | 嵌套 Config 逐字段继承；数组/Record 整体替换           | unit             | not-needed |
-| M2A-MODEL-01     | Official/Personal 多条 regex 规则          | resolve model        | 全串匹配；后命中规则覆盖前规则                         | unit             | not-needed |
-| M2A-ACCESS-01    | API 与 Account Provider 同时存在           | overlay Account Config | 只补齐 Account Provider 的 accessId/models；API 不变 | unit             | not-needed |
-| M2A-VALID-01     | 不完整、禁用、完整 Provider/model          | resolve              | Registry View 只含完整启用项；问题保留给 Resolver 结果 | unit             | not-needed |
-| M2A-REGISTRY-01  | Registry 已持有 v1                         | replace v2           | revision/event 更新；旧 v1 快照保持不变                | unit             | not-needed |
-| M2A-SELECTION-01 | provider/model 存在或缺失                  | validate             | 返回稳定的成功/错误结果                                | unit             | not-needed |
-| M2B-SOURCE-01    | Config/Account Source 均有当前快照         | service start        | 先订阅后读取；发布一份完整 Registry Snapshot           | unit             | not-needed |
-| M2B-REFRESH-01   | 读取 v1 期间 Source 更新为 v2              | source invalidation  | 丢弃过时代际，只发布 v2                                | unit             | not-needed |
-| M2B-REFRESH-02   | 两个 Source revision 均未变化              | 重复 invalidation    | 不重建 View、不增加 Registry revision                  | unit             | not-needed |
-| M2B-FAILURE-01   | 已发布 v1，下一次 Source 读取失败          | source invalidation  | v1 保持可用；报告刷新错误；后续成功可恢复到 v2         | unit             | not-needed |
-| M2C-SETTINGS-01  | Official、Personal、无效和 Account 过滤项  | project settings     | 返回 Personal 显式值、Effective 值、问题与可调序标记   | unit             | not-needed |
-| M2C-SELECTION-01 | Settings 仍包含不可发布项                  | project selection    | Selection View 只包含 Registry 已发布的 Provider/Model | unit             | not-needed |
-| M2D-CONFIG-01    | Official 或 Personal Source 更新           | config source event  | Config Service 通知 Registry 读取两路最新快照          | unit             | not-needed |
-| M2D-CONFIG-02    | Settings 保存、删除或重排 Personal 配置    | repository update    | 在 Repository 原子边界内只修改 Personal 层             | unit             | not-needed |
-| M2D-CONFIG-03    | 保存带正则元字符的精确 Provider/Model ID   | settings model save  | 精确规则转义；不意外匹配其他 ID                        | unit             | not-needed |
-| M2E-MIGRATE-01   | 新 Personal Config 文件不存在，旧配置存在  | repository read      | 单向导入、校验并原子写入当前 schemaVersion 文件        | unit/integration | not-needed |
-| M2E-MIGRATE-02   | Personal Config 是受支持的旧 schemaVersion | repository read      | 按相邻版本逐级迁移并写回最新版                         | unit             | not-needed |
-| M2E-MIGRATE-03   | 文件版本高于当前程序支持范围               | repository read      | 报错且不覆盖原文件                                     | unit             | not-needed |
-| M2E-MIGRATE-04   | 旧配置转换或新文件原子写失败               | repository read      | 报错并保留旧文件；不发布半迁移 Snapshot                | integration      | not-needed |
+| Case ID          | Setup                                        | Ação                   | Asserções                                                    | Camadas de evidência | Status E2E |
+| ---------------- | -------------------------------------------- | ---------------------- | ------------------------------------------------------------ | -------------------- | ---------- |
+| M2A-OVERLAY-01   | Official `[A,B,C]`，Personal `[Y,C',X,A']`   | overlay                | Resultado `[A',B,C',Y,X]`; entrada inalterada                | unit                 | not-needed |
+| M2A-OVERLAY-02   | Properties aninhadas + arrays/Record comuns  | overlay                | Config aninhado herdado campo a campo; array/Record substituído por inteiro | unit | not-needed |
+| M2A-MODEL-01     | Múltiplas regras de regex em Official/Personal | resolve model        | Correspondência pela string inteira; a regra posterior sobrescreve a anterior | unit | not-needed |
+| M2A-ACCESS-01    | API e Account Provider presentes ao mesmo tempo | overlay de Config da conta | Só completa accessId/models do Account Provider; a API fica inalterada | unit | not-needed |
+| M2A-VALID-01     | Provider/model incompleto, desabilitado e completo | resolve               | A Registry View só contém itens completos e habilitados; os problemas ficam no resultado do Resolver | unit | not-needed |
+| M2A-REGISTRY-01  | Registry já detém a v1                        | replace v2             | revision/event são atualizados; o snapshot antigo da v1 permanece inalterado | unit | not-needed |
+| M2A-SELECTION-01 | provider/model presente ou ausente            | validate               | Retorna resultado de sucesso/erro estável                   | unit                 | not-needed |
+| M2B-SOURCE-01    | Config/Account Source têm snapshot atual     | service start          | Assina antes de ler; publica um Registry Snapshot completo  | unit                 | not-needed |
+| M2B-REFRESH-01   | Source atualiza de v1 para v2 durante a leitura da v1 | source invalidation | Descarta a geração obsoleta e publica apenas a v2            | unit                 | not-needed |
+| M2B-REFRESH-02   | Nenhuma das revisions de Source mudou        | invalidation repetida  | Não reconstrói a View nem aumenta a revision do Registry    | unit                 | not-needed |
+| M2B-FAILURE-01   | v1 publicada, próxima leitura de Source falha | source invalidation    | A v1 continua disponível; o erro de atualização é reportado; um sucesso posterior recupera até a v2 | unit | not-needed |
+| M2C-SETTINGS-01  | Official, Personal, itens inválidos e Account filtrados | project settings | Retorna valor Personal explícito, valor efetivo, problemas e marcador de ordem ajustável | unit | not-needed |
+| M2C-SELECTION-01 | Settings ainda contém itens não publicáveis  | project selection      | A Selection View só contém Provider/Model publicados pelo Registry | unit | not-needed |
+| M2D-CONFIG-01    | Source Official ou Personal é atualizado     | config source event    | O Config Service notifica o Registry para ler os dois snapshots mais recentes | unit | not-needed |
+| M2D-CONFIG-02    | Settings salva, exclui ou reordena a config Personal | repository update | Só a camada Personal é alterada, dentro da fronteira atômica do Repository | unit | not-needed |
+| M2D-CONFIG-03    | Salva Provider/Model ID exatos com metacaracteres de regex | settings model save | Regras exatas são escapadas; nenhum outro ID é correspondido por acidente | unit | not-needed |
+| M2E-MIGRATE-01   | Novo arquivo de Config Personal inexistente, configuração antiga presente | repository read    | Importação unidirecional, validação e escrita atômica em arquivo com o schemaVersion atual | unit/integration | not-needed |
+| M2E-MIGRATE-02   | Config Personal em um schemaVersion antigo suportado | repository read      | Migra nível a nível a partir das versões adjacentes e grava a versão mais recente | unit | not-needed |
+| M2E-MIGRATE-03   | Versão do arquivo acima do range suportado pelo programa atual | repository read | Retorna erro sem sobrescrever o arquivo original           | unit                 | not-needed |
+| M2E-MIGRATE-04   | Falha ao converter a configuração antiga ou ao gravar atomicamente o novo arquivo | repository read | Retorna erro e mantém o arquivo antigo; não publica Snapshot meio migrado | integration | not-needed |
 
-## E2E Handoff Notes
+## Notas de Passagem de E2E
 
-- Provider fixture: not-needed
-- File-system fixture: not-needed
-- Timing strategy: synchronous pure-domain unit tests
-- Docker preset: not-needed
-- Review risks: 当前生产链路尚未接入；后续接入必须重新做 Host/Worker/remote impact scan
+- Fixture de Provider: not-needed
+- Fixture de sistema de arquivos: not-needed
+- Estratégia de temporização: testes unitários síncronos de domínio puro
+- Preset de Docker: not-needed
+- Riscos de revisão: a cadeia de produção ainda não está integrada; a integração posterior exige refazer o impact scan de Host/Worker/remoto

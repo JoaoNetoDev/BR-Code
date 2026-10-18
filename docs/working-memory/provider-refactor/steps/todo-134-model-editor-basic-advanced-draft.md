@@ -1,85 +1,85 @@
-# Todo134：模型编辑器精简视图与高级展开
+# Todo134：Visão enxuta do editor de modelo e expansão de avançado
 
-状态：实现、review 与本轮范围内验证完成。用户已确认以下全部裁决；正式 Electron / 真实手机链路验收未在本轮实跑。
+Status: implementação, review e validação dentro do escopo desta rodada concluídos. O usuário já confirmou todas as decisões abaixo; a aceitação formal em Electron / na cadeia real de celular não foi executada nesta rodada.
 
-后续布局讨论记录在 [Todo141](todo-141-model-editor-product-ux-alignment.md)，现为草稿、暂不执行，不取代本文件当前已实现行为；待用户重新授权并实施后，再更新字段位置、智能开关位置及底部按钮布局。
+As discussões posteriores de layout estão registradas em [Todo141](todo-141-model-editor-product-ux-alignment.md), hoje em rascunho e não executado, e não substituem o comportamento já implementado neste arquivo; depois que o usuário autorizar e implementar novamente, serão atualizados a posição dos campos, a posição do interruptor inteligente e o layout dos botões inferiores.
 
-## 最终交互与范围
+## Interação final e escopo
 
-| 区域 | 内容 |
+| Área | Conteúdo |
 | --- | --- |
-| 默认正文 | 模型 ID、上下文长度、有序思考等级列表（编辑支持档位，不是会话选档） |
-| 高级配置，默认收起 | 最大输出 Token 上限、输入类型、模型能力、推理参数映射 |
-| 固定底部左侧 | 智能配置开关及既有说明 |
-| 固定底部右侧 | 恢复（outline 按钮）、保存（主按钮）、取消 |
+| Corpo padrão | Model ID, comprimento de contexto, lista ordenada de níveis de pensamento (a edição define as faixas, não a escolha de faixa na sessão) |
+| Configuração avançada, recolhida por padrão | Limite máximo de Token de saída, tipos de entrada, capacidades do modelo, mapeamento de parâmetros de inferência |
+| Base fixa à esquerda | Interruptor de configuração inteligente e a explicação já existente |
+| Base fixa à direita | Restaurar (botão outline), Salvar (botão principal), Cancelar |
 
-- 高级配置在同一弹窗原地展开；不再采用讨论早期的独立二级页面。基础字段不重复展示。
-- 新增和编辑复用相同视图；内置模型 ID 保持只读。关闭重开默认收起高级配置。
-- 取消内部分组卡片的边框、圆角和内边距。保留最外层弹窗与输入控件的样式，不扩改 Provider 表单和模型列表。
-- 保留个人覆盖边框高亮、继承 placeholder、问号说明、思考等级编辑交互、Map 格式、拖拽排除、IME 和保存反馈。
-- 最新明确批准：可编辑布尔选项前的装饰图标改为 checkbox 指示；沿用原按钮的点击范围、键盘语义和覆盖高亮，不在按钮内再嵌可聚焦 checkbox。固定文本输入仍沿用锁定说明。
-- 恢复改为有边框的按钮，放在保存左边；仍恢复整份可编辑草稿，保留模型 ID 与独立 enabled，不立即落盘。
-- 桌面与手机窄屏、浅深主题、中英文均须可访问所有字段和操作；窄屏底部允许分行，不横向溢出。
+- A configuração avançada é expandida no lugar, dentro do mesmo diálogo; não se adota mais a página secundária independente discutida no início. Os campos básicos não são exibidos em duplicidade.
+- Adição e edição reutilizam a mesma visão; o Model ID de modelos integrados permanece somente leitura. Ao fechar e reabrir, o avançado volta recolhido por padrão.
+- Cancelar as bordas, os cantos arredondados e o padding dos cartões de agrupamento internos. Preservar o estilo do diálogo mais externo e dos controles de entrada, sem ampliar as mudanças para o formulário de Provider e a lista de modelos.
+- Preservar a borda de destaque de substituições pessoais, os placeholders de herança, o texto de ajuda com ícone de interrogação, a interação de edição dos níveis de pensamento, o formato Map, a exclusão por arrastar, o IME e o feedback de salvamento.
+- Aprovação explícita mais recente: o ícone decorativo antes das opções booleanas editáveis passa a ser o indicador de checkbox; mantém-se a área de clique original do botão, a semântica de teclado e o destaque de substituição, sem embutir um checkbox focável dentro do botão. O input de texto fixo continua usando a explicação de bloqueio.
+- Restaurar passa a ser um botão com borda, posicionado à esquerda de Salvar; ele ainda restaura todo o rascunho editável, preservando o Model ID e o `enabled` independente, sem gravar imediatamente em disco.
+- Em telas estreitas de desktop e celular, nos temas claro e escuro e em chinês e inglês, todos os campos e ações devem ser acessíveis; a base pode quebrar linha em tela estreita, sem transbordar horizontalmente.
 
-## 字段归属与保存原则
+## Atribuição de campos e princípios de salvamento
 
-1. 输出类型整组、MFJS 工具 Schema 不再出现在编辑页面，也不保留不可操作的锁定项；底层配置类型、规则和执行能力保留。
-2. 两字段退出 UI 草稿和覆盖标记，不参与表单必填校验。手动模式不接受也不新固化它们。
-3. 通用机制沿用 Todo130：**手动配置只按可编辑字段 schema 提取、清理和校验**，不调用完整执行 schema 给用户附加不可见必填字段。新增系统字段默认不进入手动配置。
-4. “高级折叠”只是可见性变化，里面的字段仍可编辑、仍属于完整草稿；不能与被移除的系统字段混淆。
-5. 智能模式保存其他项目，不凭空生成 MFJS 或输出类型覆盖，也不清除已有合法的系统字段个人覆盖。切手动后按手动 schema 保存；系统叶子继续来自规则合成。
-6. 旧合法手动文件曾带 MFJS：在已有文件 codec 的规范化边界识别旧可编辑形状或旧完整形状，再提取现行手动字段。不改 schemaVersion，不引入全局数据迁移，不把未知/损坏格式删字段后伪装成功。
-7. 保留现有推荐、恢复的身份与编辑代次保护。没有新增推荐缓存、第二份草稿或持久化折叠状态。
+1. O grupo inteiro de tipos de saída e o Schema de ferramentas MFJS deixam de aparecer na página de edição, e nenhum item bloqueado e inoperável é mantido; os tipos de configuração de baixo nível, as regras e a capacidade de execução são preservados.
+2. Os dois campos saem do rascunho de UI e da marcação de substituição e não participam da validação de obrigatoriedade do formulário. O modo manual não os aceita nem passa a fixá-los.
+3. O mecanismo genérico segue o Todo130: **a configuração manual extrai, limpa e valida apenas pelo schema dos campos editáveis**, sem chamar o schema completo de execução para adicionar ao usuário campos obrigatórios invisíveis. Novos campos de sistema entram por padrão fora da configuração manual.
+4. "Recolhido em avançado" é apenas uma mudança de visibilidade; os campos dentro dele continuam editáveis e continuam pertencendo ao rascunho completo; não pode ser confundido com os campos de sistema removidos.
+5. No modo inteligente, salvar os demais itens não gera magicamente substituições de MFJS ou de tipos de saída, nem limpa substituições pessoais legadas de campos de sistema já existentes. Depois de alternar para manual, salva-se pelo schema manual; as folhas de sistema continuam vindo da composição das regras.
+6. Arquivos manuais legados e válidos já carregavam MFJS: na fronteira de normalização do codec de arquivo existente, reconhecer a antiga forma editável ou a antiga forma completa e então extrair os campos manuais atuais. Não alterar o schemaVersion, não introduzir migração global de dados e não deletar campos de formato desconhecido/corrompido fingindo sucesso.
+7. Preservar as proteções existentes de identidade e de geração de edição das ações de recomendar e restaurar. Não há novo cache de recomendação, nem um segundo rascunho, nem estado de recolhimento persistido.
 
-| 动作 | 草稿 | 持久化 |
+| Ação | Rascunho | Persistência |
 | --- | --- | --- |
-| 展开 / 收起 | 保留全部字段 | 不写 |
-| 修改基础 / 高级 | 更新同一份草稿 | 不写 |
-| 恢复 / 切智能模式 | 沿用现有 Hook 和异步保护 | 不写 |
-| 保存 | 校验全部可编辑字段；高级字段错误自动展开并聚焦 | 仅校验成功后走原提交 |
-| 取消 | 丢弃本次编辑 | 不写 |
+| Expandir / recolher | Mantém todos os campos | Não escreve |
+| Modificar básico / avançado | Atualiza o mesmo rascunho | Não escreve |
+| Restaurar / alternar para modo inteligente | Reaproveita o Hook existente e as proteções assíncronas | Não escreve |
+| Salvar | Valida todos os campos editáveis; erros em campos avançados expandem e focam automaticamente | Segue a submissão original somente após a validação bem-sucedida |
+| Cancelar | Descarta esta edição | Não escreve |
 
-错误定位使用现有结构化 field，不解析翻译文案；手动收起后再次提交同一错误也必须展开。保存中保留既有控件锁定。不得为修展示调整 ModelSelection、账号同步、请求或在途执行。
+O posicionamento de erros usa o campo estruturado existente, sem interpretar textos traduzidos; ao submeter de novo o mesmo erro depois de recolher manualmente, a expansão também é obrigatória. Durante o salvamento, mantém-se o bloqueio de controles já existente. Não se pode ajustar ModelSelection, sincronização de conta, requisições ou execuções em andamento só para corrigir a apresentação.
 
-## 影响面与验收
+## Superfície de impacto e aceitação
 
-- UI：ProviderFormControls / ProviderCardSections 共用 Dialog、useProviderModelDraft、草稿提交与个人覆盖机制。
-- Provider：仅修改手动可编辑 schema 的 MFJS 归属；提取/清理继续复用 schema。
-- Provider-node：旧手动格式在现有 codec 边界规范化。全量执行 schema 不改。
-- 不改桌面 continuous / 手机 replayable 链路、shared-host、Registry 权威、数据库和真实用户配置。
-- 代码图工具不可用；按已声明 provider-settings / model-capabilities surface 做定向检索。架构 context 返回 legacy/unmanaged，无新增模块边界。
+- UI: ProviderFormControls / ProviderCardSections compartilham o Dialog, o useProviderModelDraft, a submissão do rascunho e o mecanismo de substituições pessoais.
+- Provider: apenas a atribuição do MFJS no schema manual editável é modificada; a extração/limpeza continua reaproveitando o schema.
+- Provider-node: o formato manual legado é normalizado na fronteira do codec existente. O schema completo de execução não muda.
+- Não alterar a cadeia desktop continuous / mobile replayable, o shared-host, a autoridade do Registry, o banco de dados nem a configuração real do usuário.
+- A ferramenta de mapa de código não está disponível; a busca é dirigida pelas superfícies já declaradas de provider-settings / model-capabilities. O contexto de arquitetura retorna legacy/unmanaged, sem novos limites de módulo.
 
-| 用例 | 要求 |
+| Caso | Requisito |
 | --- | --- |
-| M134-01 | 默认基础字段可见，高级收起；没有 MFJS/输出类型；底部按钮顺序正确 |
-| M134-02 | 展开/收起保值、无写入；覆盖高亮、checkbox 与固定文本锁保持 |
-| M134-03 | 基础/高级同次提交；手动保存不含隐藏系统字段 |
-| M134-04 | 高级错误展开聚焦；同一错误重复提交同样有效 |
-| M134-05 | 恢复/模式/关闭/保存与过期推荐结果的既有保护不回退 |
-| M134-06 | 新增可编辑 ID、内置编辑只读；取消不落盘，重新打开默认收起 |
-| M134-07 | 桌面/窄屏、浅深色、中英文、标签/键盘帮助和底部布局 |
-| M134-08 | 新手动 schema 拒绝隐藏字段，缺 MFJS 可保存；系统 MFJS 跟随规则更新 |
-| M134-09 | 旧手动合法形状可读取、重复读写稳定；未知/损坏配置继续拒绝 |
-| M134-10 | 无关智能编辑保留已有隐藏系统覆盖，不产生新的隐藏覆盖 |
+| M134-01 | Campos básicos padrão visíveis, avançado recolhido; sem MFJS/tipos de saída; ordem correta dos botões inferiores |
+| M134-02 | Expandir/recolher preserva valores e não escreve; destaque de substituição, checkbox e trava de texto fixo permanecem |
+| M134-03 | Básico/avançado submetidos na mesma vez; salvamento manual sem campos de sistema ocultos |
+| M134-04 | Erro em campo avançado expande e foca; reenvio do mesmo erro funciona igualmente |
+| M134-05 | Restaurar/modo/fechar/salvar e as proteções existentes contra resultado de recomendação obsoleto não regridem |
+| M134-06 | Adicionar ID editável, ID integrado somente leitura; cancelar não grava em disco, reabrir nasce recolhido |
+| M134-07 | Desktop/tela estreita, tema claro/escuro, chinês/inglês, ajuda de rótulo/teclado e layout inferior |
+| M134-08 | O novo schema manual rejeita campos ocultos; ausência de MFJS pode ser salva; MFJS de sistema acompanha a atualização das regras |
+| M134-09 | A antiga forma manual válida pode ser lida e é estável em leituras/escritas repetidas; configurações desconhecidas/corrompidas continuam rejeitadas |
+| M134-10 | Edição inteligente não relacionada preserva as substituições de sistema ocultas já existentes e não gera novas substituições ocultas |
 
-验收采用域与草稿单测、实际 Chromium 中的真实组件/Hook 交互；同步更新现有 Electron E2E 的字段和高级展开步骤。不把组件 fixture 当作真实手机 shared-host 或正式客户端全链路通过。
+A aceitação usa testes unitários de domínio e de rascunho, além de interação real de componente/Hook em Chromium; os campos e os passos de expansão avançada do E2E Electron existente são atualizados em sincronia. Não se trata o fixture de componente como passagem da cadeia completa em shared-host real de celular ou no cliente formal.
 
-## 基线与记录
+## Linha de base e registros
 
-- 开工已 fetch origin/staging 至 `6121d8ba48`；其新增改动未涉及模型编辑器，本轮没有执行 merge。
-- 实施起点 `95c80f4ed8`，分支 `provider-stabilization-20260911`；freshness 和架构基线检查通过。
-- Todo130 的通用字段归属原则继续有效，MFJS 的具体归属由本 Todo 更新。Todo131 的恢复语义保留，布局由本 Todo 取代。
-- Demo 仅批准了分层展开与 checkbox 方向，其他自绘样式不作为实现依据。早期“独立二级页/智能开关在 ID 下方”的讨论已被本最终裁决取代。
+- Antes de começar, origin/staging já foi buscado até `6121d8ba48`; as novas mudanças dele não envolvem o editor de modelo e nenhum merge foi executado nesta rodada.
+- Ponto de partida da implementação `95c80f4ed8`, branch `provider-stabilization-20260911`; as verificações de atualidade e de linha de base de arquitetura passaram.
+- O princípio geral de atribuição de campos do Todo130 continua válido, e a atribuição concreta do MFJS é atualizada por este Todo. A semântica de restauração do Todo131 é preservada e o layout é substituído por este Todo.
+- A Demo aprovou apenas a direção de expansão em camadas e de checkbox; outros estilos desenhados à mão não servem de base para a implementação. A discussão inicial de "página secundária independente / interruptor inteligente abaixo do ID" foi substituída por esta decisão final.
 
-## 实施与 review 结果（2026-09-12）
+## Resultado da implementação e do review (2026-09-12)
 
-- 已按上表落地所有交互和字段归属。高级组件只管理展示及错误聚焦，模型状态仍由既有 Hook/提交回调管理；两入口均传递结构化校验字段。
-- 移除不再使用的输出控件（全仓 dep:refs 无引用/再导出）；可编辑选项统一用装饰 checkbox，保持外层按钮交互及覆盖高亮。没有嵌套可交互控件。
-- 单测：Provider、Provider-node 全目录及相关 UI 草稿/布局共 51 文件、565 项通过；随后增加的 ID 只读权限两项通过（对应文件 22 项全绿），合计 567 项。新测试先验证旧实现失败，再实施。
-- Chromium 真实组件/Hook：恢复代次保护、中英文帮助与布局、高级展开/保值/保存/错误定位共 8 项通过；最后补齐基础与高级联合保存、取消、高亮/checkbox 样式后，6 项相关用例再次全绿。覆盖 390px 中文浅色、1200px 英文深色；不是静态 HTML Demo。
-- 已检查运行截图；首次缺 Chromium 动态库，复用既有临时依赖。首次截图缺 CJK 字体，使用本轮隔离解包的字体重新截取并检查，没有修改系统安装或用户配置。
-- `pnpm typecheck` 通过；`pnpm lint` 0 errors / 42 warnings（无本轮新增文件告警）；架构检查 0 violations；变更文件格式与 diff 检查通过。
-- 同步更新现有 Electron pending E2E 的 footer switch、高级展开、MFJS 排除断言；没有将 pending 晋级为正式回归。本轮未启动正式 Electron、Pro 或真实手机 shared-host，不声明这些通过。
-- 验证日志：`/tmp/todo134-unit-final.log`、`/tmp/todo134-unit-extra.log`、`/tmp/todo134-browser5.log`、`/tmp/todo134-browser-delivery.log`；截图 `/tmp/zcode-provider-settings-batch/todo134-*.png`（本地证据，不提交）。
-- 范围复审：未修改完整执行 schema、Builtin 请求能力、Selection、账号状态、数据表、协议和远控链路。旧合法手动文件在当前版本可读；并不承诺旧客户端能读取移除 MFJS 后的新手动格式，回滚应用前应保留对应配置备份。本轮不为此附加隐藏双写字段。
-- 推送前关联测试补查：5357 项通过时发现服务层 `providerRuntime` 的旧测试 fixture 仍只在手动规则提供 MFJS；已将该系统字段放回测试 Built-in，追加手动规则不含该字段而 Registry 执行配置具备该字段的端到端断言。生产 Built-in 原本已有默认 MFJS，不改服务产品代码。
+- Todas as interações e a atribuição de campos da tabela acima foram implementadas. O componente avançado gerencia apenas a apresentação e o foco de erro; o estado do modelo continua sendo gerenciado pelos Hooks e pelo callback de submissão já existentes; as duas entradas passam campos de validação estruturados.
+- O controle de saída não utilizado foi removido (sem referências/reexportações em todo o repositório via dep:refs); as opções editáveis usam uniformemente um checkbox decorativo, mantendo a interação do botão externo e o destaque de substituição. Não há controle interativo aninhado.
+- Testes unitários: 51 arquivos e 565 itens dos diretórios Provider e Provider-node, além dos testes relacionados de rascunho/layout de UI, passaram; em seguida os 2 itens adicionais de permissão de leitura do ID passaram (22 itens no arquivo correspondente, todos verdes), totalizando 567. Os novos testes verificaram primeiro a falha da implementação antiga e só então a implementação.
+- Componente/Hook reais em Chromium: 8 itens passaram cobrindo proteção de geração na restauração, ajuda e layout em chinês e inglês, e expansão avançada/preservação de valores/salvamento/localização de erros; após completar salvamento conjunto de básico e avançado, cancelamento e estilo de destaque/checkbox, os 6 casos relacionados ficaram verdes de novo. Cobertura com 390px em chinês tema claro e 1200px em inglês tema escuro; não é uma Demo HTML estática.
+- As capturas de tela de execução foram verificadas; a primeira execução faltava com bibliotecas dinâmicas do Chromium e reaproveitou as dependências temporárias já existentes. A primeira captura ficou sem fonte CJK e foi refeita e verificada com a fonte descompactada de forma isolada nesta rodada, sem alterar a instalação do sistema nem a configuração do usuário.
+- `pnpm typecheck` passou; `pnpm lint` com 0 erros / 42 warnings (sem avisos em arquivos novos desta rodada); a checagem de arquitetura com 0 violações; a verificação de formatação e de diff dos arquivos alterados passou.
+- Os passos de footer switch, expansão avançada e asserções de exclusão de MFJS foram atualizados em sincronia nos E2E Electron existentes marcados como pending; nenhum pending foi promovido a regressão formal. Esta rodada não iniciou Electron formal, Pro nem shared-host real de celular, e não se declara aprovação desses.
+- Logs de validação: `/tmp/todo134-unit-final.log`、`/tmp/todo134-unit-extra.log`、`/tmp/todo134-browser5.log`、`/tmp/todo134-browser-delivery.log`; capturas `/tmp/zcode-provider-settings-batch/todo134-*.png` (evidência local, não submetida).
+- Revisão de escopo: não foram modificados o schema completo de execução, a capacidade de requisição Builtin, o Selection, o estado da conta, as tabelas de dados, o protocolo e a cadeia de controle remoto. O arquivo manual legado válido continua legível na versão atual; não se promete que clientes antigos leiam o novo formato manual após a remoção do MFJS, portanto é preciso manter o backup da configuração correspondente antes de reverter a aplicação. Esta rodada não adiciona campo oculto de escrita dupla por causa disso.
+- Verificação complementar dos testes relacionados antes do push: ao rodar os 5357 itens, verificou-se que o fixture de teste antigo do serviço `providerRuntime` ainda fornecia MFJS apenas pela regra manual; esse campo de sistema foi devolvido ao Built-in de teste, com asserções de ponta a ponta adicionais de que a regra manual não contém o campo enquanto a configuração de execução do Registry o possui. O Built-in de produção já tinha MFJS padrão e o código de produto do serviço não foi alterado.

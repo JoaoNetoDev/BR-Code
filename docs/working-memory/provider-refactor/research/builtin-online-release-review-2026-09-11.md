@@ -1,16 +1,16 @@
-# Built-in 在线发布链路复核（2026-09-11）
+# Revisão da cadeia de publicação online do Built-in (2026-09-11)
 
-> 性质：代码事实与运行验证；本轮不修改产品代码。实施入口为 [Todo127](../steps/todo-127-builtin-online-release.md)。
+> Natureza: fatos de código e verificação em execução; esta rodada não modifica código de produto. O ponto de entrada da implementação é [Todo127](../steps/todo-127-builtin-online-release.md).
 >
-> 基线：`af5843586b`，Builtin revision 19。新鲜度检查提示本地 staging 落后 origin/staging 5 个提交；已比对本次审查的 Provider、Provider Node、Services 下载入口及 CLI 启动相关实现，与远端无差异。本轮不代替合并最新代码；实施前重新检查。
+> Baseline: `af5843586b`, Builtin revision 19. A verificação de frescor apontou que o staging local está 5 commits atrás de origin/staging; os pontos de entrada de download de Provider, Provider Node e Services e as implementações relacionadas ao startup do CLI foram comparados e não há diferença em relação ao remoto. Esta rodada não substitui o merge do código mais recente; refazer a verificação antes de implementar.
 
-## 1. 总结
+## 1. Resumo
 
-传输与缓存底座有复用价值，但目前不能把“之前写过”或“旧单测通过”当成在线发布已可靠。确认存在新字段未接入、Standalone 更新不生效、App 正文超时失效三项问题；刷新调度和发布验收也需补齐。未发现必须重做 Provider 领域架构或新增持久化 schema 的理由。
+A base de transporte e cache tem valor de reuso, mas hoje não se pode tomar “isso já foi escrito antes” ou “o teste unitário antigo passou” como prova de que a publicação online é confiável. Foram confirmados três problemas: campo novo não conectado, atualização do Standalone sem efeito e expiração do timeout na leitura do corpo da resposta no App; a agendação de refresh e a aceitação de publicação também precisam ser completadas. Não há motivo para refazer a arquitetura de domínio do Provider nem para adicionar schema de persistência.
 
-## 2. 线上实测
+## 2.medição em produção
 
-请求 `https://zcode.z.ai/api/v1/client/configs?app_version=3.12.0&platform=linux-x86_64`，HTTP 200、业务 code 0：
+Requisição a `https://zcode.z.ai/api/v1/client/configs?app_version=3.12.0&platform=linux-x86_64`, HTTP 200, code de negócio 0:
 
 ```json
 {
@@ -22,13 +22,13 @@
 }
 ```
 
-省略了无关字段。未返回旧的 `configs.zcodeBuiltin`。将真实响应交给当前 `decodeZCodeBuiltinClientConfigEnvelope`，得到 `null`。
+Campos sem relação foram omitidos. O antigo `configs.zcodeBuiltin` não foi retornado. Passando a resposta real ao `decodeZCodeBuiltinClientConfigEnvelope` atual, o resultado é `null`.
 
-CDN 下载 HTTP 200、`Content-Type: application/json`，`schemaVersion: 1`、`revision: 19`；当前正式 `decodeZCodeBuiltinRelease` 成功，17 个模板、8 个内置 Provider，规范化后与仓库文件一致。`Cache-Control: max-age=31104000`，即 360 天。用户确认以后每次发布新 URL，不覆盖同 URL；长缓存本身不是要修的错误。
+O download no CDN retorna HTTP 200, `Content-Type: application/json`, `schemaVersion: 1`, `revision: 19`; o `decodeZCodeBuiltinRelease` oficial atual tem sucesso, com 17 templates e 8 Providers embutidos, e depois da normalização é idêntico ao arquivo do repositório. `Cache-Control: max-age=31104000`, ou seja, 360 dias. O usuário confirmou que cada publicação futura usará uma URL nova, sem sobrescrever a mesma URL; o cache longo em si não é o erro a corrigir.
 
-本次只证明生产环境该版本／平台组合返回正确 URL；测试环境请求失败，未证明其配置。未验证服务端所有版本／平台分流，也未更改线上字段、上传或发布文件。
+Isto prova apenas que, em produção, aquela combinação de versão/plataforma retorna a URL correta; a requisição ao ambiente de teste falhou e sua configuração não ficou provada. Não foi verificado todo o roteamento versão/plataforma do servidor, e nenhum campo em produção, upload ou arquivo publicado foi alterado.
 
-## 3. 现有链路
+## 3. Cadeia existente
 
 ```text
 App / Server Environment Host                 Standalone CLI 入口
@@ -52,76 +52,76 @@ App / Server Environment Host                 Standalone CLI 入口
                                      新建执行使用新配置
 ```
 
-Host 管理的 Worker 通过环境变量接收同一 Active 文件路径，自己读／监听文件；Account 通过既有协议交付。Standalone 自己获取远端配置并从凭据派生 Account。手机依附目标 Host，不独立下载、存储或组装 Built-in；SSH／WSL／Docker／Server 保持目标 Environment 权威。
+O Worker gerenciado pelo Host recebe o mesmo caminho do arquivo Active por variável de ambiente e lê/observa o arquivo por conta própria; a Account é entregue pelo protocolo já existente. O Standalone busca a configuração remota por conta própria e deriva a Account a partir das credenciais. O celular se apoia no Host alvo e não baixa, armazena nem monta o Built-in de forma independente; SSH/WSL/Docker/Server mantêm a autoridade do Environment alvo.
 
-## 4. 确认问题与实现缺口
+## 4. Problemas confirmados e lacunas de implementação
 
-### R1：新字段未接入，生产响应被当成 missing
+### R1: campo novo não conectado; a resposta de produção é tratada como missing
 
-- `packages/provider-node/src/zcode-builtin-release.ts` 的 Envelope 解码器只取 `zcodeBuiltin`。
-- `packages/services/src/model-provider/zcodeBuiltinRemoteConfig.ts` 与 `apps/zcode-cli/packages/cli/src/provider-runtime-env.ts` 都只请求一次 client/configs 后调用该解码器，没有 URL 下载。
-- 实测真实生产响应解码为 `null`；Synchronizer 将 missing 当正常结果，写下一次允许刷新时间，不报告网络错误。
-- 必修：两端共用新字段解析、下载与 Release 校验。缺字段可保持本地；字段存在但类型错误／URL 非法／下载或解码失败必须与正常缺省区分。
+- O decodificador de Envelope em `packages/provider-node/src/zcode-builtin-release.ts` só lê `zcodeBuiltin`.
+- Tanto `packages/services/src/model-provider/zcodeBuiltinRemoteConfig.ts` quanto `apps/zcode-cli/packages/cli/src/provider-runtime-env.ts` pedem client/configs uma única vez e chamam esse decodificador, sem download da URL.
+- Na medição real a resposta de produção decodifica como `null`; o Synchronizer trata missing como resultado normal, grava o próximo horário de refresh permitido e não reporta erro de rede.
+- Obrigatório: os dois lados compartilham a resolução do campo novo, o download e a validação do Release. A ausência do campo pode manter o local; campo presente com tipo errado/URL inválida/falha de download ou de decodificação precisa ser distinguido da ausência normal.
 
-### R2：Standalone 的 Built-in 已变，Account 版本未跟随，Registry 保留旧版
+### R2: o Built-in do Standalone mudou, mas a versão da Account não acompanha e o Registry mantém a antiga
 
-- `apps/zcode-cli/packages/bootstrap/src/app/process-provider-registry-runtime.ts:80` 订阅凭据变化重建 Account，没有对应的 Built-in 变化订阅。
-- `packages/provider-node/src/provider-registry-runtime.ts:40` 只在启动时建立未初始化 Account 的 fail-closed 快照。
-- `packages/provider/src/registry-service.ts:204` 明确要求 Account 的 `basedOnZCodeBuiltinRevision` 与 Config 一致；不一致时保留上一份完整 Registry。这项一致性检查正确，不应为了更新生效而删掉。
-- 运行复现：临时文件装载真实 revision 19，启动 `NodeProviderRegistryRuntime`；只将文件 revision 更新为 20，读取 Config 后显式刷新 Registry。Config 为 20，Account 和 Registry 仍为 19，刷新返回旧快照。测试不依赖定时等待或真实账号，已证明底层停滞；Standalone 生产装配的订阅缺口另由代码确认。
-- 同类启动竞态：凭据初始化与后台下载之间发生 Built-in 更新时，启动对齐也需覆盖，不能只测启动后更新。
-- 修复方向：Standalone 在同一生命周期中针对 Built-in 和凭据变化串行重建 Account，以真实当前凭据派生；结果过期则重算。无账号时也需生成基于新 Built-in 的 fail-closed 快照。不得把旧 Account 仅改 revision 冒充新解析，不重做登录协议。
+- `apps/zcode-cli/packages/bootstrap/src/app/process-provider-registry-runtime.ts:80` assina mudanças de credencial para reconstruir a Account, sem assinatura correspondente para mudança do Built-in.
+- `packages/provider-node/src/provider-registry-runtime.ts:40` só monta na inicialização o snapshot fail-closed de uma Account ainda não inicializada.
+- `packages/provider/src/registry-service.ts:204` exige explicitamente que o `basedOnZCodeBuiltinRevision` da Account seja igual ao da Config; quando não é, o Registry guarda a versão completa anterior. Essa checagem de consistência está correta e não deve ser removida só para a atualização passar a valer.
+- Reprodução em execução: carregar um arquivo temporário com a revision real 19 e iniciar `NodeProviderRegistryRuntime`; atualizar apenas a revision do arquivo para 20, ler a Config e forçar o refresh do Registry. A Config fica em 20, mas Account e Registry seguem em 19 e o refresh devolve o snapshot antigo. O teste não depende de espera por timer nem de conta real e já prova o travamento da camada inferior; a lacuna de assinatura na montagem de produção do Standalone é confirmada pelo código.
+- Corrida de inicialização semelhante: quando uma atualização do Built-in acontece entre a inicialização das credenciais e o download em background, o alinhamento da inicialização também precisa cobrir esse caso; não basta testar a atualização posterior à inicialização.
+- Direção de correção: o Standalone reconstrói a Account serialmente diante de mudanças de Built-in e de credenciais no mesmo ciclo de vida, a partir das credenciais reais e atuais; se o resultado estiver expirado, recalcula. Também é preciso gerar o snapshot fail-closed baseado no novo Built-in quando não há conta. Não se pode fingir uma nova análise apenas bumpando a revision de uma Account antiga, nem refazer o protocolo de login.
 
-### R3：App 请求的超时没有覆盖正文读取
+### R3: o timeout pedido pelo App não cobre a leitura do corpo
 
-- `packages/services/src/providers/api/nodeApiClient.ts:168` 在 `fetch()` 返回 Response 后清除内部超时；`readApiJson` 随后才执行 `response.json()`。
-- 本地 HTTP 服务运行复现：立即发响应头，220ms 后结束 JSON 正文，设 `timeoutMs: 40`；实际约 228ms 后成功读取，而非超时。说明正文阶段失去该超时保护。
-- CLI 当前 `AbortSignal.timeout(15000)` 仍关联 Response 正文，不能把 App 与 CLI 的行为混为一谈。
-- URL 链路新增第二次请求后，建议在本功能共用下载边界显式持有贯穿响应体消费的取消／超时信号，并限制下载大小。整个拉取预算须与 30s lease 匹配；不要叠加两个完整 15s 再加无限正文读取。
-- 不借此自动重构所有 ApiClient 调用；以 Built-in 下载路径的最小修复为先，通用修复另评影响。
+- `packages/services/src/providers/api/nodeApiClient.ts:168` limpa o timeout interno depois que `fetch()` devolve a Response; só então `readApiJson` executa `response.json()`.
+- Reprodução com serviço HTTP local: enviar os cabeçalhos imediatamente e encerrar o corpo JSON 220ms depois, com `timeoutMs: 40`; a leitura tem sucesso cerca de 228ms depois, em vez de estourar o timeout. Isso mostra que a fase de corpo perdeu a proteção.
+- O `AbortSignal.timeout(15000)` atual do CLI ainda está associado ao corpo da Response; não se pode misturar o comportamento do App com o do CLI.
+- Depois que a cadeia de URL ganhar uma segunda requisição, é recomendável que esta funcionalidade mantenha explicitamente no limite de download compartilhado um sinal de cancelamento/timeout que atravesse o consumo do body da resposta, além de limitar o tamanho do download. Todo o orçamento de fetch precisa casar com o lease de 30s; não se deve somar dois 15s completos mais uma leitura de corpo sem limite.
+- Não usar isso como desculpa para refatorar todas as chamadas de ApiClient; a prioridade é a correção mínima no caminho de download do Built-in, e uma correção genérica fica para avaliação de impacto à parte.
 
-### R4：TTL 和退避不是自动调度，成功也不等于 Registry 已应用
+### R4: TTL e backoff não são agendamento automático, e sucesso não quer dizer Registry já aplicado
 
-- `NodeProviderConfigRuntime.start()` 仅触发一次后台 refresh；设置页经 `useModelProviders → ProviderSettingsService → refreshSources` 触发强制刷新。
-- Standalone `prepareCliProviderRuntimeEnv` 也是一次后台刷新，完成即 dispose Source／Synchronizer；不能在该已结束对象上加一个无归属 timer 就声称支持长时间运行。
-- `nextEligibleAt` 只约束下一次有人调用 refresh 的时间，不会自行唤醒。失败退避同理；缺字段写入成功 TTL 后当前进程也不会自动重试。
-- App `AccountProviderService` 会订阅配置变化并重新解析，正常路径比 Standalone 完整。但若更新后的 Account 重建失败，会保留旧 Account；下一次远端为 unchanged 不会再次发配置变化。因此恢复验证必须覆盖 Account 重新对齐，不能以定时重复下载代替依赖恢复。
-- `applyRemoteRelease` 的 updated 仅表示 Active 已提交，不表示所有 Worker／Registry 已观察。手动刷新还可能因另一进程持有 lease 而 skipped。现有 UI 不需要新增状态枚举，但日志／测试不得将这些结果当“全端已生效”。
+- `NodeProviderConfigRuntime.start()` dispara apenas um refresh em background; a página de configurações dispara o refresh forçado via `useModelProviders → ProviderSettingsService → refreshSources`.
+- O `prepareCliProviderRuntimeEnv` do Standalone também é um único refresh em background, disposing Source/Synchronizer ao terminar; não se pode dizer que suporta execução longa simplesmente colocando um timer sem dono em cima de um objeto já encerrado.
+- `nextEligibleAt` só limita quando algo pode chamar refresh de novo; não acorda sozinho. O backoff de falha funciona pelo mesmo princípio; e, faltando o campo, depois de gravar um TTL bem-sucedido o processo atual também não refaz a tentativa automaticamente.
+- O `AccountProviderService` do App assina mudanças de configuração e reinterpreta, de modo que o caminho normal é mais completo que o do Standalone. Mas, se a reconstrução da Account atualizada falhar, a Account antiga é mantida; e, como o próximo resultado remoto vier como unchanged, nenhuma nova mudança de configuração será emitida. Portanto, a verificação de recuperação precisa cobrir o realinhamento da Account; não se pode substituir a recuperação dependente por downloads repetidos em timer.
+- O `updated` de `applyRemoteRelease` indica apenas que o Active foi submetido, e não que todos os Worker/Registry já o tenham observado. Um refresh manual ainda pode sair como skipped porque outro processo detém o lease. A UI atual não precisa de novos estados enumerados, mas logs/testes não podem tratar esses resultados como “efetivo em todos os lados”.
 
-## 5. 已有机制：可保留，但有明确边界
+## 5. Mecanismos existentes: preserváveis, mas com limites claros
 
-| 环节 | 复核结果 | 本轮处理 |
+| Etapa | Resultado da revisão | Tratamento nesta rodada |
 | --- | --- | --- |
-| Release 校验 | 严格外壳、schemaVersion、非负安全整数 revision；Provider／Model parser 校验；正则合法性和 CEL 编译已在正式 schema 中 | 直接复用，不复制一套 schema |
-| 原子持久化 | Active 文件锁内比较，临时文件原子替换；Provider 与 Model 整份替换，无跨源拼装 | 保留，增加 URL 下载后的集成覆盖 |
-| 版本比较 | 低版本 stale；同版本同内容 unchanged；同版本不同内容拒绝；启动时同版本缓存冲突回随包 | 保留；内容回滚发更高 revision |
-| LKG／随包 | 能解析的候选取较新；损坏、旧 schema、较低版本可回随包；双候选均无效报错 | 不新增空配置或伪成功兜底 |
-| 环境隔离 | 平台／App 版本／控制面 Endpoint 分路径，revision 含来源路径身份 | CDN URL 仅是该来源本次传输地址，换 URL 不换缓存身份、不清历史 revision |
-| 并发刷新 | 进程内 in-flight 合并，进程间 lease；force 不绕过有效 lease；最终文件锁+revision 防倒退 | 保留。lease 是可过期去重，不是永久排他；增加两阶段慢请求、接管、迟到响应回归 |
-| 退出／Endpoint | 已有下载返回后的 disposed／Endpoint 检查和旧源 dispose | 增加下载正文、提交前和定时器生命周期验证；不声称覆盖所有切换时序 |
-| 变化投影 | Source→Config→Registry 完整发布；Host Account 变更通过协议通知 Worker；Worker 监听 Active | Linux 下已有单测支持；真实桌面／手机、多进程跨平台仍须验收 |
-| Personal／执行 | 在线源属于同一个 Built-in 候选，Personal 优先；已创建 Model 冻结 | 不重写选择、历史或正在运行的模型；后续创建的执行正常解析新配置 |
+| Validação do Release | Envelope estrito, schemaVersion, revision inteira não negativa e segura; parsers de Provider/Model validam; legitimidade por regex e compilação CEL já estão no schema oficial | Reutilizar direto, sem duplicar um conjunto de schemas |
+| Persistência atômica | Comparação dentro do lock do arquivo Active, substituição atômica por arquivo temporário; Provider e Model são substituídos por inteiro, sem montagem cruzada entre fontes | Manter e acrescentar cobertura de integração após o download da URL |
+| Comparação de versão | Versão menor é stale; mesma versão com mesmo conteúdo é unchanged; mesma versão com conteúdo diferente é recusada; conflito de cache de mesma versão na inicialização volta ao que veio no pacote | Manter; rollback de conteúdo se faz publicando uma revision maior |
+| LKG/pacote | Escolhe o candidato analisável mais novo; um candidato corrompido, de schema antigo ou de versão menor pode voltar ao pacote; se os dois candidatos forem inválidos, reporta erro | Não criar fallback de config vazia nem de pseudo-sucesso |
+| Isolamento de ambiente | Caminhos separados por plataforma/versão do App/Endpoint do plano de controle, com a revision carregando a identidade do caminho de origem | A URL do CDN é apenas o endereço de transporte desta origem nesta rodada; trocar de URL não troca a identidade de cache nem limpa o histórico de revisions |
+| Refresh concorrente | Coalescência de in-flight no processo, lease entre processos; force não contorna lease válido; lock de arquivo + revision no fim impedem retrocesso | Manter. O lease é uma deduplicação que pode expirar, não exclusão permanente; acrescentar regressões de requisição lenta em duas fases, take-over e resposta tardia |
+| Saída/Endpoint | Já existem verificações de disposed/Endpoint após o download e dispose da fonte antiga | Acrescentar validação do corpo do download, antes da submissão e do ciclo de vida dos timers; não alegar cobertura de todas as sequências de troca |
+| Projeção de mudança | Publicação completa Source→Config→Registry; mudança de Account no Host notificada ao Worker por protocolo; Worker observa o Active | Já há teste unitário no Linux; desktop/mobile reais e multiprocesso entre plataformas ainda exigem aceitação |
+| Personal/execução | Fonte online pertence ao mesmo candidato Built-in, com Personal prioritário; Model já criado fica congelado | Não reescrever seleção, histórico nem modelos em execução; execuções criadas depois resolvem normalmente a nova configuração |
 
-### 校验能力的限制：不是新发现的“违背设计”
+### Limite da capacidade de validação: não é uma “violação do projeto” recém-descoberta
 
-运行复现：从真实 release 删除通用 Model／Model+API／Site 三组规则，保留模板名单和精确启停，使用更高 revision。`decodeZCodeBuiltinRelease` 仍成功，`applyRemoteRelease` 返回 updated 并写盘；解析 GPT-6 后 `validateComplete()` 报 2 项缺失。故**可解析不等于模型可用**，这种内容会替换 Active，而不是自动恢复上一版。
+Reprodução em execução: apagar do release real os três grupos de regras (Model genérico, Model+API, Site), mantendo a lista de templates e o liga/desliga exatos, e usar uma revision maior. `decodeZCodeBuiltinRelease` continua tendo sucesso, `applyRemoteRelease` retorna updated e grava em disco; depois de analisar GPT-6, `validateComplete()` reporta 2 ausências. Ou seja, **analisável não significa modelo disponível**: esse tipo de conteúdo substitui o Active em vez de restaurar automaticamente a versão anterior.
 
-这符合 [Todo19 历史裁决](../steps/todo-19-zcode-builtin-release-integrity-validation.md)：远端同步首版不增加客户端业务完整性校验器，不注入假账号或 API Key 验证整份 Registry。本轮不悄悄恢复被废弃 Todo19，也不按当前 Personal／账号拒绝公共配置。
+Isso está de acordo com [a decisão histórica do Todo19](../steps/todo-19-zcode-builtin-release-integrity-validation.md): a primeira versão da sincronização remota não adiciona validador de integridade de negócio do cliente, nem injeta conta falsa ou API Key para validar o Registry inteiro. Esta rodada não restaura silenciosamente o Todo19 descontinuado, nem passa a recusar configuração pública com base no Personal atual/nas contas.
 
-本次发布必须在上传前对最终文件运行现有真实 Built-in 完整性／规则／请求测试，补本功能所需的两阶段下载验收；不要把测试写死只验证仓库文件而实际上传另一份内容。是否未来增加独立发布工具、全自动流水线或客户端业务门禁仍需另行裁决。配置业务错误不能承诺自动回滚，当前恢复方式是更高 revision 的纠正发布。
+Esta publicação precisa rodar, antes do upload, os testes reais existentes de integridade/regras/requisição do Built-in sobre o arquivo final, além da aceitação de download em duas fases exigida por esta funcionalidade; não se pode escrever testes que só validem o arquivo do repositório enquanto se envia outro conteúdo de fato. Se futuramente haverá ferramenta de publicação independente, pipeline totalmente automático ou portão de negócio no cliente, isso continua dependendo de decisão à parte. Não é possível prometer rollback automático para erro de negócio de configuração: hoje a forma de recuperação é uma publicação corretiva com revision maior.
 
-## 6. 运行验证与局限
+## 6. Verificação em execução e limitações
 
-| 证据 | 结果 |
+| Evidência | Resultado |
 | --- | --- |
-| 生产 client/configs → CDN → 正式 decoder → 本地文件规范化比较 | 成功；旧 Envelope 对同一响应返回 null，见 §2 |
-| 根 Vitest：Services 下载、Provider Node release／runtime、Services config runtime、Provider Registry Service | 5 文件、46 条通过 |
-| CLI `tsx --test packages/cli/tests/provider-runtime-env.test.ts` | 4 条通过 |
-| CLI 自己的 Vitest：`packages/bootstrap/tests/process-provider-registry-runtime.test.ts` | 1 文件、10 条通过 |
-| 临时 Runtime、HTTP、缺规则 Release 复现 | 分别证明 R2、R3 与业务完整性边界；没有修改正式配置或测试 |
+| client/configs de produção → CDN → decoder oficial → comparação com o arquivo local normalizado | Sucesso; o Envelope antigo devolve null para a mesma resposta, ver §2 |
+| Vitest da raiz: download do Services, release/runtime do Provider Node, config runtime do Services, Provider Registry Service | 5 arquivos, 46 testes passando |
+| CLI `tsx --test packages/cli/tests/provider-runtime-env.test.ts` | 4 testes passando |
+| Vitest próprio do CLI: `packages/bootstrap/tests/process-provider-registry-runtime.test.ts` | 1 arquivo, 10 testes passando |
+| Reproduções com Runtime temporário, HTTP e Release sem regras | Provam respectivamente R2, R3 e o limite de integridade de negócio; nenhuma configuração ou teste oficial foi modificado |
 
-根 Vitest 默认未收集 CLI 两个目标文件；随后拆用正确 runner。一次将 bootstrap 的 Vitest 文件交给 node:test 导致 runner 错误，改用 CLI Vitest 后 10 条通过，不归因产品缺陷。总计 60 条现有测试通过；**它们均非新增 URL 链路验收**。
+O Vitest da raiz não coletou por padrão os dois arquivos-alvo do CLI; depois disso foram usados os runners corretos. Em um momento o arquivo Vitest do bootstrap foi entregue ao node:test, o que gerou erro de runner; trocando para o Vitest do CLI os 10 testes passaram, o que não é atribuído a defeito de produto. Ao todo, 60 testes existentes passaram; **nenhum deles é aceitação da nova cadeia de URL**.
 
-复现临时脚本路径为 `/tmp/builtin-review-repro.mts`、`/tmp/builtin-timeout-review.mts`；只读代码，在系统临时目录创建测试状态并清理，不触碰用户配置。实施时把上述场景转成仓库持久测试。日志：`/tmp/builtin-online-full-review-tests.log`、`/tmp/builtin-online-cli-entry-review-tests.log`（单独正确 runner，4 条通过）、`/tmp/builtin-online-bootstrap-review-tests.log`；错误混用 runner 的历史日志为 `/tmp/builtin-online-cli-review-tests.log`。
+Os scripts temporários de reprodução ficam em `/tmp/builtin-review-repro.mts` e `/tmp/builtin-timeout-review.mts`; eles só leem código, criam estado de teste no diretório temporário do sistema e limpam tudo, sem tocar na configuração do usuário. Na implementação, converta os cenários acima em testes persistidos no repositório. Logs: `/tmp/builtin-online-full-review-tests.log`, `/tmp/builtin-online-cli-entry-review-tests.log` (runner correto isolado, 4 testes passando) e `/tmp/builtin-online-bootstrap-review-tests.log`; o log histórico com runner misturado incorretamente é `/tmp/builtin-online-cli-review-tests.log`.
 
-未做实际桌面／手机 E2E、真实跨进程更新、Windows／macOS 文件 watcher、SSH／WSL／Docker／Server 网络验证；未发送付费模型请求，未执行线上发布。不宣称以上已通过。
+Não foi feito E2E real de desktop/mobile, atualização real entre processos, file watcher em Windows/macOS, verificação de rede em SSH/WSL/Docker/Server; nenhuma requisição paga a modelo foi enviada e nenhuma publicação online foi executada. Não se afirma que nada disso passou.

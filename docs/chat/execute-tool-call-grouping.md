@@ -1,42 +1,40 @@
-# Execute 工具分组
+# Agrupamento de ferramentas Execute
 
-## 发布状态
+## Status de lançamento
 
-功能当前用户设置默认开启。Settings 中的“分组终端命令”持久化为应用级
-`toolGroupingTerminalEnabled`；缺失时由 `ENABLE_TERMINAL_TOOL_CALL_GROUPING=true` 兜底。关闭时非只读
-Shell 保持原始独立工具行，分类、command、output/error、协议和 session 持久化均不改变。
+A functionality está por padrão ligada nas configurações do usuário. O item 「分组终端命令」 (Agrupar comandos de terminal) em Settings é persistido no nível do app como `toolGroupingTerminalEnabled`; quando ausente, há o fallback `ENABLE_TERMINAL_TOOL_CALL_GROUPING=true`. Quando desligada, o Shell não somente-leitura mantém a linha de ferramenta original e independente, e a classificação, o command, output/error, o protocolo e a persistência de session não mudam.
 
-## Feature Summary
+## Resumo da Feature
 
-| Field                 | Value                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------------------------------ |
-| Change                | 聚合连续非只读 Shell，并让 `Execute` 父级使用可见阶段边界和滚动 command 摘要                           |
-| User-visible surfaces | 桌面 `desktop-continuous`、普通 Web、手机 `/remote` 的 `web-remote-replayable` conversation work items |
-| Existing behavior     | 只读 Shell 进入 `Explore`；其他连续 Shell 聚合为 `Execute`                                             |
-| State owner           | CLI v4 projection 持有原始 `ToolCallRow`；renderer 派生分组、摘要与父级状态                            |
-| Out of scope          | 不修改协议、工具执行、permission、session 持久化、snapshot、relay/main 或 runtime                      |
+| Campo                    | Valor                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Mudança                  | Agregar Shells não somente-leitura consecutivos e fazer o pai `Execute` usar limites de fase visíveis e um resumo rolável de command                           |
+| Superfícies visíveis ao usuário | Itens de conversation work de desktop `desktop-continuous`, Web comum e celular `/remote` com `web-remote-replayable` |
+| Comportamento existente  | Shell somente-leitura vai para `Explore`; outros Shells consecutivos são agregados em `Execute`              |
+| Dono do estado           | A projeção da CLI v4 mantém o `ToolCallRow` bruto; o renderer deriva agrupamento, resumo e estado do pai      |
+| Fora de escopo           | Não alterar protocolo, execução de ferramentas, permission, persistência de session, snapshot, relay/main ou runtime |
 
-## Clarification Log
+## Log de Esclarecimentos
 
-| Round | Question         | User answer                                | Boundary fixed                                                                                    | Follow-up needed |
-| ----- | ---------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- | ---------------- |
-| 1     | 第一版范围       | 先修改第一版                               | 只聚合未被 Explore 吸收的连续 Shell；不包含 Write/Edit/ApplyPatch                                 | no               |
-| 1     | 父子 summary     | 父级负责整体进度和统计，子级保留单命令摘要 | 运行中父级显示最新命令；结束后显示命令数及失败/停止计数                                           | no               |
-| 1     | 父级终态         | 参考 Explore                               | 父级是 UI 容器；子项失败不把父级标成 failed                                                       | no               |
-| 2     | 父级运行态与摘要 | 使用 Explore 的阶段边界判断，同时需要滚动  | 位于 running segment 可见尾部时保持 in_progress；运行中滚动最新 command，阶段结束立即收敛最终统计 | no               |
+| Rodada | Questão                | Resposta do usuário                                    | Limite fixado                                                                                                        | Seguimento necessário |
+| ----- | ---------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | -------------------- |
+| 1     | Escopo da primeira versão | Alterar primeiro a primeira versão                 | Agregar apenas Shells consecutivos que não foram absorvidos pelo Explore; não inclui Write/Edit/ApplyPatch          | no                   |
+| 1     | Resumo pai/filho       | O pai cuida do progresso geral e das estatísticas; o filho mantém o resumo de comando individual | Em execução, o pai mostra o comando mais recente; ao terminar, mostra a contagem de comandos e de falhas/paradas | no    |
+| 1     | Estado final do pai    | Referência ao Explore                                 | O pai é um contêiner de UI; falha de um item não marca o pai como failed                                          | no                   |
+| 2     | Estado e resumo do pai em execução | Usar o limite de fase do Explore, e também rolagem | Enquanto estiver na cauda visível do segmento em running, permanece in_progress; em execução, rola o command mais recente; quando a fase acaba, converge imediatamente para as estatísticas finais | no |
 
-## Boundary Decisions
+## Decisões de Limite
 
-| Boundary   | Decision                                                                                                                                                                                              | Includes                                            | Excludes / prunes                                                  | Source                        |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------- |
-| 分类       | `identity.family === "shell"` 且 `isExploreToolCall(...) === false`                                                                                                                                   | Bash/Shell/execute 的非只读或未命中只读白名单命令   | Read/Search/Explore、Write/Edit、Agent、Todo、blocking interaction | user + current code           |
-| 连续性     | 只聚合用户当前可见 row 序列中的连续 Execute                                                                                                                                                           | 隐藏的非首条 reasoning 可跨越                       | 可见 reasoning、Explore、文本及其他工具均截断                      | existing Explore contract     |
-| 状态       | Execute 位于 running work segment 的可见尾部时父级 `in_progress`；出现可见边界或 segment 终态后 completed/stopped                                                                                     | children 全部完成后的模型间隔                       | 子项生命周期不再决定父级 running；error 不冒泡 failed              | user + Explore stage contract |
-| 摘要       | 运行阶段纵向滚动完整的 `Running <command>`；样式与 Explore 对齐，动作词使用 `text-foreground-subtle`，command 使用 `text-foreground-subtlest`；`Execute` 与摘要之间固定显示 `·`；阶段结束立即显示统计 | `Execute · Running <command>`、`Execute · N 个命令` | stdout/stderr 和具体错误只留在子项；不在终态补播旧 command         | user                          |
-| Permission | permission dialog 继续渲染单条 Execute                                                                                                                                                                | conversation work item 聚合                         | 不聚合审批身份                                                     | architecture invariant        |
-| 分组标题   | 父分组使用跨平台类别名 `Terminal` / `终端`                                                                                                                                                            | PowerShell、cmd.exe、Git Bash、WSL、Unix shell      | 不指代 Windows Terminal 应用；单条 Execute 子工具文案不变          | user                          |
+| Limite      | Decisão                                                                                                                                        | Inclui                                              | Exclui / poda                                                      | Origem                     |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------ | -------------------------- |
+| Classificação | `identity.family === "shell"` e `isExploreToolCall(...) === false`                                                                             | Comandos de Bash/Shell/execute não somente-leitura ou fora da whitelist somente-leitura | Read/Search/Explore, Write/Edit, Agent, Todo, interação bloqueante | user + código atual        |
+| Continuidade | Agregar apenas Execute consecutivos na sequência de rows atualmente visível para o usuário                                                    | reasoning oculto e não inicial pode ser atravessado | reasoning visível, Explore, texto e quaisquer outras ferramentas truncam | contrato existente do Explore |
+| Estado       | Quando Execute está na cauda visível do work segment em running, o pai é `in_progress`; após um limite visível ou o estado terminal do segment, completed/stopped | intervalo do modelo depois que todos os filhos terminaram | o ciclo de vida do filho não decide mais o running do pai; erro não borbulha como failed | user + contrato de fase do Explore |
+| Resumo      | Durante a fase, rola verticalmente o `Running <command>` completo; estilo alinhado ao do Explore, verbo de ação em `text-foreground-subtle` e command em `text-foreground-subtlest`; `·` fixo entre `Execute` e o resumo; ao fim da fase, mostra as estatísticas imediatamente | `Execute · Running <command>`、`Execute · N 个命令` | stdout/stderr e erros específicos ficam só nos filhos; não reproduz commands antigos no estado terminal | user |
+| Permission  | O diálogo de permission continua renderizando um único Execute                                                                              | agregação de conversation work item                 | não agregar identidade de aprovação                                   | invariante de arquitetura  |
+| Título do grupo | O grupo pai usa o nome de categoria multiplataforma `Terminal` / `终端`                                                                    | PowerShell, cmd.exe, Git Bash, WSL, Unix shell       | não se refere ao aplicativo Windows Terminal; o texto da ferramenta filha de Execute não muda | user |
 
-## State And Event Flow
+## Fluxo de Estado e Eventos
 
 ```text
 ToolCallRow(shell)
@@ -60,55 +58,52 @@ Execute parent status
         `----------------------------------------------> completed
 ```
 
-`Execute` 父节点不是协议工具调用，也不对应一次工具执行。它的 key 和合成 tool id 锚定首个子
-`ToolCallRow`，流式追加后只更新 children，避免组件重建和展开状态丢失。
+O nó pai `Execute` não é uma chamada de ferramenta do protocolo e não corresponde a uma execução de ferramenta. Sua key e o tool id sintético ancoram no primeiro `ToolCallRow` filho; após os acréscimos via streaming, apenas os children são atualizados, evitando reconstrução do componente e perda do estado de expansão.
 
-## Summary Contract
+## Contrato de Resumo
 
-### Parent
+### Pai
 
-| State                  | Primary summary                                                                  | Status |
-| ---------------------- | -------------------------------------------------------------------------------- | ------ |
-| running                | `Running <command>`；children 均终态时回退最新 command，并对完整动作摘要纵向滚动 | 执行中 |
-| completed, all success | `N 个命令`                                                                       | 已完成 |
-| completed, failures    | `N 个命令，M 个失败`                                                             | 已完成 |
-| stopped                | `N 个命令，K 个已停止`，同时保留失败计数                                         | 已停止 |
+| Estado                  | Resumo primário                                                                  | Status |
+| ----------------------- | -------------------------------------------------------------------------------- | ------ |
+| running                 | `Running <command>`; quando todos os filhos estão em estado terminal, volta ao command mais recente, com rolagem vertical do resumo de ação completo | em execução |
+| completed, all success  | `N 个命令`                                                                       | concluído |
+| completed, failures     | `N 个命令，M 个失败`                                                             | concluído |
+| stopped                 | `N 个命令，K 个已停止`, mantendo também a contagem de falhas                       | parado |
 
-父级不展示 stdout、stderr 或具体错误。失败详情继续由对应子工具卡展示，避免父子重复失败状态。
+O pai não exibe stdout, stderr nem erros específicos. O detalhe da falha continua sendo mostrado pelo card da ferramenta filha correspondente, evitando duplicar o estado de falha entre pai e filhos.
 
-### Child
+### Filho
 
-子项继续使用 `ExecuteToolCallBlock`：收起态显示执行动作和 command；展开态显示 `$ command`。
-父组进行中展开时，父 summary 只显示 `Terminal · N commands`，当前命令由下方子 tool summary 表达。
-以及结果或错误；无输出的终态显示既有“无输出”文案。
+Os itens continuam usando `ExecuteToolCallBlock`: no estado recolhido mostram a ação de execução e o command; no estado expandido mostram `$ command`.
+Quando o grupo pai está em progresso e expandido, o summary do pai mostra apenas `Terminal · N commands`, e o comando atual é expresso pelo summary da ferramenta filha logo abaixo, junto do resultado ou do erro; estados terminais sem saída exibem o texto existente de "sem saída".
 
-## Pruning Decisions
+## Decisões de Poda
 
-| Decision ID | Pruned combinations                   | Guard/invariant                                              | Representative coverage      |
-| ----------- | ------------------------------------- | ------------------------------------------------------------ | ---------------------------- |
-| ETG-P01     | Bash/execute/shell 工具名全排列       | `resolveToolCallIdentity` 已统一为 Shell family              | family 代表单测              |
-| ETG-P02     | Write/Edit/ApplyPatch 与 Execute 混合 | file-write 进入独立 Changes 组，仍保留原始文件摘要和撤销语义 | 边界单测                     |
-| ETG-P03     | theme/locale/OS/workspace 类型全排列  | 共享 renderer + i18n；不读平台或 workspace 状态              | zh/en 文案与 focused UI test |
-| ETG-P04     | continuous/replayable 物理网络排列    | 分组只消费最终 UI rows，不修改 transport                     | renderer unit + 既有 STIP03  |
-| ETG-P05     | permission/approval 组合              | PermissionDialog 不经过 conversation 分组构建器              | 既有 permission tests        |
+| Decision ID | Combinações podadas                                     | Guard/invariante                                                       | Cobertura representativa        |
+| ----------- | ------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------ |
+| ETG-P01     | Todas as permutações de nomes de ferramenta Bash/execute/shell | `resolveToolCallIdentity` já foi unificado na família Shell           | teste unitário da família     |
+| ETG-P02     | Write/Edit/ApplyPatch misturados com Execute            | file-write entra em um grupo Changes independente, preservando o resumo de arquivo original e a semântica de undo | teste unitário de limite       |
+| ETG-P03     | Todas as permutações de theme/locale/OS/workspace      | renderer + i18n compartilhados; não lê estado de plataforma nem de workspace | textos zh/en e focused UI test |
+| ETG-P04     | Permutações físicas de rede continuous/replayable      | o agrupamento consome apenas as UI rows finais, sem modificar o transport | renderer unit + STIP03 existente |
+| ETG-P05     | Combinações de permission/approval                     | PermissionDialog não passa pelo construtor de agrupamento de conversation | testes de permission existentes |
 
-## Accepted Cases
+## Casos Aceitos
 
-| Case ID | Setup                                             | Action                              | Assertions                                                                 | Evidence layers           | E2E status   |
-| ------- | ------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------- | ------------------------- | ------------ |
-| ETG01   | 单条非只读 Shell                                  | 构建 work items                     | 保持原始 Shell 工具行，不创建单 child 父组                                 | UI unit                   | covered-unit |
-| ETG02   | 连续至少两个非只读 Shell                          | 流式追加 rows                       | 第二项到达后生成父组，保持同一父 key/tool id，children 顺序不变            | UI unit                   | covered-unit |
-| ETG03   | Execute 两侧出现 Explore/文本/可见 reasoning      | 构建 work items                     | 分成多个组，不跨可见边界                                                   | UI unit                   | covered-unit |
-| ETG04   | Execute 两侧只有被隐藏的非首 reasoning            | 关闭 reasoning                      | 合并；开启 reasoning 时拆分                                                | UI unit                   | covered-unit |
-| ETG05   | Shell command 尚未到达                            | 先构建，再补 readonly/other command | 首帧隐藏；之后只出现 Explore 或 Execute 中的一种                           | UI unit                   | covered-unit |
-| ETG06   | Execute 是 running segment 的真实可见尾部         | children 全部完成或继续追加 command | 父级保持 in_progress；新增 command 摘要纵向滚动                            | UI + renderer unit        | covered-unit |
-| ETG07   | Execute 展开                                      | 渲染父组                            | 子项继续显示 command、output/error                                         | renderer unit             | covered-unit |
-| ETG08   | desktop/replayable 恢复得到相同最终 rows          | 构建 work items                     | 分组结果一致，不新增恢复状态                                               | shared renderer invariant | partial      |
-| ETG09   | Execute 后出现可见非 Execute row，或 segment 终态 | 构建 work items                     | 父级 completed/stopped；child running 仍只在明细展示；终态立即显示聚合统计 | UI + renderer unit        | covered-unit |
+| Case ID | Setup                                             | Ação                                  | Asserções                                                                 | Camadas de evidência      | Status E2E   |
+| ------- | ------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------ | ------------------------- | ------------ |
+| ETG01   | Um único Shell não somente-leitura                | Construir work items                  | Mantém a linha de ferramenta Shell original, sem criar um grupo pai de child único | UI unit                   | covered-unit |
+| ETG02   | Pelo menos dois Shells não somente-leitura consecutivos | Acréscimo de rows via streaming    | Após a chegada do segundo item o grupo pai é criado, mantendo a mesma key/tool id pai e a ordem dos children | UI unit                   | covered-unit |
+| ETG03   | Explore/texto/reasoning visível aparece dos dois lados de Execute | Construir work items | Divide em vários grupos, sem cruzar limite visível                  | UI unit                   | covered-unit |
+| ETG04   | Dos dois lados de Execute há apenas reasoning oculto e não inicial | Desligar reasoning              | Mescla; com reasoning ligado, divide                                            | UI unit                   | covered-unit |
+| ETG05   | O command do Shell ainda não chegou                 | Construir primeiro e depois completar o command readonly/other | Primeiro frame oculto; depois só aparece um entre Explore ou Execute | UI unit                   | covered-unit |
+| ETG06   | Execute é a cauda visível real de um segment em running | Todos os filhos terminam ou segue acréscimo de command | O pai permanece in_progress; o resumo do novo command rola verticalmente | UI + renderer unit        | covered-unit |
+| ETG07   | Execute expandido                                   | Renderizar o grupo pai               | Os filhos continuam mostrando command e output/error                        | renderer unit             | covered-unit |
+| ETG08   | desktop/replayable restaurado chegando às mesmas rows finais | Construir work items     | Resultado de agrupamento idêntico, sem novo estado de restauração           | invariante do renderer compartilhado | partial      |
+| ETG09   | Row visível não-Execute aparece depois de Execute, ou estado terminal do segment | Construir work items | Pai completed/stopped; child running só aparece no detalhe; as estatísticas agregadas aparecem imediatamente no estado terminal | UI + renderer unit | covered-unit |
 
-## E2E Handoff Notes
+## Notas de Handoff E2E
 
-- 第一版核心为 deterministic row-to-render-item 和 renderer summary，使用 focused unit tests。
-- 若晋升正式 E2E，controlled-stream fixture 应依次发送两条非只读 Bash，并在中间插入可见/隐藏
-  reasoning，断言父 group identity、summary 和展开后的两条命令。
-- 手机 `/remote` 不用 desktop fixture 冒充 replayable 证明；沿用 STIP03 的最终 row 恢复合同。
+- O núcleo da primeira versão é o determinístico row-to-render-item e o summary do renderer, usando testes unitários focados.
+- Se for promovido a E2E formal, o fixture controlled-stream deve enviar dois comandos Bash não somente-leitura em sequência e inserir reasoning visível/oculto no meio, afirmando a identidade do group pai, o summary e as duas comandos após a expansão.
+- O `/remote` do celular não usa fixture de desktop para fingir prova de replayable; vale o contrato final de restauração de rows do STIP03.

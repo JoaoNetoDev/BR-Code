@@ -1,205 +1,205 @@
-# Marketing Touch 分支 E2E 完整性审计
+# Auditoria de integridade E2E da branch Marketing Touch
 
-日期：2026-09-12。状态：审计，不是功能完成或 95% 覆盖率验收。
+Data: 2026-09-12. Estado: auditoria, não conclusão de funcionalidade nem aceitação de cobertura de 95%.
 
-## Feature Summary
+## Resumo da Feature
 
-| 字段         | 内容                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------ |
-| 意图         | 检查当前分支相对 staging 的全部变更，列出 E2E 缺失、失效断言与补充顺序                     |
-| 工作分支     | `test/marketing-touch-e2e-coverage`，从当前本地修改创建，未 push                           |
-| 被审计提交   | `d0028042fee3f2026a08f37365165a5255aa33ab`，包含本地资源清理提交                           |
-| 远端比较基线 | 本轮 fetch 的 `origin/staging`：`7a01923f5824760937e09a8df85a85372bcdeb63`                 |
-| 差异起点     | merge-base `87d6a7b2fc32d088452334c4309f33b0f8b039b1`；三点差异 116 文件，+11406/-4250     |
-| 能力         | 营销投放、媒体与 ZIP、富文本、导航/复制/领取、上报及相邻权益刷新                           |
-| 层级         | presentation / validation / commit-effect / recovery / cache                               |
-| 模式         | impact-only；只新增审计记录，不改业务代码、测试断言或自动转正用例                          |
-| 主入口       | `MarketingTouchProvider` → Controller/Poller → Banner/Dialogs；Marketing/CloudContent 服务 |
-| 不在本轮范围 | 服务端实现、真实领取或支付、外部资源 workspace 的制作功能、创建任务/自动切模型             |
+| Campo         | Conteúdo                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Intenção      | Verificar todas as mudanças da branch atual em relação ao staging, listando lacunas de E2E, asserçõesquebradas e a ordem de complementação |
+| Branch de trabalho | `test/marketing-touch-e2e-coverage`, criada a partir das modificações locais atuais, sem push                     |
+| Commit auditado | `d0028042fee3f2026a08f37365165a5255aa33ab`, incluindo commits locais de limpeza de recursos          |
+| Baseline remoto comparado | `origin/staging` buscado nesta rodada: `7a01923f5824760937e09a8df85a85372bcdeb63`                   |
+| Início do diff | merge-base `87d6a7b2fc32d088452334c4309f33b0f8b039b1`; diff de três pontos, 116 arquivos, +11406/-4250     |
+| Capacidade    |entrega de marketing de marketing, mídia e ZIP, rich text, navegação/cópia/retirada, reporte e refresh de benefícios adjacentes                           |
+| Camadas       | presentation / validation / commit-effect / recovery / cache                                    |
+| Modo          | impact-only; apenas adiciona registros de auditoria, sem alterar código de negócio, asserções de teste ou casos promovidos automaticamente |
+| Entrada principal | `MarketingTouchProvider` → Controller/Poller → Banner/Dialogs; serviços de Marketing/CloudContent |
+| Fora do escopo desta rodada | implementação de servidor, retirada ou pagamento reais, produção de functionality de workspace de recursos externos, criação de tarefa/troca automática de modelo |
 
-结论：需要补充与调整。历史文档中的 **118/122（96.72%）是旧基线 focused Vitest 覆盖率**，不是当前分支 E2E 覆盖率，不能用于本次验收。现有用例有实际通过的主路径，也存在旧 API、失效断言、跨用例污染以及尚未执行的异常路径。
+Conclusão: é preciso complementar e ajustar. Os **118/122 (96,72%)** do documento histórico são cobertura de Vitest focado da baseline antiga, não a cobertura E2E da branch atual, e não podem ser usados nesta aceitação. Os casos existentes têm um caminho principal que realmente passa, mas também há API antiga, asserçõesquebradas, poluição entre casos e caminhos de exceção ainda não executados.
 
-## UI Surface Matrix
+## Matriz de superfície de UI
 
-| 场景          | UI 入口            | 共享实现                            | 展示 owner                     | 数据来源               | 门禁                     | 提交动作                           | 权威/持久化                       | 模式边界                           | 必须隔离                 |
-| ------------- | ------------------ | ----------------------------------- | ------------------------------ | ---------------------- | ------------------------ | ---------------------------------- | --------------------------------- | ---------------------------------- | ------------------------ |
-| Banner        | WorkspaceSidebar   | MarketingBanner/VisualBody          | Controller                     | GET banner             | 资源准备、ready、pending | claim/open_url/navigate/copy/close | 服务端投放与 action；宿主资源缓存 | Desktop/Web 共用；Web ZIP fallback | 设置页、任务模型选择     |
-| 独立弹窗      | Shell 自动展示     | MarketingDialogs/CloudContentDialog | Controller waitingPopup/dialog | GET popup              | 页面可见、无其他 modal   | 按钮与三种关闭入口                 | 服务端投放；当前窗口状态          | 不随 workspace 重建 owner          | 安全校验弹层、升级页、已有弹窗 |
-| 结果弹窗      | Banner 动作成功    | 同一 Dialog                         | Controller waitingResult       | 同次投放 success_popup | 结果优先、资源准备       | 新动作 confirm；关闭不重复 cancel  | claim 是成功权威                  | 不让刷新失败逆转成功               | 其他独立 Popup           |
-| 领取失败      | Banner/Popup claim | MarketingFailureDialog/Alert        | Controller error               | data.message           | 非成功或结果不确定       | 知道了/Esc/遮罩 clearError         | 不自动重试、不额外上报            | 共用组件，窄屏不是手机实机         | 原 Popup 应恢复          |
-| 设置/插件市场 | navigate           | 原设置页/市场页                     | 导航关联 + 原页面 owner        | args 与既有目录        | 目标实际接管后确认       | 仅导航，不保存连接/安装插件        | 原设置/插件服务                   | workspaceIdentity；不另建 runtime  | task/模型/连接事实       |
-| 升级购买      | navigate upgrade   | 原升级 Provider/webview             | 导航关联 + 购买容器            | 当前 upgradeTarget     | dom-ready；失败/取消恢复 | 打开成功 confirm，不是支付成功     | 原购买流程                        | Desktop 支持；Web 明确失败         | 自动下单/支付            |
+| Cenário          | Entrada de UI        | Implementação compartilhada                  | Owner de exibição               | Origem dos dados          | Portão                   | Ação de commit                        | Autoridade/persistência                     | Limite de modo                        | Isolamento obrigatório        |
+| ----------------- | -------------------- | ------------------------------------------ | ------------------------------- | ------------------------- | ------------------------ | ------------------------------------- | ------------------------------------------ | ------------------------------------- | ---------------------------- |
+| Banner            | WorkspaceSidebar     | MarketingBanner/VisualBody                 | Controller                      | GET banner                | recursos prontos, ready, pending | claim/open_url/navigate/copy/close | servidor de entrega e action; cache de recursos do host | Desktop/Web compartilhado; fallback de ZIP no Web | página de configurações, seleção de modelo da tarefa |
+| Popup independente| Exibição automática do Shell | MarketingDialogs/CloudContentDialog         | Controller waitingPopup/dialog  | GET popup                 | página visível, sem outro modal | botões e três entradas de fechamento | servidor de entrega; estado da janela atual    | owner não recriado ao trocar de workspace | camada de validação de segurança, página de upgrade, popups existentes |
+| Popup de resultado | Ação do Banner com sucesso | mesmo Dialog                        | Controller waitingResult        | success_popup do mesmoentrega | resultado prioritário, recursos prontos | novo action confirm; fechamento não repete cancel | claim é a autoridade de sucesso             | falha de refresh não inverte o sucesso    | outros Popup independentes    |
+| Falha na retirada | claim no Banner/Popup | MarketingFailureDialog/Alert                | Controller error                | data.message              | não sucesso ou resultado incerto | 知道了/Esc/mascara clearError          | sem retentativa automática, sem reporte extra | componente compartilhado; tela estreita não é celular real | o Popup original deve ser restaurado |
+| Configurações/loja de plugins | navigate             | páginas originais de configurações/loja    | associação de navegação + owner original | args e catálogo existente  | confirmação após o alvo assumir de fato | apenas navegação, sem salvar conexão/instalar plugin | serviço original de configurações/plugin | workspaceIdentity; sem criar outro runtime | fatos de task/modelo/conexão |
+| Compra de upgrade  | navigate upgrade     | Provider/webview original de upgrade        | associação de navegação + container de compra | upgradeTarget atual      | dom-ready; recuperação em falha/cancelamento | abertura bem-sucedida é confirm, não pagamento bem-sucedido | fluxo de compra original | suportado no Desktop; falha explícita no Web | pedido/pagamento automático |
 
 ```text
-HTTP GET(seq) -> schema -> 资源授权/下载/校验 -> Controller 当前候选
-                                           +-> Banner -> 动作快照/防连点
-                                           +-> waitingPopup -> modal 门禁 -> Dialog
-动作 -> 安全校验/宿主能力 -> 明确结果 -> confirm 或错误提示
-关闭 -> 当前实例收口 -> cancel（结果弹窗关闭除外）
-账号/语言/卸载 -> 旧代次失效 -> 迟到响应不得恢复 UI 或借新凭据上报
-下一轮同 ID 下发 -> 仍由服务端决定是否展示，不设本地历史黑名单
+HTTP GET(seq) -> schema -> autorização/download/verificação de recursos -> candidato atual do Controller
+                                           +-> Banner -> snapshot de ação/anti-duplo clique
+                                           +-> waitingPopup -> portão de modal -> Dialog
+ação -> verificação de segurança/capacidade do host -> resultado explícito -> confirm ou dica de erro
+fechamento -> fechamento da instância atual -> cancel (exceto o fechamento do popup de resultado)
+conta/idioma/desinstalação -> geração antiga inválida -> resposta atrasada não pode restaurar a UI nem reportar com novas credenciais
+próximoentrega com o mesmo ID -> ainda cabe ao servidor decidir se exibe, sem blacklist local de histórico
 ```
 
-## Shared And Divergent Behavior
+## Comportamento compartilhado e divergente
 
-| 关注点 | 共享                             | 有意差异                                         | 审计要求                               |
-| ------ | -------------------------------- | ------------------------------------------------ | -------------------------------------- |
-| UI     | VisualBody、文本安全渲染、Button | Banner 96px，忽略按钮 theme；Dialog 支持 theme   | 不用 Hero 成功代替视频 Banner/样式验收 |
-| 数据源 | Marketing GET DTO                | success_popup 固定为操作快照                     | 领取余额刷新不能覆盖结果数据           |
-| 默认值 | locale/theme 由 App 提供         | Banner 空 format 合法，Popup 不合法              | 混合合法/非法投放独立解析              |
-| 校验   | 宿主授权、摘要、安全解压         | Web bundle 不访问 Desktop loopback               | 故障资源与跨端 fallback 要真实触发     |
-| 副作用 | 单操作 pending、confirm/cancel   | copy 保留；navigate 关闭；结果 close 不报 cancel | 每个动作按真实成功判据断言             |
-| 恢复   | generation/释放 lease            | 网络失败保留短期内容，空响应撤下                 | 不能仅靠 Happy Path 顺路执行算覆盖     |
+| Ponto de atenção | Compartilhado                          | Divergência intencional                                 | Requisito de auditoria                          |
+| ---------------- | -------------------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
+| UI               | VisualBody, renderização segura de texto, Button | Banner 96px, ignora theme do botão; Dialog suporta theme | não usar Hero de sucesso no lugar da aceitação do Banner de vídeo/estilo |
+| Origem de dados  | Marketing GET DTO                      | success_popup é fixo como snapshot da operação        | o refresh do saldo após a retirada não pode sobrescrever os dados de resultado |
+| Defaults         | locale/theme fornecidos pelo App       | Banner com format vazio é válido, no Popup não é válido |(parse)독립 de mistura deentrega válido/inválido        |
+| Validação        | autorização do host, resumo, descompressão segura | bundle Web não acessa loopback do Desktop | recursos com falha e fallback entre plataformas precisam disparar de verdade |
+| Efeitos colaterais | pending por operação, confirm/cancel   | copy é preservado; navigate fecha; close do resultado não reporta cancel | cada ação asserida pelo critério real de sucesso |
+| Recuperação      | generation/liberação de lease          | falha de rede mantém o conteúdo por pouco tempo, resposta vazia remove | não contar como cobertura apenas a execução banal do Happy Path |
 
-## Feature Relationships
+## Relacionamentos da Feature
 
-| 等级           | 来源 → 目标                                                          | 语义/条件                       | 原因与证据                                                     |
-| -------------- | -------------------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------- |
-| must-inspect   | Root/Sidebar → MarketingTouchProvider                                | 窗口单 owner                    | Root、WorkspaceSidebar 本分支 diff                             |
-| must-inspect   | Provider → Controller/Poller → Service                               | identity、query、report         | 当前实现有代次和事件刷新；需验证序号、串行、迟到响应           |
-| must-inspect   | Service → AssetRegistry → BundleCache → iframe                       | 授权、下载、lease、握手         | 成功 ZIP 已有 E2E，异常主要是单测                              |
-| must-inspect   | navigate → SettingsPage/ModelProviderSection/PluginStorePage/Upgrade | 目标确认而非 dispatch 即成功    | 模型定位现有 E2E 实际失败                                      |
-| should-inspect | claim → 权益/account 刷新                                            | best effort，但刷新必须真的执行 | Provider 仍访问不存在的 modelProviderService                   |
-| invariant-only | shared-host/remote/task runtime                                      | 沿用服务入口、不增加 Agent      | remoteServiceAccess 与 services/node 注册 diff；无跨端运行证据 |
-| evidence-only  | Unit/旧 coverage docs/资源 fixture                                   | 解释路径，不替代 E2E            | 旧 96.72% 与当前口径不同                                       |
+| Nível            | Origem → destino                                                           | Semântica/condição                        | Motivo e evidência                                                    |
+| ---------------- | -------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
+| must-inspect     | Root/Sidebar → MarketingTouchProvider                                     | owner único por janela                    | diff de Root e WorkspaceSidebar nesta branch                          |
+| must-inspect     | Provider → Controller/Poller → Service                                    | identity, query, report                   | a implementação atual tem geração e refresh por evento; precisa validar sequência, serialização e resposta atrasada |
+| must-inspect     | Service → AssetRegistry → BundleCache → iframe                            | autorização, download, lease, handshake    | ZIP de sucesso já tem E2E; as exceções são principalmente unitárias |
+| must-inspect     | navigate → SettingsPage/ModelProviderSection/PluginStorePage/Upgrade       | confirmação do alvo, não basta o dispatch | a localização de modelo no E2E existente realmente falha            |
+| should-inspect   | claim → refresh de benefícios/conta                                      | melhor esforço, mas o refresh precisa realmente executar | o Provider ainda acessa um modelProviderService inexistente          |
+| invariant-only   | shared-host/remote/task runtime                                           | reusa a entrada de serviço, sem adicionar Agent | diff de registro em remoteServiceAccess e services/node; sem evidência de execução multiplataforma |
+| evidence-only    | Unit/documentos antigos de coverage/fixture de recursos                    | explica o caminho, não substitui E2E      | os 96,72% antigos têm métrica diferente da atual                      |
 
-## State Owners And Commit Sinks
+## State Owners e Commit Sinks
 
-| 状态     | 展示 owner               | 权威 owner           | 提交点                             | 持久化/缓存                  | 证据                                     |
-| -------- | ------------------------ | -------------------- | ---------------------------------- | ---------------------------- | ---------------------------------------- |
-| 投放资格 | Controller 当前候选      | 服务端               | GET /marketing/touch               | 不落历史去重集合             | marketingTouchController.ts              |
-| seq      | 无 UI owner              | 服务进程模块计数     | 实际 GET 前分配                    | 不持久化                     | marketingTouchService.ts                 |
-| 当前动作 | Controller.pending/phase | claim 或宿主能力结果 | Provider.execute                   | 固定 candidate/scope         | MarketingTouchProvider.tsx               |
-| 上报     | 当前操作 scope           | 服务端 action        | Service.report                     | 不自动重试                   | Controller + marketingTouchService.ts    |
-| 资源     | iframe 就绪状态          | 发布授权与 hash      | readPublishedMedia/prepare/release | host-instance cache + lease  | cloudContentService/contentBundleCache   |
-| 导航     | marketingNavigation 关联 | 原目标页面完成信号   | finishMarketingNavigation          | 原设置页状态，不新增模型配置 | marketingNavigation/Settings/PluginStore |
+| Estado        | Owner de exibição          | Owner autoritativo       | Ponto de commit                             | Persistência/cache                     | Evidência                                  |
+| ------------- | -------------------------- | ------------------------ | ------------------------------------------ | -------------------------------------- | ------------------------------------------ |
+| Elegibilidade deentrega | candidato atual do Controller | servidor            | GET /marketing/touch                        | não grava conjunto de dedup de histórico | marketingTouchController.ts                 |
+| seq            | sem owner de UI            | contador de módulo do processo de serviço | atribuído antes do GET real             | não persiste                           | marketingTouchService.ts                    |
+| Ação atual     | Controller.pending/phase   | resultado do claim ou da capacidade do host | Provider.execute                  | fixa candidate/scope                   | MarketingTouchProvider.tsx                  |
+| Reporte        | scope da operação atual    | action do servidor        | Service.report                              | sem retentativa automática              | Controller + marketingTouchService.ts       |
+| Recursos       | estado ready do iframe      | autorização de publicação e hash | readPublishedMedia/prepare/release      | cache do host-instance + lease          | cloudContentService/contentBundleCache      |
+| Navegação      | associação marketingNavigation | sinal de conclusão da página de destino | finishMarketingNavigation          | estado original da página de configurações, sem nova config de modelo | marketingNavigation/Settings/PluginStore |
 
-## 当前用例逐项审计
+## Auditoria caso a caso dos casos atuais
 
-两份营销 spec 均在 `packages/desktop/test/e2e/ui-shell/manual-review/pending/`。delivery 有 16 个 `it`，entitlement 有 1 个。多个 case ID 写在一个标题中不等于多个独立测试。
+As duas specs de marketing estão em `packages/desktop/test/e2e/ui-shell/manual-review/pending/`. A de delivery tem 16 `it`, a de entitlement tem 1. Vários case ID escritos em um único título não equivalem a vários testes independentes.
 
-| 范围          | 已有 setup/action/assertion                                                             | 缺失或调整                                                                                                                                                | 优先级 |
-| ------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 初始 Popup    | MTC-01：默认独立 Popup → 内容关闭按钮 → cancel 恰好一次                                 | 右上角 X、Esc、遮罩分别验证；目前只是检查 X 样式，没有点击 X 验证上报                                                                                     | P0     |
-| Banner 领取   | MTC-03：真实 HTTP/PNG/ZIP、安全校验 success、挂起 claim → loading → success/confirm      | 快速双击、安全校验 cancel/error、未登录、提交超时、明确失败/不确定；不能以 disabled 样式断言代替双击提交计数                                               | P0     |
-| claim 后刷新  | success Popup 可见                                                                      | 必须断言真实 account/权益刷新被调用且更新投影；另注入刷新失败，确认不逆转 claim                                                                           | P0     |
-| 同 ID 重投放  | 成功后和关闭后等待正常 30s；再关闭计数；独立 Popup 重投放                               | 持续同 ID 正在展示不叠加；旧 GET/慢资源完成不能复活被关闭内容                                                                                             | P0     |
-| 轮询          | 30s 正常等待、online 加速                                                               | hidden 恢复、慢请求并发合并、失败退避、空数组撤下、十分钟过期、身份/语言重建；生产 600s 不能拿测试 30s 代替                                               | P0/P1  |
-| seq/请求头    | 服务单测有首次/并发/失败/匿名                                                           | fixture 仅记录 pathname，丢失 query/headers；增加脱敏 method/seq/头部存在性账本，验证 0 起始、失败也增长、POST 不占序号                                   | P0     |
-| 上报可靠性    | 成功、内容关闭、复制多次 confirm/cancel                                                 | 匿名、上报 500/断连 UI 不阻塞且无重试、账号切换不借新 token、结果 X/Esc/遮罩不重复 cancel                                                                 | P0     |
-| 复制          | MTA-01 原文/换行/HTML字面量、重复复制、无 SVG、保留；MTA-06 权限失败                    | 失败测试被前序污染；复制 pending 双击、10s 不确定结果、旧账号迟到、不误填输入框/创建任务                                                                  | P1     |
-| 设置导航      | MTA-02 外观；MTA-03 全 14 分区                                                          | 默认/上次分区、已有目标复用、不创建新设置 tab；无副作用应读当前实际连接结构                                                                               | P0/P1  |
-| 提供商定位    | MTA-05 指定 provider 与缺失 provider                                                    | 使用旧 builtin:bigmodel，与当前导航契约不匹配；连接快照读取已删字段可能 undefined 对 undefined 假通过；增加当前 family/account/custom、加载中与不存在路径 | P0     |
-| 插件市场      | 首页、目录首项详情、不存在时报错不上报                                                  | 目录需 case-local 固定内容；成功两次也逐次核对 campaign confirm；配置/安装/任务无变化；同路径不同 workspaceIdentity 不能误确认                            | P1     |
-| 升级页        | MTA-07 webview 可见、confirm 一次、关闭不追加                                           | ready 前不能 confirm；加载失败/提前关闭/超时恢复原 Popup；Web 不支持；保留原普通升级入口回归                                                              | P0/P1  |
-| ZIP Banner    | MTC-BUNDLE ready、数据/主题、96px/94px、pointer-events、copy/close、下载数不增加        | 依赖前面先下载 ZIP、先进入设置；应各自准备。补冷缓存/同 SHA 热缓存/不同 SHA/lease 释放；下载未增不能单独证明未重复解包                                    | P0     |
-| ZIP/Hero 安全 | 正常 ZIP/翻转/重播                                                                      | hash 错误、未授权/重定向、缺 entry、恶意路径/大小超限、ready/error/超时/伪造消息；网络/fallback/lease 要走真实宿主链路                                    | P0/P1  |
-| 失败弹窗      | MTC-FAIL 服务翻译与空白兜底、无可见标题/X、Info、主题/358px、知道了不上报               | Popup 内领取失败后恢复原 Popup；Esc/遮罩不重试；code 缺失、数字/字符串、纯文本恶意 HTML；长文滚动/焦点返回                                                | P0/P1  |
-| 富文本        | MTC-RICH HTML title/Markdown description/button；MTC-HTML class/style 与 outline 优先级 | Markdown 链接/表格/代码、安全 HTML/URL/style、标题/按钮行内且无嵌套交互；未知已保留 class 不代表任意 Tailwind 生效                                        | P1     |
-| 媒体          | MP4 Banner ready/播放/loop/muted/96px                                                   | Hero video controls、hidden/reduced-motion 暂停、解码失败 fallback、dark image；Lottie 属公共组件分支但 Marketing DTO 不下发，单列不可达边界              | P1     |
-| 视觉/可访问性 | CSS 圆角/hit-test、saveScreenshot；亮暗主题局部改 class 和 358px 容器                   | 原生窗口合成层圆角截图与人工复核；真实 viewport、Tab/Enter/Escape/focus、实际 locale 切换；局部宽度不算手机/Web 验收                                      | P1     |
-| 权益与连接    | entitlement 一长用例直接 HTTP seed claim，再验证余额/Start/Individual/Subagent          | 5 个旧 API 类型错误；独立 seed/reset；不是 Banner 后置刷新证据；使用当前 structured selection，拆分故障可定位的场景                                       | P0     |
-| 退役逻辑      | 旧 preview 入口不存在、无 /billing/preview 请求                                         | 原正式 spec 删除，新 pending 默认排除；不能在 CI 中默默失去正式回归。人工确认后按 promotion 流程转正                                                      | P0     |
-| 注册与退出    | services/node、RemoteServiceAccess、缓存 dispose 修改                                   | App 退出/Host dispose 清理资源；remote/Web 支持与 fallback；跨窗口无历史拦截；不能用一个窗口运行证明跨端                                                  | P1     |
-| 构建/fixture  | bundle/tsup/wdio/mock generator、lockfile 也有变更                                      | 作为构建/契约测试单列，不计入业务 E2E 代码率；生成 ZIP/HTML fixture 不等于外部正式资源包验收                                                              | P1     |
+| Escopo           | setup/action/assertion existentes                                                              | Faltando ou ajustando                                                                                                                                    | Prioridade |
+| ---------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| Popup inicial    | MTC-01: Popup independente por padrão → botão de fechar conteúdo → cancel exatamente uma vez | validar separadamente o X do canto superior direito, o Esc e a máscara; hoje apenas se checa o estilo do X, sem clicar no X para verificar o reporte                                             | P0        |
+| Retirada no Banner | MTC-03: HTTP/PNG/ZIP reais, success na verificação de segurança, claim pendente → loading → success/confirm | duplo clique rápido, cancel/error na verificação de segurança, não logado, timeout de submissão, falha/indeterminação explícita; não substituir a contagem de submissão de duplo clique por asserção de estilo disabled | P0        |
+| Refresh após claim | Popup de success visível                                                                    | é preciso asserir que o refresh real de conta/benefícios foi chamado e que a projeção foi atualizada; injetar também falha de refresh e confirmar que não inverte o claim                                    | P0        |
+| Reentrega do mesmo ID | espera normal de 30s após sucesso e após fechamento; depois contagem de fechamento; reentrega do Popup independente |entrega contínuo do mesmo ID não empilha; GET antigo/recurso lento concluído não pode ressuscitar conteúdo fechado                                                                                       | P0        |
+| Polling          | espera normal de 30s, aceleração com online                                                | recuperação de hidden, coalescência de requests lentos concorrentes, backoff de falha, remoção por array vazio, expiração de dez minutos, reconstrução de identidade/idioma; os 600s de produção não podem ser substituídos pelos 30s de teste | P0/P1    |
+| seq/cabeçalhos   | unitário do serviço tem primeira/concorrente/falha/anônima                                 | o fixture registra apenas o pathname e perde query/headers; adicionar um razão sanitizado de method/seq/existência de cabeçalho, validando início em 0, crescimento mesmo em falha e que POST não ocupa sequência                    | P0        |
+| Confiabilidade do reporte | sucesso, fechamento de conteúdo, múltiplos confirm/cancel de cópia                        | anônimo, 500 de reporte/desconexão sem bloquear a UI e sem retentativa, troca de conta sem pegar novo token, X/Esc/máscara do resultado sem cancel repetido                                            | P0        |
+| Cópia            | MTA-01 texto original/quebra de linha/literal HTML, cópia repetida, sem SVG, preservado; MTA-06 falha de permissão | teste de falha contaminado pelos casos anteriores; duplo clique com copy pending, resultado incerto após 10s, conta antiga atrasada, não preencher input/criar tarefa por engano                                 | P1        |
+| Navegação em Settings | MTA-02 aparência; MTA-03 todas as 14 seções                                              | seção padrão/última usada, reuso do alvo existente, sem criar nova tab de configurações; sem efeito colateral deve ler a estrutura de conexão real atual                                                | P0/P1    |
+| Localização do provedor | MTA-05 provedor especificado e provedor ausente                                                | usa o builtin:bigmodel antigo, incompatível com o contrato de navegação atual; a leitura do snapshot de conexão em campos já removidos pode passar de forma falsa (undefined contra undefined); adicionar family/account/custom atuais, carregando e caminho inexistente | P0        |
+| Loja de plugins   | homepage, detalhe do primeiro item do catálogo, erro sem reporte quando inexistente           | o catálogo precisa de conteúdo fixo local ao case; mesmo em dois sucessos conferir o campaign confirm a cada vez; sem mudança em configuração/instalação/tarefa; mesmo caminho com workspaceIdentity diferente não pode confirmar errado | P1        |
+| Página de upgrade | MTA-07 webview visível, confirm uma vez, fechamento não acrescenta                        | não pode confirmar antes do ready; recuperar o Popup original em falha de carregamento/fechamento antecipado/timeout; sem suporte no Web; manter a regressão da entrada de upgrade comum original                                          | P0/P1    |
+| Banner ZIP        | MTC-BUNDLE ready, dados/tema, 96px/94px, pointer-events, copy/close, contador de downloads sem aumento | depende de baixar o ZIP antes e de entrar em Settings antes; devem se preparar sozinhos. Complementar com cache frio/cache quente do mesmo SHA/SHA diferente/liberação de lease; downloads sem aumento não provam sozinhos que não houve reextração | P0        |
+| Segurança ZIP/Hero | ZIP normal/invertido/replay                                        | hash errado, não autorizado/redirecionado, entry ausente, caminho malicioso/tamanho acima do limite, ready/error/timeout/mensagem falsificada; rede/fallback/lease devem passar pelo fluxo real do host                                                 | P0/P1    |
+| Dialog de falha   | MTC-FAIL tradução do serviço e fallback em branco, sem título/X visível, Info, tema/358px, 知道了 sem reporte | restaurar o Popup original após falha de retirada dentro do Popup; Esc/máscara sem retentativa; code ausente, número/string, HTML malicioso em texto puro; rolagem de texto longo e retorno de foco                                                                 | P0/P1    |
+| Rich text        | MTC-RICH title HTML/description Markdown/botão; MTC-HTML prioridade de class/style e outline | links/tabelas/código em Markdown, HTML/URL/style seguros, título/botão inline e sem interação aninhada; class desconhecido preservado não significa que qualquer Tailwind vale                                                                 | P1        |
+| Mídia            | Banner MP4 ready/play/loop/muted/96px                                                   | controls do Hero em vídeo, pausa em hidden/reduced-motion, fallback de falha de decodificação, imagem dark; Lottie pertence ao ramo de componente compartilhado, mas o DTO de Marketing não a envia, então é um limite inalcançável listado à parte                                    | P1        |
+| Visual/acessibilidade | raio de canto CSS/hit-test, saveScreenshot; tema claro e escuro alterando class localmente e contêiner de 358px | raio de canto da camada de composição nativa da janela com revisão manual; viewport real, Tab/Enter/Escape/foco, troca real de locale; largura local não conta como aceitação de celular/Web                              | P1        |
+| Benefícios e conexão | entitlement um case longo faz seed de claim por HTTP direto e depois valida saldo/Start/Individual/Subagent | 5 erros de tipo de API antiga; seed/reset independentes; não é evidência de refresh pós-Banner; usar structured selection atual e separar cenários de falha para localizar                                                                 | P0        |
+| Lógica de aposentadoria | a entrada antiga de preview não existe mais, sem request a /billing/preview              | a spec oficial original foi removida e o novo pending é excluído por padrão; a regressão oficial não pode sumir silenciosamente no CI. Após confirmação manual, promover pelo fluxo de promotion                                                                               | P0        |
+| Registro e saída | alterações em services/node, RemoteServiceAccess, dispose de cache                    | limpeza de recursos ao sair do App/Host dispose; suporte e fallback em remote/Web; sem bloqueio de histórico entre janelas; rodar em uma única janela não prova multiplataforma                                        | P1        |
+| Build/fixture    | bundle/tsup/wdio/mock generator e lockfile também mudaram                             | listar separadamente como build/teste de contrato, sem contar na taxa de código E2E de negócio; gerar fixtures de ZIP/HTML não equivale à aceitação do pacote de recursos externo oficial                                                     | P1        |
 
-## Must-Preserve Invariants
+## Invariantes que devem ser preservados
 
-| 不变量                                      | 范围            | 必须取得的证明                 | 当前情况                         |
-| ------------------------------------------- | --------------- | ------------------------------ | -------------------------------- |
-| 服务端决定展示，同 ID 可重投                | Banner/Popup    | 同 ID 再下发再操作再上报       | 主路径实测通过                   |
-| 明确成功才 confirm，写请求不自动重试        | 全动作          | ledger + 故障/超时 + UI        | 正常路径有；异常跨进程缺口       |
-| 导航不切连接/模型、不安装插件/新建任务      | Settings/Market | 当前真实持久字段及命令账本     | 旧字段断言无效风险，不能宣称证明 |
-| 资源先校验，迟到结果不恢复旧 UI             | Media/ZIP       | 可控慢资源/坏资源 + Host/DOM   | 单测为主，E2E 不完整             |
-| Desktop continuous 与手机 replayable 不扩散 | remote/task     | shared-host/身份路由代表性回归 | 未跑多端，不虚构通过             |
-| case 隔离，失败不污染下一 case              | 全 E2E          | 单独与组合运行一致             | 本轮已观察连续污染               |
+| Invariante                                        | Escopo          | Prova obrigatória                          | Situação atual                    |
+| ------------------------------------------------- | --------------- | ------------------------------------------ | -------------------------------- |
+| O servidor decide a exibição, o mesmo ID pode ser reentregue | Banner/Popup | reentregar o mesmo ID, operar e reportar    | caminho principal passa de verdade |
+| Só há confirm com sucesso explícito, request de escrita não tem retentativa automática | todas as ações | ledger + falha/timeout + UI  | existe no caminho normal; lacuna de exceção entre processos |
+| Navegação não troca conexão/modelo, não instala plugin nem cria tarefa | Settings/Market | campos reais persistidos atuais e ledger de comandos | asserções de campo antigo correm risco de não provar nada |
+| Recurso é verificado antes; resultado atrasado não restaura a UI antiga | Media/ZIP | recurso lento/morto controlável + Host/DOM | principalmente unitário, E2E incompleto |
+| Desktop continuous e celular replayable não se espalham | remote/task | regressão representativa de shared-host/rota de identidade | multiplataforma não rodou, não inventar aprovação |
+| Isolamento de case, falha não polui o case seguinte | todo o E2E | execução isolada e combinada idênticas | poluição contínua já observada nesta rodada |
 
-## Codegraph Evidence
+## Evidência de codegraph
 
-没有可用的 codegraph 工具，本轮未执行索引影响扫描。采用 `git diff`、精确符号/调用方检索与逐段源码阅读；不是完整调用图证明。
+Não há ferramenta de codegraph disponível, então a varredura de impacto por índice não foi executada nesta rodada. Foram usados `git diff`, busca precisa de símbolos/chamadores e leitura de código por trecho; não é prova de grafo de chamadas completo.
 
-| seed                       | 替代查询         | 已确认路径                                         | 深度 | 限制                           |
-| -------------------------- | ---------------- | -------------------------------------------------- | ---- | ------------------------------ |
-| MarketingTouchProvider     | diff + rg + 源码 | Root/Sidebar → Provider → Controller/服务          | 2    | 未枚举所有运行环境             |
-| prepareMarketingHero       | rg + 源码        | Provider → resources → CloudContentService → cache | 3    | 未以 E2E 故障遍历所有安全分支  |
-| requestMarketingNavigation | diff + 源码      | Provider → 设置/市场/升级 → finish                 | 2    | 当前 provider 迁移阻塞部分目标 |
-| disposeServiceResources    | diff             | Host 服务释放 → CloudContent.dispose               | 2    | 需退出行为验证                 |
+| seed                       | Consulta alternativa | Caminhos confirmados                                     | Profundidade | Limitação                             |
+| -------------------------- | -------------------- | -------------------------------------------------------- | ------------ | ------------------------------------- |
+| MarketingTouchProvider     | diff + rg + código    | Root/Sidebar → Provider → Controller/serviço             | 2            | não enumerou todos os ambientes de execução |
+| prepareMarketingHero       | rg + código           | Provider → resources → CloudContentService → cache      | 3            | não percorreu todos os ramos de segurança com falha em E2E |
+| requestMarketingNavigation | diff + código          | Provider → configurações/loja/upgrade → finish         | 2            | a migração atual do provider bloqueia parte dos destinos |
+| disposeServiceResources    | diff                  | liberação do serviço do Host → CloudContent.dispose    | 2            | precisa de validação do comportamento de saída |
 
-## Graph Drift Candidates
+## Candidatos a Graph Drift
 
-| 项目                            | 当前证据                            | 过时关系                          | 后续                                      |
-| ------------------------------- | ----------------------------------- | --------------------------------- | ----------------------------------------- |
-| start-plan-manual-claim surface | 旧 Banner/ResultDialog 已删除       | graph 仍引用旧文件与 guide 路径   | 用 Marketing surface 替换，不恢复自动选模 |
-| cloud-content-preview           | App preview 入口已移除              | graph 仍引用预览组件/旧 mock 文件 | 删除退役入口关系                          |
-| 测试证据节点                    | 新 spec 在 pending                  | 旧正式 E2E/旧 Banner 单测引用     | 更新为当前证据并注明 pending              |
-| 营销能力关系                    | 当前 Settings/Market/Upgrade 确认链 | 未完整描述新目标与失败恢复        | 补关系，不把 UI 选中等同持久连接          |
+| Item                            | Evidência atual                          | Relação obsoleta                              | Seguimento                                        |
+| ------------------------------- | ---------------------------------------- | -------------------------------------------- | ------------------------------------------------- |
+| start-plan-manual-claim surface | Banner/ResultDialog antigos removidos     | o graph ainda referencia arquivos antigos e caminho de guide | substituir pela surface de Marketing, sem restaurar seleção automática de modelo |
+| cloud-content-preview           | entrada de preview do App removida        | o graph ainda referencia componente de preview/mock antigo | remover a relação da entrada aposentada            |
+| nós de evidência de teste       | nova spec está em pending                 | E2E oficial antigo/unitário do Banner antigo | atualizar para a evidência atual, indicando pending |
+| relação de capacidade de marketing | cadeia de confirmação atual Settings/Market/Upgrade | não descreve por completo o novo destino e a recuperação de falha | complementar a relação, sem tratar seleção de UI como conexão persistida |
 
 ## Graph Delta
 
-本轮仅 proposed：新增/修正 Marketing Banner、独立 Popup、结果/失败 Dialog、资源 lease、导航目标确认与上报边；移除已退役 preview/自动 guide 边。依据是当前 diff/源码及用户已确定的 navigate/copy_text 边界。本轮不改 feature graph。
+Nesta rodada apenas proposed: adicionar/corrigir as arestas de Marketing Banner, Popup independente, Dialog de resultado/falha, lease de recursos, confirmação de destino de navegação e reporte; remover as arestas aposentadas de preview/guide automático. A base é o diff/código atual e os limites de navigate/copy_text já determinados pelo usuário. Esta rodada não altera o feature graph.
 
-## 95% 度量与实施顺序
+## Métrica de 95% e ordem de implementação
 
-1. 分母冻结为 merge-base → 被审计 HEAD 的新增/修改**可执行业务源码行**，含 UI、shared schema、services、client 注册。删除文件另做回归，不计入新行分母。测试、文档、翻译数据、纯类型/声明、构建脚本、外部资源包分开报告。
-2. 只收集真实 App E2E 的 Renderer/Host/Main/CLI 数据；不混入 Vitest。各域函数/分支单列，不能把不同 instrumentation 的 statement ID 直接合并。
-3. 缺失插桩/source map/进程数据标 unknown，不能当作已覆盖或悄悄移出分母。公共 Lottie 等 Marketing 入口不可达代码要明确列出，不为凑 95% 通过测试内部注入执行业务函数。
-4. 先修旧 API 与 case-local fixture/reset，再补 P0 并真实运行；只有每例 setup/action/assertion 成立，才同时登记行为覆盖与执行覆盖。覆盖行被失败测试经过，也不等于功能验收通过。
-5. 根据未覆盖行/函数/分支反向补 P1。建议门槛分别为差异行 ≥95%、差异函数 ≥95%、差异分支 ≥95%；分母和不可达边界先确认，未达到的项分别列出，不能只报其中最高的一项。
-6. 连续独立/组合复跑，审查截图后再按技能转正，随后接正式 CI。不得为通过而删安全分支、恢复旧产品语义或放宽业务断言。
+1. O denominador é congelado nas linhas de código-fonte de negócio executáveis adicionadas/modificadas entre merge-base e o HEAD auditado, incluindo UI, shared schema, services e registro do client. Arquivos excluídos entram em regressão à parte e não contam no denominador de linhas novas. Testes, documentação, dados de tradução, tipos/declaração puros, scripts de build e pacotes de recursos externos são reportados separadamente.
+2. Coletar apenas dados de Renderer/Host/Main/CLI de E2E real do App; não misturar Vitest. Funções/ramos por domínio são listados separadamente e não se pode combinar statement ID de instrumentações diferentes.
+3. Instrumentação ausente, source map ausente ou dados de processo ausentes são marcados como unknown, sem contar como cobertos nem ser removidos em silêncio do denominador. Código inalcançável na entrada de Marketing, como o Lottie compartilhado, deve ser listado explicitamente, sem injetar execução da função de negócio dentro do teste só para chegar a 95%.
+4. Primeiro corrigir API antiga e fixture/reset local ao case, depois complementar os P0 e realmente executar; só quando setup/action/assertion de cada caso se sustenta é que se registra cobertura de comportamento junto com cobertura de execução. Uma linha coberta atravessada por um teste que falha também não equivale a aceitação da funcionalidade.
+5. A partir das linhas/funções/ramos não cobertos, complementar os P1 em sentido inverso. Sugerem-se limiares de linha do diff ≥95%, função do diff ≥95% e ramo do diff ≥95%; confirmar primeiro o denominador e os limites inalcançáveis e listar separadamente o que não atingiu, sem reportar apenas o maior deles.
+6. Reexecutar de forma isolada e combinada várias vezes, revisar os screenshots e então promover conforme a skill, seguindo para o CI oficial. Não remover ramos de segurança, restaurar semântica antiga de produto nem afrouxar asserções de negócio para passar.
 
-实施必须先更新 case catalog/coverage matrix，再写失败测试、改实现；本轮没有实施。已知类型错误属于当前候选分支的问题，不作为“与本功能无关的既有错误”略过。
+A implementação precisa atualizar primeiro o case catalog/coverage matrix, depois escrever os testes que falham e então alterar a implementação; nesta rodada nada foi implementado. Os erros de tipo conhecidos são problemas da branch candidata atual e não devem ser descartados como "erros preexistentes não relacionados a esta funcionalidade".
 
-## Unresolved Questions
+## Questões em aberto
 
-| 问题               | 可选处理                                        | 范围差异                               | 决策方    |
-| ------------------ | ----------------------------------------------- | -------------------------------------- | --------- |
-| 审计后是否直接实施 | 先审清单 / 批准 P0/P1 补齐与必要产品修复        | 后者会修改测试和产品，而本轮目前只审计 | 用户      |
-| 95% 的最终门槛     | 行/函数/分支均达标，或明确指定其中指标          | 应在实施前固定，不事后缩小分母         | 用户/团队 |
-| 跨端实机           | CI Windows/Linux + Web/手机链路，或列明确待验收 | 不能用 macOS 窄布局代替                | 团队      |
+| Questão                      | Tratamento possível                                          | Diferença de escopo                                       | Decisor     |
+| ---------------------------- | ----------------------------------------------------------- | --------------------------------------------------------- | ----------- |
+| Implementar direto após a auditoria | auditar a lista primeiro / aprovar a complementação P0/P1 e as correções de produto necessárias | a segunda opção altera testes e produto, e esta rodada só audita | usuário    |
+| Limiar final de 95%          | atingir em linhas/funções/ramos, ou especificar explicitamente uma métrica | deve ser fixado antes da implementação, sem encolher o denominador depois | usuário/equipe |
+| Multiplataforma real          | CI Windows/Linux + via Web/celular, ou listar explicitamente como pendente de aceitação | não se pode substituir por layout estreito no macOS       | equipe      |
 
-## Planning Handoff
+## Handoff de planejamento
 
-impact-only，本轮不修改产品 spec/测试或自动 promotion。后续计划：先协议/隔离/API 阻塞，再 P0 行为与报告，再 P1 与平台验证，最后人工验收/转正。
+impact-only; nesta rodada não se modifica spec de produto/testes nem promotion automática. Plano seguinte: primeiro protocolo/isolamento/bloqueios de API, depois comportamento e relatório de P0, depois P1 e validação de plataforma e, por fim, aceitação manual/promoção.
 
-## 本轮运行证据
+## Evidência de execução desta rodada
 
-### 静态门禁与可定位的问题
+### Portões estáticos e problemas localizáveis
 
-| 检查                                         | 本轮结果                                              |
-| -------------------------------------------- | ----------------------------------------------------- |
-| workspace freshness                          | 通过；新 test 分支没有 upstream                       |
-| `pnpm typecheck`                             | 失败，9 处错误，详见下表                              |
-| `pnpm --filter @zcode/desktop typecheck:e2e` | 失败，权益 E2E 的 5 处旧 API 错误                     |
-| `pnpm lint`                                  | 0 errors / 45 warnings，未修改代码去消除已有 warnings |
-| `pnpm architecture:check --changed`          | 0 violations                                          |
+| Verificação                                    | Resultado desta rodada                                       |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| workspace freshness                           | passou; o novo branch de teste não tem upstream              |
+| `pnpm typecheck`                              | falhou, 9 erros, detalhes na tabela abaixo                    |
+| `pnpm --filter @zcode/desktop typecheck:e2e`  | falhou, 5 erros de API antiga no E2E de entitlement           |
+| `pnpm lint`                                   | 0 errors / 45 warnings; nenhum código foi alterado para remover warnings existentes |
+| `pnpm architecture:check --changed`           | 0 violations                                                  |
 
-| 位置                                                       | 原因与补充验证                                                                                                                         | 源码归属证据                                                          |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| MarketingTouchProvider.tsx:275、278                        | IServiceAccessor 没有 modelProviderService；成功路径的后置刷新调用仍是旧 API。当前领取用例只断言成功弹窗，没有验证刷新执行             | `git blame`：`fe04f4ba330`；本分支新增文件                  |
-| Root.tsx:3、357                                            | 移除了 RefreshCw import，但加载失败重试 UI 仍引用它。正常启动不会触发该 error 分支，应补故障注入回归                                   | `a19b8c64f11` 移除 import；基线 diff 可见                   |
-| ModelProviderSection.tsx:1121                              | 新导航匹配读取 item.provider.id；当前 ProviderSettingsFormProvider 是 providerId。不能只更换测试 selector 掩盖自定义 provider 路径缺陷 | `646cba8528f`；本分支新增 effect                            |
-| marketing-touch-entitlement.test.ts:94、100、131、163、164 | bigmodelCodingPlan/bigmodel 枚举与 modelProviderFamilyModes/SelectedKeys 已不存在                                                      | 本分支新增迁移 spec；当前类型检查复现，不推测迁移责任                 |
-| marketing-touch-delivery.test.ts:35–42、393                | 连接无副作用检查读取已删的两字段。当前应使用 providerFamilyConnectionSelections，并先断言有效初始选择存在                              | plain JSON 读取绕过 TS 检查；源码事实，不能宣称本轮实际进入该断言通过 |
+| Posição                                                       | Causa e verificação complementar                                                                                                                        | Evidência de atribuição no código                                                                 |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| MarketingTouchProvider.tsx:275、278                            | IServiceAccessor não tem modelProviderService; a chamada de refresh pós-sucesso ainda usa a API antiga. O caso atual de retirada só assere o popup de sucesso, sem validar a execução do refresh | `git blame`: `fe04f4ba330`; arquivo novo nesta branch                        |
+| Root.tsx:3、357                                                | o import de RefreshCw foi removido, mas a UI de retentativa de falha de carregamento ainda o referencia. A inicialização normal não dispara esse ramo de erro; deve-se complementar com regressão por injeção de falha | `a19b8c64f11` removeu o import; visível no diff da baseline                      |
+| ModelProviderSection.tsx:1121                                  | a nova correspondência de navegação lê item.provider.id; o ProviderSettingsFormProvider atual é providerId. Não basta trocar o selector do teste para mascarar o defeito no caminho de provider custom | `646cba8528f`; novo effect nesta branch                                     |
+| marketing-touch-entitlement.test.ts:94、100、131、163、164     | as enumerações bigmodelCodingPlan/bigmodel e modelProviderFamilyModes/SelectedKeys não existem mais                                                            | spec de migração nova nesta branch; reproduzido no typecheck atual, sem especular responsabilidade pela migração |
+| marketing-touch-delivery.test.ts:35–42、393                    | a verificação de ausência de efeito colateral na conexão lê dois campos já removidos. Hoje deve-se usar providerFamilyConnectionSelections e primeiro asserir que existe uma seleção inicial válida                                     | leitura de plain JSON contorna a checagem de TS; fato de código, não se pode afirmar que a asserção foi de fato alcançada nesta rodada e passou |
 
-本轮不对这些问题实施修复；它们需要在补测试时处理，而不是作为无关错误放行。
+Nenhuma correção desses problemas é implementada nesta rodada; eles precisam ser tratados ao complementar os testes, e não liberados como erros não relacionados.
 
-### 实际 E2E
+### E2E real
 
-所有运行均为隔离 fixture，不领取线上套餐、不执行支付。第一次构建设置 `ZCODE_E2E_COVERAGE=1`，后续复用同一覆盖率构建。
+Todas as execuções usaram fixture isolado, sem retirar planos reais e sem executar pagamento. A primeira construção usou `ZCODE_E2E_COVERAGE=1` e as execuções seguintes reutilizaram a mesma construção de cobertura.
 
-| Run ID（`packages/desktop/.e2e-artifacts/` 下） | 范围                                         | 结果            | 解释                                                                                                        |
-| ----------------------------------------------- | -------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `desktop-e2e-20260911-170338-218`               | delivery + entitlement 完整 17 个用例        | 9 通过 / 8 失败 | MTA-05 首次失败；后 6 个 delivery 被旧弹窗污染；entitlement 报“模型供应商设置没有 BigModel 导航项: missing” |
-| `desktop-e2e-20260911-171040-787`               | 保留必要前置，跳过模型定位，9 个用例         | 4 通过 / 5 失败 | MTA-06 单独通过，证明首轮此失败是污染；MTA-07 本轮仍等待事件数超时（35s），后面 4 个又受残留遮挡            |
-| `desktop-e2e-20260911-171255-869`               | 保留必要前置，跳过模型定位与升级页，7 个用例 | 7/7 通过        | ZIP Banner、失败 Dialog、Markdown/HTML、MP4 Banner 可以通过；不是整套通过                                   |
+| Run ID (em `packages/desktop/.e2e-artifacts/`) | Escopo                                          | Resultado        | Interpretação                                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `desktop-e2e-20260911-170338-218`                | delivery + entitlement completos, 17 casos     | 9 passaram / 8 falharam | MTA-05 falhou primeiro; os 6 delivery seguintes foram contaminados por popup antigo; entitlement reportou “模型供应商设置没有 BigModel 导航项: missing” |
+| `desktop-e2e-20260911-171040-787`                | com pré-requisitos necessários, pulando a localização de modelo, 9 casos | 4 passaram / 5 falharam | MTA-06 passou isolado, o que prova que a falha da primeira rodada era contaminação; MTA-07 ainda aguardou timeout do contador de eventos (35s) e os 4 seguintes sofreram obstrução residual |
+| `desktop-e2e-20260911-171255-869`                | com pré-requisitos, pulando localização de modelo e página de upgrade, 7 casos | 7/7 passaram     | ZIP Banner, Dialog de falha, Markdown/HTML e Banner MP4 podem passar; não é aprovação do conjunto todo                |
 
-三轮去重后：17 个既有测试中 14 个至少通过一次，3 个仍未通过（模型定位、升级确认、权益连接）。**14/17 是用例执行结果，不是代码覆盖率。** 不把隔离通过替代全套稳定性验收，三轮没有改测试或产品代码。第三轮日志为 `/tmp/zcode-marketing-e2e-audit-assets.log`。
+Após a deduplicação das três rodadas: dos 17 testes existentes, 14 passaram pelo menos uma vez e 3 continuam sem passar (localização de modelo, confirmação de upgrade, conexão de entitlement). **14/17 é resultado de execução de casos, não cobertura de código.** Não se substitui a aprovação de estabilidade do conjunto pela passagem isolada, e as três rodadas não alteraram testes nem código de produto. O log da terceira rodada é `/tmp/zcode-marketing-e2e-audit-assets.log`.
 
-升级页用例失败的精确范围：容器显示断言已经通过，但没有在 35s 内满足预期 action 事件数。尚未证明是 webview ready、fixture 时序还是产品确认逻辑根因；不能直接归为支付/网络服务端问题。应为 ready/失败/超时分别建可控 fixture 并保留请求关联日志。
+Escopo exato da falha do caso da página de upgrade: a asserção de exibição do container já passou, mas o número esperado de eventos de action não foi atingido em 35s. Ainda não se provou que a causa raiz seja webview ready, timing do fixture ou a lógica de confirmação do produto; não pode ser atribuída diretamente a problema de pagamento/rede do servidor. Deve-se construir fixture controlável para ready/falha/timeout e manter logs correlacionados de request.
 
-原始证据为各 run 的 `summary.md`、`test-results.ndjson`、`coverage/` 和 runtime logs。CLI 文本日志在 `/tmp/zcode-marketing-e2e-audit.log`、`/tmp/zcode-marketing-e2e-audit-isolated.log`；类型、Lint、架构日志分别为 `/tmp/zcode-marketing-audit-{typecheck,e2e-types,lint,architecture}.log`。这些本地产物没有加入 Git，不包含在报告公开数据中。
+A evidência bruta é o `summary.md`, o `test-results.ndjson`, o `coverage/` e os runtime logs de cada run. Os logs de texto do CLI estão em `/tmp/zcode-marketing-e2e-audit.log` e `/tmp/zcode-marketing-e2e-audit-isolated.log`; os logs de tipo, lint e arquitetura estão em `/tmp/zcode-marketing-audit-{typecheck,e2e-types,lint,architecture}.log`. Esses artefatos locais não foram adicionados ao Git e não estão incluídos nos dados públicos do relatório.
 
-复跑命令：
+Comando de reexecução:
 
 ```sh
 ZCODE_E2E_COVERAGE=1 ZCODE_E2E_MANUAL_REVIEW=1 \
@@ -208,65 +208,65 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
   --spec './test/e2e/ui-shell/manual-review/pending/marketing-touch-entitlement.test.ts'
 ```
 
-### 覆盖率完整性
+### Integridade da cobertura
 
-首轮 Renderer report complete；Main/Host/CLI 报告均 complete、missing process=0。但这只证明收集到了预期进程，不等于所有源码映射都足够精确。
+Na primeira rodada o report do Renderer está completo; os reports de Main/Host/CLI estão completos, com missing process=0. Isso só prova que os processos esperados foram coletados, não que todo o mapeamento de código-fonte é suficientemente preciso.
 
-| 首轮差异范围    | 行                 | 函数             | 分支             | 使用限制                                                     |
-| --------------- | ------------------ | ---------------- | ---------------- | ------------------------------------------------------------ |
-| 已映射 Renderer | 583/896 = 65.07%   | 148/223 = 66.37% | 479/883 = 54.25% | 包括失败用例经过的代码；不等于这些行为验收通过               |
-| Host 原始映射   | 969/1068 = 90.73%  | 37/39 = 94.87%   | 94/175 = 53.71%  | V8 按行映射包括空白/类型等，不能直接当统一可执行行分母       |
-| Main 原始映射   | 1041/1068 = 97.47% | 0/0              | 0/0              | 部分服务文件整段有 hit 却无函数/分支，禁止用于补足 Host 缺口 |
+| Escopo do diff na 1ª rodada | Linhas             | Funções             | Ramos             | Limitação de uso                                                              |
+| --------------------------- | ------------------ | ------------------- | ----------------- | ----------------------------------------------------------------------------- |
+| Renderer já mapeado         | 583/896 = 65.07%   | 148/223 = 66.37%    | 479/883 = 54.25%  | inclui código atravessado por casos que falharam; não equivale a esses comportamentos aprovados |
+| Mapeamento bruto do Host    | 969/1068 = 90.73%  | 37/39 = 94.87%      | 94/175 = 53.71%   | o mapeamento V8 por linha inclui linhas em branco/tipos, e não serve como denominador uniforme de linhas executáveis |
+| Mapeamento bruto do Main    | 1041/1068 = 97.47% | 0/0                 | 0/0               | alguns arquivos de serviço têm hit em blocos inteiros sem função/ramo; proibido usar para completar lacuna do Host |
 
-例如 contentBundleCache.ts 在 Main 报告中 318 个源代码行均有 hit，但函数、分支记录均为 0；Host 才有 16 个函数和 79 个分支记录。简单对不同域按行 OR，会得到虚高的全链路百分比，本报告不采用该合并结果。需要先校验源映射与运行域所有权，再统一可执行行基线。
+Por exemplo, contentBundleCache.ts tem hit em todas as 318 linhas de código-fonte no report do Main, mas registra 0 funções e 0 ramos; só o Host tem 16 registros de função e 79 de ramo. Um OR simples por linha entre domínios diferentes produziria um percentual de cadeia completo inflado, que este relatório não adota. É preciso validar primeiro o mapeamento de origem e a posse do domínio de execução e depois unificar a baseline de linhas executáveis.
 
-另外，新增 manualClaimFailureMessage.ts 已无生产调用方，也没有进入 Renderer 插桩产物；单独使用相同 TypeScript/JSX Istanbul parser 得到 16 个可执行行、1 函数、16 分支，均没有 E2E 执行证据。不能因为文件未打包就静默移出分母。accessor.ts、services/index.ts、cloudContentDialogTypes.ts 的缺映射已用 parser 核实为 0 可执行 statement（类型/转导出），不与该遗留业务函数混为一谈。
+Além disso, o novo manualClaimFailureMessage.ts já não tem chamador em produção e também não entrou no artefato de instrumentação do Renderer; usando o mesmo parser TypeScript/JSX Istanbul se obtêm 16 linhas executáveis, 1 função e 16 ramos, todos sem evidência de execução E2E. Não se pode remover em silêncio do denominador só porque o arquivo não foi empacotado. A falta de mapeamento em accessor.ts, services/index.ts e cloudContentDialogTypes.ts foi verificada com parser como 0 statement executável (tipos/re-exports), e não deve ser confundida com essa função de negócio legada.
 
-Lottie runtime 36 个已映射行首轮 0 hit，Marketing 协议没有 Lottie 投放入口；应先决定公共组件回归入口或确认退休范围，不通过测试直接调用内部函数凑数。CSS 与 ZIP 中 HTML/JS 不在当前 TS/JS 插桩指标里，由渲染与独立资源验收另列。
+Os 36 linhas já mapeados do runtime Lottie tiveram 0 hit na primeira rodada e o protocolo de Marketing não tem entrada deentrega de Lottie; deve-se primeiro decidir a entrada de regressão do componente compartilhado ou confirmar o escopo de aposentadoria, sem chamar função interna diretamente pelo teste para completar número. CSS e o HTML/JS dentro do ZIP não estão na métrica atual de instrumentação TS/JS e ficam por conta da renderização e da aceitação de recursos independentes.
 
-当前不能给出可信的“全分支 E2E ≥95%”结论。达标前置不仅是增加测试，还包括修复测试隔离、旧 API、不可达遗留代码范围以及跨域覆盖率口径。
+No momento não é possível dar uma conclusão confiável de “E2E de todos os ramos ≥95%”. Além de adicionar testes, os pré-requisitos para atingir a meta incluem corrigir o isolamento dos testes, a API antiga, o escopo de código legado inalcançável e a métrica de cobertura entre domínios.
 
-### 三轮同构建 Renderer 合并结果
+### Resultado combinado do Renderer nas três rodadas com a mesma construção
 
-后两轮设置 `ZCODE_E2E_SKIP_BUILD=1 ZCODE_E2E_SKIP_AGENT_BUILD=1`，保持与首轮相同源码及 instrumentation。只对这三轮 Renderer 的 `coverage/coverage-final.json` 使用 Istanbul merge；不混合 Host/Main，也不合入任何单测结果。
+As duas últimas rodadas usaram `ZCODE_E2E_SKIP_BUILD=1 ZCODE_E2E_SKIP_AGENT_BUILD=1`, mantendo o mesmo código-fonte e a mesma instrumentação da primeira rodada. Só se aplicou merge Istanbul ao `coverage/coverage-final.json` do Renderer dessas três rodadas; não se misturou Host/Main nem incorporatei resultados de unitários.
 
-计算方法：`git diff --unified=0 <merge-base> d0028042fe -- <file>` 提取新侧变更行，与 `getLineCoverage()` 相交；函数按声明起始行、分支按 branchMap.line（或 loc.start.line）是否在差异中选取，并保留每个分支出口计数。因此函数/分支数字是差异节点口径，不是“所在函数任意一行变更就把整个函数算进来”。字段被删除或 JSX/导入没有单独 statement 时仍须行为回归，不能因指标 0/0 免验。
+Método de cálculo: `git diff --unified=0 <merge-base> d0028042fe -- <file>` extrai as linhas alteradas do lado novo e a interseção é feita com `getLineCoverage()`; funções são selecionadas pela linha de declaração inicial, ramos pelo branchMap.line (ou loc.start.line) estarem no diff, preservando a contagem de cada saída de ramo. Portanto os números de função/ramo são métricas de nós do diff, e não “qualquer linha alterada da função traz a função inteira”. Campos removidos ou JSX/imports sem statement próprio ainda exigem regressão de comportamento e não podem ser dispensados por métrica 0/0.
 
-| 指标     | 已执行/已映射差异分母 | 覆盖率     | 仅当前已映射分母达到 95% 至少还需命中 |
-| -------- | --------------------- | ---------- | ------------------------------------- |
-| 行       | 653/896               | **72.88%** | 199 行                                |
-| 函数     | 164/223               | **73.54%** | 48 个函数                             |
-| 分支出口 | 546/883               | **61.83%** | 293 个出口                            |
+| Métrica       | Denominador do diff já executado/mapeado | Cobertura     | Para atingir 95% só com o denominador já mapeado ainda faltam |
+| ------------- | --------------------------------------- | ------------- | ---------------------------------------------------------------- |
+| Linhas        | 653/896                                  | **72.88%**    | 199 linhas                                                       |
+| Funções       | 164/223                                  | **73.54%**    | 48 funções                                                       |
+| Saídas de ramo | 546/883                                 | **61.83%**    | 293 saídas                                                      |
 
-这些是执行覆盖上界证据，含失败流程实际经过的代码；不代表对应断言通过，也不覆盖未打包的 16 行旧失败文案函数。将该文件零命中补入分母后，行/函数/分支分别为 653/912、164/224、546/899，只会更低。表中的缺口数量也不是新增用例数量，不承诺固定数量测试即可达标。
+Essas são evidências de limite superior de cobertura de execução, incluindo código atravessado por fluxos que falharam; não significam que as asserções correspondentes passaram e não cobrem as 16 linhas da função legada de texto de falha que não foi empacotada. Incluindo esse arquivo com zero hit no denominador, linhas/funções/ramos passam a 653/912, 164/224 e 546/899, o que só piora os números. A quantidade de lacunas na tabela também não é a quantidade de casos novos e não há promessa de que um número fixo de testes basta para atingir a meta.
 
-计算脚本与详细临时数据：`/tmp/zcode-marketing-diff-coverage.cjs`、`/tmp/zcode-marketing-diff-coverage-union.json`。原始持久证据见三个 run 的 coverage JSON；脚本只读取 Git/coverage，没有调用产品函数。临时 JSON 的跨域按行合计未通过上文口径审查，**不得作为验收百分比**，本报告仅采用 `domains.renderer` 的单域结果。
+Script de cálculo e dados temporários detalhados: `/tmp/zcode-marketing-diff-coverage.cjs` e `/tmp/zcode-marketing-diff-coverage-union.json`. A evidência persistida bruta está nos JSONs de coverage dos três runs; o script apenas lê Git/coverage e não chamou função de produto. A soma por linha entre domínios do JSON temporário não passou pela revisão de métrica descrita acima e **não pode ser usada como percentual de aceitação**; este relatório usa apenas o resultado de domínio único `domains.renderer`.
 
-逐文件映射结果（路径前缀 `packages/ui/src/`；0/0 表示没有相应差异节点，不表示功能免验）：
+Resultado de mapeamento por arquivo (prefixo de caminho `packages/ui/src/`; 0/0 significa que não há o nó de diff correspondente, não que a funcionalidade esteja dispensada):
 
-| 文件                                                         | 行      | 函数  | 分支出口 |
-| ------------------------------------------------------------ | ------- | ----- | -------- |
-| `Root.tsx`                                                   | 0/0     | 0/0   | 0/0      |
-| `SettingsPage.tsx`                                           | 8/9     | 3/3   | 8/10     |
-| `WorkspaceSidebar.tsx`                                       | 1/1     | 1/1   | 0/0      |
-| `components/cloud-content-dialog/CloudContentDialog.tsx`     | 42/48   | 12/15 | 52/71    |
-| `components/cloud-content-dialog/CloudDialogDescription.tsx` | 25/39   | 6/9   | 34/58    |
-| `components/cloud-content-dialog/CloudDialogHero.tsx`        | 59/72   | 23/26 | 37/63    |
-| `components/cloud-content-dialog/CloudDialogMediaHero.tsx`   | 12/70   | 4/21  | 12/59    |
-| `components/cloud-content-dialog/cloudDescriptionStyle.ts`   | 34/38   | 4/5   | 40/62    |
-| `components/cloud-content-dialog/cloudLottieRuntime.ts`      | 0/36    | 0/3   | 0/43     |
-| `components/cloud-content-dialog/useCloudHeroEnvironment.ts` | 14/14   | 5/6   | 3/7      |
-| `components/marketing-touch/MarketingBanner.tsx`             | 6/6     | 3/3   | 20/24    |
-| `components/marketing-touch/MarketingDialogs.tsx`            | 22/25   | 8/10  | 27/28    |
-| `components/marketing-touch/MarketingFailureDialog.tsx`      | 1/2     | 1/2   | 0/2      |
-| `components/marketing-touch/MarketingTouchProvider.tsx`      | 136/158 | 33/38 | 92/122   |
-| `components/marketing-touch/marketingPopupAdapter.ts`        | 12/13   | 3/4   | 21/24    |
-| `components/marketing-touch/marketingResources.ts`           | 52/78   | 13/19 | 22/59    |
-| `components/marketing-touch/marketingTouchController.ts`     | 125/158 | 19/22 | 108/150  |
-| `components/marketing-touch/marketingTouchPoller.ts`         | 21/32   | 6/9   | 11/20    |
-| `lib/marketingNavigation.ts`                                 | 30/31   | 7/10  | 8/12     |
-| `settings/CodingPlanEmbeddedWebviewDialog.tsx`               | 3/5     | 0/0   | 0/0      |
-| `settings/CodingPlanUpgradeDialog.tsx`                       | 0/0     | 1/1   | 0/0      |
-| `settings/CodingPlanUpgradeDialogProvider.tsx`               | 19/23   | 4/8   | 7/16     |
-| `settings/ModelProviderSection.tsx`                          | 13/18   | 4/4   | 15/20    |
-| `settings/PluginStorePage.tsx`                               | 18/20   | 4/4   | 29/33    |
+| Arquivo                                                      | Linhas   | Funções | Saídas de ramo |
+| ------------------------------------------------------------- | -------- | ------- | -------------- |
+| `Root.tsx`                                                   | 0/0      | 0/0    | 0/0           |
+| `SettingsPage.tsx`                                           | 8/9      | 3/3    | 8/10          |
+| `WorkspaceSidebar.tsx`                                       | 1/1      | 1/1    | 0/0           |
+| `components/cloud-content-dialog/CloudContentDialog.tsx`     | 42/48    | 12/15  | 52/71         |
+| `components/cloud-content-dialog/CloudDialogDescription.tsx` | 25/39    | 6/9    | 34/58         |
+| `components/cloud-content-dialog/CloudDialogHero.tsx`        | 59/72    | 23/26  | 37/63         |
+| `components/cloud-content-dialog/CloudDialogMediaHero.tsx`   | 12/70    | 4/21   | 12/59         |
+| `components/cloud-content-dialog/cloudDescriptionStyle.ts`   | 34/38    | 4/5    | 40/62         |
+| `components/cloud-content-dialog/cloudLottieRuntime.ts`      | 0/36     | 0/3    | 0/43          |
+| `components/cloud-content-dialog/useCloudHeroEnvironment.ts` | 14/14    | 5/6    | 3/7           |
+| `components/marketing-touch/MarketingBanner.tsx`             | 6/6      | 3/3    | 20/24         |
+| `components/marketing-touch/MarketingDialogs.tsx`            | 22/25    | 8/10   | 27/28         |
+| `components/marketing-touch/MarketingFailureDialog.tsx`      | 1/2      | 1/2    | 0/2           |
+| `components/marketing-touch/MarketingTouchProvider.tsx`      | 136/158  | 33/38  | 92/122        |
+| `components/marketing-touch/marketingPopupAdapter.ts`        | 12/13    | 3/4    | 21/24         |
+| `components/marketing-touch/marketingResources.ts`           | 52/78    | 13/19  | 22/59         |
+| `components/marketing-touch/marketingTouchController.ts`     | 125/158  | 19/22  | 108/150       |
+| `components/marketing-touch/marketingTouchPoller.ts`         | 21/32    | 6/9    | 11/20         |
+| `lib/marketingNavigation.ts`                                 | 30/31    | 7/10   | 8/12          |
+| `settings/CodingPlanEmbeddedWebviewDialog.tsx`               | 3/5      | 0/0    | 0/0           |
+| `settings/CodingPlanUpgradeDialog.tsx`                       | 0/0      | 1/1    | 0/0           |
+| `settings/CodingPlanUpgradeDialogProvider.tsx`               | 19/23    | 4/8    | 7/16          |
+| `settings/ModelProviderSection.tsx`                          | 13/18    | 4/4    | 15/20         |
+| `settings/PluginStorePage.tsx`                               | 18/20    | 4/4    | 29/33         |

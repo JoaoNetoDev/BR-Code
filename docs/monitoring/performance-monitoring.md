@@ -1,314 +1,378 @@
-# 性能监控
+# Monitoramento de Performance
 
-> 本文维护稳定性、网络与 UI 性能；进程资源契约见 [全进程 CPU / 内存监控埋点](./process-resource-telemetry.md)。业务质量见 [business-monitoring.md](./business-monitoring.md)。
+> Este documento cobre estabilidade, rede e performance de UI; o contrato de recursos de processo está em
+> [Monitoramento de CPU / memória de processo completo](./process-resource-telemetry.md). A qualidade de negócio está
+> em [business-monitoring.md](./business-monitoring.md).
 >
-> 全部性能埋点（含消息链路 `/report` agent_trace）的事件名 / value / 字段速查见 [performance-telemetry-catalog.md](./performance-telemetry-catalog.md)。
+> A referência rápida de nomes de evento / value / campos de todos os pontos de medição de performance (incluindo
+> `agent_trace` de `/report` no encadeamento de mensagens) está em
+> [performance-telemetry-catalog.md](./performance-telemetry-catalog.md).
 >
-> **V4 接线提示**：main/renderer 的 ARMS 稳定性、资源和网络指标保持不变；conversation
-> 指标通过 [conversation-telemetry-v4.md](./conversation-telemetry-v4.md) 定义的 live-only
-> workspace supervisor 接线，不进入 snapshot/recovery。
+> **Dica de integração da V4**: as métricas de estabilidade, recursos e rede do ARMS em main/renderer permanecem
+> inalteradas; as métricas de conversation são ligadas pelo supervisor de workspace live-only definido em
+> [conversation-telemetry-v4.md](./conversation-telemetry-v4.md) e não entram em snapshot/recovery.
 
-## 范围
+## Escopo
 
-- **P0（当前）**：Electron 桌面端**稳定性**、**资源占用**与**网络与通信**指标，数据进入 **ARMS `@arms/rum-electron`**（`sendCustom`，`group` 为 `stability` / `resource` / `network`）。
-- **不做**：Web/手机远控 RUM、Host/Agent 进程 ANR、`/report` 业务埋点（`app_launch` 不作崩溃率分母）。Agent 非预期退出由 desktop main 主动补 `perf_agent_crash`，手机远控复用 shared host，不重复上报。
+- **P0 (atual)**: métricas de **estabilidade**, **consumo de recursos** e **rede e comunicação** do cliente
+  desktop Electron, com dados indo para **ARMS `@arms/rum-electron`** (`sendCustom`, `group` =
+  `stability` / `resource` / `network`).
+- **Não feito**: RUM de Web/mobile com controle remoto, ANR de processos Host/Agent, pontos de negócio de
+  `/report` (`app_launch` não serve de denominador para a taxa de crash). Saída inesperada do Agent é complementada
+  ativamente pelo desktop main com `perf_agent_crash`; o controle remoto mobile reusa o host compartilhado e não
+  reporta de novo.
 
-## 与业务监控的边界
+## Fronteira com o monitoramento de negócio
 
-| 归属本文件                            | 归属 [business-monitoring.md](./business-monitoring.md) |
-| ------------------------------------- | ------------------------------------------------------- |
-| 崩溃率、ANR、Crash-Free、挂死、退出码 | 产品埋点、Agent 可观测库、App Usage 可靠性面板          |
+| Pertence a este documento                                   | Pertence a [business-monitoring.md](./business-monitoring.md) |
+| ----------------------------------------------------------- | ----------------------------------------------------------------- |
+| Taxa de crash, ANR, Crash-Free, travamento, códigos de saída | Pontos de produto, biblioteca de observabilidade do Agent, painel de confiabilidade de App Usage |
 
-## P0 稳定性指标
+## Métricas de estabilidade P0
 
-### 公共维度
+### Dimensões comuns
 
-所有 P0 自定义事件（`sendCustom`）携带：
+Todos os eventos custom P0 (`sendCustom`) carregam:
 
-| 字段                       | 说明                                                                                |
-| -------------------------- | ----------------------------------------------------------------------------------- |
-| `platform`                 | `macos` / `windows` / `linux`                                                       |
-| `app_version`              | `ZCODE_VERSION`                                                                     |
-| `arms_env`                 | `prod` / `local`（`mapZCodeEnvToArmsRumEnv(runtimeEnv)`；本地开发态固定为 `local`） |
-| `device_mid`               | 桌面端设备标识（`userData` 路径哈希）                                               |
-| `telemetry_schema_version` | 稳定性事件口径版本；本次修复后的事件固定为 `2`                                      |
-| `scene_lifecycle`          | 见下表                                                                              |
-| `scene_window`             | 见下表                                                                              |
+| Campo                    | Descrição                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `platform`               | `macos` / `windows` / `linux`                                                            |
+| `app_version`            | `ZCODE_VERSION`                                                                           |
+| `arms_env`               | `prod` / `local` (`mapZCodeEnvToArmsRumEnv(runtimeEnv)`; em desenvolvimento local é fixo `local`) |
+| `device_mid`             | Identificador de dispositivo desktop (hash do caminho `userData`)                         |
+| `telemetry_schema_version` | Versão do critério de medição dos eventos de estabilidade; após esta correção, o evento é fixo em `2` |
+| `scene_lifecycle`        | Ver tabela abaixo                                                                        |
+| `scene_window`           | Ver tabela abaixo                                                                        |
 
-**场景 — lifecycle**
+**Cena — lifecycle**
 
-| 值               | 含义                          |
-| ---------------- | ----------------------------- |
-| `cold_start`     | 进程冷启动，`perf_app_start`  |
-| `runtime`        | 常规运行（默认）              |
-| `app_quit`       | 用户/系统退出                 |
-| `update_install` | `quitAndInstall` 更新安装退出 |
+| Valor            | Significado                          |
+| ---------------- | ------------------------------------ |
+| `cold_start`     | Cold start do processo, `perf_app_start` |
+| `runtime`        | Execução normal (padrão)             |
+| `app_quit`       | Saída por usuário/sistema            |
+| `update_install` | Saída por instalação de update via `quitAndInstall` |
 
-**场景 — window（首版）**
+**Cena — window (primeira versão)**
 
-| 值                | 含义                                 |
-| ----------------- | ------------------------------------ |
-| `main`            | 主业务窗口                           |
-| `process_monitor` | Resource Manager（资源管理器）单例窗 |
-| `other`           | 其它 `BrowserWindow`                 |
+| Valor             | Significado                             |
+| ----------------- | --------------------------------------- |
+| `main`            | Janela principal de negócio             |
+| `process_monitor` | Janela singlet do Resource Manager (gerenciador de recursos) |
+| `other`           | Outras `BrowserWindow`                  |
 
-### 1. Crash 率
+### 1. Taxa de Crash
 
-- **Renderer Crash 率**：
-  `count(perf_crash where crash_scope=main_window_renderer) / app_start_count`。
-- **Native Crash 率**：
+- **Taxa de Renderer Crash**:
+  `count(perf_crash where crash_scope=main_window_renderer) / app_start_count`.
+- **Taxa de Native Crash**:
   `count(crashReporter where crash_scope=app_native_process and native_dump_process_role=main) /
-app_start_count`。
-- **分母**：`perf_app_start`，每进程 1 次（`await armsInitPromise` 之后、主窗口首屏 `did-finish-load` 再延迟约 3.2s）。
-- **禁止相加**：Renderer Crash 与 Native Crash 必须分源统计。Windows renderer dump
-  也可能包含产品 exe，同一次事故会同时产生 Electron callback 与 crashReporter dump；
-  两者没有共享的稳定事故 ID，直接相加会重复计数。
-- **不纳入 Renderer Crash**：`auxiliary_window_renderer`、`embedded_webview`
-  （Page Crash）、`host`、Agent Crash、GPU/Utility 可恢复退出。
-- **计数**：每个 Electron `render-process-gone` / `child-process-gone` 回调上报一次，
-  不再按 `crash_kind` 做五分钟客户端去重。ARMS 网络重试由服务端事件标识处理，不能用
-  进程内粗粒度时间窗吞掉另一个真实 crash。
+app_start_count`.
+- **Denominador**: `perf_app_start`, uma vez por processo (depois de `await armsInitPromise`, com atraso de cerca
+  de 3,2s após o `did-finish-load` da primeira tela da janela principal).
+- **Proibido somar**: Renderer Crash e Native Crash devem ser contabilizados por origem. Um dump de renderer no
+  Windows também pode conter o exe do produto; o mesmo incidente gera ao mesmo tempo um callback do Electron e um
+  dump do crashReporter; os dois não têm um ID de incidente estável compartilhado, e somá-los diretamente contaria
+  em duplicidade.
+- **Não entra em Renderer Crash**: `auxiliary_window_renderer`, `embedded_webview` (Page Crash), `host`, Agent
+  Crash, saídas recuperáveis de GPU/Utility.
+- **Contagem**: um reporte por callback `render-process-gone` / `child-process-gone` do Electron, sem a
+  deduplicação de cinco minutos no cliente por `crash_kind`. O retry de rede do ARMS é tratado pela identificação
+  de evento do servidor; não se pode engolir um crash real com uma janela de tempo grosseira dentro do processo.
 
 ```text
-同一次 Windows renderer crash
+Mesmo renderer crash do Windows
         │
         ├─ render-process-gone ── perf_crash / electron_callback
-        │                              └─ Renderer Crash 率
+        │                              └─ Taxa de Renderer Crash
         │
         └─ Crashpad dump ─────── crashReporter / crash_reporter_dump
                                    │
-                                   ├─ role=main ── app_native_process ── Native Crash 率
+                                   ├─ role=main ── app_native_process ── Taxa de Native Crash
                                    └─ unknown/helper ── native_dump_unattributed
-                                                        └─ 仅诊断，不进入 Crash-Free
+                                                        └─ apenas diagnóstico, não entra no Crash-Free
 
-两个分源事件 ── 按 device_mid 取并集 ── Crash-Free
-             └─ 禁止按事件数直接相加
+Dois eventos de origem distinta ── união por device_mid ── Crash-Free
+             └─ proibido somar direto pelo número de eventos
 ```
 
-**Crash 分类**
+**Classificação de crash**
 
-`crash_scope` 表示“哪个产品进程/页面崩溃”，`crash_cause` 表示“为什么崩溃”。
-两者禁止再用 `js` / `native` 混合表达。
+`crash_scope` indica "qual processo/página do produto caiu", `crash_cause` indica "por que caiu". Os dois não podem
+mais misturar `js` / `native`.
 
-| 来源                                         | `crash_scope`               | `crash_cause`                                   | `crash_source`        |
-| -------------------------------------------- | --------------------------- | ----------------------------------------------- | --------------------- |
-| 主业务窗口 `render-process-gone`             | `main_window_renderer`      | `oom` / `process_crashed` / `abnormal_exit` / … | `electron_callback`   |
-| Resource Manager / 更新 / About 等辅助窗口   | `auxiliary_window_renderer` | 同上                                            | `electron_callback`   |
-| 内置浏览器 `<webview>` `render-process-gone` | `embedded_webview`          | 同上                                            | `electron_callback`   |
-| ZCode Host `child-process-gone`              | `host`                      | `process_crashed` / `abnormal_exit` / …         | `electron_callback`   |
-| ARMS crash dump，且明确标记为主进程          | `app_native_process`        | `native_crash`                                  | `crash_reporter_dump` |
-| ARMS crash dump，仅能确认来自产品二进制      | `native_dump_unattributed`  | `native_crash`                                  | `crash_reporter_dump` |
-| `reason=killed` / `clean-exit`               | —                           | 不计 crash，走 `perf_process_exit`              | —                     |
+| Origem                                        | `crash_scope`               | `crash_cause`                                   | `crash_source`        |
+| --------------------------------------------- | --------------------------- | ----------------------------------------------- | --------------------- |
+| `render-process-gone` da janela principal de negócio | `main_window_renderer`      | `oom` / `process_crashed` / `abnormal_exit` / … | `electron_callback`   |
+| Janelas auxiliares (Resource Manager / update / About etc.) | `auxiliary_window_renderer` | idem                                             | `electron_callback`   |
+| `render-process-gone` do `<webview>` do navegador embutido | `embedded_webview`          | idem                                             | `electron_callback`   |
+| `child-process-gone` do ZCode Host           | `host`                      | `process_crashed` / `abnormal_exit` / …         | `electron_callback`   |
+| crash dump do ARMS, explicitamente marcado como processo principal | `app_native_process`        | `native_crash`                                  | `crash_reporter_dump` |
+| crash dump do ARMS, apenas confirmado como vindo do binário do produto | `native_dump_unattributed`  | `native_crash`                                  | `crash_reporter_dump` |
+| `reason=killed` / `clean-exit`                | —                           | não conta como crash, segue `perf_process_exit` | —                     |
 
-Electron 的 `reason=memory-eviction` 与 `reason=oom` 统一归类为
-`crash_kind=oom`、`crash_cause=oom`；前者表示 Chromium 在内存压力下驱逐进程。
+`reason=memory-eviction` e `reason=oom` do Electron são classificados uniformemente como `crash_kind=oom`,
+`crash_cause=oom`; o primeiro indica que o Chromium despejou o processo sob pressão de memória.
 
-`crash_kind` 仅为兼容历史查询保留：schema v2 中 `oom` 仍为 `oom`，其余进程崩溃统一为
-`native`；历史值 `js` 不再新增。Page Crash 直接查询
-`perf_crash AND crash_scope=embedded_webview`，不新增第二条 `perf_page_crash`，避免同一
-事故重复上报。
+`crash_kind` é mantido apenas por compatibilidade com consultas históricas: no schema v2, `oom` continua sendo
+`oom` e os demais crashes de processo são unificados como `native`; o valor histórico `js` não recebe novos casos.
+Page Crash é consultado diretamente como `perf_crash AND crash_scope=embedded_webview`, sem criar um segundo
+`perf_page_crash`, evitando reportar o mesmo incidente duas vezes.
 
-ARMS `crashReporter` 会扫描共享 crash dump 目录。上报前先校验
-`binary_images` 中存在当前 ZCode 产品可执行文件；`hdc`、`plugin-container`、
-`chrome-headless-shell` 等外部程序 dump 直接丢弃。该过滤只遍历 crash 批次的已有
-元数据，不增加采样、文件或子进程开销。可信名称集合必须包含产品应用名和
-`basename(process.execPath)`，覆盖开发态 `Electron` 与 Linux Preview
-`zcode-preview`。
+O `crashReporter` do ARMS varre o diretório compartilhado de crash dumps. Antes de reportar, valida-se primeiro que
+`binary_images` contém o executável do produto ZCode atual; dumps de programas externos como `hdc`,
+`plugin-container`, `chrome-headless-shell` são descartados diretamente. Esse filtro apenas percorre os metadados
+já existentes do lote de crash, sem adicionar amostragem, arquivos ou subprocessos. O conjunto de nomes confiáveis
+deve conter o nome do aplicativo do produto e `basename(process.execPath)` cobrindo o `Electron` do modo de
+desenvolvimento e o `zcode-preview` do Linux Preview.
 
-仅命中产品二进制不能证明 dump 来自主进程：Linux/Windows 的 Electron 子进程可能共用
-同一 executable。事件必须通过 `native_dump_process_role`（或兼容的 process-role 元数据）
-明确标记为 `main`，才使用 `crash_scope=app_native_process`；角色未知或属于子进程时保留
-原始事件，但使用 `crash_scope=native_dump_unattributed`，不进入 App Crash / Crash-Free。
+Acertar apenas o binário do produto não prova que o dump veio do processo principal: sub-processos do Electron no
+Linux/Windows podem compartilhar o mesmo executable. O evento só deve usar `crash_scope=app_native_process` quando
+for explicitamente marcado como `main` por `native_dump_process_role` (ou pelos metadados de process-role
+compatíveis); com papel desconhecido ou pertencente a sub-processo, o evento original é preservado, mas com
+`crash_scope=native_dump_unattributed`, fora do App Crash / Crash-Free.
 
-角色元数据链路固定为 Crashpad 结构化 `process_type` / `ptype` → `@arms/rum-electron`
-crash collector 从 minidump Crashpad info 及 annotation RVA 提取到 `meta.process_type` →
-`readNativeDumpProcessRole()`；其中 `browser` 归一化为 `main`。collector 不得扫描整个 dump
-匹配相邻 key/value 字节，未被 annotation 结构引用的同名字节不能参与角色判定。
-不得使用 `meta.process`（该字段是应用名）猜测角色。依赖升级或 SDK patch 必须保持这条
-透传契约，否则所有未带角色的 dump 只能继续归入 `native_dump_unattributed`。
+A cadeia de metadados de papel é fixa: `process_type` / `ptype` estruturado do Crashpad →
+`meta.process_type` extraído pelo crash collector do `@arms/rum-electron` a partir do info do minidump do Crashpad
+e do RVA de annotation → `readNativeDumpProcessRole()`; nele, `browser` é normalizado para `main`. O collector não
+deve varrer o dump inteiro procurando bytes de key/value adjacentes; bytes homônimos não referenciados pela estrutura
+de annotation não podem participar da determinação de papel. É proibido usar `meta.process` (esse campo é o nome
+do aplicativo) para adivinhar o papel. Atualizações de dependência ou patch do SDK devem preservar esse contrato de
+transparência, caso contrário todos os dumps sem papel continuam caindo em `native_dump_unattributed`.
 
-Windows 和 Linux 下 Electron 主进程和部分子进程可能共用同一个产品可执行文件名，
-仅凭 `binary_images` 不能可靠细分进程角色。未经主进程标记的 dump 不得直接用于
-Crash-Free；Native Crash 与 Renderer Crash 必须使用各自的分源比率，不能合成
-`app_crash_count`。
+No Windows e no Linux, o processo principal do Electron e alguns sub-processos podem compartilhar o mesmo nome de
+executável do produto, e apenas `binary_images` não subdivide os papéis de processo de forma confiável. Dumps sem
+marcação do processo principal não podem ser usados diretamente no Crash-Free; Native Crash e Renderer Crash devem
+usar suas respectivas taxas por origem, sem compor um `app_crash_count`.
 
-### 1.1 Agent 进程崩溃
+### 1.1 Crash do processo Agent
 
-- **启动事件**：成功收到 Node `spawn` 后上报 `perf_agent_start(value=1)`，每个 runtime
-  一次；spawn 失败不产生启动事件。
-- **就绪事件**：同一 runtime 首次通过 provider/model 门禁后上报
-  `perf_agent_ready(value=1)`，并携带 `startup_duration_ms`；只读 runtime 不提前计 ready。
-- **事件**：`perf_agent_crash`，`value=1`，按事件数或 `sum(value)` 统计。
-- **判定**：Agent 是长期运行进程；没有 Host 主动退出意图却发生 exit 时，即使
-  `exit_code=0` 也属于非预期退出。
-- **排除**：workspace/app 主动回收不报；request timeout 回收记为
-  `watchdog_recycle`，不混入 crash；`protocol-close` 是崩溃结果，不能作为排除条件。
-- **应用退出保护**：desktop main 发出 `perf_app_exit` 后持续保持
-  `app_quit` / `update_install`；随后异步到达的 Agent exit 不进入 crash。
-- **受控终止兼容分类**：本地 desktop RUM 仅在缺少结构化退出根因时排除 Windows
-  `exit_code=0x40010004` 和 POSIX `signal=SIGTERM`。`protocol-close` 不建立主动退出
-  意图，但 Host 会把首次 cleanup 原因作为 `termination_reason` 传递；即使后续进程树
-  回收产生受控系统退出特征，也仍按协议故障上报 crash。
-- **诊断**：上报脱敏、最多 4000 字符的 stderr 尾部，并附
-  `error_name/error_code/error_fingerprint`、`crash_phase`、`termination_class`、
-  `termination_reason`、
-  `diagnostic_class`。摘要优先识别 OOM、SQLite、errno，并排除 `[Object]`、GC 标题、
-  native stack 地址等结构噪音。禁止上传 workspace 路径、命令参数、
-  credential 和 session 内容；裸 `sk-...` API key 必须在 services 和 desktop main
-  两层脱敏。
-- **实例关联**：`perf_agent_start` / `perf_agent_ready` / `perf_agent_crash` /
+- **Evento de inicialização**: após receber com sucesso o Node `spawn`, reporta `perf_agent_start(value=1)`, uma
+  vez por runtime; uma falha no spawn não gera evento de inicialização.
+- **Evento de prontidão**: na primeira vez em que o mesmo runtime passa pelo gate de provider/model, reporta
+  `perf_agent_ready(value=1)` carregando `startup_duration_ms`; um runtime somente leitura não conta como ready
+  antecipadamente.
+- **Evento**: `perf_agent_crash`, `value=1`, contabilizado por número de eventos ou `sum(value)`.
+- **Critério**: o Agent é um processo de longa duração; um exit que ocorre sem intenção de saída ativa do Host é,
+  mesmo com `exit_code=0`, uma saída inesperada.
+- **Exclusões**: a reciclagem ativa por workspace/app não reporta; a reciclagem por request timeout é registrada
+  como `watchdog_recycle` e não entra como crash; `protocol-close` é um resultado de crash e não pode servir como
+  condição de exclusão.
+- **Proteção contra saída do app**: depois que o desktop main emite `perf_app_exit`, ele mantém continuamente
+  `app_quit` / `update_install`; um exit de Agent que chega depois de forma assíncrona não entra como crash.
+- **Classificação compatível de término controlado**: o RUM do desktop local exclui `exit_code=0x40010004` do
+  Windows e `signal=SIGTERM` no POSIX somente quando falta uma causa estruturada de saída. `protocol-close` não
+  estabelece intenção de saída ativa, mas o Host passa a primeira causa de cleanup como `termination_reason`; mesmo
+  que a reciclagem posterior da árvore de processos produza características de saída de sistema controlada, o crash
+  continua reportado como falha de protocolo.
+- **Diagnóstico**: reporta o tail de stderr desidentificado, com no máximo 4000 caracteres, junto de
+  `error_name/error_code/error_fingerprint`, `crash_phase`, `termination_class`,
+  `termination_reason`,
+  `diagnostic_class`. O resumo prioriza a identificação de OOM, SQLite, errno e exclui ruído estrutural como
+  `[Object]`, títulos de GC e endereços de native stack. É proibido subir caminhos de workspace, argumentos de
+  comando, credentials e conteúdo de sessão; API keys `sk-...` em claro precisam ser desidentificadas tanto em
+  services quanto no desktop main.
+- **Correlação de instância**: `perf_agent_start` / `perf_agent_ready` / `perf_agent_crash` /
   `perf_agent_spawn_error`
-  使用同一个随机 `runtime_instance_id`；该 ID 不包含 workspace、PID 或设备信息。
-- **启动失败**：单独走 `perf_agent_spawn_error(value=1)`。
-- **详细契约**：[Agent 进程崩溃 ARMS 上报](./agent-process-crash-arms.md)。
+  usam o mesmo `runtime_instance_id` aleatório; esse ID não contém workspace, PID nem informação de
+  dispositivo.
+- **Falha de inicialização**: segue um caminho separado via `perf_agent_spawn_error(value=1)`.
+- **Contrato detalhado**: [ARMS de crash do processo Agent](./agent-process-crash-arms.md).
 
-### 2. ANR / 无响应率
+### 2. ANR / taxa de não resposta
 
-- **公式**：`anr_count / app_start_count`（平台 × 版本）。
-- **判定**：`webContents` `unresponsive` 起计时，`responsive` 或销毁结束；持续 ≥ **`STABILITY_ANR_THRESHOLD_MS`（5000）** 上报 `perf_anr`。
-- **Windows**：依赖 Electron/Chromium `unresponsive`，与系统「程序未响应」一致，不另接 Win32 API。
+- **Fórmula**: `anr_count / app_start_count` (plataforma × versão).
+- **Critério**: `unresponsive` do `webContents` inicia a contagem; `responsive` ou a destruição a encerra; duração
+  ≥ **`STABILITY_ANR_THRESHOLD_MS` (5000)** reporta `perf_anr`.
+- **Windows**: depende de `unresponsive` do Electron/Chromium, coerente com o "aplicativo não está respondendo" do
+  sistema; não se conecta a uma API Win32 separada.
 
-### 3. Crash-Free 率
+### 3. Taxa Crash-Free
 
-- **公式**：`1 - (affected_users / active_users)`，行业基线 **≥ 99.5%**。
-- **用户键**：`device_mid`（ARMS `properties` + `perf_app_start` 绑定）。
-- **受影响设备**：时间窗内出现 `main_window_renderer` 或经过产品二进制校验的
-  且 `native_dump_process_role=main` 的 `app_native_process` 的去重 `device_mid` 并集。
-  `native_dump_unattributed`、辅助窗口/Page/Host/Agent Crash 不进入该集合。
-- **周期**：日/周看板在 ARMS 侧配置；客户端保证事件带 `device_mid`。
+- **Fórmula**: `1 - (affected_users / active_users)`, baseline da indústria **≥ 99,5%**.
+- **Chave de usuário**: `device_mid` (propriedades `properties` do ARMS + vínculo com `perf_app_start`).
+- **Dispositivos afetados**: união deduplicada de `device_mid` que, na janela de tempo, apresenta
+  `main_window_renderer` ou `app_native_process` com `native_dump_process_role=main` validado pelo binário do
+  produto. `native_dump_unattributed` e crashes de janela auxiliar/Page/Host/Agent não entram nesse conjunto.
+- **Periodicidade**: configurada no lado do ARMS para painéis diários/semanais; o cliente garante que os eventos
+  carreguem `device_mid`.
 
-### 4. 挂死 / 冻结率
+### 4. Taxa de travamento / congelamento
 
-- **公式**：`freeze_count / app_start_count`（平台 × 版本）。
-- **判定**：`unresponsive` 持续 ≥ **`STABILITY_FREEZE_THRESHOLD_MS`（30000）** 且该次未发生 crash → `perf_freeze`。
-- 若随后 crash，只计 crash，不计 freeze。
+- **Fórmula**: `freeze_count / app_start_count` (plataforma × versão).
+- **Critério**: `unresponsive` com duração ≥ **`STABILITY_FREEZE_THRESHOLD_MS` (30000)** e sem crash nessa
+  ocorrência → `perf_freeze`.
+- Se um crash acontecer depois, conta apenas o crash, não o freeze.
 
-### 5. 退出码分布
+### 5. Distribuição de códigos de saída
 
-| 事件                | 说明                                                                  |
-| ------------------- | --------------------------------------------------------------------- |
-| `perf_app_exit`     | 应用退出（`before-quit`，`exit_kind=normal`，`exit_code=0`）          |
-| `perf_process_exit` | 子进程/渲染进程异常退出（`exit_code`、`exit_reason`、`process_role`） |
+| Evento               | Descrição                                                             |
+| -------------------- | --------------------------------------------------------------------- |
+| `perf_app_exit`      | Saída do app (`before-quit`, `exit_kind=normal`, `exit_code=0`)       |
+| `perf_process_exit`  | Saída anormal de sub-processo/processo de renderização (`exit_code`, `exit_reason`, `process_role`) |
 
-看板：按 `exit_code` × `process_role` 直方图；`exit_kind=normal` 单独桶。
+Painel: histograma por `exit_code` × `process_role`; `exit_kind=normal` fica em um bucket separado.
 
-## P0 资源占用指标
+## Métricas de consumo de recursos P0
 
-全进程 CPU / 内存采样、三个资源事件、性能红线与 PRT-023 / PRT-024 验收统一见
-[全进程 CPU / 内存监控埋点](./process-resource-telemetry.md)。独立的数据目录体积事件仍见
-[ZCode 数据目录占用 ARMS 上报](./zcode-data-size-arms-telemetry.md)。
+A amostragem de CPU / memória do processo completo, os três eventos de recurso, os limites vermelhos e a aceitação
+PRT-023 / PRT-024 estão unificados em
+[Monitoramento de CPU / memória de processo completo](./process-resource-telemetry.md). O evento de volume do
+diretório de dados continua em
+[ARMS de ocupação do diretório de dados do ZCode](./zcode-data-size-arms-telemetry.md).
 
 ---
 
-## P0 网络与通信指标
+## Métricas de rede e comunicação P0
 
-主进程 **5min 聚合上报**（开发 1min）。每个 `transport + interface` 窗口只发送一条
-`group=network/name=perf_network_window`；成功率、错误率和重试率由 counts 查询派生，
-不再拆事件或发送全局错误率镜像。每条事件合并全局 properties 后不得超过 20 个属性。
+Reporte agregado de **5min** no processo principal (1min em desenvolvimento). Cada janela `transport + interface`
+envia apenas um `group=network/name=perf_network_window`; taxa de sucesso, taxa de erro e taxa de retry são derivadas
+por consulta de counts, sem dividir eventos nem enviar espelhos de taxa de erro globais. Depois de mesclar as
+propriedades globais, cada evento não pode ultrapassar 20 atributos.
 
-### 数据源
+### Fontes de dados
 
-| 传输层    | 采集点                                                                                                                                    | 接口维度                   |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| HTTP      | ARMS `beforeReport` 解析 `api` 事件（`dns_duration` / `connect_duration` / `ssl_duration` / `first_byte_duration` / `download_duration`） | `host+path`                |
-| RPC       | Host `NetworkTelemetryChannelServer` 包装 `ChannelServer`，批次经 `HostResponseTypes.NetworkTelemetryBatch` 回传 main                     | `channel.command`          |
-| WebSocket | `WebRemoteControlDeviceTransport` 远控 relay 建连/断连/重连                                                                               | `web_remote_control.relay` |
+| Camada de transporte | Ponto de coleta                                                                                                                                                      | Dimensão de interface    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| HTTP                 | ARMS `beforeReport` parseia os eventos `api` (`dns_duration` / `connect_duration` / `ssl_duration` / `first_byte_duration` / `download_duration`) | `host+path`               |
+| RPC                  | `NetworkTelemetryChannelServer` do Host envolve o `ChannelServer`; o lote volta ao main via `HostResponseTypes.NetworkTelemetryBatch`                 | `channel.command`         |
+| WebSocket            | `WebRemoteControlDeviceTransport`: conexão/desconexão/reconexão do relay de controle remoto                                                                   | `web_remote_control.relay` |
 
-### 事件一览
+### Visão geral dos eventos
 
-| 事件                  | 指标                                                                                                                        | 看板维度                     |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `perf_network_window` | `value`=duration mean；success/fail/retry counts、duration peak/p95；HTTP 阶段只保留 mean；错误只保留窗口主错误类型及其计数 | 平台×`transport`×`interface` |
+| Evento               | Métrica                                                                                                                       | Dimensões do painel                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `perf_network_window` | `value`=média de duração; counts de success/fail/retry, pico/p95 de duração; para HTTP apenas a média por fase; para erros apenas o tipo principal da janela e sua contagem | plataforma×`transport`×`interface` |
 
-`primary_error_kind` 固定为：`timeout`、`dns_failure`、`connection_reset`、`proxy_error`、
-`tls_error`、`server_error`、`client_error`、`other`，并携带 `primary_error_count`。窗口存在多种
-错误时取计数最高者，同数按固定枚举顺序决定；任意外来值归入 `other`。
+`primary_error_kind` é fixo em: `timeout`, `dns_failure`, `connection_reset`, `proxy_error`,
+`tls_error`, `server_error`, `client_error`, `other`, e carrega `primary_error_count`. Quando a janela tem
+vários erros, toma-se o de maior contagem; em caso de empate, decide a ordem fixa da enumeração; qualquer valor
+estranho cai em `other`.
 
-HTTP path 只允许保留代码内显式登记的低基数静态路由段；数字、UUID、邮箱、用户 slug、
-长 token 以及未登记段统一模板化为 `:id`。file URL、Windows 盘符路径和任意 `/` 开头的
-POSIX 本地绝对路径统一归为 `local_file`，禁止通过枚举常见根目录来猜测本地路径范围。
-每种 transport 的内存 bucket 有硬上限，超出部分进入 `other`；flush 仍只保留请求量最高的
-40 个接口。
+No path HTTP só se mantém, explicitamente registrado no código, o segmento de rota estático e de baixa cardinalidade;
+números, UUIDs, e-mails, slug de usuário, tokens longos e segmentos não registrados são todos templateizados como
+`:id`. URL de arquivo, caminhos com letra de unidade do Windows e quaisquer caminhos absolutos POSIX locais
+iniciados por `/` são unificados em `local_file`; é proibido adivinhar o escopo de caminhos locais enumerando
+diretórios raiz comuns. Cada transport tem um teto rígido de buckets de memória, e o excedente cai em `other`; o
+flush continua mantendo apenas as 40 interfaces de maior volume.
 
-常量：`NETWORK_REPORT_INTERVAL_MS` 生产 300000 / 开发 60000；Host 批次 flush 30s / 最多 200 条。
+Constantes: `NETWORK_REPORT_INTERVAL_MS` em produção 300000 / desenvolvimento 60000; flush de lotes do Host em 30s /
+no máximo 200 itens.
 
-## P0 端侧 UI 性能指标
+## Métricas de performance de UI no cliente P0
 
-renderer(UI)侧埋点,经 `reportArmsCustomEvent` → IPC → `armsRum.sendCustom` 上报。事件 `group=ui_perf`,名称前缀 `perf_ui_`。全采(100%)。公共维度由 main IPC handler 自动补齐(`app_version` / `arms_env` / `device_mid` / `platform` / `renderer_id`)。
+Pontos de medição no renderer (UI), reportados via `reportArmsCustomEvent` → IPC → `armsRum.sendCustom`. Eventos
+`group=ui_perf`, com prefixo de nome `perf_ui_`. Amostragem total (100%). As dimensões comuns são preenchidas
+automaticamente pelo IPC handler do main (`app_version` / `arms_env` / `device_mid` / `platform` / `renderer_id`).
 
-### 事件一览
+### Visão geral dos eventos
 
-| 事件                              | `value`               | 来源                                                    | 关键 properties                                                                                                                                                                       |
-| --------------------------------- | --------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `perf_ui_launch_to_input`         | 启动到能输入总耗时 ms | 进程创建(`getCreationTime`)→ 启动门禁清除、输入框可用   | `session_id`                                                                                                                                                                          |
-| `perf_ui_launch_electron_init_ms` | Electron 启动 ms      | 进程创建 → main JS                                      | `session_id`                                                                                                                                                                          |
-| `perf_ui_launch_app_ready_ms`     | main 初始化 ms        | main JS → `app.whenReady`                               | `session_id`                                                                                                                                                                          |
-| `perf_ui_launch_window_ms`        | 窗口编排 ms           | `whenReady` → `loadURL`                                 | `session_id`                                                                                                                                                                          |
-| `perf_ui_launch_renderer_load_ms` | renderer 加载 ms      | `loadURL` → bundle 执行                                 | `session_id`                                                                                                                                                                          |
-| `perf_ui_launch_react_commit_ms`  | React 渲染 ms         | bundle → React 首次 commit                              | `session_id`                                                                                                                                                                          |
-| `perf_ui_launch_startup_gate_ms`  | 启动门禁 ms           | React commit → 输入框可用(鉴权/provider/workspace 恢复) | `session_id`                                                                                                                                                                          |
-| `perf_ui_session_open_start`      | session 打开开始计数  | Renderer pane acquire 后的逻辑打开起点                  | `session_open_id` / `session_id` / `open_kind` / `open_trigger` / `client_mode`                                                                                                       |
-| `perf_ui_session_open_result`     | 首屏到可交互总耗时 ms | 首个 snapshot paint 且 Composer 可交互；失败/超时也上报 | `status` / `session_open_id` / `session_id` / Host/CLI/Renderer 阶段耗时                                                                                                              |
-| `perf_ui_first_token`             | 首 token 延迟 ms      | 镜像 `message_completion` 的 `time_to_first_token`      | `model` / `talk_id` / `message_id`                                                                                                                                                    |
-| `perf_ui_message_complete`        | 消息端到端耗时 ms     | 镜像 `message_completion` 的 `duration_ms`              | `result` / `talk_id` / `message_id`                                                                                                                                                   |
-| `perf_ui_stream_stall`            | 真实停顿时长 ms       | 流式相邻正文 chunk 间隔 > 3000ms                        | `stall_ms` / `waiting_tool` / `talk_id` / `message_id`                                                                                                                                |
-| `perf_ui_tool_call_detail`        | 工具终态耗时 ms       | `tool_call_update` 终态的 `raw.result.perf`             | `tool_name` / `status` / `talk_id` / `message_id` / `tool_call_id` / `parent_tool_call_id` / `child_tool_call_id` / `child_session_id` / `agent_id` / `agent_type` / 工具内部阶段字段 |
+| Evento                              | `value`                     | Origem                                                  | Propriedades-chave                                                                                                                                                                  |
+| ----------------------------------- | --------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `perf_ui_launch_to_input`           | Tempo total até poder digitar em ms | Criação do processo(`getCreationTime`)→ limpeza do gate de startup, campo de entrada disponível | `session_id`                                                                                                                                                                         |
+| `perf_ui_launch_electron_init_ms`   | ms de init do Electron      | Criação do processo → JS do main                         | `session_id`                                                                                                                                                                         |
+| `perf_ui_launch_app_ready_ms`       | ms de init do main          | JS do main → `app.whenReady`                             | `session_id`                                                                                                                                                                         |
+| `perf_ui_launch_window_ms`          | ms de orquestração da janela | `whenReady` → `loadURL`                                  | `session_id`                                                                                                                                                                         |
+| `perf_ui_launch_renderer_load_ms`   | ms de load do renderer      | `loadURL` → execução do bundle                           | `session_id`                                                                                                                                                                         |
+| `perf_ui_launch_react_commit_ms`    | ms de render do React       | bundle → primeiro commit do React                        | `session_id`                                                                                                                                                                         |
+| `perf_ui_launch_startup_gate_ms`    | ms do gate de startup       | React commit → campo de entrada disponível (auth/provider/recuperação de workspace) | `session_id`                                                                                                                                                                         |
+| `perf_ui_session_open_start`        | contagem de início de abertura de session | Início lógico da abertura após o acquire do pane pelo renderer | `session_open_id` / `session_id` / `open_kind` / `open_trigger` / `client_mode`                                                                                                      |
+| `perf_ui_session_open_result`       | Tempo total da primeira tela até interativo em ms | Primeiro snapshot pintado e Composer interativo; também reporta em falha/timeout | `status` / `session_open_id` / `session_id` / durações das fases Host/CLI/Renderer                                                                                                 |
+| `perf_ui_first_token`               | ms de latência do primeiro token | Espelha o `time_to_first_token` de `message_completion` | `model` / `talk_id` / `message_id`                                                                                                                                                   |
+| `perf_ui_message_complete`          | ms de mensagem ponta a ponta | Espelha o `duration_ms` de `message_completion`           | `result` / `talk_id` / `message_id`                                                                                                                                                  |
+| `perf_ui_stream_stall`              | ms de stall real             | Intervalo entre chunks de corpo consecutivos no stream > 3000ms | `stall_ms` / `waiting_tool` / `talk_id` / `message_id`                                                                                                                               |
+| `perf_ui_tool_call_detail`          | ms de estado final da tool  | `raw.result.perf` do estado final de `tool_call_update`   | `tool_name` / `status` / `talk_id` / `message_id` / `tool_call_id` / `parent_tool_call_id` / `child_tool_call_id` / `child_session_id` / `agent_id` / `agent_type` / campos de fase interna da tool |
 
-### 说明与边界
+### Explicações e fronteiras
 
-- **启动分阶段**:7 段每进程冷启动各上报一次,`value` 为各段 ms(`Math.max(0,...)` 钳非负)。锚点 `process.getCreationTime()`,main 的 T0-T3 经主窗口 loadURL query(`zcodeLaunchMarks`)注入 renderer,在启动门禁清除(`isStartupRenderBlocked` 翻 false)时统一计算上报。未登录(WelcomeScreen)不上报;总时长 >300000ms 哨兵丢弃。`session_id` 关联同次启动各段。旧 `perf_ui_first_screen` 已废弃,语义并入 `perf_ui_launch_react_commit_ms`。
-- **session 首次打开**:`perf_ui_session_open_start` / `perf_ui_session_open_result` 每个逻辑打开最多两条，阶段 timing 通过 `v4/conversation/subscribe` ACK 携带，不按阶段拆分 ARMS 事件；Web/mobile reporter 为空。完整字段与边界见 [Session 首次打开 ARMS 埋点](./session-open-telemetry.md)。
-- **首 token / 消息耗时**：V4 supervisor 复用 `messageTelemetry` builder，时间锚点仍是 renderer receipt clock；initial/recovery 不补报。
-- **工具终态细分**:`perf_ui_tool_call_detail` 只在工具完成/失败/拒绝且 `raw.result.perf` 存在时上报。Bash 带 `command_run_ms` / `first_output_ms` / `no_output_ms` / `timed_out` / `command_category` 等；Edit/Write 带 `fs_read_ms` / `fs_write_ms` / `patch_match_ms` / 文件大小等。subagent mirror 子工具额外带 `parent_tool_call_id` / `child_tool_call_id` / `child_session_id` / `agent_id` / `agent_type`,用于从父 `Agent` step 下钻到子工具耗时。
-- **逐步骤耗时**：`agent_step` 保持 `/report` 旧口径；ARMS **RUM Custom Event**
-  仍只做每轮和工具终态低频归因，禁止把 `/report agent_step` 逐条镜像成 RUM 事件。
-  CLI Agent Loop 的 `zcode.agent.step` OTel Span 是另一套强类型执行 Trace，目标结构见
-  [CLI Agent Telemetry 开发指南](../trace/cli-agent-telemetry.md)，不经过 Renderer IPC，
-  也不复用旧 `agent_step` Schema。
-- **流式停顿**:`value` 为真实 chunk 间隔(非阈值),阈值 `STREAM_STALL_REPORT_THRESHOLD_MS=3000` 仅作上报闸门。**工具调用期间不计入**:`tool_call`/`tool_call_update` 到达时 `clearStreamStallTracking`,工具后第一个正文 chunk 视为首个,不与工具前的 chunk 比较,避免把工具正常执行误判为停顿。chunk 间隔 >3s 的根因可能在上游(模型推理/网络),不一定是客户端渲染卡顿;但用户视角"界面长时间不动"可感知,故上报。后续据线上分布收紧阈值。`waiting_tool` 本期固定 `false`。
-- **渲染卡顿(longTask)**:由 ARMS Browser SDK 自动采集(`browserCollectors.longTask`),不在此手动埋点。主进程 `beforeReport` 会把 SDK `snapshots` 中的 top-5 LoAF/rAF attribution 提炼为低基数字段并合入同一条 longTask 的 `properties`: `loaf_script_count`、`loaf_top_duration_ms`、`loaf_top_invoker_type`、`loaf_top_share_pct`。不上报原始脚本名、URL、路径或源码片段;`snapshots` 缺失/解析失败时跳过,不影响原始 longTask 上报。
+- **Startup por fases**: as 7 fases reportam uma vez cada por cold start de processo, com `value` em ms por fase
+  (`Math.max(0,...)` garante não-negativo). A âncora é `process.getCreationTime()`; T0-T3 do main são injetados
+  no renderer via query de loadURL da janela principal (`zcodeLaunchMarks`) e reportados de forma unificada quando o
+  gate de startup é liberado (`isStartupRenderBlocked` vira false). Sem login (WelcomeScreen) não há reporte; duração
+  total > 300000ms é descartada pelo sentinela. `session_id` correlaciona as fases da mesma inicialização. O antigo
+  `perf_ui_first_screen` foi descontinuado, com a semântica absorvida por `perf_ui_launch_react_commit_ms`.
+- **Primeira abertura de session**: `perf_ui_session_open_start` / `perf_ui_session_open_result` têm no máximo
+  dois registros por abertura lógica; o timing das fases é carregado pelo ACK de `v4/conversation/subscribe`, sem
+  dividir em eventos ARMS por fase; o reporter Web/mobile fica vazio. Campos completos e fronteiras em
+  [Telemetria ARMS da primeira abertura de session](./session-open-telemetry.md).
+- **Primeiro token / duração da mensagem**: o supervisor V4 reusa o builder `messageTelemetry`; a âncora de tempo
+  continua sendo o clock de recebimento no renderer; initial/recovery não fazem reporte retroativo.
+- **Detalhamento do estado final das tools**: `perf_ui_tool_call_detail` só é reportado quando a tool conclui,
+  falha ou é rejeitada e `raw.result.perf` existe. Bash traz `command_run_ms` / `first_output_ms` / `no_output_ms` /
+  `timed_out` / `command_category` etc.; Edit/Write traz `fs_read_ms` / `fs_write_ms` / `patch_match_ms` / tamanho do
+  arquivo etc. O espelho de subagent para sub-tools adiciona `parent_tool_call_id` / `child_tool_call_id` /
+  `child_session_id` / `agent_id` / `agent_type`, usado para descer do step pai `Agent` até a duração das
+  sub-tools.
+- **Duração por step**: `agent_step` mantém o critério antigo de `/report`; o ARMS **RUM Custom Event**
+  continua fazendo apenas atribuição de baixa frequência por turno e no estado final das tools; é proibido
+  espelhar item a item o `/report agent_step` como eventos RUM.
+  O OTel Span `zcode.agent.step` do CLI Agent Loop é outro Trace de execução fortemente tipado, cuja estrutura
+  alvo está em [Guia de desenvolvimento de Telemetria do CLI Agent](../trace/cli-agent-telemetry.md); ele não passa
+  pelo IPC do Renderer e não reutiliza o Schema antigo de `agent_step`.
+- **Stall de streaming**: `value` é o intervalo real entre chunks (não o threshold), e o threshold
+  `STREAM_STALL_REPORT_THRESHOLD_MS=3000` serve apenas como porta de reporte. **Não conta durante chamadas de
+  tool**: quando `tool_call`/`tool_call_update` chega, `clearStreamStallTracking` é chamado, o primeiro chunk de
+  corpo após a tool é considerado o primeiro e não é comparado com os chunks anteriores à tool, evitando classificar
+  a execução normal de uma tool como stall. A causa raiz de um intervalo >3s pode estar a montante (inferência do
+  modelo/rede) e não necessariamente em travamento de renderização do cliente; mas do ponto de vista do usuário
+  "a interface fica parada por muito tempo" é perceptível, então é reportado. O threshold será apertado depois
+  conforme a distribuição em produção. `waiting_tool` é fixo em `false` nesta fase.
+- **Travamento de renderização (longTask)**: coletado automaticamente pelo Browser SDK do ARMS
+  (`browserCollectors.longTask`), sem ponto de medição manual aqui. O `beforeReport` do processo principal extrai
+  do `snapshots` do SDK as atribuições LoAF/rAF de top-5 como campos de baixa cardinalidade e as funde nas
+  `properties` da mesma longTask: `loaf_script_count`, `loaf_top_duration_ms`,
+  `loaf_top_invoker_type`, `loaf_top_share_pct`. Não reporta nomes de script, URLs, caminhos ou trechos de código
+  originais; quando `snapshots` está ausente ou falha ao ser interpretado, o passo é ignorado sem afetar o
+  reporte original da longTask.
 
-常量(代码):`STREAM_STALL_REPORT_THRESHOLD_MS=3000`(`packages/ui/src/lib/uiPerfArmsTelemetry.ts`)。
+Constantes (código): `STREAM_STALL_REPORT_THRESHOLD_MS=3000` (`packages/ui/src/lib/uiPerfArmsTelemetry.ts`).
 
-## ARMS 看板建议
+## Sugestões de painéis ARMS
 
-- 稳定性等历史事件可筛选 `properties.event_name`；资源事件与网络
-  `perf_network_*` 为节省属性预算，必须直接筛选 custom `name`。
-- Crash 率：schema v2 的 App Crash 分子按 `crash_scope` 过滤，再按
-  `crash_cause` 分组；分母为 `perf_app_start`。
-- Native Crash 看板还必须过滤
-  `json_extract_scalar(properties, '$.native_dump_process_role')='main'`；否则历史上
-  仅命中产品二进制但无法确认进程角色的 dump 仍会污染 Native Crash / Crash-Free。
-- 维度：`platform`、`app_version`、`scene_lifecycle`、`scene_window`、
-  `crash_scope`、`crash_cause`、`telemetry_schema_version`。
-- 环境：开发构建 `arms_env=local`，生产 `prod`。
+- Eventos históricos como o de estabilidade podem ser filtrados por `properties.event_name`; para economizar orçamento
+  de atributos, os eventos de recurso e de rede `perf_network_*` devem ser filtrados direto pelo custom `name`.
+- Taxa de crash: no schema v2, o numerador de App Crash é filtrado por `crash_scope` e depois agrupado por
+  `crash_cause`; o denominador é `perf_app_start`.
+- O painel de Native Crash também precisa filtrar
+  `json_extract_scalar(properties, '$.native_dump_process_role')='main'`; caso contrário, historicamente, dumps que
+  apenas acertaram o binário do produto sem conseguir confirmar o papel do processo ainda poluiriam Native Crash /
+  Crash-Free.
+- Dimensões: `platform`, `app_version`, `scene_lifecycle`, `scene_window`,
+  `crash_scope`, `crash_cause`, `telemetry_schema_version`.
+- Ambiente: build de desenvolvimento com `arms_env=local`, produção com `prod`.
 
-## 实现索引
+## Índice de implementação
 
-| 模块                   | 路径                                                      |
-| ---------------------- | --------------------------------------------------------- |
-| P0 稳定性上报          | `packages/desktop/src/main/desktopStabilityTelemetry.ts`  |
-| P0 资源上报            | `packages/desktop/src/main/desktopResourceTelemetry.ts`   |
-| P0 网络上报            | `packages/desktop/src/main/desktopNetworkTelemetry.ts`    |
-| P0 端侧 UI 性能上报    | `packages/ui/src/lib/uiPerfArmsTelemetry.ts`              |
-| 网络聚合               | `packages/desktop/src/main/networkTelemetryAggregator.ts` |
-| RPC 网络中间件         | `packages/rpc/src/network-telemetry-middleware.ts`        |
-| Host 网络批次          | `packages/desktop/src/host/hostNetworkTelemetry.ts`       |
-| 聚合工具               | `packages/desktop/src/main/resourceMetricsStats.ts`       |
-| ARMS 初始化            | `packages/desktop/src/main/appARMSBootstrap.ts`           |
-| 崩溃归档               | `packages/desktop/src/main/desktopCrashCapture.ts`        |
-| 主进程接线             | `packages/desktop/src/main/index.ts`                      |
-| Resource Manager 窗 ID | `packages/desktop/src/main/resourceManagerWindow.ts`      |
+| Módulo                       | Caminho                                                     |
+| ---------------------------- | ----------------------------------------------------------- |
+| Reporte de estabilidade P0   | `packages/desktop/src/main/desktopStabilityTelemetry.ts`    |
+| Reporte de recursos P0       | `packages/desktop/src/main/desktopResourceTelemetry.ts`     |
+| Reporte de rede P0           | `packages/desktop/src/main/desktopNetworkTelemetry.ts`      |
+| Reporte de performance de UI no cliente P0 | `packages/ui/src/lib/uiPerfArmsTelemetry.ts`   |
+| Agregação de rede            | `packages/desktop/src/main/networkTelemetryAggregator.ts`   |
+| Middleware de rede RPC       | `packages/rpc/src/network-telemetry-middleware.ts`          |
+| Lotes de rede do Host        | `packages/desktop/src/host/hostNetworkTelemetry.ts`         |
+| Utilitários de agregação     | `packages/desktop/src/main/resourceMetricsStats.ts`         |
+| Inicialização do ARMS        | `packages/desktop/src/main/appARMSBootstrap.ts`             |
+| Arquivamento de crashes      | `packages/desktop/src/main/desktopCrashCapture.ts`          |
+| Ligação no processo principal | `packages/desktop/src/main/index.ts`                       |
+| ID da janela do Resource Manager | `packages/desktop/src/main/resourceManagerWindow.ts`    |
 
-## 本地验证 checklist
+## Checklist de verificação local
 
-1. 开发包启动：主进程日志 `[stability] perf_app_start reported`（或 ARMS `beforeReport` 含 custom 事件）。
-2. DevTools 触发普通 JS exception：只应看到 exception，不应伪装成进程 Crash；模拟
-   `render-process-gone` 时应看到 `perf_crash`，并带正确的 `crash_scope` /
-   `crash_cause`。
-3. 模拟卡死：主线程同步长循环 ≥5s → `perf_anr`；≥30s 且无 crash → `perf_freeze`。
-4. ARMS 控制台：环境选 `local`，按 `app_version` × `platform` 分组核对分子分母。
-5. 回归：`/report` 的 `app_launch` 仍独立上报，条数不必等于 `perf_app_start`。
-6. 资源：日志 `[resource] sampling started`；约 1min（dev / E2E）后出现 `[resource] perf_process_window + perf_system_window flushed`；`beforeReport` 含每角色一条 `custom:perf_process_window` 与一条 `custom:perf_system_window`。
-7. 网络：日志 `[network] reporting started`；触发 RPC 或 HTTP 后约 1min 出现 `[network] perf_network flushed` 与 `custom:perf_network_window`。
-8. ARMS 入库可能有分钟级延迟，以 `beforeReport` 时间锚点查询。
+1. Build de desenvolvimento: log do processo principal `[stability] perf_app_start reported` (ou o `beforeReport`
+   do ARMS contendo o evento custom).
+2. Disparar uma exception JS comum pelo DevTools: deve aparecer apenas a exception, sem se passar por crash de
+   processo; ao simular `render-process-gone` deve aparecer `perf_crash` com o `crash_scope` /
+   `crash_cause` corretos.
+3. Simular travamento: loop síncrono longo na thread principal ≥5s → `perf_anr`; ≥30s e sem crash → `perf_freeze`.
+4. Console do ARMS: selecionar o ambiente `local`, agrupar por `app_version` × `platform` e conferir
+   numerador/denominador.
+5. Regressão: o `app_launch` de `/report` continua sendo reportado de forma independente, e a contagem não precisa
+   ser igual à de `perf_app_start`.
+6. Recursos: log `[resource] sampling started`; cerca de 1min (dev / E2E) depois aparece
+   `[resource] perf_process_window + perf_system_window flushed`; o `beforeReport` contém um
+   `custom:perf_process_window` por papel e um `custom:perf_system_window`.
+7. Rede: log `[network] reporting started`; após disparar uma chamada RPC ou HTTP, cerca de 1min depois aparece
+   `[network] perf_network flushed` e `custom:perf_network_window`.
+8. A ingestão no ARMS pode ter atraso de minutos; consulte usando a âncora de tempo do `beforeReport`.

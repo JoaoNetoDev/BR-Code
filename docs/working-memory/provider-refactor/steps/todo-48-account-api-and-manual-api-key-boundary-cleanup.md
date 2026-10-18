@@ -1,19 +1,22 @@
-# Todo 48：Account API 与手填 API Key 边界清理
+# Todo 48：Limpeza da fronteira entre Account API e API Key digitada manualmente
 
-> 状态：研究完成 / 裁决记录；不作为独立实施 Todo
+> Status: pesquisa concluída / registro de decisão; não funciona como Todo de implementação independente
 >
-> 日期：2026-08-31
+> Data: 2026-08-31
 >
-> 来源：Todo 26 收口后的 Account Provider 设置页与 Welcome API Key 链路 Review
+> Origem: revisão da página de configurações do Account Provider e do fluxo de Welcome API Key após a consolidação do Todo 26
 
-## 1. 问题
+## 1. Problema
 
-Provider 重构曾将 `account:zai-api-key` 与 `account:bigmodel-api-key` 定义为
-`zhipu-account / mode=api-key`，并假设当前登录账号会在请求期自动提供按量 API Key。
+O refactor de Provider chegou a definir `account:zai-api-key` e `account:bigmodel-api-key` como
+`zhipu-account / mode=api-key`, supondo que a conta conectada no momento forneceria automaticamente uma API Key de
+pagamento por uso durante as requisições.
 
-对最新 `origin/staging` 的纵向追踪证明，这不是原产品行为。staging 的 `API Key` 连接方式就是用户手填 Key；登录态
-创建/复制项目 Key 的代码只服务 Coding Plan 凭据刷新，不构成一个独立的“账号按量 API Provider”。当前分支还同时存在
-`zai-api` / `bigmodel-api` 普通 Key Provider，因此同一 Endpoint、模型成员和 API Schema 被重复建模了两次。
+O rastreamento vertical do `origin/staging` mais recente prova que esse não era o comportamento original do produto. O modo
+de conexão `API Key` do staging é o usuário digitando a Key; o código de criação/cópia de Key de projeto a partir do estado
+logado atende apenas à renovação de credenciais do Coding Plan e não constitui um "Account API Provider de pagamento por
+uso" independente. O branch atual também possui simultaneamente os Providers de Key comum `zai-api` / `bigmodel-api`, de modo
+que o mesmo Endpoint, os mesmos membros de modelo e o mesmo API Schema acabaram modelados duas vezes.
 
 ```text
 用户手填 API Key
@@ -31,14 +34,14 @@ Built-in API Provider + Personal Key
    `--> Coding Plan 所需项目 Key 的创建/复制   staging 的账号链
 ```
 
-错误不是“Account API 页面漏隐藏输入框”，而是不存在产品依据的 Account API Provider 本身进入了正式 Config、Resolver、
-Runtime 和 UI。
+O erro não é "a página de Account API esqueceu de esconder o campo de entrada", e sim o próprio Account API Provider — sem
+fundamentação no produto — entrando na Config oficial, no Resolver, no Runtime e na UI.
 
-## 2. 已确认边界
+## 2. Fronteiras confirmadas
 
-### 2.1 staging 的手填 Key 是 Built-in Provider 预设
+### 2.1 A Key digitada manualmente do staging é um preset de Built-in Provider
 
-最新 `origin/staging@5ebc182b61` 的真实链路：
+O fluxo real do `origin/staging@5ebc182b61` mais recente:
 
 ```text
 Welcome 选择 Z.ai / BigModel 并输入 Key
@@ -58,13 +61,15 @@ Registry 在 apiKey mode 精确选择该 Built-in Provider
 Runtime 直接使用 Provider 中保存的 apiKey
 ```
 
-它不会动态创建一个自定义 Provider，也不会在提交时复制 Endpoint、Schema 和模型列表。执行语义近似“创建一个已经填好
-Endpoint/Schema/models 的自定义 Provider，再让用户只填 Key”，但产品身份仍是固定 Built-in Provider，并参与 Family
-连接选择。
+Ele não cria dinamicamente um Provider customizado nem copia Endpoint, Schema e a lista de modelos no momento do envio. A
+semântica de execução se aproxima de "criar um Provider customizado com Endpoint/Schema/models já preenchidos e deixar o
+usuário preencher apenas a Key", mas a identidade de produto continua sendo um Built-in Provider fixo, que participa da
+seleção de conexão da Family.
 
-### 2.2 自动创建/复制 API Key 的真实用途
+### 2.2 A verdadeira finalidade da criação/cópia automática de API Key
 
-staging 的 `OAuthPresetProviderRepoProviderResolvers.resolveProviderApiKey()` 确实会通过个人账号链取得真实 Key：
+O `OAuthPresetProviderRepoProviderResolvers.resolveProviderApiKey()` do staging realmente obtém a Key verdadeira pela
+cadeia da conta pessoal:
 
 ```text
 OAuth / 业务 access token
@@ -82,36 +87,45 @@ getCustomerInfo
 copy secret
 ```
 
-取得真实 Key。但调用方 `loadSinglePresetProvider(..., shouldResolveApiKey)` 创建的是
-`builtin:zai-coding-plan` / `builtin:bigmodel-coding-plan`，并且只有显式
-`refreshCodingPlanApiKey()` 才打开该分支。普通 `builtin:zai` / `builtin:bigmodel` 的 Built-in 同步明确写入空 Key，等待用户手填。
+Ele obtém a Key real. Porém o chamador `loadSinglePresetProvider(..., shouldResolveApiKey)` cria
+`builtin:zai-coding-plan` / `builtin:bigmodel-coding-plan`, e somente a chamada explícita
+`refreshCodingPlanApiKey()` abre esse ramo. A sincronização Built-in do `builtin:zai` / `builtin:bigmodel` comum grava
+explicitamente uma Key vazia, aguardando o usuário digitá-la.
 
-Team Coding Plan 不复用上述“自动发现个人 organization/project”的身份链。它使用用户已选择并校验的
-`organizationId/projectId` 取得团队项目 Key。Individual 与 Team 可以共享底层项目 Key API，但身份来源、缓存键和
-凭据 Owner 必须保持分离。
+O Team Coding Plan não reutiliza a cadeia de identidade de "descoberta automática da organização/projeto pessoal". Ele usa
+o `organizationId/projectId` já selecionado e validado pelo usuário para obter a Key do projeto de equipe. Individual e Team
+podem compartilhar a API subjacente de Key de projeto, mas a origem da identidade, a chave de cache e o owner das
+credenciais devem permanecer separados.
 
-因此“存在自动取 Key 的底层能力”和“存在账号按量 API 产品入口”是两件事。前者存在，后者在 staging 没有证据。
+Portanto "existir uma capacidade subjacente de obter a Key automaticamente" e "existir uma entrada de produto de Account API
+por uso" são coisas distintas. A primeira existe; a segunda não tem evidência no staging.
 
-### 2.3 目标访问边界
+### 2.3 Fronteira de acesso-alvo
 
-- `api-key`：用户手填 Key，Key 保存到 Personal Provider Config；
-- `zhipu-account`：只用于确实依赖账号、套餐或请求期账号材料的 Start、Individual、Team、Off-Peak；
-- `zhipu-account / mode=api-key` 从正式契约中删除；
-- `account:zai-api-key` / `account:bigmodel-api-key` 删除，不再和普通 API Provider 重复；
-- `zai-api` / `bigmodel-api` 作为每个 Family 唯一的手动 API Provider；其固定 Endpoint、API Schema 和 Built-in
-  模型成员来自 ZCode Built-in，Personal 只保存 Key 和允许的 Overlay；
-- `zai-api` / `bigmodel-api` 分别使用 `zai-family` / `bigmodel-family`，固定占据 Family 的“按量 API”槽位，
-  不再进入普通“添加供应商”候选；
-- 两个 Family 按量 API Provider 的 Built-in `enabled=true`，表示固定加入 Family 配置。缺少 Key 时保持可见但配置不完整、不可执行，不通过
-  自动写入 `enabled=false` 冒充完整性；
-- Family 连接选择的 `kind=api-key` 指向上述普通 API Provider，不进入 Account Overlay 或 Account Request Auth；
-- Coding Plan 的自动项目 Key 解析能力保留在 Coding Plan 请求凭据链，不能用于证明一个不存在的 Account API Provider。
-- Account Provider 的套餐资格只投影为 `access.entitled`，不再复用 Provider 顶层 `enabled`。
+- `api-key`: Key digitada pelo usuário, salva no Personal Provider Config;
+- `zhipu-account`: usado apenas para Start, Individual, Team e Off-Peak, que de fato dependem de conta, plano ou material de
+  conta em tempo de requisição;
+- `zhipu-account / mode=api-key` é removido do contrato oficial;
+- `account:zai-api-key` / `account:bigmodel-api-key` são removidos, sem duplicar o API Provider comum;
+- `zai-api` / `bigmodel-api` passam a ser o único API Provider manual de cada Family; seu Endpoint fixo, API Schema e
+  membros de modelo Built-in vêm do Built-in do ZCode, e o Personal guarda apenas a Key e o Overlay permitido;
+- `zai-api` / `bigmodel-api` usam respectivamente `zai-family` / `bigmodel-family`, ocupando de forma fixa a vaga de "API por
+  uso" da Family e deixam de entrar nos candidatos comuns de "adicionar fornecedor";
+- os dois API Providers de pagamento por uso das Families têm `enabled=true` no Built-in, indicando entrada fixa na
+  configuração da Family. Quando falta a Key, permanecem visíveis, mas com configuração incompleta e não executável, sem
+  simular completude por meio da gravação automática de `enabled=false`;
+- o `kind=api-key` da seleção de conexão da Family aponta para o API Provider comum acima e não entra no Account Overlay nem
+  no Account Request Auth;
+- a capacidade de resolução automática de Key de projeto do Coding Plan permanece na cadeia de credenciais das requisições
+  do Coding Plan e não pode servir como prova de um Account API Provider inexistente.
+- a elegibilidade de plano do Account Provider é projetada apenas como `access.entitled`, sem reutilizar o `enabled` de nível
+  superior do Provider.
 
-### 2.4 UI 直接按照 Effective Access 判别展示
+### 2.4 A UI decide a exibição diretamente pelo Effective Access
 
-Provider 设置页直接读取 Effective Provider Config 的 `access` 判别联合，不增加
-`hideApiKeySection`、`readOnlyEndpoints` 或 Family 页面专用布尔值作为第二套访问类型事实：
+A página de configurações do Provider lê diretamente a união discriminada de `access` do Effective Provider Config, sem
+adicionar `hideApiKeySection`, `readOnlyEndpoints` ou booleanos exclusivos da página de Family como um segundo conjunto de
+fatos sobre o tipo de acesso:
 
 ```text
 Effective Provider Config.access
@@ -126,49 +140,64 @@ Effective Provider Config.access
                `--> 按该 access 的正式契约展示
 ```
 
-真正的 Account Provider 不展示、不读取、不保存手动 API Key。Family 中的“按量 API”选择虽然和 Account 套餐并列展示，
-但其详情由 `access.type=api-key` 自然得到 API Key 表单，不伪装成 Account Access。
+O Provider de conta real não exibe, não lê e não salva API Key digitada manualmente. A seleção de "API por uso" na Family,
+embora exibida lado a lado com os planos de conta, obtém naturalmente o formulário de API Key por causa de
+`access.type=api-key`, sem se passar por Account Access.
 
-### 2.5 产品文案
+### 2.5 Texto de produto
 
-Family 连接选择中的内部 `kind: "api-key"` 可以保留，但用户界面统一显示为“按量 API”。它明确表示使用标准按量
-模型 API，进入详情后由用户手填 Key。
+O `kind: "api-key"` interno da seleção de conexão da Family pode ser mantido, mas a interface exibe uniformemente "API por
+uso". Ele indica explicitamente o uso da API padrão de modelos por uso, com a Key digitada pelo usuário ao entrar nos
+detalhes.
 
-### 2.6 写入边界
+### 2.6 Fronteira de escrita
 
-Provider Config Service 在写入 Personal Overlay 前机械拒绝固定 `zhipu-account` Built-in Provider 的 Personal
-`access`。不能允许无效配置先写盘、再等下次读取时由 Personal Source Schema 拒绝整份文件。
+O Provider Config Service rejeita mecanicamente o `access` Personal de um Built-in Provider `zhipu-account` fixo antes de
+gravar o Personal Overlay. Não é permitido que uma configuração inválida seja gravada em disco para só então ser rejeitada
+inteira pelo Personal Source Schema na leitura seguinte.
 
-## 3. 已裁决的实施范围
+## 3. Escopo de implementação decidido
 
-以下内容由 [`todo-49-manual-api-key-and-coding-plan-credential-boundary-cutover.md`](./todo-49-manual-api-key-and-coding-plan-credential-boundary-cutover.md)
-统一实施；本文件只保留研究证据和产品裁决，避免两份 Todo 成为互相漂移的执行清单。
+O conteúdo a seguir é implementado de forma unificada por
+[`todo-49-manual-api-key-and-coding-plan-credential-boundary-cutover.md`](./todo-49-manual-api-key-and-coding-plan-credential-boundary-cutover.md);
+este arquivo mantém apenas as evidências de pesquisa e as decisões de produto, evitando que dois Todos se tornem listas de
+execução que derivam uma da outra.
 
-1. 从 Built-in、ID 常量、Account Resolver、Request Auth、Protocol、UI 和测试删除两个虚构的 Account API Provider；
-2. `zai-api` / `bigmodel-api` 迁入对应 Family group，Family 的 API Key 连接项引用它们；详情按
-   `access.type=api-key` 展示手填表单，普通“添加供应商”不再列出它们；
-3. Welcome 手填 Key 更新对应 Built-in API Provider 的 Personal Overlay，不写 Account Access；
-4. 删除 `restoreFamilyApiKeyProviderForApiKeyMode` 及重复 API Key persistence/helper；
-5. Account Resolver 不再处理 `mode=api-key`；Coding Plan 自动项目 Key 解析保留并按真实职责重新命名；
-6. Config Service 继续拒绝真正 Account Provider 的 Personal `access`；
-7. Family API Key 用户文案改为“按量 API”；
-8. 更新 Provider Settings Design、Access Protocol Design、Feature Graph 与 Todo 26，撤销错误的 Account API 结论。
+1. Remover dos Built-in, das constantes de ID, do Account Resolver, do Request Auth, do Protocolo, da UI e dos testes os
+   dois Account API Providers fictícios;
+2. Migrar `zai-api` / `bigmodel-api` para o grupo de cada Family correspondente; o item de conexão por API Key da Family
+   passa a referenciá-los; os detalhes exibem o formulário manual por causa de `access.type=api-key`, e o "adicionar
+   fornecedor" comum deixa de listá-los;
+3. A Key digitada no Welcome atualiza o Personal Overlay do Built-in API Provider correspondente, sem escrever Account Access;
+4. Remover `restoreFamilyApiKeyProviderForApiKeyMode` e a persistência/helper duplicados de API Key;
+5. O Account Resolver deixa de tratar `mode=api-key`; a resolução automática de Key de projeto do Coding Plan é mantida e
+   renomeada conforme sua responsabilidade real;
+6. O Config Service continua rejeitando o `access` Personal de um Account Provider real;
+7. O texto de usuário de API Key da Family passa a ser "API por uso";
+8. Atualizar Provider Settings Design, Access Protocol Design, Feature Graph e o Todo 26, revertendo a conclusão incorreta
+   sobre Account API.
 
-## 4. 验证
+## 4. Verificação
 
-- Family “按量 API”页面展示并保存手动 Key；
-- 普通 Built-in API Provider 和自定义 API Provider 均继续使用正式 `api-key` 链；
-- UI 分支只读取 Effective `access.type`，不存在控制同一事实的页面布尔参数；
-- 固定 Account Provider 写入 Personal `access` 必须失败；
-- Welcome 手填 Key 使用对应 Built-in API Provider，不创建自定义 Provider，不进入 Account Request Auth；
-- Registry 中同一 Family 不存在两份 Endpoint/models 相同、只因错误 Access 假设而重复的 API Provider；
-- `rg` 与 `dep:refs` 证明旧 Family Key 恢复 helper 和 Account Key persistence 零残留；
-- 补齐 UI、Provider、Services 单测与相关 E2E；执行 typecheck、lint、格式检查和 `git diff --check`。
+- A página de "API por uso" da Family exibe e salva a Key manual;
+- API Providers Built-in comuns e API Providers customizados continuam usando a cadeia oficial `api-key`;
+- Os ramos de UI leem apenas o `access.type` efetivo e não existe parâmetro booleano de página controlando o mesmo fato;
+- Gravar `access` Personal em um Account Provider fixo deve falhar;
+- A Key digitada no Welcome usa o Built-in API Provider correspondente, não cria Provider customizado e não entra no
+  Account Request Auth;
+- No Registry não existem, na mesma Family, dois API Providers com Endpoint/models idênticos duplicados apenas por uma
+  suposição errada de Access;
+- `rg` e `dep:refs` provam zero resíduo dos antigos helpers de restauração de Key de Family e da persistência de Account Key;
+- Completar testes unitários de UI, Provider e Services e os E2E relacionados; executar typecheck, lint, verificação de
+  formatação e `git diff --check`.
 
-## 5. 完成标准
+## 5. Critérios de conclusão
 
-- 不存在没有 staging 产品依据的 Account API Provider；
-- 手填 Key 只属于唯一的 Built-in/Personal `api-key` Provider，并保留 Family “按量 API”产品入口；
-- Coding Plan 自动项目 Key 与手填按量 Key 的凭据来源、保存位置和 UI 形态完全分离；
-- 没有新增 Family 专用展示布尔值或第二套 Access 判别事实；
-- 实施、清理、测试与 Design 同步完成后提交 Conventional Commit。
+- Não existe Account API Provider sem fundamentação de produto no staging;
+- A Key digitada manualmente pertence apenas ao Provider `api-key` Built-in/Personal único, preservando a entrada de produto de
+  "API por uso" da Family;
+- A origem de credenciais, o local de gravação e a forma de UI da Key automática de projeto do Coding Plan e da Key de
+  pagamento por uso digitada manualmente estão completamente separados;
+- Não foi adicionado booleano de exibição exclusivo de Family nem um segundo conjunto de fatos de discriminação de Access;
+- Após a conclusão da implementação, da limpeza, dos testes e da sincronização do Design, é feito um commit Conventional
+  Commit.

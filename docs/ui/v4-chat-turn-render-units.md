@@ -1,18 +1,18 @@
 # V4 Chat Turn Render Units
 
-## 目标
+## Objetivo
 
-v4 conversation protocol 仍保持 `ConversationRow[]` 的 flat fact model；UI 不直接把每条 row 当成一条可见消息，而是先派生视觉 turn render unit，再渲染聊天界面。
+O protocolo de conversa v4 mantém o modelo de fatos plano `ConversationRow[]`; a UI não trata cada row como uma mensagem visível, mas primeiro deriva uma unidade visual de renderização de turn e então renderiza a interface de chat.
 
-核心目标是复刻旧 ChatView 的阅读语义：
+O objetivo central é reproduzir a semântica de leitura do ChatView antigo:
 
-- user query 在上方，assistant work 在该 user query 下方。
-- `turnHeader` 是协议边界和诊断事实，不直接显示为用户可见行。
-- assistant 的 reasoning、tool、explore、subagent、compact timeline 和正文都属于同一轮 assistant work。
-- 每个初始输入或已成功注入的 guided input 都开启独立 visual work segment；正常完成的 segment 默认折叠为“已工作 N 秒”，当前运行或以 interrupted / failed / error 异常收口的 segment 强制展开。
-- 手动 `/compact` 是维护命令，不显示 `/compact` user bubble；只显示 compact timeline / assistant work activity。
+- A query do usuário fica acima, e o trabalho do assistant fica abaixo daquela query do usuário.
+- `turnHeader` é um limite de protocolo e um fato de diagnóstico, e não aparece diretamente como uma linha visível ao usuário.
+- Reasoning, tool, explore, subagent, timeline de compactação e corpo do assistant pertencem todos ao mesmo turno de trabalho do assistant.
+- Cada input inicial ou cada guided input injetado com sucesso abre um segmento visual de trabalho independente; segmentos concluídos normalmente são recolhidos por padrão como "已工作 N 秒", e segmentos em execução ou encerrados com desfecho anormal interrupted / failed / error são forçados a abrir.
+- O `/compact` manual é um comando de manutenção e não exibe um bubble de usuário `/compact`; exibe apenas a timeline de compactação / atividade de trabalho do assistant.
 
-## 结构
+## Estrutura
 
 ```text
 ConversationSnapshot.rows.window
@@ -29,11 +29,11 @@ ConversationTurnRenderUnit[]
   +-- tail boundary rows
 ```
 
-`ConversationTurnRenderUnit` 是 UI view model，不改变 v4 协议事实，也不参与 command target、snapshot recovery 或 replayable gap 判断。
+`ConversationTurnRenderUnit` é um view model de UI; não altera os fatos do protocolo v4 nem participa de command target, snapshot recovery ou da verificação de gap replayable.
 
-## `/compact` 可见性
+## Visibilidade de `/compact`
 
-手动 `/compact` 通过 v4 `compact` command 触发。它不属于真实用户 query：
+O `/compact` manual é disparado pelo command `compact` do v4. Ele não é uma query real do usuário:
 
 ```text
 composer "/compact"
@@ -43,27 +43,24 @@ composer "/compact"
   -> no visible user bubble
 ```
 
-runtime / projection 必须提供 `inputVisibility="model-only"` 或等价维护语义，使 projection
-不生成 visible `userInput` row。UI view model 禁止嗅探 `userInput.text === "/compact"`；旧历史
-缺字段时由 CLI transcript hydration 归一化为 canonical visibility/origin/marker 后再下发。
+O runtime / projection precisa fornecer `inputVisibility="model-only"` ou uma semântica de manutenção equivalente, de modo que a projection não gere uma row visível de `userInput`. O view model de UI é proibido de farejar `userInput.text === "/compact"`; quando o campo estiver ausente em históricos antigos, a hydration do transcript da CLI normaliza para a visibilidade/origem/marcador canônicos antes de enviar.
 
-turn actions 逐行消费 `row.actions`。任何带 action 的 assistant row 都必须渲染 action 入口；
-不得用 `lastFlowRow`、turn 内数组位置或“最后一条 assistant”规则再次隐藏 CLI 已授权动作。
+Turn actions consome `row.actions` linha a linha. Toda row de assistant que tenha action precisa renderizar a entrada de action; não se pode usar `lastFlowRow`, a posição no array dentro do turno ou a regra de "último assistant" para esconder de novo ações que a CLI já autorizou.
 
-## Assistant Work History
+## Histórico de trabalho do assistant
 
-每个 product turn 先按 guided `userInput` 拆成 visual work segment，再在各 segment 内按以下规则拆分。该拆分只影响 UI 工作区，不创建新 `turnId` / `productTurnId`：
+Cada product turn é primeiro dividido em segmentos visuais de trabalho pelos `userInput` guiados e, dentro de cada segmento, dividido pelas regras a seguir. Essa divisão afeta apenas a área de trabalho da UI e não cria um novo `turnId` / `productTurnId`:
 
-- `latestAssistantTextRow`：该 turn 最后一条 `assistantText` row，作为最新正文展示。
-- `historyRows`：该 turn 中 latest assistant text 之前的 reasoning、toolCall、subagent、compact marker 和较早 assistantText row。
-- `tailRows`：该 turn 中 latest assistant text 之后的 boundary rows，例如 fork notice / goal verification。它们属于本轮结尾，但不是 assistant work history，不能被“已工作 N 秒”折叠到正文上方。
-- 如果没有 latest assistant text，则所有 assistant rows 都是 history rows，必须展开，避免出现只有“已工作”但没有内容的空 assistant。
-- 当前 running segment 必须展开 history；新的 guide 到达后，前一 segment 收口并可独立折叠，新 segment 使用自己的展开状态。
-- `completedInterrupted`、`failed`、`error` 异常终态必须强制展开 history，即使已经存在 interrupted / failed assistant partial；异常上下文不能隐藏在“已工作”折叠内。`completedSuccess` 继续遵循正常完成的默认折叠规则。
-- 冷恢复发现 transcript assistant message 缺少完成时间时，表示应用或 Agent 在 turn 收口前退出；hydration 必须将该 orphan turn 归一化为 `completedInterrupted`，禁止伪造 `completedSuccess` 后触发正常折叠。
-- assistant work history 的状态标签必须区分运行中、正常完成和中断：运行中显示“工作中 N 秒”，正常结束显示“已工作 N 秒”，`completedInterrupted` 的末段只显示“已停止”/`Stopped`，不得附带耗时。guide turn 优先消费 `turnHeader.workSegments` 的权威分段时间；无分段事实的普通/旧 snapshot 才回退到 turn 级 `activeMs`、`endedAt - startedAt` 或运行时 UI 时钟。
-- `turnHeader.executionKind` 是是否存在 Agent 工作生命周期的权威事实。`controlOnly` 轮只承载可见控制输入，不产生 work status；字段缺失的旧 snapshot 只在有真实 work row、running 或正工时时兼容派生。
-- `lightBoundary`（例如 model change）先从 assistant work rows 分离，再计算 work status；边界行本身不能把 control-only query 推成“工作中/已工作”。
+- `latestAssistantTextRow`: a última row `assistantText` do turno, exibida como o corpo mais recente.
+- `historyRows`: as rows de reasoning, toolCall, subagent, marcador de compactação e `assistantText` anteriores ao latest assistant text dentro do turno.
+- `tailRows`: as boundary rows posteriores ao latest assistant text dentro do turno, como aviso de fork / verificação de goal. Elas pertencem ao fechamento deste turno, mas não são histórico de trabalho do assistant e não podem ser recolhidas por "已工作 N 秒" acima do corpo.
+- Se não houver latest assistant text, todas as rows de assistant são history rows e devem ser abertas, evitando um assistant vazio que só mostra "已工作" sem conteúdo.
+- O segmento running atual deve abrir o history; quando um novo guide chega, o segmento anterior é fechado e pode ser recolhido de forma independente, e o novo segmento usa seu próprio estado de abertura.
+- Os estados terminais anormais `completedInterrupted`, `failed` e `error` devem forçar a abertura do history, mesmo já existindo um partial de assistant interrupted / failed; o contexto anormal não pode ficar escondido dentro do recolhimento "已工作". `completedSuccess` continua seguindo a regra de recolhimento padrão de conclusão normal.
+- Quando a recuperação a frio encontra uma mensagem de assistant do transcript sem tempo de conclusão, isso indica que o aplicativo ou o Agent saiu antes do fechamento do turno; a hydration precisa normalizar esse turno órfão para `completedInterrupted`, sendo proibido forjar `completedSuccess` e disparar o recolhimento normal.
+- O rótulo de estado do histórico de trabalho do assistant precisa distinguir execução, conclusão normal e interrupção: em execução mostra "工作中 N 秒", em encerramento normal mostra "已工作 N 秒", e a última parte de `completedInterrupted` mostra apenas "已停止" / `Stopped`, sem duração. Turnos com guide priorizam o tempo segmentado autoritativo de `turnHeader.workSegments`; apenas snapshots comuns ou antigos sem fato de segmentação recorreem ao `activeMs` de nível de turno, a `endedAt - startedAt` ou ao relógio de UI do runtime.
+- `turnHeader.executionKind` é o fato autoritativo sobre a existência de um ciclo de vida de trabalho do Agent. Turnos `controlOnly` carregam apenas inputs de controle visíveis e não produzem work status; snapshots antigos sem o campo só obtém derivação compatível quando há row real de trabalho, execução em andamento ou tempo positivo de trabalho.
+- `lightBoundary` (por exemplo, troca de modelo) é separado primeiro das rows de trabalho do assistant, e só então o work status é calculado; a própria linha de fronteira não pode empurrar uma query control-only para "工作中/已工作".
 
 ```text
 turn
@@ -79,7 +76,7 @@ turn
   tailRows(always after product-turn final assistant text)
 ```
 
-运行中标签的状态链路：
+A cadeia de estado do rótulo em execução:
 
 ```text
 ConversationSnapshot.rows
@@ -93,7 +90,7 @@ ConversationSnapshot.rows
        undefined       => 不渲染工作状态
 ```
 
-`/goal` 的可见 query 与真实 continuation 是两个产品 turn，但只有后者执行 Agent：
+A query visível de `/goal` e a continuação real são dois product turns, mas apenas a segunda executa o Agent:
 
 ```text
 model A completed
@@ -105,22 +102,22 @@ model A completed
        session running + one work segment status
 ```
 
-## 虚拟滚动边界
+## Limites da rolagem virtual
 
-虚拟滚动单位是 turn render unit，而不是 raw row。原因：
+A unidade de rolagem virtual é a turn render unit, e não a row bruta. Motivos:
 
-- user query 和它的 assistant work 不能被 `turnHeader` 或工具行拆散。
-- explore / agent / subagent 工具内部已经有自己的折叠和聚合语义，虚拟滚动不能进入这些聚合内部。
-- history collapsed 状态需要按 turn / assistant work key 记忆，不能按 transient row index 记忆。
+- A query do usuário e o seu trabalho de assistant não podem ser separados por um `turnHeader` ou por uma linha de ferramenta.
+- As ferramentas explore / agent / subagent já têm sua própria semântica interna de recolhimento e agregação, e a rolagem virtual não pode entrar dentro dessas agregações.
+- O estado de history recolhido precisa ser memorizado por turn / chave de trabalho do assistant, e não por índice transitório de row.
 
-## Explore 聚合与 reasoning 可见性
+## Agregação de Explore e visibilidade de reasoning
 
-Explore 是 assistant work 的 UI 聚合视图，不改变 `ConversationRow[]` 的原始顺序。聚合边界必须与当前消息流的 reasoning 可见性一致：
+Explore é uma visão de agregação de UI do trabalho do assistant e não altera a ordem original de `ConversationRow[]`. O limite de agregação precisa ser coerente com a visibilidade de reasoning do fluxo de mensagens atual:
 
-- 开启“显示思考过程”时，每条 reasoning 都可见，也是 Explore 的硬边界；reasoning 两侧的只读工具分别聚合。
-- 关闭“显示思考过程”时，每轮第一条 reasoning 仍按既有规则显示并保留边界；其余被隐藏的 reasoning 对 Explore 聚合透明，前后连续的只读工具合并为同一个 Explore。
-- 透明规则只适用于被 reasoning 开关隐藏的 reasoning row。可见 assistant text、可见 reasoning、非探索工具、subagent、timeline marker 等仍然结束当前 Explore，不能为了扩大聚合而重排原始行序。
-- 这是共享 UI view-model 语义，Desktop、Web 与手机远控使用同一结果；不得修改 conversation snapshot、`desktop-continuous` 或 `web-remote-replayable` 的消息边界。
+- Com "显示思考过程" ligado, todo reasoning é visível e também é um limite rígido de Explore; as ferramentas somente-leitura dos dois lados são agregadas separadamente.
+- Com "显示思考过程" desligado, o primeiro reasoning de cada turno ainda é exibido pelas regras existentes e preserva o limite; os demais reasonings ocultos são transparentes para a agregação de Explore, e as ferramentas somente-leitura consecutivas antes e depois são mescladas no mesmo Explore.
+- A regra de transparência vale apenas para rows de reasoning ocultas pelo interruptor de reasoning. Texto de assistant visível, reasoning visível, ferramentas fora de exploração, subagent, marcadores de timeline etc. ainda encerram o Explore atual, e a ordem original das linhas não pode ser reordenada para ampliar a agregação.
+- Essa é uma semântica compartilhada de view-model de UI, e Desktop, Web e o controle remoto do celular usam o mesmo resultado; não é permitido modificar as fronteiras de mensagem do conversation snapshot, do `desktop-continuous` ou do `web-remote-replayable`.
 
 ```text
 raw rows:       Explore(A) -> reasoning(2) -> Explore(B)
@@ -132,14 +129,14 @@ showReasoning: off               hidden / transparent
 render items:   Explore(A + B)
 ```
 
-## Reasoning 展开状态
+## Estado de expansão do reasoning
 
-消息流中的 reasoning row 是否显示，由“显示思考过程”设置和每轮首条 reasoning 规则决定；显示出来以后，其内容展开状态遵循统一的低干扰语义：
+Se a row de reasoning no fluxo de mensagens é exibida é decidido pela configuração "显示思考过程" e pela regra do primeiro reasoning de cada turno; depois de exibida, o estado de expansão do seu conteúdo segue uma semântica unificada de baixa interferência:
 
-- streaming 与 complete reasoning 初次出现时都默认收起，只展示“正在思考”或“思考”触发器。
-- 用户点击触发器后才展开内容；后续 streaming chunk 和 `streaming -> complete/interrupted` 状态迁移不能覆盖用户的手动展开/收起选择。
-- `isStreaming` 仍负责运行态文案和耗时统计，不再隐式等价于 `open=true`。
-- 展开状态属于共享 UI 本地交互，不写入 conversation snapshot，也不改变 Desktop continuous 或 Web remote replayable 行序。
+- Reasoning em streaming e reasoning completo aparecem inicialmente sempre recolhidos, mostrando apenas o gatilho "正在思考" ou "思考".
+- O conteúdo só é expandido depois que o usuário clica no gatilho; chunks de streaming posteriores e as transições de estado `streaming -> complete/interrupted` não podem sobrescrever a escolha manual de abrir/recolher do usuário.
+- `isStreaming` continua responsável pelo texto de estado de execução e pela contagem de duração e já não equivale implicitamente a `open=true`.
+- O estado de expansão pertence à interação local da UI compartilhada, não é gravado no conversation snapshot e não altera a ordem de linhas do Desktop continuous nem do Web remote replayable.
 
 ```text
 reasoning row visible
@@ -148,32 +145,32 @@ reasoning row visible
   -> streaming state updates preserve the user's choice
 ```
 
-## 状态面板
+## Painel de status
 
-v4 聊天右上角恢复旧 ChatView status panel 语义，不使用摘要 pills：
+O canto superior direito do chat v4 recupera a semântica do status panel do ChatView antigo e não usa pills de resumo:
 
-- Git 工具：worktree change summary、branch、commit/push/create branch actions。
-- Goal：当前目标状态。
-- Todo / Plan：优先使用 v4 `plan.items`；后续如果 v4 snapshot 补 `todoGroups`，再恢复 goal iteration todo。
-- Running：`backgroundWorks` 中 running 的 bash/subagent。
+- Ferramentas Git: resumo de mudanças do worktree, branch, ações de commit/push/create branch.
+- Goal: estado do objetivo atual.
+- Todo / Plan: usar prioritariamente `plan.items` do v4; se mais tarde o snapshot v4 receber `todoGroups`, restaurar o todo de iteração do goal.
+- Running: bash/subagent em execução entre `backgroundWorks`.
 
-状态面板是 UI 派生层，不修改 conversation stream、queue、owner command、desktop continuous 或 mobile replayable 语义。
+O painel de status é uma camada derivada de UI e não modifica a semântica do conversation stream, da queue, do owner command, do desktop continuous nem do mobile replayable.
 
-状态面板形态复用旧 ChatView 的 summary panel 交互，而不是一次性固定展开：
+A forma do painel de status reaproveita a interação do summary panel do ChatView antigo, em vez de uma expansão fixa de uma só vez:
 
-- 面板只有 `panel` / `mini` 两个可渲染形态；`auto` 是用户 override 为空时的解析策略，不是第三种 DOM。
-- 不再由 JavaScript 测量聊天容器宽度或自动切换 `panel` / `mini`；无用户 override 时默认解析为 `panel`，宽窄布局后续统一由 CSS 负责。
-- 展开态右上角菜单只显示“自动”，用于把 override 置回 `null`；手动 `panel` / `mini` 仍由面板的收起/展开按钮写入，不再显示“始终展开 / 始终收起”菜单选项。
-- `mini` 是同一个浮层 shell 的收起态，展示当前最重要的一行摘要：进行中的 todo / goal、running、Git diff、已完成 goal 或 todo progress。只要 goal section 有内容，`active`、`notSatisfied`、`paused`、`verifying` 与 `verified` 都必须保留可点击的 goal 摘要行，不能留下空 shell；标题与展开态共用 `summaryTitle.trim() || objective.trim()`，不能在收起态退化成长 objective 或空文本。
-- 展开态顶部保留标题、更多菜单、收起按钮；内部按 Git / Goal / Todo / Running 分区，每个分区可独立折叠。
-- 这个 override 属于 workspace shell UI 偏好，沿 `WorkspaceShellLayout -> V4WorkspaceChatArea -> WorkbenchPane -> SessionPane` 传递，不能落进 v4 conversation snapshot。
+- O painel tem apenas duas formas renderizáveis, `panel` e `mini`; `auto` é a estratégia de resolução quando o override do usuário está vazio, e não uma terceira DOM.
+- O JavaScript não mede mais a largura do contêiner do chat nem troca `panel` / `mini` automaticamente; sem override do usuário, o padrão resolve para `panel`, e os layouts largo e estreito passam a ser responsabilidade uniforme do CSS.
+- O menu no canto superior direito do estado expandido mostra apenas "自动", usado para devolver o override a `null`; os modos manuais `panel` / `mini` continuam sendo escritos pelos botões de recolher/expandir do painel, e as opções de menu "始终展开 / 始终收起" deixam de ser exibidas.
+- `mini` é o estado recolhido do mesmo shell flutuante e exibe a linha de resumo mais importante no momento: todo / goal em andamento, running, diff do Git, progresso de goal concluído ou de todo. Enquanto a seção de goal tiver conteúdo, `active`, `notSatisfied`, `paused`, `verifying` e `verified` devem todos preservar uma linha de resumo de goal clicável, sem deixar um shell vazio; o título compartilha `summaryTitle.trim() || objective.trim()` com o estado expandido e não pode degenerar no estado recolhido para um objective longo ou texto vazio.
+- O estado expandido mantém no topo o título, o menu de mais opções e o botão de recolher; por dentro ele é dividido em seções Git / Goal / Todo / Running, e cada seção pode ser recolhida de forma independente.
+- Esse override pertence às preferências de UI do workspace shell, é passado por `WorkspaceShellLayout -> V4WorkspaceChatArea -> WorkbenchPane -> SessionPane` e não pode cair dentro do conversation snapshot do v4.
 
-主聊天区走 `WorkspaceShellLayout -> V4WorkspaceChatArea -> WorkbenchPane -> SessionPane`。`V4WorkspaceChatArea` 必须把 shell 已经持有的 workspace Git summary、dirty file count、worktree change summary、active task change summary、summary panel variant 和 refresh handler 放进 primary pane 的 shell binding；`WorkbenchPane` 再只对 shell workspace pane 透传 workspace 级 Git/status props 给 `SessionPane`，其中 active task change summary 只透传给 primary pane。跨 workspace 的非 primary pane 不能复用当前 shell workspace 的 Git summary，避免分屏里展示错误仓库状态。
+A área principal de chat segue `WorkspaceShellLayout -> V4WorkspaceChatArea -> WorkbenchPane -> SessionPane`. `V4WorkspaceChatArea` precisa colocar no shell binding do pane principal o workspace Git summary, a contagem de arquivos dirty, o resumo de mudanças do worktree, o resumo de mudanças da tarefa ativa, a variante do summary panel e o refresh handler que o shell já mantém; e `WorkbenchPane` repassa as props de Git/status de nível de workspace apenas para o `SessionPane` do pane de workspace do shell, sendo que o resumo de mudanças da tarefa ativa é repassado somente ao pane principal. Um pane não principal de outro workspace não pode reaproveitar o Git summary do workspace atual do shell, evitando exibir o estado do repositório errado na tela dividida.
 
-Git Tools 只在 worktree `added + removed > 0` 时展示；clean repository 不能仅因为是 Git repository 而挂载 status panel。
+Git Tools só é exibido quando o worktree tem `added + removed > 0`; um repositório limpo não pode montar um status panel só por ser um repositório Git.
 
-## 多端边界
+## Limites entre plataformas
 
-- Desktop `desktop-continuous` 仍使用 direct continuous 主链路。
-- Mobile `web-remote-replayable` 仍由 replayable snapshot / gap 恢复，不因为 UI 虚拟滚动拉取全量历史。
-- `workspaceIdentity?.trim() || workspacePath` 只用于 workspace 身份隔离；文件展示和命令 cwd 仍使用 `workspacePath`。
+- O Desktop `desktop-continuous` continua usando a cadeia principal continuous direta.
+- O Mobile `web-remote-replayable` continua recuperado por snapshot / gap replayable, sem buscar o histórico completo por causa da rolagem virtual da UI.
+- `workspaceIdentity?.trim() || workspacePath` é usado apenas para o isolamento de identidade do workspace; a exibição de arquivos e o cwd dos comandos continuam usando `workspacePath`.

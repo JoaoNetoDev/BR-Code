@@ -1,128 +1,128 @@
-# Bash Read File State Implementation Plan
+# Plano de Implementação de Read File State no Bash
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:executing-plans para implementar este plano tarefa a tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 Bash runtime 维护 `readFileState`，修复 `Bash cat file` 后 `Edit` 仍报 `File has not been read yet` 的缺口，并补齐 Bash 修改已读文件后的 stale hint。
+**Objetivo:** Fazer o runtime do Bash manter `readFileState`, corrigindo a lacuna em que, depois de `Bash cat file`, o `Edit` ainda reporta `File has not been read yet`, e completando o stale hint para quando o Bash modifica um arquivo já lido.
 
-**Architecture:** 本次只在 agent/core 的 Bash tool runtime 层新增一个保守的 read-state producer，不改 prompt、provider-visible tool 列表、protocol、desktop、UI、remote control。`bashHandler` 在 foreground Bash 返回前先基于旧 read state 生成 stale hint，再按保守的读命令语义回填 Bash 读状态。
+**Arquitetura:** Desta vez adicionamos apenas um read-state producer conservador na camada de runtime da ferramenta Bash em agent/core, sem alterar prompt, lista de ferramentas visíveis ao provider, protocol, desktop, UI nem remote control. `bashHandler`, antes de retornar o Bash em foreground, gera primeiro o stale hint com base no read state antigo e depois preenche o read state do Bash conforme a semântica conservadora de comandos de leitura.
 
-**Tech Stack:** TypeScript、Vitest、`unbash`、`@zcode/contracts` 的 `FileSystemPort` / `ExecutionResult` / `BashOutput`、现有 `ReadFileStateMap`。
+**Stack técnico:** TypeScript, Vitest, `unbash`, `FileSystemPort` / `ExecutionResult` / `BashOutput` de `@zcode/contracts`, e o `ReadFileStateMap` existente.
 
-## Global Constraints
+## Restrições Globais
 
-- 本计划只在 Bash runtime 层补 read-state producer，不依赖 prompt 要求模型先 Read。
-- 本计划不修改 prompt（包括 `# Using your tools` 段落）。
-- 先跳过 seed 相关能力；不实现 `seed_read_state`。
-- 先跳过 NotebookEdit；不新增 Notebook 类工具状态。
-- 不修改 `packages/ui`，因此无需读取 `DESIGN.md`。
-- 不新增 protocol 字段；`staleReadFileStateHint` 已存在于 `BashOutput` contract。
-- 不把 Bash read-state metadata 持久化到 session store；初版只维护本 turn/runtime 内 `context.readFileState`。
-- 不自动提交 commit；如果执行者被用户明确要求提交，使用 Conventional Commits。
-- 完成代码改动后必须运行 `pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts`、`pnpm --filter @zcode/core typecheck`、`pnpm --filter @zcode/core lint`，最终按仓库约束运行 `pnpm typecheck` 和 `pnpm lint`。
+- Este plano adiciona apenas um read-state producer na camada de runtime do Bash e não depende de o prompt exigir que o modelo faça Read antes.
+- Este plano não modifica o prompt (incluindo o trecho `# Using your tools`).
+- Capabilities relacionadas a seed são adiadas; `seed_read_state` não é implementado.
+- NotebookEdit é adiado; nenhum estado de ferramenta do tipo Notebook é adicionado.
+- `packages/ui` não é modificado, portanto não é necessário ler `DESIGN.md`.
+- Nenhum campo de protocolo novo; `staleReadFileStateHint` já existe no contract `BashOutput`.
+- O metadata de read-state gerado pelo Bash não é persistido no session store; a primeira versão mantém apenas `context.readFileState` dentro do turn/runtime.
+- Nenhum commit automático; se o executor for explicitamente instruído a commitar, usa Conventional Commits.
+- Após concluir as alterações de código é obrigatório rodar `pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts`, `pnpm --filter @zcode/core typecheck` e `pnpm --filter @zcode/core lint`, e ao final rodar `pnpm typecheck` e `pnpm lint` conforme as restrições do repositório.
 
 ---
 
-## Phase 0: Scope And Spec
+## Fase 0: Escopo e Especificação
 
-**Purpose:** 先把行为契约留在 docs，再写代码，符合仓库 NL -> Code 约束。
+**Propósito:** Deixar primeiro o contrato de comportamento nos docs, antes de escrever código, conforme a restrição NL -> Code do repositório.
 
-**Files:**
+**Arquivos:**
 - Create: `docs/runtime-tools/bash-read-file-state.md`
 
 **Checklist:**
 
-- [ ] 新建 `docs/runtime-tools/bash-read-file-state.md`。
-- [ ] 在文档中写明结论：本次改动点是 Bash runtime read-state producer，不是 prompt 文案。
-- [ ] 写明 in scope：
-  - `Bash cat/head/tail/sed -n/grep` 成功且 Bash stdout 未截断后保守回填 `readFileState`。
-  - Bash 写类命令修改已读文件后生成 `staleReadFileStateHint`。
-- [ ] 写明 out of scope：
-  - `seed_read_state`。
-  - NotebookEdit。
-  - prompt `# Using your tools`。
-  - read-state metadata 持久化。
-- [ ] 写明执行顺序：
-  - Bash foreground command 完成。
-  - 构造 `BashOutput`。
-  - 先计算 stale hint，因为它必须基于命令执行前已经存在的 read-state。
-  - 再做 Bash read-state backfill。
-  - 返回最终 `BashOutput`。
+- [ ] Criar `docs/runtime-tools/bash-read-file-state.md`.
+- [ ] Escrever no documento a conclusão: o ponto de mudança desta rodada é o read-state producer do runtime do Bash, e não o texto do prompt.
+- [ ] Escrever o que está in scope:
+  - `Bash cat/head/tail/sed -n/grep` com sucesso e sem truncamento do stdout do Bash preenche `readFileState` de forma conservadora.
+  - Comandos Bash de escrita que modificam arquivos já lidos geram `staleReadFileStateHint`.
+- [ ] Escrever o que está out of scope:
+  - `seed_read_state`.
+  - NotebookEdit.
+  - O prompt `# Using your tools`.
+  - Persistência do metadata de read-state.
+- [ ] Escrever a ordem de execução:
+  - O comando Bash em foreground termina.
+  - O `BashOutput` é construído.
+  - O stale hint é calculado primeiro, porque ele precisa ser baseado no read-state que já existia antes da execução do comando.
+  - Depois é feito o backfill do read-state do Bash.
+  - O `BashOutput` final é retornado.
 
-**Suggested doc body:**
+**Corpo de doc sugerido:**
 
 ```markdown
-# Bash Read File State Runtime Contract
+# Contrato de Runtime de Read File State do Bash
 
-## 背景
+## Contexto
 
-ZCode 不依赖 `# Using your tools` 之类的 prompt 文案来要求模型先 Read，而是在 Bash runtime 内维护 read-state producer：保守识别的简单读类 Bash 命令会把文件内容写入 readFileState，使后续 Edit/Write 的 read-before-write guard 认为该文件已被读取。
+O ZCode não depende de textos de prompt como `# Using your tools` para exigir que o modelo faça Read antes; em vez disso, mantém um read-state producer dentro do runtime do Bash: comandos Bash de leitura simples, identificados de forma conservadora, gravam o conteúdo do arquivo no readFileState, de modo que o guard de read-before-write de Edit/Write considere que o arquivo já foi lido.
 
-## 本轮范围
+## Escopo desta rodada
 
-- 支持 Bash `cat`、`head`、`tail`、`sed -n`、`grep`/`egrep`/`fgrep` 的保守 read-state backfill；Bash stdout 或 FileSystemPort 读文件结果被截断时不回填。
-- 支持 Bash 写类命令修改已读文件后的 `staleReadFileStateHint`。
+- Suportar o backfill de read-state conservador para `cat`, `head`, `tail`, `sed -n` e `grep`/`egrep`/`fgrep` do Bash; quando o stdout do Bash ou o resultado de leitura de arquivo do FileSystemPort for truncado, não há backfill.
+- Suportar o `staleReadFileStateHint` para comandos Bash de escrita que modificam arquivos já lidos.
 
-## 非范围
+## Fora de escopo
 
-- 不实现 seed read state。
-- 不实现 NotebookEdit。
-- 不修改 prompt 或 provider-visible tool 列表。
-- 不持久化 Bash 产生的 read-state metadata。
+- Não implementar seed read state.
+- Não implementar NotebookEdit.
+- Não modificar o prompt nem a lista de ferramentas visíveis ao provider.
+- Não persistir o metadata de read-state gerado pelo Bash.
 
-## 运行时顺序
+## Ordem de runtime
 
-1. Bash foreground command 运行完成。
-2. runtime 先构造正常 `BashOutput`。
-3. 若命令属于写类命令，扫描执行前已有的 readFileState，发现 mtime 在 Bash 开始后推进则追加 stale hint；hint 文案展示相对 cwd 的前 5 个路径，超出时追加 `and N more`，并使用 `file/files` 单复数。
-4. 若命令属于保守识别的读类 Bash 命令，且 Bash stdout 未截断，runtime 重新从 FileSystemPort 读取真实文件并写入 readFileState；若 FileSystemPort 读文件结果被截断，同样跳过回填，避免把模型没看到的完整文件伪装成已读。
-5. background、image output、interrupted 不产生 stale hint，也不回填 read-state。
-6. 非语义失败的 provider-error 不产生 stale hint，也不回填 read-state；`grep`/`egrep`/`fgrep` 仅在 exit code 为 0 时回填。
+1. O comando Bash em foreground termina a execução.
+2. O runtime constrói primeiro o `BashOutput` normal.
+3. Se o comando for um comando de escrita, o runtime varre o readFileState existente antes da execução e, ao detectar que algum mtime avançou depois do início do Bash, acrescenta o stale hint; o texto do hint exibe os 5 primeiros caminhos relativos ao cwd, acrescentando `and N more` quando houver mais, e usa `file`/`files` no singular ou plural.
+4. Se o comando for um comando de leitura do Bash identificado de forma conservadora e o stdout do Bash não estiver truncado, o runtime relê o arquivo real pelo FileSystemPort e o grava no readFileState; se o resultado de leitura de arquivo do FileSystemPort estiver truncado, o backfill também é pulado, evitando mascarar como lido um arquivo completo que o modelo não viu.
+5. background, image output e interrupted não produzem stale hint nem fazem backfill de read-state.
+6. Um provider-error que não seja falha semântica não produz stale hint nem faz backfill de read-state; `grep`/`egrep`/`fgrep` só fazem backfill quando o exit code é 0.
 ```
 
-**Validation:**
+**Validação:**
 
 ```bash
 git diff -- docs/runtime-tools/bash-read-file-state.md
 ```
 
-Expected: 只新增上述 spec 文档，无 runtime 代码变更。
+Esperado: apenas o novo documento de spec acima, sem alterações de código de runtime.
 
 ---
 
-## Phase 1: Failing Tests
+## Fase 1: Testes que Falham
 
-**Purpose:** 先用单测锁定真实缺口和边界，避免只补 `cat` 一个点。
+**Propósito:** Travar primeiro com testes unitários a lacuna real e suas bordas, evitando corrigir apenas o ponto do `cat`.
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
 
-**Test helper changes:**
+**Alterações nos test helpers:**
 
-- [ ] 从 `@zcode/contracts` 引入 `FileSystemPort`、`FileSystemReadTextResult`、`FileSystemStatResult`。
-- [ ] 从 `../src/tool/read-file-state.js` 引入 `createReadFileStateKey`。
-- [ ] 从 `../src/tool/types.js` 引入 `ReadFileStateMap` 类型。
-- [ ] 扩展 `contextWith` options：
+- [ ] Importar `FileSystemPort`, `FileSystemReadTextResult` e `FileSystemStatResult` de `@zcode/contracts`.
+- [ ] Importar `createReadFileStateKey` de `../src/tool/read-file-state.js`.
+- [ ] Importar o tipo `ReadFileStateMap` de `../src/tool/types.js`.
+- [ ] Estender as options de `contextWith`:
 
 ```ts
 fileSystemPort?: FileSystemPort;
 readFileState?: ReadFileStateMap;
 ```
 
-- [ ] 在返回的 `ToolExecutionContext` 中透传：
+- [ ] Encaminhar no `ToolExecutionContext` retornado:
 
 ```ts
 fileSystemPort: options.fileSystemPort,
 readFileState: options.readFileState,
 ```
 
-- [ ] 扩展 `executionResult` options，允许测试设置开始时间：
+- [ ] Estender as options de `executionResult`, permitindo ao teste definir o horário de início:
 
 ```ts
 startedAt?: Date;
 completedAt?: Date;
 ```
 
-- [ ] 将 `executionResult` 内的时间改成：
+- [ ] Trocar o tempo dentro de `executionResult` por:
 
 ```ts
 const now = new Date();
@@ -130,14 +130,14 @@ const startedAt = options.startedAt ?? now;
 const completedAt = options.completedAt ?? startedAt;
 ```
 
-并返回：
+e retornar:
 
 ```ts
 startedAt,
 completedAt,
 ```
 
-**Add helper in test file:**
+**Adicionar helper no arquivo de teste:**
 
 ```ts
 function memoryFileSystemPort(
@@ -191,16 +191,16 @@ function memoryFileSystemPort(
 }
 ```
 
-**Test cases to add under `describe("bashHandler", ...)`:**
+**Casos de teste a adicionar dentro de `describe("bashHandler", ...)`:**
 
 - [ ] `it("backfills readFileState from successful cat before Edit", async () => { ... })`
   - Setup:
     - `filePath = resolve(defaultCommandRoot, ".env.example")`
     - `readFileState = new Map()`
     - `fileSystemPort = memoryFileSystemPort({ [filePath]: { content: "FOO=bar\n", mtimeMs: 1000 } })`
-    - `executionPort.run` returns `status: "completed"`, `exitCode: 0`, `stdout: "FOO=bar\n"`
-  - Run `bashHandler({ command: "cat .env.example" }, contextWith(...))`
-  - Assert:
+    - `executionPort.run` retorna `status: "completed"`, `exitCode: 0`, `stdout: "FOO=bar\n"`
+  - Executa `bashHandler({ command: "cat .env.example" }, contextWith(...))`
+  - Asserções:
     - `readFileState.get(createReadFileStateKey(filePath, 1, undefined))?.content === "FOO=bar\n"`
     - `offset === undefined`
     - `limit === undefined`
@@ -208,19 +208,19 @@ function memoryFileSystemPort(
     - `mtimeMs === 1000`
 
 - [ ] `it("backfills ranged readFileState for head tail and sed print commands", async () => { ... })`
-  - Use content `"a\nb\nc\nd\ne\n"`.
-  - Run separate cases:
-    - `head -n 2 fixture.txt` -> content `"a\nb"`、offset `1`、limit `2`
-    - `tail -n 2 fixture.txt` -> content `"d\ne"`、offset `4`、limit `2`
-    - `sed -n '2,3p' fixture.txt` -> content `"b\nc"`、offset `2`、limit `2`
-  - Each case uses a fresh `readFileState`.
+  - Usa o conteúdo `"a\nb\nc\nd\ne\n"`.
+  - Executa casos separados:
+    - `head -n 2 fixture.txt` -> content `"a\nb"`, offset `1`, limit `2`
+    - `tail -n 2 fixture.txt` -> content `"d\ne"`, offset `4`, limit `2`
+    - `sed -n '2,3p' fixture.txt` -> content `"b\nc"`, offset `2`, limit `2`
+  - Cada caso usa um `readFileState` novo.
 
 - [ ] `it("backfills full readFileState for grep only when grep exits zero", async () => { ... })`
-  - Exit code `0` for `grep needle fixture.txt` writes full file content, offset/limit undefined.
-  - Exit code `1` for `grep missing fixture.txt` does not write read-state.
+  - Exit code `0` para `grep needle fixture.txt` grava o conteúdo completo do arquivo, com offset/limit indefinidos.
+  - Exit code `1` para `grep missing fixture.txt` não grava read-state.
 
 - [ ] `it("does not backfill readFileState for complex or unsafe Bash read commands", async () => { ... })`
-  - Assert no read-state for:
+  - Asserta ausência de read-state para:
     - `cat fixture.txt | head`
     - `cat fixture.txt > out.txt`
     - `cat "$TARGET"`
@@ -229,7 +229,7 @@ function memoryFileSystemPort(
     - `head -n 0 fixture.txt`
 
 - [ ] `it("emits stale read hint when a write-like Bash command modifies a previously read file", async () => { ... })`
-  - Prepopulate read state:
+  - Pré-popula o read state:
 
 ```ts
 readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
@@ -244,39 +244,39 @@ readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
 ```
 
   - `executionResult.startedAt = new Date(1500)`
-  - `fileSystemPort.stat` returns `mtimeMs = 2000`
-  - command: `pnpm format`
-  - Assert output contains:
+  - `fileSystemPort.stat` retorna `mtimeMs = 2000`
+  - comando: `pnpm format`
+  - Asserta que a saída contém:
 
 ```text
 [This command modified 1 file you've previously read: fixture.ts. Call Read before editing.]
 ```
 
-  - Assert `bashToolEntry.formatModelContent?.(output)` also contains the hint text.
+  - Asserta que `bashToolEntry.formatModelContent?.(output)` também contém o texto do hint.
 
 - [ ] `it("does not emit stale hint when write-like Bash exits with provider error", async () => { ... })`
-  - Cover provider-error path with `status: "failed"`, `exitCode: 2`, `command: "pnpm format"` and a newer mtime.
-  - Assert stale hint is not appended.
+  - Cobre o caminho de provider-error com `status: "failed"`, `exitCode: 2`, `command: "pnpm format"` e um mtime mais novo.
+  - Asserta que o stale hint não é acrescentado.
 
-- [ ] 多个已读文件变更时的 stale hint 路径格式测试
-  - Cover 6 changed read files.
-  - Assert output uses relative cwd paths, `files`, first 5 paths, and `and 1 more`.
+- [ ] Teste do formato de caminho do stale hint quando vários arquivos já lidos mudam
+  - Cobre 6 arquivos lidos alterados.
+  - Asserta que a saída usa caminhos relativos ao cwd, `files`, os 5 primeiros caminhos e `and 1 more`.
 
-**Run failing tests:**
+**Rodar os testes que falham:**
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts
 ```
 
-Expected before implementation: the new read-state/stale producer tests fail because Bash handler currently never writes `readFileState` and never fills `staleReadFileStateHint`.
+Esperado antes da implementação: os novos testes de read-state/stale producer falham porque o handler do Bash hoje nunca escreve `readFileState` nem preenche `staleReadFileStateHint`.
 
 ---
 
-## Phase 2: Bash Read-State Helper
+## Fase 2: Helper de Read-State do Bash
 
-**Purpose:** 新增一个小而集中的 runtime helper，承载保守的命令识别、文件读取、read-state 写入、stale hint 生成。
+**Propósito:** Adicionar um pequeno helper de runtime, centralizado, que carregue a identificação conservadora de comandos, a leitura de arquivos, a escrita de read-state e a geração do stale hint.
 
-**Files:**
+**Arquivos:**
 - Create: `apps/zcode-cli/packages/core/src/tool/handlers/bash-read-file-state.ts`
 
 **Imports:**
@@ -294,7 +294,7 @@ import { analyzeBashCommand, isBashCommandPermissionSafe, type BashCommandInvoca
 import { isBashProviderErrorStatus } from "./bash-semantics.js";
 ```
 
-**Public interfaces:**
+**Interfaces públicas:**
 
 ```ts
 interface BashReadFileSource {
@@ -313,7 +313,7 @@ export async function applyBashReadFileStateEffects(input: {
 }): Promise<void>;
 ```
 
-**Core execution contract:**
+**Contrato de execução principal:**
 
 ```ts
 export async function applyBashReadFileStateEffects(input: {
@@ -328,78 +328,78 @@ export async function applyBashReadFileStateEffects(input: {
 }
 ```
 
-**Shared guard:**
+**Guard compartilhado:**
 
-- [ ] Implement `shouldSkipBashReadFileStateEffects(output: BashOutput): boolean`:
-  - skip when `output.backgroundTaskId` exists
-  - skip when `output.isImage === true`
-  - skip when `output.interrupted === true`
-  - skip provider-error output; non-semantic shell failures produce neither stale hint nor read-state backfill
+- [ ] Implementar `shouldSkipBashReadFileStateEffects(output: BashOutput): boolean`:
+  - pula quando `output.backgroundTaskId` existe
+  - pula quando `output.isImage === true`
+  - pula quando `output.interrupted === true`
+  - pula a saída de provider-error; falhas de shell não semânticas não produzem nem stale hint nem backfill de read-state
 
-**Read command parser:**
+**Parser de comandos de leitura:**
 
-- [ ] Implement `collectBashReadFileSources(command: string): BashReadFileSource[]`.
-- [ ] First reject command if raw text contains any of `|`, `<`, `>`.
-- [ ] Use `analyzeBashCommand(command)`.
-- [ ] Reject if `!isBashCommandPermissionSafe(analysis)`.
-- [ ] Reject if `analysis.hasRedirects`.
-- [ ] For every command invocation:
-  - Try `parseSedPrintSource`.
-  - Else `parseCatSource`.
-  - Else `parseHeadSource`.
-  - Else `parseTailSource`.
-  - Else, only when `analysis.commands.length === 1`, try `parseGrepSource`.
-  - Else, if multi-command and command text matches `/^\s*(echo|printf|true|:)\b/`, ignore that segment.
-  - Else return `[]`.
+- [ ] Implementar `collectBashReadFileSources(command: string): BashReadFileSource[]`.
+- [ ] Primeiro rejeita o comando se o texto bruto contiver `|`, `<` ou `>`.
+- [ ] Usa `analyzeBashCommand(command)`.
+- [ ] Rejeita se `!isBashCommandPermissionSafe(analysis)`.
+- [ ] Rejeita se `analysis.hasRedirects`.
+- [ ] Para cada invocação de comando:
+  - Tenta `parseSedPrintSource`.
+  - Senão `parseCatSource`.
+  - Senão `parseHeadSource`.
+  - Senão `parseTailSource`.
+  - Senão, apenas quando `analysis.commands.length === 1`, tenta `parseGrepSource`.
+  - Senão, se houver múltiplos comandos e o texto do comando corresponder a `/^\s*(echo|printf|true|:)\b/`, ignora esse segmento.
+  - Senão retorna `[]`.
 
-**Command-specific rules:**
+**Regras específicas por comando:**
 
 - [ ] `cat`
-  - command name must be `cat`
-  - accepted flags: `-n`, `--number`
-  - exactly one non-flag file path
-  - reject file path `-`
-  - returns full source: no offset/limit
+  - o nome do comando deve ser `cat`
+  - flags aceitas: `-n`, `--number`
+  - exatamente um caminho de arquivo sem flag
+  - rejeita o caminho de arquivo `-`
+  - retorna a source completa: sem offset/limit
 
 - [ ] `head`
-  - command name must be `head`
-  - default count `10`
-  - accepted count forms:
+  - o nome do comando deve ser `head`
+  - contagem padrão `10`
+  - formas de contagem aceitas:
     - `-n N`
     - `--lines N`
     - `--lines=N`
     - `-nN`
     - `-N`
-  - count must be positive integer
-  - exactly one file path, not `-`
-  - returns `{ startLine: 1, endLine: count }`
+  - a contagem deve ser um inteiro positivo
+  - exatamente um caminho de arquivo, diferente de `-`
+  - retorna `{ startLine: 1, endLine: count }`
 
 - [ ] `tail`
-  - command name must be `tail`
-  - same count parser as `head`
-  - returns `{ tailLines: count }`
+  - o nome do comando deve ser `tail`
+  - mesmo parser de contagem do `head`
+  - retorna `{ tailLines: count }`
 
 - [ ] `sed`
-  - command name must be `sed`
-  - must include quiet mode: `-n`, any short flag containing `n`, `--quiet`, or `--silent`
-  - reject `-i`, any short flag containing `i`, `--in-place`, `--in-place=*`, `-e`, `--expression`
-  - accepted print expressions:
+  - o nome do comando deve ser `sed`
+  - precisa incluir o modo silencioso: `-n`, qualquer flag curta contendo `n`, `--quiet` ou `--silent`
+  - rejeita `-i`, qualquer flag curta contendo `i`, `--in-place`, `--in-place=*`, `-e`, `--expression`
+  - expressões de print aceitas:
     - `/^(\d+)p$/`
     - `/^(\d+),(\d+)p$/`
-  - exactly one expression and one file path
-  - returns matching start/end lines
+  - exatamente uma expressão e um caminho de arquivo
+  - retorna as linhas inicial e final correspondentes
 
 - [ ] `grep` / `egrep` / `fgrep`
-  - command name must be one of `grep`, `egrep`, `fgrep`
-  - only accepted when the whole Bash command has exactly one command invocation
-  - exactly one pattern argument and one file path
-  - reject file path `-`
-  - reject file path containing glob characters matched by `/[*?[{]/`
-  - accepted flags:
-    - short combined flags matching `/^-[niwxEFGPHh]+$/`
-    - context short flags matching `/^-[ABC]\d+$/`
-    - context long flags matching `/^--(?:after-context|before-context|context)=\d+$/`
-    - `-A N`, `-B N`, `-C N` where `N` is digits
+  - o nome do comando deve ser um entre `grep`, `egrep`, `fgrep`
+  - só é aceito quando o comando Bash completo tem exatamente uma invocação de comando
+  - exatamente um argumento de padrão e um caminho de arquivo
+  - rejeita o caminho de arquivo `-`
+  - rejeita o caminho de arquivo contendo caracteres glob casaados por `/[*?[{]/`
+  - flags aceitas:
+    - flags curtas combinadas casaadas por `/^-[niwxEFGPHh]+$/`
+    - flags curtas de contexto casaadas por `/^-[ABC]\d+$/`
+    - flags longas de contexto casaadas por `/^--(?:after-context|before-context|context)=\d+$/`
+    - `-A N`, `-B N`, `-C N` onde `N` são dígitos
     - `--line-number`
     - `--ignore-case`
     - `--word-regexp`
@@ -412,15 +412,15 @@ export async function applyBashReadFileStateEffects(input: {
     - `--no-filename`
     - `--color=never`
     - `--color=auto`
-  - returns full source with `requiresExitZero: true`
+  - retorna a source completa com `requiresExitZero: true`
 
-**Backfill algorithm:**
+**Algoritmo de backfill:**
 
-- [ ] Implement `backfillReadFileStateFromBash`.
-- [ ] Return early if `shouldSkipBashReadFileStateEffects(output)`.
-- [ ] Return early if `!context.fileSystemPort || !context.readFileState`.
-- [ ] Collect sources and filter `source.requiresExitZero ? result.exitCode === 0 : true`.
-- [ ] Resolve every source file with:
+- [ ] Implementar `backfillReadFileStateFromBash`.
+- [ ] Retorna cedo se `shouldSkipBashReadFileStateEffects(output)`.
+- [ ] Retorna cedo se `!context.fileSystemPort || !context.readFileState`.
+- [ ] Coleta as sources e filtra `source.requiresExitZero ? result.exitCode === 0 : true`.
+- [ ] Resolve cada arquivo de source com:
 
 ```ts
 const resolvedPath = resolveWorkspacePath({
@@ -431,17 +431,17 @@ const resolvedPath = resolveWorkspacePath({
 });
 ```
 
-- [ ] Skip if `findLatestReadFileState(context.readFileState, resolvedPath)` returns an entry.
-- [ ] `stat` via `context.fileSystemPort.stat({ path: resolvedPath, trace }, { signal })`.
-- [ ] Skip if `stat.kind !== "file"`.
-- [ ] Skip if `stat.sizeBytes > 10 * 1024 * 1024`.
-- [ ] Re-check `context.abortSignal.aborted`; skip if aborted.
-- [ ] `readTextFile` via `context.fileSystemPort.readTextFile({ path: resolvedPath, maxBytes: 10 * 1024 * 1024, trace }, { signal })`.
-- [ ] Compute selected content:
-  - full source: whole content
-  - head/sed range: split on `\n`, `start = max(1, startLine)`, `end = max(start, endLine ?? start)`, skip when `start > lineCount`
-  - tail: split on `\n`, pop trailing empty line, skip when no lines, `count = min(tailLines, lineCount)`, `offset = lineCount - count + 1`, `limit = count`
-- [ ] Set `readFileState`:
+- [ ] Pula se `findLatestReadFileState(context.readFileState, resolvedPath)` retornar uma entrada.
+- [ ] Executa `stat` via `context.fileSystemPort.stat({ path: resolvedPath, trace }, { signal })`.
+- [ ] Pula se `stat.kind !== "file"`.
+- [ ] Pula se `stat.sizeBytes > 10 * 1024 * 1024`.
+- [ ] Verifica de novo `context.abortSignal.aborted`; pula se estiver abortado.
+- [ ] Executa `readTextFile` via `context.fileSystemPort.readTextFile({ path: resolvedPath, maxBytes: 10 * 1024 * 1024, trace }, { signal })`.
+- [ ] Calcula o conteúdo selecionado:
+  - source completa: todo o conteúdo
+  - intervalo head/sed: divide em `\n`, `start = max(1, startLine)`, `end = max(start, endLine ?? start)`, pula quando `start > lineCount`
+  - tail: divide em `\n`, remove a linha vazia final, pula quando não há linhas, `count = min(tailLines, lineCount)`, `offset = lineCount - count + 1`, `limit = count`
+- [ ] Define o `readFileState`:
 
 ```ts
 const entry: ReadFileStateEntry = {
@@ -458,15 +458,15 @@ const entry: ReadFileStateEntry = {
 context.readFileState.set(createReadFileStateKey(resolvedPath, offset ?? 1, limit), entry);
 ```
 
-- [ ] Do not set `sourceTool: "Bash"` in this phase. Existing type only allows `"Read" | "Write" | "Edit"` and compact projection treats undefined like read-compatible state; widening persistence is intentionally out of scope.
-- [ ] Catch and ignore per-file stat/read errors (best-effort).
+- [ ] Não definir `sourceTool: "Bash"` nesta fase. O tipo existente só permite `"Read" | "Write" | "Edit"` e a projeção compacta trata o indefinido como estado compatível com leitura; ampliar a persistência está fora de escopo de propósito.
+- [ ] Captura e ignora erros de stat/read por arquivo (best-effort).
 
-**Stale hint algorithm:**
+**Algoritmo do stale hint:**
 
-- [ ] Implement `createStaleReadFileStateHint`.
-- [ ] Return early if `shouldSkipBashReadFileStateEffects(output)`.
-- [ ] Return early if `!context.fileSystemPort || !context.readFileState`.
-- [ ] Return early unless command matches:
+- [ ] Implementar `createStaleReadFileStateHint`.
+- [ ] Retorna cedo se `shouldSkipBashReadFileStateEffects(output)`.
+- [ ] Retorna cedo se `!context.fileSystemPort || !context.readFileState`.
+- [ ] Retorna cedo a menos que o comando corresponda a:
 
 ```ts
 const WRITE_COMMAND_MARKERS = new RegExp(
@@ -494,21 +494,21 @@ const WRITE_COMMAND_MARKERS = new RegExp(
 );
 ```
 
-- [ ] For each read-state entry:
-  - stat `entry.path`
-  - compute `currentMtime = normalizeReadFileStateMtimeMs(stat.revision?.mtimeMs ?? stat.mtimeMs)`
-  - compute `entryMtime = normalizeReadFileStateMtimeMs(entry.mtimeMs)`
-  - include path only when `currentMtime > result.startedAt.getTime()` and `currentMtime > entryMtime`
-- [ ] Return undefined if no paths changed.
-- [ ] Return exact provider-facing string shape:
+- [ ] Para cada entrada de read-state:
+  - executa `stat` de `entry.path`
+  - calcula `currentMtime = normalizeReadFileStateMtimeMs(stat.revision?.mtimeMs ?? stat.mtimeMs)`
+  - calcula `entryMtime = normalizeReadFileStateMtimeMs(entry.mtimeMs)`
+  - inclui o caminho apenas quando `currentMtime > result.startedAt.getTime()` e `currentMtime > entryMtime`
+- [ ] Retorna undefined se nenhum caminho mudou.
+- [ ] Retorna exatamente o formato de string voltado ao provider:
 
 ```ts
 `[This command modified ${paths.length} ${paths.length === 1 ? "file" : "files"} you've previously read: ${displayPaths}${hiddenSuffix}. Call Read before editing.]`
 ```
 
-**Trace helper:**
+**Helper de trace:**
 
-- [ ] Add a local `createBashReadFileStateTrace(context: ToolExecutionContext): TraceContext` mirroring existing Bash/Read/Edit trace shape:
+- [ ] Adicionar um `createBashReadFileStateTrace(context: ToolExecutionContext): TraceContext` local, espelhando o formato de trace existente de Bash/Read/Edit:
 
 ```ts
 function createBashReadFileStateTrace(context: ToolExecutionContext): TraceContext {
@@ -522,35 +522,35 @@ function createBashReadFileStateTrace(context: ToolExecutionContext): TraceConte
 }
 ```
 
-**Run focused tests:**
+**Rodar os testes focados:**
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts
 ```
 
-Expected after Phase 2 only: tests still fail until handler integration imports and calls the helper.
+Esperado após apenas a Fase 2: os testes ainda falham até que a integração do handler importe e chame o helper.
 
 ---
 
-## Phase 3: Handler Integration
+## Fase 3: Integração no Handler
 
-**Purpose:** 把 helper 接到 foreground Bash 完成路径，保持 output formatter 和 image/background 分支不被污染。
+**Propósito:** Ligar o helper ao caminho de conclusão do Bash em foreground, mantendo o output formatter e os ramos de image/background sem contaminação.
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
-- Do not modify unless tests reveal necessity: `apps/zcode-cli/packages/core/src/tool/handlers/bash-output.ts`
-- Do not modify: `apps/zcode-cli/packages/contracts/src/tools/bash.ts`
-- Do not modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash-model-content.ts`
+- Não modificar a menos que os testes revelem necessidade: `apps/zcode-cli/packages/core/src/tool/handlers/bash-output.ts`
+- Não modificar: `apps/zcode-cli/packages/contracts/src/tools/bash.ts`
+- Não modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash-model-content.ts`
 
-**Steps:**
+**Passos:**
 
-- [ ] Import helper:
+- [ ] Importar o helper:
 
 ```ts
 import { applyBashReadFileStateEffects } from "./bash-read-file-state.js";
 ```
 
-- [ ] Replace current direct return at the end of `bashHandler`:
+- [ ] Substituir o return direto atual no final de `bashHandler`:
 
 ```ts
 return toBashOutput(result, parsed, context, {
@@ -559,7 +559,7 @@ return toBashOutput(result, parsed, context, {
 });
 ```
 
-with:
+por:
 
 ```ts
 const output = await toBashOutput(result, parsed, context, {
@@ -575,60 +575,60 @@ await applyBashReadFileStateEffects({
 return output;
 ```
 
-- [ ] Do not call helper in `parsed.run_in_background` branch.
-- [ ] Do not call helper for `emptyBashOutput`; backfill is tied to actual Bash execution, not empty command.
-- [ ] Keep stale hint generation before backfill inside the helper.
+- [ ] Não chamar o helper no ramo `parsed.run_in_background`.
+- [ ] Não chamar o helper para `emptyBashOutput`; o backfill está atrelado à execução real do Bash, e não a um comando vazio.
+- [ ] Manter a geração do stale hint antes do backfill dentro do helper.
 
-**Run focused tests:**
+**Rodar os testes focados:**
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts
 ```
 
-Expected: new Bash read-state and stale hint tests pass.
+Esperado: os novos testes de read-state do Bash e de stale hint passam.
 
 ---
 
-## Phase 4: Boundary Hardening
+## Fase 4: Endurecimento de Bordas
 
-**Purpose:** 防止实现只覆盖 happy path；把保守边界锁死。
+**Propósito:** Impedir que a implementação cubra apenas o happy path; travar as bordas conservadoras.
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
-- Modify if gaps are found: `apps/zcode-cli/packages/core/src/tool/handlers/bash-read-file-state.ts`
+- Modify se forem encontradas lacunas: `apps/zcode-cli/packages/core/src/tool/handlers/bash-read-file-state.ts`
 
 **Checklist:**
 
-- [ ] Add or verify a test that `cat -n fixture.txt` backfills full content.
-- [ ] Add or verify a test that `cat --number fixture.txt` backfills full content.
-- [ ] Add or verify a test that `head --lines=2 fixture.txt` works.
-- [ ] Add or verify a test that `head -2 fixture.txt` works.
-- [ ] Add or verify a test that `tail --lines 2 fixture.txt` works.
-- [ ] Add or verify a test that `sed --quiet '3p' fixture.txt` works.
-- [ ] Add or verify a test that `sed --expression '3p' fixture.txt` does not backfill.
-- [ ] Add or verify a test that `grep -n --color=never needle fixture.txt` backfills only on exit `0`.
-- [ ] Add or verify a test that `grep needle "*.txt"` does not backfill.
-- [ ] Add or verify a test that a file over 10MB does not backfill.
-- [ ] Add or verify a test that existing same-path read state is not overwritten.
-- [ ] Add or verify a test that stale hint ignores files whose current mtime is newer than read-state but not newer than Bash `startedAt`.
-- [ ] Add or verify a test that stale hint ignores files whose mtime cannot be stat'ed.
-- [ ] Add or verify a test that Bash stdout truncation skips read-state backfill.
+- [ ] Adicionar ou verificar um teste de que `cat -n fixture.txt` faz backfill do conteúdo completo.
+- [ ] Adicionar ou verificar um teste de que `cat --number fixture.txt` faz backfill do conteúdo completo.
+- [ ] Adicionar ou verificar um teste de que `head --lines=2 fixture.txt` funciona.
+- [ ] Adicionar ou verificar um teste de que `head -2 fixture.txt` funciona.
+- [ ] Adicionar ou verificar um teste de que `tail --lines 2 fixture.txt` funciona.
+- [ ] Adicionar ou verificar um teste de que `sed --quiet '3p' fixture.txt` funciona.
+- [ ] Adicionar ou verificar um teste de que `sed --expression '3p' fixture.txt` não faz backfill.
+- [ ] Adicionar ou verificar um teste de que `grep -n --color=never needle fixture.txt` só faz backfill com exit `0`.
+- [ ] Adicionar ou verificar um teste de que `grep needle "*.txt"` não faz backfill.
+- [ ] Adicionar ou verificar um teste de que um arquivo com mais de 10MB não faz backfill.
+- [ ] Adicionar ou verificar um teste de que o read state existente do mesmo caminho não é sobrescrito.
+- [ ] Adicionar ou verificar um teste de que o stale hint ignora arquivos cujo mtime atual é mais novo que o read-state mas não mais novo que o `startedAt` do Bash.
+- [ ] Adicionar ou verificar um teste de que o stale hint ignora arquivos cujo mtime não pode ser obtido por stat.
+- [ ] Adicionar ou verificar um teste de que o truncamento do stdout do Bash pula o backfill de read-state.
 
-**Run focused tests:**
+**Rodar os testes focados:**
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts
 ```
 
-Expected: all Bash handler tests pass.
+Esperado: todos os testes do handler do Bash passam.
 
 ---
 
-## Phase 5: Typecheck, Lint, And Final Review
+## Fase 5: Typecheck, Lint e Revisão Final
 
-**Purpose:** 确认改动没有越界，没有引入类型和 lint 问题。
+**Propósito:** Confirmar que a mudança não saiu dos limites e não introduziu problemas de tipo nem de lint.
 
-**Commands:**
+**Comandos:**
 
 ```bash
 pnpm --filter @zcode/core typecheck
@@ -639,48 +639,48 @@ pnpm lint
 
 **Checklist:**
 
-- [ ] `pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts` passes.
-- [ ] `pnpm --filter @zcode/core typecheck` passes.
-- [ ] `pnpm --filter @zcode/core lint` passes.
-- [ ] `pnpm typecheck` passes.
-- [ ] `pnpm lint` passes.
-- [ ] `git diff --stat` only includes:
+- [ ] `pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts` passa.
+- [ ] `pnpm --filter @zcode/core typecheck` passa.
+- [ ] `pnpm --filter @zcode/core lint` passa.
+- [ ] `pnpm typecheck` passa.
+- [ ] `pnpm lint` passa.
+- [ ] `git diff --stat` inclui apenas:
   - `docs/runtime-tools/bash-read-file-state.md`
   - `apps/zcode-cli/packages/core/src/tool/handlers/bash-read-file-state.ts`
   - `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
   - `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
-  - this plan file if it is part of the same branch.
-- [ ] Confirm no changes in:
+  - este arquivo de plano, se ele fizer parte do mesmo branch.
+- [ ] Confirmar que não há mudanças em:
   - `apps/zcode-cli/packages/contracts/src/tools/bash.ts`
   - `packages/ui`
-  - desktop/app/service/protocol files
-- [ ] Manually inspect provider-visible output for stale hint:
+  - arquivos de desktop/app/service/protocol
+- [ ] Inspecionar manualmente a saída voltada ao provider para o stale hint:
 
 ```text
 [This command modified 1 file you've previously read: fixture.ts. Call Read before editing.]
 ```
 
-- [ ] Manually inspect read-state effect for ticket path:
+- [ ] Inspecionar manualmente o efeito de read-state para o caminho do ticket:
   - `Bash cat .env.example`
-  - next `Edit .env.example`
-  - expected: no `File has not been read yet` solely because the previous read was via Bash `cat`.
+  - em seguida `Edit .env.example`
+  - esperado: nenhum `File has not been read yet` apenas porque a leitura anterior foi via `cat` do Bash.
 
 ---
 
-## Risk Notes
+## Notas de Risco
 
-- **命令解析风险:** Bash read-state parser 必须是保守白名单。复杂 Bash 不回填是可接受的，误回填不可接受。
-- **stale 顺序风险:** stale hint 必须先于 backfill 计算，否则同一个写类命令可能把自己的读状态污染进 stale 检查。
-- **range read 语义风险:** `head/tail/sed` 产生的是 range view，但不是 `isPartialView`。这与现有 Read range 语义一致；不要把它标成 partial，否则 Edit/Write 会继续拒绝。
-- **metadata 风险:** 不要在本轮扩展 `sourceTool` 或持久化 metadata。否则会牵涉 compact/resume 投影，不属于本次反馈根因。
-- **provider-error / truncated stdout 风险:** 非语义失败必须跳过 stale hint 和 read-state backfill；不要让失败 Bash 的 stdout 污染 read-state。Bash stdout 被截断时也必须跳过 backfill，避免把模型没看到的完整文件伪装成已读。`grep`/`egrep`/`fgrep` 仍通过 `requiresExitZero` 只在 exit code 为 0 时回填。
+- **Risco de parsing de comandos:** O parser de read-state do Bash precisa ser uma whitelist conservadora. Não fazer backfill em Bash complexo é aceitável; fazer backfill errado não é.
+- **Risco de ordem do stale:** O stale hint precisa ser calculado antes do backfill, senão um mesmo comando de escrita pode contaminar a verificação de stale com o próprio estado de leitura.
+- **Risco de semântica de leitura por intervalo:** `head/tail/sed` produzem uma range view, mas não um `isPartialView`. Isso é consistente com a semântica de intervalo do Read existente; não marcar como partial, senão Edit/Write continuarão rejeitando.
+- **Risco de metadata:** Não ampliar `sourceTool` nem persistir metadata nesta rodada. Isso arrastaria a projeção de compact/resume, que não é a causa raiz deste feedback.
+- **Risco de provider-error / stdout truncado:** Falhas não semânticas precisam pular o stale hint e o backfill de read-state; não deixar o stdout de um Bash que falhou contaminar o read-state. O truncamento do stdout do Bash também precisa pular o backfill, evitando mascarar como lido um arquivo completo que o modelo não viu. `grep`/`egrep`/`fgrep` continuam passando por `requiresExitZero`, fazendo backfill apenas quando o exit code é 0.
 
-## Implementation Acceptance
+## Aceitação da Implementação
 
-本计划完成后，ZCode 应满足：
+Após a conclusão deste plano, o ZCode deve atender a:
 
-- `Bash cat .env.example` 能让后续 `Edit .env.example` 通过 read-before-write guard。
-- `Bash head/tail/sed -n/grep` 的简单安全形态能按上述保守语义产生 read-state。
-- formatter/fixer 类 Bash 命令修改已读文件时，会向模型追加 `Call Read before editing` stale hint。
-- 不影响 background Bash、image Bash output、interrupted Bash output。
-- 不依赖 prompt 教模型“cat 不算 Read”；runtime 自身提供 read-state producer。
+- `Bash cat .env.example` permitir que um `Edit .env.example` posterior passe pelo guard de read-before-write.
+- As formas simples e seguras de `Bash head/tail/sed -n/grep` gerarem read-state conforme a semântica conservadora acima.
+- Comandos Bash de formatter/fixer modificarem arquivos já lidos e acrescentarem ao modelo o stale hint `Call Read before editing`.
+- Não afetar o Bash em background, o image output do Bash nem o output interrupted do Bash.
+- Não depender do prompt ensinar ao modelo que "cat não conta como Read"; o próprio runtime fornece o read-state producer.

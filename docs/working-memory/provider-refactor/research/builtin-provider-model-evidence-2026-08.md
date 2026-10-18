@@ -1,13 +1,12 @@
-# Built-in Provider 主推模型与能力证据（2026-08）
+# Evidências de modelos e capacidades dos principais modelos de Built-in Provider (2026-08)
 
-> 状态：初始 revision 4 发布证据；2026-09-01 已补充 Kimi 多模态校正
+> Status: evidência publicada da revisão inicial 4; em 2026-09-01 foi acrescentada a correção multimodal do Kimi
 >
-> 设计依据：[`zcode-builtin-provider-config.md`](../design/registry/zcode-builtin-provider-config.md)
+> Base de design: [`zcode-builtin-provider-config.md`](../design/registry/zcode-builtin-provider-config.md)
 
-## 1. 证据规则
+## 1. Regras de evidência
 
-本报告只记录发布者用于维护 Built-in Config 的依据，不向运行时 Config 增加 evidence、confidence 或
-provenance 字段。事实按以下顺序裁定：
+Este relatório registra apenas a base usada pelo publicador para manter a Built-in Config e não adiciona campos de evidence, confidence ou provenance à Config de runtime. Os fatos são decididos nesta ordem:
 
 ```text
 ZCode 产品或账号服务的已确认契约
@@ -22,32 +21,31 @@ Models API 实时成功响应（若厂商提供）
 第三方兼容场景的保守推断
 ```
 
-- 官网明确声明的 context、max output、输入格式和协议能力可以进入对应 Model/API/Endpoint Rule。
-- ZCode 套餐链路额外提供的能力进入 Provider-scoped Rule，不能反向改写原生模型事实。
-- Models API 文档示例只证明响应形状，不代替带当前访问材料的实时目录。
-- 官网未列出的候选模型可以为第三方兼容服务保留保守规则；目标官方 Endpoint 未确认前不默认启用。
-- 请求接受某字段、忽略某内容或没有报错，不等于模型消费了该输入，也不构成能力证据。
-- “JSON Output”或 JSON Object 不等于严格 JSON Schema；当前字段
-  `supportsJsonSchemaOutput` 只在已证明严格 Schema 的线路上开启；字段改名已由 Todo74 承接 Todo39 完成。
+- Contexto, max output, formato de entrada e capacidades de protocolo declarados explicitamente no site oficial podem entrar na Rule correspondente de Model/API/Endpoint.
+- Capacidades oferecidas adicionalmente pela cadeia de planos ZCode entram em uma Rule de escopo de Provider e não podem reescrever retroativamente os fatos nativos do modelo.
+- Exemplos na documentação da Models API provam apenas o formato da resposta e não substituem o catálogo em tempo real com o material de acesso atual.
+- Modelos candidatos não listados no site oficial podem manter regras conservadoras para serviços compatíveis de terceiros; enquanto o Endpoint oficial alvo não for confirmado, não são habilitados por padrão.
+- O fato de a requisição aceitar um campo, ignorar um conteúdo ou não gerar erro não significa que o modelo consumiu aquela entrada e não constitui evidência de capacidade.
+- "JSON Output" ou JSON Object não equivalem a JSON Schema estrito; o campo atual `supportsJsonSchemaOutput` só é habilitado em linhas cujo Schema estrito já foi provado; a renomeação do campo foi assumida pelo Todo74, que fechou o Todo39.
 
-## 2. 厂商结论矩阵
+## 2. Matriz de conclusões por fornecedor
 
-| 厂商                  | 本轮主推/独特模型                                      | 关键官方事实                                                                                            | 本轮默认启用 | 主要保守项                                                                          |
+| Fornecedor              | Modelo principal/único desta rodada                                      | Fatos oficiais principais                                                                          | Habilitado por padrão nesta rodada | Principais pontos conservadores                                                            |
 | --------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------- |
-| GLM / Z.ai / BigModel | `glm-5.3`、`glm-5.3-flash`、`glm-5v-turbo`             | 5.3 为文本旗舰；5.3 Flash 原生 Text/Image/Video；1M context、128K output                                | 三者         | 普通 Account API 的 5.3 不声明视觉；旧 5.x/4.x 默认关闭                             |
-| Coding Plan           | `GLM-5.3`、`GLM-5.3-Flash`、`GLM-5.2`、`GLM-5-Turbo`   | Individual/Team 静态成员；Plan 服务为成员提供 Image/Video 转写                                          | 四者         | 不推断 Audio/PDF；Start 仍由账号返回成员约束                                        |
-| Kimi                  | `kimi-k3`、`kimi-k2.7-code`、`kimi-k2.6`               | K3 1M 且支持 Image/Video；K2.7 Code 256K 且支持 Image/Video；K2.6 256K 且支持 Text/Image/Video          | 三者         | `k3` 支持 Image/Video；`k3-256k` 仅支持 Image；alias 与旧 K2.x/Moonshot V1 默认关闭 |
-| MiniMax               | `MiniMax-M3`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed` | M3 是当前最新主推，1M、Text/Image/Video，并明确支持中国区 Anthropic/OpenAI Endpoint；M2.7 为 204800     | 三者         | M3 最大输出仍取保守值；Models API 文档示例不是实时成员目录                          |
-| DeepSeek              | `deepseek-v4-flash`、`deepseek-v4-pro`                 | 1M context、384K output、Text、Tool；Anthropic/ChatCompletions 均支持；新版 Pro/Flash 支持 low/high/max | 两者         | JSON Output 不扩散为严格 Schema；Responses 的严格 Schema 按 API/Endpoint 单独处理   |
-| Qwen                  | `qwen3.8-max`、`qwen3.8-flash`                         | 1M context、131072 output、Text/Image/Video、Tool；两者支持严格 JSON Schema                             | 两者         | 旧 3.5/3.x 保留但默认关闭；原生搜索不等于应用侧自动启用搜索工具                     |
-| MiMo                  | `mimo-v2.5-pro`、`mimo-v2.5`                           | 两者 1M/128K；Pro 为文本；v2.5 支持 Image/Video/Audio；旧 v2 系列已退役                                 | 两者         | 结构化输出先按当前协议保守；Audio 仅进入静态事实，不新增本轮编码入口                |
-| OpenAI                | `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`         | 三档 1.05M/128K，Text/Image、Tools、严格输出；`gpt-5.6` 是 Sol alias                                    | 三个真实 ID  | alias 与旧 Codex 默认关闭，避免重复入口                                             |
-| Anthropic             | Fable 5、Opus 5、Sonnet 5、Haiku 4.5                   | 全部 Text/Image/Tool；前三者 1M/128K，Haiku 200K/64K                                                    | 四个独特档位 | PDF 是 Messages API 文档能力，保留当前事实；不扩散 Video/Audio                      |
-| xAI                   | `grok-4.6`、`grok-build-0.1`                           | 4.6 为 Text/Image、500K、Tool、严格输出；Build 为 256K coding 档                                        | 两者         | `grok-4.3` 默认关闭                                                                 |
+| GLM / Z.ai / BigModel | `glm-5.3`、`glm-5.3-flash`、`glm-5v-turbo`             | O 5.3 é o flagship de texto; o 5.3 Flash é nativo Text/Image/Video; 1M de contexto, 128K de saída                          | Os três         | O 5.3 da Account API comum não declara visão; 5.x/4.x antigos ficam desligados por padrão                          |
+| Coding Plan           | `GLM-5.3`、`GLM-5.3-Flash`、`GLM-5.2`、`GLM-5-Turbo`   | Membros estáticos Individual/Team; o serviço do Plan oferece transcrição Image/Video aos membros                                               | Os quatro         | Não inferir Audio/PDF; o Start ainda é restringido pelos membros retornados pela conta                                       |
+| Kimi                  | `kimi-k3`、`kimi-k2.7-code`、`kimi-k2.6`               | K3 com 1M e suporte a Image/Video; K2.7 Code com 256K e suporte a Image/Video; K2.6 com 256K e suporte a Text/Image/Video       | Os três         | `k3` suporta Image/Video; `k3-256k` só suporta Image; alias e K2.x/Moonshot V1 antigos ficam desligados por padrão |
+| MiniMax               | `MiniMax-M3`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed` | O M3 é o principal atual, 1M, Text/Image/Video, com suporte explícito a Endpoint Anthropic/OpenAI na China; M2.7 com 204800     | Os três         | O max output do M3 ainda adota um valor conservador; exemplos na doc da Models API não são catálogo de membros em tempo real                          |
+| DeepSeek              | `deepseek-v4-flash`、`deepseek-v4-pro`                 | 1M de contexto, 384K de saída, Text, Tool; suporta Anthropic/ChatCompletions; Pro/Flash novos suportam low/high/max             | Os dois         | JSON Output não se difunde como Schema estrito; Schema estrito de Responses é tratado por API/Endpoint separadamente   |
+| Qwen                  | `qwen3.8-max`、`qwen3.8-flash`                         | 1M de contexto, 131072 de saída, Text/Image/Video, Tool; ambos suportam JSON Schema estrito                             | Os dois         | 3.5/3.x antigos são mantidos mas desligados por padrão; busca nativa não equivale a ativar automaticamente a ferramenta de busca no lado da aplicação                     |
+| MiMo                  | `mimo-v2.5-pro`、`mimo-v2.5`                           | Ambos 1M/128K; o Pro é de texto; o v2.5 suporta Image/Video/Audio; a antiga série v2 já foi descontinuada                                 | Os dois         | Saída estruturada é conservadora no protocolo atual; Audio entra apenas como fato estático, sem nova entrada de codificação nesta rodada                |
+| OpenAI                | `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`         | Três faixas de 1.05M/128K, Text/Image, Tools, saída estrita; `gpt-5.6` é alias de Sol                                              | Os três IDs reais  | Alias e Codex antigos ficam desligados por padrão, evitando entradas duplicadas                                              |
+| Anthropic             | Fable 5, Opus 5, Sonnet 5, Haiku 4.5                   | Todos Text/Image/Tool; os três primeiros 1M/128K, Haiku 200K/64K                                                                              | As quatro faixas únicas | PDF é capacidade da doc da Messages API, mantendo o fato atual; sem difusão de Video/Audio                     |
+| xAI                   | `grok-4.6`、`grok-build-0.1`                           | O 4.6 é Text/Image, 500K, Tool, saída estrita; o Build é a faixa de coding com 256K                                                    | Os dois         | `grok-4.3` fica desligado por padrão                                                                 |
 
-## 3. Account 与套餐视觉边界
+## 3. Limite visual entre Account e planos
 
-普通 Account API 与 Coding Plan 必须分开：
+A Account API comum e o Coding Plan precisam ficar separados:
 
 ```text
 普通 Account API + glm-5.3
@@ -60,25 +58,24 @@ Start / Individual / Team Plan
 └─ Provider 服务为其实际成员提供 Image/Video 转写
 ```
 
-普通 Account API 接收含图片的请求但不报错，只能说明服务端容忍或忽略了内容，不能证明 `glm-5.3` 具备视觉。
-因此本轮保持它的原生视觉能力为 `false`。Plan 的视觉能力来自 ZCode 产品链路，是独立的 Provider 服务事实。
+A Account API comum aceita requisições com imagem sem gerar erro, o que só indica que o servidor tolera ou ignora o conteúdo e não prova que `glm-5.3` tenha visão.
+Por isso, nesta rodada a capacidade nativa de visão dele é mantida como `false`. A capacidade visual do Plan vem da cadeia de produto ZCode e é um fato independente do serviço do Provider.
 
-## 4. 本轮 Provider 成员与初始顺序
+## 4. Membros de Provider e ordem inicial desta rodada
 
-`builtinModelIds` 的物理顺序遵循“默认 enabled 在前、默认 disabled 在后”。这只是发布文件的初始顺序，
-运行时不新增排序器，用户拖动后的 Personal `modelOrder` 仍是用户顺序事实。
+A ordem física de `builtinModelIds` segue "default enabled primeiro, default disabled depois". Essa é apenas a ordem inicial do arquivo publicado; o runtime não adiciona um ordenador, e o `modelOrder` Personal após o arrasto do usuário continua sendo o fato de ordem do usuário.
 
-- GLM API：5.3、5.3 Flash、5V Turbo 在前，其余历史成员在后。
-- Individual/Team：5.3、5.3 Flash、5.2、5-Turbo。
-- Kimi：K3、K2.7 Code、K2.6 在前。
-- MiniMax：M3 在前；M2.7、M2.7 Highspeed 作为仍正常服务的速度档随后，三者默认启用。
-- Qwen：中国与国际 Provider 均以 3.8 Max、3.8 Flash 开头。
-- MiMo：2.5 Pro、2.5 在前。
-- OpenAI：Sol、Terra、Luna 在前，alias 与旧型号在后。
-- Anthropic：四个独特价格/速度档全部启用。
-- xAI：4.6、Build 在前，4.3 在后。
+- GLM API: 5.3, 5.3 Flash e 5V Turbo primeiro; os demais membros históricos depois.
+- Individual/Team: 5.3, 5.3 Flash, 5.2, 5-Turbo.
+- Kimi: K3, K2.7 Code e K2.6 primeiro.
+- MiniMax: M3 primeiro; M2.7 e M2.7 Highspeed em seguida como faixas de velocidade que ainda atendem normalmente, com os três habilitados por padrão.
+- Qwen: os Providers da China e internacional começam com 3.8 Max e 3.8 Flash.
+- MiMo: 2.5 Pro e 2.5 primeiro.
+- OpenAI: Sol, Terra e Luna primeiro; alias e modelos antigos depois.
+- Anthropic: as quatro faixas distintas de preço/velocidade, todas habilitadas.
+- xAI: 4.6 e Build primeiro; 4.3 depois.
 
-## 5. 官方资料
+## 5. Material oficial
 
 - GLM：[模型总览](https://docs.bigmodel.cn/cn/guide/start/model-overview)
 - Kimi：[API 模型选择](https://www.kimi.ai/help/kimi-api/api-model-selection)、[K3 发布说明](https://www.kimi.com/news/kimi-k3)、[K2.7 Code 模型说明](https://www.kimi.ai/resources/kimi-k2-7-code)、[Kimi Code 模型表](https://www.kimi.com/code/docs/en/kimi-code/models.html)
@@ -90,29 +87,24 @@ Start / Individual / Team Plan
 - Anthropic：[Models Overview](https://platform.claude.com/docs/en/models/overview)
 - xAI：[Grok 4.6](https://docs.x.ai/developers/models/grok-4.6)、[Structured Outputs](https://docs.x.ai/developers/model-capabilities/text/structured-outputs)
 
-## 6. 已知不完美与下一轮验证
+## 6. Imperfeições conhecidas e validação da próxima rodada
 
-本轮目标是形成比 revision 3 更可信的发布基线，不宣称完成带真实访问材料的 Endpoint 实测。后续模型验证 API
-应优先调用厂商 Models API，再验证接口未提供的能力：
+O objetivo desta rodada é formar uma linha de base publicada mais confiável que a revisão 3, e não reivindicar a conclusão de medições reais de Endpoint com material de acesso. A validação futura da API de modelos deve priorizar a chamada da Models API do fornecedor e depois validar as capacidades que a interface não oferece:
 
-1. 每个真实 Endpoint 与当前访问材料的模型列表、alias 及可选 capability 元数据；
-2. 三种 API Schema 下的 Tool、reasoning、MCS 与严格 JSON Schema；
-3. Image/Video/Audio/PDF 是否真的被消费，而不是仅被接受或忽略；
-4. max output、默认 reasoning 档位及服务端限制；
-5. 官方文档与账号产品接口发生漂移时的自动报告。
+1. A lista de modelos de cada Endpoint real com o material de acesso atual, seus aliases e os metadados opcionais de capability;
+2. Tool, reasoning, MCS e JSON Schema estrito nos três Schemas de API;
+3. Se Image/Video/Audio/PDF são realmente consumidos, e não apenas aceitos ou ignorados;
+4. Max output, a faixa padrão de reasoning e os limites do servidor;
+5. Relato automático de divergência entre a documentação oficial e a interface de produto da conta.
 
-其中 OpenAI-compatible Models API 通常只返回基础身份；Anthropic 官方 Models API 当前还可返回 token 上限、
-Image/PDF、Thinking、Effort 与 Structured Outputs 等能力。第三方兼容服务可能只实现子集，解析和证据采纳都
-必须按实际字段进行，不能按协议名称补齐。
+Nesses casos, a Models API compatível com OpenAI costuma retornar apenas a identidade básica; a Models API oficial da Anthropic ainda pode retornar, além do limite de tokens, capacidades como Image/PDF, Thinking, Effort e Structured Outputs. Serviços compatíveis de terceiros podem implementar apenas um subconjunto, e tanto a análise quanto a adoção de evidências precisam seguir os campos realmente presentes, sem completar pelo nome do protocolo.
 
-## 7. 2026-09-01 Kimi 证据校正
+## 7. Correção de evidências do Kimi em 2026-09-01
 
-本轮复查发现 revision 4 刷新时把“摘要未记录多模态”误当成了“不支持”，后续配置延续了这个错误。当前官方
-资料已经明确：
+A re-revisão desta rodada identificou que a atualização da revisão 4 confundiu "o resumo não registrou multimodal" com "não há suporte", e a configuração posterior deu continuidade a esse erro. O material oficial atual já é claro:
 
-- Kimi API 模型选择页声明 `kimi-k3` 具有原生视觉理解；K3 发布资料进一步明确原生架构理解文字、图像和视频；
-- Kimi K2.7 Code 官方 FAQ 明确声明 Text、Image、Video 输入；
-- Kimi Code 模型表声明 `k3` 支持 Image/Video，而 `k3-256k` 仅支持 Image。
+- A página de seleção de modelos da API do Kimi declara que `kimi-k3` tem compreensão visual nativa; o material de lançamento do K3 esclarece que a arquitetura nativa compreende texto, imagem e vídeo;
+- O FAQ oficial do Kimi K2.7 Code declara explicitamente entradas Text, Image e Video;
+- A tabela de modelos do Kimi Code declara que `k3` suporta Image/Video e que `k3-256k` suporta apenas Image.
 
-因此 revision 7 校正这三项事实。以后能力从已发布的 `true` 降为 `false` 时，必须有明确的负面证据或可复现
-请求结果，不能再以资料缺席作为依据。
+Portanto, a revisão 7 corrige esses três fatos. De agora em diante, quando uma capacidade publicada como `true` for rebaixada para `false`, será necessária evidência negativa explícita ou um resultado de requisição reproduzível; a ausência de material não pode mais servir de base.

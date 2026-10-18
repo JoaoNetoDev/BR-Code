@@ -205,16 +205,16 @@ interface ZhipuAccountAccessConfig {
 Explicação final do usuário: esta Config decide o que o ZCode acha que pode usar este modelo e como usá-lo na requisição; se há qualificação no final para usá-lo continua sendo decidido em conjunto pela conta e pelo lado remoto. Por isso faz sentido `entitled` estar no Provider Config.
 
 ```text
-内置 / 账号 / 个人配置
+Built-in / conta / configuracao pessoal
           |
           v
-Effective Provider Config（可以包含动态事实）
+Effective Provider Config (pode conter fatos dinamicos)
           |
           v
-ZCode 本地可用性判断与请求装配
+julgamento local de disponibilidade do ZCode e montagem da requisicao
           |
           v
-账号服务提供请求期访问材料 -> 模型服务端最终鉴权 / 授权
+o servico de conta fornece material de acesso em tempo de requisicao -> autorizacao final no servidor do modelo
 ```
 
 Inferências explicitamente revertidas:
@@ -538,7 +538,7 @@ A ordem original dentro de cada array é preservada, e a configuração do model
 ```text
 modelRules -> modelApiRules -> providerSiteRules
     -> templateModelRules -> builtinProviderModelRules
-    -> 个人普通规则 或 个人手动规则
+    -> regras pessoais comuns ou regras pessoais manuais
 ```
 
 Camada das regras exatas de modelo de template: a categoria é determinada pelo conjunto templateModelRules e o type duplicado deixa de ser salvo.
@@ -637,8 +637,8 @@ Limites de conversão da estrutura:
 
 ```text
 providerConfigRules
-    +-- templateRules -> 模板索引
-    +-- providerRules -> 按 templateId 查模板 -> 合成实例配置
+    +-- templateRules -> indice de templates
+    +-- providerRules -> busca o template por templateId -> combina a configuracao da instancia
 ```
 
 As propostas anteriores de ProviderDefinition, de ProviderConfigRules = ProviderConfigRule[] e de templates em um providerTemplates separado foram substituídas pela estrutura acima e não servem como plano de implementação paralelo.
@@ -663,11 +663,11 @@ O nome do Provider se chama providerName na ProviderConfigRule externa, e a opci
 5. Ler o nome existente, gerar um nome disponível e salvar ficam na mesma atualização de configuração, evitando que criações concorrentes obtenham nomes duplicados.
 
 ```text
-创建 Provider（当前语言）
-    -> 模板当前语言名称 / en-US / templateId
-    -> 同一次配置更新内检查重名、选取可用名称
-    -> 保存 providerName
-    -> 后续展示读取已保存名称
+criar Provider (idioma atual)
+    -> nome do template no idioma atual / en-US / templateId
+    -> verifica duplicidade e escolhe um nome disponivel dentro da mesma atualizacao de configuracao
+    -> salva providerName
+    -> exibicoes posteriores leem o nome salvo
 ```
 
 O que esta rodada confirma é o nome padrão do template e a deduplicação na criação; não se deriva disso uma especificação de uniformização de nomes de todo o repositório. Preserva-se o contexto das decisões históricas: primeiro propôs-se mudar label para name e movê-lo para fora, depois o usuário deixou claro que o template usa apenas um mapa de nomes e que o nome padrão da instância também é gerado a partir desse mapa, e por fim exigiu que o campo da instância se chamasse providerName de forma mais explícita, confirmando a deduplicação na criação antes de salvar.
@@ -741,7 +741,7 @@ Camada dos conjuntos de Model pessoal: a definição completa está em 6.2, grav
 Conjuntos da interface sem ? precisam existir no arquivo final, com um array vazio quando não houver entradas; por exemplo, a configuração pessoal mantém os três arrays providerRules, providerModelRules e manualProviderModelRules. providerOrder e defaultModelSelection continuam opcionais e não se escreve null neles só para completar os campos. Essa é a convenção de leitura e escrita das interfaces acima, e não um novo formato de configuração vazia.
 
 ```text
-内置文件
+arquivo built-in
 |-- schemaVersion
 |-- revision
 `-- config
@@ -755,7 +755,7 @@ Conjuntos da interface sem ? precisam existir no arquivo final, com um array vaz
         |-- templateModelRules[]
         `-- builtinProviderModelRules[]
 
-个人文件
+arquivo pessoal
 |-- schemaVersion
 `-- config
     |-- providerOrder[]
@@ -823,11 +823,11 @@ A leitura e a escrita após a fusão precisam carregar esse campo por completo: 
 A atualização do mesmo arquivo físico reaproveita a leitura-modificação-escrita com lock da configuração pessoal e a verificação de conflito, a revision persistente cobre a seleção padrão do arquivo e a notificação de mudança precisa chegar aos consumidores da seleção padrão. Não se especifica um campo revision extra nem um novo protocolo de lock, e se cada visão publica continua ou não continua a ser determinado pelo seu conteúdo real.
 
 ```text
-Provider / Model / 排序修改 --+
-默认选择设置 / 清除 ---------+-> 同一个人文件更新入口
-                                -> 持锁读取最新内容
-                                -> 修改目标成员，保留其他成员
-                                -> 原子写入并通知对应消费者
+Provider / Model / alteracao de ordenacao --+
+configuracao de selecao padrao / limpeza ---------+-> mesma entrada de atualizacao do arquivo pessoal
+    -> le o conteudo mais recente com trava
+    -> altera o membro alvo, preservando os demais membros
+    -> escrita atomica e notificacao aos consumidores correspondentes
 ```
 
 Um arquivo pessoal final sem defaultModelSelection significa que nenhum padrão foi especificado; não se pode, só porque esse membro está ausente, restaurar a cada inicialização uma escolha que o usuário já limpou. A importação de dados antigos e a verificação da existência do arquivo final precisam ser adaptadas em conjunto.
@@ -849,7 +849,7 @@ Camada de manutenção do programa: tudo unificado no diretório runtime/provide
 |-- bot-state.v3.json
 `-- runtime/
     `-- provider/
-        |-- <平台>/<应用版本>/<服务端地址标识>/
+|-- <plataforma>/<versao do app>/<identificador do endereco do servidor>/
         |   |-- zcode-builtin.json
         |   `-- zcode-builtin-refresh.json
         |-- provisioning.json
@@ -917,14 +917,14 @@ Conclusão da review: a comparação entre números novos e antigos da configura
 1. O identificador embutido de runtime inclui o escopo da origem. Hoje o snapshotFromRelease só produz zcode-builtin:<número de publicação>, e Endpoints diferentes têm caches independentes e podem ter o mesmo número de publicação. Quando os dois endereços têm o mesmo número de configuração e conteúdos diferentes, depois da troca a Source já leu o conteúdo novo, mas o Registry pula a publicação porque o identificador combinado não mudou. O identificador de runtime deve incluir a origem de Endpoint normalizada e atravessar o embutido, a configuração combinada e o identificador de base da Account; a revision numérica de publicação do arquivo e as regras de comparação permanecem. A passagem de origem do Source / Worker de arquivo direto precisa ser conferida junto, e não é possível complementar a refresh apenas em uma tela.
 
 ```text
-地址 A：revision 20，model-a
+Endereco A: revision 20, model-a
                |
-               | 切换到已有缓存的地址 B
+| alternar para o endereco B que ja esta em cache
                v
-地址 B：revision 20，model-b
+Endereco B: revision 20, model-b
                |
-当前复现：Source = model-b，Registry = model-a
-修复目标：来源改变后运行时标识改变，Registry 发布 model-b
+Reproducao atual: Source = model-b, Registry = model-a
+Objetivo da correcao: quando a origem muda, o identificador de runtime muda e o Registry publica model-b
 ```
 
 2. Remover o sourceRevision do envelope de distribuição de Provider. Hoje o campo é apenas calculado e transmitido, sem nenhum consumidor usá-lo para decidir; a deduplicação no destino usa o syncId. Remover em conjunto o membro correspondente do schema / do tipo derivado e a lógica de cálculo dedicada, mantendo a deduplicação pelo syncId que é de fato usada e o hash de conteúdo necessário para a verificação de consistência da leitura da configuração pessoal.
@@ -1032,16 +1032,16 @@ A fusão da seleção padrão não é uma simples renomeação: a gravação, a 
 Aqui personalConfig representa o snapshot inteiro da configuração pessoal da origem e não um patch parcial; quando a origem não tem defaultModelSelection, o destino também não preserva o padrão antigo após aplicar. O rollback correspondente usa o arquivo pessoal fundido como um único snapshot antes/depois da escrita, mantendo a proteção existente de "se foi modificado por outra operação no meio, não sobrescreve"; não se pode reverter regras e seleção padrão em dois rollbacks separados, o que faria uma sobrescrita do arquivo inteiro pela outra. Isso difere da semântica de preservar membros não modificados na edição comum de campos.
 
 ```text
-源端个人配置（含 defaultModelSelection）
+configuracao pessoal da origem (contem defaultModelSelection)
             |
             v
-同一信封 -> 目标端按 syncId 查重
+mesmo envelope -> o lado de destino busca duplicidade por syncId
                        |
-                       +-- 已成功：返回既有结果
+    +-- ja executado com sucesso: retorna o resultado existente
                        |
-                       `-- 未执行：应用配置 / 设置 / 凭据并校验
-                                      |-- 成功：保存 records
-                                      `-- 失败：按实际写入范围回滚
+    `-- nao executado: aplica configuracao / settings / credenciais e valida
+        |-- sucesso: salva os records
+        `-- falha: reverte conforme o escopo real da escrita
 ```
 
 Evidências: [controle de refresh](../../../../packages/provider-node/src/zcode-builtin-remote-synchronizer.ts), [schema de distribuição compartilhado](../../../../packages/shared/src/provider-provisioning.ts), [envio](../../../../packages/services/src/model-provider/providerProvisioningSource.ts) e [recebimento / rollback / registro de estado](../../../../packages/services/src/model-provider/providerProvisioningTarget.ts).
@@ -1100,9 +1100,9 @@ Tomando como escopo "a transformação de Provider / ModelSelection em comparaç
 O que ainda não foi atingido é "implementação concluída, pronta para lançamento": a implementação atual ainda é a antiga, e as transformações de campos/arquivos e o problema de revision já reproduzido não foram implementados. Antes do lançamento é preciso provar com resultados reais que uma instalação nova escreve o formato final e que os dados já publicados no staging migram direto para o mesmo formato final; não é exigida compatibilidade com os formatos intermediários não publicados deste branch. Essa é a verificação de implementação de decisões já tomadas, e não continuar projetando outro schema.
 
 ```text
-全新安装 --------------------> 最终格式
-staging 已发布数据 --升级----> 同一最终格式
-本分支未发布中间格式 --------> 不要求兼容
+instalacao totalmente nova --------------------> formato final
+dados ja publicados em staging --upgrade----> o mesmo formato final
+formato intermediario nao publicado neste branch --------> sem exigencia de compatibilidade
 ```
 
 A aceitação da implementação se concentra em três trabalhos concretos: aplicar o schema / a leitura e escrita / os consumidores conforme este documento; verificar que a atualização do staging e inicializações repetidas não perdem nem ressuscitam configuração antiga; verificar a distribuição e o rollback da seleção padrão fundida e a correção da troca de Endpoint com o mesmo número. Conflitos reais são reportados quando aparecerem, sem pressupor novos campos e novas versões de migração.
@@ -1151,14 +1151,14 @@ Limites de verificação encontrados nesta conferência somente de leitura: em p
 Para as duas cadeias que mais precisam de verificação de integração, usam-se barreiras de execução controladas, injeção de falha e julgamento pelo resultado real de persistência, em vez de rodar várias vezes ou dormir um tempo arbitrário para perseguir a sorte:
 
 ```text
-进程 A 修改 Provider ----+
-进程 B 修改默认选择 -----+-> 同一文件更新 -> 两项均保留 -> 另一进程读到新值
+Processo A altera o Provider ----+
+Processo B altera a selecao padrao -----+-> mesma atualizacao de arquivo -> os dois itens sao preservados -> o outro processo le o novo valor
                                   |
-                           分发应用后注入失败
-                                  `-> 检查原值恢复 / 期间新值不被覆盖
+falha ao injetar depois da distribuicao da aplicacao
+`-> verifica a restauracao do valor original / o novo valor durante o periodo nao e sobrescrito
 
-Endpoint A(rev 20) -> 切换到 B(rev 20，内容不同)
-                                  `-> Source -> Account / Registry -> Worker 使用 B
+Endpoint A(rev 20) -> alterna para B(rev 20, conteudo diferente)
+`-> Source -> Account / Registry -> o Worker usa B
 ```
 
 Todas as mudanças-alvo já confirmadas são mantidas, e os passos de implementação verificáveis são formados separadamente por estrutura de dados, fusão de arquivos e montagem de origem e caminhos. O código que precisa mudar junto por causa de uma dependência compartilhada é alterado por completo no mesmo passo, sem introduzir double write temporário, migração intermediária ou novo formato de compatibilidade só para dividir commits. O fim da implementação é confirmado por resultados de verificação, e não pela avaliação de verificabilidade deste documento.
@@ -1188,10 +1188,10 @@ Também foi verificado que generationOptions.maxOutputTokens do staging é um ca
 A aceitação cobre Wiki e Draft: depois de salvar a nova seleção, os valores antigos de modelo / reasoning / orçamento continuam presentes, o corpo e o generateDiagrams atual são salvos normalmente e os parâmetros antigos não entram na requisição atual. Depois de preservar os valores antigos, ainda é preciso verificar que uma nova escolha explicitamente limpa ou inválida não ressuscita o valor antigo após o reinício. A marcação específica de salvamento e a implementação de leitura e escrita não são definidas unilateralmente nesta rodada, e não se pode tomar o modelSelection: null da implementação já retirada como uma nova decisão de schema do usuário.
 
 ```text
-磁盘旧字段 -- 保留原值 ----------------> 回滚后的旧版读取
-新版选择   -- 更新新字段 / 新文件 -----> 当前版本读取
+campo antigo em disco -- mantem o valor original ----------------> leitura da versao antiga apos rollback
+selecao da versao nova   -- atualiza campo novo / arquivo novo -----> leitura da versao atual
                |
-               `-- 清除后仍以新版状态为准，不重新导入旧值
+`-- apos a limpeza a versao nova continua prevalecendo, sem reimportar o valor antigo
 ```
 
 #### 6.18.3 Session: novo campo modelSelection, preservando os campos antigos
@@ -1201,13 +1201,13 @@ Atualização de implementação de 2026-09-10: o B1c já realizou o invólucro 
 O session_entry do banco já tem registros de "seleção de modelo atual" com type runtime/model_selection. Se a migração atual atingir esse registro antigo, ela reutiliza o id dele e reescreve o JSON de data; ao derivar a seleção a partir de mensagens antigas, é adicionado um novo entry. As linhas antigas de message mantêm os mesmos bytes. Tomando como exemplo uma identidade antiga determinável do Z.ai Coding Plan:
 
 ```text
-同一条 session_entry.data（迁移前）
+a mesma session_entry.data (antes da migracao)
   providerId: "builtin:zai-coding-plan"
   modelId: "GLM-5.2"
   thoughtLevel: "high"
                  |
                  v
-同一条 session_entry.data（当前迁移后）
+a mesma session_entry.data (depois da migracao atual)
   providerId: "account:zai-individual-coding-plan"
   modelId: "GLM-5.2"
   options: { reasoningLevel: "high" }
@@ -1233,10 +1233,10 @@ interface SessionModelSelectionEntryData {
 Camada do modelSelection: reutiliza a estrutura genérica da seção 2, sem criar um conjunto separado de definições de identidade de Provider / Model.
 
 ```text
-首次升级：旧 providerId / modelId / thoughtLevel
-             |-- 原值保留 ----------------> 旧版读取
-             `-- 转换后写入 modelSelection -> 新版读取
-后续修改：只更新 modelSelection，保留旧字段原值
+primeiro upgrade: providerId / modelId / thoughtLevel antigos
+    |-- valor original preservado ----------------> leitura da versao antiga
+    `-- apos a conversao, escreve em modelSelection -> leitura da versao nova
+alteracoes posteriores: atualiza apenas modelSelection, mantendo o valor original dos campos antigos
 ```
 
 Quando já existe uma entry antiga, o novo membro é acrescentado; quando não há entry e só existem mensagens antigas, ainda se pode criar uma entry de seleção, mas colocando a nova escolha em modelSelection e sem alterar as mensagens antigas. Os pontos de entrada da nova versão que leem, salvam, restauram e copiam a seleção, como fork, precisam se adaptar ao invólucro, e não basta modificar a função de migração. Quando já existe estado novo, não se pode voltar a completar valores a partir dos campos antigos ou de mensagens históricas; depois de limpar uma escolha inválida, o reinício não ressuscita o valor antigo, e a marcação específica de valor vazio continua seguindo as restrições da camada superior, sem que esta interface apresente uma decisão adicional sobre o formato de null.
@@ -1292,18 +1292,18 @@ Essa é uma escolha de legibilidade já decidida, e não algo deixado de lado po
 Os exemplos abaixo são de aceitação de comportamentos já confirmados e não quatro mecanismos novos; a prioridade é reutilizar as leituras e escritas existentes e a proteção contra concorrência, sem refazer a arquitetura por causa de uma exigência de verificação.
 
 ```text
-旧值保留：
-旧字段存 A -> 新版选择 B -> 旧字段仍是 A，新字段是 B
+preservacao do valor antigo:
+campo antigo guarda A -> selecao nova e B -> o campo antigo continua A e o novo campo e B
 
-清除不复活：
-新版清除 B -> 重启 -> 仍为未选择，不重新从旧字段导入 A
+limpar nao ressuscita:
+a versao nova limpa B -> reinicia -> continua sem selecao, sem reimportar A do campo antigo
 
-合并不误覆盖：
-修改默认模型 -> 同文件中 API Key、Provider 配置仍保留
+a combinacao nao sobrescreve por engano:
+alterar o modelo padrao -> a API Key e a configuracao do Provider no mesmo arquivo sao preservadas
 
-失败回滚不误覆盖：
-分发写入 B -> 用户又保存 C -> 分发失败
-                               `-> 不把用户的 C 覆盖成分发前的 A
+rollback de falha nao sobrescreve por engano:
+a distribuicao escreve B -> o usuario salva C -> a distribuicao falha
+`-> nao sobrescreve o C do usuario com o A anterior a distribuicao
 ```
 
 O exemplo de limpeza só vale para as entradas em que o negócio já permite limpar; hoje o Off-Peak não permite salvar uma escolha vazia e não se acrescenta essa funcionalidade para este exemplo genérico. Aqui só se exige que a semântica existente de valor vazio e a correção da gravação se mantenham, sem inventar um novo formato de null nem uma estrutura de compatibilidade global. Outros problemas esquecidos podem ser registrados à parte e não servem de motivo para expandir este Todo sem limite.

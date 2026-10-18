@@ -1,36 +1,36 @@
-# Windows Browser Import Asynchronous Pipe Wait Implementation Plan
+# Plano de Implementação de Espera Assíncrona de Pipe na Importação de Browser no Windows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 修复 Windows Chrome App-Bound Cookie 导入在 controller 握手前因同步服务端管道调用异步等待 API 而必然失败的问题。
+**Objetivo:** Corrigir o problema que faz a importação de App-Bound Cookie do Chrome no Windows falhar inevitavelmente, porque o pipe do servidor chama de forma síncrona uma API de espera assíncrona antes do handshake com o controller.
 
-**Architecture:** 保留 broker → elevated controller → `LocalSystem` service 的现有进程与身份边界，只把 `CreatePipeServer` 创建的服务端命名管道切换为 `PipeOptions.Asynchronous`，使现有 `BeginWaitForConnection` / `EndWaitForConnection` 有界等待合法工作。客户端继续同步连接，ACL、超时、精确 PID、映像路径和一次性 token 校验全部保持不变。
+**Arquitetura:** Preservar as fronteiras existentes de processo e identidade entre broker → elevated controller → serviço `LocalSystem`, e apenas alternar o named pipe do servidor criado por `CreatePipeServer` para `PipeOptions.Asynchronous`, de modo que a espera limitada existente `BeginWaitForConnection` / `EndWaitForConnection` funcione legitimamente. O cliente continua conectando de forma síncrona; ACL, timeout, PID exato, caminho da imagem e validação de token de uso único permanecem inalterados.
 
-**Tech Stack:** C#/.NET Framework `System.IO.Pipes`、TypeScript、Vitest、pnpm
+**Stack técnico:** C#/.NET Framework `System.IO.Pipes`, TypeScript, Vitest, pnpm
 
-## Global Constraints
+## Restrições Globais
 
-- 所有通过 `BeginWaitForConnection` / `EndWaitForConnection` 实现有界等待的服务端命名管道必须用 `PipeOptions.Asynchronous` 创建；客户端连接保持同步。
-- 不得扩大 pipe ACL、删除超时、放宽 PID/映像路径/token 校验，或改变 broker → controller → `LocalSystem` service 的身份边界。
-- 失败原因只留在本地安全日志；UI、IPC 和公共错误码保持不变。
-- 不得读取、记录或提交真实 Cookie、Chrome 主密钥、pipe/token、PID 或 helper 原始 stdout。
-- 必须执行 `pnpm typecheck` 和 `pnpm lint`；若遇到已知无关基线失败，记录完整命令、失败文件和本次受影响范围的补充校验结果。
+- Todo named pipe de servidor que implemente espera limitada por `BeginWaitForConnection` / `EndWaitForConnection` deve ser criado com `PipeOptions.Asynchronous`; a conexão do cliente permanece síncrona.
+- Não ampliar a ACL do pipe, não remover timeouts, não afrouxar a validação de PID/caminho da imagem/token nem alterar a fronteira de identidade broker → controller → serviço `LocalSystem`.
+- A causa da falha fica apenas no log de segurança local; UI, IPC e códigos de erro públicos permanecem inalterados.
+- Não ler, registrar ou commitar Cookies reais, a master key do Chrome, pipe/token, PID ou o stdout bruto do helper.
+- É obrigatório executar `pnpm typecheck` e `pnpm lint`; se ocorrer uma falha de baseline conhecida e sem relação, registrar o comando completo, os arquivos que falharam e o resultado das verificações complementares para o escopo afetado por esta mudança.
 
 ---
 
-### Task 1: 用 source contract 复现同步/异步模式不匹配
+### Task 1: Reproduzir com um source contract o descasamento entre os modos síncrono e assíncrono
 
 **Files:**
 - Modify: `packages/desktop/test/windowsChromeAppBoundKey.test.ts`
 - Test: `packages/desktop/test/windowsChromeAppBoundKey.test.ts`
 
 **Interfaces:**
-- Consumes: `Program.cs` 中的 `CreatePipeServer`、`ConnectPipeClient` 和 `WaitForConnection` 源码。
-- Produces: BS-030 native source contract，锁定服务端 `PipeOptions.Asynchronous`、客户端 `PipeOptions.None` 和现有异步等待调用。
+- Consumes: o código-fonte de `CreatePipeServer`, `ConnectPipeClient` e `WaitForConnection` em `Program.cs`.
+- Produces: o native source contract BS-030, travando `PipeOptions.Asynchronous` no servidor, `PipeOptions.None` no cliente e as chamadas de espera assíncrona existentes.
 
-- [ ] **Step 1: 写入会失败的回归测试**
+- [ ] **Step 1: Escrever o teste de regressão que falha**
 
-在 `windowsChromeAppBoundKey` describe 中加入：
+Adicione ao describe de `windowsChromeAppBoundKey`:
 
 ```ts
 it("服务端命名管道以异步模式创建以支持有界等待", async () => {
@@ -53,7 +53,7 @@ it("服务端命名管道以异步模式创建以支持有界等待", async () =
 });
 ```
 
-- [ ] **Step 2: 运行定向测试并确认 RED**
+- [ ] **Step 2: Executar o teste direcionado e confirmar RED**
 
 Run:
 
@@ -61,21 +61,21 @@ Run:
 pnpm exec vitest run packages/desktop/test/windowsChromeAppBoundKey.test.ts
 ```
 
-Expected: 新增测试在 `expect(serverSource).toContain("PipeOptions.Asynchronous")` 失败；其余现有测试通过。该失败必须来自当前 `CreatePipeServer` 使用 `PipeOptions.None`，不能是路径、语法或 fixture 错误。
+Expected: o novo teste falha em `expect(serverSource).toContain("PipeOptions.Asynchronous")`; os demais testes existentes passam. A falha deve vir necessariamente do `CreatePipeServer` atual usar `PipeOptions.None`, e não de erro de caminho, sintaxe ou fixture.
 
-### Task 2: 最小化修复服务端管道打开模式
+### Task 2: Corrigir de forma mínima o modo de abertura do pipe do servidor
 
 **Files:**
 - Modify: `packages/desktop/native/windows-browser-import-helper/Program.cs:1054-1062`
 - Test: `packages/desktop/test/windowsChromeAppBoundKey.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 的 BS-030 source contract。
-- Produces: 仍由 `CreatePipeServer(string, bool, bool)` 返回的异步服务端 `NamedPipeServerStream`；方法签名和调用方不变。
+- Consumes: o source contract BS-030 da Task 1.
+- Produces: um `NamedPipeServerStream` de servidor assíncrono, ainda retornado por `CreatePipeServer(string, bool, bool)`; assinatura e chamadores permanecem inalterados.
 
-- [ ] **Step 1: 写入最小实现和中文根因注释**
+- [ ] **Step 1: Escrever a implementação mínima e um comentário de causa raiz**
 
-只替换服务端构造参数：
+Substitua apenas os parâmetros de construção do servidor:
 
 ```csharp
         return new NamedPipeServerStream(
@@ -91,9 +91,9 @@ Expected: 新增测试在 `expect(serverSource).toContain("PipeOptions.Asynchron
             security);
 ```
 
-不得修改 `ConnectPipeClient` 的 `PipeOptions.None`，不得改 ACL、`PipeTimeoutMs`、`VerifyPipeClient` 或 token 读写。
+Não altere o `PipeOptions.None` de `ConnectPipeClient`, nem a ACL, `PipeTimeoutMs`, `VerifyPipeClient` ou a leitura/escrita de token.
 
-- [ ] **Step 2: 运行定向测试并确认 GREEN**
+- [ ] **Step 2: Executar o teste direcionado e confirmar GREEN**
 
 Run:
 
@@ -101,9 +101,9 @@ Run:
 pnpm exec vitest run packages/desktop/test/windowsChromeAppBoundKey.test.ts
 ```
 
-Expected: 14 tests passed；BS-030 测试证明服务端异步、客户端同步、`BeginWaitForConnection` 保留。
+Expected: 14 tests passed; o teste BS-030 prova que o servidor é assíncrono, o cliente é síncrono e `BeginWaitForConnection` foi preservado.
 
-- [ ] **Step 3: 编译 Windows helper**
+- [ ] **Step 3: Compilar o helper do Windows**
 
 Run:
 
@@ -111,25 +111,25 @@ Run:
 pnpm --filter @zcode/desktop prepare:browser-import-helper
 ```
 
-Expected: 输出 `[browser-import-helper] built ...zcode-browser-import-helper.exe`，C# 注释和 `PipeOptions.Asynchronous` 能被当前 Roslyn/.NET Framework 编译链接受。
+Expected: saída `[browser-import-helper] built ...zcode-browser-import-helper.exe`; os comentários em C# e `PipeOptions.Asynchronous` são aceitos pela cadeia atual de compilação Roslyn/.NET Framework.
 
-- [ ] **Step 4: 更新验证状态**
+- [ ] **Step 4: Atualizar o status de verificação**
 
-将 `docs/browser-use/2026-07-13-browser-settings-spec.md` 的 BS-030 覆盖状态从：
+Mude o status de cobertura do BS-030 em `docs/browser-use/2026-07-13-browser-settings-spec.md` de:
 
 ```markdown
 source contract 待补；签名实机待复验
 ```
 
-改为：
+para:
 
 ```markdown
 source contract automated；helper compiled；签名实机待复验
 ```
 
-在同一文档的 Windows 实机证据段补充：最新签名包记录 `controller_handshake_failed`；同构 .NET 运行时探针确认 `PipeOptions.None` 调用 `BeginWaitForConnection` 抛出 “Pipe is not opened in asynchronous mode”；工作区 helper 修复已编译，真实 Cookie 和主密钥未进入日志，仍需下一签名包 smoke。
+No mesmo documento, complemente o trecho de evidências reais no Windows: o pacote assinado mais recente registra `controller_handshake_failed`; uma sonda de runtime .NET isomórfica confirma que `PipeOptions.None` lança “Pipe is not opened in asynchronous mode” ao chamar `BeginWaitForConnection`; a correção do helper no workspace foi compilada, Cookies reais e a master key não entraram nos logs, e ainda é preciso um smoke test do próximo pacote assinado.
 
-### Task 3: 机械验证、清理与交付
+### Task 3: Verificação mecânica, limpeza e entrega
 
 **Files:**
 - Delete: `.tmp-controller-lifecycle-probe.ps1`
@@ -142,10 +142,10 @@ source contract automated；helper compiled；签名实机待复验
 - Verify: repository-wide TypeScript and lint targets
 
 **Interfaces:**
-- Consumes: Tasks 1-2 的测试、helper 源码和更新后的 BS-030 状态。
-- Produces: 无临时探针、可审查的 bugfix commit 和已推送分支。
+- Consumes: os testes das Tasks 1-2, o código-fonte do helper e o status BS-030 atualizado.
+- Produces: nenhuma sonda temporária, um commit de bugfix revisável e o branch já enviado.
 
-- [ ] **Step 1: 运行受影响范围类型检查**
+- [ ] **Step 1: Executar a checagem de tipos do escopo afetado**
 
 Run:
 
@@ -153,9 +153,9 @@ Run:
 pnpm exec tsc -p packages/desktop/tsconfig.host.json --noEmit
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 2: 运行仓库强制 typecheck**
+- [ ] **Step 2: Executar o typecheck obrigatório do repositório**
 
 Run:
 
@@ -163,9 +163,9 @@ Run:
 pnpm typecheck
 ```
 
-Expected: PASS；若仍命中当前仓库已存在的 E2E `expect` 直接依赖缺失，只记录具体文件，并以 Step 1 和定向测试证明本次 desktop host/test 范围。
+Expected: PASS; se ainda for atingida a dependência direta ausente de `expect` do E2E que já existe no repositório atual, registre apenas o arquivo específico e prove o escopo de desktop host/test desta mudança com o Step 1 e os testes direcionados.
 
-- [ ] **Step 3: 运行仓库强制 lint**
+- [ ] **Step 3: Executar o lint obrigatório do repositório**
 
 Run:
 
@@ -173,9 +173,9 @@ Run:
 pnpm lint
 ```
 
-Expected: 0 errors；已有 warning 必须与本次改动无关，新增文件不得产生 warning。
+Expected: 0 errors; os warnings existentes devem ser sem relação com esta mudança e nenhum arquivo novo pode gerar warning.
 
-- [ ] **Step 4: 复跑定向测试与编译并检查 diff**
+- [ ] **Step 4: Reexecutar os testes direcionados e a compilação, e revisar o diff**
 
 Run:
 
@@ -186,13 +186,13 @@ git diff --check
 git status --short
 ```
 
-Expected: 14 tests passed；helper built；`git diff --check` 通过；状态只包含计划、测试、`Program.cs` 和 spec 状态更新。
+Expected: 14 tests passed; helper built; `git diff --check` aprovado; o status contém apenas o plano, os testes, `Program.cs` e a atualização de status da spec.
 
-- [ ] **Step 5: 清理临时运行时探针**
+- [ ] **Step 5: Limpar as sondas temporárias de runtime**
 
-用 `apply_patch` 删除三个 `.ps1`，并在确认路径均位于 `C:\Users\dev\z-code` 后删除四个 `.txt` 结果文件。再次运行 `git status --short`，不得残留 `.tmp-*`。
+Use `apply_patch` para apagar os três `.ps1` e, após confirmar que os caminhos estão todos dentro de `C:\Users\dev\z-code`, apague os quatro arquivos de resultado `.txt`. Execute `git status --short` novamente; não deve sobrar nenhum `.tmp-*`.
 
-- [ ] **Step 6: 提交实现**
+- [ ] **Step 6: Commitar a implementação**
 
 Run:
 
@@ -201,9 +201,9 @@ git add -- packages/desktop/test/windowsChromeAppBoundKey.test.ts packages/deskt
 git commit -m "fix(desktop): open browser import server pipes asynchronously"
 ```
 
-Expected: Conventional Commit 成功；临时探针和无关文件未暂存。
+Expected: Conventional Commit bem-sucedido; as sondas temporárias e arquivos sem relação não estão no staging area.
 
-- [ ] **Step 7: 推送当前分支**
+- [ ] **Step 7: Enviar o branch atual**
 
 Run:
 
@@ -211,4 +211,4 @@ Run:
 git push origin feat/browser-use-web-app
 ```
 
-Expected: `origin/feat/browser-use-web-app` 更新到实现提交；如果 pre-push 只命中已记录的无关基线失败，先报告具体证据，不自行绕过 hook。
+Expected: `origin/feat/browser-use-web-app` atualizado até o commit de implementação; se o pre-push apenas atingir falhas de baseline já registradas e sem relação, reporte a evidência concreta e não contorne o hook por conta própria.

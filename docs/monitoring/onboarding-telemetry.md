@@ -1,27 +1,27 @@
-# 用户引导埋点 Spec
+# Spec de telemetria do onboarding de usuário
 
-日期：2026-09-18。状态：已接入引导组件与公共上报链路，真实客户端及接收端待人工验收。
+Data: 2026-09-18. Status: já integrado ao componente de onboarding e à cadeia pública de report; o cliente real e o lado receptor ainda aguardam validação manual.
 
-## 目标与事件
+## Objetivo e eventos
 
-记录整次引导曝光和结束时的选择，复用公共业务埋点链路。
+Registrar a exposição de todo o onboarding e a escolha no momento em que ele termina, reutilizando a cadeia pública de business telemetry.
 
-| 事件 | element_name | event_region | event_type | event_text |
+| Evento | element_name | event_region | event_type | event_text |
 | --- | --- | --- | --- | --- |
-| 引导曝光 | onboarding_expose | app.onboarding | expose | 空字符串 |
-| 引导结束 | onboarding_end | app.onboarding | ck | 操作时按钮文案或关闭入口的本地化标签，必填 |
+| Exposição do onboarding | onboarding_expose | app.onboarding | expose | string vazia |
+| Fim do onboarding | onboarding_end | app.onboarding | ck | rótulo localizado do texto do botão no momento da ação ou da entrada de fechamento, obrigatório |
 
-埋点表中的 `event_element` 对应现有请求字段 `element_name`，调用参数为 `elementName`，不新增同义字段。结束事件的 event_text 必须使用点击时用户看到的按钮文案，与按钮复用相同的 i18n 翻译结果，不写死中文、英文或翻译 key；随选择快照一起捕获，避免异步保存期间切换语言导致文案不一致。统计操作类型以固定英文 exit_action 为准。
+O `event_element` da tabela de telemetria corresponde ao campo de requisição existente `element_name`, cujo parâmetro de chamada é `elementName`; nenhum campo sinônimo novo é criado. O event_text do evento de fim deve usar o texto do botão que o usuário viu no clique, reutilizando o mesmo resultado de tradução i18n do botão, sem fixar chinês, inglês ou a translation key; ele é capturado junto com o snapshot da escolha, evitando inconsistência de texto quando o idioma muda durante um salvamento assíncrono. A estatística do tipo de ação usa o `exit_action` fixo em inglês.
 
-关闭入口为图标按钮，event_text 复用其 title / aria-label 的 `occupationOnboarding.close` 翻译：当前中文为“退出引导”，英文为“Exit onboarding”。Esc 和引导快捷键主动收起也使用同一关闭标签，不传空字符串或按键名。
+A entrada de fechamento é um botão de ícone, e o event_text reutiliza a tradução `occupationOnboarding.close` do title / aria-label: hoje “退出引导” em chinês e “Exit onboarding” em inglês. Esc e o atalho do onboarding também usam o mesmo rótulo de fechamento quando recolhidos ativamente, sem passar string vazia nem nome da tecla.
 
-- 首次自动展示、后续从设置点击“引导”、快捷键手动打开以及按现有规则再次自动展示，均在引导真正可见时曝光一次；不限定首次使用应用。异步判定、预填、重渲染、切换步骤和返回不重复曝光。关闭后显式重新打开算新一次；仅点击入口但未实际展示不报曝光。
-- 第三页点击开始使用或跳过，偏好保存成功、引导结束时上报 end 一次。点击时捕获选择快照，不能从保存后的保守默认值或本地 record 反推选择。
-- 保存失败仍停留在引导中，不报 end；成功重试只报一次。本地 record 追加失败不影响已成功结束的事件。
-- 当前前两页跳过只是进入下一页，不触发 end；被跳过的单选页记为空，用户返回重新确认后使用新答案。
-- 右上角 X / Esc / 引导快捷键主动收起均上报 end，exit_action 为 close，携带关闭时的选择快照和所在步骤；保持直接退出不保存 settings、不写 record、不标记完成的既有语义。退出前发起上报，不等待网络。关闭应用、崩溃或非用户操作的卸载不伪造 close。
-- 同一次引导最多产生一个 end，start / skip / close 共用结束去重；保存中禁用关闭的既有行为保持不变。曝光与结束的差额表示没有成功收到结束事件的样本，可能包含异常中断或上报失败。
-- 埋点失败不得阻塞引导或配置保存，沿用公共上传重试策略，不新增业务层重复重试。
+- A primeira exibição automática, as aberturas posteriores pelo clique em “引导” nas configurações, a abertura manual pelo atalho e a nova exibição automática conforme as regras existentes expõem uma única vez quando o onboarding está de fato visível; não se limita ao primeiro uso do app. Julgamento assíncrono, pré-preenchimento, re-renderização, troca de etapa e voltar não geram exposição repetida. Reabrir explicitamente após o fechamento conta como uma nova vez; apenas clicar na entrada sem exibição real não reporta exposição.
+- Na terceira página, clicar em começar a usar ou pular: assim que a preferência for salva com sucesso e o onboarding terminar, o end é reportado uma vez. A escolha é capturada no clique e não pode ser inferida a partir do valor padrão conservador após o salvamento nem do record local.
+- Se a gravação falhar, a tela continua no onboarding e o end não é reportado; uma retentativa bem-sucedida reporta apenas uma vez. Falha ao anexar ao record local não afeta um evento de fim que já teve sucesso.
+-Nas duas primeiras páginas, pular apenas avança para a próxima página e não dispara end; a página de opção única pulada é registrada como vazia, e se o usuário voltar e confirmar de novo, vale a nova resposta.
+- O X no canto superior direito / Esc / o atalho do onboarding, quando recolhidos ativamente, reportam end, com exit_action igual a close, carregando o snapshot da escolha no momento do fechamento e a etapa em que estava; mantém-se a semântica já existente de sair diretamente sem salvar settings, sem escrever record e sem marcar conclusão. O reporte é iniciado antes da saída e não espera a rede. Fechar o app, uma falha ou um unload que não seja ação do usuário não fabricam um close.
+- Uma mesma execução de onboarding gera no máximo um end; start / skip / close compartilham a deduplicação de fim; o comportamento já existente de desabilitar o fechamento durante o salvamento permanece inalterado. A diferença entre exposição e fim representa amostras que não receberam o evento de fim com sucesso, podendo conter interrupções inesperadas ou falhas de reporte.
+- A falha da telemetria não pode bloquear o onboarding nem a gravação de configuração; mantém-se a estratégia pública de retry de upload e não se adiciona retry duplicado na camada de negócio.
 
 ```text
 引导实际显示 -> expose（一次）
@@ -40,29 +40,29 @@
 
 ## event_extra_detail
 
-曝光事件使用空对象。结束事件固定包含以下字段：
+O evento de exposição usa um objeto vazio. O evento de fim contém sempre os seguintes campos:
 
-| 字段 | 逻辑取值 | 含义 |
+| Campo | Valor lógico | Significado |
 | --- | --- | --- |
-| work_direction | 下表枚举 / null | 已展示页面的当前工作方向；跳过且未重选为 null |
-| ui_mode | work / code / null | 办公 / 编程；未展示或跳过且未重选为 null |
-| proactive_task_recommendations_enabled | boolean / null | 主动任务推荐勾选状态，仅办公模式展示 |
-| workspace_memory_enabled | boolean / null | 工作区记忆勾选状态 |
-| claude_code_history_migration_selected | boolean / null | 迁移会话数据勾选状态，不表示迁移完成 |
-| exit_action | start / skip / close | 结束入口 |
-| exit_step | 1 / 2 / 3 | 结束时所在页；start / skip 为 3，close 可为任意页 |
+| work_direction | enum da tabela abaixo / null | direção de trabalho atual da página exibida; null se pulada sem reseleção |
+| ui_mode | work / code / null | escritório / programação; null se não exibida ou pulada sem reseleção |
+| proactive_task_recommendations_enabled | boolean / null | estado da marcação de recomendações proativas de tarefa, exibida apenas no modo escritório |
+| workspace_memory_enabled | boolean / null | estado da marcação de memória do workspace |
+| claude_code_history_migration_selected | boolean / null | estado da marcação de migração dos dados de sessão; não indica migração concluída |
+| exit_action | start / skip / close | entrada de término |
+| exit_step | 1 / 2 / 3 | página em que estava no fim; 3 para start / skip, qualquer página para close |
 
-模式只在埋点边界映射：内部 `office -> work`、`coding -> code`；不更名 settings、store 或 record 中的模式。
+O mapeamento de modo acontece apenas na fronteira da telemetria: internamente `office -> work` e `coding -> code`; os modos não são renomeados em settings, store ou record.
 
-偏好字段：展示且勾选为 true，展示但未勾选为 false，未展示为 null。编程模式或跳过模式页导致推荐选项隐藏时，推荐字段为 null，不能算作主动关闭。默认或预填勾选也计入最终状态，不表示主动点选。第三页点击 skip 仍上传当时三个选项的状态，不统一置空，也不表示这些选项已应用。
+Campos de preferência: true quando exibido e marcado, false quando exibido e não marcado, null quando não exibido. Quando o modo de programação ou o pulo da página de modo oculta a opção de recomendação, o campo de recomendação é null e não pode ser contado como desativação proposital. A marcação padrão ou pré-preenchida também conta para o estado final e não indica clique deliberado. Clicar em skip na terceira página ainda envia o estado dos três opciones naquele momento, sem zerar tudo uniformemente e sem indicar que essas opções foram aplicadas.
 
-close 同样记录当前选择，不要求当前页先点下一步：例如首次进入第一页面后关闭，上传当页已显示的默认/预填或手动选择，模式和三个偏好字段为 null；第二页关闭可上传工作方向与当前模式，尚未展示的偏好为 null。已访问后返回的页面保留本次选择，不能仅根据 exit_step 推断哪些页展示过。返回修改模式时应使与新模式不一致的旧偏好快照失效，未在新模式下展示确认的偏好记 null。以上均为选择快照，不代表保存或启用成功。
+O close também registra a escolha atual e não exige que a página atual tenha sido confirmada com Avançar: por exemplo, ao fechar logo após entrar na primeira página, envia o padrão/pré-preenchimento ou a escolha manual exibida na página, com modo e os três campos de preferência como null; fechar na segunda página pode enviar a direção de trabalho e o modo atual, com as preferências ainda não exibidas como null. Páginas às quais se retorna depois de já ter passado mantêm a escolha desta vez e não se pode inferir quais páginas foram exibidas apenas a partir do exit_step. Ao voltar e alterar o modo, o snapshot antigo das preferências que ficaram inconsistentes com o novo modo deve ser invalidado, e as preferências não confirmadas no novo modo são registradas como null. Tudo isso é snapshot de escolha e não representa gravação nem ativação bem-sucedida.
 
-**传输格式**：现有 `TelemetryEventPayload.eventExtraDetail` 为 `Record<string, string>`。复用此接口，各值编码为字符串：布尔为 `"true"` / `"false"`，空值为 `"null"`，页码为 `"1"` / `"2"` / `"3"`。不省略空字段、不传 JS undefined，也不把整个对象二次 JSON 序列化。上述逻辑类型用于解释含义；实际查询按字符串比较。若未来采用原生布尔/null，需整体评估并升级公共接口，不能只在本事件强制类型转换。
+**Formato de transporte**: o `TelemetryEventPayload.eventExtraDetail` existente é `Record<string, string>`. Reutiliza-se essa interface, codificando cada valor como string: booleano como `"true"` / `"false"`, valor nulo como `"null"`, número de página como `"1"` / `"2"` / `"3"`. Não se omitem campos vazios, não se passa JS undefined e não se serializa novamente o objeto inteiro em JSON. Os tipos lógicos acima servem para interpretar o significado; as consultas reais comparam strings. Caso se adote boolean/null nativo no futuro, é preciso avaliar o conjunto e evoluir a interface pública, sem forçar a conversão de tipo apenas neste evento.
 
-### 工作方向映射
+### Mapeamento de direção de trabalho
 
-| 中文文案 | 内部 occupation | work_direction |
+| Texto em chinês | occupation interna | work_direction |
 | --- | --- | --- |
 | 软件开发/数据/AI | developer | software_data_ai |
 | 创业/自由职业/OPC | independent | entrepreneurship_freelance_opc |
@@ -77,15 +77,15 @@ close 同样记录当前选择，不要求当前页先点下一步：例如首�
 | 法律/行政/人力资源 | legal | legal_administration_hr |
 | 其他职业 | other | other |
 
-不修改内部职业枚举。显示文案或语言变化不能改变上报枚举。other 只表示明确选择其他职业，不能替代未作答。
+A enum interna de profissões não é modificada. Mudança no texto exibido ou no idioma não pode alterar a enum reportada. `other` significa apenas a escolha explícita de outra profissão e não substitui uma resposta em branco.
 
-## 公共身份字段与链路
+## Campos públicos de identidade e cadeia
 
-两个事件都必须通过公共层携带顶层 `user_id`、`device_mid`，不放进 event_extra_detail。
+Os dois eventos devem carregar via camada pública os campos de topo `user_id` e `device_mid`, sem colocá-los no event_extra_detail.
 
-- user_id：沿用公共层当前账号身份加载；没有账号身份时沿用空字符串，不伪造用户 ID、不用设备 ID 替代。实现和验收必须检查登录用户的请求中有真实账号 ID，以及匿名情况下仍有该字段。
-- device_mid：复用 telemetry-state 中持久化的公共设备标识，由 `ensureTelemetryDeviceMid` 提供；不生成引导专用 ID，不复用 event_id，也不改用 `platform.getDeviceId()`。本地 onboarding-record 文档中的 deviceMid 来源与公共埋点设备标识不同，不应混用。
-- 每条事件使用公共事件 ID 和公共上下文，不新增独立上报接口。
+- user_id: usa a carga atual de identidade de conta da camada pública; sem identidade de conta, mantém-se a string vazia, sem forjar um user ID e sem usar o device ID como substituto. A implementação e a aceitação devem verificar que as requisições de usuário logado contêm um ID de conta real e que o campo ainda existe no caso anônimo.
+- device_mid: reutiliza o identificador de dispositivo público persistido no telemetry-state, fornecido por `ensureTelemetryDeviceMid`; não gera um ID exclusivo do onboarding, não reutiliza o event_id e não passa a usar `platform.getDeviceId()`. O deviceId do documento local onboarding-record tem origem diferente do identificador público de dispositivo da telemetria e não deve ser misturado.
+- Cada evento usa o ID de evento público e o contexto público, sem criar uma interface de reporte independente.
 
 ```text
 OccupationOnboarding
@@ -97,7 +97,7 @@ OccupationOnboarding
   -> 既有 event/report 请求
 ```
 
-请求示例（仅列相关字段，身份值为占位符）：
+Exemplo de requisição (apenas os campos relevantes; os valores de identidade são placeholders):
 
 ```json
 {
@@ -119,35 +119,35 @@ OccupationOnboarding
 }
 ```
 
-## 与本地记录和多端的边界
+## Fronteira com o registro local e com as outras plataformas
 
-本地 record 的跳过语义继续遵循 [引导记录 Spec](../onboarding-record-spec.md)：偏好页跳过写 null，settings 落保守默认值。本事件记录用户结束时看到的选择，两者目的不同，不能直接上传 record 替代本事件。本期不实现 record 的 uploadState 上传队列。
+A semântica de pulo do record local continua seguindo o [Spec do registro de onboarding](../onboarding-record-spec.md): pulo na página de preferências escreve null e settings recebe o valor padrão conservador. Este evento registra a escolha vista pelo usuário no encerramento; os dois têm propósitos diferentes e o record não pode ser enviado no lugar deste evento. Nesta fase não se implementa a fila de upload uploadState do record.
 
-UI 通过现有平台抽象调用，Web/手机沿用自身适配器能力，不直接访问桌面 bridge 或新建 Host/runtime；不改变桌面 continuous 或手机 replayable 消息流。布局、交互、主题、国际化及 Windows/macOS/Linux 配置行为保持原状。
+A UI chama pela abstração de plataforma existente; Web e celular reutilizam as capacidades dos próprios adaptadores, sem acessar diretamente o bridge do desktop nem criar um novo Host/runtime; o fluxo de mensagens continuous do desktop e replayable do celular não muda. Layout, interação, tema, internacionalização e o comportamento de configuração em Windows/macOS/Linux permanecem como estão.
 
-## 实现顺序与验收
+## Ordem de implementação e aceitação
 
-先编写以下场景测试，再接入事件，最后做运行时请求验证：
+Escrever primeiro os testes dos cenários abaixo, depois conectar os eventos e, por fim, fazer a verificação de requisição em runtime:
 
-1. 12 个职业映射完整；office/coding 映射 work/code；跳过单选页传字符串 null，其他职业为 other。
-2. 工作模式三个开关分别支持勾选/取消；code 模式推荐为 null；模式切换后隐藏选项不泄露旧值。
-3. start 与第三页 skip 均保留点击时的快照；skip 不触发迁移，勾选迁移不代表迁移成功。
-4. 首次自动展示与设置/快捷键打开均产生曝光；前两页 skip、返回、重复渲染不产生结束事件或重复曝光；保存失败不报结束，重试成功一次；重复点击不重复上报；显式重开产生新曝光。
-5. 分别在三页用 X / Esc / 引导快捷键收起，均只报一次 close，exit_step 正确；已展示的选择保留，未展示字段为空，返回及改模式后不泄露失效偏好；不写 settings/record、不触发迁移、不标记完成。关闭应用或卸载不伪造 close；上报失败不阻断退出。
-6. 在真实公共请求体核验两事件均含 user_id、device_mid；已登录账号正确、匿名保留空 user_id；同设备两事件的 device_mid 一致且重启稳定。日志/抓包展示时遮蔽真实身份。
-7. 运行 pnpm typecheck、pnpm lint 及相关单测；验证桌面 work/code、深浅主题与手机适配器不受影响。无法完成的跨平台或运行时验证明确记录，不以静态阅读代替。
-8. 中英文下 start / skip / close 的结束事件 event_text 均非空，且等于操作时按钮实际文案或关闭标签（退出引导 / Exit onboarding）；exit_action 不随语言变化。异步保存期间切换语言不能改变已捕获的 event_text。
+1. Os 12 mapeamentos de profissão estão completos; office/coding mapeiam para work/code; ao pular uma página de opção única passa a string null, e as outras profissões usam other.
+2. No modo work, os três toggles suportam marcado/desmarcado individualmente; no modo code a recomendação é null; após trocar de modo, a opção oculta não vaza o valor antigo.
+3. Tanto start quanto o skip da terceira página preservam o snapshot do momento do clique; skip não dispara migração, e marcar a migração não significa migração bem-sucedida.
+4. A primeira exibição automática e a abertura por configurações/atalho geram exposição; o skip das duas primeiras páginas, o retorno e a re-renderização repetida não geram evento de fim nem exposição repetida; falha de gravação não reporta fim, e uma retentativa bem-sucedida reporta uma vez; cliques repetidos não geram reporte repetido; reabrir explicitamente gera nova exposição.
+5. Fechando com X / Esc / atalho do onboarding em cada uma das três páginas, reporta-se close apenas uma vez, com exit_step correto; escolhas já exibidas são preservadas, campos não exibidos ficam vazios, e após retorno ou troca de modo não vaza preferência invalidada; não grava settings/record, não dispara migração e não marca conclusão. Fechar o app ou o unload não fabrica close, e a falha de reporte não bloqueia a saída.
+6. No corpo real da requisição pública, verifica-se que os dois eventos contêm user_id e device_mid; a conta logada está correta, o anônimo mantém user_id vazio, e o device_mid dos dois eventos no mesmo dispositivo é consistente e estável após reinício. Mascare a identidade real ao exibir logs ou capturas de pacote.
+7. Rodar pnpm typecheck, pnpm lint e os testes unitários relacionados; validar que o work/code do desktop, os temas claro e escuro e o adaptador do celular não são afetados. Validações de plataforma cruzada ou em runtime que não puderem ser concluídas devem ser registradas explicitamente, sem substituí-las por leitura estática.
+8. Em chinês e em inglês, o event_text do evento de fim para start / skip / close nunca é vazio e é igual ao texto real do botão no momento da ação ou ao rótulo de fechamento (退出引导 / Exit onboarding); o exit_action não muda com o idioma. Trocar de idioma durante o salvamento assíncrono não pode alterar o event_text já capturado.
 
-## 落地点与回归用例
+## Pontos de implementação e casos de regressão
 
-`OccupationOnboarding` 保持选择状态的唯一 owner；`useOnboardingTelemetry` 仅在 layout effect 中记录实际展示的步骤、当前模式和同次结束去重，不持久化第二份答案。保存入口先冻结快照，settings 成功后发送 end；close 直接发送。结束后将步骤复位，避免重开时沿用上次已展示范围。
+`OccupationOnboarding` permanece o único owner do estado de escolha; `useOnboardingTelemetry` registra, apenas no layout effect, a etapa realmente exibida, o modo atual e a deduplicação de fim da mesma execução, sem persistir uma segunda cópia das respostas. A entrada de gravação congela o snapshot primeiro e envia o end depois do sucesso de settings; o close envia direto. Depois de terminar, a etapa é zerada, evitando que a reabertura reaproveite o escopo exibido da última vez.
 
-| 用例 | 设置与操作 | 断言 | 自动化位置 |
+| Caso | Configuração e operação | Asserção | Local de automação |
 | --- | --- | --- | --- |
-| ONBT-01 | 首次自动/手动打开、StrictMode、切页、重开 | 每次实际打开一次曝光，未展示无曝光 | UI occupationOnboardingTelemetry.test.ts |
-| ONBT-02 | 三步选择后 start/skip，保存失败重试 | 成功后一次 end，点击时的答案和语言保持，迁移意愿不等于成功 | 同上 |
-| ONBT-03 | 任意页关闭、返回改模式再关闭 | close 与页码正确，未展示/失效偏好为空，不保存 | 同上 |
-| ONBT-04 | 公共 Core 上报匿名/登录事件 | 顶层 user_id/device_mid，重建 Core 后设备标识一致 | services telemetryService.test.ts |
-| ONBT-05 | 桌面真实引导重开，close/start/skip | 实际请求体与接收端事件，身份及字段完整 | 用户手动验证 |
+| ONBT-01 | primeira abertura automática/manual, StrictMode, troca de página, reabertura | uma exposição por abertura real, nenhuma exposição quando não exibido | UI occupationOnboardingTelemetry.test.ts |
+| ONBT-02 | start/skip após os três passos, retentativa após falha de gravação | um end após o sucesso, resposta e idioma do momento do clique preservados, intenção de migração não equivale a sucesso | o mesmo |
+| ONBT-03 | fechamento em qualquer página, retorno com troca de modo e novo fechamento | close e número de página corretos, preferências não exibidas/invalidadas vazias, nada é salvo | o mesmo |
+| ONBT-04 | Core público reportando evento anônimo/logado | user_id/device_mid no topo, identificador de dispositivo consistente após recriar o Core | services telemetryService.test.ts |
+| ONBT-05 | reabertura do onboarding real no desktop, close/start/skip | corpo real da requisição e evento no receptor, identidade e campos completos | validação manual do usuário |
 
-本次按用户要求不以 E2E 为验收项，使用组件交互测试与公共 Core 请求体测试验证代码；真实客户端及生产接收端由用户手动验证，尚未验收。Web/手机继续复用原平台适配器能力，未新增独立上传出口。
+Conforme solicitado pelo usuário, desta vez o E2E não é item de aceitação, e a verificação do código usa testes de interação de componente e testes do corpo de requisição do Core público; o cliente real e o receptor de produção são validados manualmente pelo usuário e ainda não foram aceitos. Web e celular continuam reutilizando a capacidade dos adaptadores de plataforma originais, sem nova saída de upload independente.

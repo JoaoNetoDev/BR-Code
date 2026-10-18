@@ -1,200 +1,200 @@
-# 模型供应商重构上线回归范围（2026-09-11）
+# Escopo de regressão de lançamento da refatoração de fornecedores de modelo (2026-09-11)
 
-> 状态：待执行
+> Estado: pendente de execução
 >
-> 对照范围：老 staging（`staging_backup @ 790884b1ce`）→ 当前 staging（`b8499d8b2a`）
+> Escopo de comparação: staging antigo (`staging_backup @ 790884b1ce`) → staging atual (`b8499d8b2a`)
 
-本次重构尚未上线，本文是整个重构的累计上线回归范围，不是最近一批改动的增量清单。[上一版回归范围](./03-provider-refactor-release-regression-scope.md)的全部检查内容继续保留，并补入老 staging 以来的改动与同期合入功能；已有开发或测试记录不作为删减范围的理由。
+Esta refatoração ainda não foi lançada; este documento é o escopo de regressão de lançamento acumulado de toda a refatoração, não uma lista incremental do lote mais recente de mudanças. Todo o conteúdo de verificação da [versão anterior do escopo de regressão](./03-provider-refactor-release-regression-scope.md) é mantido, acrescido das mudanças desde o staging antigo e das funcionalidades mescladas no mesmo período; registros existentes de desenvolvimento ou teste não são motivo para reduzir o escopo.
 
-以下只圈产品功能与关键场景，不展开详细用例，也不代表已经验收通过。后续 staging 再有新增改动，继续补入同一份清单。
+Abaixo são delimitados apenas funcionalidades de produto e cenários-chave, sem detalhar casos, e isso não significa que a aceitação já tenha sido concluída. Se houver novas mudanças no staging mais adiante, continuar adicionando à mesma lista.
 
-## 1. 模型设置页面
+## 1. Página de configurações de modelo
 
-- 检查页面进入、刷新、不同窗口尺寸，以及供应商和模型较多时左右列表的独立滚动与完整显示。
-- 检查供应商与模型的改名、排序、启停和删除，包含拖拽到列表边缘的情况。
-- 检查供应商禁用、配置不完整和就绪时的状态提示，以及重新启用后的配置保留。
-- 检查输入框自动保存、连续编辑、保存反馈、失败重试和提示关闭，留意横幅遮挡与裁切。
+- Verificar entrada na página, atualização, diferentes tamanhos de janela e o rolagem independente e a exibição completa das listas esquerda e direita quando há muitos fornecedores e modelos.
+- Verificar renomeação, ordenação, habilitação/desativação e exclusão de fornecedores e modelos, incluindo o arraste até a borda da lista.
+- Verificar as dicas de estado quando o fornecedor está desabilitado, com configuração incompleta e pronto, além da preservação da configuração após reativação.
+- Verificar o salvamento automático dos campos, edição contínua, feedback de salvamento, retentativa após falha e fechamento das dicas, atentando para o banner cobrindo ou cortando o conteúdo.
 
-## 2. 添加和配置供应商
+## 2. Adicionar e configurar fornecedores
 
-- 检查智谱与其他供应商的分组、模板添加、自定义添加和重复添加后的名称区分、隔离与排序。
-- 检查首次使用页面的账号登录和手动 API Key 配置，以及配置后的默认模型与首次发送。
-- 分别使用普通 API 和 Coding Plan API，检查名称、Logo、地址、API 格式、模型列表、获取 Key 入口和实际聊天。
-- 检查手动填写个人或团队套餐 Key、不登录账号时的使用，以及已填写 Key 后的获取入口。
-- 检查不同供应商之间的配置隔离，以及配置不完整、名称重复、地址错误和删除供应商时的反馈。
+- Verificar o agrupamento de Zhipu e outros fornecedores, adição por modelo, adição custom e a distinção de nomes, o isolamento e a ordenação após adições duplicadas.
+- Verificar o login de conta e a configuração manual de API Key na página de primeiro uso, além do modelo padrão e do primeiro envio após a configuração.
+- Usar API comum e API do Coding Plan separadamente e verificar nome, logo, endereço, formato de API, lista de modelos, entrada de obtenção de Key e o chat real.
+- Verificar o preenchimento manual de Key de plano pessoal ou de equipe, o uso sem login de conta e a entrada de obtenção depois que a Key já foi preenchida.
+- Verificar o isolamento de configuração entre fornecedores diferentes, além dos feedbacks de configuração incompleta, nome duplicado, endereço errado e exclusão do fornecedor.
 
-## 3. 添加和编辑模型配置
+## 3. Adicionar e editar configuração de modelo
 
-- 检查添加与编辑模型、修改模型 ID、智能配置开关，以及未知型号的兜底配置。
-- 检查智能配置下的单项修改、修改标记和恢复；关闭后检查手动配置完整性。
-- 检查上下文、最大输出、输入类型、模型能力和推理配置的编辑与保存。
-- 检查推理参数映射的排版、输入和错误提示，以及取消、重新打开后的内容。
+- Verificar adicionar e editar modelos, alteração do ID do modelo, o interruptor de configuração inteligente e a configuração de fallback para modelos desconhecidos.
+- Verificar a alteração de item individual sob configuração inteligente, a marca de alteração e a restauração; após desativar, verificar a completude da configuração manual.
+- Verificar a edição e o salvamento de contexto, saída máxima, tipos de entrada, capacidades do modelo e configuração de inferência.
+- Verificar a diagramação, a entrada e as dicas de erro do mapeamento de parâmetros de inferência, além do conteúdo após cancelar e reabrir.
 
-## 4. 升级、回滚和数据保留
+## 4. Upgrade, rollback e preservação de dados
 
-- 从旧版升级，检查原有内置与自定义供应商的配置、模型、顺序和选择，以及会话、定时任务和闲时任务。
-- 检查升级后首次启动、旧模型名称、大小写和推理档位的恢复，以及重启后的继续使用。
-- 检查内置配置更新后，已有供应商、新增模型、默认配置与用户修改的保留。
-- 检查回滚旧版、回滚后继续使用再升级，覆盖升级前已有和新版创建的内容。
-- 模型选择失效、需要重选可以接受；会话和任务内容必须能打开，不能因模型配置缺失出现读取异常。
-- 检查配置缺失或损坏、未登录或暂时没有可用供应商时的启动、恢复与提示，不影响其他供应商，也不误删历史内容。
+- Atualizar a partir da versão antiga e verificar a configuração, os modelos, a ordem e a seleção dos fornecedores embutidos e custom existentes, além de sessions, tarefas agendadas e tarefas ociosas.
+- Verificar a recuperação dos nomes de modelo antigos, das maiúsculas/minúsculas e dos níveis de inferência após o upgrade, e o uso contínuo após reiniciar.
+- Verificar, após a atualização das configurações embutidas, a preservação dos fornecedores existentes, dos modelos adicionados, da configuração padrão e das modificações do usuário.
+- Verificar o rollback para a versão antiga, o uso contínuo após o rollback e um novo upgrade, cobrindo o conteúdo anterior ao upgrade e o criado na nova versão.
+- É aceitável que a seleção de modelo se torne inválida e exija uma nova escolha; o conteúdo de sessions e tarefas precisa poder ser aberto, sem erro de leitura por falta de configuração de modelo.
+- Verificar a inicialização, a recuperação e as dicas quando a configuração está ausente ou corrompida, quando não há login ou quando não há fornecedor disponível temporariamente, sem afetar os outros fornecedores e sem apagar conteúdo histórico.
 
-## 5. 智谱账号和套餐
+## 5. Conta e planos Zhipu
 
-- 分别检查 Z.AI 与 BigModel 的登录、退出、重新登录和重启恢复，以及体验、个人、团队套餐的页面、额度与使用。
-- 检查套餐及团队切换、再次选择当前套餐，以及模型名单、供应商开关与状态提示。
-- 检查套餐模型的编辑、排序、启停、连接测试和实际聊天。
-- 检查未开通、取凭据失败、套餐失效和刷新失败时的提示、重试与手动切换。
-- 检查体验套餐领取成功、失败和重复领取，以及升级购买、额度重置、从官网返回应用后的刷新。
-- 检查模型请求触发账号验证时的提示、验证失败与完成后的继续使用。
+- Verificar separadamente login, logout, novo login e recuperação após reiniciar em Z.AI e BigModel, além das páginas, cotas e uso dos planos de experiência, pessoal e de equipe.
+- Verificar troca de plano e de equipe, selecionar novamente o plano atual, além da lista de modelos, do interruptor do fornecedor e das dicas de estado.
+- Verificar edição, ordenação, habilitação/desativação, teste de conexão e chat real dos modelos do plano.
+- Verificar dicas, retentativa e troca manual quando o plano não está contratado, a obtenção de credenciais falha, o plano expira ou a atualização falha.
+- Verificar a retirada bem-sucedida, falha e repetida do plano de experiência, além da compra de upgrade, da redefinição de cota e da atualização ao voltar do site oficial para o app.
+- Verificar as dicas quando um request de modelo dispara verificação de conta, a falha da verificação e o uso contínuo após a conclusão.
 
-## 6. 启动和工作区切换
+## 6. Inicialização e troca de workspace
 
-- 冷启动或刚打开本地工作区时，立即检查模型列表、默认选择、新建任务和首次发送。
-- 检查模型加载失败后的重试与恢复。
-- 检查切换工作区、重启应用和恢复任务后的模型选择，避免不同工作区相互影响。
+- Em cold start ou logo após abrir um workspace local, verificar imediatamente a lista de modelos, a seleção padrão, a criação de tarefa e o primeiro envio.
+- Verificar a retentativa e a recuperação após falha de carregamento dos modelos.
+- Verificar a seleção de modelo ao trocar de workspace, reiniciar o app e retomar tarefas, evitando interferência entre workspaces diferentes.
 
-## 7. 普通聊天中的模型选择
+## 7. Seleção de modelo no chat comum
 
-- 检查新任务默认模型首发、切换供应商、模型和推理档位，以及当前和后续消息的界面与实际使用是否一致。
-- 检查运行中追加指令，分别覆盖保持原模型和更换模型；留意模型配置、输出风格调整后的继续执行。
-- 检查连续发送、排队、停止、重发、带附件发送、编辑消息、分支会话和侧聊。
-- 检查变更前确认与完全控制下的操作、权限批准和拒绝后的继续执行。
-- 检查不同供应商下同名模型的选择、使用和重启恢复，以及模型禁用、供应商删除或套餐变化后的提示。
-- 检查修改配置不会意外中断已在运行的任务，也不会清掉原有会话内容。
+- Verificar o primeiro envio com o modelo padrão de uma nova tarefa, a troca de fornecedor, modelo e nível de inferência, e se a interface e o uso real da mensagem atual e das seguintes são consistentes.
+- Verificar o acréscimo de instruções durante a execução, cobrindo separadamente manter o modelo original e trocar de modelo; atentar para a execução contínua após ajustes de configuração do modelo e de estilo de saída.
+- Verificar envios consecutivos, fila, parada, reenvio, envio com anexo, edição de mensagem, sessão em branch e side chat.
+- Verificar a confirmação antes da mudança, operações sob controle total, aprovação de permissão e a execução contínua após a rejeição.
+- Verificar a seleção, o uso e a recuperação após reiniciar de modelos com o mesmo nome em fornecedores diferentes, além das dicas após desabilitar o modelo, excluir o fornecedor ou mudar de plano.
+- Verificar que alterar a configuração não interrompe inesperadamente tarefas em execução nem limpa o conteúdo de sessões existentes.
 
-## 8. API 格式和模型能力
+## 8. Formato de API e capacidades do modelo
 
-- 覆盖 Messages、Chat Completions、Responses 三类 API、近期新增模型和仍在使用的旧模型，检查真实请求与模型切换。
-- 检查推理档位、关闭推理、不能关闭推理的模型、工具调用和结构化输出，以及跨模型继续已有对话。
-- 检查图片、视频、PDF、原生联网和对话中系统消息，以及不支持相应能力时的提示；注意普通 API 与套餐能力的区别。
-- 检查长上下文、最大输出、超限提示和输出中断后的继续生成，以及压缩后继续聊天与重启恢复。
-- 检查鉴权失败、限流、空响应、流式中断、网络恢复、重试和取消，不重复执行已完成的操作。
+- Cobrir as três classes de API Messages, Chat Completions e Responses, os modelos adicionados recentemente e os modelos antigos ainda em uso, verificando request real e troca de modelo.
+- Verificar nível de inferência, desativar a inferência, modelos que não permitem desativar a inferência, chamada de ferramentas e saída estruturada, além de continuar conversas existentes entre modelos diferentes.
+- Verificar imagem, vídeo, PDF, busca nativa na internet e mensagens de sistema na conversa, além das dicas quando a capacidade correspondente não é suportada; atentar para a diferença entre as capacidades da API comum e do plano.
+- Verificar contexto longo, saída máxima, dica de limite excedido e continuação da geração após interrupção de saída, além de continuar o chat após a compressão e recuperar após reiniciar.
+- Verificar falha de autenticação, limitação de taxa, resposta vazia, interrupção de streaming, recuperação de rede, retentativa e cancelamento, sem reexecutar operações já concluídas.
 
-## 9. 模型连接测试
+## 9. Teste de conexão de modelo
 
-- 覆盖普通 Key、手动套餐 Key，以及体验、个人、团队账号套餐，包含刚保存配置后立即测试。
-- 检查成功、失败、重试和关闭提示，以及模型名称与反馈文案。
-- 检查不能关闭推理的模型，以及远程工作区中的连接测试。
+- Cobrir Key comum, Key manual de plano e as contas de plano de experiência, pessoal e de equipe, incluindo o teste imediatamente após salvar a configuração.
+- Verificar sucesso, falha, retentativa e dicas de fechamento, além do nome do modelo e do texto de feedback.
+- Verificar modelos que não permitem desativar a inferência, além do teste de conexão em workspace remoto.
 
-## 10. 使用统计和额度提示
+## 10. Estatísticas de uso e dicas de cota
 
-- 检查使用统计的总量、明细、筛选和历史模型记录。
-- 检查聊天区域和侧边栏的套餐额度、上下文用量、重置提醒和额度不足提示，留意提醒重复出现。
-- 检查切换账号、模型或工作区后的更新，以及升级前后记录的连续性。
+- Verificar o total, o detalhamento, os filtros e o registro de modelos históricos das estatísticas de uso.
+- Verificar a cota do plano, o uso de contexto, o lembrete de redefinição e a dica de cota insuficiente na área de chat e na barra lateral, atentar para lembretes que se repetem.
+- Verificar a atualização após trocar de conta, modelo ou workspace, além da continuidade dos registros antes e depois do upgrade.
 
-## 11. 记忆功能
+## 11. Funcionalidade de memória
 
-- 检查记忆读取、提取和整理时使用的模型，以及重启后的继续使用。
-- 检查切换聊天模型、多个任务同时运行，以及记忆请求失败后的提示和普通聊天是否正常。
+- Verificar o modelo usado na leitura, extração e organização da memória, além do uso contínuo após reiniciar.
+- Verificar as dicas após falha no request de memória e se o chat comum continua normal, ao trocar o modelo do chat e com várias tarefas em execução simultaneamente.
 
-## 12. 标题和提交信息生成
+## 12. Geração de título e mensagem de commit
 
-- 检查任务标题首次生成、失败、响应慢和重启后的表现，以及自动生成与用户手动改名同时发生的情况。
-- 检查有无暂存改动、改动较大时的提交信息生成、取消和失败，以及已有填写内容的保留。
-- 检查生成提交信息期间，工作区改动继续变化的情况。
-- 覆盖不同模型，包含不能关闭推理的模型。
+- Verificar a primeira geração do título da tarefa, a falha, a resposta lenta e o comportamento após reiniciar, além da geração automática ocorrendo junto com a renomeação manual do usuário.
+- Verificar a geração da mensagem de commit com e sem mudanças pendentes e com mudanças grandes, o cancelamento e a falha, além da preservação do conteúdo já preenchido.
+- Verificar a situação em que as mudanças no workspace continuam alterando durante a geração da mensagem de commit.
+- Cobrir modelos diferentes, incluindo os que não permitem desativar a inferência.
 
 ## 13. Goal
 
-- 检查创建、替换、清除和重启恢复，以及标题生成。
-- 检查完成验证的推理档位、输出上限，以及成功、失败、取消和重试。
-- 检查切换模型或快速替换目标后，标题、验证结果和目标状态是否对应。
+- Verificar criação, substituição, limpeza e recuperação após reiniciar, além da geração de título.
+- Verificar o nível de inferência da verificação de conclusão, o limite de saída e o sucesso, a falha, o cancelamento e a retentativa.
+- Verificar se, após trocar de modelo ou substituir rapidamente o objetivo, o título, o resultado da verificação e o estado do objetivo correspondem.
 
 ## 14. Repo Wiki
 
-- 检查模型选择、开始生成、长时间运行、长内容、取消、失败和再次生成。
-- 检查生成遵循模型输出上限，不再要求单独选择输出预算。
-- 检查旧 Wiki 配置、重启后查看或继续生成，以及切换项目和修改 Wiki 设置时的模型使用与配置隔离。
+- Verificar a seleção de modelo, o início da geração, a execução longa, o conteúdo longo, o cancelamento, a falha e a nova geração.
+- Verificar que a geração respeita o limite de saída do modelo, sem exigir mais a escolha separada de orçamento de saída.
+- Verificar a configuração antiga do Wiki, a visualização ou a continuação da geração após reiniciar, além do uso do modelo e do isolamento de configuração ao trocar de projeto e alterar as configurações do Wiki.
 
-## 15. 子智能体和后台任务
+## 15. Subagentes e tarefas em background
 
-- 检查内置与自定义子智能体的指定模型和继承模型，以及推理档位。
-- 检查用户已有子智能体配置升级后，配置内容与提示词的保留。
-- 检查父子任务并行和任务切换，以及后台子智能体、后台命令的启动、停止、完成通知和重启后的显示与使用。
-- 检查后台任务运行时继续发送消息或切换任务。
-- 检查子任务中的权限确认、提问和继续执行，不影响父任务的模型选择。
+- Verificar o modelo especificado e o modelo herdado dos subagentes embutidos e custom, além do nível de inferência.
+- Verificar, após o upgrade, a preservação do conteúdo de configuração e do prompt dos subagentes que o usuário já tinha.
+- Verificar tarefas pai e filho em paralelo e a troca de tarefas, além da inicialização, parada, notificação de conclusão e exibição e uso de subagentes em background e comandos em background após reiniciar.
+- Verificar o envio de novas mensagens ou a troca de tarefa enquanto uma tarefa em background está em execução.
+- Verificar a confirmação de permissão, as perguntas e a execução contínua nas subtarefas, sem afetar a seleção de modelo da tarefa pai.
 
-## 16. Hooks、MCP 和插件工具
+## 16. Hooks, MCP e ferramentas de plugin
 
-- 检查阻断、补充信息、报错和工具完成后的继续执行。
-- 检查 MCP 连接、登录和版本兼容，以及插件、内置工具在不同 API 格式下的调用与报错，包含套餐相关工具。
-- 检查权限确认、拒绝和重试，以及切换模型后的工具使用。
+- Verificar o bloqueio, o complemento de informações, o erro e a execução contínua após a conclusão da ferramenta.
+- Verificar a conexão, o login e a compatibilidade de versão do MCP, além da chamada e do erro de plugins e ferramentas embutidas em diferentes formatos de API, incluindo as ferramentas relacionadas a planos.
+- Verificar a confirmação, a rejeição e a retentativa de permissão, além do uso de ferramentas após trocar de modelo.
 
-## 17. 定时任务
+## 17. Tarefas agendadas
 
-- 检查创建、编辑、启停、到点运行、错过执行和历史记录，以及执行后的任务标题。
-- 检查模型与推理档位的保存，以及旧任务升级和重启后的运行。
-- 检查模型下线、供应商删除、套餐失效和执行失败时的提示与后续操作，不影响普通聊天的选择。
+- Verificar criação, edição, habilitação/desativação, execução no horário, execução perdida e histórico, além do título da tarefa após a execução.
+- Verificar o salvamento do modelo e do nível de inferência, além da execução de tarefas antigas após o upgrade e de reiniciar.
+- Verificar as dicas e as ações seguintes quando o modelo sai do ar, o fornecedor é excluído, o plano expira ou a execução falha, sem afetar a seleção do chat comum.
 
-## 18. 闲时任务
+## 18. Tarefas ociosas
 
-- 检查创建入口、套餐与额度限制，以及创建、模型选择、等待调度、执行、取消、查看结果和重新执行。
-- 覆盖 Z.AI、BigModel 的个人和团队套餐，检查升级前已有闲时任务在升级、重启后的记录、状态与继续使用。
-- 检查模型下线、登录过期、套餐失效、额度不足和网络异常后的提示与恢复，不改变普通聊天的模型选择。
-- 检查远程工作区和手机端的入口与任务查看。
+- Verificar a entrada de criação, as limitações de plano e de cota, além da criação, da seleção de modelo, da espera por agendamento, da execução, do cancelamento, da visualização do resultado e da reexecução.
+- Cobrir os planos pessoal e de equipe de Z.AI e BigModel, verificando os registros, o estado e o uso contínuo das tarefas ociosas já existentes após o upgrade e reiniciar.
+- Verificar as dicas e a recuperação quando o modelo sai do ar, o login expira, o plano expira, a cota é insuficiente ou há anomalia de rede, sem alterar a seleção de modelo do chat comum.
+- Verificar a entrada e a visualização de tarefas no workspace remoto e no celular.
 
 ## 19. Bot
 
-- 使用已配置的飞书、Telegram 等 Bot 启动并完成任务，检查原有 Bot 配置和绑定任务的升级、重启恢复。
-- 检查绑定已有会话、修改模型与推理档位，以及绑定任务已删除后的恢复。
-- 检查 Bot 与桌面查看同一会话时，模型选择、内容和任务状态的一致性。
-- 检查任务启动、终端事件、最终回复和错误提示，以及同一卡片上的流式回复、进度和终端输出。
-- 检查多选问题、自定义回答、权限确认，以及完成后的卡片状态。
+- Iniciar e concluir tarefas usando os Bots já configurados, como Feishu e Telegram, e verificar o upgrade e a recuperação após reiniciar da configuração do Bot e das tarefas vinculadas.
+- Verificar a vinculação a sessões existentes, a alteração do modelo e do nível de inferência, além da recuperação depois que a tarefa vinculada foi excluída.
+- Verificar a consistência da seleção de modelo, do conteúdo e do estado da tarefa quando o Bot e o desktop visualizam a mesma sessão.
+- Verificar o início da tarefa, os eventos de terminal, a resposta final e as dicas de erro, além da resposta em streaming, do progresso e da saída de terminal no mesmo card.
+- Verificar perguntas de múltipla escolha, respostas custom, confirmação de permissão e o estado do card após a conclusão.
 
-## 20. 远程工作区
+## 20. Workspace remoto
 
-- 检查首次连接后本地账号、供应商和默认模型在远端的使用，以及远端安装、升级后的首发。
-- 检查本地登录、退出或修改模型设置后，已连接远端的更新和继续聊天。
-- 检查配置同步失败、远端写入失败、断网、重连和远端重启，以及同一远端的多个工作区。
-- 检查本地与不同远端之间的账号、供应商、任务和模型选择不会串用。
+- Verificar o uso da conta, dos fornecedores e do modelo padrão local no remoto após a primeira conexão, além da instalação e do primeiro envio após o upgrade no remoto.
+- Verificar a atualização do remoto já conectado e a continuação do chat após login, logout ou alteração das configurações de modelo no local.
+- Verificar a falha de sincronização de configuração, a falha de escrita no remoto, a queda de rede, a reconexão e o reinício do remoto, além de múltiplos workspaces no mesmo remoto.
+- Verificar que conta, fornecedor, tarefa e seleção de modelo não se misturam entre o local e remotos diferentes.
 
-## 21. 多端显示和操作
+## 21. Exibição e operação em múltiplos dispositivos
 
-- 检查桌面、本地 Web 和手机远控中的模型设置、列表、选择、提示文案和任务恢复。
-- 检查本地与远程工作区切换、桌面与手机操作同一任务，以及手机断线重连后的继续使用。
-- 覆盖窄窗口、浅深主题、中英文和中文输入法。
-- 检查 CLI 的登录、退出、默认模型、显式模型与子智能体，以及 TUI 和脚本任务中的使用。
-- 检查帮助、版本等不依赖模型的 CLI 命令。
+- Verificar as configurações de modelo, a lista, a seleção, os textos de dica e a recuperação de tarefa no desktop, na Web local e no controle remoto do celular.
+- Verificar a troca entre workspace local e remoto, a operação da mesma tarefa no desktop e no celular e o uso contínuo após o celular reconectar.
+- Cobrir janela estreita, tema claro e escuro, chinês e inglês e IME em chinês.
+- Verificar o login, o logout, o modelo padrão, o modelo explícito e os subagentes da CLI, além do uso na TUI e em tarefas de script.
+- Verificar comandos da CLI que não dependem de modelo, como ajuda e versão.
 
-## 22. 正式安装包
+## 22. Pacote de instalação oficial
 
-- 使用全新用户目录安装，完成启动、登录、添加供应商、选模和首次聊天。
-- 从上一正式版覆盖安装，检查原有登录、供应商配置、默认模型和已有任务，并继续发送。
-- 覆盖 macOS、Windows、Linux 安装包中的供应商、模型和图标，以及安装、升级、卸载和重新安装。
-- 检查安装权限提示、安装失败反馈，以及不同安装方式下的应用启动。
-- 检查官网登录或购买套餐后唤起应用、账号刷新、更新后重启，以及桌面与 Web 版本对齐后的使用。
+- Instalar com um diretório de usuário novo, concluir a inicialização, o login, a adição de fornecedor, a seleção de modelo e o primeiro chat.
+- Fazer instalação por cima da última versão oficial e verificar o login existente, a configuração de fornecedores, o modelo padrão e as tarefas existentes, continuando a enviar.
+- Cobrir fornecedores, modelos e ícones dos instaladores de macOS, Windows e Linux, além de instalação, upgrade, desinstalação e reinstalação.
+- Verificar as dicas de permissão de instalação, o feedback de falha de instalação e a inicialização do app sob diferentes formas de instalação.
+- Verificar a invocação do app após login no site oficial ou compra de plano, a atualização da conta, o reinício após atualizar e o uso após o alinhamento das versões desktop e Web.
 
-## 23. 会话分享和导入
+## 23. Compartilhamento e importação de sessões
 
-- 检查选择已完成内容、发布分享、权限设置、取消和失败重试，运行中任务与切换会话也要覆盖。
-- 检查分享中的正文、用户附件和生成文件，以及缺失、超大或不可分享内容的提示。
-- 检查浏览器查看、登录访问、应用唤起与导入后继续聊天，以及导入文件的查看和打开。
-- 检查本地与支持分享的远程工作区，避免不同任务的分享选择串用。
+- Verificar a seleção de conteúdo concluído, a publicação do compartilhamento, as configurações de permissão, o cancelamento e a retentativa após falha, cobrindo também tarefas em execução e troca de sessão.
+- Verificar o corpo, os anexos do usuário e os arquivos gerados no compartilhamento, além das dicas para conteúdo ausente, muito grande ou não compartilhável.
+- Verificar a visualização no navegador, o acesso com login, a invocação do app e a continuação do chat após a importação, além da visualização e abertura dos arquivos importados.
+- Verificar o workspace local e o workspace remoto com suporte a compartilhamento, evitando que a escolha de compartilhamento de tarefas diferentes se misture.
 
-## 24. 插件管理、浏览器和电脑控制
+## 24. Gerenciamento de plugins, navegador e controle do computador
 
-- 检查插件安装、启停、更新提示、更新、卸载和重启后的配置保留。
-- 检查浏览器弹窗、窗口尺寸、任务切换和本地文件打开，不同任务之间不串状态。
-- 检查电脑控制的系统授权、启动与恢复，以及父子任务、后台任务和远程工作区中的可用范围。
-- 检查相关工具运行时，停止任务、重启应用和插件更新后的继续使用。
+- Verificar a instalação, a habilitação/desativação, a dica de atualização, a atualização e a desinstalação de plugins, além da preservação da configuração após reiniciar.
+- Verificar o popup do navegador, o tamanho da janela, a troca de tarefa e a abertura de arquivos locais, sem mistura de estado entre tarefas diferentes.
+- Verificar a autorização de sistema do controle do computador, a inicialização e a recuperação, além do escopo disponível em tarefas pai e filho, tarefas em background e workspace remoto.
+- Verificar, enquanto as ferramentas relacionadas estão em execução, o uso contínuo após parar a tarefa, reiniciar o app e atualizar o plugin.
 
-## 25. 工作区显示和文件恢复
+## 25. Exibição do workspace e recuperação de arquivos
 
-- 检查工作区侧栏、独立面板、终端、拖动调整大小，以及不同系统的窗口边框和菜单。
-- 检查消息、工具结果、媒体预览和文件打开，包含长内容与大文件。
-- 检查任务中的文件变更记录、回退和恢复，以及磁盘空间不足、文件过大时的提示。
-- 检查重启后打开旧任务、切换任务和工作区时的响应与内容完整性。
+- Verificar a barra lateral do workspace, o painel independente, o terminal, o redimensionamento por arraste, além das bordas de janela e dos menus em diferentes sistemas.
+- Verificar mensagens, resultados de ferramentas, pré-visualização de mídia e abertura de arquivos, incluindo conteúdo longo e arquivos grandes.
+- Verificar o registro de alterações de arquivos na tarefa, o rollback e a recuperação, além das dicas quando o espaço em disco é insuficiente ou o arquivo é muito grande.
+- Verificar a resposta ao abrir uma tarefa antiga após reiniciar e ao trocar de tarefa e de workspace, e a integridade do conteúdo.
 
-## 26. 资源管理和存储清理
+## 26. Gerenciamento de recursos e limpeza de armazenamento
 
-- 检查资源管理器入口、CPU 和内存显示，以及任务和插件启停后的更新。
-- 检查磁盘占用扫描、分类查看、取消、刷新和清理确认。
-- 检查清理范围与保护提示，确认会话、任务、配置和仍需使用的文件不会被误删。
-- 检查扫描与清理期间的正常聊天、窗口关闭和再次打开。
+- Verificar a entrada do gerenciador de recursos, a exibição de CPU e memória e a atualização após iniciar e parar tarefas e plugins.
+- Verificar a varredura de uso de disco, a visualização por categoria, o cancelamento, a atualização e a confirmação da limpeza.
+- Verificar o escopo da limpeza e as dicas de proteção, confirmando que sessões, tarefas, configurações e arquivos ainda necessários não são apagados por engano.
+- Verificar o chat normal durante a varredura e a limpeza, o fechamento da janela e a abertura novamente.
 
-## 27. 错误反馈和排查信息
+## 27. Feedback de erros e informações de diagnóstico
 
-- 检查模型、工具和任务失败后的错误摘要、详情、重试与反馈入口。
-- 检查停止、异常退出和重启恢复后的状态，避免把已恢复的任务继续显示为失败。
-- 检查诊断信息和用量记录能对应实际任务及模型，且不暴露 Key 或私人凭据。
+- Verificar o resumo do erro, os detalhes, a retentativa e a entrada de feedback após falhas de modelo, ferramenta e tarefa.
+- Verificar o estado após parada, saída anormal e recuperação ao reiniciar, evitando exibir como falha uma tarefa que já foi recuperada.
+- Verificar se as informações de diagnóstico e os registros de uso correspondem à tarefa e ao modelo reais e não expõem Key nem credenciais privadas.

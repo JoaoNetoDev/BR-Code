@@ -1,15 +1,15 @@
 # Sidebar Task View Switcher
 
-侧栏任务区的视图入口分为两级：
+As entradas de visão da área de tarefas da barra lateral são divididas em dois níveis:
 
-1. 一级滑块：`Group` / `Project`
-2. `Project` 模式下的筛选菜单：`By project` / `Timeline`，以及 `Created` / `Updated`
+1. Slider de primeiro nível: `Group` / `Project`
+2. Menu de filtro no modo `Project`: `By project` / `Timeline`, além de `Created` / `Updated`
 
-目标是把用户最常用的“按项目看任务”和“自定义分组”做成显式切换，避免把 `Project`、`Group`、`Timeline`、排序全部压在同一个下拉菜单里。非项目对话不增加一级 tab，而是在 `Project + By project` 中成为独立二级 section。
+O objetivo é transformar as ações mais usadas pelo usuário — "ver as tarefas por projeto" e "agrupamento personalizado" — em uma troca explícita, evitando comprimir `Project`, `Group`, `Timeline` e a ordenação no mesmo dropdown. Conversas que não são de projeto não ganham uma tab de primeiro nível; elas se tornam uma section de segundo nível independente dentro de `Project + By project`.
 
-## 状态映射
+## Mapeamento de estado
 
-现有任务视图数据状态继续复用，不新增服务端或协议字段：
+O estado de dados da visão de tarefas existente continua sendo reaproveitado, sem novos campos de servidor ou de protocolo:
 
 - `Group` -> `taskOrganizeBy = "grouped"`
 - `Project` + `By project` -> `taskOrganizeBy = "project"`
@@ -17,31 +17,24 @@
 - `Created` -> `taskSortBy = "created"`
 - `Updated` -> `taskSortBy = "updated"`
 
-`Group` 视图不响应 `Created` / `Updated` 排序。切回 `Project` 后，继续沿用上次项目子视图和排序偏好。
+A visão `Group` não responde à ordenação `Created` / `Updated`. Ao voltar para `Project`, continua valendo a última subvisão de projeto e a preferência de ordenação.
 
-`Project + By project` 与 `Project + Timeline` 的排序是两层语义，不是直接对全表应用
-`taskSortBy`：
+A ordenação de `Project + By project` e de `Project + Timeline` tem duas camadas de semântica, e não é a aplicação direta de `taskSortBy` sobre a tabela inteira:
 
-1. `prewarming/running` task，以及 `hasBackgroundWork` 为真（挂着动态工作流 run / 后台 bash /
-   分离子代理）的 task，永远排在当前普通任务列表最上方（2026-09-09 追记：后台工作并入运行层）；
-2. running 层内部按 `createdAt` 倒序，并只用稳定 `taskId` 处理同创建时间；
-3. 非 running 层才应用 `Created` / `Updated` 偏好。
+1. Tasks em `prewarming/running`, assim como tasks com `hasBackgroundWork` verdadeiro (com workflow run dinâmico, bash em background ou subagente destacado pendurados), ficam sempre no topo da lista de tarefas comuns corrente (adendo de 2026-09-09: o trabalho de background entra na camada de running);
+2. Dentro da camada de running, a ordem é por `createdAt` decrescente, e empates de horário de criação são resolvidos apenas pelo `taskId` estável;
+3. A preferência `Created` / `Updated` só é aplicada na camada que não é running.
 
-因此并发运行的原 task 与 fork child 不会因 `lastActivityAt` 随流式事件交替更新而换位；fork
-child 创建更晚，运行期间稳定排在原 task 上方。两个各跑一个后台 workflow run 的会话同理：
-run 进度事件持续推进 `lastActivityAt`，但两行都在运行层内按 `createdAt` 固定，不再互换。
+Assim, a task original e o fork child que rodam em paralelo não trocam de posição por causa de `lastActivityAt`, que se alterna conforme os eventos de streaming chegam; o fork child foi criado mais tarde e, durante a execução, fica de forma estável acima da task original. O mesmo vale para duas sessões que rodam cada uma um workflow run em background: os eventos de progresso do run avançam `lastActivityAt` continuamente, mas as duas linhas ficam fixas dentro da camada de running por `createdAt` e não se invertem.
 
-挂着 workflow run 的会话在三种视图（Project / Group / Timeline）里都在标题下多出一行「Workflow 图标 +
-迷你轨道灯 + 当前 phase 名」（2026-09-14 追记：工作流运行行），数据来自 sidecar `workflowActivity`；该行只绘制，
-不参与排序、不改前置 16px 槽的优先级。行高随之 32 → 52（最多两行）。
-转圈图标仍只认 `prewarming/running`，后台工作不点亮转圈。Pinned 仍是独立结构区，Grouped 仍服从用户
-持久化的显式 `sort_order`，两者不被 running 层跨区打散。
+Sessões com workflow run pendurado ganham, nas três visões (Project / Group / Timeline), uma linha a mais abaixo do título com 「ícone de Workflow + luz de trilho miniatura + nome do phase atual」 (adendo de 2026-09-14: linha de execução de workflow), com dados vindos do sidecar `workflowActivity`; essa linha é apenas desenhada, não participa da ordenação e não altera a prioridade do slot de 16px à frente. A altura da linha vai de 32 → 52 (até duas linhas).
+O ícone de carregamento continua reconhecendo apenas `prewarming/running`; o trabalho de background não acende o indicador. Pinned continua sendo uma seção estrutural independente e Grouped continua obedecendo o `sort_order` explícito persistido pelo usuário; a camada de running não embaralha os dois entre si.
 
-`Projects` / `Tasks` 二级 section 使用独立 renderer-local 偏好 `zcode-sidebar-purpose-section-preferences`，分别持久化 `projectsExpanded`、`conversationsExpanded` 与 `sectionOrder`；首次、旧版偏好、坏数据或 storage 不可用时默认全部展开并按 `Projects -> Tasks` 排列。
+As sections de segundo nível `Projects` / `Tasks` usam a preferência renderer-local independente `zcode-sidebar-purpose-section-preferences`, persistindo separadamente `projectsExpanded`, `conversationsExpanded` e `sectionOrder`; na primeira execução, com preferências antigas, dados corrompidos ou storage indisponível, o padrão é tudo expandido e ordenado como `Projects -> Tasks`.
 
-## 交互布局
+## Layout de interação
 
-任务工具栏直接显示紧凑的两段式滑块，不额外显示 `Tasks` 标题：
+A barra de tarefas exibe diretamente um slider compacto de dois segmentos, sem exibir um título `Tasks` adicional:
 
 ```text
 [ Group | Project ] [expand]   [new group] [archive] [filter]
@@ -49,16 +42,16 @@ Pinned
   • task
 ```
 
-- 任务工具栏外层使用 `pl-2.5 pr-3`，滑块使用轻量 pill 样式：tabs shell 实际高度固定为 `h-7`，tab 本体高度为 `h-6`，水平 padding 使用 `pl-1.5 pr-2`，图标和文案使用 `gap-1`，宽度跟随 `Group` / `Project` 图标和文案内容，不横向撑满工具栏；tabs shell 使用 `bg-surface`，active 背景使用无边框的 `bg-background` 独立 pill indicator 跟随当前项的位置和宽度滑动，不使用大面积品牌色。
-- `Group` tab 排在左侧，`Project` tab 排在右侧；初始化仍保留 `Project` 视图，避免已有默认任务入口变化。
-- `Group` / `Project` / `Timeline` / `Archived` 模式下的 pinned 区固定渲染在滑块和动作按钮下面，普通任务列表上面；列表容器不额外添加上下外边距，避免和滑块之间形成过大的空白。
-- `Group` 主体继续只接收非 pinned、非 archived task；置顶 task 迁移到同页的全局 pinned 区，只出现一次。右上角共享任务菜单执行置顶后，当前 task 必须仍能在 `Group` 页面找到，不能因为 grouped 主体过滤 pinned membership 而整页消失。
-- pinned task 原有的 group membership 和用户排序保持不变；取消置顶后回到原 group 或顶层位置。置顶区无数据且不在加载时继续隐藏，不额外渲染空标题。
-- `Expand all` / `Collapse all` 按钮固定贴在滑块右侧，属于当前视图切换的近邻动作；`New group`、归档、筛选等次级动作留在工具栏右侧。
-- 切换视图时，`Expand all` / `Collapse all` 先按上一帧展示模型乐观保留位置、图标和 disabled 状态；等新视图回传确认为空后再移除，避免动作区先少一个按钮或短暂变灰再补回来造成整行闪动。
-- `New group` 在 `Group` 视图下保留原来的纯图标按钮；通过 tooltip 和 `aria-label` 暴露文案，避免右侧动作区过宽。
-- `Group` 被选中时，右侧保留 `Expand/Collapse all`、`New group`、归档等通用动作；隐藏项目子视图和排序筛选菜单，任务工具栏不再展示搜索按钮。
-- `Project` 被选中时，筛选菜单展示：
+- A camada externa da barra de tarefas usa `pl-2.5 pr-3`, e o slider usa um estilo pill leve: a altura real do shell das tabs é fixa em `h-7`, o corpo da tab tem altura `h-6`, o padding horizontal usa `pl-1.5 pr-2`, ícone e texto usam `gap-1`, e a largura acompanha o conteúdo dos ícones e textos de `Group` / `Project`, sem esticar horizontalmente a barra; o shell das tabs usa `bg-surface`, e o fundo de active é um pill indicator independente sem borda, com `bg-background`, que desliza acompanhando a posição e a largura do item atual, sem usar grandes áreas de cor de marca.
+- A tab `Group` fica à esquerda e a tab `Project` à direita; a inicialização continua mantendo a visão `Project`, para não mudar a entrada de tarefas padrão já existente.
+- Nos modos `Group` / `Project` / `Timeline` / `Archived`, a seção de pinned é renderizada sempre de forma fixa abaixo do slider e dos botões de ação, e acima da lista de tarefas comuns; o container da lista não ganha margem vertical extra, evitando um espaço em branco grande demais entre a lista e o slider.
+- O corpo de `Group` continua recebendo apenas tasks que não são pinned nem archived; as tasks fixadas migram para a seção global de pinned da mesma página, aparecendo uma única vez. Depois que o menu compartilhado de tarefas no canto superior direito executa a fixação, a task atual precisa continuar encontrável na página `Group`, sem que a página inteira desapareça por o corpo grouped filtrar a pinned membership.
+- As group membership e a ordenação do usuário originais da task pinned permanecem inalteradas; ao desfixar, ela volta para o group original ou para a posição de topo. A seção de pinned continua oculta quando não há dados e não está carregando, sem renderizar um título vazio extra.
+- Os botões `Expand all` / `Collapse all` ficam colados à direita do slider, por pertencerem à troca de visão atual; ações secundárias como `New group`, arquivamento e filtro permanecem no lado direito da barra.
+- Ao trocar de visão, `Expand all` / `Collapse all` preservam de forma otimista, com base no modelo do quadro anterior, a posição, o ícone e o estado disabled; só são removidos depois que a nova visão confirmar de volta que estão vazios, evitando que a área de ações fique momentaneamente com um botão a menos ou pisque cinza antes de voltar e Making a linha inteira tremer.
+- `New group` mantém, na visão `Group`, o botão apenas com ícone de antes; o texto é exposto por tooltip e `aria-label`, para não alargar demais a área de ações à direita.
+- Quando `Group` está selecionado, o lado direito mantém as ações gerais `Expand/Collapse all`, `New group` e arquivamento; a subvisão de projeto e o menu de filtro de ordenação ficam ocultos, e a barra de tarefas não exibe mais o botão de busca.
+- Quando `Project` está selecionado, o menu de filtro exibe:
 
 ```text
 View
@@ -70,7 +63,7 @@ Sort by
   Created
 ```
 
-`Project + By project` 的任务区固定为：
+A área de tarefas de `Project + By project` é fixa como:
 
 ```text
 Pinned
@@ -80,30 +73,30 @@ Tasks             [drag]     [chevron] [new task]
   conversation rows
 ```
 
-- `Pinned` 仅在有数据或加载中时显示；conversation/project pinned task 均只出现一次。
-- `Projects` 和 `Tasks` 标题始终显示，并各自独立展开/收起；点击标题及右侧 action、拖拽手柄之外的剩余标题行切换 section，展开显示向下箭头，收起显示向右箭头。
-- 专用拖拽手柄支持鼠标、触摸和键盘。用户可以交换两个 section 的位置；空或收起 section 仍可移动，展开态和内容跟随 section，换位后立即持久化 `sectionOrder`。
-- 箭头和右侧 action 在 pointer 默认态隐藏，section hover、键盘 `focus-within`、菜单打开或设备不支持 hover 时显示；action 是 trigger 的 sibling，点击只执行动作，不改变 section 展开态。
-- `Projects` 右侧 `+` 菜单复用 `Open folder` 和 `Remote connection`；`Tasks` 右侧 `MessageCirclePlus` 固定在 conversation backing workspace 新建草稿。
-- `Tasks` 中的任务使用和普通 workspace 任务一致的单行 row：不展示内部 backing workspace 的目录名（例如 `default`），也不为普通 idle 状态显示灰点；未读、错误、运行中等真实状态指示继续保留。
-- section 收起只隐藏内容，不清除 workspace 行展开状态、任务缓存或 DnD 顺序。没有真实项目、没有 conversation backing tab 或恢复期间 workspace tabs 暂时为空时，仍渲染两个标题及各自空状态。
-- 任务查询使用全部 workspace target；只有 workspace rows、DnD、展开收起和项目空状态过滤为 `workspacePurpose=project`。
-- `Group` 继续显示非项目任务：默认顶层未分组，可进入普通分组；不得为 backing path 自动生成 `default` workspace group。
-- `Group` 顶部 pinned 区和 grouped 主体使用同一组 workspace scope，但各自保持独立 membership：前者只显示 pinned，后者排除 pinned，禁止重复行。
+- `Pinned` só aparece quando há dados ou está carregando; tasks pinned de conversa／projeto aparecem apenas uma vez.
+- Os títulos `Projects` e `Tasks` aparecem sempre e expandem／recolhem de forma independente; clicar no restante da linha do título, fora das actions à direita e da alça de arrasto, alterna a section: expandido mostra seta para baixo e recolhido mostra seta para a direita.
+- A alça de arrasto dedicada suporta mouse, toque e teclado. O usuário pode trocar a posição de duas sections; uma section vazia ou recolhida continua movível, o estado expandido e o conteúdo acompanham a section, e o `sectionOrder` é persistido imediatamente após a troca.
+- A seta e as actions à direita ficam ocultas no estado padrão do ponteiro e aparecem no hover da section, em `focus-within` por teclado, com o menu aberto ou quando o dispositivo não suporta hover; a action é irmã do trigger, e o clique executa apenas a ação, sem mudar o estado expandido da section.
+- O menu `+` à direita de `Projects` reaproveita `Open folder` e `Remote connection`; o `MessageCirclePlus` à direita de `Tasks` fica fixo em criar um rascunho na conversation backing workspace.
+- As tasks em `Tasks` usam a mesma row de linha única das tasks comuns de workspace: não exibem o nome de diretório do backing workspace interno (por exemplo `default`) nem mostram ponto cinza para o estado ocioso comum; os indicadores reais de estado — não lido, erro, em execução — continuam preservados.
+- Recolher uma section apenas oculta o conteúdo, sem limpar o estado expandido das workspace rows, o cache de tasks ou a ordem de DnD. Quando não há projetos reais, não há conversation backing tab ou as workspace tabs ficam temporariamente vazias durante a restauração, os dois títulos e seus respectivos estados vazios continuam sendo renderizados.
+- A consulta de tasks usa todos os workspace targets; apenas as workspace rows, o DnD, o expandir／recolher e o estado vazio de projeto são filtrados por `workspacePurpose=project`.
+- `Group` continua exibindo as tasks que não são de projeto: por padrão, não agrupadas no topo, e able entrar em grupos comuns; não se pode gerar automaticamente um workspace group `default` para o backing path.
+- A seção de pinned no topo de `Group` e o corpo grouped usam o mesmo workspace scope, mas cada um mantém sua membership independente: a primeira mostra apenas pinned e a segunda exclui pinned, proibindo linhas duplicadas.
 
-- `Expand all` / `Collapse all` 继续按当前视图语义工作：Group 模式控制 group；Project 模式同时控制 `Projects` section 和全部项目任务组，不影响 `Tasks`；Timeline 没有可批量展开对象时不展示。
-- 窄宽度下允许工具栏换行：滑块优先占据可用宽度，动作按钮换到下一行也必须保持可见，避免长翻译文本挤压图标按钮。
+- `Expand all` / `Collapse all` continuam funcionando conforme a semântica da visão atual: o modo Group controla os groups; o modo Project controla ao mesmo tempo a section `Projects` e todos os grupos de tarefas de projeto, sem afetar `Tasks`; e o modo Timeline não é exibido quando não há objeto que possa ser expandido em lote.
+- Em largura estreita, a barra pode quebrar linha: o slider ocupa primeiro a largura disponível e os botões de ação, ao passarem para a próxima linha, precisam continuar visíveis, evitando que textos de tradução compridos comprimam os botões com ícone.
 
-## Web 远控约束
+## Restrições do controle remoto Web
 
-Web 远控侧栏仍只使用 `Project` 一级模式，不展示 `Group` 滑块项。原因是远控任务列表来自 `listWorkspaces()` / replayable 任务索引，当前没有用户自定义 group 的远控恢复语义。
+A barra lateral do controle remoto Web continua usando apenas o modo de primeiro nível `Project` e não exibe o item de slider `Group`. A razão é que a lista de tarefas remota vem de `listWorkspaces()` / do índice de tarefas replayable e, hoje, não há uma semântica de restauração remota para groups customizados pelo usuário.
 
-移动端远控仍保持顶部导航区域的纵向滚动和高度拖拽逻辑；本变更不修改 `clientMode`、`deliveryKind`、task stream、snapshot 或 replayable 恢复边界。
+O controle remoto mobile mantém a rolagem vertical e a lógica de arraste de altura da área de navegação superior; esta mudança não modifica `clientMode`, `deliveryKind`, task stream, snapshot nem os limites de restauração replayable.
 
-section 顺序是 renderer-local 偏好：当前窗口立即更新，其他已打开窗口不要求实时同步；重新挂载后读取同一持久化值。完整边界与用例见 `docs/ui/sidebar-purpose-section-order.md`。
+A ordem das sections é uma preferência renderer-local: a janela atual atualiza imediatamente e não é exigido sync em tempo real das outras janelas já abertas; após remontar, o mesmo valor persistido é lido. Os limites completos e os casos de uso estão em `docs/ui/sidebar-purpose-section-order.md`.
 
-## 兼容性
+## Compatibilidade
 
-- 继续复用 `readSidebarTaskPreferences()` / `persistSidebarTaskPreferences()`。
-- 继续兼容桌面端、Web 端、macOS、Windows、Linux，以及 Zai Light / Zai Dark。
-- 文案走现有 i18n key；新增文案必须同时补 `en-US` 和 `zh-CN`。
+- Continua reaproveitando `readSidebarTaskPreferences()` / `persistSidebarTaskPreferences()`.
+- Continua compatível com desktop, Web, macOS, Windows, Linux, além de Zai Light / Zai Dark.
+- Os textos passam pelas i18n keys existentes; novos textos precisam vir com `en-US` e `zh-CN` ao mesmo tempo.

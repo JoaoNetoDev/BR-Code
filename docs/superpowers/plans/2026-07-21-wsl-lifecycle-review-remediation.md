@@ -1,26 +1,26 @@
 # WSL Lifecycle Review Remediation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes de trabalho:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 为 deploy lock release 增加 deadline，并用 workspace generation/ACK 消除 pooled WSL workspace 快速重连与旧 release 的竞态。
+**Objetivo:** adicionar um deadline para a liberação do deploy lock e eliminar, com generation/ACK de workspace, a corrida entre o reconexão rápido de um workspace WSL em pool e um release antigo.
 
-**Architecture:** deploy lock 只收口本次 owner stream，5 秒未 close 即销毁流并返回可诊断错误；不直接 dispose backend。WSL Main/Host 增加 acquire/release generation 协议，Main 只有在 Host 确认旧 release 已失效或完成后才 attach 新 RPC port。
+**Arquitetura:** o deploy lock só encerra o stream owner desta execução; se não fechar em 5 segundos, o stream é destruído e um erro diagnosticável é retornado, sem fazer dispose direto do backend. WSL Main/Host recebem um protocolo de generation em acquire/release, e o Main só faz attach de uma nova porta RPC depois que o Host confirma que o release antigo está invalidado ou concluído.
 
-**Tech Stack:** TypeScript、Electron UtilityProcess postMessage、Zod runtime schema、Vitest、真实 Windows + WSL。
+**Stack técnico:** TypeScript, Electron UtilityProcess postMessage, Zod runtime schema, Vitest, Windows real + WSL.
 
-## Global Constraints
+## Restrições globais
 
-- 所有 workspace 隔离使用 `workspaceIdentity?.trim() || workspacePath`。
-- desktop attachment 保持 `desktop-continuous`，手机 attachment 保持 `web-remote-replayable`。
-- Docker/Server 保持 dedicated，SSH pool 行为不变。
-- app quit/window close/update install 仍绕过 60 秒 TTL 并回收完整 Host。
-- 执行 `pnpm typecheck` 与 `pnpm lint`。
+- Todo isolamento de workspace usa `workspaceIdentity?.trim() || workspacePath`.
+- O attachment de desktop mantém `desktop-continuous`; o attachment de celular mantém `web-remote-replayable`.
+- Docker/Server permanece dedicated; o comportamento do pool SSH não muda.
+- O quit/fechamento de janela/instalação de update do app continua contornando o TTL de 60 segundos e recuperando o Host completo.
+- Executar `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-### Task 1: Deploy lock release deadline
+### Task 1: Deadline de liberação do deploy lock
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/server/src/remote/remoteDeployLock.ts`
 - Modify: `packages/server/src/remote/deploy.ts`
@@ -29,18 +29,18 @@
 
 **Interfaces:**
 
-- `AcquireRemoteDeployLockOptions.releaseTimeoutMs?: number`，默认 `5_000`。
-- `RemoteDeployLockHandle.release()` 在 deadline 内 resolve/reject；timeout 错误包含 owner 与 deadline。
+- `AcquireRemoteDeployLockOptions.releaseTimeoutMs?: number`, com padrão `5_000`.
+- `RemoteDeployLockHandle.release()` resolve/reject dentro do deadline; o erro de timeout contém o owner e o deadline.
 
-- [x] 写 close 永不触发的失败测试，断言 deadline 后 reject 且 stdin/stdout/stderr 被 destroy。
-- [x] 运行 `pnpm vitest run packages/server/test/remoteDeployLock.test.ts`，确认 RED 为 release Promise 未 settle。
-- [x] 实现有界 close wait 和 owner stream best-effort destroy；重复 release 继续幂等。
-- [x] 增加 deploy/release 双失败测试，用 `AggregateError` 保留两个错误。
-- [x] 运行两份定向测试并确认 GREEN。
+- [x] Escrever um teste de falha em que o close nunca é disparado, afirmando reject após o deadline e destroy de stdin/stdout/stderr.
+- [x] Executar `pnpm vitest run packages/server/test/remoteDeployLock.test.ts` e confirmar RED com a release Promise sem settle.
+- [x] Implementar espera de close limitada e destroy best-effort do stream owner; release repetida continua idempotente.
+- [x] Adicionar um teste de falha dupla de deploy/release, preservando os dois erros com `AggregateError`.
+- [x] Executar os dois testes direcionados e confirmar GREEN.
 
-### Task 2: Workspace generation/ACK protocol
+### Task 2: Protocolo de generation/ACK de workspace
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/shared/src/channels.ts`
 - Modify: `packages/shared/src/validation.ts`
@@ -52,48 +52,48 @@
 
 **Interfaces:**
 
-- Main → Host `AcquireRemoteWorkspace { requestId, generation, workspacePath, workspaceIdentity? }`。
-- Main → Host `ReleaseRemoteWorkspace` 增加正整数 `generation`。
-- Host → Main `RemoteWorkspaceAcquired { requestId, generation, workspacePath, workspaceIdentity?, ok, error? }`。
+- Main → Host `AcquireRemoteWorkspace { requestId, generation, workspacePath, workspaceIdentity? }`.
+- Main → Host `ReleaseRemoteWorkspace` recebe um `generation` inteiro positivo.
+- Host → Main `RemoteWorkspaceAcquired { requestId, generation, workspacePath, workspaceIdentity?, ok, error? }`.
 
-- [x] 先扩展 schema 测试，确认新消息在 schema 未实现时 RED。
-- [x] 写 close → release pending → reopen 测试，断言 ACK 前不发送 AttachServicePort。
-- [x] 写 stale generation/pending release Host 测试，断言 acquire 使旧 pending release 失效；in-flight release 完成后才 ACK。
-- [x] 实现 Main generation、10 秒 ACK waiter、Host generation state 与串行 release。
-- [x] 验证 Host exit/cancel/app shutdown reject waiter，mobile owner 使用绑定 session generation。
-- [x] 运行 shared/desktop/host 定向测试并确认 GREEN。
+- [x] Estender primeiro o teste de schema, confirmando RED para as novas mensagens enquanto o schema ainda não está implementado.
+- [x] Escrever o teste close → release pending → reopen, afirmando que AttachServicePort não é enviado antes do ACK.
+- [x] Escrever testes de Host para generation obsoleta / release pendente, afirmando que o acquire invalida um release pendente antigo; o ACK só ocorre após a conclusão do release em andamento.
+- [x] Implementar generation no Main, waiter de ACK de 10 segundos, estado de generation no Host e release serializado.
+- [x] Verificar que exit/cancel/shutdown do app rejeitam o waiter e que o owner mobile usa a generation da session vinculada.
+- [x] Executar os testes direcionados de shared/desktop/host e confirmar GREEN.
 
-### Task 3: Documentation, self-review, and runtime verification
+### Task 3: Documentação, auto-revisão e verificação em runtime
 
-**Files:**
+**Arquivos:**
 
 - Modify: `docs/architecture/zcode-code-architecture-overview.md`
 - Modify: `docs/wsl-remote-workspace-design.md`
 - Modify: `docs/superpowers/specs/2026-07-20-window-scoped-wsl-host-pooling-design.md`
 
-- [x] 自审状态所有权、消息乱序、重复 release/acquire、Host exit、timeout 与 app shutdown。
-- [x] 自审补充修复 Acquire ACK 失败/超时后的 pending connect 残留，避免窗口清理重复释放 pool owner。
-- [x] 自审 SSH/Docker/Server、desktop continuous/mobile replayable、workspaceIdentity 边界。
-- [x] 运行所有定向测试、`pnpm typecheck`、`pnpm lint`。
-- [x] 真实 Ubuntu/WSL 验证 lock release deadline 正常路径和 workspace close/reopen PID/日志时序。
-- [ ] 提交 Conventional Commit，推送当前分支并核对远端 hash。
+- [x] Auto-revisar a propriedade do estado, o fora de ordem de mensagens, release/acquire duplicados, exit do Host, timeout e app shutdown.
+- [x] Auto-revisar e corrigir adicionalmente o resíduo de pending connect após falha/timeout do ACK de acquire, evitando liberação duplicada do pool owner na limpeza da janela.
+- [x] Auto-revisar SSH/Docker/Server, desktop continuous/mobile replayable e os limites de workspaceIdentity.
+- [x] Executar todos os testes direcionados, `pnpm typecheck` e `pnpm lint`.
+- [x] Verificar em Ubuntu/WSL real o deadline de liberação do lock no caminho normal e a sequência de PID/logs no fechamento e reabertura do workspace.
+- [ ] Submeter um Conventional Commit, enviar a branch atual e conferir o hash remoto.
 
-### Task 4: Acquire 后 attachment 失败的事务补偿
+### Task 4: Compensação transacional quando o attachment falha após o acquire
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/desktop/src/main/desktopRemoteSessions.ts`
 - Test: `packages/desktop/test/desktopRemoteSessions.test.ts`
 
-- [x] 写 desktop acquire ACK 成功、renderer port 转移失败的测试；断言 RED 为缺少 `ReleaseRemoteWorkspace`。
-- [x] 补充 ACK 成功后 pending connect 被取消的竞态测试，确保不 attach 且补偿 release。
-- [x] 在调用方记录 acquired generation，attachment 失败时补偿释放 workspace runtime，再释放 pool owner。
-- [x] 将 mobile workspace generation 校验提前到 MessageChannel 创建与 Host port 转移前。
-- [x] 运行定向测试、typecheck、lint，并自审 attachment 异常、取消竞态与 mobile port 转移顺序。
+- [x] Escrever o teste de ACK de acquire do desktop bem-sucedido com falha na transferência da porta do renderer; afirmar RED por falta de `ReleaseRemoteWorkspace`.
+- [x] Adicionar o teste de corrida do pending connect cancelado após o ACK bem-sucedido, garantindo que não haja attach e que a release compensatória ocorra.
+- [x] Registrar no chamador a generation adquirida e, em caso de falha no attachment, compensar liberando o workspace runtime e depois liberando o pool owner.
+- [x] Antecipar a validação da generation do workspace mobile para antes da criação do MessageChannel e da transferência da porta do Host.
+- [x] Executar os testes direcionados, typecheck e lint, e auto-revisar exceção de attachment, corrida de cancelamento e ordem de transferência de porta mobile.
 
-### Task 5: Canonical WSL pool identity 与 deploy-lock acquire deadline
+### Task 5: Identidade canônica do pool WSL e deadline de acquire do deploy-lock
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/server/src/remote/wsl-backend.ts`
 - Modify: `packages/server/src/remote/remoteDeployLock.ts`
@@ -105,50 +105,49 @@
 - Test: `packages/server/test/remoteDeployLock.test.ts`
 - Test: `packages/server/test/wslBackend.test.ts`
 
-- [x] 写 default/explicit 等价 target 并发连接测试，断言 RED 为 resolver 未调用且 spawn 两个 WSL Host。
-- [x] 写 lock acquire marker 永不出现的 deadline 测试，断言 RED 为 Promise 不 settle。
-- [x] 实现可注入 canonical WSL resolver，resolved target 后才进入 pool，并在 await 后重检 teardown。
-- [x] WSL resolver 返回列表 canonical distro 与 `id -un` 实际 user，失败 Promise 不固化。
-- [x] acquire deadline 默认 120 秒并由 DeployOptions 透传；超时只销毁 waiter owned stream。
-- [x] 运行定向测试、typecheck、lint，复审 platform/lifecycle。
-- [x] 真实 WSL 曾短暂返回 `CreateVm/HCS/0x800705aa`；环境恢复后复验 default/explicit 均解析为 `Ubuntu/dev`。
-- [x] 提交并推送。
+- [x] Escrever o teste de conexões concorrentes para targets default/explicit equivalentes, afirmando RED por resolver não chamado e por spawn de dois WSL Host.
+- [x] Escrever o teste de deadline em que o marcador de acquire do lock nunca aparece, afirmando RED com a Promise sem settle.
+- [x] Implementar um resolver WSL canônico injetável, entrando no pool só depois do target resolvido, e revalidando o teardown após o await.
+- [x] O resolver WSL retorna a distro canônica da lista e o user real de `id -un`; Promises de falha não são fixadas.
+- [x] O deadline de acquire tem padrão de 120 segundos e é repassado por DeployOptions; no timeout, apenas o stream do waiter é destruído.
+- [x] Executar os testes direcionados, typecheck e lint, e re-revisar platform/lifecycle.
+- [x] O WSL real chegou a retornar brevemente `CreateVm/HCS/0x800705aa`; após a recuperação do ambiente, revalidou-se que default e explicit resolvem ambos para `Ubuntu/dev`.
+- [x] Submeter e enviar.
 
-## 2026-07-21 运行态证据
+## Evidências de runtime de 2026-07-21
 
-- 环境：Windows + WSL2 Ubuntu，Desktop 版本 `3.4.0`，远端 server `3.4.0`。
-- 清理历史孤儿基线：旧 `zcode-server` PID `1160`（运行约 7 小时）被精确终止，随后确认无 server 进程。
-- 首次连接：session `ee2d9a74-a9f0-4ef5-a019-bf9c811aca41` 成功；WSL `zcode-server` PID `1156`，Windows pooled Host PID `15120`，launcher PID `24620`。
-- 快速重连：关闭旧 session 后 `1.6ms` 发起同 workspace 重连，`77.1ms` 成功得到 session `d4a7de35-f4db-45c8-994f-e23efa23a506`；WSL server 仍为 PID `1156`，未启动第二份 server。
-- 整窗关闭：通过 CDP 关闭唯一窗口后，不等待 60 秒 TTL，Electron main PID `25820` 与 WSL server PID `1156` 均在 4 秒内消失。
-- deploy lock 正常收口：连接与重连后 `~/.zcode/.deploy.lock` 不存在；未观察到 lock-holder 残留。
-- canonical identity：直接运行 `WSLBackend.resolveIdentity()` 得到 `Ubuntu/dev`；并发解析 default target 与
-  显式 `{ distro: "ubuntu", user: "dev" }` 均返回 `{ distro: "Ubuntu", user: "dev" }`，`equal=true`。
+- Ambiente: Windows + WSL2 Ubuntu, Desktop versão `3.4.0`, server remoto `3.4.0`.
+- Linha de base de limpeza de órfãos históricos: o antigo PID `1160` do `zcode-server` (em execução por cerca de 7 horas) foi encerrado de forma precisa e, em seguida, confirmou-se que não havia processo de server.
+- Primeira conexão: session `ee2d9a74-a9f0-4ef5-a019-bf9c811aca41` com sucesso; `zcode-server` no WSL com PID `1156`, Host em pool no Windows com PID `15120`, launcher com PID `24620`.
+- Reconexão rápida: após fechar a session antiga, a reconexão do mesmo workspace partiu em `1.6ms` e obteve a session `d4a7de35-f4db-45c8-994f-e23efa23a506` com sucesso em `77.1ms`; o server no WSL continuou no PID `1156`, sem iniciar uma segunda instância de server.
+- Fechamento da janela inteira: após fechar a única janela via CDP, sem esperar o TTL de 60 segundos, tanto o PID `25820` do Electron main quanto o PID `1156` do server no WSL desapareceram em 4 segundos.
+- Encerramento normal do deploy lock: após a conexão e a reconexão, `~/.zcode/.deploy.lock` não existe; não foi observado resíduo de lock-holder.
+- Identidade canônica: executando `WSLBackend.resolveIdentity()` diretamente se obtém `Ubuntu/dev`; a resolução concorrente do target default e do `{ distro: "ubuntu", user: "dev" }` explícito retorna ambos `{ distro: "Ubuntu", user: "dev" }`, com `equal=true`.
 
-## Task 6：pending WSL owner 幂等释放
+## Task 6: Liberação idempotente de owner WSL pendente
 
-- [x] 两个 logical connection 共享同一 Host，其中一个停留在 acquire 并按 requestId 取消；RED 捕获 `attach-error:idle-timeout` 误销毁。
-- [x] pending owner 的 cancel/acquire error/connect error/attach error 统一走幂等 release。
-- [x] 定向测试、typecheck、lint、自审、提交并推送。
+- [x] Duas conexões lógicas compartilham o mesmo Host, uma delas fica presa no acquire e é cancelada pelo requestId; o RED captura a destruição indevida por `attach-error:idle-timeout`.
+- [x] O cancel, o erro de acquire, o erro de connect e o erro de attach do owner pendente passam todos por uma release idempotente unificada.
+- [x] Testes direcionados, typecheck, lint, auto-revisão, submissão e envio.
 
-## Task 7：WSL spawn lifecycle gate
+## Task 7: Gate de lifecycle de spawn do WSL
 
-- [x] 预热 resolved identity 后让 availability discovery pending，dispose 完成后恢复 discovery；RED 证明旧逻辑仍会 spawn。
-- [x] `exec()` 在最终同步 spawn 前重新检查 disposed，保证 barrier 后不再登记新 child。
-- [x] 定向测试、typecheck、lint、自审、提交并推送。
+- [x] Após aquecer a identidade resolvida, deixar a descoberta de disponibilidade pendente e concluir o dispose; o RED prova que a lógica antiga ainda faria spawn.
+- [x] `exec()` reavalia o estado disposed antes do spawn síncrono final, garantindo que nenhum child novo seja registrado depois da barreira.
+- [x] Testes direcionados, typecheck, lint, auto-revisão, submissão e envio.
 
-## Task 8：abandoned WSL acquire generation 补偿释放
+## Task 8: Liberação compensatória da generation de acquire WSL abandonada
 
-- [x] timeout/cancel 测试断言立即发送同 generation Release；晚到成功 ACK 再次补偿且永不 attach，先观察 RED。
-- [x] pending connect 保存 context/generation，以幂等 helper 收口本地放弃路径；unmatched 成功 ACK 执行安全补偿。
-- [x] pending Host reject 统一复用 owner release helper。
-- [x] 定向测试、typecheck、lint、自审、提交并推送。
+- [x] Os testes de timeout/cancel afirmam o envio imediato de Release com a mesma generation; um ACK bem-sucedido tardio compensa de novo e nunca faz attach, observando primeiro o RED.
+- [x] O pending connect guarda context/generation e fecha os caminhos locais de abandono com um helper idempotente; um ACK bem-sucedido sem correspondência executa a compensação segura.
+- [x] O reject de Host pendente reutiliza de forma unificada o helper de release do owner.
+- [x] Testes direcionados, typecheck, lint, auto-revisão, submissão e envio.
 
-## Task 9：合并目标分支的 manifest deadline 与 GLM SHA 身份
+## Task 9: Deadline de manifest da branch de destino integrada e identidade por SHA do GLM
 
-- [x] 确认当前分支缺失 `manifestRequestTimeoutMs` 完整透传和 GLM artifact SHA 决策链。
-- [x] 合入最新 `origin/main`，保留 deploy-lock acquire/release deadline 与锁内复查。
-- [x] 单次 deploy 固定 fresh manifest，将同一 SHA 快照透传到 GLM 决策与 release cache。
-- [x] 运行 manifest timeout、同版本不同 SHA、deploy lock 定向回归。
-- [x] 运行 typecheck、lint、diff check，并反向对照 `origin/main` 远程部署能力。
-- [x] 独立代码审查未发现 Critical/High/Medium，提交并推送。
+- [x] Confirmar que a branch atual está sem o repasse completo de `manifestRequestTimeoutMs` e sem a cadeia de decisão do SHA do artefato do GLM.
+- [x] Integrar o `origin/main` mais recente, preservando o deadline de acquire/release do deploy-lock e a reconferência dentro do lock.
+- [x] O deploy único fixa um manifest fresco e repassa o mesmo snapshot de SHA para a decisão do GLM e para o cache de release.
+- [x] Executar as regressões direcionadas de timeout de manifest, mesma versão com SHA diferente e deploy lock.
+- [x] Executar typecheck, lint e verificação de diff, e comparar em sentido inverso as capacidades de deploy remoto com o `origin/main`.
+- [x] A revisão independente de código não encontrou nada Critical/High/Medium; submetido e enviado.
