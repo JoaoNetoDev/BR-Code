@@ -1,48 +1,48 @@
-# Todo132：模型选项底色反馈与供应商名称编辑修复
+# Todo132: feedback de cor de fundo nas opções de modelo e correção da edição do nome do fornecedor
 
-> 状态：**2026-09-11 已实现，局部复审和验证通过；整批最终验收待执行**。
+> Estado: **implementado em 2026-09-11, revisão parcial e verificação aprovadas; aceitação final do lote inteiro ainda pendente**.
 >
-> 两项最终裁决：① 只加强模型方块选项的选中底色，文字/图标保持原样，边框继续只表达个人覆盖。② 自定义供应商名称编辑不定时保存，Enter/失焦确认，Esc 放弃本次编辑；地址/API Key 的自动保存机制保持。
+> Duas decisões finais: ① reforçar apenas a cor de fundo de seleção das opções em bloco de modelo, mantendo texto/ícone como estão, e a borda continua expressando apenas a cobertura pessoal. ② a edição do nome do fornecedor custom não salva em tempo real; confirma com Enter/perda de foco e Esc descarta esta edição; o mecanismo de salvamento automático de endereço/API Key permanece.
 >
-> 关联：[Todo92 控件覆盖与交互反馈](./todo-92-model-smart-config-and-override-feedback.md)、[Todo130 手动配置边界](./todo-130-manual-model-config-editable-field-boundary.md)、[Todo131 布局与恢复按钮](./todo-131-model-settings-smart-config-placement-and-restore.md)。本 Todo 不夹带实施其他项。
+> Relacionados: [Todo92 cobertura de controles e feedback de interação](./todo-92-model-smart-config-and-override-feedback.md), [Todo130 limites da configuração manual](./todo-130-manual-model-config-editable-field-boundary.md), [Todo131 layout e botão de restauração](./todo-131-model-settings-smart-config-placement-and-restore.md). Este Todo não embute a implementação de outros itens.
 
-## 1. 第一项：模型方块选项点击反馈不明显
+## 1. Primeiro item: feedback de clique pouco perceptível nas opções em bloco de modelo
 
-### 1.1 当前问题
+### 1.1 Problema atual
 
-范围是模型编辑器中的图片/视频/PDF、模型能力、MFJS 等方块选项，不扩大为全站 Switch 改造，也不调整智能配置滑动开关的配色。
+O escopo são as opções em bloco de imagem/vídeo/PDF, capacidades do modelo, MFJS etc. no editor de modelo; não se expande para uma reformulação de Switch em todo o produto nem se ajusta a cor dos toggles deslizantes da configuração inteligente.
 
-`modelEditorControlStyle()` 目前主要靠底色表示开关。Zai 浅色主题的 `--color-selected` 与 `--color-hover` 都为 `rgba(13,13,13,0.05)`；鼠标停在按钮上，未选中 Hover 和选中 Hover 底色相同。深色主题对应 10% 和 5% 白色，选中 Hover 又做混色，差距进一步变小。
+`modelEditorControlStyle()` hoje representa o estado de ligado/desligado principalmente pela cor de fundo. No tema claro da Zai, `--color-selected` e `--color-hover` são ambos `rgba(13,13,13,0.05)`; com o mouse sobre o botão, o hover não selecionado e o hover selecionado têm a mesma cor de fundo. No tema escuro os equivalentes são 10% e 5% de branco, e o hover selecionado ainda faz mistura, reduzindo ainda mais a diferença.
 
-按现有色值在纯白/深色面板上的合成示例：浅色点击前后均约 `#f3f3f3`；深色未选中 Hover 约 `#2b2b2b`，选中 Hover 约 `#313131`。这些是样式计算证据，不是已完成浏览器截图验收；具体像素随实际底层背景而变化。
+Exemplo de composição com os valores atuais sobre painel branco puro/escuro: no tema claro, antes e depois do clique ficam em torno de `#f3f3f3`; no escuro, o hover não selecionado fica em torno de `#2b2b2b` e o hover selecionado em torno de `#313131`. Esses são indícios de cálculo de estilo, não aceitação de captura de tela no navegador; os pixels concretos variam conforme o fundo subjacente real.
 
-用户否定了同时加强文字/图标的建议，已明确撤回。不能实施早期提案中的文字变色、加粗或图标强调。
+O usuário rejeitou a sugestão de reforçar simultaneamente texto/ícone e a retirou explicitamente. Não se pode implementar mudança de cor do texto, negrito ou ênfase no ícone da proposta inicial.
 
-### 1.2 目标样式
+### 1.2 Estilo alvo
 
-| 状态维度         | 最终规则                                                               |
-| ---------------- | ---------------------------------------------------------------------- |
-| 开/关            | 只通过更明确的底色差异表达；浅色选中加深，深色选中提亮                 |
-| Hover / 键盘聚焦 | 轻微交互底色变化，开启与关闭仍明显不同；不能让关闭 Hover 看起来已开启  |
-| 个人覆盖         | 边框继续仅表达覆盖来源；不拿边框表示开关，不增加边框粗细变化或焦点外圈 |
-| 文字/图标        | 原颜色、字重、图案、尺寸保持，不因选中而另加强调                       |
-| 布局/控件        | 保持当前尺寸、间距、图标与分组，不加复选框、勾号或“开/关”文字          |
+| Dimensão de estado   | Regra final                                                                    |
+| -------------------- | ------------------------------------------------------------------------------ |
+| Ligado/desligado     | expresso apenas por uma diferença de cor de fundo mais explícita; no claro a seleção escurece, no escuro a seleção clareia |
+| Hover / foco de teclado | leve mudança de cor de fundo na interação, mantendo ligado e desligado bem distintos; o hover de desligado não pode parecer ligado |
+| Cobertura pessoal     | a borda continua expressando apenas a origem da cobertura; a borda não representa o switch, e não há aumento de espessura nem anel de foco |
+| Texto/ícone          | cor, peso, padrão e tamanho originais são mantidos, sem ênfase adicional por estar selecionado |
+| Layout/controles     | manter dimensões, espaçamentos, ícones e agrupamento atuais, sem adicionar checkbox, marca de visto ou texto "ligado/desligado" |
 
-在模型编辑器局部修正选项样式，不改全站 `--color-selected` / `--color-hover`，不改变其他页面按钮或输入框。`modelEditorControlStyle` 也被文本输入/映射编辑器复用，必须只调整 selected 为布尔值的选项分支，不能把文本输入框一起加深。
+Corrigir o estilo das opções localmente no editor de modelo, sem mexer em `--color-selected` / `--color-hover` globais e sem alterar botões ou campos de outras páginas. `modelEditorControlStyle` também é reutilizado pelo editor de entrada de texto/mapeamento, então só o ramo de opções cujo selected é booleano pode ser ajustado; os campos de texto não podem ser escurecidos junto.
 
-沿用当前主题语义色，通过局部样式给出足够可辨的选中与 Hover 层级。具体数值以双主题实际预览定稿，不凭猜测写死新色系。固定文本输入/输出选项仍保持锁定语义，不因颜色增强变成可编辑。
+Reutilizar as cores semânticas atuais do tema e, por meio de estilo local, entregar níveis de seleção e hover suficientemente distinguíveis. Os valores concretos são fechados com prévia real nos dois temas, sem gravar um novo conjunto de cores por suposição. As opções fixas de entrada/saída de texto mantêm a semântica de bloqueio e não se tornam editáveis só porque o contraste aumentou.
 
-### 1.3 验收重点
+### 1.3 Foco da aceitação
 
-**鼠标不移开，连续点击同一按钮，每次开/关都明显可见。** 同时看鼠标移开、键盘聚焦和手机触摸后的状态，不依靠 Hover 才能辨别选中。
+**Com o mouse parado sobre o local, clicar várias vezes no mesmo botão; cada ligar/desligar deve ser claramente visível.** Verificar também o estado com o mouse afastado, com foco de teclado e após toque no celular, sem depender do hover para distinguir a seleção.
 
-## 2. 第二项：供应商名称自动保存导致 Esc 失效
+## 2. Segundo item: salvamento automático do nome do fornecedor faz o Esc falhar
 
-### 2.1 当前问题与复现
+### 2.1 Problema atual e reprodução
 
-用户体感约 1.8 秒后保存；当前代码 `MODEL_PROVIDER_TEXT_IDLE_TRIGGER_MS = 1200`，名称输入和输入法 composition end 都会调度共享自动保存。
+A percepção do usuário é de salvamento em cerca de 1,8 segundo; o código atual tem `MODEL_PROVIDER_TEXT_IDLE_TRIGGER_MS = 1200`, e tanto a digitação do nome quanto o fim de composition do IME agendam o salvamento automático compartilhado.
 
-`handleNameKeyDown()` 在 Esc 时取 `getProviderFormLabel(provider)`，这是当前已保存/投影名称，不是开始编辑的值。
+`handleNameKeyDown()` usa `getProviderFormLabel(provider)` no Esc, que é o nome já salvo/projetado, e não o valor de início da edição.
 
 ```text
 原名 A → 输入 B → 停顿后自动提交 B → Provider View 更新为 B
@@ -52,24 +52,24 @@
                                 恢复当前 View 名称 B，无法取消为 A
 ```
 
-已运行真实 `InlineEditableProviderCard` 状态与保存逻辑的隔离组件验证（以简化 Header 承接事件、父组件模拟保存后 View 回传）：自动保存前 Esc 恢复原名且无保存调用；推进 1200 ms 完成自动保存后 Esc 保留新名。两项问题行为断言通过，不是修复后的 E2E。
+Foi executada uma verificação de componente isolada com o estado real e a lógica de salvamento do `InlineEditableProviderCard` (com um Header simplificado recebendo os eventos e o componente pai simulando o retorno da View após o salvamento): antes do salvamento automático, o Esc restaura o nome original sem chamada de salvamento; após avançar 1200 ms e concluir o salvamento automático, o Esc mantém o novo nome. As duas asserções de comportamento do problema passaram; não se trata do E2E após a correção.
 
-另一个关联点：`commitPendingDraft()` 保存整份 Provider 草稿，地址、API Key、连接测试和 cleanup 等入口也能携带名称。只删除名称自己的定时器不足以保证 Esc 有效。
+Outro ponto relacionado: `commitPendingDraft()` salva o rascunho completo do Provider, e entradas de endereço, API Key, teste de conexão e cleanup também podem carregar o nome. Remover apenas o timer do próprio nome não basta para garantir que o Esc funcione.
 
-### 2.2 最终交互
+### 2.2 Interação final
 
-| 动作                          | 行为                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------ |
-| 进入名称编辑                  | 建立本次名称编辑草稿及编辑身份，显示当前名称                             |
-| 输入/停止输入/composition end | 只改名称草稿，不定时保存，不因此自动退出编辑                             |
-| Enter（非输入法候选确认）     | 确认名称，保存并结束本次编辑，复用失焦提交，不重复写入                   |
-| 失焦                          | 确认保存并退出编辑；空白/未修改名称沿用现有校验与不提交规则              |
-| Esc（非输入法组合状态）       | 放弃本次名称编辑、恢复本次编辑的原名显示并退出；不发送保存或补偿回滚请求 |
-| 输入法候选确认                | 保留现有 composition 防护，不把候选 Enter 当作确认保存                   |
+| Ação                              | Comportamento                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Entrar na edição do nome          | cria o rascunho desta edição de nome e a identidade de edição, exibindo o nome atual                  |
+| Digitar/parar de digitar/fim de composition | altera apenas o rascunho do nome, sem salvamento temporizado e sem sair da edição automaticamente |
+| Enter (não confirmação de candidato do IME) | confirma o nome, salva e encerra esta edição, reutilizando o commit por perda de foco, sem escrita duplicada |
+| Perda de foco                    | confirma e salva, saindo da edição; nome em branco/sem alteração segue as regras existentes de validação e de não submissão |
+| Esc (não em estado de composição do IME) | descarta esta edição do nome, restaura a exibição do nome original desta edição e sai; não envia salvamento nem requisição de rollback compensatória |
+| Confirmação de candidato do IME   | mantém a proteção existente de composition, não tratando o Enter de candidato como confirmação de salvamento |
 
-Esc 的含义是取消**本地尚未确认的名称草稿**，不是把已发生的远端/其他窗口变更写回旧值。退出后继续以权威 Provider View 展示，不为了“恢复”回写旧版本整份 Provider。
+O significado de Esc é cancelar o **rascunho de nome local ainda não confirmado**, e não reescrever o valor antigo sobre mudanças remadas ou de outras janelas que já ocorreram. Depois de sair, a exibição continua vindo do Provider View autoritativo, sem reescrever o Provider inteiro antigo só por causa de um "restaurar".
 
-### 2.3 与其他保存入口隔离
+### 2.3 Isolamento em relação a outras entradas de salvamento
 
 ```text
 名称编辑草稿 ──Enter / 真正失焦确认──> 名称保存
@@ -81,57 +81,57 @@ Esc 的含义是取消**本地尚未确认的名称草稿**，不是把已发生
                   不夹带未确认的名称草稿
 ```
 
-- 未确认名称不能混入其他字段的 idle、连接测试、模型操作、cleanup 等提交。复用现有字段所有权与提交边界，不新建第二套 Provider 服务或持久化协议。
-- 名称 composition start/end 不应再为名称启动定时器；隔离时不得顺便取消或丢弃地址/API Key 自己的待保存意图。
-- Esc 必须先使名称提交意图失效，再退出编辑；后续 blur、卸载或 cleanup 不得用旧闭包中的名字重新提交。
-- Enter 引发 blur 时只能提交一次；名称未变不提交。只有真正的失焦确认才提交，不能把因 Esc 结束编辑产生的后续事件算成确认。
-- 切换 Provider/卸载时核对旧目标绑定：正常失焦确认按旧目标提交；cleanup 不把未确认名称偷偷保存，也不把旧结果应用到新 Provider。
-- 保留现有保存失败提示/重试及 Provider 更新保护，不显示假成功；不为名称撤销实现“先自动存 B，再发一次 A”的竞态回滚。
-- 不改变地址、API Key、API 格式的现有保存时机，不调整共用 idle 延时，不改名称字段 schema、权限或服务端 revision/原子写入规则。
+- Um nome não confirmado não pode se misturar aos commits por idle, teste de conexão, operações de modelo e cleanup de outros campos. Reutilizar a propriedade de campo existente e as fronteiras de commit existentes, sem criar um segundo serviço de Provider ou protocolo de persistência.
+- O composition start/end do nome não deve mais iniciar timer para o nome; ao isolar, não se pode cancelar nem descartar nem descarte a intenção de salvamento pendente do próprio endereço/API Key.
+- O Esc precisa invalidar primeiro a intenção de submissão do nome e só depois sair da edição; um blur, unload ou cleanup posterior não pode ressubmeter usando o nome capturado no closure antigo.
+- Um Enter que provoque blur só pode submeter uma vez; nome inalterado não submete. Só a perda de foco real confirma, e eventos posteriores ao encerramento da edição por Esc não podem ser contados como confirmação.
+- Na troca de Provider/unload, conferir o vínculo com o alvo antigo: a confirmação por perda de foco real submete pelo alvo antigo; o cleanup não salva silenciosamente um nome não confirmado nem aplica resultado antigo ao novo Provider.
+- Manter os avisos/tentativas de retentativa atuais de falha de salvamento e as proteções de atualização do Provider, sem mostrar sucesso falso; não implementar rollback com corrida do tipo "salva B automaticamente e depois envia A" para desfazer o nome.
+- Não alterar o momento de salvamento existente de endereço, API Key e formato de API, nem ajustar o atraso idle compartilhado, nem mudar o schema, as permissões ou as regras de revision/escrita atômica no servidor do campo de nome.
 
-## 3. 修改入口与实施顺序
+## 3. Pontos de entrada e ordem de implementação
 
-| 项目     | 主要位置（相对 `packages/ui/src/settings/model-provider-section/`）                                      | 边界                                                     |
-| -------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 方块反馈 | `modelEditorControlStyle.ts`，核对 `ProviderModelMetadataFields.tsx`、`ProviderModelModalityOptions.tsx` | 局部 selected/Hover 底色，文字图标和覆盖边框保持         |
-| 名称交互 | `InlineEditableProviderCard.tsx`、`ProviderCardSections.tsx` 的 Header                                   | 名称本次编辑草稿、Enter/blur/Esc、输入法事件             |
-| 提交隔离 | `ProviderDraftSave.ts` 及卡片的 `commitPendingDraft` 调用点                                              | 仅必要时调整字段提取；其他字段照常保存且不夹带未确认名称 |
-| 共用调度 | `useIdleTrigger.ts`                                                                                      | 只核对消费点，不修改全局计时器行为或延时常量             |
+| Item              | Local principal (relativo a `packages/ui/src/settings/model-provider-section/`)                              | Limite                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Feedback do bloco | `modelEditorControlStyle.ts`, conferindo `ProviderModelMetadataFields.tsx`, `ProviderModelModalityOptions.tsx` | cor de fundo local de selected/hover; texto, ícone e borda de cobertura preservados |
+| Interação do nome | `InlineEditableProviderCard.tsx`, Header em `ProviderCardSections.tsx`                                        | rascunho do nome nesta edição, Enter/blur/Esc, eventos de IME                    |
+| Isolamento de commit | `ProviderDraftSave.ts` e os pontos de chamada de `commitPendingDraft` no cartão                            | ajuste da extração de campos só quando necessário; os demais campos salvam normalmente e não carregam nome não confirmado |
+| Agendamento compartilhado | `useIdleTrigger.ts`                                                                                        | apenas conferir os pontos de consumo, sem alterar o comportamento do timer global nem as constantes de atraso |
 
-先按 DESIGN.md 检查页面样式和交互基线，再补名称回归测试、实现两项局部改动，最后批量验证。若 Todo130/131 已落地，按最新布局接入，不把旧布局恢复回来。
+Primeiro conferir a linha de base de estilo e interação da página conforme DESIGN.md, depois acrescentar os testes de regressão do nome, implementar as duas alterações locais e, por fim, fazer a verificação em lote. Se Todo130/131 já tiverem sido aplicados, integrar conforme o layout mais recente, sem restaurar o layout antigo.
 
-本 Todo 只处理这两个问题，不重构整张 Provider 卡片，不新增模式、确认弹窗、快捷键或其他按钮。
+Este Todo trata apenas desses dois problemas, sem refatorar o cartão de Provider inteiro nem adicionar modos, modais de confirmação, atalhos ou outros botões.
 
-## 4. 验证清单
+## 4. Checklist de verificação
 
-| Case    | 场景/动作                                               | 必须断言                                                                |
-| ------- | ------------------------------------------------------- | ----------------------------------------------------------------------- |
-| S122-01 | 深浅主题，鼠标停留原位，反复切换图片/能力/MFJS          | 选中/未选中底色明显不同；文字、图标、尺寸不变                           |
-| S122-02 | 未覆盖/个人覆盖 × 开/关 × Hover/键盘聚焦；手机触摸      | 边框仅表示覆盖，关闭 Hover 不像开启，无新增 ring/复选框；触摸后状态可辨 |
-| S122-03 | 同一编辑页数值框/映射框与其他设置页控件                 | 未被选项样式修改误伤；固定锁定选项仍不能切换                            |
-| N122-01 | A 改 B，保持编辑超过原 idle 时间，再按 Esc              | 超时不保存，Esc 恢复原名/退出；再推进 timer 或触发 cleanup 也不写 B     |
-| N122-02 | A 改 B，按 Enter / 点击外部失焦                         | 保存正确名称且恰好一次；未变/空白沿用原规则                             |
-| N122-03 | 名称未确认期间存在地址/API Key 自动保存、连接测试等提交 | 其他字段按原机制保存，未确认名称不夹带；Esc 不清掉其他字段意图          |
-| N122-04 | Esc 后发生 blur/cleanup；切换 Provider；保存回包延迟    | 不重提取消名称，不覆盖新 Provider 或更新一代的状态                      |
-| N122-05 | 中文输入法输入/候选 Enter/composition end               | 不中途确认或定时保存名称；正式 Enter/Esc 仍可用                         |
-| N122-06 | 名称保存成功/失败，再次进入编辑                         | 成功显示权威新名；失败有反馈与可重试路径，无假成功或自动补偿旧名        |
+| Case    | Cenário/ação                                                   | Asserção obrigatória                                                                |
+| ------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| S122-01 | temas claro e escuro, mouse parado no lugar, alternando repetidamente imagem/capacidade/MFJS | cor de fundo de selecionado/não selecionado claramente diferente; texto, ícone e tamanho inalterados |
+| S122-02 | sem cobertura/cobertura pessoal × ligado/desligado × hover/foco de teclado; toque no celular | a borda indica apenas cobertura, o hover de desligado não parece ligado, sem ring/checkbox novo; o estado após o toque é distinguível |
+| S122-03 | campo numérico/caixa de mapeamento da mesma página de edição e controles de outras páginas de config | não foram atingidos pela mudança de estilo das opções; as opções fixas com bloqueio continuam não alternáveis |
+| N122-01 | mudar A para B, ficar em edição além do tempo idle original e então pressionar Esc | sem salvamento por tempo, Esc restaura o nome original/sai; avançar o timer ou disparar cleanup depois também não grava B |
+| N122-02 | mudar A para B, pressionar Enter / clicar fora perdendo o foco                   | salva o nome correto e exatamente uma vez; sem alteração/em branco segue as regras originais |
+| N122-03 | enquanto o nome não está confirmado existem salvamento automático de endereço/API Key, teste de conexão e outros commits | os outros campos salvam pelo mecanismo original, sem carregar o nome não confirmado; o Esc não limpa a intenção dos outros campos |
+| N122-04 | blur/cleanup após Esc; troca de Provider; resposta de salvamento atrasada | não resubmete o nome cancelado, não sobrescreve o novo Provider nem o estado de geração mais recente |
+| N122-05 | digitação em IME chinês/Enter de candidato/fim de composition           | não confirma nem salva o nome no meio; Enter/Esc formais continuam funcionando       |
+| N122-06 | salvamento do nome com sucesso/falha, entrando novamente na edição           | sucesso exibe o novo nome autoritativo; falha tem retorno e caminho de retentativa, sem sucesso falso nem compensação automática do nome antigo |
 
-- 名称使用真实组件事件与受控时间/Promise 的测试；不能仅测 Escape 映射为 cancel，必须验证实际保存调用/输出。
-- APP 交互补 E2E，验证开始编辑、停顿、Esc、Enter 和失焦；通过测试 Service/隔离 Repository 观察写入，不修改真实账户配置。
-- 样式必须看浏览器实际 computed style 与交互截图，不能只断言类名。双主题、桌面/手机代表性验证，不把样式计算示例当运行验收。
-- 复现和修复时记录必要的 UI logger/测试保存证据，不打印 API Key；注释说明底色冲突及名称提交所有权的原因。
-- 代码实施按仓库执行架构、typecheck、lint、相关单测及 E2E；无法运行的端如实留账，不为无关缺陷扩大范围。
+- O nome deve ser testado com eventos do componente real e tempo/Promise controlados; não basta testar Escape mapeado para cancel, é preciso verificar a chamada/resultado real de salvamento.
+- Complementar com E2E de interação no APP, verificando início de edição, pausa, Esc, Enter e perda de foco; observar a escrita por meio de um Service/Repository isolado de teste, sem modificar a configuração real da conta.
+- Estilo precisa ser avaliado pelo computed style real do navegador e por capturas de tela de interação, não apenas por nome de classe. Verificação representativa nos dois temas e em desktop/celular, sem tratar o exemplo de cálculo de estilo como aceitação de execução.
+- Registrar os logs de UI/evidências de salvamento de teste necessários na reprodução e na correção, sem imprimir API Key; os comentários devem explicar o conflito de cor de fundo e a razão da propriedade de submissão do nome.
+- A implementação de código segue a arquitetura de execução do repositório, typecheck, lint, testes unitários relacionados e E2E; registrar com honestidade o que não puder ser executado, sem ampliar o escopo por defeitos não relacionados.
 
-## 5. 当前状态
+## 5. Estado atual
 
-2026-09-11 在独立稳定化分支实施；开工 freshness 已通过，未改真实 Provider 数据。
+Implementado em 2026-09-11 em um branch de estabilização independente; o freshness de início já passou e nenhum dado real de Provider foi alterado.
 
-完成后追加真实变更、截图/写入证据、测试和提交记录，不把旧问题复现通过写成产品修复已通过。
+Ao concluir, acrescentar as mudanças reais, as evidências de captura/escrita, os testes e os registros de commit, sem escrever que a reprodução antiga passando equivale a correção de produto aprovada.
 
-### 本轮实现与证据
+### Implementação e evidências desta rodada
 
-- 名称不调用 idle schedule/cancel，Enter/blur 通过 nameConfirmed 显式纳入保存，其他保存入口默认排除名称；Esc 先取消编辑身份再退出，不补偿写盘。切换 Provider 清除旧编辑身份并废弃旧反馈 revision。连接草稿原时机不变。
-- 测试先复现 idle 误存、Key 保存夹带名称。修复后与 Todo115 合跑 109 项单测通过，包括 IME、一次确认、Esc 后 blur/cleanup、Key 保留、保存失败重试及目标切换。未引入另一套保存服务/Schema。
-- 模型布尔选项局部使用 foreground 15% 底色、hover/focus 20%；关闭、文本框/Map 输入分支不变。图片/能力/MFJS 的真实浏览器同位置反复点击证明底色有差异，而文字/图标颜色、尺寸、覆盖边框不变；固定文本仍锁定。
-- 6 项浏览器组件用例通过；双主题/代表性宽度的计算值和截图保存在 `/tmp/zcode-provider-settings-batch/header-options-*.json`、`selected-*.png`。已实际查看截图，不仅断言类名；本机缺中文字体，中文视觉字形不算通过。
-- 根 typecheck/lint 通过；Electron 创建供应商 helper 已改为更多菜单进入、失焦确认，尚未声称 Electron/真实手机整链路通过。最终整批验收继续覆盖。
+- O nome não chama idle schedule/cancel; Enter/blur entram explicitamente no salvamento via nameConfirmed, e as demais entradas de salvamento excluem o nome por padrão; o Esc cancela primeiro a identidade de edição e só depois sai, sem escrita compensatória. A troca de Provider limpa a identidade de edição antiga e descarta a revision de feedback antiga. O momento original do rascunho de conexão não muda.
+- Os testes primeiro reproduzem a gravação indevida por idle e o nome sendo carregado pelo salvamento da Key. Após a correção, 109 testes unitários passaram rodando junto com Todo115, incluindo IME, confirmação única, blur/cleanup após Esc, preservação da Key, retentativa de falha de salvamento e troca de alvo. Não foi introduzido outro serviço/schema de salvamento.
+- As opções booleanas de modelo usam localmente cor de fundo de 15% do foreground e 20% em hover/focus; o estado desligado e os ramos de campo de texto/Map permanecem inalterados. Cliques repetidos na mesma posição no navegador real para imagem/capacidade/MFJS provaram que há diferença de cor de fundo, enquanto cor e tamanho de texto/ícone e borda de cobertura seguem iguais; o texto fixo continua bloqueado.
+- 6 casos de componente no navegador passaram; os valores computados e as capturas nos dois temas e em larguras representativas estão em `/tmp/zcode-provider-settings-batch/header-options-*.json`, `selected-*.png`. As capturas foram realmente inspecionadas, e não apenas nomes de classe; falta fonte de caracteres chineses nesta máquina, então os glifos chineses visuais não contam como aprovados.
+- typecheck/lint da raiz passaram; o helper de criação de fornecedor no Electron foi alterado para entrar por mais menu, com confirmação por perda de foco, e ainda não se afirma aprovação da cadeia completa Electron/celular real. A aceitação final do lote continua em cobertura.

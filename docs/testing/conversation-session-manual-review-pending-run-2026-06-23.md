@@ -1,14 +1,24 @@
-# Conversation Session Manual Review Pending Run - 2026-06-23
+# Revisão Manual de Conversation Session - Execução Pendente - 2026-06-23
 
-本记录用于承接 `packages/desktop/test/e2e/conversation-session/manual-review/pending/`
-逐条 review 迁移：先跑 pending spec，整文件通过且断言语义适合默认验收的 spec 才移回
-`packages/desktop/test/e2e/conversation-session/`。
+Este registro dá continuidade à revisão item a item da migração de
+`packages/desktop/test/e2e/conversation-session/manual-review/pending/`:
+primeiro executa-se o spec pendente e, somente os specs que passam o arquivo
+inteiro e cujas asserções têm semântica adequada à aceitação padrão são movidos
+de volta para `packages/desktop/test/e2e/conversation-session/`.
 
-本文是 2026-06-23 至 2026-06-24 的历史运行记录，不表示这些 spec 当前仍处于 formal admitted 状态。后续 V4 迁移已把包括 `conversation-session-turn-steer-probe.test.ts` 在内的历史 conversation spec 重新降级到 `manual-review/pending`；当前物理路径和 formal gate 状态以 [conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md) 为准。下文“转为默认 conversation E2E”只描述当时的晋升与复跑结果。
+Este documento é o registro histórico das execuções de 2026-06-23 a 2026-06-24
+e não indica que esses specs estejam atualmente em estado formal admitido. A
+migração V4 posterior rebaixou novamente para `manual-review/pending` os specs
+históricos de conversation, incluindo
+`conversation-session-turn-steer-probe.test.ts`; o caminho físico atual e o
+estado do formal gate devem ser consultados em
+[conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md).
+Abaixo, "promovido a E2E de conversation padrão" descreve apenas as promoções e
+reexecuções da época.
 
-## 运行命令与产物
+## Comandos de execução e artefatos
 
-单跑：
+Execução individual:
 
 ```bash
 ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-compact-auto.test.ts'
@@ -16,7 +26,7 @@ ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.t
 
 - Summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260623-153459-510/summary.md`
 
-批量顺序跑：
+Execução em lote, em sequência:
 
 ```bash
 ZCODE_E2E_MANUAL_REVIEW=1 ZCODE_E2E_SPEC='<remaining pending specs>' pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts
@@ -25,7 +35,7 @@ ZCODE_E2E_MANUAL_REVIEW=1 ZCODE_E2E_SPEC='<remaining pending specs>' pnpm --filt
 - Summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260623-154027-061/summary.md`
 - Wrapper log: `tmp/manual-review-run-20260623154025/wdio.log`
 
-补跑后发现的 pending spec：
+Spec pendente encontrado após a execução complementar:
 
 ```bash
 ZCODE_E2E_MANUAL_REVIEW=1 ZCODE_E2E_SPEC='./test/e2e/conversation-session/manual-review/pending/conversation-session-running-send-now.test.ts' pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts
@@ -33,7 +43,7 @@ ZCODE_E2E_MANUAL_REVIEW=1 ZCODE_E2E_SPEC='./test/e2e/conversation-session/manual
 
 - Summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260623-160950-505/summary.md`
 
-人工干扰后复跑确认的 pending spec：
+Spec pendente confirmado por reexecução após interferência manual:
 
 ```bash
 ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-compact-interrupted.test.ts'
@@ -41,7 +51,7 @@ ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.t
 
 - Summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260623-163701-534/summary.md`
 
-剥离 auto compact retry 后复跑确认的 pending spec：
+Spec pendente confirmado por reexecução após remover o retry de auto compact:
 
 ```bash
 ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-compact-auto.test.ts'
@@ -49,41 +59,44 @@ ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.t
 
 - Summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260624-042921-602/summary.md`
 
-补充 compact running toast 断言并转正的 edit spec：
+Spec de edit promovido após adicionar a asserção do toast de compact em execução:
 
 ```bash
 ZCODE_E2E_MANUAL_REVIEW=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-edit.test.ts'
 ```
 
 - Manual summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260624-064810-462/summary.md`
-- Manual result: 2 passed。已确认 `held queue + compacting 中重复 /compact`
-  场景通过：重复 `/compact` 会弹运行中不能压缩 toast，不入队、不新增 compact 请求、
-  不作为普通 user message 展示。
-- 默认路径复跑：
+- Manual result: 2 passed. Confirmado que o cenário de `/compact` repetido durante
+  `held queue + compacting` passa: `/compact` repetido exibe um toast informando
+  que não é possível compactar em execução, não entra na fila, não gera nova
+  requisição de compact e não é exibido como mensagem de usuário comum.
+- Reexecução no caminho padrão:
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-edit.test.ts'
 ```
 
 - Default summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260624-070956-672/summary.md`
-- Default result: 2 passed。已移出 `manual-review/pending`，转为默认 conversation E2E。
-- Capture note: D10 的 stop 中断窗口依赖慢流 replay fixture；真实 DeepSeek capture
-  在首个可见 delta 出现时可能已经 completed，不能作为稳定 stop gate。转正时补了
-  edit rerun 专用默认 fixture，并用不同回复 `upstream-e2e-edit-rerun-ok` 证明 edit 后
-  确实触发新 query。
-
-Turn steer 探针转正后默认路径复跑：
+- Default result: 2 passed. Removido de `manual-review/pending` e promovido a E2E
+  de conversation padrão.
+- Nota de captura: a janela de interrupção por stop de D10 depende de um fixture
+  de replay de fluxo lento; uma captura real do DeepSeek pode já estar concluída
+  quando o primeiro delta visível aparece, portanto não serve como stop gate
+  estável. Na promoção foi adicionado um fixture padrão específico para o rerun de
+  edit, e a resposta diferente `upstream-e2e-edit-rerun-ok` prova que o edit de
+  fato dispara uma nova query.
+- Reexecução no caminho padrão após a promoção da sonda de turn steer:
 
 ```bash
 pnpm --filter @zcode/desktop test:e2e -- --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-turn-steer-probe.test.ts'
 ```
 
 - Summary: `packages/desktop/.e2e-artifacts/desktop-e2e-20260624-070258-617/summary.md`
-- Result: 3 passed。已移出 `manual-review/pending`，转为默认 conversation E2E。该 spec
-  明确切回 `queue` 交互行为覆盖 M01-M05；`guide` 模式继续由
-  `conversation-session-running-guide-steer.test.ts` 覆盖。
-
-配套 runtime retry 单测：
+- Result: 3 passed. Removido de `manual-review/pending` e promovido a E2E de
+  conversation padrão. Esse spec cobre explicitamente o comportamento de interação
+  `queue` para M01-M05; o modo `guide` continua coberto por
+  `conversation-session-running-guide-steer.test.ts`.
+- Teste unitário de runtime retry correspondente:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/runtime-compact.test.ts -t "retries auto compact up to three attempts before continuing the turn"
@@ -91,49 +104,51 @@ pnpm --filter @zcode/core exec vitest run tests/runtime-compact.test.ts -t "retr
 
 - Result: 1 passed
 
-## 已迁移
+## Já migrados
 
-以下 spec 整文件通过，且迁移到默认路径后复跑仍通过，已移到
-`packages/desktop/test/e2e/conversation-session/` 并回写覆盖矩阵路径。
+Os specs abaixo passaram o arquivo inteiro e voltaram a passar após a reexecução
+no caminho padrão; foram movidos para
+`packages/desktop/test/e2e/conversation-session/` e o caminho foi reescrito na
+matriz de cobertura.
 
-| Spec                                                   | 结果                                                               |
-| ------------------------------------------------------ | ------------------------------------------------------------------ |
-| `conversation-session-compact-manual-queue.test.ts`    | pass                                                               |
-| `conversation-session-compact.test.ts`                 | pass                                                               |
-| `conversation-session-config-and-multisession.test.ts` | pass；2026-06-24 修正已完成 session 误判为失败后，默认路径复跑通过 |
-| `conversation-session-first-send.test.ts`              | pass                                                               |
-| `conversation-session-goal-queue.test.ts`              | pass                                                               |
-| `conversation-session-queue-operations.test.ts`        | pass                                                               |
-| `conversation-session-running-guide-steer.test.ts`     | pass                                                               |
-| `conversation-session-stop-empty.test.ts`              | pass                                                               |
-| `conversation-session-stop-held-queue.test.ts`         | pass                                                               |
-| `conversation-session-turn-steer-probe.test.ts`        | pass；2026-06-24 补齐 queue 前置和慢速 tool final fixture 后，默认路径复跑通过 |
-| `conversation-session-edit.test.ts`                    | pass；2026-06-24 补齐 D10 慢流 stop gate 与 edit rerun fixture 后，默认路径复跑通过 |
+| Spec                                                   | Resultado                                                             |
+| ------------------------------------------------------ | --------------------------------------------------------------------- |
+| `conversation-session-compact-manual-queue.test.ts`    | pass                                                                 |
+| `conversation-session-compact.test.ts`                 | pass                                                                 |
+| `conversation-session-config-and-multisession.test.ts` | pass; em 2026-06-24, corrigido o falso negativo de sessão já concluída, a reexecução no caminho padrão passou |
+| `conversation-session-first-send.test.ts`              | pass                                                                 |
+| `conversation-session-goal-queue.test.ts`              | pass                                                                 |
+| `conversation-session-queue-operations.test.ts`        | pass                                                                 |
+| `conversation-session-running-guide-steer.test.ts`     | pass                                                                 |
+| `conversation-session-stop-empty.test.ts`              | pass                                                                 |
+| `conversation-session-stop-held-queue.test.ts`         | pass                                                                 |
+| `conversation-session-turn-steer-probe.test.ts`        | pass; em 2026-06-24, após completar a precondição de queue e o fixture de tool final lento, a reexecução no caminho padrão passou |
+| `conversation-session-edit.test.ts`                    | pass; em 2026-06-24, após adicionar o stop gate de fluxo lento de D10 e o fixture de rerun de edit, a reexecução no caminho padrão passou |
 
-## 通过但未迁移
+## Aprovados, mas não migrados
 
-| Spec                                                       | 原因                                                                                                                                                                                       |
+| Spec                                                       | Motivo                                                                                                                                                                                       |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `conversation-session-compact-auto.test.ts`                | 2026-06-24 复跑通过。G01 已剥离为首次 compact 成功主路径，G08-G10 retry 覆盖改由 `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts` 承担；尚未执行默认路径迁移和默认 gate 复跑。 |
-| `conversation-session-compact-timeline-projection.test.ts` | pending 路径下通过，但移到默认路径复跑时两个测试都直接失败：spec 内仍要求 `ZCODE_E2E_MANUAL_REVIEW=1`。需要先去掉 manual-only 依赖或补默认 replay 口径后再迁移。                           |
-| `conversation-session-compact-interrupted.test.ts`         | 2026-06-24 复跑通过，确认前一次失败来自人工干扰；尚未执行默认路径迁移和默认 gate 复跑。                                                                                                    |
-| `conversation-session-model-switch-auto-compact.test.ts`   | pending 路径下通过，但移到默认路径复跑时 N06 捕获不到 auto compact 完成后的完整请求。需要先补默认 replay/capture 口径后再迁移。                                                            |
-| `conversation-session-running-send-now.test.ts`            | 4 个测试全部通过，但最后一条标题和断言明确是在复现当前 bug：连续快速点击立即引导会重复发送并消费未点 queue item。该断言不能作为默认验收语义，需要先改成理想产品语义断言后再迁移。          |
+| `conversation-session-compact-auto.test.ts`                | Reexecução em 2026-06-24 passou. G01 foi reduzida ao caminho principal de primeiro compact bem-sucedido; a cobertura de retry G08-G10 passa a ser responsabilidad de `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`; a migração para o caminho padrão e a reexecução do gate padrão ainda não foram executadas. |
+| `conversation-session-compact-timeline-projection.test.ts` | Passa no caminho pending, mas ao ser movido para o caminho padrão ambos os testes falham direto: o spec ainda exige `ZCODE_E2E_MANUAL_REVIEW=1`. É preciso remover a dependência exclusiva de manual review ou complementar o critério de replay padrão antes de migrar.                           |
+| `conversation-session-compact-interrupted.test.ts`         | Reexecução em 2026-06-24 passou, confirmando que a falha anterior vinha de interferência manual; a migração para o caminho padrão e a reexecução do gate padrão ainda não foram executadas.                                                                                                    |
+| `conversation-session-model-switch-auto-compact.test.ts`   | Passa no caminho pending, mas ao ser movido para o caminho padrão N06 não captura a requisição completa após a conclusão do auto compact. É preciso primeiro estabelecer o critério padrão de replay/captura antes de migrar.                                                            |
+| `conversation-session-running-send-now.test.ts`            | Os 4 testes passam, mas o título e a asserção finais reproduzem explicitamente o bug atual: cliques rápidos consecutivos em envio imediato duplicam o envio e consomem um item de queue não clicado. Essa asserção não pode servir como semântica de aceitação padrão; é preciso antes reescrevê-la como asserção da semântica ideal de produto.          |
 
-## 失败清单
+## Lista de falhas
 
-| Spec                                                       | 失败点                                                                                                                           |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `conversation-session-fork.test.ts`                        | 父 session goal + held queue fork 场景没有找到预期 queue；edit 后 fork 仍复制了旧分支文本。                                      |
-| `conversation-session-goal-run-cases.test.ts`              | MR-GOAL-07 queue 数量没有变为 3；MR-GOAL-11 queued goal 的立即发送按钮没有出现。                                                 |
-| `conversation-session-goal-session-model.test.ts`          | queued goal 当前模型请求捕获不符合预期；session 切换后 DeepSeek 模型没有回到 `deepseek-v4-flash`。                               |
-| `conversation-session-goal.test.ts`                        | completed/running/held queue 的 `/goal` 断言期望 kind 为 `goal`，实际为 `turn-steer`。                                           |
-| `conversation-session-interrupted-actions.test.ts`         | interrupted 场景没有出现可点击 stop 按钮。                                                                                       |
-| `conversation-session-model-config.test.ts`                | session A 首发请求捕获到 `deepseek-v4-pro/max`，不符合工具栏选择。                                                               |
-| `conversation-session-model-switch-compact.test.ts`        | 切换 secondary 后模型没有切到 `deepseek-v4-pro`。                                                                                |
-| `conversation-session-model-switch-queue.test.ts`          | running queue 消费前切模型场景期望 kind 为 `text`，实际为 `turn-steer`。                                                         |
-| `conversation-session-model-switch-tool-edit-fork.test.ts` | 工具窗口找不到 `deepseek-v4-pro` 选项；edit/fork 后续模型切换和新建任务点击失败。                                                |
-| `conversation-session-prewarming-queue.test.ts`            | prewarming 中继续输入期望 kind 为 `text`，实际为 `turn-steer`。                                                                  |
-| `conversation-session-running-actions.test.ts`             | running 中禁 fork/edit 场景没有出现预期 assistant 文本。2026-06-24 后续人工 review 通过，并已迁入默认 replay 路径。              |
-| `conversation-session-running-queue.test.ts`               | running 中普通输入和 `/goal` 场景期望 kind 为 `text`，实际为 `turn-steer`。                                                      |
-| `conversation-session-tool-actions.test.ts`                | 没有找到匹配的 tool call block `toolu_e2e_read_action_guard`。                                                                   |
+| Spec                                                       | Ponto de falha                                                                                                                           |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversation-session-fork.test.ts`                        | O cenário de fork com goal da sessão pai + held queue não encontrou a queue esperada; após o edit, o fork ainda copiou o texto do branch antigo.                                      |
+| `conversation-session-goal-run-cases.test.ts`              | A quantidade de itens na MR-GOAL-07 não virou 3; o botão de envio imediato do goal enfileirado na MR-GOAL-11 não apareceu.                                                 |
+| `conversation-session-goal-session-model.test.ts`          | A captura da requisição do modelo atual do goal enfileirado ficou fora do esperado; após a troca de sessão, o modelo DeepSeek não voltou para `deepseek-v4-flash`.                               |
+| `conversation-session-goal.test.ts`                        | As asserções de `/goal` para completed/running/held queue esperavam kind `goal`, mas obtiveram `turn-steer`.                                           |
+| `conversation-session-interrupted-actions.test.ts`         | O cenário interrupted não exibiu um botão de stop clicável.                                                                                       |
+| `conversation-session-model-config.test.ts`                | A requisição inicial da sessão A capturou `deepseek-v4-pro/max`, incompatível com a seleção da barra de ferramentas.                                                               |
+| `conversation-session-model-switch-compact.test.ts`        | Após trocar para a secundária, o modelo não mudou para `deepseek-v4-pro`.                                                                                |
+| `conversation-session-model-switch-queue.test.ts`          | O cenário de troca de modelo antes do consumo da queue em execução esperava kind `text`, mas obteve `turn-steer`.                                                         |
+| `conversation-session-model-switch-tool-edit-fork.test.ts` | A janela de ferramentas não encontrou a opção `deepseek-v4-pro`; as trocas de modelo posteriores a edit/fork e o clique de nova tarefa falharam.                                                |
+| `conversation-session-prewarming-queue.test.ts`            | Continuar digitando durante o prewarming esperava kind `text`, mas obteve `turn-steer`.                                                                  |
+| `conversation-session-running-actions.test.ts`             | O cenário de bloqueio de fork/edit durante execução não exibiu o texto de assistant esperado. Em 2026-06-24 a revisão manual posterior passou e ele foi migrado para o caminho de replay padrão.              |
+| `conversation-session-running-queue.test.ts`               | Os cenários de entrada comum e `/goal` durante execução esperavam kind `text`, mas obtiveram `turn-steer`.                                                      |
+| `conversation-session-tool-actions.test.ts`                | Nenhum bloco de tool call correspondente `toolu_e2e_read_action_guard` foi encontrado.                                                                   |

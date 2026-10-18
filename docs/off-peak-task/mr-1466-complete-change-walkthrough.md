@@ -163,8 +163,8 @@ create + take ticket ─► queued ── server ready ──► claimed ── 
                          │
                          └──────── Continue / retake ◄──── paused
 
-预留但未接通：running ── permission request ──► awaiting_approval
-终态：completed / failed / cancelled，均不可逆出。
+Reservado mas não conectado: running ── solicitação de permissão ──► awaiting_approval
+Estados terminais: completed / failed / cancelled, todos irreversíveis.
 ```
 
 Os sete estados do cliente:
@@ -181,14 +181,14 @@ Os sete estados do cliente:
 POST /ticket
     │
     ▼
-  queued ──低峰且轮到──► ready ──首个 messages 准入──► active
+  queued ──fora do pico e na vez──► ready ──admissão do primeiro messages──► active
                            │                              │
-                           ├─ ready TTL 到期 ───────────► expired
-                           └─────────────────────────────► settled ◄── client settle
+                           ├─ TTL do ready expirado ──────► expired
+                           └─────────────────────────────► settled ◄── settle do client
                                                           ▲
-                       active 3h 到期 ─► expired ──────────┘（换票续跑）
+            expiração de active após 3h ─► expired ───────┘（troca de ticket e continua）
 
-查询还可能得到 not_found。
+A consulta também pode retornar not_found.
 ```
 
 ### 4.3 Mapeamento entre os dois eixos e desvios importantes
@@ -388,25 +388,25 @@ host terminal observer detects marker
 
 ```text
 Pause:
-  queued ─► paused，阻止本地 scheduler 派发；服务端 ticket 不暂停，仍可能 ready/expired。
+  queued ─► paused, bloqueia o despacho do scheduler local; o ticket no servidor não pausa, ainda pode ficar ready/expired.
 
 Continue:
-  paused ─► 查询当前 ticket
-             ├─ queued/ready/active 或查询失败：复用当前票
-             └─ expired/not_found/缺票：重新 POST /ticket
+  paused ─► consulta o ticket atual
+             ├─ queued/ready/active ou falha na consulta: reutiliza o ticket atual
+             └─ expired/not_found/sem ticket: faz POST /ticket novamente
            ─► queued
 
 Cancel:
-  local terminal cancelled first
-  ├─ best-effort stop active agent task
-  └─ best-effort settle；失败留给 outbox 重试
+  estado terminal local cancelled primeiro
+  ├─ best-effort para a task ativa do agent
+  └─ settle em best-effort; falhas ficam para o retry da outbox
 
 Delete:
-  cancel + best-effort settle
-  └─ physical DELETE local row
+  cancel + settle em best-effort
+  └─ DELETE físico da linha local
 
 Delete history:
-  只写 history_deleted_at；任务、session、执行字段均保留。
+  grava apenas history_deleted_at; task, session e campos de execução são preservados.
 ```
 
 O Delete tem um risco explícito: se o settle falhar por erro de rede / 5xx e em seguida a linha for apagada fisicamente, a base local do outbox também é apagada e a reenvio automático fica impossível.
@@ -676,7 +676,7 @@ AppSettings.keepAwakeWhileRunning
           │
           ├─ false ─► stop powerSaveBlocker
           └─ true  ─► start("prevent-app-suspension") immediately
-                       （与当前是否有运行中闲时任务无关）
+                       （independentemente de haver ou não uma tarefa de horário ocioso em execução no momento）
 ```
 
 - O padrão é false.
@@ -817,66 +817,66 @@ Esta tabela serve para explicar por que o MR tem textos antigos ou planos substi
 
 | # | Commit | Data | Tema |
 |---:|---|---|---|
-| 1 | `d8ed02147a` | 2026-07-15 | docs(off-peak-task): 设计收敛 D22-D31——四接口契约/长等待策略/Automations 范式定案/灰度开关 |
-| 2 | `ffe085c903` | 2026-07-15 | docs(off-peak-task): 修正领域模型陈旧片段——对齐 D28-D30 定案 |
-| 3 | `6070fe0ee2` | 2026-07-15 | feat(off-peak): shared 领域类型与派发协议消息对（MR1 之一） |
-| 4 | `d5f9f3ce7d` | 2026-07-15 | feat(off-peak): off_peak_tasks 存储与 OffPeakTaskRepo 状态机守卫（MR1 之二） |
+| 1 | `d8ed02147a` | 2026-07-15 | docs(off-peak-task): convergência de design D22-D31 — contrato de quatro interfaces/estratégia de espera longa/paradigma de Automations definido/chave de rollout |
+| 2 | `ffe085c903` | 2026-07-15 | docs(off-peak-task): corrige trechos desatualizados do modelo de domínio — alinhado às decisões D28-D30 |
+| 3 | `6070fe0ee2` | 2026-07-15 | feat(off-peak): tipos de domínio compartilhados e par de mensagens do protocolo de despacho (primeiro do MR1) |
+| 4 | `d5f9f3ce7d` | 2026-07-15 | feat(off-peak): armazenamento off_peak_tasks e guardas da máquina de estados do OffPeakTaskRepo (segundo do MR1) |
 | 5 | `7fc49a1c17` | 2026-07-15 | chore: merge origin/main into feat/automations_v2 |
-| 6 | `9f57eb9a88` | 2026-07-15 | docs(off-peak-task): §11 六项开工前 spike 结论落档（2026-07-15 全部完成） |
-| 7 | `bdaa94be53` | 2026-07-15 | docs(off-peak-task): D32/D33 定案落档——砍掉立即执行 + per-turn 注入 + 单批交付 |
-| 8 | `ba1d737838` | 2026-07-15 | feat(off-peak): 调度链路——scheduler tick 认领派发 + main 路由 + host OffPeakRun（工序 2） |
-| 9 | `5e5cf11c60` | 2026-07-15 | docs(off-peak-task): E2E case catalog OP 组登记 + 覆盖矩阵剪枝定案 |
-| 10 | `de39441e30` | 2026-07-15 | feat(off-peak): repo 续跑回队/外部主键/非终态清单 + 3001 稳定错误标记（工序 3 之一） |
-| 11 | `324a1cb27f` | 2026-07-15 | feat(off-peak): 服务端四接口客户端 + 进程内 mock 网关（工序 3 之二） |
-| 12 | `6d133cb8ef` | 2026-07-15 | feat(off-peak): offPeakTaskService 编排——创建取号/取消/Pause-Continue/同步轮询/核销 outbox/3001 续跑（工序 3 之三） |
-| 13 | `8c64637d51` | 2026-07-15 | feat(off-peak): 适配层排队重试协议——429/3105 豁免预算无限探测 + 3001 续跑标记（工序 3 之四） |
-| 14 | `42a3842a79` | 2026-07-15 | feat(off-peak): per-turn runtimeModel 注入——idle plan 单轮生效零持久化（工序 3 之五，D33 落地） |
-| 15 | `8b5cc76028` | 2026-07-15 | feat(off-peak): client/configs 灰度配置接入——getOffPeakClientConfig + 有效开启判据（工序 3 之六，D31） |
-| 16 | `86de3d93c9` | 2026-07-15 | feat(off-peak): host 运行时装配——mock 网关/双凭证/per-turn 派发/3001 续跑闭环（工序 3 之七，收口） |
-| 17 | `b28f8bf883` | 2026-07-15 | feat(off-peak): IOffPeakTaskService 专用服务通道——renderer RPC 接入面（工序 4 之一） |
-| 18 | `3c998f3d39` | 2026-07-15 | feat(off-peak): Automations 主视图 UI——三 Tab/创建表单/列表卡片/灰度门控（工序 4 之二） |
-| 19 | `8d21d75de4` | 2026-07-15 | feat(off-peak): keep-awake powerSaveBlocker——执行中阻止闲置休眠（工序 4 之三，D4/D30-3） |
-| 20 | `2efe656380` | 2026-07-15 | feat(off-peak): 系统通知——完成/失败/等确认三 variant（工序 5 之一，D10/D30-5） |
-| 21 | `1c3316e264` | 2026-07-15 | test(off-peak): mock 网关固定响应模式 + 端到端集成测试（工序 5 之二） |
-| 22 | `f896aba939` | 2026-07-15 | docs(off-peak-task): 实现说明——全链路图 + 关键文件地图 + 计费边界踩坑 + 本地演示 |
-| 23 | `feabfd94fb` | 2026-07-15 | feat(off-peak): 侧栏 Group 系统分组「Idle-time task」（spec §5 侧栏，D28/D30-5） |
-| 24 | `2aa9a953d1` | 2026-07-15 | test(off-peak): WDIO 创建/管理 E2E + mock 网关 E2E 接线（工序 5 之三） |
+| 6 | `9f57eb9a88` | 2026-07-15 | docs(off-peak-task): registro das conclusões dos seis spikes pré-início do §11 (todos concluídos em 2026-07-15) |
+| 7 | `bdaa94be53` | 2026-07-15 | docs(off-peak-task): registro das decisões D32/D33 — remoção da execução imediata + injeção por turn + entrega em lote único |
+| 8 | `ba1d737838` | 2026-07-15 | feat(off-peak): cadeia de agendamento — reivindicação e despacho no tick do scheduler + roteamento no main + OffPeakRun no host (etapa 2) |
+| 9 | `5e5cf11c60` | 2026-07-15 | docs(off-peak-task): registro do grupo OP no catálogo de cases E2E + decisão de poda da matriz de cobertura |
+| 10 | `de39441e30` | 2026-07-15 | feat(off-peak): repo: reenfileiramento de continuação/chave primária externa/lista de não terminais + marcador de erro estável 3001 (primeira da etapa 3) |
+| 11 | `324a1cb27f` | 2026-07-15 | feat(off-peak): cliente das quatro interfaces do servidor + gateway mock em processo (segunda da etapa 3) |
+| 12 | `6d133cb8ef` | 2026-07-15 | feat(off-peak): orquestração do offPeakTaskService — criação/retirada de número/cancelamento/Pause-Continue/polling de sincronização/outbox de baixa/continuação via 3001 (terceira da etapa 3) |
+| 13 | `8c64637d51` | 2026-07-15 | feat(off-peak): protocolo de retry de fila na camada de adaptador — sondagem infinita com 429/3105 sem consumo de orçamento + marcador de continuação 3001 (quarta da etapa 3) |
+| 14 | `42a3842a79` | 2026-07-15 | feat(off-peak): injeção de runtimeModel por turn — idle plan válido por um único turno, sem persistência (quinta da etapa 3, implementação do D33) |
+| 15 | `8b5cc76028` | 2026-07-15 | feat(off-peak): integração da configuração de rollout em client/configs — getOffPeakClientConfig + critério de habilitação válida (sexta da etapa 3, D31) |
+| 16 | `86de3d93c9` | 2026-07-15 | feat(off-peak): montagem do runtime no host — gateway mock/credencial dupla/despacho por turn/fechamento do ciclo de continuação 3001 (sétima da etapa 3, consolidação) |
+| 17 | `b28f8bf883` | 2026-07-15 | feat(off-peak): canal de serviço dedicado IOffPeakTaskService — superfície de integração via RPC do renderer (primeira da etapa 4) |
+| 18 | `3c998f3d39` | 2026-07-15 | feat(off-peak): UI da visão principal de Automations — três tabs/formulário de criação/cards de lista/gating de rollout (segunda da etapa 4) |
+| 19 | `8d21d75de4` | 2026-07-15 | feat(off-peak): powerSaveBlocker de keep-awake — impede a suspensão por ociosidade durante a execução (terceira da etapa 4, D4/D30-3) |
+| 20 | `2efe656380` | 2026-07-15 | feat(off-peak): notificações de sistema — três variantes: conclusão/falha/aguardando confirmação (primeira da etapa 5, D10/D30-5) |
+| 21 | `1c3316e264` | 2026-07-15 | test(off-peak): modo de resposta fixa do gateway mock + testes de integração ponta a ponta (segunda da etapa 5) |
+| 22 | `f896aba939` | 2026-07-15 | docs(off-peak-task): notas de implementação — diagrama de toda a cadeia + mapa de arquivos críticos + armadilhas de fronteira de cobrança + demonstração local |
+| 23 | `feabfd94fb` | 2026-07-15 | feat(off-peak): group de sistema do grupo «Idle-time task» na barra lateral (spec §5 barra lateral, D28/D30-5) |
+| 24 | `2aa9a953d1` | 2026-07-15 | test(off-peak): E2E de criação/gerenciamento com WDIO + fiação do E2E do gateway mock (terceira da etapa 5) |
 | 25 | `250f4e63f9` | 2026-07-15 | Merge remote-tracking branch 'origin/main' into feat/off-peak-task |
-| 26 | `83d85fda4f` | 2026-07-15 | test(off-peak): 修复 e2eBeforeSessionSetup 单测——补 startOffPeakMockIfNeeded stub |
-| 27 | `d64f9d8b77` | 2026-07-15 | fix(off-peak): 闲时任务 tab 泄漏定时任务 UI——空状态/通过对话创建/模板区 |
-| 28 | `d3027d8344` | 2026-07-15 | feat(off-peak): New task 页闲时任务入口——引导横幅 + 模板卡（Figma 4798-2126，spec §5 第二入口） |
-| 29 | `dc45ef2d4c` | 2026-07-16 | feat(off-peak): 创建表单对齐 Figma 4827-1398——composer 范式重写 |
-| 30 | `bfdf4a07b4` | 2026-07-16 | feat(off-peak): 任务列表对齐 Figma 4866-1735——2 列卡片网格 + 保持唤醒横幅 |
-| 31 | `06649d7d01` | 2026-07-16 | feat(off-peak): 列表状态态对齐 Figma 4866-2175——paused 显示 #N Paused + Pause/Continue 信息提示 |
-| 32 | `918db40823` | 2026-07-16 | feat(off-peak-task): 补齐 thoughtLevel 推理档位字段——与 automation 对齐（D34） |
-| 33 | `effe6f52cf` | 2026-07-16 | fix(off-peak-task): New task 入口/推理档位默认对齐 Figma——agent-browser 实测修正 |
+| 26 | `83d85fda4f` | 2026-07-15 | test(off-peak): corrige o teste unitário e2eBeforeSessionSetup — adiciona o stub startOffPeakMockIfNeeded |
+| 27 | `d64f9d8b77` | 2026-07-15 | fix(off-peak): aba de tarefas de horário ocioso vazando a UI de tarefas agendadas — estado vazially/criação por conversa/área de templates |
+| 28 | `d3027d8344` | 2026-07-15 | feat(off-peak): entrada de tarefas de horário ocioso na página New task — banner de orientação + card de template (Figma 4798-2126, spec §5 segunda entrada) |
+| 29 | `dc45ef2d4c` | 2026-07-16 | feat(off-peak): formulário de criação alinhado ao Figma 4827-1398 — reescrita do paradigma do composer |
+| 30 | `bfdf4a07b4` | 2026-07-16 | feat(off-peak): lista de tarefas alinhada ao Figma 4866-1735 — grade de cards em 2 colunas + banner de manter acordado |
+| 31 | `06649d7d01` | 2026-07-16 | feat(off-peak): estados da lista alinhados ao Figma 4866-2175 — paused exibe #N Paused + dicas de Pause/Continue |
+| 32 | `918db40823` | 2026-07-16 | feat(off-peak-task): adiciona o campo thoughtLevel de nível de raciocínio — alinhado com automation (D34) |
+| 33 | `effe6f52cf` | 2026-07-16 | fix(off-peak-task): entrada New task/padrão de nível de raciocínio alinhados ao Figma — correção medida com agent-browser |
 | 34 | `cc30501301` | 2026-07-16 | fix(off-peak): repair ticket execution lifecycle |
-| 35 | `b5a8101a06` | 2026-07-16 | fix(dev): isolate mise dev data from production |
-| 36 | `fdb628112e` | 2026-07-16 | fix(off-peak-task): 卡片状态态/编辑页动作对齐 Figma——多状态实测修正 |
-| 37 | `c72b97760c` | 2026-07-16 | feat(off-peak-task): 边缘态逐帧对齐 Figma——丢弃草稿/History 表格/权限两行下拉/完全访问提示/达上限置灰（D35） |
-| 38 | `06ecb87dbb` | 2026-07-16 | feat(off-peak-task): 非 coding plan 锁定态落地——按当前时刻注册表判定（D35 拍板） |
-| 39 | `c99978f9c4` | 2026-07-16 | docs(off-peak): mark reactive quota grey-out as transitional |
-| 40 | `882fc6c3f2` | 2026-07-17 | docs(off-peak-task): 记录服务端契约真源 + 额度口径修正 + 达上限置灰目标形态（D36） |
-| 41 | `80e8d13ee0` | 2026-07-17 | docs(off-peak-task): D36 收口——确认 limit.{max_tasks,sliding_window} 字段名 + sliding_window 单位秒 |
-| 42 | `3ede57ca8e` | 2026-07-17 | feat(off-peak-task): D36 实现——配置预判置灰 + 3103 兜底 |
-| 43 | `eac5bb9e24` | 2026-07-17 | test(off-peak-task): D36 达上限 pre-emptive 置灰 E2E + wdio mock 钩子 |
+| 35 | `b5a8101a06` | 2026-07-16 | fix(dev): isola os dados do mise dev em relação à produção |
+| 36 | `fdb628112e` | 2026-07-16 | fix(off-peak-task): estados do card/ações da página de edição alinhados ao Figma — correção medida em múltiplos estados |
+| 37 | `c72b97760c` | 2026-07-16 | feat(off-peak-task): estados de borda alinhados quadro a quadro ao Figma — descarte de rascunho/tabela de History/dropdown de duas linhas de permissão/aviso de acesso total/limite atingido esmaecido (D35) |
+| 38 | `06ecb87dbb` | 2026-07-16 | feat(off-peak-task): estado de bloqueio fora do coding plan — determinado pelo registry do momento atual (decisão do D35) |
+| 39 | `c99978f9c4` | 2026-07-16 | docs(off-peak): marca o esmaecimento reativo de cota como transitório |
+| 40 | `882fc6c3f2` | 2026-07-17 | docs(off-peak-task): registra a fonte de verdade do contrato do servidor + correção da leitura de cota + forma-alvo do esmaecimento ao atingir o limite (D36) |
+| 41 | `80e8d13ee0` | 2026-07-17 | docs(off-peak-task): conclusões do D36 — confirma os nomes de campo limit.{max_tasks,sliding_window} + sliding_window em segundos |
+| 42 | `3ede57ca8e` | 2026-07-17 | feat(off-peak-task): implementação do D36 — esmaecimento preditivo por configuração + fallback 3103 |
+| 43 | `eac5bb9e24` | 2026-07-17 | test(off-peak-task): E2E de esmaecimento pre-emptive ao atingir o limite do D36 + hook de mock do wdio |
 | 44 | `7e7a52ebf6` | 2026-07-17 | chore(off-peak-task): startOffPeakE2EMock 注入 ZCODE_OFFPEAK_MOCK_LIMIT |
 | 45 | `f290620194` | 2026-07-20 | merge: origin/main into feat/off-peak-task |
 | 46 | `90a0a8bcc6` | 2026-07-20 | fix(build): repair merged development blockers |
-| 47 | `03e9661b15` | 2026-07-20 | docs(automations): align idle-time figma behavior |
-| 48 | `0c0ad960d5` | 2026-07-20 | feat(automations): align idle-time task UX and boundaries |
+| 47 | `03e9661b15` | 2026-07-20 | docs(automations): alinha o comportamento de horário ocioso do Figma |
+| 48 | `0c0ad960d5` | 2026-07-20 | feat(automations): alinha a UX e as fronteiras da tarefa de horário ocioso |
 | 49 | `c01f70de34` | 2026-07-20 | Merge remote-tracking branch 'origin/main' into feat/off-peak-task |
-| 50 | `2a4cc85a43` | 2026-07-20 | docs(off-peak): add table design and lifecycle report |
-| 51 | `fdf46ee9ed` | 2026-07-20 | docs(off-peak): expand architecture walkthrough |
+| 50 | `2a4cc85a43` | 2026-07-20 | docs(off-peak): adiciona o design em tabelas e o relatório de ciclo de vida |
+| 51 | `fdf46ee9ed` | 2026-07-20 | docs(off-peak): expande o panorama da arquitetura |
 | 52 | `c3a9e2ad92` | 2026-07-20 | Merge remote-tracking branch 'origin/main' into feat/off-peak-task |
 | 53 | `7f15dbd8cb` | 2026-07-20 | test(automations): align mobile remote visibility |
-| 54 | `9e88d54923` | 2026-07-21 | ci: allow API-triggered pipelines for manual test builds |
-| 55 | `b636776a27` | 2026-07-21 | fix(off-peak): preserve CLI turn model lifecycle |
-| 56 | `74ed7a5d9b` | 2026-07-21 | fix(off-peak): keep quota retries available |
-| 57 | `7f00a7ece3` | 2026-07-21 | fix(off-peak): inherit workspace model for run sessions |
-| 58 | `436f3d956a` | 2026-07-21 | feat(off-peak): use server quota availability |
-| 59 | `e50f08b78e` | 2026-07-21 | fix(off-peak): prevent stalled task dispatches |
-| 60 | `cc3980d2a1` | 2026-07-21 | feat(desktop): make keep-awake a global settings switch |
+| 54 | `9e88d54923` | 2026-07-21 | ci: permite pipelines disparados por API para builds de teste manuais |
+| 55 | `b636776a27` | 2026-07-21 | fix(off-peak): preserva o ciclo de vida do modelo de turn do CLI |
+| 56 | `74ed7a5d9b` | 2026-07-21 | fix(off-peak): mantém disponíveis os retries de cota |
+| 57 | `7f00a7ece3` | 2026-07-21 | fix(off-peak): herda o modelo do workspace para as sessions de execução |
+| 58 | `436f3d956a` | 2026-07-21 | feat(off-peak): usa a availability de cota do servidor |
+| 59 | `e50f08b78e` | 2026-07-21 | fix(off-peak): evita despachos de task travados |
+| 60 | `cc3980d2a1` | 2026-07-21 | feat(desktop): torna o keep-awake um switch global de settings |
 
 ## 21. Lista item a item dos 115 arquivos alterados
 

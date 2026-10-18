@@ -753,7 +753,7 @@ Run: `pnpm --filter @zcode/desktop exec vitest run test/cuaSystemSettingsWindowW
 Expected: PASS
 
 Run: `node packages/desktop/scripts/build-macos-window-bounds.mjs && ./packages/desktop/resources/macos-window-bounds/zcode-window-bounds 150 | head -2`
-Expected: com os ajustes do sistema abertos, ver uma linha no formato `[{"x":134,"y":157,"w":723,"h":752,"layer":0}]` 的行
+Expected: com os ajustes do sistema abertos, ver uma linha no formato `[{"x":134,"y":157,"w":723,"h":752,"layer":0}]`
 
 - [ ] **Step 5: commit**
 
@@ -944,7 +944,7 @@ Run: `pnpm --filter @zcode/ui exec vitest run test/cuaPermissionChecklistModal.t
 Expected: PASS
 
 Run: `pnpm typecheck && pnpm lint`
-Expected: sem erros. Atenção: o `pnpm typecheck` da raiz **não cobre** os tsconfigs de renderer/main do desktop, e os `test/*.test.ts` de desktop e ui sequer têm tsconfig; é preciso validar à parte com a receita temporária para a zona cega do typecheck.
+Expected: sem erros. Atenção: o `pnpm typecheck` da raiz **não cobre** os tsconfigs de renderer/main do desktop, e os `test/*.test.ts` de desktop e ui sequer têm tsconfig; é preciso validar à parte com a receita temporária para o ponto cego do typecheck.
 
 - [ ] **Step 5: commit**
 
@@ -1003,8 +1003,8 @@ Acrescentar os resultados medidos ao final deste plano e commitar.
 
 ## Autoverificação
 
-**Spec 覆盖**：不弹窗 → Task 2；拖拽入列 → Task 3/4；首弹窗列两权限 → Task 7；吸附 → Task 5/6；保留会话协调/验签/重启 → Task 2 显式保留 + Task 7 保留并发保护。
+**Cobertura da spec**: sem pop-up → Task 2; arrastar para a lista → Task 3/4; primeiro modal lista as duas permissões → Task 7; encaixe (snap) → Task 5/6; preservar a coordenação de sessão / verificação de assinatura / reinício → Task 2 preserva explicitamente + Task 7 preserva as proteções de concorrência.
 
-**类型一致性**：`PrepareCuaHelperPermissionDragResult`（shared，无指纹）与 `PrepareCuaHelperPermissionDragMainResult`（main，含指纹）严格区分，Task 4 的 handler 显式剥离指纹字段后才返回 renderer。`captureCuaHelperBundleFingerprint` / `cuaHelperBundleFingerprintUnchanged` 沿用 `cuaAccessibilitySettings.ts` 现有导出，未重新定义。
+**Consistência de tipos**: `PrepareCuaHelperPermissionDragResult` (shared, sem fingerprint) e `PrepareCuaHelperPermissionDragMainResult` (main, com fingerprint) são estritamente distintos; o handler do Task 4 só devolve ao renderer depois de remover explicitamente o campo de fingerprint. `captureCuaHelperBundleFingerprint` / `cuaHelperBundleFingerprintUnchanged` reaproveitam as exportações existentes de `cuaAccessibilitySettings.ts`, sem redefinição.
 
-**已知风险**：不弹窗后全新用户**只能靠拖拽**入列，没有第二条路 —— 小窗没看见或不会拖就会卡住。缓解措施是 Task 6 的吸附（让小窗紧贴用户视线焦点）与 Task 7 的清单模态（先说清要授哪两项）。若后续实测发现拖拽成功率不足，可在浮窗上补一条「打不开？点这里看图示」的静态引导，但不应回退到系统弹窗 —— 那是本次改造要消除的东西。
+**Riscos conhecidos**: sem pop-up, um usuário novo **só consegue entrar na lista arrastando** — não há segunda via; se não vir a janelinha ou não souber arrastar, trava. As mitigações são o encaixe do Task 6 (deixar a janelinha colada no foco do olhar do usuário) e o modal de lista do Task 7 (explicar antes quais duas permissões serão concedidas). Se os testes posteriores mostrarem taxa de arrasto insuficiente, pode-se acrescentar na janela flutuante uma orientação estática do tipo 「não conseguiu abrir? clique aqui para ver o diagrama», mas **não** se deve voltar ao pop-up do sistema — é exatamente o que esta mudança elimina.

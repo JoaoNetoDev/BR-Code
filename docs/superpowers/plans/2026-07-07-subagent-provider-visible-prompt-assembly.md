@@ -111,9 +111,9 @@ Caminho alvo:
 
 ---
 
-## Fase 1: Golden Tests For Child Prompt Shape
+## Fase 1: Testes de golden para o shape do child prompt
 
-### Task 1: Add Provider-Visible Prompt Assembly Tests
+### Task 1: adicionar testes de montagem do prompt provider-visible
 
 **Files:**
 - Create: `apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts`
@@ -126,24 +126,24 @@ Caminho alvo:
 - Produces:
   - Failing tests that describe final child provider request shape before implementation.
 
-- [ ] **Step 1: Double-check frozen prompt body baseline**
+- [ ] **Step 1: conferir duas vezes a linha de base do body de prompt congelado**
 
-Run:
+Execute:
 
 ```bash
 rg -n "You are ZCode Explore|You are an agent for ZCode|buildExploreSystemPrompt|buildGeneralPurposeSystemPrompt" apps/zcode-cli/packages/core/src/subagent apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
 ```
 
-Expected:
+Esperado:
 
 - o body de Explore/general-purpose do ZCode bate exatamente com o texto esperado congelado em `subagent-explore.test.ts`.
 - o body do ZCode não inclui variantes de texto específicas de modelo, de provider, históricas ou experimentais.
 
 Se o body do ZCode não bater com o texto esperado congelado, não trate isso como fora de escopo. Adicione o body esperado aos testes que falham nesta tarefa e então alinhe a implementação na Task 2 antes de mudar a montagem das system messages.
 
-- [ ] **Step 2: Create a helper to capture child provider requests**
+- [ ] **Step 2: criar um helper para capturar os provider requests do child**
 
-Add this helper in `apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts`:
+Adicione este helper em `apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -180,9 +180,9 @@ function allMessageText(request: any): string {
 }
 ```
 
-- [ ] **Step 3: Add Explore system array test**
+- [ ] **Step 3: adicionar o teste do array de system do Explore**
 
-Add this test:
+Adicione este teste:
 
 ```ts
 describe("subagent provider-visible prompt assembly", () => {
@@ -297,9 +297,9 @@ describe("subagent provider-visible prompt assembly", () => {
 });
 ```
 
-- [ ] **Step 4: Add general-purpose prompt test**
+- [ ] **Step 4: adicionar o teste de prompt do general-purpose**
 
-Add this test in the same `describe` block:
+Adicione este teste no mesmo bloco `describe`:
 
 ```ts
   it("adds common notes and environment context to general-purpose child prompts", async () => {
@@ -388,9 +388,9 @@ Add this test in the same `describe` block:
   });
 ```
 
-- [ ] **Step 5: Add custom profile prompt test**
+- [ ] **Step 5: adicionar o teste de prompt do custom profile**
 
-Add this test:
+Adicione este teste:
 
 ```ts
   it("adds common notes and environment context to custom child prompts", async () => {
@@ -490,9 +490,9 @@ Add this test:
   });
 ```
 
-- [ ] **Step 6: Update existing Explore test expectation**
+- [ ] **Step 6: atualizar a expectativa do teste existente do Explore**
 
-In `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`, replace the single combined `exploreSystemMessages` constant with split constants:
+Em `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`, substitua a constante única combinada `exploreSystemMessages` por constantes separadas:
 
 ```ts
 const exploreAgentPrompt = `...`;
@@ -509,22 +509,22 @@ const exploreSystemMessages = [
 
 Mantenha o texto do body exatamente consistente com o novo builder da Fase 2. O leading newline esperado no `system[1]` antigo deve ser removido, porque as child system messages não são mais geradas pelo wrapping de custom prompt do `ContextBuilder`.
 
-- [ ] **Step 7: Run failing tests**
+- [ ] **Step 7: rodar os testes que falham**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
 ```
 
-Expected before implementation:
+Esperado antes da implementação:
 
 - `subagent-prompt-assembly.test.ts` falha porque as child system messages ainda têm apenas duas entradas system ou Notes/env estão embutidos em `system[1]`.
 - `subagent-explore.test.ts` falha depois de atualizar o shape split esperado.
 
 ---
 
-## Fase 2: Shared Subagent Prompt Pieces
+## Fase 2: peças compartilhadas de prompt de subagent
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/core/src/context/sections/env-info.ts`
@@ -542,9 +542,9 @@ Expected before implementation:
   - `buildSubagentEnvironmentContext(options): string`
   - `buildExploreAgentPrompt(options): string`
 
-- [ ] **Step 1: Export main helper de deteccao de git repo**
+- [ ] **Step 1: exportar o helper de deteccao de git repo do main**
 
-Modify `apps/zcode-cli/packages/core/src/context/sections/env-info.ts`.
+Modifique `apps/zcode-cli/packages/core/src/context/sections/env-info.ts`.
 
 Substitua o helper privado:
 
@@ -580,9 +580,9 @@ if (!isEnvInfoGitRepository(envInfo)) {
 
 Isso mantém a detecção de git repo do subagent ligada à mesma lógica que o main usa hoje.
 
-- [ ] **Step 2: Create the shared prompt-piece file**
+- [ ] **Step 2: criar o arquivo compartilhado de peças de prompt**
 
-Create `apps/zcode-cli/packages/core/src/subagent/system-prompt.ts`:
+Crie `apps/zcode-cli/packages/core/src/subagent/system-prompt.ts`:
 
 ```ts
 import type { EnvInfo } from "@zcode/contracts";
@@ -631,9 +631,9 @@ Fronteira importante:
 - Não adicione `additionalWorkingDirectories`, knowledge cutoff, detalhes de snapshot do git, versão do node ou outros campos a menos que o context principal atual já os exponha no contexto provider-visible relevante.
 - O model name é lido de `envInfo.currentModel`, seguindo o `createContextBuilderFromSnapshot(...)` do main, em vez de formatar model refs dentro do builder.
 
-- [ ] **Step 3: Refactor Explore prompt to agent-specific prompt only**
+- [ ] **Step 3: refatorar o prompt do Explore para apenas o prompt agent-specific**
 
-In `apps/zcode-cli/packages/core/src/subagent/explore.ts`, rename `buildExploreSystemPrompt` to `buildExploreAgentPrompt` or keep the exported name with updated semantics if broader call sites are easier. Preferred:
+Em `apps/zcode-cli/packages/core/src/subagent/explore.ts`, renomeie `buildExploreSystemPrompt` para `buildExploreAgentPrompt`, ou mantenha o nome exportado com a semântica atualizada, se isso facilitar call sites mais amplos. Preferido:
 
 ```ts
 export function buildExploreAgentPrompt(options: {
@@ -691,53 +691,53 @@ export function buildExploreAgentPrompt(options: {
 
 Remova `workingDirectory`, `workspaceRoot`, `envInfo` e `modelName` das options desta função, porque agora pertencem a `buildSubagentEnvironmentContext(...)`.
 
-- [ ] **Step 4: Align general-purpose body if the baseline check found drift**
+- [ ] **Step 4: alinhar o body do general-purpose se a verificação de baseline encontrar drift**
 
-If Task 1 Step 1 shows `apps/zcode-cli/packages/core/src/subagent/general-purpose.ts` has drifted from the frozen expected body, update `buildGeneralPurposeSystemPrompt()` before wiring the new system message builder.
+Se o Step 1 da Task 1 mostrar que `apps/zcode-cli/packages/core/src/subagent/general-purpose.ts` divergiu do body esperado congelado, atualize `buildGeneralPurposeSystemPrompt()` antes de ligar o novo builder de system messages.
 
 Mantenha o body idêntico ao texto esperado congelado. Preserve exatamente a pontuação, as quebras de parágrafo e a redação operacional visíveis para o provider.
 
 Não altere este arquivo se a verificação de baseline provar que ele já está alinhado.
 
-- [ ] **Step 5: Keep a temporary compatibility export if needed**
+- [ ] **Step 5: manter uma exportação temporária de compatibilidade, se necessário**
 
-If other imports still expect `buildExploreSystemPrompt`, add this shim in `explore.ts` during the refactor:
+Se outros imports ainda esperarem `buildExploreSystemPrompt`, adicione este shim em `explore.ts` durante o refactor:
 
 ```ts
 export const buildExploreSystemPrompt = buildExploreAgentPrompt;
 ```
 
-Remove the shim only if all imports can be updated in the same task.
+Remova o shim apenas se todos os imports puderem ser atualizados na mesma task.
 
-- [ ] **Step 6: Export the new prompt pieces through runtime deps**
+- [ ] **Step 6: exportar as novas peças de prompt pelas deps do runtime**
 
-In `apps/zcode-cli/packages/core/src/runtime/deps.ts`, export/import:
+Em `apps/zcode-cli/packages/core/src/runtime/deps.ts`, exportar/importar:
 
 ```ts
 export { buildExploreAgentPrompt, EXPLORE_AGENT_TYPE } from "../subagent/explore.js";
 export { buildSubagentCommonNotes, buildSubagentEnvironmentContext } from "../subagent/system-prompt.js";
 ```
 
-If `deps.ts` currently exports `buildExploreSystemPrompt`, replace that export only after all call sites have moved.
+Se `deps.ts` hoje exporta `buildExploreSystemPrompt`, substitua essa exportação somente depois que todos os call sites tiverem migrado.
 
-- [ ] **Step 7: Run builder tests**
+- [ ] **Step 7: rodar os testes do builder**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts
 ```
 
-Expected after Task 2 only:
+Esperado apenas após a Task 2:
 
 - Os testes ainda podem falhar porque o runtime ainda não seleciona o subagent context builder.
 - Qualquer erro direto de import/tipo das novas peças de prompt deve ser corrigido antes de prosseguir.
 
 ---
 
-## Fase 3: Runtime Wiring With SubagentContextBuilder
+## Fase 3: wiring do runtime com o SubagentContextBuilder
 
-### Task 3: Let Child Runtime Select Its Own Context Builder
+### Task 3: deixar o runtime do child selecionar o próprio context builder
 
 **Files:**
 - Create: `apps/zcode-cli/packages/core/src/subagent/context-builder.ts`
@@ -756,11 +756,11 @@ Expected after Task 2 only:
   - `AgentRuntimeConfig.subagentContext?: { agentPrompt: string }`
   - `SubagentContextBuilder` whose `build()` returns subagent sections, system messages, and meta-user attachments.
 
-- [ ] **Step 1: Add `SubagentContextBuilder`**
+- [ ] **Step 1: adicionar o `SubagentContextBuilder`**
 
-Create `apps/zcode-cli/packages/core/src/subagent/context-builder.ts`.
+Crie `apps/zcode-cli/packages/core/src/subagent/context-builder.ts`.
 
-The builder must extend or otherwise satisfy the runtime's existing context builder type and return a full `ContextBuildResult`:
+O builder deve estender (ou de outro modo satisfazer) o tipo de context builder já existente no runtime e retornar um `ContextBuildResult` completo:
 
 ```text
 sections:
@@ -779,11 +779,11 @@ metaUserAttachments:
   context_prefix for currentDate
 ```
 
-Do not include main identity, task behavior, project instructions, project context, memory, output style, or context management in this builder.
+Não inclua neste builder a identity do main, o comportamento de task, instruções de projeto, contexto de projeto, memória, output style nem gerenciamento de contexto.
 
-- [ ] **Step 2: Add `subagentContext` to runtime config**
+- [ ] **Step 2: adicionar `subagentContext` à config do runtime**
 
-In `apps/zcode-cli/packages/core/src/runtime/types.ts`, add near `systemPrompt?: string`:
+Em `apps/zcode-cli/packages/core/src/runtime/types.ts`, adicione perto de `systemPrompt?: string`:
 
 ```ts
   /**
@@ -795,9 +795,9 @@ In `apps/zcode-cli/packages/core/src/runtime/types.ts`, add near `systemPrompt?:
   subagentContext?: { agentPrompt: string };
 ```
 
-- [ ] **Step 3: Select builder strategy in `createContextBuilderFromSnapshot(...)`**
+- [ ] **Step 3: selecionar a estratégia de builder em `createContextBuilderFromSnapshot(...)`**
 
-In `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`, keep the shared `envInfo = { ...snapshot.envInfo, currentModel: formatModelRef(this.defaultModelRef) }` logic. After persisting `envInfo`, add:
+Em `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`, mantenha a lógica compartilhada `envInfo = { ...snapshot.envInfo, currentModel: formatModelRef(this.defaultModelRef) }`. Depois de persistir o `envInfo`, adicione:
 
 ```ts
 if (this.config.subagentContext) {
@@ -811,15 +811,15 @@ if (this.config.subagentContext) {
 }
 ```
 
-Main runtime continues to use the existing `createContextBuilder(contextConfig)` path.
+O runtime principal continua usando o caminho existente `createContextBuilder(contextConfig)`.
 
-- [ ] **Step 4: Remove the `systemMessages` override branch**
+- [ ] **Step 4: remover o branch de sobrescrita de `systemMessages`**
 
-`initializeMessageHistoryFromContext(...)` should simply build the currently selected builder and initialize history from that `ContextBuildResult`. Do not special-case subagent messages in this method. `refreshContextModelSnapshot(...)` should keep calling `createContextBuilderFromSnapshot(...)`; the selected builder strategy handles subagent refresh automatically.
+`initializeMessageHistoryFromContext(...)` deve simplesmente construir o builder atualmente selecionado e inicializar o histórico a partir desse `ContextBuildResult`. Não faça tratamento especial para mensagens de subagent neste método. `refreshContextModelSnapshot(...)` deve continuar chamando `createContextBuilderFromSnapshot(...)`; a estratégia de builder selecionada trata o refresh de subagent automaticamente.
 
-- [ ] **Step 5: Pass `subagentContext` from `subagent.ts`**
+- [ ] **Step 5: passar `subagentContext` a partir de `subagent.ts`**
 
-In `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`, replace the current `systemPrompt` calculation with an `agentPrompt` calculation:
+Em `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`, substitua o cálculo atual de `systemPrompt` por um cálculo de `agentPrompt`:
 
 ```ts
 const agentPrompt =
@@ -837,7 +837,7 @@ subagentContext: {
 },
 ```
 
-Keep the existing `baseChildEnvInfo` source order:
+Mantenha a ordem de origem existente de `baseChildEnvInfo`:
 
 ```ts
 this.contextSourceSnapshot?.envInfo ?? this.config.envInfo ?? fallbackUnknownEnvInfo
@@ -845,21 +845,21 @@ this.contextSourceSnapshot?.envInfo ?? this.config.envInfo ?? fallbackUnknownEnv
 
 Mantenha o shell override existente de `getSessionShellEnvironment(this)` antes de adicionar `currentModel`. Isso reflete o caminho de context do main, em que `createContextBuilderFromSnapshot(...)` deriva o env info provider-visible do snapshot de context atual e acrescenta `currentModel: formatModelRef(this.defaultModelRef)`.
 
-Do not add new env discovery, git probing, node-version output, knowledge-cutoff output, or additional-working-directory output in this task unless the current main prompt path already provides that exact data in provider-visible context.
+Não adicione nesta task nova descoberta de env, sondagem de git, saída de versão do node, saída de knowledge cutoff ou saída de additional working directory, a menos que o caminho atual de prompt do main já forneça exatamente esses dados no contexto provider-visible.
 
-- [ ] **Step 6: Keep current date behavior through shared meta-user context**
+- [ ] **Step 6: manter o comportamento da data atual pelo contexto meta-user compartilhado
 
-Do not put currentDate into the four subagent system messages. If `currentDate` exists, preserve the existing meta-user `context_prefix` path by including the normal current-date section in `SubagentContextBuilder.metaUserAttachments`.
+Não coloque currentDate nas quatro system messages de subagent. Se `currentDate` existir, preserve o caminho existente de meta-user `context_prefix` incluindo a seção normal de current date em `SubagentContextBuilder.metaUserAttachments`.
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 7: rodar os testes focados**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
 ```
 
-Expected:
+Esperado:
 
 - Os novos testes de prompt assembly passam.
 - O teste existente do Explore passa depois de atualizar o split esperado das system messages.
@@ -869,20 +869,20 @@ Expected:
 
 ## Fase 4: Documentation And Provider-Visible Verification
 
-### Task 4: Document The Narrow Prompt Assembly Alignment
+### Task 4: documentar o alinhamento restrito da montagem do prompt
 
 **Files:**
 - Modify: documento de auditoria de diferenças históricas (removido)
 
 **Interfaces:**
 - Consumes:
-  - Implementation result from Tasks 2-3.
+  - Resultado da implementação das Tasks 2-3.
 - Produces:
-  - Updated audit section that records exactly what is now aligned and what remains out of scope.
+  - Seção de auditoria atualizada que registra exatamente o que agora está alinhado e o que continua fora de escopo.
 
-- [ ] **Step 1: Add a dated section**
+- [ ] **Step 1: adicionar uma seção datada**
 
-Add a section near the prompt/system context part:
+Adicione uma seção próxima à parte de prompt/system context:
 
 ```md
 ## 2026-07-07 situação atual do prompt assembly de subagent
@@ -903,91 +903,91 @@ A posição do segmento e a estrutura externa do 4º item são fixas, mas os val
 Isso preserva o prefixo de identidade de produto do ZCode e ao mesmo tempo unifica o body do prompt do child como a estrutura `agentPrompt + common Notes + env/model context`.
 ```
 
-- [ ] **Step 2: Update gap matrix entry for child system prompt**
+- [ ] **Step 2: atualizar a entrada da matriz de gaps do child system prompt
 
-Find the row about `Child system prompt` and change status from broad unaligned wording to:
+Encontre a linha sobre `Child system prompt` e mude o status da redação ampla de "não alinhado" para:
 
 ```md
 As common Notes / env-model context do child system prompt comum já foram unificadas por um builder compartilhado; ainda não foram implementados a omissão de arquivos de instruções do projeto por agent somente leitura, agent memory, prompt de sistema adicional de subagent, a hidratação de fork/repl e a superfície de controle de teammate/worktree.
 ```
 
-- [ ] **Step 3: Run doc grep sanity check**
+- [ ] **Step 3: rodar o sanity check de grep no documento
 
-Run:
+Execute:
 
 ```bash
 # O documento de auditoria de diferenças históricas foi removido; este passo não é mais executado
 ```
 
-Expected:
+Esperado:
 
 - A nova seção datada aparece.
 - As funcionalidades restantes fora de escopo ainda estão listadas explicitamente.
 
-### Task 5: Final Validation Checklist
+### Task 5: checklist final de validação
 
 **Files:**
-- No code files; validation only.
+- Sem arquivos de código; apenas validação.
 
 **Interfaces:**
 - Consumes:
-  - All previous tasks.
+  - Todas as tasks anteriores.
 - Produces:
-  - Verification evidence for final report.
+  - Evidência de verificação para o relatório final.
 
-- [ ] **Step 1: Run focused prompt tests**
+- [ ] **Step 1: rodar os testes focados de prompt**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
 ```
 
-Expected:
+Esperado:
 
 - PASS.
 
-- [ ] **Step 2: Run broader runtime prompt tests**
+- [ ] **Step 2: rodar os testes mais amplos de prompt do runtime**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/context-builder.test.ts apps/zcode-cli/packages/core/tests/runtime-trace.test.ts
 ```
 
-Expected:
+Esperado:
 
 - PASS.
-- If failures are only stale expectations around child system prompt shape, update expectations to the new split system messages.
-- If failures involve main-thread prompt shape, stop and inspect because this plan must not change main runtime ContextBuilder behavior.
+- Se as falhas forem apenas expectativas desatualizadas sobre o shape do child system prompt, atualize as expectativas para as novas system messages separadas.
+- Se as falhas envolverem o shape de prompt da main thread, pare e investigue, porque este plano não deve mudar o comportamento do ContextBuilder do runtime main.
 
-- [ ] **Step 3: Run typecheck**
+- [ ] **Step 3: rodar o typecheck**
 
-Run:
+Execute:
 
 ```bash
 pnpm typecheck
 ```
 
-Expected:
+Esperado:
 
-- PASS, or only known unrelated baseline failures. If failures are unrelated, record exact failing package/file in final report.
+- PASS, ou apenas falhas de baseline conhecidas e não relacionadas. Se as falhas não forem relacionadas, registre o package/arquivo exato que falhou no relatório final.
 
-- [ ] **Step 4: Run lint**
+- [ ] **Step 4: rodar o lint**
 
-Run:
+Execute:
 
 ```bash
 pnpm lint
 ```
 
-Expected:
+Esperado:
 
-- PASS, or only known unrelated baseline failures. If failures are unrelated, record exact failing package/file in final report.
+- PASS, ou apenas falhas de baseline conhecidas e não relacionadas. Se as falhas não forem relacionadas, registre o package/arquivo exato que falhou no relatório final.
 
-- [ ] **Step 5: Inspect final child provider request shape from test capture**
+- [ ] **Step 5: inspecionar o shape final do provider request do child a partir da captura dos testes
 
-Use the failing/passing test debug output only if needed. The final child request must satisfy:
+Use a saída de debug dos testes que falham/passam apenas se necessário. O child request final deve satisfazer:
 
 ```text
 system[0] === "You are ZCode, an interactive coding agent"
@@ -999,7 +999,7 @@ system[3] starts with "Here is useful information about the environment you are 
 system[3] contains Working directory / git repo / Platform / Shell / OS Version / model name
 ```
 
-### Task 6: Add And Run Foreground Desktop E2E
+### Task 6: adicionar e rodar o E2E de desktop em primeiro plano
 
 **Files:**
 - Modify: `docs/conversation-session-case-catalog.md`
@@ -1008,45 +1008,45 @@ system[3] contains Working directory / git repo / Platform / Shell / OS Version 
 
 **Interfaces:**
 - Consumes:
-  - Prompt assembly implementation from Tasks 2-3.
-  - Existing desktop WDIO helpers under `packages/desktop/test/e2e/helpers/`.
-  - Existing E2E command from `docs/testing/desktop-e2e-reporting.md`.
+  - Implementação da montagem de prompt das Tasks 2-3.
+  - Helpers de WDIO de desktop já existentes em `packages/desktop/test/e2e/helpers/`.
+  - Comando de E2E já existente em `docs/testing/desktop-e2e-reporting.md`.
 - Produces:
-  - A desktop conversation/session E2E that opens the real Electron foreground window and verifies subagent prompt assembly behavior through user-visible flow plus provider/request evidence.
+  - Um E2E de conversation/session de desktop que abre a janela real do Electron em primeiro plano e verifica o comportamento de montagem do prompt de subagent pelo fluxo visível ao usuário mais a evidência de provider/request.
 
-- [ ] **Step 1: Add or update the conversation-session case catalog**
+- [ ] **Step 1: adicionar ou atualizar o catálogo de cases de conversation-session**
 
-In `docs/conversation-session-case-catalog.md`, add a case entry for subagent prompt assembly. Use the existing table style in that file, with this semantic content:
+Em `docs/conversation-session-case-catalog.md`, adicione uma entrada de case para a montagem do prompt de subagent. Use o estilo de tabela já existente naquele arquivo, com este conteúdo semântico:
 
 ```md
 | <next-id> | Subagent prompt assembly | o usuário inicia, pela janela em primeiro plano, uma conversa que dispara um subagent Explore/general-purpose | o system prompt provider-visible do sub agent preserva o prefixo do ZCode e separa agent prompt / common Notes / env-model context em system messages independentes; o prompt da thread principal não regride | covered | `conversation-session-subagent-prompt-assembly.test.ts` |
 ```
 
-Use the next valid case id according to the current catalog conventions; do not invent a new numbering family if an existing subagent/conversation family already exists.
+Use o próximo case id válido conforme as convenções atuais do catálogo; não invente uma nova família de numeração se já existir uma família de subagent/conversation.
 
-- [ ] **Step 2: Update the E2E coverage matrix**
+- [ ] **Step 2: atualizar a matriz de cobertura de E2E**
 
-In `docs/testing/conversation-session-e2e-coverage-matrix.md`, add or update the matching row:
+Em `docs/testing/conversation-session-e2e-coverage-matrix.md`, adicione ou atualize a linha correspondente:
 
 ```md
 | <same-id> | Subagent prompt assembly | covered | `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-prompt-assembly.test.ts` | Verifies foreground-window conversation path and child provider-visible prompt shape |
 ```
 
-Keep the row format consistent with the current matrix. If the matrix separates source case id, state, and spec path into different columns, fill the equivalent columns rather than copying this row literally.
+Mantenha o formato da linha consistente com a matriz atual. Se a matriz separar o case id de origem, o estado e o caminho da spec em colunas diferentes, preencha as colunas equivalentes em vez de copiar esta linha literalmente.
 
-- [ ] **Step 3: Write the desktop E2E spec**
+- [ ] **Step 3: escrever a spec E2E de desktop**
 
-Create `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-prompt-assembly.test.ts`.
+Crie `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-prompt-assembly.test.ts`.
 
-The spec must:
+A spec deve:
 
-- Launch the real desktop app through WDIO.
-- Use an existing replay/mock provider helper so the run is deterministic.
-- Create a conversation from the foreground Electron window.
-- Send a prompt that triggers `Agent` with `subagent_type: "Explore"` or the default general-purpose agent.
-- Wait for the subagent result to appear in the conversation.
-- Inspect captured model request evidence or persisted model-io/debug artifact from the E2E run.
-- Assert the child request system messages satisfy:
+- Iniciar o app desktop real através do WDIO.
+- Usar um helper existente de replay/mock de provider para que a execução seja determinística.
+- Criar uma conversa a partir da janela Electron em primeiro plano.
+- Enviar um prompt que dispare `Agent` com `subagent_type: "Explore"` ou com o agent general-purpose padrão.
+- Esperar o resultado do subagent aparecer na conversa.
+- Inspecionar a evidência de model request capturada ou o artefato persistido de model-io/debug da execução E2E.
+- Afirmar que as system messages do child request satisfazem:
 
 ```text
 system[0] === "You are ZCode, an interactive coding agent"
@@ -1057,7 +1057,7 @@ system[2] contains "the parent agent reads your text output"
 system[3] starts with "Here is useful information about the environment you are running in:"
 ```
 
-Use existing helpers from nearby specs rather than creating a parallel E2E harness. Good reference files to inspect before writing the spec:
+Use helpers existentes de specs próximas em vez de criar um harness E2E paralelo. Bons arquivos de referência para inspecionar antes de escrever a spec:
 
 ```text
 packages/desktop/test/e2e/conversation-session/conversation-session-subagent-provider-registry-cold-start.test.ts
@@ -1067,37 +1067,37 @@ packages/desktop/test/e2e/helpers/model-provider-replay.ts
 packages/desktop/test/e2e/helpers/conversation-session-network.ts
 ```
 
-- [ ] **Step 4: Run the E2E through the foreground desktop window**
+- [ ] **Step 4: rodar o E2E pela janela de desktop em primeiro plano**
 
-Run the new spec with the local foreground Electron window, not only the container runner:
+Rode a nova spec com a janela Electron local em primeiro plano, não apenas com o runner de container:
 
 ```bash
 ZCODE_E2E_SPEC=./test/e2e/conversation-session/conversation-session-subagent-prompt-assembly.test.ts pnpm --filter @zcode/desktop test:e2e
 ```
 
-Expected:
+Esperado:
 
 - PASS.
-- A real Electron desktop window is launched by WDIO during the run.
-- The E2E report is written under `packages/desktop/.e2e-artifacts/<run-id>/`.
-- The test result and captured provider/request evidence show the child system prompt split exactly as expected.
+- Uma janela Electron desktop real é iniciada pelo WDIO durante a execução.
+- O relatório de E2E é escrito em `packages/desktop/.e2e-artifacts/<run-id>/`.
+- O resultado do teste e a evidência de provider/request capturada mostram a divisão do child system prompt exatamente como o esperado.
 
-- [ ] **Step 5: Run conversation coverage audit**
+- [ ] **Step 5: rodar a auditoria de cobertura de conversation**
 
-Run:
+Execute:
 
 ```bash
 pnpm audit:conversation-session-coverage
 ```
 
-Expected:
+Esperado:
 
 - PASS.
-- If the audit reports stale generated docs or missing coverage rows, update the catalog/matrix entries and rerun until it passes.
+- Se a auditoria apontar docs gerados desatualizados ou linhas de cobertura ausentes, atualize as entradas do catálogo/matriz e rode novamente até passar.
 
-- [ ] **Step 6: Record E2E evidence in the final implementation report**
+- [ ] **Step 6: registrar a evidência de E2E no relatório final de implementação**
 
-The final implementation report must include:
+O relatório final de implementação deve incluir:
 
 ```text
 E2E command:
@@ -1113,11 +1113,11 @@ Provider-visible check:
 child system[0..3] matched the expected prompt assembly shape
 ```
 
-If the local machine cannot run foreground Electron E2E, do not mark the task complete. Report the blocker and leave the implementation uncommitted for review.
+Se a máquina local não puder rodar E2E de Electron em primeiro plano, não marque a task como concluída. Reporte o bloqueio e deixe a implementação sem commit para revisão.
 
 ---
 
-## Risks And Guardrails
+## Riscos e salvaguardas
 
 - Risco de regressão do prompt principal: adicionar `systemMessages` não pode mudar o comportamento do `ContextBuilder` do runtime main. Proteja com `context-builder.test.ts` e `runtime-trace.test.ts`.
 - Ambiguidade do contexto de data: os testes child atuais afirmam `# currentDate`; o env/model context alvo não inclui data. Não adicione uma nova seção de data a menos que a semântica atual do produto exija isso; se for mantida em outro lugar, documente a origem separadamente.

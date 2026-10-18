@@ -164,17 +164,17 @@ Expected: FAIL — acusando que `shouldReportInputLag`/`recordInputLag`/`UI_PERF
 Acrescentar ao final de `packages/ui/src/lib/uiPerfArmsTelemetry.ts` (depois de `clearStreamStallTracking`):
 
 ```ts
-// 输入框卡顿:在 Lexical update listener 内测「单次输入处理耗时」(getEditorMarkdown+onChange 同步段)。
-// 与 stream_stall(输出侧)区分:此为输入侧。只上报超阈卡点,事件量最小。
+// Travamento na caixa de input: mede dentro do update listener do Lexical o "tempo de processamento de uma única entrada" (trecho síncrono getEditorMarkdown+onChange).
+// Diferente de stream_stall (lado da saída): aqui é o lado da entrada. Reporta somente os pontos que ultrapassam o limiar, de forma a minimizar o volume de eventos.
 export const UI_PERF_EVENT_INPUT_LAG = "perf_ui_input_lag";
 
-// 保守起点:只抓最严重卡顿。可据线上分布往下收紧。
+// Ponto de partida conservador: captura apenas os travamentos mais graves. Pode ser apertado conforme a distribuição em produção.
 export const INPUT_LAG_REPORT_THRESHOLD_MS = 500;
-// 超此值大概率是断点调试/标签页挂起/设备休眠唤醒,丢弃避免污染分布。
+// Acima deste valor provavelmente é breakpoint de debug / aba suspensa / sono do dispositivo; descartar para não poluir a distribuição.
 export const INPUT_LAG_SANITY_MAX_MS = 5000;
 
-// 判定抽成纯函数便于单测:程序化改写(粘贴/setText/mention/历史回填)与 IME 组合态
-// 都不算打字卡顿,即使耗时超阈也跳过。
+// A decisão foi extraída para uma função pura para facilitar o teste unitário: reescrita programática (colar/setText/mention/preenchimento de histórico) e estado de composição do IME
+// não contam como travamento de digitação; mesmo passando do limiar, são ignorados.
 export function shouldReportInputLag(args: {
   lagMs: number;
   isProgrammatic: boolean;
@@ -213,7 +213,7 @@ export function recordInputLag(params: {
     properties: {
       lag_ms: lagMs,
       text_length: params.textLength,
-      // 草稿态无 taskId,留空与其它 ui_perf 事件口径一致。
+      // No estado de rascunho não há taskId; deixa vazio para manter a mesma convenção dos demais eventos ui_perf.
       task_id: params.taskId,
     },
   });
@@ -250,8 +250,8 @@ Explicação: as mudanças desta tarefa são a integração com o runtime do Lex
 Na área de constantes do topo de `LexicalChatInput.tsx` (perto de `const CHINESE_SLASH_ALIAS = "、";`), acrescentar:
 
 ```ts
-// 程序化改写(setText/mention 插入/历史回填等非用户敲键的 editor.update)统一打此 tag,
-// 输入卡顿埋点在 update listener 里见到该 tag 即跳过,避免把批量改写误判为打字卡顿。
+// Reescritas programáticas (editor.update sem tecla do usuário: setText/inserção de mention/preenchimento de histórico etc.)
+// recebem esta tag; a telemetria de travamento de input pula o update quando a vê no listener, evitando interpretar uma reescrita em lote como travamento de digitação.
 const PROGRAMMATIC_UPDATE_TAG = "zcode-programmatic";
 ```
 
@@ -273,7 +273,7 @@ function replaceEditorText(editor: LexicalEditor, text: string) {
     const root = $getRoot();
     root.clear();
 
-    // Lexical getTextContent() 用 \n\n 分隔段落，对称处理防止换行翻倍
+    // O getTextContent() do Lexical separa parágrafos com \n\n; o tratamento simétrico evita duplicação de quebras de linha
     for (const line of text.split("\n\n")) {
       const paragraph = $createParagraphNode();
       if (line) {
@@ -337,7 +337,7 @@ function TextContentPlugin({
           return;
         }
 
-        // 输入卡顿计时:包住「全量序列化 + onChange 同步重渲染」这段处理热点。
+        // Cronometragem do travamento de input: envolve o ponto quente de tratamento "serialização completa + rerender síncrono do onChange".
         const startedAt = performance.now();
 
         const nextText = getEditorMarkdown(editorState);
@@ -349,7 +349,7 @@ function TextContentPlugin({
         onChange(nextText);
 
         const lagMs = performance.now() - startedAt;
-        // 程序化改写与 IME 组合态不算打字卡顿(判定在 recordInputLag 内统一短路)。
+        // Reescrita programática e estado de composição do IME não contam como travamento de digitação (a decisão faz curto-circuito dentro de recordInputLag).
         recordInputLag({
           lagMs,
           textLength: nextText.length,

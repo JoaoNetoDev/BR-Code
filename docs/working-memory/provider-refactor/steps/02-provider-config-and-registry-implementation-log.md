@@ -2309,3 +2309,108 @@ O antigo `IModelProviderService.onDidChangeProviderRegistry` não tem assinantes
 Esta rodada mantém o cache de Snapshot dentro do Service antigo e continua fazendo com que salvar um Provider, atualizar o estado da conta e mudar o estado de planos invalidem esse cache; remove o evento externo, a lógica de construção assíncrona e envio do Snapshot e os dois testes que assinavam apenas o evento antigo. Assim a próxima leitura ainda obtém o Snapshot mais recente, mas uma mudança de Provider não reconstrói uma cadeia global de hot push de fatos. `getProviderRegistrySnapshot()` continua disponível para o caminho de compatibilidade de conectibilidade das configurações que ainda não migrou, e será removido depois que esse caminho passar a usar o novo Registry.
 
 ## 195. Remover a entrada antiga `applyToProvider`
+
+`IModelProviderService.applyToProvider()` era usado para aplicar a seleção de modelo ao antigo Provider do Agente e carregava a validação de existência de ZAPI, Provider e Model. Hoje a execução local já leva a Selection pelo Submission e o Worker cria o Model pelo seu próprio Registry; não restam chamadas no código de produção do repositório, e a entrada antiga também não grava mais `~/.zcode/cli/config.json`.
+
+Esta rodada removeu a interface, a implementação e os testes que cobriam apenas essa entrada de compatibilidade. O salvamento de Provider continua sendo responsabilidade do Settings Service, a validação de Selection continua a cargo do Model Selection Service/Registry e o teste de conectividade continua usando o `testModelConnectivity()` independente. A cadeia de compatibilidade do Snapshot antigo remoto já não tem chamadas de produção no código, e as explicações históricas relevantes são mantidas no mapa de chamadas para uso em auditorias de limpeza futuras.
+
+## 196. Remover o arquivo antigo de Provider Display Order
+
+Os antigos `IModelProviderService.getDisplayOrder()` e `saveDisplayOrder()` liam e gravavam um `model-provider-display-order.json` separado. A reordenação de Providers e de modelos na página de configurações atual já é feita diretamente pelo `ProviderSettingsService` modificando o Personal Config Overlay, e a ordem Efetiva é obtida pela resolução das camadas Official e Personal; o arquivo antigo de ordenação de exibição não participa mais da seleção de modelos nem da página de configurações.
+
+Esta rodada removeu as interfaces antigas, as funções de leitura e gravação do Storage, o helper de caminho e os testes de falha de arquivo correspondentes. O `ModelProviderDisplayOrderState`, que ainda existe no Shared/UI, permanece apenas como forma de dados de compatibilidade da projeção da página de configurações e não significa que o arquivo antigo continue existindo.
+
+## 197. Corrigir o status de identidade de conta do M2.3d
+
+Ao revisar os quatro itens de identidade de conta do plano principal do M2.3d, confirmou-se que eles já foram concluídos em conjunto pela Account Source, pelo Request Auth, pelo Credential Store e pela cadeia de Usage atuais, e que o texto original do plano estava atrasado em relação à implementação:
+
+- A Account Source usa `createAccountScopedAccessId()` para gerar a identidade com escopo de conta; ela permanece estável quando as credenciais da mesma conta são renovadas e gera um novo `accessId` quando a conta é trocada.
+- O `AccountProviderRequestAuthService` valida antes da requisição a correspondência entre Provider e `accessId` e verifica a identidade atual da conta OAuth; a organization/project do Team é resolvida a partir do mesmo `accessId` e passada ao resolvedor de Team Key.
+- A Personal Coding Plan API Key usa o `accessId` com escopo de conta como chave do Credential Store. A key antiga em nível de Provider é usada apenas na leitura do período de migração e não participa dos fatos das novas requisições.
+- Usage, Entitlement, Team Products e as requisições de cache relacionadas carregam o `accessId` com escopo de conta, e as requisições de Team preservam ao mesmo tempo o contexto de organization/project, sem introduzir uma identidade de cache de conta paralela.
+
+Esta rodada sincroniza apenas o status e as evidências de implementação, sem alterar a lógica de runtime. O que ainda precisa ser tratado separadamente é a leitura de compatibilidade do antigo `ModelProviderService` e a saída final das entradas remota e do período de migração; a identidade de conta em si não deve mais ser listada como item pendente.
+
+## 198. Completar a projeção da capacidade de vídeo do Registry para o Adapter
+
+O M1 já incluiu `supportsVideo` em `Model.properties`, e a camada de Model também rejeita, antes de a requisição entrar no executor, modelos que declaram não suportar vídeo. Mas o `inputMediaCapabilities` compilado pelo Registry para o AI SDK Adapter carregava apenas imagem e PDF; ao passar diretamente pela conversão de requisição do Adapter, a capacidade de vídeo não podia mais aproveitar a mesma Registry Model Config.
+
+Esta rodada acrescentou `supportsVideo` à estrutura de capacidades de mídia do Adapter e passou a repassá-lo integralmente na conversão de mensagens do Registry Model Runtime, das requisições geradas e das requisições de streaming. A cobertura de Provider em nível de execução passou a usar o mesmo campo. Assim, a validação de propriedades na camada de Model e a projeção de mídia na camada de Adapter leem o mesmo fato de capacidade, sem mudar a semântica já existente de que um false explícito omite a mídia e uma ausência de declaração mantém a compatibilidade.
+
+Doze testes do Registry Runtime do Bootstrap e 69 testes de runner/transform do Adapter passaram. Esta rodada não tocou nos caminhos de compatibilidade do Catalog antigo ou do Provider Service.
+
+## 199. Reverificar as referências restantes ao Model Catalog antigo
+
+Esta rodada reexaminou as referências de produção a `ModelCatalogService`, `modelCatalog.overrides`, ao snapshot empacotado de models.dev e ao antigo `model-providers.json`. O resultado precisa ser entendido em duas categorias.
+
+Nos caminhos de produção em que `providerRegistry` já está montado, os dados críticos de seleção e execução de modelos são fornecidos pelo novo Registry:
+
+```text
+Provider Registry
+├─ listModels -> ModelSelectionView
+├─ model properties / option specs -> Registry Model
+└─ createModel -> Provider Model Runtime
+```
+
+`create-app.ts` desliga `includeLegacyProviderModels` nessa condição, o `ApiProviderModelRuntime`负责 executar os modelos e o ramo de Registry do Session Facade responde pela seleção de modelos e pelos níveis de reasoning. Portanto, o antigo `ModelCatalogService` não é mais a fonte da verdade dessas cadeias principais.
+
+O código antigo do Catalog ainda tem as seguintes referências de compatibilidade:
+
+- A montagem antiga de App/CLI que não injeta `providerRegistry` ainda constrói capacidades de modelo por `model-selection.ts`, `model-input-capabilities.ts` e `runtime-model-factory.ts`;
+- As funções auxiliares de migração, eco e protocolo histórico do catálogo de workspace ainda precisam converter estruturas antigas em projeções de capacidade;
+- A Runtime Config antiga ainda mantém a interpretação de `modelCatalog.overrides`, para sustentar as entradas de compatibilidade que ainda não migraram para o novo Registry;
+- A leitura de `model-providers.json` do antigo `ModelProviderService` ainda serve como migração única da Personal Config e como fronteira de serviços legada.
+
+Por isso esta rodada não remove esses módulos nem os reconecta à cadeia principal do Registry. A posição atual deles é a de "runtime de compatibilidade sem Registry montado e adaptador de migração única", e não a de outra fonte de verdade de Providers de produção paralela.
+
+Antes da remoção é preciso provar separadamente duas coisas: que todas as Entries que ainda podem iniciar injetam o Registry, e que a migração de arquivos antigos, a recuperação histórica de workspace e os testes de compatibilidade já não precisam da estrutura antiga de Catalog. Nesse momento a remoção deve ser feita por ponto de chamada, item a item, e não pela remoção global com base no nome da classe `ModelCatalogService`.
+
+## 200. Completar o atributo de vídeo nos caminhos de capacidade de compatibilidade
+
+A rodada anterior já havia projetado `Model.properties.supportsVideo` do novo Registry para a estrutura de capacidades de mídia do Adapter; ao continuar verificando o caminho de compatibilidade sem Registry montado, descobriu-se que `model-input-capabilities.ts` ainda coletava apenas imagem e PDF. Assim, o `supportsVideo` de um mesmo modelo se perdia no caminho antigo de CLI/modelo temporário e a política final de entrada de vídeo do Core não recebia o resultado de configuração.
+
+Esta rodada sincronizou quatro fronteiras:
+
+- o `modalities.input` de models.dev converte `video` na capacidade do Catalog antigo;
+- a mesclagem de Catalog Override preserva `supportsVideo`;
+- a resolução de capacidade de compatibilidade em runtime repassa `supportsVideo` entre configuração explícita, Catalog e projeção padrão;
+- a projeção antiga de seleção de modelos leva esse atributo até o `ZCodeModelOption`.
+
+A mudança apenas completa um atributo de mídia já determinado, sem alterar a cadeia principal do Registry e sem ampliar as responsabilidades de fato do Catalog antigo. Novos casos de regressão cobrem o fato de vídeo de models.dev, o Override explícito de vídeo e a projeção de seleção de modelos.
+
+## 201. Remover a entrada pública de atualização dos Presets antigos
+
+`IModelProviderService.refreshPresetProviders()` não tem mais chamadores de produção. Os novos Host, Worker, Prompt CLI e TUI acionam a atualização do Registry por meio das Official, Personal e Account Source, respectivamente; manter esse método publicly exposto permitiria que qualquer consumidor de RPC voltasse a disparar a sincronização antiga de Presets e a reescrever o Provider Store antigo.
+
+Esta rodada removeu a interface e o método público do objeto retornado pelo Service. O `getAll()` antigo continua chamando internamente a função privada de atualização de mesmo nome, que atende apenas a migração única e as leituras de compatibilidade ainda não removidas; essa função interna não pode mais ser chamada ativamente por `IModelProviderService` ou por RPC. Isso estreita a superfície de produção da antiga fonte da verdade sem alterar a importação da Personal Config nem o comportamento de primeira leitura das entradas antigas.
+
+## 202. O teste de conectibilidade das configurações sai do Provider Service antigo
+
+A nova cadeia de configurações já obtinha os fatos estáticos de Provider pela Provider Settings View e resolvia as credenciais em tempo de requisição pelo `accessId` do Account Overlay; mas o último passo ainda chamava `IModelProviderService.testModelConnectivity()` e usava `requestAuthResolved: true` para impedir que o Service antigo relesse o Snapshot de Provider. Esse interruptor de compatibilidade mantinha o Snapshot antigo como dependência indireta da sondagem de rede.
+
+Esta rodada definiu a sondagem única após a autenticação como um `ProviderSettingsConnectivityProbe` estreito. A camada de composição fica responsável pelas credenciais de Account e pelos Headers de requisição, enquanto o Probe recebe apenas o rascunho de configurações atual, o modelo e a API Key desta tentativa, tratando a validação de entitlement do Start Plan, a verificação de segurança da requisição e a sondagem real do endpoint. A montagem de produção cria o Probe diretamente, sem injetar o antigo `ModelProviderService` na cadeia de configurações e sem passar `requestAuthResolved`. O método de mesmo nome do Service antigo fica para os testes de compatibilidade ainda não removidos e para o canal antigo remoto; ele já não é dependência de produção da nova functionality de configurações e o método antigo e o construtor completo do Snapshot poderão ser removidos independentemente mais adiante.
+
+## 203. Remover a API antiga de teste de conectibilidade
+
+Depois da seção anterior, `IModelProviderService.testModelConnectivity()` ficou sem chamadores de produção. Ele acumulava a leitura do Snapshot de Provider, a reescrita de credenciais de Account/Team, o julgamento de entitlement do Start Plan e a sondagem de rede; manter essa entrada pública permitiria que chamadores fora da cadeia de configurações continuassem dependendo da combinação de fatos do Provider Service antigo.
+
+Esta rodada removeu a interface, a implementação e a entrada de compatibilidade do Host remoto. O comportamento de conectibilidade não foi removido: a sondagem de protocolo genérica, o reasoningMapping de nível de modelo, a disponibilidade do Start Plan e a verificação de segurança da requisição agora são cobertos pelo `ProviderSettingsConnectivityProbe` independente. Os novos testes do Probe verificam diretamente o comportamento com o apiFormat atual, com o reasoningMapping e quando as regras de nome de modelo não casam; as credenciais de requisição de Account/Team continuam cobertas pelos testes existentes de `accountProviderRequestAuthService` e `accountProviderTeamPlanRequestKey`.
+
+Esta etapa estreitou as responsabilidades do Provider Service antigo sem alterar a semântica de produto do envio do rascunho pela página de configurações, da autenticação em tempo de requisição ou da sondagem de rede. A implementação do Snapshot antigo do Registry continua existente isoladamente; a próxima etapa continua auditando seus testes e referências de compatibilidade para decidir o escopo da remoção.
+
+## 204. Remover o Snapshot antigo do Provider Registry
+
+Depois de concluída a migração da conectibilidade das configurações, `getProviderRegistrySnapshot()` ficou sem consumidores de produção. As chamadas restantes existem apenas na interface do antigo `ModelProviderService`, no construtor de cache e em testes que validam especificamente esse Snapshot; Host, Worker, Selection, Settings e execução de Model já usam a nova cadeia Registry/Facade.
+
+Esta rodada removeu do Service antigo a interface de Snapshot, o cache, a invalidação por geração e o construtor do Snapshot completo, e removeu os testes que validavam apenas a projeção do Snapshot antigo, a sobrescrita de credenciais de runtime antigas e a inicialização concorrente antiga. O tipo de protocolo `ZCodeProviderRegistrySnapshot` e a entrada de compatibilidade do Repo Wiki são mantidos por enquanto, porque ainda são formas de dados históricas independentes; eles não são mais gerados pelo `ModelProviderService` e não participam mais da criação atual de Model.
+
+Após a remoção, restaram 100 testes do Model Provider Service, cobrindo a migração do Store antigo, a sincronização de predefinições, a disponibilidade de Account e o comportamento de escrita Personal. O arquivo de teste passa quando executado isoladamente; ao ser executado em paralelo com outros testes com atualização de entitlement em segundo plano, a limpeza temporária de diretório existente sofre uma corrida `ENOTEMPTY`, que deve ser tratada depois como problema de isolamento de testes, sem restaurar a camada de compatibilidade do Snapshot.
+
+## 205. Limpar os resíduos de teste da API antiga de Snapshot
+
+Depois da remoção de `getProviderRegistrySnapshot()`, o código de produção não tem mais chamadores dessa API; os testes de UI ainda a mantinham em vários mocks de serviço, e os testes de troca de modelo ainda guardavam asserções de configuração, reset e "não deve chamar" para ela. Esses resíduos fariam uma interface já retirada parecer ainda pertencer à fronteira atual dos serviços e mascarariam o conjunto mínimo de serviços de que os testes realmente dependem.
+
+Depois que a API antiga de Snapshot foi limpa, as dependências de produção restantes se concentram em dois caminhos de migração/compatibilidade:
+
+1. O `ProviderConfigRuntime` do Local Host, quando a Personal Config ainda não tem uma versão oficial, chama `modelProviderService.getAllCached()` para ler o Provider Store antigo, converte o resultado em uma Personal Config esparsa e completa o backup e a escrita atômica no mesmo caminho. Depois que a Config oficial existe, esse callback não é executado novamente.
+2. O Host de compatibilidade local de `remoteWorkspaceServiceCollection` fornece

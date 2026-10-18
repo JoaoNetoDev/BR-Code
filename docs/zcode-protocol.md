@@ -56,7 +56,7 @@ O conjunto completo de comandos atuais tem `packages/shared/src/zcode-protocol-v
 
 | Grouping          | Comandos                                                                                    |
 | ------------- | --------------------------------------------------------------------------------------- |
-| Sessão/entrada     | `createSession`、`createSelectionSideSession`、`sendText`、`sendGoalCommand`、`renameSession`、`deleteSession` |
+| Sessão/entrada     | `createSession`, `createSelectionSideSession`, `sendText`, `sendGoalCommand`, `renameSession`, `deleteSession` |
 | Controle de geração      | `stop`、`compact`、`retryTurn`、`editUserQuery`、`forkAssistant`                        |
 | Regressão de arquivo      | `applyFileRewind`                                                                       |
 | Fila          | `sendQueuedNow`、`editQueueItem`、`reorderQueueItem`、`deleteQueueItem`、`setAutoDrain` |

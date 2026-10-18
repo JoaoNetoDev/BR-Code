@@ -1,79 +1,79 @@
-# Windows CUA WGC Visual Capture Implementation Plan
+# Plano de Implementação de Captura Visual WGC para CUA no Windows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 Windows source Helper 通过 WGC 完成显示器截图、遮挡窗口截图、`get_app_state` 附图以及 `state_image` / `screenshot` 坐标闭环。
+**Objetivo:** Fazer com que o Helper de origem no Windows conclua, via WGC, a captura de tela do monitor, a captura de janela com oclusão, a imagem anexada ao `get_app_state` e o ciclo fechado de coordenadas de `state_image` / `screenshot`.
 
-**Architecture:** 在现有 `ax_native.node` 中增加独立的 C++/WinRT + D3D11 + WIC 单帧捕获模块，通过三个成组 additive N-API 导出暴露 Promise ABI。TypeScript 以一个 Windows-only bridge 校验 capability/outcome；显示器截图进入现有 backend，窗口截图注入 `createAxWinReadOnlySource`，实际截图 bounds 贯穿 broker、state cache 和视觉坐标映射。
+**Arquitetura:** Adicionar ao `ax_native.node` existente um módulo independente de captura de quadro único em C++/WinRT + D3D11 + WIC, expondo a ABI de Promise por três exports N-API additive e agrupados. O TypeScript valida capability/outcome por um bridge exclusivo de Windows; a captura de monitor entra no backend existente, a captura de janela é injetada em `createAxWinReadOnlySource`, e os bounds reais da captura percorrem o broker, o state cache e o mapeamento de coordenadas visuais.
 
-**Tech Stack:** TypeScript 5.9、Vitest 4、Node-API / node-addon-api、C++17、C++/WinRT、Windows Graphics Capture、D3D11、WIC、MSVC / node-gyp、Sharp、Windows named-pipe broker。
+**Stack técnico:** TypeScript 5.9, Vitest 4, Node-API / node-addon-api, C++17, C++/WinRT, Windows Graphics Capture, D3D11, WIC, MSVC / node-gyp, Sharp, broker de named pipe do Windows.
 
-## Global Constraints
+## Restrições Globais
 
-- 先写测试并观察 RED，再写最小实现并观察 GREEN；每个任务独立提交。
-- 只修改 `C:\Users\dev\zcode-cua` 的本地 Windows source Helper 和 `C:\Users\dev\z-code` 的事实/计划文档；不启动或修改 SSH、WSL、Docker、remote workspace、手机 `/remote`。
-- 复用现有 C++ addon，不新增 Rust sidecar、常驻进程或 Electron 依赖。
-- 像素来源只能是 WGC；禁止 BitBlt、PrintWindow、PowerShell 截图、外部截图命令、Electron `desktopCapturer` 和私有二进制 fallback。
-- source 开发接受 Windows 系统默认 WGC 捕获边框，不申请或绕过受限无边框 capability。
-- 本计划不做安装包、签名、manifest、商店 identity 或 x64/arm64 预编译发布物；这些留到 source runtime 验证后的产品闭环。
-- additive ABI 固定为 `isScreenCaptureSupported()`、`captureMonitorPngAsync(bounds)`、`captureWindowPngVerifiedAsync(windowId,pid,expectedCanonicalBundleId,expectedBounds?)`；三个导出必须成组存在。
-- native success 固定返回 `{ok:true,format:"png",data,width,height,bounds}`；failure 只返回固定 error code，不泄漏 HRESULT 文本、窗口标题、可执行路径、图像内容、token 或 pipe。
-- 捕获必须在 `Napi::AsyncWorker` 中执行；C++/WinRT 异常在 worker 内捕获，不能越过 N-API。
-- 使用独立 `std::timed_mutex`；admission 最多 250ms；第一帧最多 2000ms；最大单边 16384；最大总像素 33554432；最大 PNG 128 MiB。
-- D3D11 首选 hardware，失败可用 WARP；仍必须走 WGC。帧池使用 `CreateFreeThreaded`，只复制 `ContentSize`。
-- HWND 捕获前后必须复核 `IsWindow`、PID、canonical exe、完整性级别、`IsIconic` 和 `GetWindowRect`；变化返回 `target_changed`，不能拼接 UIA tree 与不同观察时刻的图像。
-- 非交互 desktop、锁屏（LockApp/Winlogon）、安全桌面、高完整性目标和最小化窗口 fail closed。
-- `bounds` 是已复核的桌面物理坐标范围；`width/height` 是 PNG 像素尺寸。二者不一致时显式缩放，禁止假设 1:1。
-- 复用现有 `state_id` 和最新 visual-frame；不新增 `screenshotId`，不修改 30-tool surface、tier 或 annotation。
-- Windows 完整三导出 + runtime support 才能 `supportsScreenCapture=true`；旧/半实现/malformed addon fail closed。
-- `invalid_target` / `target_changed` 使 app observation 失败并要求 reobserve；其余 transient window capture failure 保留 UIA tree，但 `screenshot=null`、`screenshot_error` 非空且不得建立 `state_image` target。
-- macOS/Linux 现有截图路径保持兼容；Windows SystemSurface 继续是无截图 fallback。
-- 默认测试不得启动 GUI 或读取屏幕；live smoke 必须显式 opt-in，且在启动 Helper/fixture 前验证普通已解锁桌面。
-- live smoke 只能控制自己启动的 fixture 进程，`finally` 恢复/关闭所有资源；输出不得包含截图、marker、窗口标题、路径、token 或 pipe。
-- 必须执行 zcode-cua focused/full tests、native rebuild、build、typecheck、lint；ZCode 执行 source Helper integration、CUA focused tests、official plugin test、typecheck、lint。
-- ZCode 当前 `pnpm test:unit:affected` 的非 CUA baseline 仍要重跑并逐项记录，不能把非零结果称为通过。
+- Escrever o teste primeiro e observar RED, depois escrever a implementação mínima e observar GREEN; cada tarefa é um commit independente.
+- Modificar apenas o Helper local de origem do Windows em `C:\Users\dev\zcode-cua` e os documentos de fatos/plano em `C:\Users\dev\z-code`; não iniciar nem modificar SSH, WSL, Docker, remote workspace ou o `/remote` do celular.
+- Reutilizar o addon C++ existente; não adicionar sidecar em Rust, processo residente nem dependência de Electron.
+- A única fonte de pixels pode ser o WGC; são proibidos BitBlt, PrintWindow, captura via PowerShell, comandos externos de captura, o `desktopCapturer` do Electron e fallbacks em binários privados.
+- O desenvolvimento de origem aceita a borda padrão de captura WGC do sistema Windows; não solicitar nem contornar a capability restrita de captura sem borda.
+- Este plano não cobre pacote instalador, assinatura, manifest, identidade de loja nem artefatos pré-compilados x64/arm64; isso fica para o fechamento de produto após a validação do runtime de origem.
+- A ABI additive é fixa em `isScreenCaptureSupported()`, `captureMonitorPngAsync(bounds)` e `captureWindowPngVerifiedAsync(windowId,pid,expectedCanonicalBundleId,expectedBounds?)`; os três exports devem existir em conjunto.
+- O sucesso nativo retorna sempre `{ok:true,format:"png",data,width,height,bounds}`; a falha retorna apenas um error code fixo, sem vazar texto de HRESULT, título de janela, caminho de executável, conteúdo de imagem, token ou pipe.
+- A captura deve ser executada em `Napi::AsyncWorker`; exceções de C++/WinRT são capturadas dentro do worker e não podem atravessar a N-API.
+- Usar um `std::timed_mutex` dedicado; admission de no máximo 250ms; primeiro quadro de no máximo 2000ms; lado máximo de 16384; total máximo de pixels de 33554432; PNG máximo de 128 MiB.
+- D3D11 prefere hardware, com fallback para WARP em caso de falha; ainda assim deve passar por WGC. O frame pool usa `CreateFreeThreaded` e copia apenas `ContentSize`.
+- A captura de HWND deve reverificar `IsWindow`, PID, exe canônico, nível de integridade, `IsIconic` e `GetWindowRect` antes e depois; qualquer mudança retorna `target_changed`, e é proibido juntar uma árvore UIA com imagens de instantes de observação diferentes.
+- Falhar de forma fechada (fail closed) em desktop não interativo, tela de bloqueio (LockApp/Winlogon), secure desktop, alvos de alta integridade e janelas minimizadas.
+- `bounds` é o intervalo de coordenadas físicas do desktop já revalidado; `width/height` são as dimensões em pixels do PNG. Quando houver divergência, a escala é explícita e é proibido assumir 1:1.
+- Reutilizar o `state_id` existente e o visual-frame mais recente; não adicionar `screenshotId` e não modificar a surface de 30 tools, o tier ou as annotations.
+- Só é possível ter `supportsScreenCapture=true` com os três exports completos no Windows mais suporte de runtime; addons antigos, incompletos ou malformados falham de forma fechada.
+- `invalid_target` / `target_changed` fazem a observação do app falhar e exigem uma nova observação; demais falhas transitórias de captura de janela preservam a árvore UIA, mas com `screenshot=null`, `screenshot_error` não vazio e sem estabelecer um target de `state_image`.
+- Os caminhos de captura existentes de macOS/Linux permanecem compatíveis; o SystemSurface do Windows continua sendo um fallback sem captura.
+- Por padrão os testes não podem iniciar GUI nem ler a tela; o live smoke exige opt-in explícito e valida um desktop comum já desbloqueado antes de iniciar o Helper/fixture.
+- O live smoke só pode controlar o processo de fixture que ele mesmo iniciou, e o `finally` deve restaurar/fechar todos os recursos; a saída não pode conter capturas, marcadores, títulos de janela, caminhos, tokens ou pipes.
+- É obrigatório executar os testes focados/completos do zcode-cua, o rebuild nativo, build, typecheck e lint; o ZCode executa a integração com o Helper de origem, os testes focados de CUA, o teste do plugin oficial, typecheck e lint.
+- A baseline não-CUA atual do `pnpm test:unit:affected` do ZCode precisa ser reexecutada e registrada item a item; não se pode chamar um resultado diferente de zero de aprovado.
 
 ---
 
-## File Structure
+## Estrutura de Arquivos
 
 ### `C:\Users\dev\zcode-cua`
 
-- Create `src/native/windowsScreenCapture.ts` — Windows 三导出成组 gate、outcome runtime validation、固定错误类型。
-- Modify `src/native/types.ts` — Windows screen capture outcome、success DTO 与 additive native methods。
-- Modify `src/broker/server/nativeAxSource.ts` — raw Helper addon 的 additive Windows ABI，以及 `screenshot_bounds` / `screenshot_error` broker-neutral字段。
-- Modify `src/broker/server/nodeAutomationAdapter.ts` — Windows monitor capture、capability/status 和 native error → broker error 映射。
-- Modify `src/native/win.ts` — async `captureApp` 附加 verified WGC window PNG，并区分 identity failure 与 transient failure。
-- Modify `src/broker/server/platformAxSource.ts` — 将 Windows bridge callback 注入 `createAxWinReadOnlySource`。
-- Modify `src/broker/server/axReadOnly.ts` — 透传 `screenshot_bounds` / `screenshot_error`。
-- Modify `src/targeting/types.ts` — state image 的独立 `image_bounds`。
-- Modify `src/targeting/snapshot.ts` — 摄取 `screenshot_bounds`。
-- Modify `src/targeting/resolver.ts` — `state_image` 使用 `image_bounds ?? window.bounds`。
-- Modify `src/broker/server/electronNativeBackend.ts` — screenshot reply 附加当前 selected-display bounds。
-- Modify `src/backend/broker-client.ts` — 保留 additive screenshot bounds。
-- Modify `src/tools/observation.ts` — visual-frame 使用 broker 返回的 selected-display bounds/origin，并展示 `screenshot_error`。
-- Create `src/native/screen_capture_win.h` — WGC N-API entrypoint 和 shutdown seam。
-- Create `src/native/screen_capture_win.cc` — WGC target validation、D3D11 single-frame、WIC PNG、worker/outcome。
-- Modify `src/native/ax_win.cc` — 引用 WGC module、状态、exports、terminal shutdown。
-- Modify `binding.gyp` — Windows source、C++ exceptions 和 D3D/WIC/WinRT libraries。
-- Create `test/windows-native-screen-capture-adapter.test.ts` — bridge、adapter capability、outcome 和平台隔离。
-- Create `test/windows-app-state-screen-capture.test.ts` — Windows source 附图、错误与 bounds。
-- Modify `test/windows-capability-truthfulness.test.ts` — 新能力真值与 broker screenshot。
-- Modify `test/observation-tools.test.ts` — selected-display origin。
-- Modify `test/targeting-resolver.test.ts` — `screenshot_bounds` → state image mapping。
-- Create `test/native/windows-wgc-screen-capture.test.ts` — native source contract 和 compiled ABI。
-- Create `scripts/fixtures/windows-capture-smoke-window.ps1` — 只供 opt-in smoke 使用的受控 WPF target/occluder。
-- Create `scripts/windows-screen-capture-live-smoke.mjs` — 显示器、遮挡 HWND、app state、state-image、最小化与 clean exit。
-- Create `test/windows-screen-capture-live-smoke.test.ts` — 默认关闭和 preflight 证据。
-- Modify `package.json` — `smoke:windows:screen-capture`。
-- Modify `docs/platforms.md` — Windows WGC 当前能力和限制。
+- Create `src/native/windowsScreenCapture.ts` — gate dos três exports do Windows em conjunto, validação de outcome em runtime e tipos de erro fixos.
+- Modify `src/native/types.ts` — outcome de screen capture do Windows, DTO de sucesso e métodos nativos additive.
+- Modify `src/broker/server/nativeAxSource.ts` — ABI Windows additive do addon bruto do Helper, além dos campos broker-neutral `screenshot_bounds` / `screenshot_error`.
+- Modify `src/broker/server/nodeAutomationAdapter.ts` — captura de monitor no Windows, capability/status e mapeamento de erro nativo → erro do broker.
+- Modify `src/native/win.ts` — `captureApp` assíncrono com PNG de janela WGC verificado anexado, distinguindo falha de identidade de falha transitória.
+- Modify `src/broker/server/platformAxSource.ts` — injetar o callback do bridge do Windows em `createAxWinReadOnlySource`.
+- Modify `src/broker/server/axReadOnly.ts` — repassar `screenshot_bounds` / `screenshot_error`.
+- Modify `src/targeting/types.ts` — `image_bounds` independente para state image.
+- Modify `src/targeting/snapshot.ts` — ingerir `screenshot_bounds`.
+- Modify `src/targeting/resolver.ts` — `state_image` usa `image_bounds ?? window.bounds`.
+- Modify `src/broker/server/electronNativeBackend.ts` — anexar à resposta de screenshot os bounds do display selecionado atual.
+- Modify `src/backend/broker-client.ts` — preservar os bounds additive de screenshot.
+- Modify `src/tools/observation.ts` — o visual-frame usa os bounds/origem do selected-display retornados pelo broker e exibe `screenshot_error`.
+- Create `src/native/screen_capture_win.h` — entrypoint N-API do WGC e seam de shutdown.
+- Create `src/native/screen_capture_win.cc` — validação de target do WGC, quadro único D3D11, PNG via WIC e worker/outcome.
+- Modify `src/native/ax_win.cc` — referenciar o módulo WGC, estado, exports e shutdown terminal.
+- Modify `binding.gyp` — fontes do Windows, exceções C++ e libraries D3D/WIC/WinRT.
+- Create `test/windows-native-screen-capture-adapter.test.ts` — bridge, capability do adapter, outcome e isolamento de plataforma.
+- Create `test/windows-app-state-screen-capture.test.ts` — imagem anexada no Windows source, erros e bounds.
+- Modify `test/windows-capability-truthfulness.test.ts` — veracidade das novas capabilities e screenshot do broker.
+- Modify `test/observation-tools.test.ts` — origem do selected-display.
+- Modify `test/targeting-resolver.test.ts` — mapeamento de `screenshot_bounds` → state image.
+- Create `test/native/windows-wgc-screen-capture.test.ts` — source contract nativo e ABI compilada.
+- Create `scripts/fixtures/windows-capture-smoke-window.ps1` — target/occluder WPF controlado, usado apenas pelo smoke com opt-in.
+- Create `scripts/windows-screen-capture-live-smoke.mjs` — monitor, HWND com oclusão, app state, state-image, minimização e saída limpa.
+- Create `test/windows-screen-capture-live-smoke.test.ts` — desligamento padrão e evidência de preflight.
+- Modify `package.json` — `smoke:windows:screen-capture`.
+- Modify `docs/platforms.md` — capacidade atual e limitações do WGC no Windows.
 - Regenerate `dist/**` only through `pnpm build`.
 
 ### `C:\Users\dev\z-code`
 
-- Modify `docs/cua/windows-source-development.md` — source 构建、自动门禁、live smoke 与已知风险。
+- Modify `docs/cua/windows-source-development.md` — build de origem, portões automáticos, live smoke e riscos conhecidos.
 
-## Data and Error Flow
+## Fluxo de Dados e de Erros
 
 ```text
 screenshot
@@ -124,7 +124,7 @@ malformed / rejection    screenshot=null + warning             sanitized interna
 
 ---
 
-### Task 1: Add the typed Windows screen-capture bridge
+### Task 1: Adicionar o bridge tipado de screen capture do Windows
 
 **Files:**
 
@@ -135,13 +135,13 @@ malformed / rejection    screenshot=null + warning             sanitized interna
 
 **Interfaces:**
 
-- Produces `AxWinScreenCaptureOutcome`, `WindowsScreenCaptureError`, `createWindowsScreenCaptureBridge(native)`.
-- `bridge.available` is true only when all three exports are functions and `isScreenCaptureSupported() === true`.
-- `bridge.captureMonitor(bounds)` and `bridge.captureWindow(...)` return validated success DTOs or throw fixed-code `WindowsScreenCaptureError`.
+- Produz `AxWinScreenCaptureOutcome`, `WindowsScreenCaptureError`, `createWindowsScreenCaptureBridge(native)`.
+- `bridge.available` é true apenas quando os três exports são funções e `isScreenCaptureSupported() === true`.
+- `bridge.captureMonitor(bounds)` e `bridge.captureWindow(...)` retornam DTOs de sucesso validados ou lançam um `WindowsScreenCaptureError` com código fixo.
 
-- [ ] **Step 1: Write failing bridge tests**
+- [ ] **Step 1: Escrever os testes falhando do bridge**
 
-Create fakes for complete, partial, malformed and rejecting addons. Pin these assertions:
+Crie fakes para addons completos, parciais, malformados e rejeitantes. Fixe estas asserções:
 
 ```ts
 expect(createWindowsScreenCaptureBridge(complete).available).toBe(true);
@@ -165,7 +165,7 @@ await expect(malformed.captureMonitor([0, 0, 1, 1])).rejects.toMatchObject({
 });
 ```
 
-- [ ] **Step 2: Run the new test and verify RED**
+- [ ] **Step 2: Executar o novo teste e verificar RED**
 
 Run:
 
@@ -173,11 +173,11 @@ Run:
 pnpm exec vitest run test/windows-native-screen-capture-adapter.test.ts
 ```
 
-Expected: FAIL because `windowsScreenCapture.ts` and the three native methods do not exist.
+Expected: FAIL porque `windowsScreenCapture.ts` e os três métodos nativos não existem.
 
-- [ ] **Step 3: Add exact native DTOs**
+- [ ] **Step 3: Adicionar os DTOs nativos exatos**
 
-Add to `src/native/types.ts` and mirror the methods on `HelperNativeAddon`:
+Adicione a `src/native/types.ts` e replique os métodos em `HelperNativeAddon`:
 
 ```ts
 export type AxWinScreenCaptureErrorCode =
@@ -215,9 +215,9 @@ captureWindowPngVerifiedAsync?(
 ): Promise<AxWinScreenCaptureOutcome>;
 ```
 
-- [ ] **Step 4: Implement strict runtime validation**
+- [ ] **Step 4: Implementar validação estrita em runtime**
 
-`createWindowsScreenCaptureBridge` must:
+`createWindowsScreenCaptureBridge` deve:
 
 ```ts
 const hasCompleteAbi =
@@ -228,9 +228,9 @@ const hasCompleteAbi =
 const available = hasCompleteAbi && safeSupported(native) === true;
 ```
 
-Success validation must require PNG signature-bearing non-empty `Uint8Array`, positive safe integer dimensions, finite four-number bounds, and exact `"png"` format. Failure validation accepts only the ten fixed codes. Synchronous throw, Promise rejection and malformed outcome become `WindowsScreenCaptureError("capture_failed")`; no original message is retained.
+A validação de sucesso exige um `Uint8Array` não vazio com assinatura de PNG, dimensões inteiras seguras e positivas, bounds finitos com quatro números e format exatamente `"png"`. A validação de falha aceita apenas os dez códigos fixos. Throw síncrono, rejeição de Promise e outcome malformado viram `WindowsScreenCaptureError("capture_failed")`; nenhuma mensagem original é retida.
 
-- [ ] **Step 5: Run bridge tests and typecheck**
+- [ ] **Step 5: Executar os testes do bridge e o typecheck**
 
 Run:
 
@@ -250,7 +250,7 @@ git commit -m "feat(windows): define native screen capture bridge"
 
 ---
 
-### Task 2: Route selected-display screenshot through the native bridge
+### Task 2: Rotear o Screenshot do Selected-Display pelo Bridge Nativo
 
 **Files:**
 
@@ -262,11 +262,11 @@ git commit -m "feat(windows): define native screen capture bridge"
 **Interfaces:**
 
 - Consumes `createWindowsScreenCaptureBridge`.
-- Produces truthful `ElectronAutomationAdapter.supportsScreenCapture`, status and `captureScreenPng(area)`.
+- Produces `ElectronAutomationAdapter.supportsScreenCapture`, status e `captureScreenPng(area)` verídicos.
 
-- [ ] **Step 1: Add RED adapter tests**
+- [ ] **Step 1: Adicionar testes RED do adapter**
 
-Assert:
+Afirme:
 
 ```ts
 expect(adapter.supportsScreenCapture).toBe(true);
@@ -282,26 +282,26 @@ await expect(
 expect(native.captureMonitorPngAsync).toHaveBeenCalledWith([-1920, 0, 1920, 1080]);
 ```
 
-Also pin:
+Fixe também:
 
-- partial ABI → false and no native dispatch;
+- ABI parcial → false e sem dispatch nativo;
 - `busy` → `BrokerError.code === "timeout"`;
 - `too_large` → `invalid_request`;
 - `unsupported` → `not_authorized`;
-- other fixed/malformed errors → sanitized `internal`;
-- darwin/linux still use `system.captureScreenPng`.
+- outros erros fixos/malformados → `internal` sanitizado;
+- darwin/linux continuam usando `system.captureScreenPng`.
 
-- [ ] **Step 2: Run and observe RED**
+- [ ] **Step 2: Executar e observar RED**
 
 ```powershell
 pnpm exec vitest run test/windows-native-screen-capture-adapter.test.ts test/windows-capability-truthfulness.test.ts test/broker/windowsSystemSurface.test.ts
 ```
 
-Expected: new Windows capability and dispatch assertions fail.
+Expected: as novas asserções de capability e de dispatch do Windows falham.
 
-- [ ] **Step 3: Implement Windows-only adapter branch**
+- [ ] **Step 3: Implementar o ramo do adapter exclusivo de Windows**
 
-Inside `createNodeAutomationAdapter`:
+Dentro de `createNodeAutomationAdapter`:
 
 ```ts
 const windowsCapture =
@@ -315,11 +315,11 @@ const supportsScreenCapture =
     : system.supportsScreenCapture !== false;
 ```
 
-For Windows, `getScreenMediaAccessStatus` returns `"granted"` only when the bridge is available; otherwise native `"denied"` is preserved and all other cases are `"unknown"`. `captureScreenPng(area)` chooses the supplied area or current primary display bounds, awaits `captureMonitor`, and returns only its `data`. Do not call `WindowsNodeSystemSurface.captureScreenPng`.
+Para o Windows, `getScreenMediaAccessStatus` retorna `"granted"` somente quando o bridge está disponível; caso contrário o `"denied"` nativo é preservado e todos os outros casos são `"unknown"`. `captureScreenPng(area)` escolhe a área informada ou os bounds do display primário atual, aguarda `captureMonitor` e retorna apenas o `data` dele. Não chame `WindowsNodeSystemSurface.captureScreenPng`.
 
-- [ ] **Step 4: Implement fixed broker error mapping**
+- [ ] **Step 4: Implementar o mapeamento fixo de erros do broker**
 
-Add `screenCaptureError(operation, code)`:
+Adicione `screenCaptureError(operation, code)`:
 
 ```ts
 busy | timeout       -> BrokerError("timeout")
@@ -333,16 +333,16 @@ capture_failed |
 encode_failed        -> BrokerError("internal")
 ```
 
-Messages may name the operation and fixed code only.
+As mensagens podem nomear apenas a operação e o código fixo.
 
-- [ ] **Step 5: Run focused tests and typecheck**
+- [ ] **Step 5: Executar os testes focados e o typecheck**
 
 ```powershell
 pnpm exec vitest run test/windows-native-screen-capture-adapter.test.ts test/windows-capability-truthfulness.test.ts test/broker/windowsSystemSurface.test.ts
 pnpm typecheck
 ```
 
-Expected: PASS; Windows SystemSurface remains false while complete native adapter is true.
+Expected: PASS; o Windows SystemSurface continua false enquanto o adapter nativo completo é true.
 
 - [ ] **Step 6: Commit**
 
@@ -353,7 +353,7 @@ git commit -m "feat(windows): route monitor capture through native WGC"
 
 ---
 
-### Task 3: Attach verified WGC images to Windows app state
+### Task 3: Anexar Imagens WGC Verificadas ao Estado de App do Windows
 
 **Files:**
 
@@ -374,9 +374,9 @@ git commit -m "feat(windows): route monitor capture through native WGC"
 - `AxRawSnapshot.screenshot_error?: string`.
 - `AppState.image_bounds?: Bounds`.
 
-- [ ] **Step 1: Write RED source/state tests**
+- [ ] **Step 1: Escrever testes RED de source/state**
 
-Test a native UIA snapshot with HWND 42, pid 4321, exe path and bounds. Assert:
+Teste um snapshot UIA nativo com HWND 42, pid 4321, caminho de exe e bounds. Afirme:
 
 ```ts
 const result = await source.captureApp({ pid: 4321, window_id: 42 }, { includeScreenshot: true });
@@ -392,26 +392,26 @@ expect(result).toMatchObject({
 });
 ```
 
-Also assert:
+Afirme também:
 
-- `includeScreenshot:false` never invokes WGC;
-- missing HWND/PID/exe returns UIA tree with no image;
-- `invalid_target` / `target_changed` rejects the whole observation;
-- `busy` / `timeout` / `device_lost` / capture/encode failure returns UIA tree, `screenshot:null`, fixed `screenshot_error`;
-- image bytes become base64 exactly once;
-- resolver maps state-image corners through `image_bounds`, not `window.bounds`.
+- `includeScreenshot:false` nunca invoca WGC;
+- HWND/PID/exe ausente retorna a árvore UIA sem imagem;
+- `invalid_target` / `target_changed` rejeitam toda a observação;
+- `busy` / `timeout` / `device_lost` / falha de captura ou encode retornam a árvore UIA, `screenshot:null` e um `screenshot_error` fixo;
+- os bytes de imagem viram base64 exatamente uma vez;
+- o resolver mapeia os cantos do state-image por `image_bounds`, e não por `window.bounds`.
 
-- [ ] **Step 2: Run and verify RED**
+- [ ] **Step 2: Executar e verificar RED**
 
 ```powershell
 pnpm exec vitest run test/windows-app-state-screen-capture.test.ts test/targeting-resolver.test.ts
 ```
 
-Expected: FAIL because the callback and image bounds fields do not exist.
+Expected: FAIL porque o callback e os campos de image bounds não existem.
 
-- [ ] **Step 3: Extend raw snapshot and state contracts**
+- [ ] **Step 3: Estender os contratos de raw snapshot e de state**
 
-Add:
+Adicione:
 
 ```ts
 interface AxRawSnapshot {
@@ -425,15 +425,15 @@ interface AppState {
 }
 ```
 
-`ingestCaptureAppResult` validates `screenshot_bounds` with `asBounds` only when a nonblank decodable image exists. `resolveStateImageCoordinate` uses:
+`ingestCaptureAppResult` valida `screenshot_bounds` com `asBounds` somente quando existe uma imagem não vazia e decodificável. `resolveStateImageCoordinate` usa:
 
 ```ts
 const [wx, wy, ww, wh] = state.image_bounds ?? state.window.bounds;
 ```
 
-- [ ] **Step 4: Make the Windows source capture path async**
+- [ ] **Step 4: Tornar assíncrono o caminho de captura do Windows source**
 
-The source captures UIA first, then invokes the injected callback using the exact snapshot identity:
+O source captura a UIA primeiro e então invoca o callback injetado usando a identidade exata do snapshot:
 
 ```ts
 captureApp: async (appRef, options) => {
@@ -457,20 +457,20 @@ captureApp: async (appRef, options) => {
 };
 ```
 
-Catch only `WindowsScreenCaptureError`. Re-throw `invalid_target` and `target_changed` as `elementUnavailable`; return fixed `screenshot_error` for transient codes. Never catch UIA errors or arbitrary programmer errors.
+Capture apenas `WindowsScreenCaptureError`. Relance `invalid_target` e `target_changed` como `elementUnavailable`; retorne um `screenshot_error` fixo para códigos transitórios. Nunca capture erros de UIA nem erros arbitrários de programação.
 
-- [ ] **Step 5: Inject the bridge and surface warnings**
+- [ ] **Step 5: Injetar o bridge e expor os avisos**
 
-`selectPlatformAxSource` creates a Windows bridge and passes `captureWindow` only when available. `axReadOnly` copies `screenshot_bounds` and `screenshot_error` into the broker response. `mapRawCaptureAppResult` adds a text block:
+`selectPlatformAxSource` cria um bridge do Windows e passa `captureWindow` apenas quando disponível. `axReadOnly` copia `screenshot_bounds` e `screenshot_error` para a resposta do broker. `mapRawCaptureAppResult` adiciona um bloco de texto:
 
 ```text
 [screenshot_error] Windows window pixels were unavailable (<fixed-code>).
 The accessibility tree is still valid; call get_app_state again before using state_image coordinates.
 ```
 
-It must not echo arbitrary native messages.
+Ele não pode ecoar mensagens nativas arbitrárias.
 
-- [ ] **Step 6: Run focused tests and typecheck**
+- [ ] **Step 6: Executar os testes focados e o typecheck**
 
 ```powershell
 pnpm exec vitest run test/windows-app-state-screen-capture.test.ts test/targeting-resolver.test.ts test/observation-tools.test.ts test/native/capture-app-window-id.test.ts
@@ -488,7 +488,7 @@ git commit -m "feat(windows): attach verified window images to app state"
 
 ---
 
-### Task 4: Preserve selected-display bounds in screenshot visual frames
+### Task 4: Preservar os Bounds do Selected-Display nos Visual Frames de Screenshot
 
 **Files:**
 
@@ -501,12 +501,12 @@ git commit -m "feat(windows): attach verified window images to app state"
 
 **Interfaces:**
 
-- Broker screenshot result becomes additive `{format,data,bounds:[x,y,w,h]}`.
-- Old Helper replies without bounds keep the current primary-display fallback.
+- O resultado de screenshot do broker se torna o additive `{format,data,bounds:[x,y,w,h]}`.
+- Respostas antigas do Helper sem bounds mantêm o fallback atual do display primário.
 
-- [ ] **Step 1: Add RED negative-origin tests**
+- [ ] **Step 1: Adicionar testes RED de origem negativa**
 
-Set display 2 to `[-1920,0,1920,1080]`, call `set_display({index:2})`, then assert backend screenshot returns that bounds. Feed the reply to the MCP screenshot handler and assert:
+Defina o display 2 como `[-1920,0,1920,1080]`, chame `set_display({index:2})` e então afirme que o screenshot do backend retorna esses bounds. Passe a resposta ao handler de screenshot do MCP e afirme:
 
 ```ts
 expect(getDefaultSession().getVisualFrame()).toMatchObject({
@@ -519,15 +519,15 @@ expect(visualFrameToScreen(frame, frame.agent.width - 1, frame.agent.height - 1)
 });
 ```
 
-- [ ] **Step 2: Run and observe RED**
+- [ ] **Step 2: Executar e observar RED**
 
 ```powershell
 pnpm exec vitest run test/observation-tools.test.ts test/targeting-screenshot-space.test.ts test/windows-capability-truthfulness.test.ts
 ```
 
-Expected: backend/client discard bounds and handler records origin `(0,0)`.
+Expected: o backend/client descarta os bounds e o handler registra a origem `(0,0)`.
 
-- [ ] **Step 3: Carry additive bounds end to end**
+- [ ] **Step 3: Carregar os bounds additive ponta a ponta**
 
 Backend:
 
@@ -541,16 +541,16 @@ return {
 };
 ```
 
-Client validates finite positive bounds when present and preserves them. Handler uses bounds width/height as `pointer` and x/y as `origin`; only absent/invalid legacy bounds call `fetchMainDisplaySize` and use `(0,0)`.
+O client valida bounds finitos e positivos quando presentes e os preserva. O handler usa width/height dos bounds como `pointer` e x/y como `origin`; somente bounds legados ausentes/inválidos chamam `fetchMainDisplaySize` e usam `(0,0)`.
 
-- [ ] **Step 4: Run focused tests and typecheck**
+- [ ] **Step 4: Executar os testes focados e o typecheck**
 
 ```powershell
 pnpm exec vitest run test/observation-tools.test.ts test/targeting-screenshot-space.test.ts test/windows-capability-truthfulness.test.ts
 pnpm typecheck
 ```
 
-Expected: PASS, including legacy no-bounds reply.
+Expected: PASS, incluindo a resposta legada sem bounds.
 
 - [ ] **Step 5: Commit**
 
@@ -561,7 +561,7 @@ git commit -m "fix(cua): preserve selected display screenshot origin"
 
 ---
 
-### Task 5: Implement native WGC single-frame capture
+### Task 5: Implementar a Captura Nativa WGC de Quadro Único
 
 **Files:**
 
@@ -574,12 +574,12 @@ git commit -m "fix(cua): preserve selected display screenshot origin"
 
 **Interfaces:**
 
-- Header exports `IsScreenCaptureSupportedNow`, the three N-API callbacks, and `BeginScreenCaptureShutdown`.
-- Native worker always resolves a structured outcome; invalid input never crashes or leaks raw errors.
+- O header exporta `IsScreenCaptureSupportedNow`, os três callbacks N-API e `BeginScreenCaptureShutdown`.
+- O worker nativo sempre resolve um outcome estruturado; entrada inválida nunca provoca crash nem vaza erros brutos.
 
-- [ ] **Step 1: Write RED native source/ABI tests**
+- [ ] **Step 1: Escrever testes RED de source/ABI nativos**
 
-Read the new source/header/binding as UTF-8 and pin:
+Leia o novo source/header/binding como UTF-8 e fixe:
 
 ```ts
 expect(binding).toContain('"src/native/screen_capture_win.cc"');
@@ -599,19 +599,19 @@ expect(source).not.toContain("BitBlt");
 expect(source).not.toContain("PrintWindow");
 ```
 
-Compiled checks require the three functions and verify invalid bounds/HWND resolve `{ok:false}` without throwing.
+As verificações compiladas exigem as três funções e verificam que bounds/HWND inválidos resolvem `{ok:false}` sem lançar.
 
-- [ ] **Step 2: Run source tests and observe RED**
+- [ ] **Step 2: Executar os testes de source e observar RED**
 
 ```powershell
 pnpm exec vitest run test/native/windows-wgc-screen-capture.test.ts test/native/windows-capability-truthfulness.test.ts
 ```
 
-Expected: FAIL because the native module and exports do not exist.
+Expected: FAIL porque o módulo nativo e os exports não existem.
 
-- [ ] **Step 3: Add build inputs**
+- [ ] **Step 3: Adicionar as entradas de build**
 
-Windows `binding.gyp`:
+`binding.gyp` do Windows:
 
 ```text
 sources += src/native/screen_capture_win.cc
@@ -619,18 +619,18 @@ libraries += d3d11.lib, dxgi.lib, runtimeobject.lib, windowscodecs.lib, WindowsA
 VCCLCompilerTool.ExceptionHandling = 1
 ```
 
-Keep `NAPI_DISABLE_CPP_EXCEPTIONS`, `/utf-8`, C++17 and all existing libraries. `/EHsc` is required only so C++/WinRT exceptions can be caught inside the worker.
+Mantenha `NAPI_DISABLE_CPP_EXCEPTIONS`, `/utf-8`, C++17 e todas as libraries existentes. `/EHsc` é necessário apenas para que as exceções de C++/WinRT possam ser capturadas dentro do worker.
 
-- [ ] **Step 4: Implement target validation and support probe**
+- [ ] **Step 4: Implementar a validação de target e a sondagem de suporte**
 
-`IsScreenCaptureSupportedNow` must require:
+`IsScreenCaptureSupportedNow` deve exigir:
 
-- interactive input desktop named `default`;
-- foreground process not `LockApp.exe`, `LogonUI.exe` or `winlogon.exe`;
+- input desktop interativo chamado `default`;
+- processo em primeiro plano diferente de `LockApp.exe`, `LogonUI.exe` ou `winlogon.exe`;
 - `GraphicsCaptureSession::IsSupported()`;
-- activation factory query for `IGraphicsCaptureItemInterop`.
+- consulta à activation factory de `IGraphicsCaptureItemInterop`.
 
-Monitor resolution enumerates displays and requires exact `RECT` equality. Window validation runs before and after capture and returns only:
+A resolução do monitor enumera os displays e exige igualdade exata de `RECT`. A validação de janela roda antes e depois da captura e retorna apenas:
 
 ```cpp
 struct VerifiedWindow {
@@ -641,11 +641,11 @@ struct VerifiedWindow {
 };
 ```
 
-It rejects self PID, elevated PID, invalid/minimized/zero-area window and expected identity/bounds mismatch.
+Ela rejeita o próprio PID, PID elevado, janela inválida/minimizada/de área zero e divergência de identidade/bounds esperada.
 
-- [ ] **Step 5: Implement the D3D/WGC frame path**
+- [ ] **Step 5: Implementar o caminho de quadro D3D/WGC**
 
-Exact lifecycle:
+Ciclo de vida exato:
 
 ```text
 CoInitializeEx(COINIT_MULTITHREADED)
@@ -667,17 +667,17 @@ post-validate target
 CoUninitialize when owned
 ```
 
-All cleanup uses RAII. Check the terminal shutdown flag before session creation and after frame receipt.
+Toda a limpeza usa RAII. Verificar a flag de shutdown terminal antes de criar a session e após receber o quadro.
 
-- [ ] **Step 6: Implement worker/outcome/export glue**
+- [ ] **Step 6: Implementar o glue de worker/outcome/export**
 
-`ScreenCaptureWorker` owns copied primitives only; no N-API values are read in `Execute`. `OnOK` creates either:
+`ScreenCaptureWorker` possui apenas primitivas copiadas; nenhum valor N-API é lido em `Execute`. `OnOK` cria um destes:
 
 ```cpp
 { ok: true, format: "png", data: Buffer, width, height, bounds }
 ```
 
-or:
+ou:
 
 ```cpp
 { ok: false, error: "<fixed code>" }
@@ -694,18 +694,18 @@ exports.Set("captureWindowPngVerifiedAsync",
             Napi::Function::New(env, CaptureWindowPngVerifiedAsync));
 ```
 
-`ScreenCaptureStatus` returns granted only when `IsScreenCaptureSupportedNow()`; `CancelPendingInputHolds` also calls `BeginScreenCaptureShutdown()`.
+`ScreenCaptureStatus` retorna granted apenas quando `IsScreenCaptureSupportedNow()`; `CancelPendingInputHolds` também chama `BeginScreenCaptureShutdown()`.
 
-- [ ] **Step 7: Rebuild and run compiled tests**
+- [ ] **Step 7: Rebuild e execução dos testes compilados**
 
 ```powershell
 pnpm rebuild:native
 pnpm exec vitest run test/native/windows-wgc-screen-capture.test.ts test/native/windows-capability-truthfulness.test.ts
 ```
 
-Expected: node-gyp exit 0; compiled export and invalid-target tests PASS.
+Expected: node-gyp exit 0; os testes de export compilado e de target inválido PASSam.
 
-- [ ] **Step 8: Run all focused visual tests**
+- [ ] **Step 8: Executar todos os testes visuais focados**
 
 ```powershell
 pnpm exec vitest run test/windows-native-screen-capture-adapter.test.ts test/windows-app-state-screen-capture.test.ts test/windows-capability-truthfulness.test.ts test/observation-tools.test.ts test/targeting-resolver.test.ts test/targeting-screenshot-space.test.ts test/native/windows-wgc-screen-capture.test.ts test/native/windows-capability-truthfulness.test.ts
@@ -723,7 +723,7 @@ git commit -m "feat(windows): implement WGC visual capture"
 
 ---
 
-### Task 6: Add an autonomous opt-in live acceptance
+### Task 6: Adicionar uma Aceitação Live Autônoma com Opt-In
 
 **Files:**
 
@@ -734,29 +734,29 @@ git commit -m "feat(windows): implement WGC visual capture"
 
 **Interfaces:**
 
-- Env gate: `ZCODE_CUA_WINDOWS_SCREEN_CAPTURE_LIVE=1`.
-- Fixture writes only PID/HWND/bounds to a caller-created private temp file and exits on a private close signal.
-- Smoke controls only its two fixture processes.
+- Gate de ambiente: `ZCODE_CUA_WINDOWS_SCREEN_CAPTURE_LIVE=1`.
+- O fixture grava apenas PID/HWND/bounds em um arquivo temporário privado criado pelo chamador e sai mediante um sinal privado de fechamento.
+- O smoke controla apenas os seus dois processos de fixture.
 
-- [ ] **Step 1: Write RED guard tests**
+- [ ] **Step 1: Escrever testes RED de guard**
 
-Spawn the smoke without opt-in and assert exit code 2, no Helper/fixture marker, and message naming only the opt-in variable. Add a test-only preflight override to simulate lockscreen and assert it exits before spawning anything.
+Execute o smoke sem opt-in e afirme que o código de saída é 2, que não há marcador de Helper/fixture e que a mensagem nomeia apenas a variável de opt-in. Adicione um override de preflight somente para testes que simule a tela de bloqueio e afirme que ele sai antes de gerar qualquer processo.
 
-- [ ] **Step 2: Run and observe RED**
+- [ ] **Step 2: Executar e observar RED**
 
 ```powershell
 pnpm exec vitest run test/windows-screen-capture-live-smoke.test.ts
 ```
 
-Expected: FAIL because the smoke does not exist.
+Expected: FAIL porque o smoke não existe.
 
-- [ ] **Step 3: Implement the WPF fixture**
+- [ ] **Step 3: Implementar o fixture WPF**
 
-The target mode renders a deterministic green/magenta checkerboard plus one safe button; occluder mode renders opaque blue. Both use caller-provided geometry and title-independent private handshake files. Do not read clipboard, user windows or user documents.
+O modo target renderiza um checkerboard determinístico verde/magenta mais um botão seguro; o modo occluder renderiza azul opaco. Ambos usam a geometria fornecida pelo chamador e arquivos privados de handshake independentes de título. Não ler a área de transferência, janelas do usuário ou documentos do usuário.
 
-- [ ] **Step 4: Implement live preflight and cleanup**
+- [ ] **Step 4: Implementar o preflight live e a limpeza**
 
-Before any spawn:
+Antes de qualquer spawn:
 
 ```text
 win32
@@ -768,25 +768,25 @@ AND foreground pid exists
 AND foreground exe not LockApp/LogonUI/winlogon
 ```
 
-Use random temp paths and a random broker token. In `finally`, signal and terminate only the fixture/helper PIDs created by this run, remove private temp files, and verify the Helper PID is gone.
+Use caminhos temporários aleatórios e um token de broker aleatório. No `finally`, sinalize e encerre apenas os PIDs de fixture/helper criados por esta execução, remova os arquivos temporários privados e verifique que o PID do Helper desapareceu.
 
-- [ ] **Step 5: Implement acceptance sequence**
+- [ ] **Step 5: Implementar a sequência de aceitação**
 
-The smoke must automatically prove:
+O smoke deve provar automaticamente:
 
-1. `broker_info.capabilities.screen === true` and `screenshot === true`;
-2. selected monitor screenshot is a valid nonblank PNG with matching bounds;
-3. target fixture direct HWND capture is valid;
-4. opaque occluder fully covers the target by geometry;
-5. occluded target capture remains perceptually equivalent to the unoccluded target and distinct from occluder;
-6. `capture_app(include_screenshot=true)` returns image/bounds;
-7. official MCP `get_app_state` 返回 `state_id` 后，`left_click(space:"state_image")` 的安全按钮点击只改变 fixture-owned state；
-8. minimized target returns fixed failure;
-9. Helper and fixtures exit cleanly.
+1. `broker_info.capabilities.screen === true` e `screenshot === true`;
+2. o screenshot do monitor selecionado é um PNG válido e não vazio, com bounds correspondentes;
+3. a captura direta por HWND do fixture target é válida;
+4. o occluder opaco cobre completamente o target por geometria;
+5. a captura do target ocluído permanece perceptivelmente equivalente ao target não ocluído e distinta do occluder;
+6. `capture_app(include_screenshot=true)` retorna imagem/bounds;
+7. depois que o `get_app_state` oficial do MCP retorna `state_id`, o clique em `left_click(space:"state_image")` no botão seguro altera somente o state pertencente ao fixture;
+8. um target minimizado retorna falha fixa;
+9. o Helper e os fixtures saem de forma limpa.
 
-Only booleans, dimensions, fixed result codes and process-exit facts may be printed.
+Apenas booleanos, dimensões, códigos de resultado fixos e fatos de saída de processos podem ser impressos.
 
-- [ ] **Step 6: Add package command and run guard test**
+- [ ] **Step 6: Adicionar o comando de package e rodar o teste de guard**
 
 ```json
 "smoke:windows:screen-capture": "node scripts/windows-screen-capture-live-smoke.mjs"
@@ -798,9 +798,9 @@ Run:
 pnpm exec vitest run test/windows-screen-capture-live-smoke.test.ts
 ```
 
-Expected: PASS; without opt-in no GUI process starts.
+Expected: PASS; sem opt-in nenhum processo de GUI é iniciado.
 
-- [ ] **Step 7: Attempt live smoke**
+- [ ] **Step 7: Tentar o live smoke**
 
 ```powershell
 $env:ZCODE_CUA_WINDOWS_SCREEN_CAPTURE_LIVE='1'
@@ -808,7 +808,7 @@ pnpm smoke:windows:screen-capture
 Remove-Item Env:ZCODE_CUA_WINDOWS_SCREEN_CAPTURE_LIVE
 ```
 
-Expected on ordinary unlocked desktop: exit 0 and every fixed acceptance boolean true. On LockApp/noninteractive desktop: exit 2 before Helper/fixture startup; record as environment-blocked, not passed.
+Expected em um desktop comum já desbloqueado: exit 0 e todos os booleanos fixos de aceitação verdadeiros. Em LockApp/desktop não interativo: exit 2 antes do início do Helper/fixture; registrar como bloqueado pelo ambiente, e não como aprovado.
 
 - [ ] **Step 8: Commit**
 
@@ -819,7 +819,7 @@ git commit -m "test(windows): add WGC live acceptance"
 
 ---
 
-### Task 7: Update source-development facts and generated artifacts
+### Task 7: Atualizar os Fatos de Desenvolvimento de Origem e os Artefatos Gerados
 
 **Files:**
 
@@ -827,36 +827,36 @@ git commit -m "test(windows): add WGC live acceptance"
 - Modify: `C:\Users\dev\z-code\docs\cua\windows-source-development.md`
 - Regenerate: `C:\Users\dev\zcode-cua\dist\**`
 
-- [ ] **Step 1: Update platform facts**
+- [ ] **Step 1: Atualizar os fatos de plataforma**
 
-Document implemented WGC monitor/window/app-state paths, default system border, SDR/HDR limitation, minimized fail-closed, native ABI, opt-in command and source-only status. Explicitly retain remote/mobile/packaging as out of scope.
+Documentar os caminhos implementados de monitor/janela/app-state via WGC, a borda padrão do sistema, a limitação SDR/HDR, o fail-closed para janelas minimizadas, a ABI nativa, o comando com opt-in e o status apenas-de-origem. Reter explicitamente remoto/mobile/packaging como fora de escopo.
 
-- [ ] **Step 2: Build generated artifacts**
+- [ ] **Step 2: Construir os artefatos gerados**
 
 ```powershell
 pnpm build
 ```
 
-Expected: exit 0; `dist/windows-helper.js` contains the new TypeScript path while native source remains in package files.
+Expected: exit 0; `dist/windows-helper.js` contém o novo caminho TypeScript enquanto o source nativo permanece nos arquivos do package.
 
-- [ ] **Step 3: Verify docs contain no stale “WGC unimplemented” claim**
+- [ ] **Step 3: Verificar que os docs não contêm afirmações obsoletas de "WGC não implementado"**
 
 ```powershell
 rg -n "WGC|screen capture|screenshot|截图|未实现|pending" docs README.md
 ```
 
-Expected: remaining pending claims refer only to packaging/HDR/border or other explicit non-goals.
+Expected: as afirmações pending restantes referem-se apenas a packaging/HDR/borda ou a outros non-goals explícitos.
 
-- [ ] **Step 4: Commit each repository**
+- [ ] **Step 4: Commitar em cada repositório**
 
-In `zcode-cua`:
+Em `zcode-cua`:
 
 ```powershell
 git add -- docs/platforms.md dist
 git commit -m "docs(windows): record WGC visual support"
 ```
 
-In `z-code`:
+Em `z-code`:
 
 ```powershell
 git add -- docs/cua/windows-source-development.md
@@ -865,13 +865,13 @@ git commit -m "docs(cua): record Windows WGC source flow"
 
 ---
 
-### Task 8: Run the complete verification and completion audit
+### Task 8: Executar a Verificação Completa e a Auditoria de Conclusão
 
 **Files:**
 
-- No planned source edits. Any failure follows `superpowers:systematic-debugging`; do not patch by guess.
+- Sem edições de source planejadas. Qualquer falha segue `superpowers:systematic-debugging`; não corrigir por suposição.
 
-- [x] **Step 1: Run zcode-cua focused verification**
+- [x] **Step 1: Executar a verificação focada do zcode-cua**
 
 ```powershell
 pnpm exec vitest run test/windows-native-screen-capture-adapter.test.ts test/windows-app-state-screen-capture.test.ts test/windows-capability-truthfulness.test.ts test/observation-tools.test.ts test/targeting-resolver.test.ts test/targeting-screenshot-space.test.ts test/native/windows-wgc-screen-capture.test.ts test/native/windows-capability-truthfulness.test.ts test/windows-screen-capture-live-smoke.test.ts
@@ -883,7 +883,7 @@ pnpm lint
 
 Expected: every command exit 0.
 
-- [x] **Step 2: Run zcode-cua full suite**
+- [x] **Step 2: Executar a suíte completa do zcode-cua**
 
 ```powershell
 pnpm test
@@ -891,9 +891,9 @@ pnpm test
 
 Expected: exit 0; platform/live skips are explicit.
 
-- [x] **Step 3: Run ZCode integration gates**
+- [x] **Step 3: Executar os portões de integração do ZCode**
 
-Use the existing source-helper environment and execute:
+Use o ambiente de source-helper existente e execute:
 
 ```powershell
 pnpm exec vitest run packages/services/test/cuaPermissionBroker.server.win32.test.ts packages/services/test/cuaPermissionBrokerNodeHelper.test.ts packages/services/test/cuaPermissionBroker.platformAxSource.test.ts packages/services/test/cuaPermissionBroker.electronBackend.test.ts
@@ -905,9 +905,9 @@ pnpm test:unit:affected
 
 Expected: focused/plugin/typecheck/lint exit 0. Record `test:unit:affected` exact failures; only previously evidenced non-CUA baseline may remain.
 
-- [x] **Step 4: Retry all autonomous live acceptances**
+- [x] **Step 4: Repetir todas as aceitações live autônomas**
 
-On an ordinary unlocked desktop:
+Em um desktop comum já desbloqueado:
 
 ```powershell
 $env:ZCODE_CUA_WINDOWS_SCREEN_CAPTURE_LIVE='1'
@@ -918,11 +918,11 @@ pnpm smoke:windows:pointer
 pnpm smoke:windows:clipboard
 ```
 
-Remove all three environment variables in `finally`. Expected: exit 0; clipboard restores original text; pointer and visual tests mutate only spawned fixtures; no Helper orphan.
+Remova as três variáveis de ambiente no `finally`. Esperado: exit 0; a área de transferência restaura o texto original; os testes de ponteiro e visual mutam apenas fixtures gerados; nenhum Helper órfão.
 
-- [x] **Step 5: Audit the actual Windows 30-tool surface**
+- [x] **Step 5: Auditar a surface real de 30 tools do Windows**
 
-For every broker capability/tool family, collect current evidence:
+Para cada família de capability/tool do broker, coletar a evidência atual:
 
 ```text
 observation: list_apps, list_windows, get_app_state, screenshot, zoom,
@@ -933,22 +933,17 @@ elements:    press, focus, set_value, select_text, perform_action
 system:      clipboard read/write, open_application, access/readiness
 ```
 
-Mark each as proved, contradicted, missing or only indirectly covered. Do not mark the goal complete while any required Windows local operation lacks source, automated test and ordinary-desktop runtime evidence.
+Marcar cada uma como provada, contradita, ausente ou apenas coberta indiretamente. Não marcar o objetivo como concluído enquanto qualquer operação local exigida do Windows não tiver source, teste automatizado e evidência de runtime em desktop comum.
 
-- [x] **Step 6: Final status**
+- [x] **Step 6: Status final**
 
-If all requirements and live evidence pass, update the persistent goal to complete. If only the desktop is locked, leave the goal active and report the exact pending live acceptance without redefining implementation completion.
+Se todos os requisitos e as evidências live passarem, atualizar o objetivo persistente para concluído. Se apenas o desktop estiver bloqueado, deixar o objetivo ativo e reportar a aceitação live pendente exata, sem redefinir a conclusão da implementação.
 
 ---
 
-### Task 9: Close the Windows 30-tool runtime-evidence gaps
+### Task 9: Fechar as Lacunas de Evidência de Runtime das 30 Tools do Windows
 
-The Task 8 audit found that every public tool has source and automated coverage,
-but several local Windows operations still have only indirect ordinary-desktop
-evidence. Add one opt-in acceptance that exercises the official MCP handlers
-against a fixture-owned WPF window; reuse the dedicated visual, pointer and
-clipboard smokes as independent evidence instead of controlling user apps or
-files.
+A auditoria da Task 8 verificou que toda tool pública tem source e cobertura automatizada, mas várias operações locais do Windows ainda têm apenas evidência indireta em desktop comum. Adicionar uma aceitação com opt-in que exercita os handlers oficiais do MCP contra uma janela WPF pertencente ao fixture; reutilizar os smokes dedicados de visual, ponteiro e área de transferência como evidência independente, em vez de controlar apps ou arquivos do usuário.
 
 **Files:**
 
@@ -959,7 +954,7 @@ files.
 - Modify: `C:\Users\dev\zcode-cua\docs\platforms.md`
 - Modify: `C:\Users\dev\z-code\docs\cua\windows-source-development.md`
 
-**State and event chain:**
+**Cadeia de estado e eventos:**
 
 ```text
 opt-in parent
@@ -981,58 +976,42 @@ opt-in parent
                     `--> fixture event/state change -> bounded verification
 ```
 
-The smoke must keep the desktop-local boundary: no SSH, WSL, Docker, remote
-workspace, phone `/remote`, user documents, or uncontrolled process cleanup.
-It may move the pointer only inside its own window, must restore the original
-cursor and clipboard text, release any held input in `finally`, close only
-children it spawned, and print only booleans/counts/fixed status codes.
+O smoke deve manter a fronteira local do desktop: sem SSH, WSL, Docker, remote workspace, `/remote` do celular, documentos do usuário ou limpeza de processos não controlados. Ele pode mover o ponteiro apenas dentro da própria janela, deve restaurar o cursor e o texto da área de transferência originais, liberar qualquer input retido no `finally`, fechar apenas os filhos que gerou e imprimir somente booleanos/contagens/códigos de status fixos.
 
-- [x] **Step 1: Write RED guard tests**
+- [x] **Step 1: Escrever testes RED de guard**
 
-Lock:
+Travar:
 
-- explicit `ZCODE_CUA_WINDOWS_TOOL_SURFACE_LIVE=1` before any child spawn;
-- simulated locked-desktop exit `2` before any child spawn;
-- fixed total/per-operation deadlines;
-- private fixture paths and owned-child cleanup;
-- all 30 canonical tool names are accounted for by direct invocation or an
-  explicitly named companion live smoke;
-- clipboard and cursor restoration are mandatory success fields.
+- `ZCODE_CUA_WINDOWS_TOOL_SURFACE_LIVE=1` explícito antes de qualquer spawn de filho;
+- saída `2` para desktop bloqueado simulado antes de qualquer spawn de filho;
+- deadlines fixos de total e por operação;
+- caminhos privados do fixture e limpeza de filhos pertencentes à execução;
+- todos os 30 nomes canônicos de tools são cobertos por invocação direta ou por um smoke live companheiro explicitamente nomeado;
+- restauração da área de transferência e do cursor são campos obrigatórios de sucesso.
 
-- [x] **Step 2: Implement the WPF fixture**
+- [x] **Step 2: Implementar o fixture WPF**
 
-Expose deterministic UIA names and bounds for:
+Expor nomes e bounds de UIA determinísticos para:
 
-- an editable text box whose value and selection are written to private state;
-- an invoke-capable button whose semantic and raw click effects are counted;
-- a pointer pad that records move, left/right/middle down/up, click count,
-  wheel delta and drag distance;
-- preview key down/up counters.
+- uma text box editável cujo valor e seleção são escritos no state privado;
+- um botão invocável cujos efeitos semântico e bruto de clique são contados;
+- um pad de ponteiro que registra move, down/up esquerdo/direito/central, contagem de cliques, delta da roda e distância de arrasto;
+- contadores de preview de key down/up.
 
-The fixture must use PMv2 DPI awareness before creating its first HWND and
-write physical PID/HWND/bounds in its private handshake.
+O fixture precisa usar DPI awareness PMv2 antes de criar o primeiro HWND e gravar PID/HWND/bounds físicos no seu handshake privado.
 
-- [x] **Step 3: Implement the official MCP acceptance**
+- [x] **Step 3: Implementar a aceitação oficial do MCP**
 
-Call every previously indirect public operation through `buildServer`:
+Chamar toda operação pública antes apenas indireta através de `buildServer`:
 
-- observation: `list_apps`, PID-form `open_application`, `list_windows`,
-  `get_app_state`, `screenshot`, `zoom`, `list_displays`, `switch_display`,
-  `cursor_position`;
-- pointer: all five click profiles, non-zero `scroll`, `left_click_drag`,
-  `mouse_move`, `left_mouse_down`, `left_mouse_up`;
-- keyboard/semantic: `type`, `set_value`, `select_text`, `key`, `hold_key`,
-  `perform_action`;
-- runtime: `request_access`, bounded `wait`, `stop_computer_control`.
+- observation: `list_apps`, `open_application` em forma de PID, `list_windows`, `get_app_state`, `screenshot`, `zoom`, `list_displays`, `switch_display`, `cursor_position`;
+- pointer: todos os cinco perfis de clique, `scroll` não zero, `left_click_drag`, `mouse_move`, `left_mouse_down`, `left_mouse_up`;
+- keyboard/semântico: `type`, `set_value`, `select_text`, `key`, `hold_key`, `perform_action`;
+- runtime: `request_access`, `wait` limitado, `stop_computer_control`.
 
-The dedicated clipboard smoke remains authoritative for
-`read_clipboard`/`write_clipboard`, and the dedicated visual smoke remains the
-authoritative `state_image`/WGC/minimized-window proof. The new smoke records
-those companion commands as required evidence and fails if its own official
-MCP invocation set plus the two companion tool names do not equal the canonical
-30-tool manifest.
+O smoke dedicado de área de transferência continua sendo a autoridade para `read_clipboard`/`write_clipboard`, e o smoke dedicado de visual continua sendo a prova autoritativa de `state_image`/WGC/janela minimizada. O novo smoke registra esses comandos companheiros como evidência obrigatória e falha se o seu próprio conjunto de invocações oficiais do MCP mais os dois nomes companheiros não for igual ao manifesto canônico de 30 tools.
 
-- [x] **Step 4: Run live acceptance and companion smokes**
+- [x] **Step 4: Executar a aceitação live e os smokes companheiros**
 
 ```powershell
 $env:ZCODE_CUA_WINDOWS_TOOL_SURFACE_LIVE='1'
@@ -1040,36 +1019,18 @@ pnpm smoke:windows:tool-surface
 Remove-Item Env:ZCODE_CUA_WINDOWS_TOOL_SURFACE_LIVE
 ```
 
-Then rerun screen capture, pointer and clipboard live smokes with their existing
-opt-ins. Expected: every boolean true; clipboard/cursor restored; no Helper or
-fixture orphan.
+Depois reexecutar os smokes live de screen capture, pointer e clipboard com seus opt-ins existentes. Esperado: todos os booleanos verdadeiros; área de transferência/cursor restaurados; nenhum Helper ou fixture órfão.
 
-- [x] **Step 5: Update the evidence matrix and commit**
+- [x] **Step 5: Atualizar a matriz de evidências e commitar**
 
-Record one row per canonical tool with source, automated and ordinary-desktop
-runtime evidence. Do not replace explicit missing evidence with group-level
-claims. Commit the acceptance and documentation before rerunning Task 8's full
-repository gates.
+Registrar uma linha por tool canônica com evidência de source, automatizada e de runtime em desktop comum. Não substituir evidência ausente explícita por afirmações em nível de grupo. Commitar a aceitação e a documentação antes de reexecutar os portões completos de repositório da Task 8.
 
-**Completion evidence (2026-07-29):**
+**Evidência de conclusão (2026-07-29):**
 
-- source native rebuild/build/typecheck/lint all exited `0`; focused Windows
-  verification was 16 files / 158 tests, and the full suite was 122 passed /
-  6 skipped files with 2105 passed / 67 skipped / 18 todo tests;
-- screen capture acceptance passed three consecutive post-fix runs, including
-  selected-display bounds, occluded WGC pixels, `state_image` event input,
-  minimized-window fail-closed, cursor restoration and clean child exit;
-- pointer, text-only clipboard and 30-tool surface acceptances all exited `0`;
-  clipboard text and cursor were restored, and no owned Helper/fixture remained;
-- ZCode focused integration was 4 files / 175 passed / 1 skipped; the official
-  plugin package's 6 tests, root typecheck and lint all exited `0`;
-- `pnpm test:unit:affected` remained a documented non-CUA repository baseline:
-  13 failed files / 20 failed tests, 940 passed files / 8132 passed tests.
-  None of the failing files were CUA source or CUA tests.
+- o rebuild/build/typecheck/lint do source nativo saíram todos com `0`; a verificação focada do Windows foi de 16 arquivos / 158 testes, e a suíte completa foi de 122 arquivos passed / 6 skipped com 2105 testes passed / 67 skipped / 18 todo;
+- a aceitação de screen capture passou em três execuções consecutivas após a correção, incluindo bounds de selected-display, pixels WGC ocluídos, entrada de evento `state_image`, fail-closed de janela minimizada, restauração do cursor e saída limpa dos filhos;
+- as aceitações de ponteiro, área de transferência somente-texto e da surface de 30 tools saíram todas com `0`; o texto da área de transferência e o cursor foram restaurados, e nenhum Helper/fixture pertencente à execução permaneceu;
+- a integração focada do ZCode foi de 4 arquivos / 175 passed / 1 skipped; os 6 testes do package oficial do plugin, o typecheck da raiz e o lint saíram todos com `0`;
+- `pnpm test:unit:affected` permaneceu como uma baseline de repositório não-CUA documentada: 13 arquivos failed / 20 testes failed, 940 arquivos passed / 8132 testes passed. Nenhum dos arquivos que falharam era source de CUA nem teste de CUA.
 
-Both PowerShell fixtures must retain a UTF-8 BOM. Windows PowerShell 5.1 otherwise
-decodes UTF-8-without-BOM Chinese comments through the legacy ANSI code page;
-with LF input, a multibyte tail can swallow the following newline and turn the
-next statement into part of the comment. Dispatcher callbacks also use explicit
-script-scope HWND/window/timer state because StrictMode event delegates do not
-provide a reliable local-variable closure boundary.
+Ambos os fixtures PowerShell devem manter um BOM UTF-8. O Windows PowerShell 5.1, do contrário, decodifica comentários chineses em UTF-8 sem BOM pela code page ANSI legada; com entrada em LF, uma cauda multibyte pode engolir a quebra de linha seguinte e transformar a próxima instrução em parte do comentário. Callbacks do dispatcher também usam estado explícito de HWND/window/timer no escopo do script, porque delegates de evento em StrictMode não fornecem um limite de closure de variável local confiável.

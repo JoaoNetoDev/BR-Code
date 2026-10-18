@@ -26,7 +26,7 @@ celular, o que não significa que delivery ou identidade de workspace possam ser
                 ModelFactory 精确校验
 ```
 
-| 状态 | Owner único | O que esta rodada explicitamente não faz |
+| Status | Owner único | O que esta rodada explicitamente não faz |
 | --- | --- | --- |
 | Seleção persistida original | Armazenamento original da Session, tarefa ou profile | Não grava vazio na consulta/atualização; não cria nova seleção de binding de Bot |
 | current/direitos/modelos dinâmicos da conta | O mesmo resultado do Account Source do Host | Não grava current na configuração do Provider; não amplia para Provider comum/Off-Peak |

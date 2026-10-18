@@ -1,99 +1,99 @@
-# Subagent Provider Registry Cold Start Fix Implementation Plan
+# Plano de Implementação da Correção de Cold Start do Subagent Provider Registry
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para trabalhadores agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 修复 desktop local 和 remote workspace 中，subagent profile 绑定未被主会话使用过的 provider 时，CLI child runtime 找不到 provider config 的问题。
+**Objetivo:** Corrigir, no desktop local e no remote workspace, o problema em que o CLI child runtime não encontra o provider config quando o subagent profile está vinculado a um provider que nunca foi usado pela sessão principal.
 
-**Architecture:** 修复语义是“任何会执行 subagent 的 agent runtime，在 turn 前必须拥有完整 app provider registry”。实现上分两条链路：local desktop 由 `zcodeAgentService` 在 service 内部把 `providerRegistrySource` 的完整 registry 注入当前 CLI workspace；remote workspace 保持现有 `remoteWorkspaceProviderSync` 专用链路，不把 local 行为混进 remote replayable 语义。subagent 不负责 provider 注入，继续复用父 runtime 的 `modelAdapter`。
+**Arquitetura:** A semântica da correção é que "qualquer agent runtime que vá executar um subagent precisa ter o app provider registry completo antes do turno". A implementação é dividida em duas cadeias: no desktop local, o `zcodeAgentService` injeta dentro do service o registry completo do `providerRegistrySource` no workspace CLI atual; no remote workspace, mantém-se a cadeia dedicada existente `remoteWorkspaceProviderSync`, sem misturar o comportamento local à semântica replayable remoto. O subagent não é responsável pela injeção de provider e continua reutilizando o `modelAdapter` do runtime pai.
 
-**Tech Stack:** TypeScript, `@zcode/protocol`, ZCode Services, React/UI remote sync guard tests, Vitest, ZCode Desktop WDIO E2E.
+**Stack técnico:** TypeScript, `@zcode/protocol`, ZCode Services, React/testes de guard de sync da UI remote, Vitest, ZCode Desktop WDIO E2E.
 
-## Global Constraints
+## Restrições Globais
 
-- 新增、修改功能一定要留 `spec` 或 plan 到 `docs`；本文件就是本 bugfix 的执行计划。
-- 修复 bug 时要留下中文注释，说明出问题原因和为什么这么修。
-- process / services 相关逻辑必须同时保证桌面端本地流程与手机端远程控制链路不受影响。
-- 远程控制链路必须保持 desktop `continuous` 与 web remote `replayable` 的边界；本修复不改变 stream/snapshot/queue 恢复语义。
-- `workspaceIdentity` / `workspacePath` 禁止混用；身份隔离 key 使用 `workspaceKey = workspaceIdentity?.trim() || workspacePath`。
-- 不修改 `Agent` tool schema，不把 provider config 放进 provider-visible tool input、child prompt 或 tool result。
-- 不把 workspace provider registry sync 放进 runtime headers 热路径。
-- 不重构 `packages/ui/src/lib/remoteWorkspaceProviderSync.ts` 的现有 remote 语义。
-- 修改完成后执行 `pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm typecheck`、`pnpm lint`。
-- 回归 E2E 使用正式 failing case：`packages/desktop/test/e2e/conversation-session/conversation-session-subagent-provider-registry-cold-start.test.ts`。
+- Toda funcionalidade nova ou modificada precisa deixar `spec` ou plano em `docs`; este arquivo é o plano de execução deste bugfix.
+- Ao corrigir bug, deixar comentários em chinês explicando a causa do problema e por que a correção funciona assim.
+- Lógica relacionada a process / services precisa garantir ao mesmo tempo que o fluxo local do desktop e a cadeia de controle remoto do celular não são afetados.
+- A cadeia de controle remoto precisa manter o limite entre desktop `continuous` e web remote `replayable`; esta correção não muda a semântica de restauração de stream/snapshot/queue.
+- `workspaceIdentity` / `workspacePath` não podem ser misturados; a key de isolamento de identidade usa `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
+- Não modificar o schema da tool `Agent` e não colocar provider config em input de tool visível ao provider, no child prompt ou no tool result.
+- Não colocar o sync do workspace provider registry no caminho quente de headers de runtime.
+- Não refatorar a semântica remote existente de `packages/ui/src/lib/remoteWorkspaceProviderSync.ts`.
+- Após a modificação, executar `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm typecheck`, `pnpm lint`.
+- A regressão E2E usa o case falhando oficial: `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-provider-registry-cold-start.test.ts`.
 
 ---
 
-## Root Cause
+## Causa Raiz
 
-已提交的 `SR / I14` E2E 证明当前链路里：
+O E2E `SR / I14` já commitado prova que na cadeia atual:
 
-- subagent profile 已加载，`custom:e2e-deepseek-alt:deepseek-v4-pro` 也被解析成 child model ref。
-- `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` 创建 child runtime 时复用父 runtime 的 `this.modelAdapter`。
-- local cold start 时，CLI workspace catalog / model adapter 只有主会话 primary provider；alternate provider 没有被完整 app registry 注入。
-- child runtime resolve `e2e-deepseek-alt/deepseek-v4-pro` 时抛 `Model provider is not configured: e2e-deepseek-alt`。
+- o subagent profile já é carregado, e `custom:e2e-deepseek-alt:deepseek-v4-pro` também é resolvido como child model ref.
+- `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` reutiliza o `this.modelAdapter` do runtime pai ao criar o child runtime.
+- no cold start local, o workspace catalog / model adapter da CLI tem apenas o primary provider da sessão principal; o alternate provider não recebeu o registry completo do app.
+- ao resolver `e2e-deepseek-alt/deepseek-v4-pro`, o child runtime lança `Model provider is not configured: e2e-deepseek-alt`.
 
-单个 `runtimeModel` 只能覆盖当前主会话模型，不能替代完整 provider registry。subagent profile 可能引用主会话没选中过的 provider，因此必须在 workspace/modelAdapter 层注入完整 registry。
+Um único `runtimeModel` só pode cobrir o modelo atual da sessão principal e não substitui o provider registry completo. O subagent profile pode referenciar um provider que a sessão principal nunca selecionou, por isso o registry completo precisa ser injetado na camada de workspace/modelAdapter.
 
-## Decision
+## Decisão
 
-采用 **agent apply 水位线 + local service synchronizer + existing remote sync guard**：
+Adota-se **watermark de apply no agent + synchronizer do service local + guard de sync remoto existente**:
 
-1. **Agent apply boundary:** 在 `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts` 的 `workspace/updateProviderRegistry` apply 边界记录 `providerRegistryGeneratedAt`。如果 incoming registry 的 `generatedAt` 早于当前已应用 registry，就返回当前 catalog，不覆盖 provider map。
-2. **Local desktop:** 在 `packages/services/src/zcode-agent/zcodeAgentService.ts` 内新增 local provider registry synchronizer。只在 `providerRegistrySource` 存在时工作；remote attached host 没有该 source，自然不会走 local 分支。
-3. **Local create/resume/read:** 在 `createSession`、`resumeSession`、`readSession`、`readWorkspaceState` 发协议请求前，确保当前 CLI client 已应用完整 provider registry。
-4. **Local provider changes:** 扩展现有 `providerRegistrySource.onDidChangeProviderRegistry` 订阅。对 `activeClientsByWorkspaceKey` 里的本地 active workspace 先推完整 `workspace/updateProviderRegistry`，再更新已有 session 的 runtimeModel。
-5. **Remote workspace:** 保持 `syncAppGlobalStateToRemoteWorkspace` / `syncWorkspaceModelProvidersToAgent` 原状。remote subagent 场景继续由现有 remote preflight 在 prepare/create/resume/send 前下发完整 registry；因为 remote 也走同一个 agent protocol apply 边界，所以 stale registry 保护同时覆盖 remote。
+1. **Fronteira de apply do Agent:** na fronteira de apply de `workspace/updateProviderRegistry` em `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`, registrar `providerRegistryGeneratedAt`. Se o `generatedAt` do registry recebido for anterior ao registry já aplicado, devolver o catalog atual sem sobrescrever o provider map.
+2. **Desktop local:** dentro de `packages/services/src/zcode-agent/zcodeAgentService.ts`, adicionar um synchronizer local de provider registry. Ele só trabalha quando `providerRegistrySource` existe; um host remoto anexado não tem essa source e portanto não entra no ramo local.
+3. **Create/resume/read local:** em `createSession`, `resumeSession`, `readSession` e `readWorkspaceState`, antes de enviar a requisição de protocolo, garantir que o client CLI atual já aplicou o provider registry completo.
+4. **Mudanças de provider local:** estender a assinatura existente de `providerRegistrySource.onDidChangeProviderRegistry`. Para os workspaces locais ativos em `activeClientsByWorkspaceKey`, enviar primeiro o `workspace/updateProviderRegistry` completo e depois atualizar o runtimeModel das sessions existentes.
+5. **Remote workspace:** manter `syncAppGlobalStateToRemoteWorkspace` / `syncWorkspaceModelProvidersToAgent` como estão. O cenário de subagent remoto continua recebendo o registry completo pelo preflight remoto existente antes de prepare/create/resume/send; como o remote também passa pela mesma fronteira de apply do agent protocol, a proteção contra registry stale cobre o remote simultaneamente.
 
-**Review adjustment:** `ProviderRegistrySnapshot.revision` 是 `sha256:*` 内容指纹，不具备大小顺序。stale 保护不应只放在 desktop service 发送前；所有入口最终都会落到 `workspace/updateProviderRegistry`，所以临时采用 `generatedAt` 在 agent apply 边界做 best-effort 水位。local synchronizer 也用单 workspace/client drain worker 串行下发 pending registry，并忽略比当前 pending/applied `generatedAt` 更旧的快照。旧 `generatedAt` 快照不能覆盖已应用的新 registry；同毫秒、系统时间回拨、不同机器时间漂移仍属于 best-effort 限制，长期方案应升级协议 CAS/单调 source sequence。
+**Ajuste da revisão:** `ProviderRegistrySnapshot.revision` é uma impressão digital de conteúdo `sha256:*` e não tem ordem de magnitude. A proteção contra stale não deve ficar apenas antes do envio no service do desktop; como todas as entradas acabam em `workspace/updateProviderRegistry`, adota-se provisoriamente `generatedAt` como watermark best-effort na fronteira de apply do agent. O synchronizer local também usa um drain worker por workspace/client para enviar o registry pendente em série e ignora snapshots mais antigos que o `generatedAt` pendente/aplicado atual. Um snapshot com `generatedAt` antigo não pode sobrescrever um registry novo já aplicado; mesmo milissegundo, retrocesso do relógio do sistema e deriva de horário entre máquinas continuam sendo limitações best-effort, e a solução de longo prazo deve evoluir para CAS no protocolo / sequência monotônica na source.
 
-## Non-Goals
+## Não-Objetivos
 
-- 不把 `packages/ui/src/lib/remoteWorkspaceProviderSync.ts` 泛化为 local + remote 通用 helper。
-- 不在 `getClient()` 里无条件同步 registry。
-- 不在 `sendPrompt` 的 runtime headers 热路径里同步 workspace registry。
-- 不修改 CLI subagent profile 解析或 child runtime 模型选择逻辑。
-- 不在本任务里新增 Docker preset admission；修复后先跑本地 replay，Docker admission 另行处理。
+- Não generalizar `packages/ui/src/lib/remoteWorkspaceProviderSync.ts` para um helper único local + remoto.
+- Não sincronizar o registry incondicionalmente em `getClient()`.
+- Não sincronizar o workspace registry no caminho quente de headers de runtime de `sendPrompt`.
+- Não modificar a resolução de subagent profile da CLI nem a lógica de seleção de modelo do child runtime.
+- Não adicionar admission de preset Docker nesta tarefa; depois da correção, rodar primeiro o replay local, e o admission de Docker fica para depois.
 
-## File Map
+## Mapa de Arquivos
 
 - Modify: `packages/services/src/zcode-agent/zcodeAgentService.ts`
-  - 新增 service 内部 provider registry sync state 和 helper。
-  - 在 local create/resume/read/readWorkspaceState 前同步完整 registry。
-  - 在 provider registry changed event 中热推完整 registry 到 active local clients。
+  - Adicionar estado de sync do provider registry e helper dentro do service.
+  - Sincronizar o registry completo antes do create/resume/read/readWorkspaceState local.
+  - No evento de mudança do provider registry, enviar o registry completo por hot push aos clients locais ativos.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`
-  - 在 `workspace/updateProviderRegistry` 的 apply 边界用 `providerRegistryGeneratedAt` 忽略 stale snapshot。
+  - Na fronteira de apply de `workspace/updateProviderRegistry`, ignorar snapshot stale usando `providerRegistryGeneratedAt`.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts`
-  - 在 workspace model catalog record 上记录当前 registry snapshot 的 `generatedAt` 水位。
+  - Registrar no record do workspace model catalog a marca d'água `generatedAt` do snapshot de registry atual.
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
-  - 增加 agent apply 边界单测：先应用新 `generatedAt` registry，再发送旧 `generatedAt` registry，旧快照不能覆盖当前 provider catalog。
+  - Adicionar teste unitário da fronteira de apply do agent: aplicar primeiro um registry com `generatedAt` novo e depois enviar um registry com `generatedAt` antigo; o snapshot antigo não pode sobrescrever o provider catalog atual.
 - Modify: `packages/services/test/zcodeAgentService.providerRegistry.test.ts`
-  - 增加 local session/create 前同步完整 registry 的红绿单测。
-  - 增加 provider change 后 active workspace 热推 registry 的单测。
-  - 增加 provider registry sync 并发时序单测：旧 in-flight 结束后再补发新 `generatedAt` registry，已应用新 registry 后忽略旧 `generatedAt` 事件。
-  - 增加 public `updateProviderRegistry` stale 回包缓存边界单测：agent 没有应用本次入参时，service 不把该入参缓存成 remote workspace 的 provider registry。
-  - 保持 runtime headers 不触发 workspace hot-sync 的既有测试。
+  - Adicionar testes unitários vermelho/verde de sincronização do registry completo antes do create de session local.
+  - Adicionar teste unitário de hot push do registry para o workspace ativo depois de mudança de provider.
+  - Adicionar teste unitário de ordem temporal na sincronização concorrente do provider registry: depois que o old in-flight termina, reenvia o registry com `generatedAt` novo; e ignora o evento com `generatedAt` antigo depois que o registry novo foi aplicado.
+  - Adicionar teste unitário de fronteira de cache do retorno stale da `updateProviderRegistry` pública: quando o agent não aplicou a entrada desta chamada, o service não deve cachear essa entrada como provider registry do remote workspace.
+  - Manter os testes existentes de que headers de runtime não disparam hot-sync de workspace.
 - Read/Guard: `packages/ui/src/lib/remoteWorkspaceProviderSync.ts`
-  - 不改实现，只通过现有 tests 证明 remote 专用链路未被破坏。
+  - Não alterar a implementação; apenas provar pelos testes existentes que a cadeia remota dedicada não foi quebrada.
 - Read/Guard: `packages/ui/test/remoteWorkspaceProviderSync.test.ts`
-  - 跑现有 remote sync 测试。
+  - Rodar os testes existentes de sync remoto.
 - Read/Guard: `packages/ui/test/zcodeSessionPromptControl.test.ts`
-  - 跑现有 create/resume/send 前 remote preflight 顺序测试。
+  - Rodar os testes existentes de ordem do preflight create/resume/send.
 - Modify after E2E green: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-  - 仅在 E2E 通过后，把 I14 从 `failing` 改为 `covered`。
+  - Somente após o E2E passar, mudar I14 de `failing` para `covered`.
 
 ---
 
-## Phase 0: Baseline Red Evidence
+## Fase 0: Evidência Vermelha de Baseline
 
-**Files:**
+**Arquivos:**
 - Test: `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-provider-registry-cold-start.test.ts`
 - Fixture: `packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-subagent-provider-registry-cold-start.json`
 
 **Interfaces:**
-- Consumes: committed failing E2E `SR / I14`.
-- Produces: baseline artifact proving current bug is still red before implementation.
+- Consumes: E2E falhando commitado `SR / I14`.
+- Produces: artifact de baseline comprovando que o bug atual ainda está vermelho antes da implementação.
 
-- [ ] **Step 1: Validate fixture contract**
+- [ ] **Step 1: Validar o contrato do fixture**
 
 Run:
 
@@ -107,9 +107,9 @@ Expected:
 Fixture check passed.
 ```
 
-The title fixture may warn that its matcher has no E2E marker. That warning is acceptable because title generation is not this case's product assertion.
+O fixture de title pode avisar que o matcher dele não tem marcador de E2E. Esse aviso é aceitável porque a geração de title não é a asserção de produto deste case.
 
-- [ ] **Step 2: Confirm the current E2E is red**
+- [ ] **Step 2: Confirmar que o E2E atual está vermelho**
 
 Run:
 
@@ -125,27 +125,27 @@ Expected before fix: FAIL with:
 没有捕获到 alternate provider 的 child subagent 请求
 ```
 
-The failure diagnostics should list child marker candidates using `deepseek-v4-flash`, not `deepseek-v4-pro`.
+Os diagnósticos de falha devem listar candidatos de child marker usando `deepseek-v4-flash`, e não `deepseek-v4-pro`.
 
-- [ ] **Step 3: Stop if the E2E unexpectedly passes**
+- [ ] **Step 3: Parar se o E2E passar inesperadamente**
 
-If the E2E already passes before code changes, inspect recent commits and update this plan instead of applying duplicate sync logic.
+Se o E2E já passar antes de qualquer mudança de código, inspecionar os commits recentes e atualizar este plano em vez de aplicar lógica de sync duplicada.
 
 ---
 
-## Phase 1: Add Local Provider Registry Sync Tests
+## Fase 1: Adicionar Testes de Sync do Provider Registry Local
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/services/test/zcodeAgentService.providerRegistry.test.ts`
 
 **Interfaces:**
 - Consumes: `createZCodeAgentService({ providerRegistrySource })`.
 - Consumes: `zcodeProtocolMethods.workspaceUpdateProviderRegistry`.
-- Produces: tests that require full registry sync before local session/create and after local provider registry changes.
+- Produces: testes que exigem sync do registry completo antes do create de session local e depois de mudanças locais no provider registry.
 
-- [ ] **Step 1: Add test for session/create preflight**
+- [ ] **Step 1: Adicionar o teste de preflight de session/create**
 
-Add this test to `describe("createZCodeAgentService provider registry", ...)`:
+Adicionar este teste em `describe("createZCodeAgentService provider registry", ...)`:
 
 ```ts
 it("syncs the full local provider registry before session/create", async () => {
@@ -243,9 +243,9 @@ it("syncs the full local provider registry before session/create", async () => {
 });
 ```
 
-- [ ] **Step 2: Add test for provider registry change hot push**
+- [ ] **Step 2: Adicionar o teste de hot push de mudança do provider registry**
 
-Add a tiny event source in the test file:
+Adicionar uma pequena event source no arquivo de teste:
 
 ```ts
 function createProviderRegistryChangeSource(initial: ZCodeProviderRegistrySnapshot) {
@@ -269,7 +269,7 @@ function createProviderRegistryChangeSource(initial: ZCodeProviderRegistrySnapsh
 }
 ```
 
-Then add this test:
+Depois adicionar este teste:
 
 ```ts
 it("pushes changed local provider registry to active workspace clients", async () => {
@@ -369,15 +369,15 @@ it("pushes changed local provider registry to active workspace clients", async (
 });
 ```
 
-If TypeScript complains about the inline source type, type the helper as:
+Se o TypeScript reclamar do tipo da source inline, tipar o helper como:
 
 ```ts
 import type { Event } from "@zcode/rpc";
 ```
 
-and return the callback as an `Event<ModelProviderRegistryChangedEvent>` using the local event shape already exported by services. Do not weaken the production type.
+e retornar o callback como um `Event<ModelProviderRegistryChangedEvent>` usando o shape de evento local já exportado por services. Não enfraquecer o tipo de produção.
 
-- [ ] **Step 3: Verify tests fail before implementation**
+- [ ] **Step 3: Verificar que os testes falham antes da implementação**
 
 Run:
 
@@ -385,13 +385,13 @@ Run:
 pnpm exec vitest run packages/services/test/zcodeAgentService.providerRegistry.test.ts
 ```
 
-Expected before implementation: the new tests fail because `session/create` currently happens before `workspace/updateProviderRegistry`, and registry change does not hot-push full workspace registry.
+Expected before implementation: os novos testes falham porque `session/create` atualmente acontece antes de `workspace/updateProviderRegistry`, e a mudança de registry não faz hot push do workspace registry completo.
 
 ---
 
-## Phase 2: Implement Agent Apply Waterline and Local Service Synchronizer
+## Fase 2: Implementar Watermark de Apply do Agent e Synchronizer do Service Local
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-types.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`
 - Modify: `packages/services/src/zcode-agent/zcodeAgentService.ts`
@@ -399,25 +399,25 @@ Expected before implementation: the new tests fail because `session/create` curr
 **Interfaces:**
 - Consumes: `providerRegistrySource?: ZCodeProviderRegistrySource`.
 - Consumes: `ZCodeProtocolClient.request(zcodeProtocolMethods.workspaceUpdateProviderRegistry, ...)`.
-- Produces: agent-side stale snapshot guard plus private helpers that sync complete provider registry to local active CLI clients without touching remote helper code.
+- Produces: guard de snapshot stale no lado do agent mais helpers privados que sincronizam o provider registry completo para clients CLI locais ativos sem tocar no código do helper remoto.
 
-- [ ] **Step 1: Add agent-side registry generatedAt waterline**
+- [ ] **Step 1: Adicionar a marca d'água de generatedAt do registry no lado do agent**
 
-In `ZCodeProtocolWorkspaceModelCatalogRecord`, add:
+Em `ZCodeProtocolWorkspaceModelCatalogRecord`, adicionar:
 
 ```ts
   providerRegistryGeneratedAt?: number;
 ```
 
-In `workspace/updateProviderRegistry`:
+Em `workspace/updateProviderRegistry`:
 
-- Log `incomingGeneratedAt` and previous applied `providerRegistryGeneratedAt`.
-- Before mutating `catalog.providers`, if `catalog.providerRevision` and `catalog.providerRegistryGeneratedAt` are both present and `params.registry.generatedAt < catalog.providerRegistryGeneratedAt`, return the current catalog as `status: "unchanged"` and do not clear or rewrite providers/secrets.
-- If the revision is unchanged, update `providerRegistryGeneratedAt` to `Math.max(current, params.registry.generatedAt)`.
-- After a successful registry apply, set `catalog.providerRevision = params.registry.revision` and `catalog.providerRegistryGeneratedAt = params.registry.generatedAt`.
-- When legacy `workspace/upsertModelProvider` or `workspace/removeModelProvider` mutates the catalog outside registry snapshots, clear both `providerRevision` and `providerRegistryGeneratedAt`.
+- Registrar em log `incomingGeneratedAt` e o `providerRegistryGeneratedAt` aplicado anteriormente.
+- Antes de mutar `catalog.providers`, se `catalog.providerRevision` e `catalog.providerRegistryGeneratedAt` estiverem ambos presentes e `params.registry.generatedAt < catalog.providerRegistryGeneratedAt`, devolver o catalog atual como `status: "unchanged"` sem limpar nem reescrever providers/secrets.
+- Se a revisão não mudou, atualizar `providerRegistryGeneratedAt` para `Math.max(current, params.registry.generatedAt)`.
+- Após um apply de registry bem-sucedido, definir `catalog.providerRevision = params.registry.revision` e `catalog.providerRegistryGeneratedAt = params.registry.generatedAt`.
+- Quando o `workspace/upsertModelProvider` ou `workspace/removeModelProvider` legado mutar o catalog fora de snapshots de registry, limpar tanto `providerRevision` quanto `providerRegistryGeneratedAt`.
 
-Add a Chinese bugfix comment at the stale guard explaining:
+Adicionar um comentário de bugfix em chinês no guard de stale explicando:
 
 ```ts
 // Bugfix: workspace/updateProviderRegistry 可能从 session preflight、热同步、远端同步等入口并发到达。
@@ -425,9 +425,9 @@ Add a Chinese bugfix comment at the stale guard explaining:
 // 避免较旧快照晚到时把 CLI 内部 catalog 覆盖回旧 provider 集合。
 ```
 
-- [ ] **Step 2: Add workspace sync state**
+- [ ] **Step 2: Adicionar o estado de sync do workspace**
 
-Near existing maps in `createZCodeAgentService`, add:
+Perto dos maps existentes em `createZCodeAgentService`, adicionar:
 
 ```ts
   const providerRegistrySyncByWorkspaceKey = new Map<
@@ -446,41 +446,41 @@ Near existing maps in `createZCodeAgentService`, add:
   >();
 ```
 
-This state is separate from `providerRegistryByWorkspaceKey`. The latter is still used by desktop-attached remote fallback; this new map records whether a concrete protocol client has already received a local registry revision and serializes local delivery. Do not use this service-side map as the stale snapshot correctness boundary; that boundary lives in agent apply code.
+Este estado é separado de `providerRegistryByWorkspaceKey`. Este último continua sendo usado pelo fallback de remote anexado ao desktop; o novo map registra se um client de protocolo concreto já recebeu uma revisão de registry local e serializa a entrega local. Não usar este map do lado do service como fronteira de corretude para snapshot stale; essa fronteira vive no código de apply do agent.
 
-- [ ] **Step 3: Clear sync state when a client closes**
+- [ ] **Step 3: Limpar o estado de sync quando um client fecha**
 
-Inside `wireClient(... onClose ...)`, where the code already deletes `providerRegistryByWorkspaceKey`, also delete the new sync state:
+Dentro de `wireClient(... onClose ...)`, onde o código já apaga `providerRegistryByWorkspaceKey`, apagar também o novo estado de sync:
 
 ```ts
             providerRegistrySyncByWorkspaceKey.delete(workspaceKey);
 ```
 
-Add a Chinese comment immediately above or near the new delete:
+Adicionar um comentário em chinês imediatamente acima ou perto do novo delete:
 
 ```ts
             // Bugfix: provider registry 是 CLI 进程内存态；client 重建后即使 app revision 没变也必须重推。
 ```
 
-- [ ] **Step 4: Add private sync helper**
+- [ ] **Step 4: Adicionar o helper privado de sync**
 
-Add `syncProviderRegistrySnapshotToClient(...)` before `resolveRuntimeModelConfig`.
+Adicionar `syncProviderRegistrySnapshotToClient(...)` antes de `resolveRuntimeModelConfig`.
 
-Required behavior:
+Comportamento obrigatório:
 
-- Resolve `workspaceKey` with `resolveWorkspaceKey(params.workspace)`.
-- Keep one sync state per concrete workspace/client.
-- Incoming snapshots older than the current pending/applied `generatedAt` are ignored after awaiting any current in-flight worker.
-- Incoming snapshots not older than the current pending/applied `generatedAt` become `pending`; if a worker is already running, callers await that worker.
-- The drain worker sends one `workspace/updateProviderRegistry` at a time with the merged `includeWorkspaceState` flag.
-- When the worker sees a pending snapshot older than the applied `generatedAt`, it logs and skips it instead of sending stale registry to CLI.
-- Only cache `params.registry` into `providerRegistryByWorkspaceKey` and `providerRegistrySyncByWorkspaceKey.revision` when `result.appliedProviderRevision === params.registry.revision`. If agent ignored this request as stale and returned a different applied revision, do not cache the stale input.
+- Resolver `workspaceKey` com `resolveWorkspaceKey(params.workspace)`.
+- Manter um estado de sync por workspace/client concreto.
+- Snapshots recebidos mais antigos que o `generatedAt` pendente/aplicado atual são ignorados depois de aguardar qualquer worker in-flight corrente.
+- Snapshots recebidos que não são mais antigos que o `generatedAt` pendente/aplicado atual viram `pending`; se já houver um worker rodando, os chamadores aguardam esse worker.
+- O drain worker envia um `workspace/updateProviderRegistry` por vez, com a flag `includeWorkspaceState` mesclada.
+- Quando o worker vê um snapshot pendente mais antigo que o `generatedAt` aplicado, ele registra em log e o pula em vez de enviar registry stale para a CLI.
+- Só fazer cache de `params.registry` em `providerRegistryByWorkspaceKey` e em `providerRegistrySyncByWorkspaceKey.revision` quando `result.appliedProviderRevision === params.registry.revision`. Se o agent ignorou esta requisição por estar stale e devolveu uma revisão aplicada diferente, não cachear a entrada stale.
 
-This helper is a delivery/cache optimization and a session preflight. It is not the final stale snapshot correctness guard.
+Este helper é uma otimização de entrega/cache e um preflight de session. Ele não é o guard final de corretude de snapshot stale.
 
-- [ ] **Step 5: Add local-only ensure helper**
+- [ ] **Step 5: Adicionar o helper de garantia só-local**
 
-Add:
+Adicionar:
 
 ```ts
   async function ensureLocalProviderRegistrySynced(params: {
@@ -505,13 +505,13 @@ Add:
   }
 ```
 
-This helper must return immediately when `providerRegistrySource` is absent or the target is a desktop-attached remote workspace. That keeps desktop-attached remote behavior on the existing remote sync path.
+Este helper precisa retornar imediatamente quando `providerRegistrySource` estiver ausente ou quando o alvo for um remote workspace anexado ao desktop. Isso mantém o comportamento do remote anexado ao desktop no caminho de sync remoto existente.
 
-- [ ] **Step 6: Guard public updateProviderRegistry cache**
+- [ ] **Step 6: Proteger o cache da updateProviderRegistry pública**
 
-In `async updateProviderRegistry(params)`, keep the direct protocol request so the method still returns the protocol result to the caller. After the response, only update local pushed-registry cache when the agent actually applied this input revision.
+Em `async updateProviderRegistry(params)`, manter a requisição de protocolo direta para que o método ainda devolva o resultado do protocolo ao chamador. Depois da resposta, só atualizar o cache local de registry enviado quando o agent realmente tiver aplicado a revisão desta entrada.
 
-Low-risk implementation:
+Implementação de baixo risco:
 
 ```ts
       const result = await client.request(
@@ -534,28 +534,28 @@ Low-risk implementation:
       }
 ```
 
-Do not change this method's external contract.
+Não mudar o contrato externo deste método.
 
 ---
 
-## Phase 3: Wire Local Sync Into Session Read/Create/Resume
+## Fase 3: Conectar o Sync Local ao Read/Create/Resume de Session
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/services/src/zcode-agent/zcodeAgentService.ts`
 
 **Interfaces:**
 - Consumes: `ensureLocalProviderRegistrySynced(...)`.
-- Produces: local CLI has full provider registry before session creation, session resume, session read, and workspace state reads.
+- Produces: a CLI local tem o provider registry completo antes da criação de session, do resume de session, da leitura de session e das leituras de workspace state.
 
-- [ ] **Step 1: Sync before session/create**
+- [ ] **Step 1: Sincronizar antes de session/create**
 
-In `createSession`, after:
+Em `createSession`, depois de:
 
 ```ts
       const client = await getClient(params);
 ```
 
-add:
+adicionar:
 
 ```ts
       await ensureLocalProviderRegistrySynced({
@@ -565,11 +565,11 @@ add:
       });
 ```
 
-Keep this before `resolveRuntimeModelConfig(...)` so `session/create` and runtime model fallback both see a CLI workspace whose catalog has already been updated.
+Manter isso antes de `resolveRuntimeModelConfig(...)`, para que tanto `session/create` quanto o fallback do runtime model vejam um workspace CLI cujo catalog já foi atualizado.
 
-- [ ] **Step 2: Sync before session/resume**
+- [ ] **Step 2: Sincronizar antes de session/resume**
 
-In `resumeSession`, after `const client = await getClient(params);`, add:
+Em `resumeSession`, depois de `const client = await getClient(params);`, adicionar:
 
 ```ts
       await ensureLocalProviderRegistrySynced({
@@ -579,11 +579,11 @@ In `resumeSession`, after `const client = await getClient(params);`, add:
       });
 ```
 
-Keep `allowDefaultModelForSession: false` unchanged. The registry sync must not make old sessions silently fall back to a different current workspace model.
+Manter `allowDefaultModelForSession: false` inalterado. O sync do registry não pode fazer sessões antigas caírem silenciosamente em um modelo atual diferente do workspace.
 
-- [ ] **Step 3: Sync before readSession and readWorkspaceState**
+- [ ] **Step 3: Sincronizar antes de readSession e readWorkspaceState**
 
-In `readSession`, after `const client = await getClient(params);`, add:
+Em `readSession`, depois de `const client = await getClient(params);`, adicionar:
 
 ```ts
       await ensureLocalProviderRegistrySynced({
@@ -593,7 +593,7 @@ In `readSession`, after `const client = await getClient(params);`, add:
       });
 ```
 
-In `readWorkspaceState`, after `const client = await getClient(params);`, add:
+Em `readWorkspaceState`, depois de `const client = await getClient(params);`, adicionar:
 
 ```ts
       await ensureLocalProviderRegistrySynced({
@@ -604,9 +604,9 @@ In `readWorkspaceState`, after `const client = await getClient(params);`, add:
       });
 ```
 
-Do not add this to `respondProviderRuntimeHeaders`. Do not add a blanket sync to every `sendPrompt`.
+Não adicionar isso a `respondProviderRuntimeHeaders`. Não adicionar um sync blanket a todo `sendPrompt`.
 
-- [ ] **Step 4: Run service tests**
+- [ ] **Step 4: Rodar os testes do service**
 
 Run:
 
@@ -618,19 +618,19 @@ Expected: PASS.
 
 ---
 
-## Phase 4: Hot Push Local Provider Registry Changes
+## Fase 4: Hot Push de Mudanças do Provider Registry Local
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/services/src/zcode-agent/zcodeAgentService.ts`
 - Test: `packages/services/test/zcodeAgentService.providerRegistry.test.ts`
 
 **Interfaces:**
 - Consumes: `providerRegistrySource.onDidChangeProviderRegistry`.
-- Produces: active local workspace clients receive full registry updates when provider config changes.
+- Produces: clients de workspace local ativos recebem atualizações completas do registry quando a configuração de provider muda.
 
-- [ ] **Step 1: Extract existing runtimeModel event work into an async function**
+- [ ] **Step 1: Extrair o trabalho existente do evento de runtimeModel para uma função async**
 
-Replace the current inline event body with a call:
+Substituir o corpo inline atual do evento por uma chamada:
 
 ```ts
   let providerRegistrySubscription = providerRegistrySource?.onDidChangeProviderRegistry?.(
@@ -646,9 +646,9 @@ Replace the current inline event body with a call:
   );
 ```
 
-- [ ] **Step 2: Implement `handleProviderRegistryChanged`**
+- [ ] **Step 2: Implementar `handleProviderRegistryChanged`**
 
-Add this function near the subscription:
+Adicionar esta função perto da assinatura:
 
 ```ts
   async function handleProviderRegistryChanged(event: ModelProviderRegistryChangedEvent) {
@@ -696,11 +696,11 @@ Add this function near the subscription:
   }
 ```
 
-If `ModelProviderRegistryChangedEvent` is not imported in this file, import it from the existing model-provider type source instead of using `any`.
+Se `ModelProviderRegistryChangedEvent` não estiver importado neste arquivo, importá-lo da fonte de tipos de model-provider já existente em vez de usar `any`.
 
-- [ ] **Step 3: Keep failure isolation**
+- [ ] **Step 3: Manter o isolamento de falhas**
 
-If one workspace fails to update, it should not prevent other active workspaces from receiving the new registry. If the direct `Promise.all` in Step 2 is too brittle for existing conventions, use:
+Se um workspace falhar na atualização, isso não deve impedir que os outros workspaces ativos recebam o registry novo. Se o `Promise.all` direto do Step 2 for frágil demais para as convenções existentes, usar:
 
 ```ts
       await Promise.allSettled(
@@ -726,9 +726,9 @@ If one workspace fails to update, it should not prevent other active workspaces 
       );
 ```
 
-Pick one style and keep tests aligned. Prefer `Promise.allSettled` if the product expectation is “一个 workspace 同步失败不影响其他 workspace”。
+Escolher um estilo e manter os testes alinhados. Preferir `Promise.allSettled` se a expectativa de produto for "uma falha de sync em um workspace não afeta os outros workspaces".
 
-- [ ] **Step 4: Run focused tests again**
+- [ ] **Step 4: Rodar os testes focados novamente**
 
 Run:
 
@@ -740,21 +740,21 @@ Expected: PASS.
 
 ---
 
-## Phase 5: Remote Workspace Guard
+## Fase 5: Guard do Remote Workspace
 
-**Files:**
+**Arquivos:**
 - Read/Guard: `packages/ui/src/lib/remoteWorkspaceProviderSync.ts`
 - Read/Guard: `packages/ui/test/remoteWorkspaceProviderSync.test.ts`
 - Read/Guard: `packages/ui/test/zcodeSessionPromptControl.test.ts`
 - Read/Guard: `packages/ui/src/lib/zcodeSessionPromptControl.ts`
 
 **Interfaces:**
-- Consumes: existing remote provider registry preflight.
-- Produces: evidence that remote subagent users remain covered and remote helper semantics were not changed.
+- Consumes: preflight existente de provider registry remoto.
+- Produces: evidência de que usuários de subagent remoto continuam cobertos e que a semântica do helper remoto não foi alterada.
 
-- [ ] **Step 1: Do not modify remote sync implementation**
+- [ ] **Step 1: Não modificar a implementação de sync remoto**
 
-Keep these exports and their behavior unchanged:
+Manter inalterados estes exports e seu comportamento:
 
 ```ts
 syncAppGlobalStateToRemoteWorkspace(...)
@@ -762,9 +762,9 @@ syncWorkspaceModelProvidersToAgent(...)
 syncWorkspaceModelProvidersToRemote(...)
 ```
 
-Remote workspace remains responsible for receiving full app provider registry from desktop host before prepare/create/resume/send. This is still required because remote host does not have local `providerRegistrySource`.
+O remote workspace continua responsável por receber o app provider registry completo do desktop host antes de prepare/create/resume/send. Isso continua necessário porque o host remoto não tem o `providerRegistrySource` local.
 
-- [ ] **Step 2: Run remote sync tests**
+- [ ] **Step 2: Rodar os testes de sync remoto**
 
 Run:
 
@@ -774,7 +774,7 @@ pnpm exec vitest run packages/ui/test/remoteWorkspaceProviderSync.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 3: Run prompt-control preflight ordering tests**
+- [ ] **Step 3: Rodar os testes de ordem do preflight de prompt-control**
 
 Run:
 
@@ -782,9 +782,9 @@ Run:
 pnpm exec vitest run packages/ui/test/zcodeSessionPromptControl.test.ts
 ```
 
-Expected: PASS, including tests that verify remote/replayable create/resume/send call `syncAppGlobalStateBeforeRemoteSession` before agent commands.
+Expected: PASS, incluindo os testes que verificam que create/resume/send remoto/replayable chamam `syncAppGlobalStateBeforeRemoteSession` antes dos comandos do agent.
 
-- [ ] **Step 4: Inspect changed files**
+- [ ] **Step 4: Inspecionar os arquivos alterados**
 
 Run:
 
@@ -798,22 +798,22 @@ Expected:
 no diff for packages/ui/src/lib/remoteWorkspaceProviderSync.ts
 ```
 
-If remote helper changed, stop and explain why the change is necessary before continuing.
+Se o helper remoto tiver mudado, parar e explicar por que a mudança é necessária antes de continuar.
 
 ---
 
-## Phase 6: E2E Acceptance
+## Fase 6: Aceitação E2E
 
-**Files:**
+**Arquivos:**
 - Test: `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-provider-registry-cold-start.test.ts`
 - Fixture: `packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-subagent-provider-registry-cold-start.json`
 - Modify after green: `docs/testing/conversation-session-e2e-coverage-matrix.md`
 
 **Interfaces:**
-- Consumes: local service provider registry preflight.
-- Produces: provider-visible child subagent request using alternate provider model.
+- Consumes: preflight de provider registry do service local.
+- Produces: requisição de child subagent visível ao provider usando o modelo do alternate provider.
 
-- [ ] **Step 1: Re-run fixture check**
+- [ ] **Step 1: Rodar novamente o check de fixture**
 
 Run:
 
@@ -821,9 +821,9 @@ Run:
 pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-subagent-provider-registry-cold-start.test.ts
 ```
 
-Expected: PASS with the known title fixture warning.
+Expected: PASS com o aviso conhecido do fixture de title.
 
-- [ ] **Step 2: Run case-local replay**
+- [ ] **Step 2: Rodar o replay case-local**
 
 Run:
 
@@ -835,7 +835,7 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conve
 
 Expected after fix: PASS.
 
-Acceptance evidence:
+Evidência de aceitação:
 
 ```text
 child subagent request model = deepseek-v4-pro
@@ -845,7 +845,7 @@ session state = idle
 queueCount = 0
 ```
 
-- [ ] **Step 3: If E2E still fails, inspect runtime evidence**
+- [ ] **Step 3: Se o E2E ainda falhar, inspecionar a evidência de runtime**
 
 Run:
 
@@ -862,34 +862,34 @@ workspace/updateProviderRegistry appears before child subagent request
 no provider_not_found for e2e-deepseek-alt
 ```
 
-- [ ] **Step 4: Update matrix only after E2E is green**
+- [ ] **Step 4: Atualizar a matriz somente depois que o E2E estiver verde**
 
-In `docs/testing/conversation-session-e2e-coverage-matrix.md`, change I14 from:
+Em `docs/testing/conversation-session-e2e-coverage-matrix.md`, mudar I14 de:
 
 ```markdown
 | I14 | failing  | SR     | 正式 E2E 复现当前缺陷：冷启时 CLI 只有 primary runtime/config，subagent profile 绑定 alternate provider；当前实现未捕获到 alternate child 请求，修复后应最终 idle |
 ```
 
-to:
+para:
 
 ```markdown
 | I14 | covered  | SR     | 冷启时 CLI 只有 primary runtime/config，subagent profile 绑定 alternate provider；child subagent 请求使用 alternate provider 并最终 idle |
 ```
 
-Do not mark `covered` before the replay passes.
+Não marcar `covered` antes de o replay passar.
 
 ---
 
-## Phase 7: Repository Gates And Commit
+## Fase 7: Gates do Repositório e Commit
 
-**Files:**
-- Existing changed files only.
+**Arquivos:**
+- Apenas os arquivos já alterados.
 
 **Interfaces:**
-- Consumes: passing unit tests and E2E.
-- Produces: a Conventional Commit containing only this bugfix and doc status update.
+- Consumes: testes unitários e E2E passando.
+- Produces: um Conventional Commit contendo somente este bugfix e a atualização de status de doc.
 
-- [ ] **Step 1: Run required gates**
+- [ ] **Step 1: Rodar os gates obrigatórios**
 
 Run:
 
@@ -909,9 +909,9 @@ lint exits 0
 git diff --check exits 0
 ```
 
-If lint exits 0 with warnings, record the warning count and verify no warning was introduced by this fix.
+Se o lint sair com 0 mas com warnings, registrar a contagem de warnings e verificar se nenhum warning foi introduzido por esta correção.
 
-- [ ] **Step 2: Check staged surface**
+- [ ] **Step 2: Checar a superfície staged**
 
 Run:
 
@@ -920,7 +920,7 @@ git status --short
 git diff --stat
 ```
 
-Expected changed files:
+Arquivos alterados esperados:
 
 ```text
 packages/services/src/zcode-agent/zcodeAgentService.ts
@@ -928,9 +928,9 @@ packages/services/test/zcodeAgentService.providerRegistry.test.ts
 docs/testing/conversation-session-e2e-coverage-matrix.md
 ```
 
-`packages/ui/src/lib/remoteWorkspaceProviderSync.ts` should not appear unless a separate approved remote fix was added.
+`packages/ui/src/lib/remoteWorkspaceProviderSync.ts` não deve aparecer, a não ser que uma correção remota separada e aprovada tenha sido adicionada.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Commitar**
 
 Run:
 
@@ -942,27 +942,27 @@ git add \
 git commit -m "fix(desktop): sync provider registry before local agent sessions"
 ```
 
-Omit `docs/testing/conversation-session-e2e-coverage-matrix.md` from `git add` if E2E is still red and I14 remains `failing`.
+Omitir `docs/testing/conversation-session-e2e-coverage-matrix.md` do `git add` se o E2E ainda estiver vermelho e I14 continuar `failing`.
 
 ---
 
-## Final Checklist
+## Checklist Final
 
-- [ ] Local desktop session create/resume/read/readWorkspaceState sync complete provider registry before CLI session operations.
-- [ ] Provider config changes hot-push complete registry to active local workspace clients.
-- [ ] Remote workspace provider registry sync implementation remains unchanged.
-- [ ] Remote preflight tests still pass.
-- [ ] Runtime headers path does not trigger workspace registry hot-sync.
-- [ ] `Agent` tool schema and provider-visible request shape are unchanged.
-- [ ] Formal E2E captures child subagent request model `deepseek-v4-pro`.
-- [ ] I14 is marked `covered` only after E2E passes.
-- [ ] Required typecheck/lint/diff gates pass.
+- [ ] O create/resume/read/readWorkspaceState de session do desktop local sincroniza o provider registry completo antes das operações de session da CLI.
+- [ ] Mudanças na configuração de provider fazem hot push do registry completo para os clients de workspace local ativos.
+- [ ] A implementação de sync do provider registry do remote workspace permanece inalterada.
+- [ ] Os testes de preflight remoto continuam passando.
+- [ ] O caminho de headers de runtime não dispara hot-sync do registry do workspace.
+- [ ] O schema da tool `Agent` e o formato de requisição visível ao provider estão inalterados.
+- [ ] O E2E formal captura o modelo de child subagent request `deepseek-v4-pro`.
+- [ ] I14 só é marcado `covered` depois que o E2E passa.
+- [ ] Os gates obrigatórios de typecheck/lint/diff passam.
 
-## Rollback Plan
+## Plano de Rollback
 
-If local provider registry sync introduces startup latency or repeated protocol calls:
+Se o sync local de provider registry introduzir latência de startup ou chamadas de protocolo repetidas:
 
-1. Revert only `packages/services/src/zcode-agent/zcodeAgentService.ts`.
-2. Keep the failing E2E and tests as evidence.
-3. Re-run `packages/services/test/zcodeAgentService.providerRegistry.test.ts` to confirm the red local sync expectation returns.
-4. Reconsider a narrower public `workspace/prepareProviderRegistry` protocol call, but keep remote helper untouched unless remote evidence requires a separate fix.
+1. Reverter somente `packages/services/src/zcode-agent/zcodeAgentService.ts`.
+2. Manter o E2E falhando e os testes como evidência.
+3. Rodar novamente `packages/services/test/zcodeAgentService.providerRegistry.test.ts` para confirmar que a expectativa vermelha de sync local voltou.
+4. Repensar uma chamada de protocolo pública e mais estreita `workspace/prepareProviderRegistry`, mas manter o helper remoto intocado, a não ser que evidência remota exija uma correção separada.

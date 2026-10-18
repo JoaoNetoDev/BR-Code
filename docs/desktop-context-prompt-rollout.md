@@ -13,28 +13,28 @@ O servidor distribui um rollout de funcionalidade única por `/api/v1/client/con
 Uma vez que a decisão sai do desktop main, ela é congelada em várias fronteiras de processo. A cadeia inteira é:
 
 ```
-desktop main 进程
-  └ createDesktopContextPromptRollout          ← 拉取 + 缓存裁决（TTL 1h，请求超时 3s）
-        │  getSnapshot().enabled（live，随成功 refresh 更新）
+desktop main (processo)
+  └ createDesktopContextPromptRollout          ← busca + cache do veredito (TTL 1h, timeout de requisição 3s)
+        │  getSnapshot().enabled (live, atualizado a cada refresh bem-sucedido)
         ▼
-  └ resolveDesktopContextPromptEnabledForHost()  ← Host fork 时同步读快照
+  └ resolveDesktopContextPromptEnabledForHost()  ← leitura síncrona do snapshot no fork do Host
         ▼
-  └ spawnHostProcess(env: ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED="0"|"1")  ← 烤进子进程 env
-        │  （desktopHostProcess.ts:291）
+  └ spawnHostProcess(env: ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED="0"|"1")  ← gravado no env do subprocesso
+        │  (desktopHostProcess.ts:291)
         ▼
-Host 子进程（Local Host / Remote Host）
-  └ services/node.ts:614-621 顶层 const 只读一次 env → desktopContextPromptEnabled
+Host subprocesso (Local Host / Remote Host)
+  └ services/node.ts:614-621 — const de nível superior lê o env uma única vez → desktopContextPromptEnabled
         ▼
-  └ resolveZCodeAgentPresentationSurface({...})  ← 只在 Host 启动时算一次
+  └ resolveZCodeAgentPresentationSurface({...})  ← calculado uma única vez, só na inicialização do Host
         ▼
-  └ ZCodeAgentProcessManager.presentationSurface（Host 生命周期内冻结）
+  └ ZCodeAgentProcessManager.presentationSurface (congelado durante o ciclo de vida do Host)
         ▼
-  └ spawn CLI: --surface desktop | （缺省）--surface terminal
+  └ spawn CLI: --surface desktop | (padrão) --surface terminal
         ▼
-Agent 子进程（CLI）
+Agent subprocesso (CLI)
   └ run.ts:192 normalizePresentationSurface → "zcode_desktop" | "terminal"
-  └ zcode-protocol-entrypoint.ts:31 runtimeConfig.presentationSurface（进程内冻结）
-  └ context/builder.ts:114 仅当 "zcode_desktop" 注入 desktop context section
+  └ zcode-protocol-entrypoint.ts:31 runtimeConfig.presentationSurface (congelado no processo)
+  └ context/builder.ts:114 injeta a desktop context section somente quando "zcode_desktop"
 ```
 
 Os **dois pontos de congelamento** decidem: um Host／Agent em execução não reavalia o rollout. Apenas um **Host recém-forkado** lê o snapshot mais recente. Portanto, a "alcançabilidade" da decisão depende inteiramente de: no momento do fork do Host, `getSnapshot()` já refletia a verdade do servidor.
@@ -49,13 +49,13 @@ Os **dois pontos de congelamento** decidem: um Host／Agent em execução não r
 Somando as duas, **o resultado assíncrono bem-sucedido não tem caminho efetivo para o primeiro Host／Agent já criado**:
 
 ```
-t=0      app.whenReady → void refresh()（发请求，≤3s，不 await）
-t≈500ms  首个 Local Host dom-ready → resolveDesktopContextPromptEnabledForHost()
-           ├ void refresh()（命中 inFlight，复用 t=0 的请求）
-           └ return snapshot.enabled  ← 同步读 → false（请求尚未 resolve）
-         spawnHostProcess(env="0")  ← 烤死
-t≈1.8s   网络成功 enabled=true → snapshot 更新（但首 Host 已带 "0" 跑起来）
-         → Host/Agent 冻结 → 整个应用会话继续用 terminal prompt，不产生 ::code-comment
+t=0      app.whenReady → void refresh() (dispara a requisição, ≤3s, sem await)
+t≈500ms  primeiro Local Host dom-ready → resolveDesktopContextPromptEnabledForHost()
+           ├ void refresh() (acerta o inFlight, reaproveita a requisição de t=0)
+           └ return snapshot.enabled  ← leitura síncrona → false (a requisição ainda não resolveu)
+         spawnHostProcess(env="0")  ← gravado de forma definitiva
+t≈1.8s   rede bem-sucedida enabled=true → snapshot é atualizado (mas o primeiro Host já subiu com "0")
+         → Host/Agent congelado → toda a sessão do app segue usando o terminal prompt, sem ::code-comment
 ```
 
 Só o caso em que "a requisição resolve antes do fork do primeiro Host" (rede rápida／cache atingido) acerta o rollout; em rede lenta a primeira sessão sempre perde, e costuma ser preciso criar uma nova janela ou reiniciar para recuperar. Um workspace remoto que reaproveite aquele Local Host também herda a decisão errada.
@@ -66,13 +66,13 @@ Dá-se ao "resultado bem-sucedido" um **caminho efetivo limitado**: aguardar uma
 
 ```
 app.whenReady
-  ├ void rollout.refresh()                  ← 预热（最早发请求，复用 inFlight）
+  ├ void rollout.refresh()                  ← aquecimento (dispara a requisição mais cedo, reaproveita o inFlight)
   └ ensurePrimaryWindow → createWindow
-        └ dom-ready handler（async）:
-              … 同步 setup（cancel/gen/win32 show/oldChild 处理）不变 …
-              if (awaitFirstHostSpawnDecision)            ← 新增：有界门
-                  await awaitFirstHostSpawnDecision()     ≤2s，first-only 永久 latch
-              spawnLocalHost()                            ← 此刻快照已是服务端裁决
+        └ handler de dom-ready (async):
+              … setup síncrono (cancel/gen/win32 show/oldChild) permanece igual …
+              if (awaitFirstHostSpawnDecision)            ← novo: gate limitado
+                  await awaitFirstHostSpawnDecision()     ≤2s, latch permanente apenas na primeira vez
+              spawnLocalHost()                            ← neste momento o snapshot já é o veredito do servidor
 ```
 
 ### Pontos-chave de design
@@ -115,7 +115,7 @@ Em rede lenta, os +2s são adicionados antes da "primeira abertura de workspace"
 
 ## 6. Índice de cobertura de testes
 
-| 文件 | Cobertura |
+| Arquivo | Cobertura |
 |---|---|
 | `packages/desktop/test/desktopContextPromptRollout.test.ts` | Parsing do rollout, TTL, dedupe inFlight, timeout de 3s; `awaitFirstDecision` com resposta lenta／fallback por timeout／concorrência; **CR-01 de forma integrada** (resposta lenta `enabled=true` + await limitado → leitura síncrona do snapshot como valor verdadeiro) |
 | `packages/desktop/test/desktopWindowLifecycle.test.ts` | Fluxo Local de dom-ready → spawn; **não faz spawn antes do gate resolver, faz spawn depois de resolver** |
